@@ -115,12 +115,20 @@ class TestConvertTenderingToWon(FrappeTestCase):
 
 	def test_convert_succeeds_in_place(self):
 		"""
-		Converting a Tendering stub: same docname, status flips to Won, an Address
-		is linked, and the `project_wp_category_makes` child table is populated.
+		Converting a Tendering stub: same docname, tendering_status flips to Won,
+		execution status flips to Created, an Address is linked, and the
+		`project_wp_category_makes` child table is populated.
 		"""
 		stub_name = self._create_stub("ok")
-		# Sanity: starts as a stub with no address / no child rows.
-		self.assertEqual(frappe.db.get_value("Projects", stub_name, "status"), "Tendering")
+		# Sanity: starts as a stub on the bid dimension, no execution stage yet.
+		self.assertEqual(
+			frappe.db.get_value("Projects", stub_name, "tendering_status"),
+			"Tendering",
+		)
+		self.assertIn(
+			frappe.db.get_value("Projects", stub_name, "status") or "",
+			("", None),
+		)
 
 		res = convert_tendering_to_won(project_id=stub_name, values=self._full_payload("ok"))
 
@@ -129,6 +137,7 @@ class TestConvertTenderingToWon(FrappeTestCase):
 		self.assertEqual(res["project_name"], stub_name)
 
 		converted = frappe.get_doc("Projects", stub_name)
+		self.assertEqual(converted.tendering_status, "Won")
 		self.assertEqual(converted.status, "Won")
 		# Address now linked.
 		self.assertTrue(converted.project_address)
@@ -173,9 +182,16 @@ class TestConvertTenderingToWon(FrappeTestCase):
 		# Second conversion on the (now Won) project must be rejected.
 		second = convert_tendering_to_won(project_id=stub_name, values=self._full_payload("oneway"))
 		self.assertEqual(second["status"], 400)
-		self.assertIn("not a Tendering project", second["error"])
-		# Status untouched by the rejected call.
-		self.assertEqual(frappe.db.get_value("Projects", stub_name, "status"), "Won")
+		self.assertIn("cannot be converted", second["error"])
+		# Bid + execution dimensions untouched by the rejected call.
+		self.assertEqual(
+			frappe.db.get_value("Projects", stub_name, "tendering_status"),
+			"Won",
+		)
+		self.assertEqual(
+			frappe.db.get_value("Projects", stub_name, "status"),
+			"Won",
+		)
 
 	def test_convert_rejects_missing_project(self):
 		"""Converting a non-existent project is rejected with a 400."""

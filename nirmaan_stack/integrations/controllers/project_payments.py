@@ -5,7 +5,7 @@ from frappe import _
 from frappe.utils import nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
-from nirmaan_stack.api.projects._tendering_guard import validate_not_tendering
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -138,7 +138,7 @@ def validate(doc, method):
     payments are never blocked.
     """
     if doc.is_new():
-        validate_not_tendering(doc.project, "Project Payment")
+        validate_won(doc.project, "Project Payment")
 
 
 def after_insert(doc, method):

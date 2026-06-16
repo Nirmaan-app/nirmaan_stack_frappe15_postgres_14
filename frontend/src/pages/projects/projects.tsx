@@ -34,6 +34,7 @@ import { useFacetValues } from "@/hooks/useFacetValues";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToLakhsNumber } from "@/utils/FormatPrice";
 import {
@@ -75,6 +76,10 @@ const DOCTYPE = "Projects";
 
 // Summary pills shown for every role. Visibility of the *count* is separate
 // from authorization to set/unset CEO Hold (backend-enforced for nitesh@nirmaan.app).
+// v3 dual-field model: `status` is the pure execution lifecycle — the bid
+// dimension (Won/Tendering/Lost) lives on `tendering_status`. "Won" is the
+// initial execution stage (v3.1: Won-as-initial); the deprecated "Created" is
+// intentionally omitted from these summary pills.
 const PROJECT_STATUS_OPTIONS = ["Won", "WIP", "Completed", "Halted", "Handover", "CEO Hold"].map(
   (s) => ({ label: s, value: s })
 );
@@ -267,10 +272,22 @@ export const Projects: React.FC<ProjectsProps> = ({
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
 
+  // The Tendering tab — and therefore the Projects/Tendering tab strip itself —
+  // is gated to Nirmaan Admin + PMO Executive (and the Administrator user).
+  // Other roles go straight to the operational project table with no tabs.
+  // Mirrors the "Add New Project" button gating in renderRightActionButton.
+  const canSeeTenderingTab =
+    user_id === "Administrator" ||
+    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+
   // Tab toggle: "projects" (default operational list) vs "tendering" (stub list).
   // URL-persisted via the `tab` search param so the create form can deep-link.
+  // For non-eligible roles we ignore `?tab=tendering` and force the projects view.
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") === "tendering" ? "tendering" : "projects";
+  const activeTab =
+    canSeeTenderingTab && searchParams.get("tab") === "tendering"
+      ? "tendering"
+      : "projects";
   const handleTabChange = useCallback(
     (value: string) => {
       setSearchParams(
@@ -314,6 +331,19 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const { call } = useProjectStatusCountCall();
   const { data: all_projects_count } = useAllProjectsCount();
+
+  const statusOptions = useMemo(() => {
+    // v3: execution-status tabs. "Won" left the execution dimension — newly
+    // converted projects now sit at "Created" until work begins.
+    const options = ["Created", "WIP", "Completed", "Halted", "Handover"];
+    if (user_id === CEO_HOLD_AUTHORIZED_USER) {
+      options.push("CEO Hold");
+    }
+    return options.map((s) => ({
+      label: s,
+      value: s,
+    }));
+  }, [user_id]);
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -960,7 +990,7 @@ export const Projects: React.FC<ProjectsProps> = ({
             : ""
       )}
     >
-      {!customersView && (
+      {!customersView && canSeeTenderingTab && (
         <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <TabsList>
             <TabsTrigger value="projects">Projects</TabsTrigger>

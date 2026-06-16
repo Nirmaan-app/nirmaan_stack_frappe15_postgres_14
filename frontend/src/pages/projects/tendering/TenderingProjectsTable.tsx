@@ -1,12 +1,13 @@
 import React, { useMemo, useRef, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link, useNavigate } from "react-router-dom";
-import { FilePenLine, MoreHorizontal, Trash2 } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { FilePenLine, Hourglass, MoreHorizontal, Trash2 } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import {
@@ -39,20 +40,27 @@ import {
   getTenderingStaticFilters,
 } from "@/pages/projects/config/projectTable.config";
 import { canManageTendering } from "./tenderingAuth";
-import { useDeleteTenderingProject } from "./hooks/useTenderingMutations";
+import {
+  useDeleteTenderingProject,
+  useMarkTenderingProjectLost,
+} from "./hooks/useTenderingMutations";
 
 const DOCTYPE = "Projects";
 
-// Slim set of fields for the Tendering tab — only the four stub fields + name/creation.
+// Slim set of fields for the Tendering tab — stub fields + name/creation + the
+// bid dimension. We don't fetch `status` (execution stage) — pre-Won stubs
+// have none.
 const TENDERING_FIELDS_TO_FETCH: (keyof ProjectsType | "name")[] = [
   "name",
   "project_name",
   "project_city",
   "project_state",
   "customer",
-  "status",
+  "tendering_status",
   "creation",
 ];
+
+type TenderingSubTab = "Tendering" | "Lost";
 
 interface TenderingProjectsTableProps {
   customerId?: string;
@@ -60,23 +68,28 @@ interface TenderingProjectsTableProps {
 }
 
 /**
- * Per-row Edit / Delete actions for a Tendering stub.
+ * Per-row actions for a Tendering/Lost stub.
  *
- * Edit navigates to the stub's lightweight detail view (which hosts the inline
- * minimal editor) — the full edit-project form is never used for a stub.
- * Delete calls `delete_tendering_project` (backend enforces "must be
- * Tendering") behind a confirmation dialog. Both are gated to Admin / PMO /
- * Administrator. Convert is intentionally omitted (Slice 7).
+ * - Tendering: Edit (opens detail) + Mark as Lost + Delete.
+ * - Lost:      Delete only (terminal, read-only).
+ *
+ * Gated to Admin / PMO / Administrator. Convert is reachable only from the
+ * stub detail view (intentional).
  */
 const TenderingRowActions: React.FC<{
   project: ProjectsType;
-  onDeleted: () => void;
-}> = ({ project, onDeleted }) => {
+  onChanged: () => void;
+}> = ({ project, onChanged }) => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmLostOpen, setConfirmLostOpen] = useState(false);
   const { deleteTenderingProject, loading: deleting } =
     useDeleteTenderingProject();
+  const { markTenderingProjectLost, loading: markingLost } =
+    useMarkTenderingProjectLost();
+
+  const isLost = project.tendering_status === "Lost";
 
   const handleDelete = async () => {
     try {
@@ -99,8 +112,8 @@ const TenderingRowActions: React.FC<{
         ),
         variant: "success",
       });
-      setConfirmOpen(false);
-      onDeleted();
+      setConfirmDeleteOpen(false);
+      onChanged();
     } catch (err: any) {
       toast({
         title: "Failed!",
@@ -108,6 +121,40 @@ const TenderingRowActions: React.FC<{
         variant: "destructive",
       });
       console.error("Error while deleting tendering project:", err);
+    }
+  };
+
+  const handleMarkLost = async () => {
+    try {
+      const response = await markTenderingProjectLost(project.name);
+      if (response.message.status !== 200) {
+        throw new Error(
+          response.message.error || "Failed to mark tendering project Lost"
+        );
+      }
+      toast({
+        title: "Marked Lost",
+        description: (
+          <>
+            Tendering Project:{" "}
+            <strong className="text-[14px]">
+              {project.project_name || project.name}
+            </strong>{" "}
+            marked Lost.
+          </>
+        ),
+        variant: "success",
+      });
+      setConfirmLostOpen(false);
+      onChanged();
+    } catch (err: any) {
+      toast({
+        title: "Failed!",
+        description:
+          err?.message || "Error while marking tendering project Lost!",
+        variant: "destructive",
+      });
+      console.error("Error while marking tendering project Lost:", err);
     }
   };
 
@@ -121,13 +168,26 @@ const TenderingRowActions: React.FC<{
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => navigate(`/projects/${project.name}`)}>
-            <FilePenLine className="h-4 w-4 mr-2" />
-            Edit
-          </DropdownMenuItem>
+          {!isLost && (
+            <DropdownMenuItem
+              onClick={() => navigate(`/projects/${project.name}`)}
+            >
+              <FilePenLine className="h-4 w-4 mr-2" />
+              Edit
+            </DropdownMenuItem>
+          )}
+          {!isLost && (
+            <DropdownMenuItem
+              className="text-rose-700 focus:text-rose-800"
+              onClick={() => setConfirmLostOpen(true)}
+            >
+              <Hourglass className="h-4 w-4 mr-2" />
+              Mark as Lost
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
-            onClick={() => setConfirmOpen(true)}
+            onClick={() => setConfirmDeleteOpen(true)}
           >
             <Trash2 className="h-4 w-4 mr-2" />
             Delete
@@ -135,15 +195,20 @@ const TenderingRowActions: React.FC<{
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this Tendering project?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Delete this {isLost ? "Lost" : "Tendering"} project?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               This permanently removes the prospect stub{" "}
-              <strong>{project.project_name || project.name}</strong>. A
-              Tendering stub has no operational data, so nothing else is
-              affected. This cannot be undone.
+              <strong>{project.project_name || project.name}</strong>. A stub
+              has no operational data, so nothing else is affected. This cannot
+              be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -161,16 +226,43 @@ const TenderingRowActions: React.FC<{
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={confirmLostOpen} onOpenChange={setConfirmLostOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark this project Lost?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The prospect stub{" "}
+              <strong>{project.project_name || project.name}</strong> will be
+              marked Lost and become read-only. This is a one-way transition —
+              Lost cannot be reverted to Tendering or converted to Won.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={markingLost}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={markingLost}
+              onClick={(e) => {
+                e.preventDefault();
+                handleMarkLost();
+              }}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              {markingLost ? "Marking..." : "Mark as Lost"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
 
 /**
- * Slim Tendering-stub list for the "Tendering" tab on the Projects page.
+ * Tendering-tab list (v3 dual-field model).
  *
- * Shows only Name / City / State / Customer (+ a Tendering badge). Convert and
- * Edit actions are intentionally deferred to Slice 3. This table is filtered
- * to `status = "Tendering"` and is the ONLY surface that shows stubs.
+ * Shows pre-Won stubs filtered to a single `tendering_status` value via the
+ * Tendering/Lost sub-toggle on top of the table. URL-synced via the
+ * `tendering_sub` search param so a sub-tab survives reloads.
  */
 export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
   customerId,
@@ -179,14 +271,33 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
   const { role, user_id } = useUserData();
   const canManage = canManageTendering(role, user_id);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const subTab: TenderingSubTab =
+    searchParams.get("tendering_sub") === "Lost" ? "Lost" : "Tendering";
+
+  const handleSubTabChange = (next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === "Lost") {
+      params.set("tendering_sub", "Lost");
+    } else {
+      params.delete("tendering_sub");
+    }
+    setSearchParams(params, { replace: true });
+  };
+
   const staticFilters = useMemo(
-    () => getTenderingStaticFilters(customerId),
-    [customerId]
+    () => getTenderingStaticFilters(customerId, subTab),
+    [customerId, subTab]
   );
 
+  // Keep the URL sub-tab in the swr/url key so each sub-tab has independent
+  // pagination / sort state.
   const urlSyncKey = useMemo(
-    () => `tendering_list_${urlContext}${customerId ? `_cust_${customerId}` : ""}`,
-    [urlContext, customerId]
+    () =>
+      `tendering_list_${urlContext}_${subTab}${
+        customerId ? `_cust_${customerId}` : ""
+      }`,
+    [urlContext, customerId, subTab]
   );
 
   // Row actions need the table's `refetch`, but `refetch` is only available
@@ -240,22 +351,27 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
         meta: { exportHeaderName: "Created" },
       },
       {
-        accessorKey: "status",
+        accessorKey: "tendering_status",
         header: "Status",
-        cell: () => (
-          <div className="flex justify-center">
-            <Badge
-              variant="outline"
-              className={cn("font-medium", PROJECT_STATUS_BADGE_CLASSES["Tendering"])}
-            >
-              Tendering
-            </Badge>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const ts = row.original.tendering_status || "Tendering";
+          return (
+            <div className="flex justify-center">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "font-medium",
+                  PROJECT_STATUS_BADGE_CLASSES[ts]
+                )}
+              >
+                {ts}
+              </Badge>
+            </div>
+          );
+        },
         size: 120,
+        meta: { exportHeaderName: "Status" },
       },
-      // Edit / Delete row actions — Admin / PMO / Administrator only. Convert
-      // is intentionally omitted (Slice 7).
       ...(canManage
         ? ([
             {
@@ -264,7 +380,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
               cell: ({ row }) => (
                 <TenderingRowActions
                   project={row.original}
-                  onDeleted={() => refetchRef.current()}
+                  onChanged={() => refetchRef.current()}
                 />
               ),
               size: 80,
@@ -301,36 +417,56 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
     additionalFilters: staticFilters,
   });
 
-  // Keep the ref current so row-action handlers always call the latest refetch.
   refetchRef.current = refetch;
 
   if (error && !data?.length) {
     return <AlertDestructive error={error} />;
   }
 
-  if (isLoading && !data?.length) {
-    return <TableSkeleton />;
-  }
-
   return (
-    <DataTable<ProjectsType>
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      error={error}
-      totalCount={totalCount}
-      searchFieldOptions={PROJECT_SEARCHABLE_FIELDS}
-      selectedSearchField={selectedSearchField}
-      onSelectedSearchFieldChange={setSelectedSearchField}
-      searchTerm={searchTerm}
-      onSearchTermChange={setSearchTerm}
-      dateFilterColumns={PROJECT_DATE_COLUMNS}
-      showExportButton={true}
-      onExport={"default"}
-      onExportAll={exportAllRows}
-      isExporting={isExporting}
-      exportFileName="Tendering_Projects"
-    />
+    <div className="space-y-3">
+      <Tabs value={subTab} onValueChange={handleSubTabChange}>
+        <TabsList className="bg-muted">
+          <TabsTrigger
+            value="Tendering"
+            className="data-[state=active]:bg-slate-200 data-[state=active]:text-slate-900"
+          >
+            Tendering
+          </TabsTrigger>
+          <TabsTrigger
+            value="Lost"
+            className="data-[state=active]:bg-rose-100 data-[state=active]:text-rose-800"
+          >
+            Lost
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {isLoading && !data?.length ? (
+        <TableSkeleton />
+      ) : (
+        <DataTable<ProjectsType>
+          table={table}
+          columns={columns}
+          isLoading={isLoading}
+          error={error}
+          totalCount={totalCount}
+          searchFieldOptions={PROJECT_SEARCHABLE_FIELDS}
+          selectedSearchField={selectedSearchField}
+          onSelectedSearchFieldChange={setSelectedSearchField}
+          searchTerm={searchTerm}
+          onSearchTermChange={setSearchTerm}
+          dateFilterColumns={PROJECT_DATE_COLUMNS}
+          showExportButton={true}
+          onExport={"default"}
+          onExportAll={exportAllRows}
+          isExporting={isExporting}
+          exportFileName={
+            subTab === "Lost" ? "Lost_Projects" : "Tendering_Projects"
+          }
+        />
+      )}
+    </div>
   );
 };
 

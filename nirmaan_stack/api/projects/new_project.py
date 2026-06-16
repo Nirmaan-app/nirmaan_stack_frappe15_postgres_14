@@ -147,7 +147,9 @@ def create_project_with_address(values: dict):
         # develop-side field not covered by apply_full_project_details — preserve it:
         project_doc.cashflow_gap_limit = frappe.utils.flt(values.get("cashflow_gap_limit"))
 
-        # "Won" is the initial lifecycle status of a real project (replaces the retired "Created").
+        # v3 dual-field model: the bid is recorded as Won on the bid dimension,
+        # and (per the Won-as-initial decision) execution also starts at "Won".
+        project_doc.tendering_status = "Won"
         project_doc.status = "Won"
 
         # --- Step 7: Save and Commit ---

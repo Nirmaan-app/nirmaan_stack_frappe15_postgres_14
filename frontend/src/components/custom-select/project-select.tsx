@@ -46,9 +46,9 @@ export default function ProjectSelect({
     disabled = false,
     eligibleProjects,
 }: ProjectSelectProps) {
-    // First build the filters array dynamically
-    // Tendering stubs are prospect-only and must never be selectable for operational work.
-    const projectFilters: any[] = [["status", "!=", "Tendering"]];
+    // v3: only Won projects are selectable for operational work (the bid
+    // dimension is the source of truth — covers both Tendering and Lost).
+    const projectFilters: any[] = [["tendering_status", "=", "Won"]];
 
     const { data: data, isLoading: loading, error: error } = useFrappeGetDocList<Projects>("Projects", {
         fields: ['name', 'project_name', 'project_address', "project_manager", "status"],

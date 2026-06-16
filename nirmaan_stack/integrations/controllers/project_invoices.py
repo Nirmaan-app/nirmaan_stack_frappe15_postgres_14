@@ -6,7 +6,7 @@
 Currently holds only the Tendering operational guard (Slice 5 / B5).
 """
 
-from nirmaan_stack.api.projects._tendering_guard import validate_not_tendering
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 
 def validate(doc, method):
@@ -17,4 +17,4 @@ def validate(doc, method):
     invoices are never blocked.
     """
     if doc.is_new():
-        validate_not_tendering(doc.project, "Project Invoice")
+        validate_won(doc.project, "Project Invoice")

@@ -4,109 +4,173 @@ Date: 2026-05-28
 
 ## Status
 
-Accepted. **Revised 2026-05-29** — the model changed from a separate, orthogonal
-`tendering_status` field to **two new values on the existing `status` field**
-(`Tendering`, `Won`), with `Created` retired. This revision supersedes the
-original orthogonal-field proposal, which was never implemented.
+Accepted. **Revised 2026-05-29 (v3 — dual-field model).** This revision supersedes
+the single-field model that overloaded `status` with `Tendering`/`Won` and retired
+`Created`. The dual-field model splits the bid lifecycle and the execution lifecycle
+into two orthogonal fields: a NEW `tendering_status` (`Tendering` / `Won` / `Lost`)
+governs the bid/prospect dimension; the EXISTING `status` field returns to being a
+pure execution lifecycle (`Created` / `WIP` / `Completed` / `Halted` / `Handover` /
+`CEO Hold`). `Tendering` and `Won` leave `status`; `Created` is restored as the
+post-convert initial execution stage.
+
+**Amended 2026-06-16 (v3.1 — Won-as-initial execution stage).** The initial
+execution `status` of a newly-won project is now `"Won"`, not `"Created"`
+(team-preferred vocabulary: "Won" reads as the entry stage of an awarded job's
+execution lifecycle). The dual-field split is unchanged — `tendering_status`
+still owns the bid dimension and `status` is still execution-only — but a won
+project carries `status="Won"` alongside `tendering_status="Won"`. `"Created"`
+is **retained as a deprecated fallback** in the type/badge maps for any legacy
+row, but is never newly written and is omitted from the manual status dropdown
+and the summary pills. `migrate_project_status_created_to_won` (kept) renames any
+legacy `status="Created"` → `"Won"`; `backfill_tendering_status_for_old_projects`
+sets `tendering_status="Won"`. The "`Created` is restored as the initial
+execution stage" statements below are superseded by this amendment.
+
+### Revision history
+- v1 (2026-05-28): orthogonal `tendering_status` field proposed (never implemented).
+- v2 (2026-05-29 AM): single-field model — added `Tendering`/`Won` to `status`,
+  retired `Created`. Code was written but **never deployed**: the
+  `migrate_project_status_created_to_won` patch never ran in production, no
+  prod project ever carried `status="Tendering"` or `status="Won"`, and the
+  v2 entries were removed from `patches.txt` before cutover.
+- v3 (2026-05-29 PM): **dual-field model adopted and shipped (this revision).**
+  Because v2 never reached prod, v3 doesn't have to "revert" anything — it's a
+  clean cutover from the original pre-v2 state. `tendering_status` is a new
+  Select field; `status` keeps its original `Created` / `WIP` / `Completed` /
+  `Halted` / `Handover` / `CEO Hold` value set; `Lost` is added as a new bid
+  outcome.
 
 ## Context
 
-The business needs to track projects that are still being bid/tendered for,
-separately from projects that have been awarded. Until now every record in
-`Projects` represented a real, awarded job and carried the full set of
-information (address, timeline, work packages, team). There was no way to
-register a prospect cheaply, before the bid is won and before the full scope is
-known.
+The business needs to track projects that are still being bid/tendered for, separately
+from projects that have been awarded. The 6-step creation wizard hard-requires an end
+date, at least one work package, and a valid city/state (Pincode lookup) and always
+creates an `Address` doc, so it cannot register a bare prospect. Autoname builds
+`{city}-PROJ-#####` and is frozen at insert.
 
-`Projects` already has a free-form `status` field describing the operational
-lifecycle of an awarded job: `Created`, `WIP`, `Completed`, `Halted`,
-`Handover`, `CEO Hold`. Creation goes through a 6-step wizard
-(`frontend/.../project-form`) and a backend API
-(`api/projects/new_project.create_project_with_address`) that hard-requires an
-end date, at least one work package, and a valid city/state (derived from a
-Pincode lookup), and always creates an `Address` doc. City/State feed the
-project `autoname` (`{city}-PROJ-#####`).
+**Why v2 was scrapped pre-deploy.** v2 overloaded the single `status` field with
+two distinct concerns — *was this awarded?* (a one-shot bid outcome) and *where
+in the execution lifecycle is it?* (Created → WIP → …). Because `status` is
+single-valued, v2 had no permanent "was-won" marker once a project moved past
+`Won`, no place to record **`Lost`** bids (a real business need that surfaced
+during v2 review), and made the manual status dropdown harder to reason about.
+Splitting the two concerns resolves all three.
 
 ## Decision
 
-Add **`Tendering`** and **`Won`** as two new values of the existing free-form
-`status` field and retire **`Created`**. `status` stays single-valued.
+Adopt a **dual-field model**.
 
-1. **Status values, not a separate field.** `Tendering` = a bid/prospect stub;
-   `Won` = the initial stage of a real/awarded job (the renamed `Created`).
-   `Won` is **transient** — once execution begins the status advances to `WIP`
-   and beyond, so there is no permanent "was-won" marker (acceptable, because
-   `Tendering` is the only special case: any status ≠ `Tendering` is a real
-   project). A migration patch rewrites every existing `status = "Created"` to
-   `"Won"`; projects already at `WIP`/`Completed`/etc. are untouched.
+1. **NEW field `tendering_status` on Projects** — Select, values: `Tendering`,
+   `Won`, `Lost`. Single source of truth for whether a record is a prospect, an
+   awarded job, or a closed-out lost bid. **Not** part of the execution lifecycle;
+   **not** exposed in the manual status-change dropdown.
 
-2. **Tendering projects are isolated stubs.** A Tendering project stores only
-   Project Name, City, State, and (optional) Customer. No `Address` doc, no
-   pincode, no work packages, no team, no timeline. It is hidden from every
-   project-selection dropdown and excluded from all operational modules
-   (PR/PO/SR/payments/invoices/design). It appears only on a dedicated
-   `Tendering` tab on the Projects list and on a dedicated lightweight detail
-   view.
+2. **Existing `status` field is execution-only.** Keeps its original value set:
+   `Created`, `WIP`, `Completed`, `Halted`, `Handover`, `CEO Hold`. (Note: the
+   `status` field is `Data`/free-form on the doctype — the valid values are
+   enforced in the frontend vocabulary in
+   `src/components/common/projectStatus.ts`, not by a Select option list.)
+   `Created` is the post-convert / direct-create initial execution stage.
 
-3. **City/State via cascading State→City dropdowns** sourced from the existing
-   `Pincodes` master. Stored directly on the Projects doc
-   (`project_city`/`project_state`); `autoname` uses City (`{city}-PROJ-#####`)
-   and is frozen at creation.
+3. **Default values at insert.**
+   - **Stub path** (Tendering minimal create form): `tendering_status = "Tendering"`,
+     `status` is empty/null (the row has no execution stage yet).
+   - **Direct full-create path** (6-step wizard, user picked "Won" on the choice
+     screen): `tendering_status = "Won"`, `status = "Created"` — set in one shot,
+     skipping the stub stage entirely.
 
-4. **Creation via a pre-wizard choice screen.** `/projects/new-project` first
-   asks "Won or Tendering". Won → the existing 6-step wizard (unchanged, status
-   `Won`). Tendering → a minimal single-screen form (status `Tendering`).
+4. **Convert (Tendering → Won) runs the full creation setup.** The Convert flow
+   opens the same 6-step wizard pre-filled from the stub; on submit the system runs
+   the full real-project setup (`apply_full_project_details` — Address, work
+   packages, work headers; plus client-side design tracker, work milestones,
+   critical PO, team permissions) — identical to direct creation — and then sets
+   `tendering_status = "Won"` AND `status = "Created"`. The project identity
+   (docname) is preserved.
 
-5. **Stubs are minimally editable and deletable.** A stub's four fields
-   (Name/City/State/Customer) can be edited inline (Customer is commonly linked
-   after the prospect is entered); the full edit-project-form is disabled for
-   stubs. A stub may be deleted outright (no downstream data exists).
+5. **Lost flow.** A new "Mark as Lost" action on the stub detail view (and the
+   Tendering list row actions, Admin/PMO only) sets `tendering_status = "Lost"`.
+   Lost is **terminal** — no reverse to Tendering, no convert to Won. Lost
+   projects stay in the DB for pipeline reporting; the stub detail view becomes
+   read-only. Lost projects are deletable by Admin/PMO (same as Tendering). They
+   are hidden from every project picker and shown via a sub-toggle on the
+   Tendering tab (default: Tendering; toggle: Lost).
 
-6. **Conversion reuses the creation wizard in "convert" mode.** "Convert to Won"
-   opens the same 6-step wizard, pre-filled with the stub's fields; on submit it
-   **updates the existing project in place** (creates the Address doc, populates
-   work packages, runs all creation side-effects, sets `status = "Won"`) — the
-   project identity (docname) is preserved. During convert the pincode lookup
-   may set a new `project_city`/`project_state`, but the frozen docname does not
-   change.
+6. **Operational guard switches predicate.** `_tendering_guard.is_tendering` /
+   `validate_not_tendering` are renamed to `is_pre_won` / `validate_won`. The
+   predicate flips from `status == "Tendering"` to `tendering_status != "Won"` — so
+   both `Tendering` AND `Lost` projects are blocked from operational documents
+   (PR / PO / SR / payments / inflows / invoices / DC). Defense-in-depth is
+   unchanged: UI hides non-Won projects from pickers; backend refuses operational
+   docs.
 
-7. **One-way transition.** `Tendering → Won` is permanent; there is no reverse.
-   `Tendering` and `Won` are **entry/convert-only** — neither appears in the
-   manual status-change dropdown (exactly how `Created` behaved).
+7. **One-way transitions.** `Tendering → Won` and `Tendering → Lost` are
+   permanent. Convert and Mark-as-Lost endpoints reject the call unless the
+   project is currently `tendering_status = "Tendering"`.
 
-8. **Operational blocking is defense-in-depth.** The UI filters
-   `status ≠ "Tendering"` from project pickers and list queries, **and** a
-   backend guard rejects creation of operational docs (PR/PO/SR/payment/
-   invoice/DC) against a `Tendering` project.
+8. **Authorization (tightened in v3).** Nirmaan Admin + PMO Executive
+   (plus the `Administrator` user) may create, edit, convert, mark-as-lost,
+   and delete Tendering / Lost projects. v3 adds a server-side
+   `_ensure_tendering_manager()` role check at the top of every whitelisted
+   tendering endpoint — closing the pre-v3 gap where `ignore_permissions=True`
+   let any authenticated user call those APIs directly.
 
-9. **Authorization** mirrors today's project-creation permission: Nirmaan Admin
-   and PMO Executive may create, edit, convert, and delete Tendering projects.
+9. **List & detail surfacing.**
+   - **Projects list:** dedicated "Tendering" tab filtered to
+     `tendering_status IN ("Tendering","Lost")`; a sub-toggle within the tab
+     switches between `Tendering` (default) and `Lost`. All other status tabs
+     (Created / WIP / Completed / Halted / Handover / CEO Hold) filter to
+     `tendering_status = "Won"`. "Total Projects" counts only `tendering_status
+     = "Won"`.
+   - **Detail page:** `project.tsx` early-returns `TenderingProjectView`
+     whenever `tendering_status != "Won"`. View renders Convert + Edit + Delete
+     + "Mark as Lost" when `tendering_status = "Tendering"`; for `Lost` it
+     renders read-only fields + Delete only.
+   - The full edit-project form remains disabled for any non-Won project.
 
-10. **List & detail surfacing.** The Projects list gets a `Tendering` tab (slim
-    table + Convert/Edit actions); Tendering stubs are excluded from all other
-    tabs and from "Total Projects" counts. The detail page (`project.tsx`)
-    early-returns a dedicated `TenderingProjectView` for stubs rather than
-    gating each operational tab.
+10. **`generate_pwm` guard.** The Projects `after_insert` hook no-ops when
+    `tendering_status != "Won"`. Behaviour for Won projects is unchanged.
+
+## Migration (one-shot patch)
+
+The patch
+[`nirmaan_stack/patches/v3_0/backfill_tendering_status_for_old_projects.py`](../../nirmaan_stack/patches/v3_0/backfill_tendering_status_for_old_projects.py)
+stamps `tendering_status = "Won"` on every existing Projects row and leaves
+`status` untouched.
+
+Because v2 was never deployed, every pre-v3 row is by definition a real
+awarded project — none carry `status="Tendering"` or `status="Won"`, they all
+carry the original execution-stage values (`Created` / `WIP` / `Completed` /
+`Halted` / `Handover` / `CEO Hold`), and that's exactly what `status` should
+keep meaning. So the migration is a single uniform write:
+
+```
+For every Projects row where tendering_status is empty:
+    tendering_status = "Won"   # status unchanged
+```
+
+No `Lost` rows exist yet — Lost is introduced in v3 via the new
+`mark_tendering_project_lost` API. The patch is idempotent (filters
+`tendering_status` IN `[""`, `None]`, so re-running on a v3 row is a no-op).
+It must run before any v3 reader code goes live.
 
 ## Consequences
 
-- `status` now carries a non-lifecycle prospect concept (`Tendering`); readers
-  must treat `status = "Tendering"` as "not a real project yet." Any query that
-  lists projects without constraining `status` will include stubs unless
-  explicitly excluded. The glossary in `CONTEXT.md` defines the value set.
-- A `Projects` record can now legitimately exist with no work packages, no
-  address, and (optionally) no customer. Code that assumes a fully-populated
-  project must be guarded against Tendering stubs (dropdown filters, the
-  dedicated stub detail view, operational entry points).
-- `generate_pwm` (the `after_insert` hook) must no-op for Tendering stubs — they
-  have no scopes, so it should be guarded to skip when `status = "Tendering"`.
-- The one-way invariant keeps reasoning simple and protects operational data
-  (a Won project may already have POs/payments); the cost is that a mistaken
-  conversion cannot be undone through the UI.
-- `autoname` uses the Tendering-stage City and is frozen thereafter; after a
-  convert that changes City via pincode, the displayed City may differ from the
-  name prefix — consistent with the existing "changing pincode won't change the
-  project id" behaviour.
-- Because `Won` is transient and `status` is single-valued, there is no stored
-  flag distinguishing "entered directly as Won" from "converted from Tendering"
-  once work begins. This is accepted.
+- Two fields to read instead of one. Any code that previously checked
+  `status == "Tendering"` must check `tendering_status` (or use the renamed guard
+  helper). Any code that previously checked `status == "Won"` must check
+  `tendering_status == "Won"` — `status == "Won"` no longer exists.
+- `Lost` is a new business state and gives a permanent record of dead pipeline,
+  which the pre-v3 single-field model could not represent.
+- Because v2 never reached prod, there's no v2 status migration to undo —
+  `Created` was always the post-create initial execution stage, and stays that
+  way.
+- The manual status dropdown is execution-only (no `Tendering`/`Won`/`Lost`); a
+  separate "Mark as Lost" action handles the only Tendering-side transition
+  reachable from the UI.
+- A Projects row can still legitimately exist with no work packages and no address
+  (when `tendering_status` is `Tendering` or `Lost`). The dedicated stub detail view
+  continues to hide that surface; operational entry points continue to be guarded.
+- `autoname` is unchanged (uses Tendering-stage City, frozen at insert).
+- The `generate_pwm` `after_insert` hook now guards on
+  `tendering_status != "Won"` — so Tendering AND Lost stubs are both
+  skipped (no PWMs generated) for the price of a single check.

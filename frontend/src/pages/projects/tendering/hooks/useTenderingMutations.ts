@@ -94,8 +94,9 @@ export const useUpdateTenderingProject = () => {
 /**
  * Wraps the `delete_tendering_project` whitelisted API.
  *
- * Deletes a stub outright. The backend refuses to delete anything whose
- * `status` is not `"Tendering"`, so real/awarded projects are protected.
+ * Deletes a Tendering or Lost stub outright. The backend refuses to delete
+ * anything whose `tendering_status` is not in {Tendering, Lost}, so Won
+ * projects (which may already carry operational data) are protected.
  */
 export const useDeleteTenderingProject = () => {
   const { call, loading, error } = useFrappePostCall<{
@@ -117,4 +118,32 @@ export const useDeleteTenderingProject = () => {
   };
 
   return { deleteTenderingProject, loading, error };
+};
+
+/**
+ * Wraps the `mark_tendering_project_lost` whitelisted API.
+ *
+ * Flips `tendering_status` from `Tendering` to `Lost`. Terminal — backend
+ * rejects unless the current `tendering_status` is `Tendering`.
+ */
+export const useMarkTenderingProjectLost = () => {
+  const { call, loading, error } = useFrappePostCall<{
+    message: MutateTenderingResponse;
+  }>("nirmaan_stack.api.projects.tendering.mark_tendering_project_lost");
+
+  const markTenderingProjectLost = async (project_name: string) => {
+    try {
+      return await call({ project_name });
+    } catch (err: any) {
+      captureApiError({
+        error: err,
+        hook: "useMarkTenderingProjectLost",
+        api: "mark_tendering_project_lost",
+        feature: "tendering",
+      });
+      throw err;
+    }
+  };
+
+  return { markTenderingProjectLost, loading, error };
 };

@@ -14,7 +14,7 @@ guard reads `doc.project` directly. A Tendering stub can never be a PO/ITM
 parent's project, so this is a pure defense-in-depth backstop.
 """
 
-from nirmaan_stack.api.projects._tendering_guard import validate_not_tendering
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 
 def validate(doc, method):
@@ -26,4 +26,4 @@ def validate(doc, method):
     so edits to existing/legacy delivery documents are never blocked.
     """
     if doc.is_new() and doc.project:
-        validate_not_tendering(doc.project, "PO Delivery Document")
+        validate_won(doc.project, "PO Delivery Document")

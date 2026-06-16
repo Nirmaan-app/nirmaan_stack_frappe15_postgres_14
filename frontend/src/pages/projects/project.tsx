@@ -51,7 +51,8 @@ import {
   Hand,
   HardHat,
   OctagonMinus,
-  Award
+  Award,
+  Sparkles
 } from "lucide-react";
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -113,7 +114,20 @@ import {
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
 
+// v3 dual-field model: this list covers the EXECUTION status (`status` field
+// — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
+// dimension (`tendering_status` — Tendering / Won / Lost) lives in the badge
+// at the top of the view and is never user-editable through this dropdown.
 const projectStatuses = [
+  // "Created" is a deprecated legacy execution status (pre-v3.1; "Won" is now
+  // the initial stage). Kept here so a legacy badge still resolves, but excluded
+  // from the manual-change dropdown below. See ADR-0001 v3.1 (Won-as-initial).
+  {
+    value: "Created",
+    label: "Created",
+    color: "text-purple-600",
+    icon: Sparkles,
+  },
   { value: "WIP", label: "WIP", color: "text-yellow-500", icon: HardHat },
   {
     value: "Completed",
@@ -197,12 +211,12 @@ const Project: React.FC = () => {
     return <LoadingFallback />
   }
 
-  // Tendering stubs are lightweight bid/prospect records (only Name/City/State/
-  // Customer — no address, work packages, team, or timeline). Early-return a
+  // v3 dual-field model: pre-Won projects (Tendering or Lost) are lightweight
+  // stubs with no address, work packages, team, or timeline. Early-return a
   // dedicated lightweight view BEFORE the heavy role-based tab machinery in
-  // <ProjectView /> ever mounts, so a stub never runs operational tabs. (ADR
-  // 0001 decision #10; PRD module F6.)
-  if (data && data.status === "Tendering") {
+  // <ProjectView /> ever mounts, so a stub never runs operational tabs. The
+  // view branches further by `tendering_status` (Tendering vs Lost).
+  if (data && data.tendering_status && data.tendering_status !== "Won") {
     return <TenderingProjectView data={data} onRefresh={() => project_mutate()} />;
   }
 
@@ -1586,7 +1600,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
                     <CommandList>
                       <CommandGroup>
                         {projectStatuses
-                          .filter((s) => s.value !== "Won" && (s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER))
+                          // "Won" (auto-set initial) and the deprecated "Created" are display-only — never manually selectable.
+                          .filter((s) => s.value !== "Won" && s.value !== "Created" && (s.value !== "CEO Hold" || user_id === CEO_HOLD_AUTHORIZED_USER))
                           .map((s) => (
                             <CommandItem
                               key={s.value}
