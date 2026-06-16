@@ -29,6 +29,7 @@ import {
   SearchFieldOption,
 } from "@/components/data-table/new-data-table"; // Assuming DataTable is correctly imported
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
+import { useSharedReportDateRange } from "@/pages/reports/store/useReportDateStore";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -115,8 +116,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
 
   const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
 
-  // 1. Manage date range state, initialized from URL or with a default
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+  // 1. Date range.
+  //    - As the "Outflow (Non-Project)" REPORT (DisableAction), use the SHARED
+  //      report date store so it stays in sync with Cash Sheet / Inflow / Outflow
+  //      and never freezes (relative presets recompute from today on every load).
+  //    - As the standalone page, keep an independent local range (own URL key).
+  const shared = useSharedReportDateRange();
+  const [localDateRange, setLocalDateRange] = useState<DateRange | undefined>(() => {
     const fromParam = urlStateManager.getParam(`${urlSyncKey}_from`);
     const toParam = urlStateManager.getParam(`${urlSyncKey}_to`);
     if (fromParam && toParam) {
@@ -132,18 +138,24 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     return undefined; // Default to "ALL" (no date filtering)
   });
 
-  // 2. Effect to sync state changes back to the URL
+  const dateRange = DisableAction ? shared.dateRange : localDateRange;
+  const onDateChange = DisableAction ? shared.onChange : (r?: DateRange) => setLocalDateRange(r);
+  const onDateClear = DisableAction ? shared.onClear : () => setLocalDateRange(undefined);
+
+  // 2. Standalone page persists its own range to the URL.
+  //    (In report mode the shared store handles persistence.)
   useEffect(() => {
-    const fromISO = dateRange?.from
-      ? formatISO(dateRange.from, { representation: "date" })
+    if (DisableAction) return;
+    const fromISO = localDateRange?.from
+      ? formatISO(localDateRange.from, { representation: "date" })
       : null;
-    const toISO = dateRange?.to
-      ? formatISO(dateRange.to, { representation: "date" })
+    const toISO = localDateRange?.to
+      ? formatISO(localDateRange.to, { representation: "date" })
       : null;
 
     urlStateManager.updateParam(`${urlSyncKey}_from`, fromISO);
     urlStateManager.updateParam(`${urlSyncKey}_to`, toISO);
-  }, [dateRange, urlSyncKey]);
+  }, [localDateRange, urlSyncKey, DisableAction]);
 
   // 3. Build additional filters based on date range
   const dateFilters = useMemo(() => {
@@ -572,8 +584,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   );
 
   const handleClearDateFilter = useCallback(() => {
-    setDateRange(undefined); // Reset to "ALL" (no date filtering)
-  }, []);
+    onDateClear(); // Reset to "ALL" (no date filtering)
+  }, [onDateClear]);
 
   if (error && !data?.length) {
     return <AlertDestructive error={error} className="m-4" />;
@@ -592,7 +604,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     >
       <StandaloneDateFilter
         value={dateRange}
-        onChange={setDateRange}
+        onChange={onDateChange}
         onClear={handleClearDateFilter}
       />
       {/* <span>(PAYMENT DATE)</span> */}
