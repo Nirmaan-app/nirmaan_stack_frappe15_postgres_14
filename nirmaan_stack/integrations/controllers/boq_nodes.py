@@ -51,14 +51,20 @@ def validate(doc, method):
         if not any([doc.supply_rate, doc.install_rate, doc.combined_rate]):
             frappe.msgprint(_("No rate fields are set on this Line Item"), alert=True)
 
-    # Rate consistency: combined_rate must equal supply_rate + install_rate when all are set.
+    # Rate consistency: combined_rate should equal supply_rate + install_rate when all are set.
     # combined_rate of 0 is treated as "not set" (matches Currency field UI behaviour).
+    # CAPTURE-ONLY (Phase 5 Slice 3b): this is a WARNING, not a block. The committed tier
+    # records what review captured VERBATIM; tendering reconciles any rate mismatch. (Was a
+    # frappe.throw pre-3b; relaxed because the commit pipeline re-saves nodes in pass 2 and
+    # a throw would abort an otherwise-faithful commit.)
     if doc.combined_rate and (doc.supply_rate or doc.install_rate):
         expected = (doc.supply_rate or 0) + (doc.install_rate or 0)
         if doc.combined_rate != expected:
-            frappe.throw(
-                _("Combined Rate must equal Supply Rate + Install Rate when all are set. "
-                  "Either remove Combined Rate or use only Combined Rate.")
+            frappe.msgprint(
+                _("Combined Rate does not equal Supply Rate + Install Rate. "
+                  "Recorded as captured; reconcile in tendering."),
+                alert=True,
+                indicator="orange",
             )
 
     if doc.parent_node:
