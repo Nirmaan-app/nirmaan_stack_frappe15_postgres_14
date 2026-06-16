@@ -234,7 +234,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 setIsExportDialogOpen(false);
 
                 if (selectedStatus === "Pending") {
-                    setPdfReadyBlobUrl(objectUrl);
+                    // Revoke any previous preview blob before replacing it, so
+                    // back-to-back exports don't leak the earlier object URL.
+                    setPdfReadyBlobUrl((prev) => {
+                        if (prev) window.URL.revokeObjectURL(prev);
+                        return objectUrl;
+                    });
                     setPdfReadyFilename(finalName);
                     setPdfReadySizeBytes(blob.size);
                     setIsPdfReadyOpen(true);

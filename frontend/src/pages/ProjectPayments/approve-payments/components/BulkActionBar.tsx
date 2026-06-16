@@ -51,10 +51,6 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
   const count = selectedPayments.length;
 
-  // Selection is keyed per visible page (server-side pagination, no stable row id),
-  // so the "(this page)" disclaimer only matters when more than one page exists.
-  const isMultiPage = table.getPageCount() > 1;
-
   const totalReqAmount = useMemo(
     () =>
       selectedPayments.reduce((sum, p) => sum + parseNumber(p.amount), 0),
