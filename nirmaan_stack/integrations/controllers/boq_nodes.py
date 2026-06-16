@@ -86,10 +86,14 @@ def validate(doc, method):
 
 
 def before_save(doc, method):
+    # Capture-only (Phase 5 Slice 2.5): the committed tier persists the reviewed values
+    # VERBATIM. All money computation -- amount = rate x qty, the parent rate weighted-
+    # average roll-up, and the child rate inheritance/amount compute -- was REMOVED from
+    # the write chain and moves to the future tendering phase (built against that
+    # consumer's shape). Only the structural path identity is derived here.
+    # NOTE: is_rate_only is NO LONGER auto-set here; its value is carried through from the
+    # BoQ Review Row by the Slice-3 commit pipeline (the parser sets it).
     _compute_path(doc)
-    _process_qty_by_area_rows(doc)
-    _recompute_parent_rates_from_areas(doc)
-    _compute_amounts(doc)
 
 
 def after_insert(doc, method):
@@ -136,36 +140,6 @@ def _compute_path(doc):
     doc.path = f"{parent_path}/{doc.name}"
 
 
-def _compute_amounts(doc):
-    if doc.amount_override:
-        return
-
-    # Reset before recomputing to prevent stale values from a prior save leaking through
-    doc.supply_amount = None
-    doc.install_amount = None
-    doc.total_amount = None
-
-    qty = doc.qty if doc.qty is not None else 0
-
-    if doc.supply_rate is not None:
-        doc.supply_amount = qty * doc.supply_rate
-
-    if doc.install_rate is not None:
-        doc.install_amount = qty * doc.install_rate
-
-    if doc.combined_rate:  # 0 treated as not-set, consistent with validation
-        doc.total_amount = qty * doc.combined_rate
-    elif any([doc.supply_rate, doc.install_rate]):
-        supply = doc.supply_amount or 0
-        install = doc.install_amount or 0
-        doc.total_amount = supply + install
-
-    # Auto-set is_rate_only: qty is explicitly zero and at least one rate is present
-    doc.is_rate_only = 1 if (
-        doc.qty == 0 and any([doc.supply_rate, doc.install_rate, doc.combined_rate])
-    ) else 0
-
-
 def _validate_qty_by_area(doc):
     rows = doc.get("qty_by_area") or []
     if not rows:
@@ -203,40 +177,9 @@ def _validate_qty_by_area(doc):
                             alert=True,
                         )
 
-    # D. Per-child combined_rate consistency — blocking
+    # D. Per-child combined_rate consistency — blocking (STRUCTURAL, kept)
     for row in rows:
         _area_ctrl.validate_child(row)
-
-
-def _process_qty_by_area_rows(doc):
-    rows = doc.get("qty_by_area") or []
-    for row in rows:
-        _area_ctrl.apply_before_save(row, doc)
-
-
-def _recompute_parent_rates_from_areas(doc):
-    rows = doc.get("qty_by_area") or []
-    if not rows:
-        return
-
-    for rate_field in ("supply_rate", "install_rate", "combined_rate"):
-        relevant = [
-            (r.qty or 0, r.get(rate_field))
-            for r in rows
-            if r.get(rate_field) is not None and (r.qty or 0) > 0
-        ]
-        if len(relevant) < 2:
-            continue
-
-        rates = [entry[1] for entry in relevant]
-        if len(set(rates)) <= 1:
-            continue  # all per-area rates are uniform — leave parent untouched
-
-        total_qty = sum(entry[0] for entry in relevant)
-        if total_qty == 0:
-            continue
-
-        doc.set(rate_field, sum(entry[0] * entry[1] for entry in relevant) / total_qty)
 
 
 _NULLABLE_NUMERIC_FIELDS = frozenset({

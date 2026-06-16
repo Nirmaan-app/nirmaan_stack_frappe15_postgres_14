@@ -198,21 +198,18 @@
   {
    "fieldname": "supply_amount",
    "fieldtype": "Currency",
-   "label": "Supply Amount",
-   "read_only": 1
+   "label": "Supply Amount"
   },
   {
    "fieldname": "install_amount",
    "fieldtype": "Currency",
-   "label": "Install Amount",
-   "read_only": 1
+   "label": "Install Amount"
   },
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Amount",
-   "read_only": 1
+   "label": "Total Amount"
   },
   {
    "default": "0",
@@ -220,8 +217,7 @@
    "fieldname": "is_rate_only",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Rate Only",
-   "read_only": 1
+   "label": "Rate Only"
   },
   {
    "default": "0",
