@@ -1,6 +1,46 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-17 (Phase 5 -- LEVEL-LESS PREAMBLE GUARD FIX (post-dogfood) -- BACKEND, feat pending.
+**Last updated:** 2026-06-17 (Phase 5 -- X: COMMIT ALL CLASSIFIED ROWS EXCEPT SPACER AS SEMANTIC NODES --
+BACKEND, feat 711a792b. Makes the committed node tree a COMPLETE SEMANTIC MIRROR of the reviewed BoQ. Before X,
+only preamble + line_item committed as nodes; note / subtotal_marker / header_repeat were grid-only, so the node
+layer was not a full semantic record (the dogfood surfaced a note losing its discrete classification + parent in
+the node tree). **NODE SHAPE = OPTION A (owner-locked):** `node_type` stays the PRICEABILITY axis (Preamble / Line
+Item) + a NEW neutral 3rd Select value **`Other`** for non-priceable rows; a NEW field **`row_class` (Data)** carries
+the FULL effective classification (preamble/line_item/note/spacer/subtotal_marker/header_repeat) -- the TAXONOMY
+axis. A future pricing walk stays EXACTLY `node_type in (Preamble, Line Item)`, unchanged. **ROWS COMMITTED AS
+NODES:** preamble, line_item, note, subtotal_marker, AND header_repeat (defensive -- ZERO live data). **SPACER alone
+stays GRID-ONLY** (pure layout, no semantic content; the faithful grid preserves its position) -- the filter is now
+"commit everything EXCEPT spacer", not "only preamble+line_item". **node_type mapping:** preamble->Preamble,
+line_item->Line Item, every other committed class (note/subtotal_marker/header_repeat)->Other; `row_class` = the full
+effective classification for EVERY node. **(1) SCHEMA (`boq_nodes.json`, migrate CLEAN -- additive Select value + one
+Data field):** node_type `Preamble\nLine Item` -> `Preamble\nLine Item\nOther`; new `row_class` Data placed after
+node_type. **(2) CONTROLLER (`boq_nodes.py`):** the description-required throw is GATED to `node_type in (Preamble,
+Line Item)` so an `Other` node may be contentless and no-ops; EVERY other validation branch (Preamble level rules,
+Line-Item level-unset/qty-required, parent rules, combined_rate, qty_by_area) already falls through both `if/elif`
+branches for `Other` -- confirmed, no other relaxation needed. `row_class` is stored, never validated. **(3)
+PIPELINE (`commit_pipeline.py`):** `_NODE_CLASSIFICATIONS` (={preamble,line_item}) RETIRED -> `_PRICEABLE_
+CLASSIFICATIONS` (={preamble,line_item}, for node_type + the level calc) + `_GRID_ONLY_CLASSIFICATIONS` (={spacer},
+the skip set); the `_commit_node_tree` filter flips from "not in node-set -> skip" to "in grid-only-set -> skip".
+`_build_node_pass1` sets `node.row_class = effective_classification` for every node and node_type via a 3-way branch
+(preamble->Preamble+level, line_item->Line Item, else->Other); the `qty None -> 0` default STAYS Line-Item-only
+(Other rows carry no qty/rate/amount -- none exist on the review row). **Q8 LEVEL-GUARD FIX (mandatory -- X would
+break it otherwise):** `_compute_levelless_preamble_levels` now counts ONLY PRICEABLE (preamble/line_item) children
+toward `child_levels`; a note/subtotal (level 0) is NOT a structural child and would wrongly pull a level-less
+preamble to level 0. A preamble whose only children are non-priceable now falls to the childless branch. **NO NOTE
+RE-ATTACH:** the parser ALREADY rolls descendant note text onto the nearest preamble's `attached_notes` (recon:
+populated on 84 preamble review rows, NEVER on note rows) and 3b carries it verbatim onto the preamble node; X
+commits the note as its OWN discrete node WITHOUT a second attach (a second walk would DOUBLE the text). preamble /
+line_item commit EXACTLY as before, including their existing attached_notes carry. **TESTS:** `test_commit_pipeline`
+23->27 (+4: commit-all-except-spacer [note+subtotal->Other, correct row_class, note wired to preamble, spacer NOT a
+node]; Other note carries description + no money; attached_notes NOT doubled; Q8 note-child excluded from level calc;
++ 2 existing node-tree tests RETARGETED in place -- note now a node, counts 3->4); `test_boq_nodes` 72->74 (+2: Other
+saves cleanly [no level/qty]; Other under a Preamble saves); `test_review_screen` **158 UNCHANGED** (import safe);
+parser **597 UNCHANGED**. `bench migrate` CLEAN (`row_class` column + the `Other` Select value verified via get_meta).
+**RE-COMMIT of all affected finalized sheets + a round-trip RE-VERIFY (with an attached_notes verification column)
+are SEPARATE NEXT runs before push** -- the live committed nodes still reflect the pre-X 2-type tree until
+re-committed. Pure-backend -> root CLAUDE.md + plan only; frontend/CLAUDE.md NOT touched (no frontend reads nodes).
+Full detail in boq-upload-plan.md "Phase 5 -- X: commit all classified rows as semantic nodes".)
+// prior: 2026-06-17 (Phase 5 -- LEVEL-LESS PREAMBLE GUARD FIX (post-dogfood) -- BACKEND, feat pending.
 A real commit-pipeline correctness fix the dogfood surfaced: `_build_node_pass1` stamped a flat `level=1` on ANY
 preamble whose parser level was unset/0, which BREAKS the tree when a child is also level 1 (BOQ-26-00145
 'Electrical ' row 18 "Note:" -> 1, but its child row 20 is level 1 -> parent==child level). Read-only recon found
