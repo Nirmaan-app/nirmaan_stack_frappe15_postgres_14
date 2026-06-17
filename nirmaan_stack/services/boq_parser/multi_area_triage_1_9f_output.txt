@@ -1,0 +1,154 @@
+================================================================================
+Phase 1.9f Stage 1 — Multi-Area Triage Diagnostic
+Generated: 2026-05-17T18:18:59.556469+00:00
+Branch tip: 5cb9907bb89fda7b47b1751ff607e261417843e8
+================================================================================
+
+================================================================================
+TARGET: Raheja Electrical
+  Workbook : RAHEJA Commerzone  Chennai BOQ.xlsx
+  Sheet    : 'Electrical '
+================================================================================
+
+  --- header_row_count=1 ---
+  parse_status      : success
+  classification    : single_area
+  pattern           : None
+  detection_routing : 1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)
+  areas             : None
+  header_row_excel  : 3
+  first_3_l1_preambles (0):
+  first_l2_preamble : None
+  first_10_line_items (10):
+      row | sl_no        | desc                                                         | unit     | parent                                   | data
+    ------------------------------------------------------------------------------------------------------------------------------------------------
+        1 | None         | BOQ - ELECTRICAL                                             | BOQ - EL… | None                                     | qty=0.0 rate=None amt=None
+        2 | None         | None                                                         | None     | None                                     | qty=0.0 rate=None amt=None
+       40 | None         | 4C x 25sqmm Al Ar cable                                      | Mtr      | None                                     | qty=450.0 rate=None amt=0.0
+       41 | None         | 4C x 16sqmm Al Ar cable                                      | Mtr      | None                                     | qty=450.0 rate=None amt=0.0
+       46 | None         | 4C x 10sqmm CU Ar cable                                      | Mtr      | None                                     | qty=50.0 rate=None amt=0.0
+       54 | None         | 1C x 10 SQMM CU Flexible cable                               | Mtr      | None                                     | qty=50.0 rate=None amt=0.0
+       56 | None         | 3C x 10 SQMM CU FLEXIBLE cable                               | Mtr      | None                                     | qty=60.0 rate=None amt=0.0
+       57 | None         | 3Cx 6sqmm copper flexible FRLS cable for server racks        | Mtr      | None                                     | qty=80.0 rate=None amt=0.0
+       64 | None         | 3.5C x150 sqmm Al Ar. cable                                  | Nos.     | None                                     | qty=4.0 rate=None amt=0.0
+       70 | None         | 4C x 25sqmm Al Ar cable                                      | Nos.     | None                                     | qty=12.0 rate=None amt=0.0
+
+  --- header_row_count=2 ---
+  parse_status      : success
+  classification    : multi_area
+  pattern           : Pattern 2-rate
+  detection_routing : 2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: Pattern 2-rate
+  areas             : ['PHASE-1', 'PHASE-2']
+  header_row_excel  : 3
+  first_3_l1_preambles (0):
+  first_l2_preamble : None
+  first_10_line_items (10):
+      row | sl_no        | desc                                                         | unit     | parent                                   | data
+    ------------------------------------------------------------------------------------------------------------------------------------------------
+        1 | None         | BOQ - ELECTRICAL                                             | BOQ - EL… | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=None
+        2 | None         | None                                                         | None     | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=None
+       40 | None         | 4C x 25sqmm Al Ar cable                                      | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       41 | None         | 4C x 16sqmm Al Ar cable                                      | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       46 | None         | 4C x 10sqmm CU Ar cable                                      | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       54 | None         | 1C x 10 SQMM CU Flexible cable                               | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       56 | None         | 3C x 10 SQMM CU FLEXIBLE cable                               | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       57 | None         | 3Cx 6sqmm copper flexible FRLS cable for server racks        | Mtr      | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       64 | None         | 3.5C x150 sqmm Al Ar. cable                                  | Nos.     | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+       70 | None         | 4C x 25sqmm Al Ar cable                                      | Nos.     | None                                     | PHASE-1: qty=None rate=None amt=None | PHASE-2: qty=None rate=None amt=None | totals: qty=None rate=None amt=0.0
+
+================================================================================
+TARGET: Raheja HVAC
+  Workbook : RAHEJA Commerzone  Chennai BOQ.xlsx
+  Sheet    : 'HVAC '
+================================================================================
+
+  --- header_row_count=1 ---
+  parse_status      : success
+  classification    : single_area
+  pattern           : None
+  detection_routing : 1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)
+  areas             : None
+  header_row_excel  : 3
+  first_3_l1_preambles (3):
+    row=1  desc=SUMMARY
+    row=6  desc=Equipment
+    row=8  desc=Ducting
+  first_l2_preamble : row=18 desc=6500 CFM AHU with Ac Motor fan speed with starter Panel adjactable.
+  first_10_line_items (0):
+    (none)
+
+  --- header_row_count=2 ---
+  parse_status      : success
+  classification    : multi_area
+  pattern           : Pattern 1
+  detection_routing : 2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: Pattern 1
+  areas             : ['PHASE-1', 'PHASE-2']
+  header_row_excel  : 3
+  first_3_l1_preambles (3):
+    row=1  desc=SUMMARY
+    row=6  desc=Equipment
+    row=8  desc=Ducting
+  first_l2_preamble : row=18 desc=6500 CFM AHU with Ac Motor fan speed with starter Panel adjactable.
+  first_10_line_items (0):
+    (none)
+
+================================================================================
+TARGET: Snitch Electrical
+  Workbook : snitch_electrical.xlsx
+  Sheet    : '6. Electrical'
+================================================================================
+
+  --- header_row_count=1 ---
+  parse_status      : success
+  classification    : single_area
+  pattern           : None
+  detection_routing : 1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)
+  areas             : None
+  header_row_excel  : 1
+  first_3_l1_preambles (3):
+    row=3  desc=POINT WIRING
+    row=4  desc=CONDUITING FOR TELEPHONE, COMPUTER & CONDUITING AND WIRING FOR T.V. SY…
+    row=5  desc=EARTHING
+  first_l2_preamble : row=24 desc=Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insula…
+  first_10_line_items (10):
+      row | sl_no        | desc                                                         | unit     | parent                                   | data
+    ------------------------------------------------------------------------------------------------------------------------------------------------
+       26 | a.           | First point controlled by one no. 6 amp switch.              | Nos.     | Wiring for the following light points wi… | qty=45.0 rate=None amt=0.0
+       27 | b.           | First point controlled by one no. 6 amp switch. For Emergenc… | Nos.     | Wiring for the following light points wi… | qty=0.0 rate=None amt=None
+       29 | 2.0          | Same as item No. 1a above but LOOP POINT i.e. wiring of poin… | Nos.     | Wiring for the following light points wi… | qty=350.0 rate=None amt=0.0
+       33 | a.           | First point controlled by existing MCB in D.B. To first ligh… | Nos.     | Wiring for the following light points co… | qty=20.0 rate=None amt=0.0
+       34 | b.           | First point controlled by existing MCB in D.B. For Emergency… | Nos.     | Wiring for the following light points co… | qty=40.0 rate=None amt=0.0
+       36 | 4.0          | Same as item No. 3 above but LOOP POINT i.e. wiring of point… | Nos.     | Wiring for the following light points co… | qty=0.0 rate=None amt=0.0
+       38 | 5.0          | Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm F… | Nos.     | Wiring for the following light points co… | qty=40.0 rate=None amt=0.0
+       40 | 6.0          | Wiring for inline fan points with 2 x 2.5 sq.mm FRLS PVC ins… | Nos.     | Wiring for the following light points co… | qty=4.0 rate=None amt=0.0
+       42 | 7.0          | Wiring for projector / Geyser points with 2 x 4 + 1 x 4 sq m… | Nos.     | Wiring for the following light points co… | qty=6.0 rate=None amt=0.0
+       44 | 8.0          | Wiring for VRV Indoor units with 3 x 2.5 sq.mm FRLS PVC insu… | Nos.     | Wiring for the following light points co… | qty=25.0 rate=None amt=0.0
+
+  --- header_row_count=2 ---
+  parse_status      : success
+  classification    : single_area
+  pattern           : None
+  detection_routing : 2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: None (single-area)
+  areas             : None
+  header_row_excel  : 1
+  first_3_l1_preambles (3):
+    row=3  desc=POINT WIRING
+    row=4  desc=CONDUITING FOR TELEPHONE, COMPUTER & CONDUITING AND WIRING FOR T.V. SY…
+    row=5  desc=EARTHING
+  first_l2_preamble : row=24 desc=Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insula…
+  first_10_line_items (10):
+      row | sl_no        | desc                                                         | unit     | parent                                   | data
+    ------------------------------------------------------------------------------------------------------------------------------------------------
+       26 | a.           | First point controlled by one no. 6 amp switch.              | Nos.     | Wiring for the following light points wi… | qty=45.0 rate=None amt=0.0
+       27 | b.           | First point controlled by one no. 6 amp switch. For Emergenc… | Nos.     | Wiring for the following light points wi… | qty=0.0 rate=None amt=None
+       29 | 2.0          | Same as item No. 1a above but LOOP POINT i.e. wiring of poin… | Nos.     | Wiring for the following light points wi… | qty=350.0 rate=None amt=0.0
+       33 | a.           | First point controlled by existing MCB in D.B. To first ligh… | Nos.     | Wiring for the following light points co… | qty=20.0 rate=None amt=0.0
+       34 | b.           | First point controlled by existing MCB in D.B. For Emergency… | Nos.     | Wiring for the following light points co… | qty=40.0 rate=None amt=0.0
+       36 | 4.0          | Same as item No. 3 above but LOOP POINT i.e. wiring of point… | Nos.     | Wiring for the following light points co… | qty=0.0 rate=None amt=0.0
+       38 | 5.0          | Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm F… | Nos.     | Wiring for the following light points co… | qty=40.0 rate=None amt=0.0
+       40 | 6.0          | Wiring for inline fan points with 2 x 2.5 sq.mm FRLS PVC ins… | Nos.     | Wiring for the following light points co… | qty=4.0 rate=None amt=0.0
+       42 | 7.0          | Wiring for projector / Geyser points with 2 x 4 + 1 x 4 sq m… | Nos.     | Wiring for the following light points co… | qty=6.0 rate=None amt=0.0
+       44 | 8.0          | Wiring for VRV Indoor units with 3 x 2.5 sq.mm FRLS PVC insu… | Nos.     | Wiring for the following light points co… | qty=25.0 rate=None amt=0.0
+
+================================================================================
+END OF REPORT

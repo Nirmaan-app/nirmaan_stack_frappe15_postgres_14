@@ -1,0 +1,257 @@
+{
+  "_notes": {
+    "preamble_level_transitions_definition": "First preamble at each distinct level (Option alpha -- post-A1/A2-reframed, sec 9 #99)",
+    "regenerated_after": "Bug 19 priced-preamble promotion (sec 9 #106): 2 snitch rows (30.0 row=109, 6.0 row=341) promoted LINE_ITEM→PREAMBLE as false positives of the strict-adjacent-extension rule; semantically harmless, discriminator refinement deferred to cycle-3 validation re-run per cluster 2 session 4 decision",
+    "regenerated_date": "2026-05-27"
+  },
+  "workbook_assertions": {
+    "parsed_sheet_count_after_skip_filter": 2,
+    "master_preamble_is_empty": true,
+    "no_validation_warnings_anywhere": true
+  },
+  "skip_sheets_expected_absent_from_output": [
+    "OVERALL SUMMARY",
+    "SUMMARY MEP",
+    "MAKE LIST (to be updated)"
+  ],
+  "sheets": {
+    "6. Electrical": {
+      "total_resolved_row_count": 521,
+      "count_by_classification": {
+        "LINE_ITEM": 175,
+        "NOTE": 97,
+        "PREAMBLE": 44,
+        "SPACER": 196,
+        "SUBTOTAL_MARKER": 9
+      },
+      "first_5_line_items": [
+        {
+          "resolved_idx": 24,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "a.",
+          "description": "First point controlled by one no. 6 amp switch.",
+          "unit": "Nos.",
+          "qty": 45.0,
+          "path": "12/22/24",
+          "level": null
+        },
+        {
+          "resolved_idx": 25,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "b.",
+          "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+          "unit": "Nos.",
+          "qty": 0.0,
+          "path": "12/22/25",
+          "level": null
+        },
+        {
+          "resolved_idx": 27,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "2.0",
+          "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
+          "unit": "Nos.",
+          "qty": 350.0,
+          "path": "12/27",
+          "level": null
+        },
+        {
+          "resolved_idx": 31,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "a.",
+          "description": "First point controlled by existing MCB in D.B. To first light",
+          "unit": "Nos.",
+          "qty": 20.0,
+          "path": "12/29/31",
+          "level": null
+        },
+        {
+          "resolved_idx": 32,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "b.",
+          "description": "First point controlled by existing MCB in D.B. For Emergency Light",
+          "unit": "Nos.",
+          "qty": 40.0,
+          "path": "12/29/32",
+          "level": null
+        }
+      ],
+      "subtotal_markers": [
+        {
+          "resolved_idx": 9,
+          "sl_no_value": "",
+          "description": "TOTAL - ELECTRICAL WORKS",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 109,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 121,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 181,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 303,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 343,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 392,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 513,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        },
+        {
+          "resolved_idx": 520,
+          "sl_no_value": "",
+          "description": "TOTAL CARRIED OVER TO SUMMARY",
+          "path": null,
+          "level": null
+        }
+      ],
+      "preamble_level_transitions": [
+        {
+          "resolved_idx": 1,
+          "sl_no_value": "A.",
+          "level": 1,
+          "path": "1",
+          "description": "POINT WIRING"
+        },
+        {
+          "resolved_idx": 22,
+          "sl_no_value": "1.0",
+          "level": 2,
+          "path": "12/22",
+          "description_contains_substring": "Wiring for the following light points"
+        },
+        {
+          "resolved_idx": 350,
+          "sl_no_value": "a",
+          "level": 3,
+          "path": "345/347/350",
+          "description": "Light & Power Distribution Board"
+        },
+        {
+          "resolved_idx": 433,
+          "sl_no_value": "a",
+          "level": 4,
+          "path": "394/396/406/433",
+          "description": "The SDB-1 Light & power 32nd Floor shall consists of :"
+        }
+      ]
+    },
+    "7. Light Fixtures": {
+      "total_resolved_row_count": 15,
+      "count_by_classification": {
+        "LINE_ITEM": 14,
+        "SUBTOTAL_MARKER": 1
+      },
+      "first_5_line_items": [
+        {
+          "resolved_idx": 0,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "1.0",
+          "description": "Suspended LED Linear Light with electronic ballast.",
+          "unit": "Nos",
+          "qty": 120.0,
+          "path": "0",
+          "level": null
+        },
+        {
+          "resolved_idx": 1,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "2.0",
+          "description": "Recessed LED Linear Light with electronic ballast.",
+          "unit": "Nos",
+          "qty": 30.0,
+          "path": "1",
+          "level": null
+        },
+        {
+          "resolved_idx": 2,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "3.0",
+          "description": "Suspended Decorative Gloves light:Dia 350mm With electronic ballast.",
+          "unit": "Nos",
+          "qty": 4.0,
+          "path": "2",
+          "level": null
+        },
+        {
+          "resolved_idx": 3,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "4.0",
+          "description": "Recessed & Suspended light fixture (600x600) with electronic ballast.",
+          "unit": "Nos",
+          "qty": 20.0,
+          "path": "3",
+          "level": null
+        },
+        {
+          "resolved_idx": 4,
+          "classification": "LINE_ITEM",
+          "sl_no_value": "5.0",
+          "description": "Downlight fixture Type -01",
+          "unit": "Nos",
+          "qty": 300.0,
+          "path": "4",
+          "level": null
+        }
+      ],
+      "subtotal_markers": [
+        {
+          "resolved_idx": 14,
+          "sl_no_value": "",
+          "description": "TOTAL - SUPPLY OF LIGHTS",
+          "path": null,
+          "level": null
+        }
+      ],
+      "preamble_level_transitions": [],
+      "row_16_preamble_anomaly": {
+        "row_index_in_resolved": 13,
+        "sl_no_value": "14.0",
+        "description_contains": "Silver Series Digital PIR",
+        "unit": "NOS",
+        "classification": "LINE_ITEM",
+        "qty": 0.0,
+        "is_rate_only": true,
+        "level": null,
+        "path": "13",
+        "anomaly_reason": "B2f zero-children demotion: classifier set PREAMBLE (blank col D qty); B2f demotes leaf PREAMBLE with unit='NOS' to LINE_ITEM(qty=0.0, is_rate_only=True)"
+      }
+    }
+  }
+}

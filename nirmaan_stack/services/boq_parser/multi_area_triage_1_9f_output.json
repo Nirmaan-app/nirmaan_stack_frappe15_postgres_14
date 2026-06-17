@@ -1,0 +1,835 @@
+{
+  "_metadata": {
+    "phase": "1.9f Stage 1",
+    "generated_at": "2026-05-17T18:18:59.556469+00:00",
+    "script_version": "1.0",
+    "branch_tip_at_generation": "5cb9907bb89fda7b47b1751ff607e261417843e8",
+    "targets_attempted": 3,
+    "raheja_workbook_path": "/workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/tests/fixtures/RAHEJA Commerzone  Chennai BOQ.xlsx",
+    "snitch_workbook_path": "/workspace/development/frappe-bench/apps/nirmaan_stack/nirmaan_stack/services/boq_parser/tests/fixtures/snitch_electrical.xlsx"
+  },
+  "_amount_provenance_note": "Per-area amounts are populated at parse time via _apply_multi_area_post_pass: direct cell values from amount_by_area ColumnRoles, OR computed as qty × rate when rate columns present (Pattern 2-rate) and no direct amount. Single-area amount_total comes from the classified_row.amount_total cell value. All amount fields may still be null for sheets where the parser finds no amount columns or no numeric values.",
+  "results": [
+    {
+      "target_label": "Raheja Electrical",
+      "workbook_filename": "RAHEJA Commerzone  Chennai BOQ.xlsx",
+      "sheet_name_exact": "Electrical ",
+      "header_row_count_1": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "single_area",
+        "pattern": null,
+        "detection_routing": "1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)",
+        "areas": null,
+        "header_row_excel": 3,
+        "first_3_l1_preambles": [],
+        "first_l2_preamble": null,
+        "first_10_line_items": [
+          {
+            "excel_row": 1,
+            "sl_no": null,
+            "description": "BOQ - ELECTRICAL",
+            "unit": "BOQ - ELECTRICAL",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": null
+            }
+          },
+          {
+            "excel_row": 2,
+            "sl_no": null,
+            "description": null,
+            "unit": null,
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": null
+            }
+          },
+          {
+            "excel_row": 40,
+            "sl_no": null,
+            "description": "4C x 25sqmm Al Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 450.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 41,
+            "sl_no": null,
+            "description": "4C x 16sqmm Al Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 450.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 46,
+            "sl_no": null,
+            "description": "4C x 10sqmm CU Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 50.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 54,
+            "sl_no": null,
+            "description": "1C x 10 SQMM CU Flexible cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 50.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 56,
+            "sl_no": null,
+            "description": "3C x 10 SQMM CU FLEXIBLE cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 60.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 57,
+            "sl_no": null,
+            "description": "3Cx 6sqmm copper flexible FRLS cable for server racks",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 80.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 64,
+            "sl_no": null,
+            "description": "3.5C x150 sqmm Al Ar. cable",
+            "unit": "Nos.",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 4.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 70,
+            "sl_no": null,
+            "description": "4C x 25sqmm Al Ar cable",
+            "unit": "Nos.",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "single_area_data": {
+              "qty": 12.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          }
+        ]
+      },
+      "header_row_count_2": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "multi_area",
+        "pattern": "Pattern 2-rate",
+        "detection_routing": "2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: Pattern 2-rate",
+        "areas": [
+          "PHASE-1",
+          "PHASE-2"
+        ],
+        "header_row_excel": 3,
+        "first_3_l1_preambles": [],
+        "first_l2_preamble": null,
+        "first_10_line_items": [
+          {
+            "excel_row": 1,
+            "sl_no": null,
+            "description": "BOQ - ELECTRICAL",
+            "unit": "BOQ - ELECTRICAL",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": null
+              }
+            }
+          },
+          {
+            "excel_row": 2,
+            "sl_no": null,
+            "description": null,
+            "unit": null,
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": null
+              }
+            }
+          },
+          {
+            "excel_row": 40,
+            "sl_no": null,
+            "description": "4C x 25sqmm Al Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 41,
+            "sl_no": null,
+            "description": "4C x 16sqmm Al Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 46,
+            "sl_no": null,
+            "description": "4C x 10sqmm CU Ar cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 54,
+            "sl_no": null,
+            "description": "1C x 10 SQMM CU Flexible cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 56,
+            "sl_no": null,
+            "description": "3C x 10 SQMM CU FLEXIBLE cable",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 57,
+            "sl_no": null,
+            "description": "3Cx 6sqmm copper flexible FRLS cable for server racks",
+            "unit": "Mtr",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 64,
+            "sl_no": null,
+            "description": "3.5C x150 sqmm Al Ar. cable",
+            "unit": "Nos.",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          },
+          {
+            "excel_row": 70,
+            "sl_no": null,
+            "description": "4C x 25sqmm Al Ar cable",
+            "unit": "Nos.",
+            "parent_description": null,
+            "ancestor_chain": null,
+            "multi_area_data": {
+              "per_area": {
+                "PHASE-1": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                },
+                "PHASE-2": {
+                  "qty": null,
+                  "rate": null,
+                  "amount": null
+                }
+              },
+              "totals": {
+                "qty": null,
+                "rate": null,
+                "amount": 0.0
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "target_label": "Raheja HVAC",
+      "workbook_filename": "RAHEJA Commerzone  Chennai BOQ.xlsx",
+      "sheet_name_exact": "HVAC ",
+      "header_row_count_1": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "single_area",
+        "pattern": null,
+        "detection_routing": "1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)",
+        "areas": null,
+        "header_row_excel": 3,
+        "first_3_l1_preambles": [
+          {
+            "excel_row": 1,
+            "description": "SUMMARY"
+          },
+          {
+            "excel_row": 6,
+            "description": "Equipment"
+          },
+          {
+            "excel_row": 8,
+            "description": "Ducting"
+          }
+        ],
+        "first_l2_preamble": {
+          "excel_row": 18,
+          "description": "6500 CFM AHU with Ac Motor fan speed with starter Panel adjactable."
+        },
+        "first_10_line_items": []
+      },
+      "header_row_count_2": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "multi_area",
+        "pattern": "Pattern 1",
+        "detection_routing": "2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: Pattern 1",
+        "areas": [
+          "PHASE-1",
+          "PHASE-2"
+        ],
+        "header_row_excel": 3,
+        "first_3_l1_preambles": [
+          {
+            "excel_row": 1,
+            "description": "SUMMARY"
+          },
+          {
+            "excel_row": 6,
+            "description": "Equipment"
+          },
+          {
+            "excel_row": 8,
+            "description": "Ducting"
+          }
+        ],
+        "first_l2_preamble": {
+          "excel_row": 18,
+          "description": "6500 CFM AHU with Ac Motor fan speed with starter Panel adjactable."
+        },
+        "first_10_line_items": []
+      }
+    },
+    {
+      "target_label": "Snitch Electrical",
+      "workbook_filename": "snitch_electrical.xlsx",
+      "sheet_name_exact": "6. Electrical",
+      "header_row_count_1": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "single_area",
+        "pattern": null,
+        "detection_routing": "1-row mode — priority: Pattern 3 → Pattern 1 (bottom row) → None. Final winner: None (single-area)",
+        "areas": null,
+        "header_row_excel": 1,
+        "first_3_l1_preambles": [
+          {
+            "excel_row": 3,
+            "description": "POINT WIRING"
+          },
+          {
+            "excel_row": 4,
+            "description": "CONDUITING FOR TELEPHONE, COMPUTER & CONDUITING AND WIRING FOR T.V. SYSTEM."
+          },
+          {
+            "excel_row": 5,
+            "description": "EARTHING"
+          }
+        ],
+        "first_l2_preamble": {
+          "excel_row": 24,
+          "description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit."
+        },
+        "first_10_line_items": [
+          {
+            "excel_row": 26,
+            "sl_no": "a.",
+            "description": "First point controlled by one no. 6 amp switch.",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 45.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 27,
+            "sl_no": "b.",
+            "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": null
+            }
+          },
+          {
+            "excel_row": 29,
+            "sl_no": "2.0",
+            "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 350.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 33,
+            "sl_no": "a.",
+            "description": "First point controlled by existing MCB in D.B. To first light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 20.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 34,
+            "sl_no": "b.",
+            "description": "First point controlled by existing MCB in D.B. For Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 40.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 36,
+            "sl_no": "4.0",
+            "description": "Same as item No. 3 above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS. insulated copper conductor wire in concealed/exposed PVC conduit and earthing for Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 38,
+            "sl_no": "5.0",
+            "description": "Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm FRLS PVC insulated copper conductor wires in PVC Conduits in ceiling/walls/floor as direc­ted incl­u­ding providing and fixing of 6/13 amps flush type 5 pin socket and 16 amps switch with cover plate, 5 sided G.I boxes for housing switches, sockets and earthi­ng complete as required. (for general areas)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 40.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 40,
+            "sl_no": "6.0",
+            "description": "Wiring for inline fan points with 2 x 2.5 sq.mm FRLS PVC insulated stranded copper con­ductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing providing and fixing of 16 amps flush type switches 16 amps 3 pin socket near inline fan, 5 sided G.I. boxes for housing switches and 16 amps 3 pin socket outlet and earthing and complete as required.(including body earth for GI boxes)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 4.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 42,
+            "sl_no": "7.0",
+            "description": "Wiring for projector / Geyser points with 2 x 4 + 1 x 4 sq mm FRLS PVC insulated copper conductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing 16 amps flush type switch near the white board and 6/16 amps 6 pin socket near the projector in ceiling , 5 sided G.I. boxes for housing switches and 6/16 A 6 pin socket outlet , earthing and complete as required.(including body earth for GI boxes) ( 1 point per circuit)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 6.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 44,
+            "sl_no": "8.0",
+            "description": "Wiring for VRV Indoor units with 3 x 2.5 sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing providing and fixing of 6 amps flush type switches 16 amps 3 pin socket near VRV points, 5 sided G.I. boxes for housing switches and 16 amps 3 pin socket outlet and earthing and complete as required.(including body earth for GI boxes) ( 2 to 3 points per circuits)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 25.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          }
+        ]
+      },
+      "header_row_count_2": {
+        "parse_status": "success",
+        "exception_traceback": null,
+        "classification": "single_area",
+        "pattern": null,
+        "detection_routing": "2-row mode — priority: Pattern 2-rate → Pattern 2 → Pattern 3 (bottom) → Pattern 1 (bottom) → Pattern 1 (top) → None. Final winner: None (single-area)",
+        "areas": null,
+        "header_row_excel": 1,
+        "first_3_l1_preambles": [
+          {
+            "excel_row": 3,
+            "description": "POINT WIRING"
+          },
+          {
+            "excel_row": 4,
+            "description": "CONDUITING FOR TELEPHONE, COMPUTER & CONDUITING AND WIRING FOR T.V. SYSTEM."
+          },
+          {
+            "excel_row": 5,
+            "description": "EARTHING"
+          }
+        ],
+        "first_l2_preamble": {
+          "excel_row": 24,
+          "description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit."
+        },
+        "first_10_line_items": [
+          {
+            "excel_row": 26,
+            "sl_no": "a.",
+            "description": "First point controlled by one no. 6 amp switch.",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 45.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 27,
+            "sl_no": "b.",
+            "description": "First point controlled by one no. 6 amp switch. For Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": null
+            }
+          },
+          {
+            "excel_row": 29,
+            "sl_no": "2.0",
+            "description": "Same as item No. 1a above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS PVC insulated copper conductor wire in concealed/exposed PVC conduit and earthing",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points with 3x1.5 Sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/walls/ceiling as directed including providing and fixing of 6 amps flush type switches, 5 sided G.I Boxes for housing switc­hes and earth­ing complete as required. Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit.",
+            "single_area_data": {
+              "qty": 350.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 33,
+            "sl_no": "a.",
+            "description": "First point controlled by existing MCB in D.B. To first light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 20.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 34,
+            "sl_no": "b.",
+            "description": "First point controlled by existing MCB in D.B. For Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 40.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 36,
+            "sl_no": "4.0",
+            "description": "Same as item No. 3 above but LOOP POINT i.e. wiring of point looped from first point with 3 x 1.5 sq. mm FRLS. insulated copper conductor wire in concealed/exposed PVC conduit and earthing for Emergency Light",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 0.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 38,
+            "sl_no": "5.0",
+            "description": "Wiring for 6/16 amps light plug outlets with 3 X 2.5 sq.mm FRLS PVC insulated copper conductor wires in PVC Conduits in ceiling/walls/floor as direc­ted incl­u­ding providing and fixing of 6/13 amps flush type 5 pin socket and 16 amps switch with cover plate, 5 sided G.I boxes for housing switches, sockets and earthi­ng complete as required. (for general areas)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 40.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 40,
+            "sl_no": "6.0",
+            "description": "Wiring for inline fan points with 2 x 2.5 sq.mm FRLS PVC insulated stranded copper con­ductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing providing and fixing of 16 amps flush type switches 16 amps 3 pin socket near inline fan, 5 sided G.I. boxes for housing switches and 16 amps 3 pin socket outlet and earthing and complete as required.(including body earth for GI boxes)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 4.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 42,
+            "sl_no": "7.0",
+            "description": "Wiring for projector / Geyser points with 2 x 4 + 1 x 4 sq mm FRLS PVC insulated copper conductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing 16 amps flush type switch near the white board and 6/16 amps 6 pin socket near the projector in ceiling , 5 sided G.I. boxes for housing switches and 6/16 A 6 pin socket outlet , earthing and complete as required.(including body earth for GI boxes) ( 1 point per circuit)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 6.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          },
+          {
+            "excel_row": 44,
+            "sl_no": "8.0",
+            "description": "Wiring for VRV Indoor units with 3 x 2.5 sq.mm FRLS PVC insulated stranded copper conductor wires in concealed PVC conduits in F.ceiling/ walls/ Ceiling as directed including providing providing and fixing of 6 amps flush type switches 16 amps 3 pin socket near VRV points, 5 sided G.I. boxes for housing switches and 16 amps 3 pin socket outlet and earthing and complete as required.(including body earth for GI boxes) ( 2 to 3 points per circuits)",
+            "unit": "Nos.",
+            "parent_description": "Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "ancestor_chain": "POINT WIRING > Wiring for the following light points controlled by MCB in DB (Cost of MCB has been taken elsewhere in the tender) with 2 x 2.5 + 2.5 sq. mm FRLS PVC insulated copper conductor wires in concealed/exposed PVC conduits as called for and earthing.Rates are inclusive of 3 x 1.5 sq mm FRLS PVC insulated stranded copper conductor wires for circuit",
+            "single_area_data": {
+              "qty": 25.0,
+              "rate": null,
+              "amount": 0.0
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

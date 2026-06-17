@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import memoize from "lodash/memoize";
 import {
   CircleCheckBig,
@@ -20,6 +20,7 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -33,6 +34,7 @@ import { useFacetValues } from "@/hooks/useFacetValues";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
+import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToLakhsNumber } from "@/utils/FormatPrice";
 import {
@@ -59,6 +61,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import {
   useAllProjectsCount,
+  useTenderingProjectsCount,
   useProjectStatusCountCall,
   useProjectsListExpenses,
   useProjectsListInflows,
@@ -68,12 +71,17 @@ import {
   useProjectsListProjectInvoices,
 } from "./data/root/useProjectRootApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
+import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
 // Summary pills shown for every role. Visibility of the *count* is separate
 // from authorization to set/unset CEO Hold (backend-enforced for nitesh@nirmaan.app).
-const PROJECT_STATUS_OPTIONS = ["WIP", "Completed", "Halted", "Handover", "CEO Hold"].map(
+// v3 dual-field model: `status` is the pure execution lifecycle — the bid
+// dimension (Won/Tendering/Lost) lives on `tendering_status`. "Won" is the
+// initial execution stage (v3.1: Won-as-initial); the deprecated "Created" is
+// intentionally omitted from these summary pills.
+const PROJECT_STATUS_OPTIONS = ["Won", "WIP", "Completed", "Halted", "Handover", "CEO Hold"].map(
   (s) => ({ label: s, value: s })
 );
 
@@ -112,7 +120,7 @@ interface StatusCountPillProps {
 
 const getProjectStatusColors = (status: string) => {
   switch (status) {
-    case "Created":
+    case "Won":
       return {
         bg: "bg-blue-100/50",
         border: "border-blue-200",
@@ -266,6 +274,40 @@ export const Projects: React.FC<ProjectsProps> = ({
   const canViewFinancials = FINANCIAL_COLUMNS_ROLES.includes(role);
   const canViewSummaryCard = user_id === "Administrator" || SUMMARY_CARD_ROLES.includes(role);
 
+  // The Tendering tab — and therefore the Projects/Tendering tab strip itself —
+  // is gated to Nirmaan Admin + PMO Executive (and the Administrator user).
+  // Other roles go straight to the operational project table with no tabs.
+  // Mirrors the "Add New Project" button gating in renderRightActionButton.
+  const canSeeTenderingTab =
+    user_id === "Administrator" ||
+    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+
+  // Tab toggle: "projects" (default operational list) vs "tendering" (stub list).
+  // URL-persisted via the `tab` search param so the create form can deep-link.
+  // For non-eligible roles we ignore `?tab=tendering` and force the projects view.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    canSeeTenderingTab && searchParams.get("tab") === "tendering"
+      ? "tendering"
+      : "projects";
+  const handleTabChange = useCallback(
+    (value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value === "tendering") {
+            next.set("tab", "tendering");
+          } else {
+            next.delete("tab");
+          }
+          return next;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
+
   const [isExpanded, setIsExpanded] = useState(false);
 
   const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -291,6 +333,20 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const { call } = useProjectStatusCountCall();
   const { data: all_projects_count } = useAllProjectsCount();
+  const { data: tendering_projects_count } = useTenderingProjectsCount();
+
+  const statusOptions = useMemo(() => {
+    // v3: execution-status tabs. "Won" left the execution dimension — newly
+    // converted projects now sit at "Created" until work begins.
+    const options = ["Created", "WIP", "Completed", "Halted", "Handover"];
+    if (user_id === CEO_HOLD_AUTHORIZED_USER) {
+      options.push("CEO Hold");
+    }
+    return options.map((s) => ({
+      label: s,
+      value: s,
+    }));
+  }, [user_id]);
 
   useEffect(() => {
     const fetchCounts = async () => {
@@ -937,6 +993,29 @@ export const Projects: React.FC<ProjectsProps> = ({
             : ""
       )}
     >
+      {!customersView && canSeeTenderingTab && (
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+          <TabsList>
+            <TabsTrigger value="projects" className="gap-1.5">
+              Won Projects
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
+                {all_projects_count ?? 0}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="tendering" className="gap-1.5">
+              Tendering Projects
+              <span className="inline-flex items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold tabular-nums text-primary">
+                {tendering_projects_count ?? 0}
+              </span>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {activeTab === "tendering" && !customersView ? (
+        <TenderingProjectsTable customerId={customerId} urlContext={urlContext} />
+      ) : (
+        <>
       {!customersView && canViewSummaryCard && (
         <Card className="my-2 shadow-sm overflow-hidden">
           <CardContent className="p-0">
@@ -1079,6 +1158,8 @@ export const Projects: React.FC<ProjectsProps> = ({
           />
         )}
       </div>
+        </>
+      )}
     </div>
   );
 };

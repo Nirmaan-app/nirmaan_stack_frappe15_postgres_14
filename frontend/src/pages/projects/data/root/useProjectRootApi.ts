@@ -44,6 +44,7 @@ export interface ProjectPOItemDataItem {
 
 export const projectRootKeys = {
   allProjectsCount: () => ["project-root", "allProjectsCount"] as const,
+  tenderingProjectsCount: () => ["project-root", "tenderingProjectsCount"] as const,
   projectsListPOs: () => ["project-root", "projectsListPOs"] as const,
   projectsListSRs: () => ["project-root", "projectsListSRs"] as const,
   projectsListInflows: () => ["project-root", "projectsListInflows"] as const,
@@ -72,15 +73,37 @@ export const useProjectStatusCountCall = () => {
 };
 
 export const useAllProjectsCount = () => {
+  // "Total Projects" counts only awarded (Won) projects. Pre-Won stubs
+  // (Tendering / Lost) are pipeline records and would distort the count.
   const response = useFrappeGetDocCount(
     "Projects",
-    undefined,
+    [["tendering_status", "=", "Won"]],
     false,
     projectRootKeys.allProjectsCount()
   );
 
   useApiErrorLogger(response.error, {
     hook: "useAllProjectsCount",
+    api: "Projects Count",
+    feature: "project-root",
+  });
+
+  return response;
+};
+
+export const useTenderingProjectsCount = () => {
+  // Count of active pipeline stubs only (tendering_status = "Tendering").
+  // Lost stubs are excluded — they live under their own "Lost" sub-tab and are
+  // terminal, so the "Tendering Projects" tab badge reflects live prospects.
+  const response = useFrappeGetDocCount(
+    "Projects",
+    [["tendering_status", "=", "Tendering"]],
+    false,
+    projectRootKeys.tenderingProjectsCount()
+  );
+
+  useApiErrorLogger(response.error, {
+    hook: "useTenderingProjectsCount",
     api: "Projects Count",
     feature: "project-root",
   });

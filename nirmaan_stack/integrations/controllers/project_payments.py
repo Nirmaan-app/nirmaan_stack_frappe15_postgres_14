@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -128,6 +129,17 @@ def _notify_admins_auto_approved(doc):
 
 
 # --- HOOK IMPLEMENTATIONS ---
+
+def validate(doc, method):
+    """Tendering operational guard (Slice 5 / B5).
+
+    Defense-in-depth backstop: refuse to create a Project Payment against a
+    Tendering project stub. Guard only NEW docs so edits to existing/legacy
+    payments are never blocked.
+    """
+    if doc.is_new():
+        validate_won(doc.project, "Project Payment")
+
 
 def after_insert(doc, method):
     """
