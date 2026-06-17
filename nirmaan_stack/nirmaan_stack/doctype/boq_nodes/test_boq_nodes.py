@@ -155,6 +155,35 @@ class TestBOQNodes(FrappeTestCase):
             node.insert(ignore_permissions=True)
 
     # ------------------------------------------------------------------ #
+    # validate: "Other" node_type (X -- non-priceable rows)                #
+    # ------------------------------------------------------------------ #
+
+    def test_other_node_saves_cleanly(self):
+        # X: a non-priceable "Other" node (note/subtotal_marker/header_repeat) saves with
+        # no level and no qty -- the Preamble/Line Item validation branches no-op for it.
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Other"
+        node.row_class = "note"
+        node.description = "Site note: rates inclusive of taxes"
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.node_type, "Other")
+        self.assertEqual(node.row_class, "note")
+        self.assertIsNone(node.level)
+
+    def test_other_node_under_preamble_saves(self):
+        # X: a note's effective parent is a preamble -> an Other node parented to a
+        # Preamble must save (the Line-Item-parent-must-be-Preamble rule no-ops for Other).
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Other"
+        node.row_class = "note"
+        node.description = "note under preamble"
+        node.parent_node = self.default_preamble
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.parent_node, self.default_preamble)
+
+    # ------------------------------------------------------------------ #
     # validate: Preamble level rules                                       #
     # ------------------------------------------------------------------ #
 

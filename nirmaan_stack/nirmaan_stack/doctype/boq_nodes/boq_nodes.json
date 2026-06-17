@@ -13,6 +13,7 @@
   "parent_node",
   "node_details_section",
   "node_type",
+  "row_class",
   "level",
   "human_classification",
   "human_parent",
@@ -95,7 +96,13 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Node Type",
-   "options": "Preamble\nLine Item"
+   "options": "Preamble\nLine Item\nOther"
+  },
+  {
+   "description": "Full effective classification from review (preamble/line_item/note/spacer/subtotal_marker/header_repeat). node_type is the priceability axis (Preamble/Line Item = priceable, Other = non-priceable); row_class is the taxonomy axis. A future pricing walk selects node_type in (Preamble, Line Item).",
+   "fieldname": "row_class",
+   "fieldtype": "Data",
+   "label": "Row Class"
   },
   {
    "depends_on": "eval:doc.node_type == 'Preamble'",

@@ -7,10 +7,12 @@ This writes REAL parsed BoQ data into the committed schema.
 THE TWO-LAYER MODEL
   Every committable sheet commits its COMPLETE original as a FAITHFUL GRID (all 6
   row classifications, in original position) into `BoQ Committed Sheet Grid` (3a).
-  A FINALIZED sheet ALSO commits a NODE TREE (3b): its review rows are read,
+  A FINALIZED sheet ALSO commits a NODE TREE (3b; X): its review rows are read,
   resolved (resolve_effective), mapped, and written as BOQ Nodes + BOQ Node Qty By
-  Area children, parent-wired, with provenance carried. General-specs sheets are
-  grid-only.
+  Area children, parent-wired, with provenance carried. X commits EVERY classified row
+  except spacer (preamble/line_item -> Preamble/Line Item; note/subtotal_marker/
+  header_repeat -> Other; row_class carries the full taxonomy), so the node tree is a
+  complete semantic mirror. General-specs sheets are grid-only.
 
 DISPOSITION (from the Slice-2 commit gate, mapped onto the grid's discriminator):
   gate "general_specs" -> sheet_disposition "grid_only"
@@ -89,13 +91,20 @@ _DISPOSITION_TO_TREAT_AS = {
     "finalized": "data",
 }
 
-# effective_classification values that become committed nodes. The 4 others
-# (note / spacer / subtotal_marker / header_repeat) are GRID-ONLY -- captured in the
-# faithful grid (3a) but NOT turned into nodes (the BOQ Nodes node_type Select has
-# exactly Preamble + Line Item).
+# X: commit ALL classified rows as semantic nodes EXCEPT spacer, so the committed node
+# tree is a complete semantic mirror of the reviewed BoQ. node_type is the PRICEABILITY
+# axis -- preamble -> Preamble, line_item -> Line Item, every OTHER committed class
+# (note / subtotal_marker / header_repeat) -> Other; the full effective classification is
+# carried verbatim on row_class (the taxonomy axis, set in pass 1). SPACER stays GRID-ONLY
+# (pure layout, no semantic content -- the faithful grid preserves its position). A future
+# pricing walk stays exactly `node_type in (Preamble, Line Item)`, unchanged.
 _PREAMBLE_CLS = "preamble"
 _LINE_ITEM_CLS = "line_item"
-_NODE_CLASSIFICATIONS = frozenset({_PREAMBLE_CLS, _LINE_ITEM_CLS})
+_SPACER_CLS = "spacer"
+# Priceable classes -> Preamble / Line Item node_type. Everything else committed -> Other.
+_PRICEABLE_CLASSIFICATIONS = frozenset({_PREAMBLE_CLS, _LINE_ITEM_CLS})
+# Classes NOT turned into nodes (grid-only). X: only spacer.
+_GRID_ONLY_CLASSIFICATIONS = frozenset({_SPACER_CLS})
 
 # BoQ Review Row fields the node body reads (the get_review_rows source-of-truth set,
 # narrowed to what the mapping needs).
@@ -451,9 +460,12 @@ def _commit_node_tree(
 ) -> dict:
     """Build + persist the committed node tree for a FINALIZED sheet (Slice 3b).
 
-    Reads the sheet's BoQ Review Rows, resolves the effective tree, and writes
-    PREAMBLE/LINE_ITEM rows as BOQ Nodes (+ per-area BOQ Node Qty By Area children)
-    in three passes (see module docstring). Carries reviewed values VERBATIM
+    Reads the sheet's BoQ Review Rows, resolves the effective tree, and writes EVERY
+    classified row EXCEPT spacer as a BOQ Node (X): priceable rows keep node_type
+    Preamble / Line Item, non-priceable committed rows (note / subtotal_marker /
+    header_repeat) become node_type Other; row_class carries the full taxonomy. Per-area
+    BOQ Node Qty By Area children are exploded for priceable rows (non-priceable rows
+    have none). Three passes (see module docstring). Carries reviewed values VERBATIM
     (capture-only). Returns {"node_count", "froze_nodes"}.
     """
     # 0. Freeze the prior commit's current nodes (attached to the now-frozen prior
@@ -477,8 +489,8 @@ def _commit_node_tree(
     for r in raw_rows:
         d = _parse_json_fields(dict(r))
         eff = resolve_effective(d)
-        if eff["effective_classification"] not in _NODE_CLASSIFICATIONS:
-            continue  # note / spacer / subtotal_marker / header_repeat -> grid-only
+        if eff["effective_classification"] in _GRID_ONLY_CLASSIFICATIONS:
+            continue  # spacer -> grid-only (pure layout, captured in the faithful grid)
         node_rows.append((d, eff))
         eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
@@ -566,8 +578,15 @@ def _compute_levelless_preamble_levels(
     the parent (a squeeze), warn and still assign best-effort -- do not silently jam.
     """
     level_by_idx = {d["row_index"]: (d.get("level") or 0) for d, _e in node_rows}
+    # X / Q8 fix: only PRICEABLE children (preamble / line_item) count toward a level-less
+    # preamble's computed level. A note / subtotal_marker / header_repeat is not a
+    # structural child for level purposes; counting one (it carries level 0) would wrongly
+    # pull the preamble down to level 0. A preamble whose only children are non-priceable
+    # therefore has NO structural children here and falls to the childless branch.
     child_levels: dict = {}
-    for d, _e in node_rows:
+    for d, e in node_rows:
+        if e["effective_classification"] not in _PRICEABLE_CLASSIFICATIONS:
+            continue
         ep = eff_parent_by_idx.get(d["row_index"])
         if ep is not None:
             child_levels.setdefault(ep, []).append(level_by_idx[d["row_index"]])
@@ -618,6 +637,7 @@ def _build_node_pass1(
     node.sheet = boq_sheet_name  # boq auto-fills from the sheet (P4-2 sync-guard)
 
     cls = eff["effective_classification"]
+    node.row_class = cls  # X: full taxonomy axis (carried verbatim for every node)
     if cls == _PREAMBLE_CLS:
         node.node_type = "Preamble"
         # A real >=1 level (override or parser) is used unchanged. A LEVEL-LESS preamble
@@ -625,8 +645,14 @@ def _build_node_pass1(
         # -> sheet shallowest defined level, else 0). Constraint relaxed to allow 0.
         real = _real_preamble_level(d)
         node.level = real if real is not None else assigned_levels.get(d["row_index"], 0)
-    else:  # _LINE_ITEM_CLS -- level must NOT be set (controller throws if it is)
-        node.node_type = "Line Item"
+    elif cls == _LINE_ITEM_CLS:
+        node.node_type = "Line Item"  # level must NOT be set (controller throws if it is)
+    else:
+        # X: non-priceable committed rows (note / subtotal_marker / header_repeat) -> Other.
+        # No level set; the "qty None -> 0" default below stays Line-Item-only, so these
+        # carry no qty/rate/amount (none exist on the review row). description + parent are
+        # carried like any node (a note's effective parent is a preamble, wired in pass 2).
+        node.node_type = "Other"
 
     # Identity / content (P4-3: sl_no_value->code, row_index->sort_order).
     node.code = d.get("sl_no_value")
