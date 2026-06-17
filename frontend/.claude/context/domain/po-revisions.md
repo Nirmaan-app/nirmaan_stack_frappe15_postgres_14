@@ -27,13 +27,14 @@ The "Revise PO" button renders as a **red warning banner** in the Invoices secti
 
 ## Lock Mechanism
 
-When a revision is Pending, the PO is locked for both items and payments. When a PO Adjustment is Pending, only payments are locked.
+When a revision is Pending, the PO is locked for both items and payments. A PO Adjustment locks payments only — but **hard vs soft** depending on the balance.
 
 **Backend:** `revision_po_check.py`
-- `check_po_in_pending_revisions(po_id)` -> `{ is_locked, is_item_locked, is_payment_locked, item_lock_revision_id, payment_lock_source, payment_lock_id }`
-- Check 1: Pending revision on this PO -> locks both items and payments
-- Check 2: Pending PO Adjustment on this PO -> locks payments only
-- `get_all_locked_po_names()` -> Bulk fetch all locked PO names (revision + adjustment)
+- `check_po_in_pending_revisions(po_id)` -> `{ is_locked, is_item_locked, is_payment_locked, item_lock_revision_id, payment_lock_source, payment_lock_id, has_credit_notice, credit_notice_id, remaining_credit }`
+- Check 1: Pending revision on this PO -> **hard lock** of both items and payments
+- Check 2a: **Pending** PO Adjustment (≥ ₹100 unresolved) -> **hard lock** of payments (`is_payment_locked = True`)
+- Check 2b: **`Done`** PO Adjustment still holding small credit (`remaining_impact <= -1`) -> **soft advisory** only: `has_credit_notice = True` + `remaining_credit`, payment terms stay usable
+- `get_all_locked_po_names()` -> bulk locked-PO names (Pending revisions + Pending adjustments + `Done`-with-credit POs; the last group is for **merge/transfer exclusion** only, not payment-term locking)
 
 **Frontend:** `usePOLockCheck(poId)` hook (SWR-cached POST call)
 
@@ -185,10 +186,12 @@ Post-sync:
 
 If `total_amount_difference != 0`, the system automatically:
 
-**Positive diff (PO amount increased):** `_auto_add_payment_term()`
-1. Appends a new "Created" payment term labeled "Revision Adjustment - {revision_id}"
-2. Rebalances all term percentages
-3. Creates double-entry in PO Adjustment: "Revision Impact" (+diff) + "Term Addition" (-diff) -> net 0 -> Done
+**Positive diff (PO amount increased):** `_auto_add_payment_term()` — **credit-aware**
+1. Reads existing overpaid credit via `_get_available_po_credit()` = `max(0, -remaining_impact)` (by number, status-agnostic — works even on a `Done` adjustment)
+2. Consumes credit first: `covered = min(diff, credit)`, `uncovered = diff - covered`
+3. Appends a new "Created" payment term ("Revision Adjustment - {revision_id}") **only for the `uncovered` balance** (none if fully credit-covered)
+4. Rebalances all term percentages
+5. PO Adjustment entries: "Revision Impact" (+diff), plus **"Auto Adjustment"** (0, audit; `entry_type = "Auto Adjustment"`, formerly "Credit Applied") when credit was used, plus "Term Addition" (-uncovered) only if a term was created. With no prior credit this is the legacy "+diff / -diff -> net 0 -> Done". The "Auto Adjustment" message reads e.g. *"Revision raised this PO by ₹X — fully covered by overpaid credit (₹Y still available). No new payment."* (or the ₹covered / ₹uncovered split when partly covered).
 
 **Negative diff (PO amount decreased):** `_auto_absorb_created_terms()`
 1. LIFO-reduces "Created" payment terms to absorb the reduction
@@ -307,5 +310,5 @@ Return DNs store negative `delivered_quantity` -> `recalculate_po_delivery_field
 5. **from_adjustment flag is critical** -- without it, payment hook commits break rollback atomicity
 6. **TimestampMismatchError** -- `_recalculate_amount_paid` for original PO must run AFTER `.save()` because `set_value` updates `modified`
 7. **payment_return_details is deprecated** -- revision no longer stores payment allocation; set to None on creation
-8. **Positive diff is auto-resolved** -- auto-creates Created term + PO Adjustment entries that net to zero -> status "Done"
-9. **Negative diff may need manual resolution** -- only auto-absorbs Created terms; remaining deficit tracked as Pending in PO Adjustment
+8. **Positive diff is credit-aware** -- consumes existing overpaid credit first (`_get_available_po_credit`), creates a Created term only for the uncovered balance (+ an **"Auto Adjustment"** audit entry, `entry_type = "Auto Adjustment"`, formerly "Credit Applied"). With no credit it nets to zero -> "Done" as before
+9. **Negative diff may need manual resolution** -- only auto-absorbs Created terms; remaining deficit tracked as negative `remaining_impact` (Pending if ≥ ₹100, else "Done" but still reusable credit) in PO Adjustment

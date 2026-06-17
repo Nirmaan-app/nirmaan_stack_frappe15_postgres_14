@@ -124,7 +124,7 @@ export const PurchaseOrder = ({
     [userData?.role]
   );
   const isAccountant = useMemo(
-    () => userData?.role === "Nirmaan Accountant Profile",
+    () => userData?.role === "Nirmaan Accountant Profile" || userData?.role === "Nirmaan Accountant Lead Profile",
     [userData?.role]
   );
   const isProjectManager = useMemo(

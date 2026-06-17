@@ -2,12 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 from frappe.desk.reportview import execute as reportview_execute
-import json
-import hashlib
 import re
 import traceback
 
-from .constants import CACHE_EXPIRY, LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
+from .constants import LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
     _parse_target_search_field
@@ -185,12 +183,7 @@ def get_facet_values_impl(
         require_pending_items_bool = (
             isinstance(require_pending_items, str) and require_pending_items.lower() == 'true'
         ) or require_pending_items is True
-        cache_key_params = {"v_api": "facet_5.5", "doctype": doctype, "field": field, "filters": json.dumps(processed_filters), "limit": limit_int, "require_pending_items": require_pending_items_bool}
-        cache_key = f"facet_values_{hashlib.sha1(json.dumps(cache_key_params, sort_keys=True, default=str).encode()).hexdigest()}"
-        
-        cached_result = frappe.cache().get_value(cache_key)
-        if cached_result: return cached_result
-        
+
         names_query_args = {"doctype": doctype, "filters": processed_filters, "fields": ["name"], "limit_page_length": 0}
         matching_names = [doc.get("name") for doc in reportview_execute(**names_query_args) if doc.get("name")]
         
@@ -233,9 +226,7 @@ def get_facet_values_impl(
         # --- End require_pending_items filter ---
 
         if not matching_names:
-            result = {"values": []}
-            frappe.cache().set_value(cache_key, result, expires_in_sec=CACHE_EXPIRY)
-            return result
+            return {"values": []}
         
         facet_values = []
 
@@ -331,9 +322,7 @@ def get_facet_values_impl(
             
             facet_values.append({"value": value, "label": label, "count": row.get("count", 0)})
         
-        result = {"values": facet_values}
-        frappe.cache().set_value(cache_key, result, expires_in_sec=CACHE_EXPIRY)
-        return result
+        return {"values": facet_values}
         
     except Exception as e:
         traceback.print_exc()

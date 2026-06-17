@@ -53,6 +53,7 @@ interface UseProjectSchedulerResult {
   refetchSchedule: () => Promise<void>;
   updateMilestoneDates: (rowName: string, startISO: string | null, endISO: string | null) => Promise<void>;
   resetMilestoneDates: (rowName: string) => Promise<void>;
+  resetMilestonesToFormula: (rowNames: string[]) => Promise<void>;
   scheduleDoc: ProjectSchedule | null;
 }
 
@@ -121,6 +122,9 @@ export const useProjectScheduler = (projectId: string | null | undefined): UsePr
   );
   const { call: resetMilestoneDatesCall } = useFrappePostCall(
     'nirmaan_stack.api.milestone.project_schedule.reset_milestone_dates'
+  );
+  const { call: resetMilestonesToFormulaCall } = useFrappePostCall(
+    'nirmaan_stack.api.milestone.project_schedule.reset_milestones_to_formula'
   );
 
   const [scheduleDoc, setScheduleDoc] = useState<ProjectSchedule | null>(null);
@@ -196,6 +200,18 @@ export const useProjectScheduler = (projectId: string | null | undefined): UsePr
       await refetchSchedule();
     },
     [projectId, resetMilestoneDatesCall, refetchSchedule]
+  );
+
+  const resetMilestonesToFormula = useCallback(
+    async (rowNames: string[]) => {
+      if (!projectId || rowNames.length === 0) return;
+      await resetMilestonesToFormulaCall({
+        project_id: projectId,
+        milestone_row_names: JSON.stringify(rowNames),
+      });
+      await refetchSchedule();
+    },
+    [projectId, resetMilestonesToFormulaCall, refetchSchedule]
   );
 
   const projectStartDate = useMemo(() => parseDate(projectData?.project_start_date), [projectData]);
@@ -334,6 +350,7 @@ export const useProjectScheduler = (projectId: string | null | undefined): UsePr
     refetchSchedule,
     updateMilestoneDates,
     resetMilestoneDates,
+    resetMilestonesToFormula,
     scheduleDoc,
   };
 };

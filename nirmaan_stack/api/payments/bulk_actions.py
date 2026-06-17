@@ -33,6 +33,7 @@ MAX_BATCH_SIZE = 100
 LEAD_ALLOWED_ROLE_PROFILES = (
     "Nirmaan Admin Profile",
     "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
 )
 REJECTED_STATUS = "Rejected"
 

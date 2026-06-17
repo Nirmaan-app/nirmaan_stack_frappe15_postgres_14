@@ -2,6 +2,19 @@ import frappe
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from frappe import _
 from .procurement_requests import get_user_name
+from nirmaan_stack.api.projects._tendering_guard import validate_won
+
+
+def validate(doc, method):
+    """Tendering operational guard (Slice 5 / B5).
+
+    Defense-in-depth backstop: refuse to create a Service Request (Work Order)
+    against a Tendering project stub. Guard only NEW docs so edits to
+    existing/legacy SRs are never blocked.
+    """
+    if doc.is_new():
+        validate_won(doc.project, "Service Request")
+
 
 def on_trash(doc, method):
     frappe.db.delete("Nirmaan Comments", {
@@ -162,7 +175,7 @@ def on_update(doc, method):
                             f"Hi {user['full_name']}, Vendors have been approved for the {doc.name} Service Request. "
                             "click here to take action."
                         )
-                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                    if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                         click_action_url = f"{frappe.utils.get_url()}/frontend/service-requests?tab=approved-sr"
                     else:
                         click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
@@ -197,7 +210,7 @@ def on_update(doc, method):
             new_notification_doc.seen = "false"
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "sr:approved"
-            if user['role_profile'] != "Nirmaan Accountant Profile":
+            if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                 new_notification_doc.action_url = f"service-requests/{doc.name}?tab=approved-sr"
             else:
                 new_notification_doc.action_url = f"project-payments/{doc.name}"

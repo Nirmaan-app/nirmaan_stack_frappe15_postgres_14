@@ -52,8 +52,14 @@ export const RenderRightActionButton = ({
   const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
-     if (locationPath === "/projects" && role === "Nirmaan Project Manager Profile") {
-      return null;
+    // "Add New Project" is gated to Nirmaan Admin + PMO Executive (and the
+    // Administrator user). Same set as canManageTendering — only roles that
+    // can also manage Tendering / Lost / Convert flows.
+    if (locationPath === "/projects") {
+      const canCreateProject =
+        user_id === "Administrator" ||
+        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+      if (!canCreateProject) return null;
     }
     const routeInfo = newButtonRoutes[locationPath];
     return (
@@ -146,7 +152,7 @@ export const RenderRightActionButton = ({
     );
   } else if (locationPath === "/project-expenses") {
     return (
-      (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile") ? (
+      (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile") ? (
         <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
           <CirclePlus className="w-5 h-5 pr-1" />
           Add <span className="hidden md:flex pl-1">New Project Expense</span>

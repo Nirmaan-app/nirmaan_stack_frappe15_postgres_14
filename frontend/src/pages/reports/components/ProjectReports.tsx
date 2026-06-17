@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useCallback, useState, lazy } from "react";
+import { useMemo, useCallback, useState, lazy } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -50,9 +50,8 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
-import { urlStateManager } from "@/utils/urlStateManager";
-import { parse, formatISO, startOfDay, endOfDay, format } from "date-fns";
-import { DateRange } from "react-day-picker";
+import { formatISO } from "date-fns";
+import { useSharedReportDateRange } from "../store/useReportDateStore";
 
 const projectBaseFields: (keyof Projects)[] = [
   "name",
@@ -67,26 +66,11 @@ const projectReportListOptions = () => ({
   fields: projectBaseFields as string[],
 });
 
-const URL_SYNC_KEY = "project_case_sheet"; // Use a specific key for URL state
-
 // Component for the existing Cash Sheet report
 function CashSheetReport() {
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
-    const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
-    const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
-    if (fromParam && toParam) {
-      try {
-        return {
-          from: startOfDay(parse(fromParam, "yyyy-MM-dd", new Date())),
-          to: endOfDay(parse(toParam, "yyyy-MM-dd", new Date())),
-        };
-      } catch (e) {
-        console.error("Error parsing date from URL:", e);
-        // Fall through to default if parsing fails
-      }
-    }
-    return undefined; // Default to "ALL" (no date filtering)
-  });
+  // Shared date range across all report types (Cash Sheet / Inflow / Outflow).
+  // Relative presets recompute from today on every load — never freezes.
+  const { dateRange, onChange: onDateChange, onClear: onDateClear } = useSharedReportDateRange();
 
   const { getProjectCalculatedFields, isLoadingGlobalDeps, globalDepsError } =
     useProjectReportCalculations({
@@ -115,7 +99,9 @@ function CashSheetReport() {
   // although we are about to move search into the DataTable.
   // Ideally, we should feed ALL projects to the table and let the table handle search.
 
-  // Let's use 'allProjects' as the base if available.
+  // Cash Sheet rows ARE projects (not a lookup map), so pre-Won stubs would
+  // render as rows with empty financial columns. Filter them out at the
+  // source.
   const { data: allProjects } = useFrappeGetDocList<Projects>("Projects", {
     fields: [
       "name",
@@ -126,7 +112,8 @@ function CashSheetReport() {
       "modified",
       "status",
     ],
-    limit: 0, // Fetch ALL
+    filters: [["tendering_status", "=", "Won"]],
+    limit: 0, // Fetch ALL Won projects
     orderBy: { field: "creation", order: "desc" },
   });
   const projectSource = allProjects || [];
@@ -334,21 +321,9 @@ function CashSheetReport() {
   }, [table, exportFileName]);
 
   const handleClearDateFilter = useCallback(() => {
-    setDateRange(undefined); // Set to undefined to disable date filtering entirely
-  }, []);
-
-  // 3. Effect to sync state changes back to the URL
-  useEffect(() => {
-    const fromISO = dateRange?.from
-      ? formatISO(dateRange.from, { representation: "date" })
-      : null;
-    const toISO = dateRange?.to
-      ? formatISO(dateRange.to, { representation: "date" })
-      : null;
-
-    urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
-    urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
-  }, [dateRange]);
+    onDateClear(); // Reset to "ALL" (no date filtering)
+  }, [onDateClear]);
+  // (date range is persisted to the URL by the shared store — no per-report sync needed)
 
   if (globalDepsError) {
     return <AlertDestructive error={globalDepsError as Error} />;
@@ -371,7 +346,7 @@ function CashSheetReport() {
     >
       <StandaloneDateFilter
         value={dateRange}
-        onChange={setDateRange}
+        onChange={onDateChange}
         onClear={handleClearDateFilter}
       />
 

@@ -96,7 +96,7 @@ interface SrInvoicesProps {
 export const SrInvoices: React.FC<SrInvoicesProps> = ({ vendorId, vendorName }) => {
     // --- User Role Check ---
     const { role } = useUserData();
-    const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
+    const canUpdateReconciliation = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"].includes(role || "");
 
     // --- CEO Hold Projects ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();

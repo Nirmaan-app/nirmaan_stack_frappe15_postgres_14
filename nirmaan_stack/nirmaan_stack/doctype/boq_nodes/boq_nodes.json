@@ -1,0 +1,404 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "BOQN-.YY.-.#####",
+ "creation": "2026-05-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "links_section",
+  "boq",
+  "sheet",
+  "parent_node",
+  "node_details_section",
+  "node_type",
+  "level",
+  "human_classification",
+  "human_parent",
+  "human_is_root",
+  "sort_order",
+  "code",
+  "description",
+  "source_row_number",
+  "path",
+  "line_item_section",
+  "unit",
+  "qty",
+  "qty_by_area",
+  "make_model",
+  "rates_col_break",
+  "supply_rate",
+  "install_rate",
+  "combined_rate",
+  "amounts_col_break",
+  "supply_amount",
+  "install_amount",
+  "total_amount",
+  "is_rate_only",
+  "amount_override",
+  "notes",
+  "edit_reason",
+  "review_provenance_section",
+  "edit_log",
+  "edited_by",
+  "edited_at",
+  "remarks",
+  "attached_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Links"
+  },
+  {
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "search_index": 1
+  },
+  {
+   "description": "Primary upward tie: the committed BoQ Sheet this node belongs to. The boq link is kept denormalized and must equal this sheet's boq (enforced in the controller).",
+   "fieldname": "sheet",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "BoQ Sheet",
+   "options": "BoQ Sheet",
+   "search_index": 1
+  },
+  {
+   "fieldname": "parent_node",
+   "fieldtype": "Link",
+   "label": "Parent Node",
+   "options": "BOQ Nodes",
+   "search_index": 1
+  },
+  {
+   "fieldname": "node_details_section",
+   "fieldtype": "Section Break",
+   "label": "Node Details"
+  },
+  {
+   "fieldname": "node_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Node Type",
+   "options": "Preamble\nLine Item"
+  },
+  {
+   "depends_on": "eval:doc.node_type == 'Preamble'",
+   "fieldname": "level",
+   "fieldtype": "Int",
+   "label": "Level"
+  },
+  {
+   "description": "Human-override classification (the why-is-this-line-here provenance). Free Data; the assignable vocabulary is enforced upstream, not enumerated here. Populated at commit; the node's effective classification is resolved before write.",
+   "fieldname": "human_classification",
+   "fieldtype": "Data",
+   "label": "Human Classification"
+  },
+  {
+   "description": "Human-override parent (the -1 sentinel convention: -1 / unset = no override, >= 0 = reparent to that row index). Populated at commit; the resolved parent is written to parent_node.",
+   "fieldname": "human_parent",
+   "fieldtype": "Int",
+   "label": "Human Parent"
+  },
+  {
+   "default": "0",
+   "description": "Human re-rooted this node to top-level (Option B layer, orthogonal to human_parent).",
+   "fieldname": "human_is_root",
+   "fieldtype": "Check",
+   "label": "Human Root Override"
+  },
+  {
+   "default": "0",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Sort Order"
+  },
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "label": "Code"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "source_row_number",
+   "fieldtype": "Int",
+   "label": "Source Row Number"
+  },
+  {
+   "fieldname": "path",
+   "fieldtype": "Data",
+   "label": "Path",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "line_item_section",
+   "fieldtype": "Section Break",
+   "label": "Qty, Rates & Amounts"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit"
+  },
+  {
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "label": "Qty"
+  },
+  {
+   "description": "Per-area quantity breakdown. Total qty is the source of truth; sum of areas is informational.",
+   "fieldname": "qty_by_area",
+   "fieldtype": "Table",
+   "label": "Qty by Area",
+   "options": "BOQ Node Qty By Area"
+  },
+  {
+   "description": "Brand and model identifier for this line item. Used in procurement reference.",
+   "fieldname": "make_model",
+   "fieldtype": "Data",
+   "label": "Make / Model"
+  },
+  {
+   "fieldname": "rates_col_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supply_rate",
+   "fieldtype": "Currency",
+   "label": "Supply Rate"
+  },
+  {
+   "fieldname": "install_rate",
+   "fieldtype": "Currency",
+   "label": "Install Rate"
+  },
+  {
+   "fieldname": "combined_rate",
+   "fieldtype": "Currency",
+   "label": "Combined Rate"
+  },
+  {
+   "fieldname": "amounts_col_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supply_amount",
+   "fieldtype": "Currency",
+   "label": "Supply Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "install_amount",
+   "fieldtype": "Currency",
+   "label": "Install Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Auto-set when qty=0 and at least one rate is set. Common in tender BoQs.",
+   "fieldname": "is_rate_only",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Rate Only",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set to prevent automatic recomputation of amount fields",
+   "fieldname": "amount_override",
+   "fieldtype": "Check",
+   "label": "Amount Override"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  },
+  {
+   "description": "Transient: populated by frontend before user edit, cleared after audit entry is written",
+   "fieldname": "edit_reason",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Edit Reason",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "review_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Review Provenance"
+  },
+  {
+   "description": "Pre-commit review edit history, carried verbatim from the review row. List of {field, from, to, by, at, reason} (+ optional area / rate_subkey on per-area edits). Stored opaque -- the element shape is not validated here. KEPT on the node: Nirmaan Versions tracks only post-commit scalar edits and cannot reconstruct this pre-commit history.",
+   "fieldname": "edit_log",
+   "fieldtype": "JSON",
+   "label": "Edit Log"
+  },
+  {
+   "fieldname": "edited_by",
+   "fieldtype": "Data",
+   "label": "Edited By"
+  },
+  {
+   "fieldname": "edited_at",
+   "fieldtype": "Datetime",
+   "label": "Edited At"
+  },
+  {
+   "description": "Human annotation carried from the review row (not an edit; no provenance side-effects).",
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "description": "Notes attached to this node, carried verbatim from the review row as a structured list. Stored opaque -- the element shape is parser-defined and not validated here. Distinct from the flat notes field; do not fold into notes.",
+   "fieldname": "attached_notes",
+   "fieldtype": "JSON",
+   "label": "Attached Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BOQ Nodes",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

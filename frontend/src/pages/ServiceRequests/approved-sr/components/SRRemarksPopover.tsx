@@ -36,6 +36,7 @@ export const SRRemarksPopover: React.FC<SRRemarksPopoverProps> = ({ srId }) => {
             "Nirmaan Admin Profile",
             "Nirmaan PMO Executive Profile",
             "Nirmaan Accountant Profile",
+            "Nirmaan Accountant Lead Profile",
             "Nirmaan Procurement Executive Profile",
             "Nirmaan Project Lead Profile",
             "Nirmaan Project Manager Profile",

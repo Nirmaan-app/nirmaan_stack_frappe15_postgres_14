@@ -112,7 +112,7 @@ def get_allowed_accountants(doc):
         'Nirmaan Users',
         filters={
             'name': ['in', accountant_user_ids],
-            'role_profile': 'Nirmaan Accountant Profile',
+            'role_profile': ['in', ['Nirmaan Accountant Profile', 'Nirmaan Accountant Lead Profile']],
         },
         fields=['fcm_token', 'name', 'full_name', 'role_profile', 'push_notification']
     )

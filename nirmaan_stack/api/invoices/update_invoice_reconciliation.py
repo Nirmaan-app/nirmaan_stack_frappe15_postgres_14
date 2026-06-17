@@ -93,7 +93,7 @@ def update_invoice_reconciliation(
         frappe.throw(_("You must be logged in to perform this action."))
 
     # Check if user has Accountant or Admin role
-    allowed_roles = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan PMO Executive Profile"]
+    allowed_roles = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan PMO Executive Profile"]
 
     if current_user != "Administrator":
         try:

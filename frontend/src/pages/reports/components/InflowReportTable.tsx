@@ -1,9 +1,8 @@
-import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import React, { useCallback, useMemo, useEffect, useRef } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs, Filter } from "frappe-react-sdk";
 import { Download, Info, ArrowDownLeft, Banknote } from "lucide-react";
-import { DateRange } from "react-day-picker";
 
 // --- UI Components ---
 import { DataTable } from '@/components/data-table/new-data-table';
@@ -22,7 +21,8 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { memoize } from "lodash";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { parse, formatISO, startOfDay, endOfDay } from 'date-fns';
+import { formatISO, startOfDay, endOfDay } from 'date-fns';
+import { useSharedReportDateRange, useReportDateStore } from "../store/useReportDateStore";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
@@ -40,8 +40,6 @@ const INFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
     { field: 'amount', function: 'sum' }
 ];
 
-// URL state management for date range
-const URL_SYNC_KEY = "inflow_report";
 
 // Helper component to display active filters in the summary card
 const AppliedFiltersDisplay = ({ filters, search }: { filters: any[]; search: string }) => {
@@ -72,43 +70,34 @@ const AppliedFiltersDisplay = ({ filters, search }: { filters: any[]; search: st
 interface SelectOption { label: string; value: string; }
 
 export function InflowReportTable() {
-    // 1. Manage date range state, initialized from URL filters or standalone date params
-    const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
-        // PRIORITY 1: Check if date filters are passed via inflow_report_table_filters (from project cash sheet link)
+    // 1. Shared date range across all report types (Cash Sheet / Inflow / Outflow).
+    //    Relative presets recompute from today on every load — never freezes.
+    const { dateRange, onChange: onDateChange, onClear: onDateClear } = useSharedReportDateRange();
+    const setCustomDateRange = useReportDateStore((s) => s.setCustomRange);
+
+    // Seed once from a cross-report deep-link (e.g. project Cash Sheet → Inflow
+    // with a specific period). A deep-link is an explicit range → store as custom.
+    const deepLinkSeeded = useRef(false);
+    useEffect(() => {
+        if (deepLinkSeeded.current) return;
+        deepLinkSeeded.current = true;
         try {
             const encodedFilters = urlStateManager.getParam('inflow_report_table_filters');
             if (encodedFilters) {
                 const decodedFilters = JSON.parse(atob(encodedFilters));
-                const dateFilter = decodedFilters.find(f => f.id === 'payment_date');
+                const dateFilter = decodedFilters.find((f: any) => f.id === 'payment_date');
                 if (dateFilter?.value?.operator === 'Between' && Array.isArray(dateFilter.value.value)) {
                     const [fromStr, toStr] = dateFilter.value.value;
-                    return {
-                        from: startOfDay(new Date(fromStr)),
-                        to: endOfDay(new Date(toStr)),
-                    };
+                    setCustomDateRange(
+                        formatISO(startOfDay(new Date(fromStr)), { representation: 'date' }),
+                        formatISO(endOfDay(new Date(toStr)), { representation: 'date' }),
+                    );
                 }
             }
         } catch (e) {
             console.error("Error parsing date filters from URL:", e);
         }
-
-        // PRIORITY 2: Check standalone date params (for direct navigation to this page)
-        const fromParam = urlStateManager.getParam(`${URL_SYNC_KEY}_from`);
-        const toParam = urlStateManager.getParam(`${URL_SYNC_KEY}_to`);
-        if (fromParam && toParam) {
-            try {
-                return {
-                    from: startOfDay(parse(fromParam, 'yyyy-MM-dd', new Date())),
-                    to: endOfDay(parse(toParam, 'yyyy-MM-dd', new Date())),
-                };
-            } catch (e) {
-                console.error("Error parsing date from URL:", e);
-            }
-        }
-
-        // PRIORITY 3: Default to "ALL" (no date filtering)
-        return undefined;
-    });
+    }, [setCustomDateRange]);
 
     // CEO Hold row highlighting
     const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -124,14 +113,7 @@ export function InflowReportTable() {
         [ceoHoldProjectIds]
     );
 
-    // 2. Effect to sync state changes back to the URL
-    useEffect(() => {
-        const fromISO = dateRange?.from ? formatISO(dateRange.from, { representation: 'date' }) : null;
-        const toISO = dateRange?.to ? formatISO(dateRange.to, { representation: 'date' }) : null;
-
-        urlStateManager.updateParam(`${URL_SYNC_KEY}_from`, fromISO);
-        urlStateManager.updateParam(`${URL_SYNC_KEY}_to`, toISO);
-    }, [dateRange]);
+    // (date range is persisted to the URL by the shared store — no per-report sync needed)
 
     // 3. Build additional filters based on date range
     const dateFilters = useMemo(() => {
@@ -251,8 +233,8 @@ export function InflowReportTable() {
     const combinedErrorOverall = projectsError || customersError || listError;
 
     const handleClearDateFilter = useCallback(() => {
-        setDateRange(undefined);  // Reset to "ALL" (no date filtering)
-    }, []);
+        onDateClear();  // Reset to "ALL" (no date filtering)
+    }, [onDateClear]);
 
     if (combinedErrorOverall) {
         return <AlertDestructive error={combinedErrorOverall} />;
@@ -266,7 +248,7 @@ export function InflowReportTable() {
         <div className="space-y-4">
             <StandaloneDateFilter
                 value={dateRange}
-                onChange={setDateRange}
+                onChange={onDateChange}
                 onClear={handleClearDateFilter}
             />
             {/* <span>(PAYMENT DATE)</span> */}

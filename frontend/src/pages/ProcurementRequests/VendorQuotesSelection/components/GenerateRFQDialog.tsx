@@ -37,7 +37,11 @@ const GenerateRFQDialog: React.FC<GenerateRFQDialogProps> = ({ orderData, projec
         };
 
         const params = new URLSearchParams({
-            doctype: "Procurement Requests",
+            // Same dialog serves both PR and Sent Back Category; pass the actual
+            // doctype so the backend loads the right doc. The "Generate RFQ" format
+            // only reads shared fields (name/creation/project/order_list), so one
+            // format renders both doctypes.
+            doctype: orderData.doctype,
             name: orderData.name,
             format: "Generate RFQ",
             no_letterhead: "0",

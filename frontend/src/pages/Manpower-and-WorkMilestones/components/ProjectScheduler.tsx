@@ -3,6 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -57,6 +59,42 @@ const startOfUtcDay = (d: Date) =>
 const daysBetweenUTC = (from: Date, to: Date) =>
   Math.floor((startOfUtcDay(to) - startOfUtcDay(from)) / (1000 * 60 * 60 * 24));
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+const addDaysLocal = (date: Date, days: number): Date => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+// Project the formula-derived window for a milestone against a NEW project
+// window. Mirrors useProjectScheduler.ts / project_schedule.py so the Edit
+// Project Dates dialog can preview what a recomputed milestone will become.
+const projectFormulaWindow = (
+  newStart: Date | null,
+  newEnd: Date | null,
+  firstWeekIdx: number,
+  lastWeekIdx: number,
+): { start: Date | null; end: Date | null } => {
+  if (!newStart || !newEnd || firstWeekIdx === -1) return { start: null, end: null };
+  const durationDays =
+    Math.round((newEnd.getTime() - newStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  if (durationDays <= 0) return { start: null, end: null };
+  const weekSlotDays = durationDays / NUM_WEEK_SLOTS;
+
+  let startOffset = Math.round(firstWeekIdx * weekSlotDays);
+  let endOffset = Math.round((lastWeekIdx + 1) * weekSlotDays) - 1;
+  // Mirror _compute_milestone_dates clamping: for windows shorter than 9 days
+  // week_slot_days < 1, so rounding can push offsets outside the window or land
+  // end below start. Clamp both into [0, lastOffset], then enforce end >= start.
+  const lastOffset = Math.max(0, durationDays - 1);
+  startOffset = Math.max(0, Math.min(startOffset, lastOffset));
+  endOffset = Math.max(0, Math.min(endOffset, lastOffset));
+  endOffset = Math.max(endOffset, startOffset);
+
+  const start = addDaysLocal(newStart, startOffset);
+  const end = addDaysLocal(newStart, endOffset);
+  return { start, end };
+};
 
 // Mirrors useTargetProgress: same anchor math + linear interpolation between
 // adjacent weekly anchors. Keeps Scheduler and Milestones Summary in sync.
@@ -124,6 +162,7 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
     refetchSchedule,
     updateMilestoneDates,
     resetMilestoneDates,
+    resetMilestonesToFormula,
   } = useProjectScheduler(projectId);
 
   const { role, user_id } = useUserData();
@@ -156,14 +195,30 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
   const [editOpen, setEditOpen] = useState(false);
   const [editStart, setEditStart] = useState('');
   const [editEnd, setEditEnd] = useState('');
+  // Edit Project Dates is a 2-step flow: 1 = pick dates, 2 = confirm + choose
+  // which manually-edited milestones to recompute against the new window.
+  const [editStep, setEditStep] = useState<1 | 2>(1);
+  const [recomputeRows, setRecomputeRows] = useState<Set<string>>(new Set());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     if (editOpen && projectStartDate && projectEndDate) {
       setEditStart(toInputDate(projectStartDate));
       setEditEnd(toInputDate(projectEndDate));
+      setEditStep(1);
+      setRecomputeRows(new Set());
     }
   }, [editOpen, projectStartDate, projectEndDate]);
+
+  // Manually-edited milestones (changed_by_user) — surfaced in step 2 so the
+  // user can opt-in to recomputing any of them to the new project window.
+  const manualMilestones = useMemo(
+    () =>
+      groups.flatMap((g) =>
+        g.milestones.filter((m) => m.changedByUser && m.rowName),
+      ),
+    [groups],
+  );
 
   const handleSaveDates = useCallback(async () => {
     if (!projectId || !editStart || !editEnd) return;
@@ -186,12 +241,24 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
         project_end_date: formatToLocalDateTimeString(end),
       });
       // The Projects.on_update hook recomputes Project Schedule rows for the
-      // new window — refresh both the project doc and the schedule cache so
-      // the grid reflects the recomputed dates without a page reload.
+      // new window — but leaves manually-edited (changed_by_user) rows frozen.
+      // For any manual milestone the user ticked in step 2, reset its override
+      // so it recomputes against the new window too.
+      const rowsToRecompute = manualMilestones
+        .filter((m) => recomputeRows.has(m.rowName as string))
+        .map((m) => m.rowName as string);
+      if (rowsToRecompute.length > 0) {
+        await resetMilestonesToFormula(rowsToRecompute);
+      }
+      // Refresh both the project doc and the schedule cache so the grid
+      // reflects the recomputed dates without a page reload.
       await Promise.all([mutateProject(), refetchSchedule()]);
       toast({
         title: 'Project dates updated',
-        description: `${formatDate(start)} → ${formatDate(end)}`,
+        description:
+          rowsToRecompute.length > 0
+            ? `${formatDate(start)} → ${formatDate(end)} · ${rowsToRecompute.length} manual milestone${rowsToRecompute.length > 1 ? 's' : ''} recomputed`
+            : `${formatDate(start)} → ${formatDate(end)}`,
         variant: 'success',
       });
       setEditOpen(false);
@@ -202,7 +269,7 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
         variant: 'destructive',
       });
     }
-  }, [projectId, editStart, editEnd, updateDoc, mutateProject, refetchSchedule]);
+  }, [projectId, editStart, editEnd, updateDoc, mutateProject, refetchSchedule, manualMilestones, recomputeRows, resetMilestonesToFormula]);
 
   const toggleHeader = (header: string) =>
     setExpanded((p) => ({ ...p, [header]: !(p[header] ?? true) }));
@@ -335,54 +402,61 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
     }
   }, [projectId, projectStartDate, projectEndDate, groups, projectData]);
 
-  // const handleExportCsv = useCallback(() => {
-  //   if (!projectStartDate || !projectEndDate) return;
-  //
-  //   const rows: (string | number)[][] = [];
-  //   const projectLabel =
-  //     projectData?.project_name || projectData?.name || projectId || 'Project';
-  //
-  //   // 4-column layout: titles start in column 1.
-  //   rows.push([`Project: ${projectLabel}`, '', '', '']);
-  //   rows.push(['Start Date', formatDate(projectStartDate), '', '']);
-  //   rows.push(['End Date', formatDate(projectEndDate), '', '']);
-  //   rows.push(['Duration', `${projectDurationDays} days`, '', '']);
-  //   rows.push(['', '', '', '']);
-  //
-  //   groups.forEach((group) => {
-  //     const headerRange =
-  //       group.earliestStart && group.latestEnd
-  //         ? ` (${formatDate(group.earliestStart)} - ${formatDate(group.latestEnd)})`
-  //         : '';
-  //     rows.push([`${group.header}${headerRange}`, '', '', '']);
-  //     rows.push(['Milestone', 'Start', 'End', 'Duration (Days)']);
-  //     if (group.milestones.length === 0) {
-  //       rows.push(['(No milestones)', '', '', '']);
-  //     } else {
-  //       group.milestones.forEach((m) => {
-  //         rows.push([
-  //           m.work_milestone_name,
-  //           m.startDate ? formatDate(m.startDate) : '',
-  //           m.endDate ? formatDate(m.endDate) : '',
-  //           m.firstWeekIdx !== -1 ? m.durationDays : '',
-  //         ]);
-  //       });
-  //     }
-  //     rows.push(['', '', '', '']);
-  //   });
-  //
-  //   const csv = unparse(rows);
-  //   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  //   const url = URL.createObjectURL(blob);
-  //   const link = document.createElement('a');
-  //   const safeName = String(projectLabel).replace(/[^a-z0-9]+/gi, '_');
-  //   link.href = url;
-  //   link.setAttribute('download', `${safeName}_scheduler.csv`);
-  //   document.body.appendChild(link);
-  //   link.click();
-  //   document.body.removeChild(link);
-  //   URL.revokeObjectURL(url);
-  // }, [projectData, projectId, projectStartDate, projectEndDate, projectDurationDays, groups]);
+  const handleExportCsv = useCallback(() => {
+    if (!projectStartDate || !projectEndDate) return;
+
+    const rows: (string | number)[][] = [];
+    const projectLabel =
+      projectData?.project_name || projectData?.name || projectId || 'Project';
+
+    // 4-column layout: titles start in column 1.
+    rows.push([`Project: ${projectLabel}`, '', '', '']);
+    rows.push(['Start Date', formatDate(projectStartDate), '', '']);
+    rows.push(['End Date', formatDate(projectEndDate), '', '']);
+    rows.push(['Duration', `${projectDurationDays} days`, '', '']);
+    rows.push(['', '', '', '']);
+
+    // Mirror the PDF: drop milestones marked Disabled in the latest completed
+    // Project Progress Report, and skip groups left with no milestones.
+    groups
+      .map((g) => ({ ...g, milestones: g.milestones.filter((m) => !m.disabledByReport) }))
+      .filter((g) => g.milestones.length > 0)
+      .forEach((group) => {
+        const headerRange =
+          group.earliestStart && group.latestEnd
+            ? ` (${formatDate(group.earliestStart)} - ${formatDate(group.latestEnd)})`
+            : '';
+        rows.push([`${group.header}${headerRange}`, '', '', '']);
+        rows.push(['Milestone', 'Start', 'End', 'Duration (Days)']);
+        group.milestones.forEach((m) => {
+          rows.push([
+            m.work_milestone_name,
+            m.startDate ? formatDate(m.startDate) : '',
+            m.endDate ? formatDate(m.endDate) : '',
+            m.firstWeekIdx !== -1 ? m.durationDays : '',
+          ]);
+        });
+        rows.push(['', '', '', '']);
+      });
+
+    const csv = unparse(rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeName = String(projectLabel).replace(/[^a-z0-9]+/gi, '_');
+    link.href = url;
+    link.setAttribute('download', `${safeName}_DPR_Project_Target.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Download Complete',
+      description: 'DPR Project Target CSV saved.',
+      variant: 'success',
+    });
+  }, [projectData, projectId, projectStartDate, projectEndDate, projectDurationDays, groups]);
 
   const completionStats = useMemo(() => {
     if (!selectedDateObj || !projectStartDate || projectDurationDays <= 0) return null;
@@ -467,18 +541,19 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
                 {visibleGroups.length} headers · {totalMilestones} milestones
               </Badge>
               {/* EDIT DATES button moved into the date cards as a small pencil icon */}
-              {/* EXPORT CSV — hidden for now
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleExportCsv}
                 disabled={groups.length === 0}
+                title="Download CSV"
+                aria-label="Download CSV"
                 className="h-8"
               >
-                <Download className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Export CSV</span>
+                <Download className="w-3.5 h-3.5 mr-1 sm:mr-1.5" />
+                <span className="sm:hidden">CSV</span>
+                <span className="hidden sm:inline">Download CSV</span>
               </Button>
-              */}
               <Button
                 size="sm"
                 onClick={handleDownloadPdf}
@@ -630,45 +705,198 @@ export const ProjectScheduler: React.FC<ProjectSchedulerProps> = ({ projectId, c
       </Card>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Project Dates</DialogTitle>
-            <DialogDescription className="text-xs">
-              Updates the project's Start Date and End Date. All milestone timeline
-              calculations will recompute against the new range.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">Start Date</label>
-              <Input
-                type="date"
-                value={editStart}
-                max={editEnd || undefined}
-                onChange={(e) => setEditStart(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">End Date</label>
-              <Input
-                type="date"
-                value={editEnd}
-                min={editStart || undefined}
-                onChange={(e) => setEditEnd(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={savingDates}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveDates}
-              disabled={savingDates || !editStart || !editEnd}
-            >
-              {savingDates ? 'Saving…' : 'Save'}
-            </Button>
-          </DialogFooter>
+        <DialogContent
+          className={cn(
+            'flex flex-col max-h-[85vh]',
+            // Step 2 holds the milestone list — give it more room; step 1 stays compact.
+            editStep === 2 ? 'sm:max-w-xl' : 'sm:max-w-md',
+          )}
+        >
+          {editStep === 1 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Edit Project Dates</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Updates the project's Start Date and End Date. All milestone timeline
+                  calculations recompute against the new range — except milestones you
+                  manually edited, which stay frozen unless you choose otherwise next.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-3 py-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-700">Start Date</label>
+                  <Input
+                    type="date"
+                    value={editStart}
+                    max={editEnd || undefined}
+                    onChange={(e) => setEditStart(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-700">End Date</label>
+                  <Input
+                    type="date"
+                    value={editEnd}
+                    min={editStart || undefined}
+                    onChange={(e) => setEditEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditOpen(false)} disabled={savingDates}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => setEditStep(2)}
+                  disabled={
+                    !editStart ||
+                    !editEnd ||
+                    new Date(editEnd) < new Date(editStart)
+                  }
+                >
+                  Next
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Confirm Project Date Change</DialogTitle>
+                <DialogDescription className="text-xs">
+                  New range:{' '}
+                  <span className="font-medium text-gray-700">
+                    {formatDate(new Date(editStart))} → {formatDate(new Date(editEnd))}
+                  </span>
+                  . Formula-derived milestone dates recompute automatically.
+                </DialogDescription>
+              </DialogHeader>
+
+              {manualMilestones.length > 0 ? (
+                <div className="flex flex-col min-h-0 flex-1 py-2 space-y-2">
+                  <p className="text-xs text-gray-600">
+                    These milestones were manually edited and will <strong>keep their
+                    custom dates</strong>. Tick any you want to recompute to the new range:
+                  </p>
+                  <div className="flex items-center justify-between gap-2 border-b pb-2">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="recompute-all"
+                        checked={
+                          recomputeRows.size === manualMilestones.length &&
+                          manualMilestones.length > 0
+                        }
+                        onCheckedChange={(checked) =>
+                          setRecomputeRows(
+                            checked
+                              ? new Set(manualMilestones.map((m) => m.rowName as string))
+                              : new Set(),
+                          )
+                        }
+                      />
+                      <label htmlFor="recompute-all" className="text-xs font-medium text-gray-700">
+                        Select all ({manualMilestones.length})
+                      </label>
+                    </div>
+                    <Badge
+                      variant={recomputeRows.size > 0 ? 'default' : 'secondary'}
+                      className="font-normal"
+                    >
+                      {recomputeRows.size} selected
+                    </Badge>
+                  </div>
+                  <ScrollArea
+                    type="always"
+                    className="h-[45vh] pr-1 [&_[data-orientation=vertical]]:w-1.5 [&_[data-orientation=vertical]>div]:bg-primary"
+                  >
+                    <div className="space-y-2 pr-3">
+                      {manualMilestones.map((m) => {
+                        const rn = m.rowName as string;
+                        const checked = recomputeRows.has(rn);
+                        const proj = projectFormulaWindow(
+                          editStart ? new Date(editStart) : null,
+                          editEnd ? new Date(editEnd) : null,
+                          m.firstWeekIdx,
+                          m.lastWeekIdx,
+                        );
+                        return (
+                          <label
+                            key={rn}
+                            htmlFor={`recompute-${rn}`}
+                            className="flex items-start gap-2 rounded-md border p-2 cursor-pointer hover:bg-gray-50"
+                          >
+                            <Checkbox
+                              id={`recompute-${rn}`}
+                              checked={checked}
+                              onCheckedChange={(c) =>
+                                setRecomputeRows((prev) => {
+                                  const next = new Set(prev);
+                                  if (c) next.add(rn);
+                                  else next.delete(rn);
+                                  return next;
+                                })
+                              }
+                              className="mt-0.5"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-medium text-gray-800 truncate">
+                                {m.work_milestone_name}
+                              </div>
+                              {/* Current (custom) dates — struck through once the user
+                                  opts to recompute, so it reads as "old → new". */}
+                              <div
+                                className={cn(
+                                  'text-[11px]',
+                                  checked ? 'text-gray-400 line-through' : 'text-gray-500',
+                                )}
+                              >
+                                {m.startDate ? formatDate(m.startDate) : '—'} →{' '}
+                                {m.endDate ? formatDate(m.endDate) : '—'}
+                                {m.editedByUser ? ` · by ${m.editedByUser}` : ''}
+                              </div>
+                              {checked && (
+                                <div className="text-[11px] font-medium text-green-700">
+                                  ⇒ {proj.start ? formatDate(proj.start) : '—'} →{' '}
+                                  {proj.end ? formatDate(proj.end) : '—'}{' '}
+                                  <span className="font-normal text-gray-500">(new)</span>
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                  <p className="text-[11px] text-gray-500">
+                    {recomputeRows.size === 0
+                      ? 'No manual milestones selected — all custom dates will be kept.'
+                      : `${recomputeRows.size} of ${manualMilestones.length} will be recomputed to the new range.`}
+                  </p>
+                </div>
+              ) : (
+                <p className="py-3 text-xs text-gray-600">
+                  No manually-edited milestones. All milestone dates will recompute against
+                  the new range.
+                </p>
+              )}
+
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setEditStep(1)}
+                  disabled={savingDates}
+                  className="mr-auto"
+                >
+                  Back
+                </Button>
+                <Button variant="outline" onClick={() => setEditOpen(false)} disabled={savingDates}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveDates} disabled={savingDates}>
+                  {savingDates ? 'Saving…' : 'Confirm & Save'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

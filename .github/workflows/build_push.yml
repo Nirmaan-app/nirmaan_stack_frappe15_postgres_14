@@ -31,6 +31,24 @@ jobs:
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV
         echo "FCM SECRET: ${{ secrets.FCM_ACCESS }}"
+    - name: Force pyOpenSSL >= 26.2.0 (Frappe pins broken 26.0.0)
+      run: |
+        set -euo pipefail
+        CF=images/layered/Containerfile
+        test -f "$CF"
+        printf '\n' >> "$CF"
+        cat >> "$CF" <<'EOF'
+        # Fix: Frappe pins pyOpenSSL~=26.0.0, but 26.0.0's deprecated
+        # X509Extension eagerly reads _lib.GEN_EMAIL (removed from cryptography),
+        # so `import boto3` (urllib3.contrib.pyopenssl -> OpenSSL.crypto) crashes
+        # at module load and kills `bench new-site`. Force >=26.2.0 (drops the
+        # eager lookup) and self-verify so the build fails HERE if it ever breaks.
+        RUN /home/frappe/frappe-bench/env/bin/pip install --upgrade --no-cache-dir "pyOpenSSL>=26.2.0" \
+          && /home/frappe/frappe-bench/env/bin/python -c "import boto3, OpenSSL.version; print('pyOpenSSL OK:', OpenSSL.version.__version__)"
+        EOF
+        grep -q 'pyOpenSSL>=26.2.0' "$CF" || { echo "::error::pyOpenSSL patch not appended"; exit 1; }
+        echo '----- tail of patched Containerfile -----'
+        tail -n 12 "$CF"
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
       
@@ -54,7 +72,7 @@ jobs:
           "FCM_ACCESS=${{ secrets.FCM_ACCESS }}"
         build-args: |
           FRAPPE_PATH=https://github.com/frappe/frappe
-          FRAPPE_BRANCH=v15.107.0
+          FRAPPE_BRANCH=version-15
           APPS_JSON_BASE64=${{ env.APPS_JSON_BASE64 }}
           
           

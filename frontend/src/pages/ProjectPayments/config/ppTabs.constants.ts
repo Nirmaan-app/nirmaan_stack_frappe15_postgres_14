@@ -54,6 +54,7 @@ export const PP_ADMIN_ROLES = [
 
 export const PP_ACCOUNTANT_ROLES = [
     "Nirmaan Accountant Profile",
+    "Nirmaan Accountant Lead Profile",
 ];
 
 export const PP_PROJECT_ROLES = [

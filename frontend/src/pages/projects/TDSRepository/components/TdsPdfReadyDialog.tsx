@@ -1,12 +1,18 @@
+// In-app preview of a generated "Pending" TDS report. The PDF blob is already in
+// memory (object URL), so it is rendered straight in an iframe with the native PDF
+// toolbar hidden (#toolbar=0) — the file is only saved when the user clicks
+// Download. Mirrors the Commission Report preview (ReportPreviewDialog).
+
 import React from 'react';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, ExternalLink, FileText } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
 
 interface TdsPdfReadyDialogProps {
     isOpen: boolean;
@@ -15,6 +21,10 @@ interface TdsPdfReadyDialogProps {
     blobUrl: string | null;
     filename: string;
     sizeBytes: number;
+    /** Only Admins can save the file. Non-admins get the inline preview only —
+     *  Download and "Open in new tab" (which exposes the native PDF toolbar) are
+     *  both hidden. */
+    canDownload?: boolean;
 }
 
 const formatSize = (bytes: number): string => {
@@ -31,77 +41,74 @@ export const TdsPdfReadyDialog: React.FC<TdsPdfReadyDialogProps> = ({
     blobUrl,
     filename,
     sizeBytes,
+    canDownload = false,
 }) => {
-    const handleOpenInNewTab = () => {
-        if (!blobUrl) return;
-        window.open(blobUrl, '_blank', 'noopener,noreferrer');
-    };
+    // Render the in-memory blob directly; hide the native PDF toolbar so there is
+    // no download/print from the preview itself.
+    const viewerSrc = blobUrl ? `${blobUrl}#toolbar=0&navpanes=0` : null;
+    const sizeLabel = formatSize(sizeBytes);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-            <DialogContent className="max-w-[420px] p-0 gap-0 overflow-hidden">
-                <DialogHeader className="px-5 pt-5 pb-3 border-b">
-                    <DialogTitle className="text-base font-semibold">
-                        Pending TDS is ready
+            <DialogContent className="max-w-5xl w-[95vw] p-0 gap-0">
+                <DialogHeader className="px-4 py-3 border-b">
+                    <DialogTitle className="flex items-center gap-3 text-left">
+                        <span className="w-9 h-9 bg-red-100 rounded-md flex items-center justify-center flex-shrink-0">
+                            <FileText className="w-[18px] h-[18px] text-red-600" />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-gray-900 truncate" title={filename}>
+                                {filename || 'Pending TDS report'}
+                            </span>
+                            <span className="block text-[11px] font-normal text-gray-500 mt-0.5">
+                                {sizeLabel ? `${sizeLabel} · ` : ''}PDF
+                                {canDownload ? ' · Saved only when you click Download' : ''}
+                            </span>
+                        </span>
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="px-5 py-4">
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                        <div className="w-9 h-9 bg-red-100 rounded-md flex items-center justify-center flex-shrink-0">
-                            <FileText className="w-[18px] h-[18px] text-red-600" />
+                <div className="bg-gray-100">
+                    {viewerSrc ? (
+                        <iframe
+                            title="TDS report preview"
+                            src={viewerSrc}
+                            className="w-full h-[78vh] border-0"
+                        />
+                    ) : (
+                        <div className="flex items-center justify-center h-[78vh] text-gray-400 text-sm">
+                            Preparing preview…
                         </div>
-                        <div className="min-w-0 flex-1">
-                            <p
-                                className="text-[13px] font-medium text-gray-900 truncate"
-                                title={filename}
-                            >
-                                {filename}
-                            </p>
-                            <p className="text-[11px] text-gray-500 mt-0.5">
-                                {formatSize(sizeBytes)} · PDF
-                            </p>
-                        </div>
-                    </div>
-
-                    <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-                        Preview in a new tab first — the file is only saved when you click Download.
-                    </p>
+                    )}
                 </div>
 
-                <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 border-t">
+                <DialogFooter className="px-4 py-3 border-t gap-2 sm:gap-2">
+                    {!canDownload && (
+                        <span className="text-[11px] text-gray-400 self-center mr-auto">
+                            Download is available to Admins only.
+                        </span>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"
                         onClick={onClose}
-                        className="border-gray-300 text-gray-700 hover:bg-gray-100"
+                        className={`border-gray-300 text-gray-700 hover:bg-gray-100${canDownload ? ' mr-auto' : ''}`}
                     >
                         Close
                     </Button>
-                    <div className="flex items-center gap-2 ml-auto">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleOpenInNewTab}
-                            disabled={!blobUrl}
-                            className="border-red-500 text-red-700 hover:bg-red-50"
-                        >
-                            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-                            Preview
-                        </Button>
+                    {canDownload && (
                         <Button
                             size="sm"
                             onClick={onDownload}
                             disabled={!blobUrl}
-                            className="bg-red-600 hover:bg-red-700 text-white"
+                            className="bg-red-600 hover:bg-red-700 text-white gap-1.5"
                         >
-                            <Download className="w-3.5 h-3.5 mr-1.5" />
+                            <Download className="w-3.5 h-3.5" />
                             Download
                         </Button>
-                    </div>
-                </div>
+                    )}
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
 };
-

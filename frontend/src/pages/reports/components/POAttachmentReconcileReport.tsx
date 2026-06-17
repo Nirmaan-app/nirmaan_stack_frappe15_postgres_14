@@ -231,12 +231,14 @@ export default function POAttachmentReconcileReport() {
                 "Nirmaan Procurement Profile",
                 "Nirmaan Admin Profile",
                 "Nirmaan Accountant Profile",
+                "Nirmaan Accountant Lead Profile",
             ];
             const roleMap: Record<string, string> = {
                 "Nirmaan Project Manager Profile": "Project Manager",
                 "Nirmaan Procurement Profile": "Procurement",
                 "Nirmaan Admin Profile": "Admin",
                 "Nirmaan Accountant Profile": "Accountant",
+                "Nirmaan Accountant Lead Profile": "Accountant Lead",
             };
 
             const formattedAssignees = assignees

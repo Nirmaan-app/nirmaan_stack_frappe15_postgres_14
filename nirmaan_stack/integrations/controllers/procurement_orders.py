@@ -3,6 +3,7 @@ from frappe import _
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_procurement_users, get_allowed_accountants
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.api.projects._tendering_guard import validate_won
 
 def after_insert(doc, method):
         proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
@@ -24,7 +25,7 @@ def after_insert(doc, method):
                             f"Hi {user['full_name']}, a new purchase order for the {pr.work_package} "
                             f"work package has been approved and created by {get_user_name(frappe.session.user)}, click here to take action."
                             )
-                    if user['role_profile'] != "Nirmaan Accountant Profile":
+                    if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                         click_action_url = f"{frappe.utils.get_url()}/frontend/purchase-orders?tab=Approved%20PO"
                     else:
                         click_action_url = f"{frappe.utils.get_url()}/frontend/project-payments?tab=PO%20Wise"
@@ -61,7 +62,7 @@ def after_insert(doc, method):
             new_notification_doc.type = "info"
             new_notification_doc.event_id = "po:new"
             action_url = doc.name.replace("/", "&=")
-            if user['role_profile'] != "Nirmaan Accountant Profile":
+            if user['role_profile'] not in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
                 new_notification_doc.action_url = f"purchase-orders/{action_url}?tab=Approved%20PO"
             else:
                 new_notification_doc.action_url = f"project-payments/{action_url}?tab=PO%20Wise"
@@ -84,6 +85,10 @@ def validate(doc, method):
         if not item.item_id:
             item.item_id = item.name
 
+    # Defense-in-depth: refuse to create a PO against a Tendering stub.
+    # Guard only NEW docs so edits to legacy/operational POs are unaffected.
+    if doc.is_new():
+        validate_won(doc.project, "Procurement Order")
     _set_po_billing_status(doc)
 
     old_doc = doc.get_doc_before_save()
