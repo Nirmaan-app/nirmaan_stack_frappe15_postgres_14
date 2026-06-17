@@ -23,9 +23,11 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard.commit_gate import (
     compute_committable_sheets,
     get_committable_sheets,
+    get_committed_state,
 )
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_COMMIT_GATE"
+_TEST_PROJECT_COMMITTED = "_TEST_BOQ_PROJECT_COMMITTED_STATE"
 
 # Every wizard_status that must be NOT commit-eligible (incl. blank "").
 _INELIGIBLE_STATUSES = [
@@ -209,3 +211,99 @@ class TestGetCommittableSheetsEndpoint(FrappeTestCase):
     def test_endpoint_unknown_boq_throws(self):
         with self.assertRaises(frappe.exceptions.ValidationError):
             get_committable_sheets("BOQ-DOES-NOT-EXIST-999")
+
+
+class TestGetCommittedState(FrappeTestCase):
+    """The READ-ONLY committed-state endpoint over the BoQ Committed Sheet Grid tier.
+
+    Seeds grid rows directly (no commit pipeline run): a current + a prior frozen
+    version per sheet proves is_current filtering; a trailing-space sheet name proves
+    the #152 verbatim guard; a separate empty BoQ proves the empty case. Nothing here
+    writes through commit_boq -- it asserts the read shape only.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # BoQ WITH committed grid rows.
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT_COMMITTED
+        boq.boq_name = "Shared Test BoQ for Committed State"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        # A SECOND BoQ with NO committed grid rows (the empty case).
+        empty = frappe.new_doc("BOQs")
+        empty.project = _TEST_PROJECT_COMMITTED
+        empty.boq_name = "Shared Test BoQ for Committed State (empty)"
+        empty.insert(ignore_permissions=True, ignore_links=True)
+        cls.empty_boq_name = empty.name
+
+        # Grid rows on cls.boq_name:
+        #  Sheet_A -- a prior frozen v1 (is_current=0) + a current v2 (is_current=1)
+        #             => only v2 may surface.
+        #  Sheet_B -- a single current v1.
+        #  "Elec " -- a current v1 with a trailing space (the #152 verbatim key).
+        cls._make_grid_row(cls.boq_name, "Sheet_A", 1, 0, "2026-06-16 09:00:00")
+        cls._make_grid_row(cls.boq_name, "Sheet_A", 2, 1, "2026-06-17 10:30:00")
+        cls._make_grid_row(cls.boq_name, "Sheet_B", 1, 1, "2026-06-17 11:15:00")
+        cls._make_grid_row(cls.boq_name, "Elec ", 1, 1, "2026-06-17 12:00:00")
+        frappe.db.commit()
+
+    @staticmethod
+    def _make_grid_row(boq, sheet_name, version, is_current, committed_at):
+        doc = frappe.new_doc("BoQ Committed Sheet Grid")
+        doc.boq = boq
+        doc.source_sheet_name = sheet_name
+        doc.commit_version = version
+        doc.is_current = is_current
+        doc.committed_at = committed_at  # read_only on the form; settable server-side
+        doc.insert(ignore_permissions=True, ignore_links=True)
+        return doc.name
+
+    @classmethod
+    def tearDownClass(cls):
+        for name in (getattr(cls, "boq_name", None), getattr(cls, "empty_boq_name", None)):
+            if name:
+                frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
+                frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _state(self, boq_name):
+        return get_committed_state(boq_name)["committed_state"]
+
+    def test_returns_current_committed_state(self):
+        by_sheet = {r["sheet_name"]: r for r in self._state(self.boq_name)}
+        # Sheet_B -- a single current version, committed_at + commit_version present.
+        self.assertIn("Sheet_B", by_sheet)
+        self.assertEqual(by_sheet["Sheet_B"]["commit_version"], 1)
+        self.assertEqual(
+            frappe.utils.get_datetime(by_sheet["Sheet_B"]["committed_at"]),
+            frappe.utils.get_datetime("2026-06-17 11:15:00"),
+        )
+
+    def test_excludes_superseded_versions(self):
+        rows = [r for r in self._state(self.boq_name) if r["sheet_name"] == "Sheet_A"]
+        # Exactly the current row -- the frozen v1 (is_current=0) must NOT surface.
+        self.assertEqual(len(rows), 1, "only the is_current=1 row may surface")
+        self.assertEqual(rows[0]["commit_version"], 2)
+        self.assertEqual(
+            frappe.utils.get_datetime(rows[0]["committed_at"]),
+            frappe.utils.get_datetime("2026-06-17 10:30:00"),
+        )
+
+    def test_sheet_name_verbatim_trailing_space(self):
+        names = {r["sheet_name"] for r in self._state(self.boq_name)}
+        # The trailing-space key round-trips verbatim; the trimmed form is absent.
+        self.assertIn("Elec ", names)
+        self.assertNotIn("Elec", names)
+
+    def test_empty_boq_returns_empty(self):
+        self.assertEqual(
+            get_committed_state(self.empty_boq_name), {"committed_state": []}
+        )
+
+    def test_unknown_boq_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            get_committed_state("BOQ-DOES-NOT-EXIST-999")
