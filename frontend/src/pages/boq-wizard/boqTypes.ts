@@ -439,3 +439,38 @@ export interface UnmarkParsedCheckDoneResponse {
   ok: boolean;
   status: string;
 }
+
+// ── Commit UI types (Phase 5 Slice 4b) ────────────────────────────────────────
+
+/**
+ * One commit-eligible sheet from get_committable_sheets (the READ-ONLY gate).
+ * disposition tells the commit pipeline which write path the sheet uses; the UI
+ * shows it as an optional hint. Eligibility ≠ committed-state (see below).
+ */
+export interface CommittableSheet {
+  sheet_name: string;
+  disposition: "general_specs" | "finalized";
+}
+
+/** Response shape of get_committable_sheets. */
+export interface GetCommittableSheetsResponse {
+  committable_sheets: CommittableSheet[];
+}
+
+/**
+ * One sheet's CURRENT committed-state from get_committed_state (Slice 4a),
+ * sourced from the BoQ Committed Sheet Grid is_current=1 row. sheet_name is the
+ * source_sheet_name VERBATIM (#152) -- join to drafts byte-for-byte, no trim.
+ * NOT a BoQSheetDraft field and NOT a WizardStatus value -- committed-ness is a
+ * SEPARATE marker shown alongside the status pill.
+ */
+export interface CommittedSheetState {
+  sheet_name: string;
+  committed_at: string | null;
+  commit_version: number;
+}
+
+/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
+export interface GetCommittedStateResponse {
+  committed_state: CommittedSheetState[];
+}
