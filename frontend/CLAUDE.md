@@ -317,7 +317,42 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-17 -- Phase 5 Slice 4b commit UI COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitDialog.tsx` (NEW) + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 53645ab7):**
+**Status (2026-06-18 -- Phase 5 Slice 5 (frontend) commit-results modal COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitResultsModal.tsx` (NEW) + `CommitDialog.tsx` + `BoqHubPage.tsx`, feat ab4a390b):**
+Surfaces the Slice-5 backend envelope (`commit_boq` -> `{boq_name, committed:[{sheet_name, commit_version, ...}],
+failed:[{sheet_name, reason}]}`, which NO LONGER throws on a per-sheet failure -- feat 09714041). After a commit the
+user now sees an explicit RESULTS acknowledgement instead of the dialog silently closing. FRONTEND-ONLY -- no backend
+Python, no doctype JSON.
+
+- **Result flow = OPTION (i) (hub owns the modal).** `CommitDialog` keeps its "pick + fire" job: `fireCommit` now
+  captures `res.message as CommitBoqResponse` and calls `onCommitted(result)` (prop widened from `() => void` to
+  `(result: CommitBoqResponse) => void`) then closes. The hub's `handleCommitted(result)` stores it, fires the
+  Slice-4b mutates (`mutate` / `mutateCommittedState` / `mutateCommittable` -- UNCONDITIONAL, harmless on an
+  all-failed commit), and opens the results modal. Consistent with the hub owning the parse-completion modal.
+- **`CommitDialog` catch unchanged in spirit.** The `try/catch` STAYS for WHOLE-CALL precondition throws (gate
+  re-check / missing boq / empty subset / file fetch) -- those still `frappe.throw` and surface as the dialog's
+  inline `getFrappeError` text. PER-SHEET failures are NOT thrown; they arrive in `result.failed` and render in the
+  results modal. The picker (opens nothing-ticked, the step-1/step-2 re-commit warning) is byte-for-byte UNCHANGED.
+- **`CommitResultsModal.tsx` (NEW) -- acknowledge-only, mirrors the parse-completion modal.** Props `{open,
+  onOpenChange, result: CommitBoqResponse | null}`; returns null when `result` is null (safe -- opens only once a
+  commit resolves). Uses the `AlertDialog` primitives (same as the parse-completion modal): a one-line SUMMARY that
+  reads all three cases ("Committed N sheet(s)." / "Commit failed for N sheet(s)." / "Committed N sheet(s); M
+  failed."), a COMMITTED `<ul>` (emerald + `CheckCircle2`, "{sheet} -- committed v{commit_version}", shown only when
+  non-empty), a FAILED `<ul>` (`text-destructive` + `AlertTriangle`, "{sheet} -- {reason}", shown only when
+  non-empty), and a single `AlertDialogAction` "OK" (+ escape via `onOpenChange`) that dismisses. Acknowledge-only --
+  nothing in flight at this point, so no not-dismissible guard is needed. Sheet names display-trimmed; never re-sent.
+- **`boqTypes.ts` (additive).** `CommittedSheetResult` (reads `sheet_name` + `commit_version`; other envelope keys
+  optional), `FailedSheetResult` (`sheet_name` + `reason`), `CommitBoqResponse` (`{boq_name, committed[], failed[]}`).
+  DISTINCT from `CommittedSheetState` (the get_committed_state read) -- this is the commit RESULT envelope.
+- **No regression to Slice 4b.** The committed-state fetch, the dual "Committed" badge markers, and the "Committed: N"
+  footer count are untouched; only the success-path handoff (silent close -> results modal) changed.
+- **Verification.** tsc 0 new wizard-file errors (filtered) + in-container Vite build exit 0. HAPPY-PATH live-cert is
+  OWNER-OWNED (not browser-driven here): on BOQ-26-00145, Commit -> tick a sheet -> the results modal shows the
+  committed list + new version + summary "Committed 1 sheet(s)."; OK dismisses; the hub badge/count/version reflect
+  the commit. FAILURE-path render is covered by the Slice-5 backend tests (T1/T4/T5/T6 populate `failed[]`) + code
+  inspection; NOT exercised live (no real-data mutation, no browser-driving). Full detail in root CLAUDE.md +
+  boq-upload-plan.md "Phase 5 Slice 5 (frontend)".
+
+// prior: **Status (2026-06-17 -- Phase 5 Slice 4b commit UI COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitDialog.tsx` (NEW) + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 53645ab7):**
 The user-facing commit entry point on the BoQ hub, wiring a UI onto the proven engine (`commit_boq`, already
 whitelisted) + the Slice-4a read endpoint `get_committed_state`. FRONTEND-ONLY -- no backend Python, no doctype JSON.
 
