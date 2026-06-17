@@ -35,11 +35,12 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
+import { CommitResultsModal } from "./CommitResultsModal";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -150,6 +151,10 @@ const BoqHubPage = () => {
 
   // Commit dialog (Phase 5 Slice 4b).
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  // Commit-results acknowledge modal (Phase 5 Slice 5 frontend). commitResult holds
+  // the {committed, failed} envelope; the modal opens once it is set.
+  const [commitResult, setCommitResult] = useState<CommitBoqResponse | null>(null);
+  const [commitResultsOpen, setCommitResultsOpen] = useState(false);
 
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
@@ -392,12 +397,17 @@ const BoqHubPage = () => {
   const committedMap = new Map<string, CommittedSheetState>(
     (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
   );
-  // After a commit, re-fetch the BoQ doc + committed-state (+ eligibility) so the
-  // badges, the "Committed: N" tally, and the dialog sub-labels update with no reload.
-  const handleCommitted = () => {
+  // After commit_boq RESOLVES (Slice 5): re-fetch the BoQ doc + committed-state (+
+  // eligibility) so badges, the "Committed: N" tally, and the dialog sub-labels update
+  // with no reload, AND open the acknowledge-only results modal enumerating
+  // committed[] + failed[]. The mutates fire unconditionally -- harmless on an
+  // all-failed commit (nothing changed), correct whenever any sheet committed.
+  const handleCommitted = (result: CommitBoqResponse) => {
     void mutate();
     void mutateCommittedState();
     void mutateCommittable();
+    setCommitResult(result);
+    setCommitResultsOpen(true);
   };
 
   // ── Spoke navigation callback (Module 3 Slice 3b-ii) ──────────────────────
@@ -1052,6 +1062,14 @@ const BoqHubPage = () => {
         eligibleSheets={committableSheets}
         committedState={committedMap}
         onCommitted={handleCommitted}
+      />
+
+      {/* ── Commit-results acknowledge modal (Phase 5 Slice 5 frontend) ────── */}
+      {/* Enumerates committed[] + failed[] from commit_boq; single OK dismiss.   */}
+      <CommitResultsModal
+        open={commitResultsOpen}
+        onOpenChange={setCommitResultsOpen}
+        result={commitResult}
       />
 
       {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}

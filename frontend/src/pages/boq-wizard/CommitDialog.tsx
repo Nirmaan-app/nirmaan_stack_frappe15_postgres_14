@@ -28,7 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { CommittableSheet, CommittedSheetState } from "./boqTypes";
+import type { CommitBoqResponse, CommittableSheet, CommittedSheetState } from "./boqTypes";
 
 // "date HH:MM" from a Frappe datetime string -- the wizard's slice(0,16) pattern
 // (mirrors ReviewTree's formatEditAt). No date library, no TZ reparse.
@@ -45,8 +45,14 @@ interface CommitDialogProps {
   eligibleSheets: CommittableSheet[];
   /** Current committed-state per sheet (Slice 4a), keyed by sheet_name VERBATIM (#152). */
   committedState: Map<string, CommittedSheetState>;
-  /** Called after a successful commit so the hub re-fetches (badges + count update). */
-  onCommitted: () => void;
+  /**
+   * Called after commit_boq RESOLVES (Slice 5) with the {committed, failed} envelope.
+   * The hub re-fetches (badges + count) AND opens the acknowledge-only results modal.
+   * Note: commit_boq no longer throws on a per-sheet failure -- a resolved envelope can
+   * still carry failed[] entries (a whole-call precondition failure still throws -> the
+   * catch below). VERBATIM sheet names (#152).
+   */
+  onCommitted: (result: CommitBoqResponse) => void;
 }
 
 export function CommitDialog({
@@ -111,11 +117,16 @@ export function CommitDialog({
     setRunning(true);
     try {
       // VERBATIM sheet names (#152). The backend re-checks the gate before any write.
-      await callCommitBoq({ boq_name: boqName, sheet_subset: tickedList });
+      const res = await callCommitBoq({ boq_name: boqName, sheet_subset: tickedList });
+      const result = res.message as CommitBoqResponse;
       setRunning(false);
-      onCommitted();
+      // Hand the {committed, failed} envelope up: the hub refreshes + opens the
+      // acknowledge-only results modal (which enumerates both lists). Close the picker.
+      onCommitted(result);
       onOpenChange(false);
     } catch (e: unknown) {
+      // A WHOLE-CALL precondition failure (gate re-check / missing boq / empty subset /
+      // file fetch) still throws; per-sheet failures arrive in result.failed, not here.
       setRunning(false);
       setError(`${getFrappeError(e) || "Commit failed. Please try again."} Nothing was committed.`);
     }
