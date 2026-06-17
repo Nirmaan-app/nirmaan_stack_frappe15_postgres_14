@@ -24,7 +24,11 @@ def validate(doc, method):
 
     if not doc.node_type:
         frappe.throw(_("Node Type is required"))
-    if not doc.description:
+    # Description is required only for the PRICEABLE node types (Preamble / Line Item).
+    # A non-priceable "Other" node (X: note / subtotal_marker / header_repeat) may be
+    # contentless (e.g. a marker), so the constraint no-ops for it -- the rest of the
+    # validation already falls through both type branches for "Other".
+    if doc.node_type in ("Preamble", "Line Item") and not doc.description:
         frappe.throw(_("Description is required"))
 
     if doc.node_type == "Preamble":

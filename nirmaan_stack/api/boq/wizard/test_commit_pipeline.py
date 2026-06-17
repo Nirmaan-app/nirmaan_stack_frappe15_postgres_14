@@ -163,7 +163,8 @@ class TestCommitPipeline(FrappeTestCase):
         if current_only:
             filt["is_current"] = 1
         return frappe.get_all(_NODE, filters=filt,
-                              fields=["name", "node_type", "level", "code", "description",
+                              fields=["name", "node_type", "row_class", "level", "code",
+                                      "description",
                                       "parent_node", "qty", "supply_rate", "install_rate",
                                       "combined_rate", "supply_amount", "install_amount",
                                       "total_amount", "is_rate_only", "is_synthetic",
@@ -336,7 +337,8 @@ class TestCommitPipeline(FrappeTestCase):
 
     def _seed_node_sheet(self, sheet="HVAC"):
         """A small finalized tree: 1 preamble (root) + 2 line items under it + a NOTE
-        and a SPACER (grid-only, must NOT become nodes)."""
+        (X: now committed as an Other node, parented to the preamble) + a SPACER
+        (grid-only, the one class that must NOT become a node)."""
         self._seed_review_row(sheet, 0, "preamble", level=1, description="EARTHWORK",
                               sl_no_value="A")
         self._seed_review_row(sheet, 1, "line_item", parent_index=0, description="Excavation",
@@ -351,25 +353,32 @@ class TestCommitPipeline(FrappeTestCase):
         self._seed_review_row(sheet, 3, "note", parent_index=0, description="Site note")
         self._seed_review_row(sheet, 4, "spacer", description="")
 
-    def test_node_tree_built_preamble_and_line_items_only(self):
-        """note/spacer/subtotal/header_repeat are grid-only -> NOT nodes; preamble +
-        line_items become nodes; the parent tree is wired by the row_index->node map;
-        money is preserved verbatim (Float->Currency) and qty stays Float."""
+    def test_node_tree_priceable_unchanged_note_committed_spacer_skipped(self):
+        """X: every classified row EXCEPT spacer becomes a node. preamble + line_items
+        commit UNCHANGED (node_type/level/money/qty -- regression); the NOTE now commits
+        as an Other node (row_class note) wired to its preamble parent; the SPACER stays
+        grid-only. node_count = all-except-spacer = 4."""
         self._seed_node_sheet("HVAC")
         res = self._commit("HVAC", "finalized")
-        self.assertEqual(res["node_count"], 3, "1 preamble + 2 line items (note/spacer skipped)")
+        self.assertEqual(res["node_count"], 4,
+                         "1 preamble + 2 line items + 1 note (spacer skipped)")
 
         nodes = self._nodes_for_sheet(res["boq_sheet_name"])
-        by_code = {n.code: n for n in nodes}
-        self.assertEqual(set(by_code), {"A", "1", "2"})
+        # spacer must NOT have become a node
+        self.assertNotIn("spacer", {n.row_class for n in nodes})
 
-        preamble = by_code["A"]
+        priceable = {n.code: n for n in nodes if n.node_type in ("Preamble", "Line Item")}
+        self.assertEqual(set(priceable), {"A", "1", "2"})
+
+        preamble = priceable["A"]
         self.assertEqual(preamble.node_type, "Preamble")
+        self.assertEqual(preamble.row_class, "preamble")
         self.assertEqual(preamble.level, 1)
         self.assertIsNone(preamble.parent_node)  # root
 
-        li1 = by_code["1"]
+        li1 = priceable["1"]
         self.assertEqual(li1.node_type, "Line Item")
+        self.assertEqual(li1.row_class, "line_item")
         self.assertEqual(li1.parent_node, preamble.name)  # wired to the preamble
         # money preserved verbatim (word-order reversal landed)
         self.assertEqual(li1.qty, 100.0)
@@ -380,10 +389,17 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(li1.install_amount, 2000.0)
         self.assertEqual(li1.total_amount, 7000.0)
 
-        li2 = by_code["2"]
+        li2 = priceable["2"]
         self.assertEqual(li2.parent_node, preamble.name)
         self.assertEqual(li2.is_rate_only, 1)
         self.assertEqual(li2.qty, 0.0)  # rate-only line item
+
+        # the NOTE -> an Other node, row_class note, wired under the preamble
+        note_nodes = [n for n in nodes if n.node_type == "Other"]
+        self.assertEqual(len(note_nodes), 1)
+        self.assertEqual(note_nodes[0].row_class, "note")
+        self.assertEqual(note_nodes[0].description, "Site note")
+        self.assertEqual(note_nodes[0].parent_node, preamble.name)
 
     def test_provenance_and_flags_carried(self):
         """review_row_name + commit_provenance_id set; is_rate_only/is_synthetic carried."""
@@ -482,24 +498,24 @@ class TestCommitPipeline(FrappeTestCase):
         v1_sheet = first["boq_sheet_name"]
         v1_nodes = self._nodes_for_sheet(v1_sheet)  # current at this point
         self.assertEqual(first["commit_version"], 1)
-        self.assertEqual(len(v1_nodes), 3)
+        self.assertEqual(len(v1_nodes), 4)  # X: preamble + 2 line items + note
 
         second = self._commit("HVAC", "finalized")
         v2_sheet = second["boq_sheet_name"]
         self.assertEqual(second["commit_version"], 2)
-        self.assertEqual(second["froze_nodes"], 3, "the 3 v1 nodes were frozen")
+        self.assertEqual(second["froze_nodes"], 4, "the 4 v1 nodes were frozen")
 
         # shared version across all three tiers
         self.assertEqual(
             frappe.db.get_value(_GRID, second["grid_name"], "commit_version"), 2)
         self.assertEqual(frappe.db.get_value(_SHEET, v2_sheet, "commit_version"), 2)
         v2_nodes = self._nodes_for_sheet(v2_sheet)
-        self.assertEqual(len(v2_nodes), 3)
+        self.assertEqual(len(v2_nodes), 4)
         self.assertTrue(all(n.commit_version == 2 for n in v2_nodes))
 
         # v1 nodes frozen + STILL attached to frozen sheet v1 (coherent snapshot)
         v1_all = self._nodes_for_sheet(v1_sheet, current_only=False)
-        self.assertEqual(len(v1_all), 3)
+        self.assertEqual(len(v1_all), 4)
         self.assertTrue(all(n.is_current == 0 for n in v1_all))
         self.assertEqual(frappe.db.get_value(_SHEET, v1_sheet, "is_current"), 0)
 
@@ -508,7 +524,7 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(
             len(commit_pipeline._current_names(_SHEET, self.boq_name, "sheet_name", "HVAC")), 1)
         cur_nodes = frappe.get_all(_NODE, filters={"boq": self.boq_name, "is_current": 1})
-        self.assertEqual(len(cur_nodes), 3, "only the v2 nodes are current")
+        self.assertEqual(len(cur_nodes), 4, "only the v2 nodes are current")
 
     def test_is_current_accessor_per_tier(self):
         """The centralized accessor returns the current row per tier, keyed by the
@@ -593,3 +609,95 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(n[0].level, 1)
         self.assertEqual(n[1].level, 2)
         self.assertEqual(n[2].node_type, "Line Item")
+
+    # ================================================================== #
+    # X -- commit ALL classified rows except spacer as semantic nodes    #
+    # ================================================================== #
+
+    def test_commit_all_classified_except_spacer(self):
+        """X: a sheet with preamble + line_item + note(under preamble) + subtotal_marker
+        (root) + spacer -> the note & subtotal commit as Other nodes (correct row_class),
+        the note wires to its preamble parent, the subtotal is root, and the SPACER alone
+        stays grid-only. node_count = all-except-spacer = 4."""
+        self._seed_review_row("HVAC", 0, "preamble", level=1, description="GROUP",
+                              sl_no_value="A")
+        self._seed_review_row("HVAC", 1, "line_item", parent_index=0, description="Item",
+                              sl_no_value="1", qty_total=1.0)
+        self._seed_review_row("HVAC", 2, "note", parent_index=0, description="Site note")
+        self._seed_review_row("HVAC", 3, "subtotal_marker", description="TOTAL")  # root
+        self._seed_review_row("HVAC", 4, "spacer", description="")
+        res = self._commit("HVAC", "finalized")
+        self.assertEqual(res["node_count"], 4, "preamble + line_item + note + subtotal "
+                                               "(spacer skipped)")
+
+        nodes = self._nodes_for_sheet(res["boq_sheet_name"])
+        by_class = {}
+        for n in nodes:
+            by_class.setdefault(n.row_class, []).append(n)
+        # spacer is the ONLY class that did not become a node
+        self.assertNotIn("spacer", by_class)
+        self.assertEqual(set(by_class), {"preamble", "line_item", "note", "subtotal_marker"})
+
+        preamble = by_class["preamble"][0]
+
+        note = by_class["note"][0]
+        self.assertEqual(note.node_type, "Other")
+        self.assertEqual(note.parent_node, preamble.name)  # wired under the preamble
+
+        subtotal = by_class["subtotal_marker"][0]
+        self.assertEqual(subtotal.node_type, "Other")
+        self.assertEqual(subtotal.description, "TOTAL")
+        self.assertIsNone(subtotal.parent_node)  # root marker
+
+    def test_other_note_node_carries_description_no_money(self):
+        """A note commits as Other with its description text and NO qty/rate/amount
+        (notes carry none on the review row)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=1, description="GROUP",
+                              sl_no_value="A")
+        self._seed_review_row("HVAC", 1, "note", parent_index=0,
+                              description="rates inclusive of taxes")
+        res = self._commit("HVAC", "finalized")
+        note = [n for n in self._nodes_for_sheet(res["boq_sheet_name"])
+                if n.node_type == "Other"][0]
+        self.assertEqual(note.row_class, "note")
+        self.assertEqual(note.description, "rates inclusive of taxes")
+        # no money carried (Currency/Float default to 0/None when unset)
+        self.assertIn(note.qty, (None, 0.0))
+        self.assertIn(note.supply_rate, (None, 0.0))
+        self.assertIn(note.combined_rate, (None, 0.0))
+        self.assertIn(note.total_amount, (None, 0.0))
+
+    def test_attached_notes_not_doubled_by_X(self):
+        """The parser ALREADY rolls descendant note text onto the nearest preamble's
+        attached_notes (carried verbatim by 3b). X commits the note as its OWN node but
+        must NOT re-attach -- the preamble node's attached_notes stays exactly what the
+        review row had, NOT doubled."""
+        self._seed_review_row("HVAC", 0, "preamble", level=1, description="LT CABLES",
+                              sl_no_value="A", attached_notes=["Aluminium Cables"])
+        self._seed_review_row("HVAC", 1, "note", parent_index=0,
+                              description="Aluminium Cables")
+        res = self._commit("HVAC", "finalized")
+        nodes = self._nodes_for_sheet(res["boq_sheet_name"])
+        preamble = [n for n in nodes if n.node_type == "Preamble"][0]
+        pre_doc = frappe.get_doc(_NODE, preamble.name)
+        # unchanged carry -- exactly the one element, NOT ["Aluminium Cables"] * 2
+        self.assertEqual(self._pj(pre_doc.attached_notes), ["Aluminium Cables"])
+        # the note ALSO exists as its own discrete node
+        note_nodes = [n for n in nodes if n.node_type == "Other" and n.row_class == "note"]
+        self.assertEqual(len(note_nodes), 1)
+        self.assertEqual(note_nodes[0].description, "Aluminium Cables")
+
+    def test_levelless_preamble_ignores_note_child_for_level(self):
+        """Q8: a level-less preamble whose children are a level-2 preamble AND a note ->
+        only the priceable child counts -> level = max(0, min(2) - 1) = 1. The note (level
+        0) is IGNORED; counting it would have pulled the preamble to 0 (the X regression
+        this guards)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=0, description="level-less")
+        self._seed_review_row("HVAC", 1, "preamble", level=2, parent_index=0,
+                              description="L2 child", sl_no_value="1")
+        self._seed_review_row("HVAC", 2, "note", parent_index=0, description="a note")
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual(n[0].node_type, "Preamble")
+        self.assertEqual(n[0].level, 1, "note child excluded; min priceable child 2 -> 1")
+        self.assertEqual(n[1].level, 2)
