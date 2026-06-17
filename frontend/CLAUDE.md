@@ -317,6 +317,51 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-17 -- Phase 5 Slice 4b commit UI COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitDialog.tsx` (NEW) + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 53645ab7):**
+The user-facing commit entry point on the BoQ hub, wiring a UI onto the proven engine (`commit_boq`, already
+whitelisted) + the Slice-4a read endpoint `get_committed_state`. FRONTEND-ONLY -- no backend Python, no doctype JSON.
+
+- **TWO new hub reads (`BoqHubPage.tsx`).** `get_committable_sheets` (the gate -- eligibility + disposition) and
+  `get_committed_state` (Slice 4a -- per-sheet current committed-state) via `useFrappeGetCall` (the whitelisted-bare
+  GET family the work-package map uses; same `boqId ? undefined : null` swrKey gotcha), each with its own `mutate`.
+  A `committedMap: Map<sheet_name(VERBATIM #152), CommittedSheetState>` is built once and drives the card badges +
+  the footer tally; `committableSheets` drives the Commit button + the dialog. After a commit, `handleCommitted`
+  calls `mutate()` (BoQ doc) + `mutateCommittedState()` + `mutateCommittable()` so badges + count + dialog refresh
+  with NO reload.
+- **Commit button = 4th footer sibling.** Added inside the existing `<div className="flex shrink-0 items-center
+  gap-2">` Tooltip cluster after Export Finalized / Re-parse / Parse workbook. `variant="outline"`, label "Commit",
+  `disabled={committableSheets.length === 0}` (gated on the GATE, NOT committed-state). Opens `commitDialogOpen`.
+- **`CommitDialog.tsx` (NEW) -- mirrors ExportWorkbookDialog (checklist) + ParseRunDialog (two-step).** Props
+  `{open, onOpenChange, boqName, eligibleSheets, committedState, onCommitted}`. Ticked `useState<Set<string>>`
+  initialized EMPTY (opens with NOTHING ticked -- deliberate selection; reset on open). Each row: Checkbox + name +
+  a `(finalized|general specs)` disposition hint + a muted "committed {date HH:MM} · v{n}" sub-label (or "not yet
+  committed"). `const [step,setStep]=useState<1|2>(1)`: `handleConfirmClick` computes the ticked sheets that ALSO
+  appear in `committedState` (the re-commits) -> NON-EMPTY sets step 2, else fires directly. Step 2 = destructive
+  `AlertTriangle` callout NAMING each re-commit sheet WITH its last-committed date/time + "the prior version is
+  frozen (kept as history), not lost", with "Go back" (-> step 1) and a destructive "Commit anyway". `fireCommit`
+  calls `commit_boq` via `useFrappePostCall` with `{boq_name, sheet_subset: tickedList}` (ORDERED ticked list, the
+  Export filter-by-eligible-order pattern; VERBATIM #152; the backend re-checks the gate before any write).
+  running / inline `getFrappeError` / not-dismissible-mid-flight (`if (!isOpen && running) return`) all copied from
+  Export; Confirm disabled when `running || ticked.size === 0`. On success -> `onCommitted()` then close.
+- **`SheetCard.tsx` -- the Committed badge (dual markers).** New optional `committedState?: CommittedSheetState`.
+  When present, an INDIGO "Committed" pill (`bg-indigo-600 ... dark:bg-indigo-700` -- distinct from every
+  STATUS_PILL color) renders in the badge cluster ALONGSIDE the status pill (never replaces it), plus a muted
+  "· Committed {date HH:MM} · v{n}" sub-line below the name/pill row. Applies to ANY committed sheet -- finalized
+  AND general-specs, identical treatment. NOT added to `STATUS_PILL` or `WizardStatus`.
+- **Footer "Committed: N".** `committedCount = allDrafts.filter(d => committedMap.has(d.sheet_name)).length` rendered
+  in the existing `count>0 && ...` chain after "checked". DERIVED from committed-state, NOT a `getEffectiveStatus`
+  bucket (committed-ness is orthogonal to wizard_status).
+- **Date format.** Committed timestamps use the wizard's `slice(0,16)` "YYYY-MM-DD HH:MM" pattern (ReviewTree's
+  `formatEditAt`) via a tiny local `fmtCommittedAt` in BOTH CommitDialog + SheetCard. App-shared `formatDate` is NOT
+  mutated and NO new shared helper file was added.
+- **`boqTypes.ts` (additive).** `CommittableSheet` / `GetCommittableSheetsResponse` (gate) + `CommittedSheetState` /
+  `GetCommittedStateResponse` (4a read). NO committed field on `BoQSheetDraft`; NO "Committed" in `WizardStatus`.
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|CommitDialog|SheetCard|BoqHubPage|boqTypes`
+  -> empty) + in-container Vite build exit 0. Live-cert on a real committed BoQ pending/at session end (badge +
+  date/HH:MM, footer count, modal nothing-ticked, re-commit warning naming the sheet + date/time). Live re-commit
+  left to the owner (avoids mutating live committed data). Full detail in root CLAUDE.md + boq-upload-plan.md
+  "Phase 5 Slice 4b".
+
 **Minimal touch (2026-06-16 -- Phase 5 Slice 2.5, BACKEND ONLY, feat 49b77635):** The committed BOQ Nodes tier
 is now CAPTURE-ONLY -- removed all write-chain money compute (parent `_compute_amounts` +
 `_recompute_parent_rates_from_areas`; child `_apply_rate_fallback` + `_compute_child_amounts`) so reviewed values
