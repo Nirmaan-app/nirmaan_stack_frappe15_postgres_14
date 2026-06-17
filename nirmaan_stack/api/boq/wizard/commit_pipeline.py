@@ -482,12 +482,20 @@ def _commit_node_tree(
         node_rows.append((d, eff))
         eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
+    # Level-less preambles: precompute their assigned level from the whole sheet's
+    # effective tree (children / shallowest-defined-level), Phase-5 guard fix.
+    assigned_levels = _compute_levelless_preamble_levels(
+        sheet_name, node_rows, eff_parent_by_idx
+    )
+
     # 2. PASS 1 -- insert every node PARENT-LESS, with NO list-valued JSON field set
     #    (attached_notes / edit_log deferred to pass 3 so pass-2 doc.save() is safe).
     docs_by_idx: dict[int, Any] = {}
     name_by_idx: dict[int, str] = {}
     for d, eff in node_rows:
-        node = _build_node_pass1(boq_sheet_name, d, eff, commit_version, committed_at)
+        node = _build_node_pass1(
+            boq_sheet_name, d, eff, commit_version, committed_at, assigned_levels
+        )
         node.insert(ignore_permissions=True)
         docs_by_idx[d["row_index"]] = node
         name_by_idx[d["row_index"]] = node.name
@@ -525,12 +533,76 @@ def _commit_node_tree(
     return {"node_count": len(node_rows), "froze_nodes": froze_nodes}
 
 
+def _real_preamble_level(d: dict):
+    """The preamble's real >=1 level (classifier override wins over the parser level),
+    or None if the row is LEVEL-LESS (no override and no >=1 parser level)."""
+    ov = d.get("preamble_level_override")
+    if isinstance(ov, int) and ov >= 1:
+        return ov
+    lv = d.get("level")
+    if isinstance(lv, int) and lv >= 1:
+        return lv
+    return None
+
+
+def _compute_levelless_preamble_levels(
+    sheet_name: str, node_rows: list, eff_parent_by_idx: dict
+) -> dict:
+    """Assign a level to every LEVEL-LESS effective preamble (Phase 5 guard fix).
+
+    A level-less preamble (no classifier override and no >=1 parser level) gets:
+      - WITH children  -> max(0, min(child effective-level) - 1)  -- the shallowest
+        child wins, so the preamble sits one level above its shallowest child;
+        line-item children count as level 0.
+      - CHILDLESS      -> the sheet's shallowest DEFINED preamble level; if the sheet
+        has no defined levels at all (e.g. a sheet of line-items + one promoted
+        preamble) -> 0.
+    Returns {row_index: assigned_level} for level-less preambles ONLY. (The constraint
+    relaxed to allow level 0; the old flat default of 1 broke trees where a child was
+    also level 1.)
+
+    SAFETY (not exercised by current data; loud on future data): if a level-less
+    preamble has BOTH a parent and children and the computed level would not sit above
+    the parent (a squeeze), warn and still assign best-effort -- do not silently jam.
+    """
+    level_by_idx = {d["row_index"]: (d.get("level") or 0) for d, _e in node_rows}
+    child_levels: dict = {}
+    for d, _e in node_rows:
+        ep = eff_parent_by_idx.get(d["row_index"])
+        if ep is not None:
+            child_levels.setdefault(ep, []).append(level_by_idx[d["row_index"]])
+    defined = [lv for lv in level_by_idx.values() if lv >= 1]
+    sheet_min = min(defined) if defined else 0
+
+    assigned: dict = {}
+    for d, e in node_rows:
+        if e["effective_classification"] != _PREAMBLE_CLS:
+            continue
+        if _real_preamble_level(d) is not None:
+            continue  # has a real level -- not level-less
+        idx = d["row_index"]
+        kids = child_levels.get(idx, [])
+        lvl = max(0, min(kids) - 1) if kids else sheet_min
+        ep = eff_parent_by_idx.get(idx)
+        if ep is not None and kids and lvl <= level_by_idx.get(ep, 0):
+            frappe.msgprint(
+                f"Level-less preamble on sheet {sheet_name!r} (source row "
+                f"{d.get('source_row_number')}): computed level {lvl} does not sit above "
+                f"its parent (level {level_by_idx.get(ep, 0)}). Committed best-effort; "
+                f"verify the hierarchy.",
+                alert=True, indicator="orange",
+            )
+        assigned[idx] = lvl
+    return assigned
+
+
 def _build_node_pass1(
     boq_sheet_name: str,
     d: dict,
     eff: dict,
     commit_version: int,
     committed_at: str,
+    assigned_levels: dict,
 ) -> Any:
     """Build a parent-less BOQ Nodes doc from a resolved review row (pass 1).
 
@@ -538,6 +610,9 @@ def _build_node_pass1(
     Float->Currency left to Frappe), flags + human-layer-as-provenance + provenance
     ids + versioning, and the per-area child explosion. Does NOT set the list-valued
     JSON fields (attached_notes / edit_log) -- those land in pass 3.
+
+    assigned_levels: {row_index: level} for level-less preambles, precomputed by
+    _compute_levelless_preamble_levels (needs the whole sheet's children/min-level).
     """
     node = frappe.new_doc(_NODE_DOCTYPE)
     node.sheet = boq_sheet_name  # boq auto-fills from the sheet (P4-2 sync-guard)
@@ -545,11 +620,11 @@ def _build_node_pass1(
     cls = eff["effective_classification"]
     if cls == _PREAMBLE_CLS:
         node.node_type = "Preamble"
-        # level must be >= 1 for a Preamble (controller throws otherwise). Use the
-        # classifier override when set (default 0 = unset), else the parser level,
-        # else 1 (abort-guard for a missing level).
-        lvl = d.get("preamble_level_override") or d.get("level") or 1
-        node.level = lvl if (isinstance(lvl, int) and lvl >= 1) else 1
+        # A real >=1 level (override or parser) is used unchanged. A LEVEL-LESS preamble
+        # takes the precomputed assigned level (children -> max(0,min_child-1); childless
+        # -> sheet shallowest defined level, else 0). Constraint relaxed to allow 0.
+        real = _real_preamble_level(d)
+        node.level = real if real is not None else assigned_levels.get(d["row_index"], 0)
     else:  # _LINE_ITEM_CLS -- level must NOT be set (controller throws if it is)
         node.node_type = "Line Item"
 

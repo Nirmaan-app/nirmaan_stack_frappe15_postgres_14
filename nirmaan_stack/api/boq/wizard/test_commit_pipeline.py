@@ -525,3 +525,71 @@ class TestCommitPipeline(FrappeTestCase):
         node_names = commit_pipeline._current_names(
             _NODE, self.boq_name, "sheet", res["boq_sheet_name"])
         self.assertEqual(len(node_names), 1)
+
+    # ================================================================== #
+    # Level-less preamble guard (Phase 5 post-dogfood fix)               #
+    # ================================================================== #
+
+    def _nodes_by_sort(self, boq_sheet_name):
+        return {n.sort_order: n for n in self._nodes_for_sheet(boq_sheet_name)}
+
+    def test_levelless_preamble_with_children_assigns_min_child_minus_one(self):
+        """Electrical row-18 shape: a level-less preamble (root) whose children are all
+        level 1 -> max(0, min_child(1) - 1) = 0 (NOT the old buggy flat 1, which would
+        equal its children's level and break the tree)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=0, description="Note:")
+        self._seed_review_row("HVAC", 1, "preamble", level=1, parent_index=0,
+                              description="L1 child A", sl_no_value="1")
+        self._seed_review_row("HVAC", 2, "preamble", level=1, parent_index=0,
+                              description="L1 child B", sl_no_value="2")
+        self._seed_review_row("HVAC", 3, "line_item", level=0, parent_index=1,
+                              description="item", sl_no_value="1.1", qty_total=5.0)
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual(n[0].node_type, "Preamble")
+        self.assertEqual(n[0].level, 0)   # level-less -> 0
+        self.assertEqual(n[1].level, 1)   # real level preserved
+        self.assertEqual(n[2].level, 1)
+        self.assertEqual(n[3].node_type, "Line Item")
+
+    def test_levelless_preamble_mixed_children_uses_shallowest(self):
+        """low side row-191 shape: a level-less preamble (root) with level-0 line-item
+        children AND a level-1 preamble child -> min child level 0 -> max(0, -1) = 0
+        (shallowest child wins)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=0, description="DX UNIT")
+        self._seed_review_row("HVAC", 1, "line_item", level=0, parent_index=0,
+                              description="li a", sl_no_value="a", qty_total=1.0)
+        self._seed_review_row("HVAC", 2, "line_item", level=0, parent_index=0,
+                              description="li b", sl_no_value="b", qty_total=2.0)
+        self._seed_review_row("HVAC", 3, "preamble", level=1, parent_index=0,
+                              description="sub preamble", sl_no_value="1")
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual(n[0].level, 0)   # min child 0 -> 0
+        self.assertEqual(n[3].level, 1)
+
+    def test_levelless_preamble_childless_no_defined_levels_zero(self):
+        """Fire Fitting row-8 shape: a CHILDLESS level-less preamble on a sheet with NO
+        defined levels (only line items + this lone promoted preamble) -> 0."""
+        self._seed_review_row("HVAC", 0, "line_item", level=0, description="li",
+                              sl_no_value="1", qty_total=1.0)
+        self._seed_review_row("HVAC", 1, "preamble", level=0, description="promoted",
+                              sl_no_value="5")
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual(n[1].node_type, "Preamble")
+        self.assertEqual(n[1].level, 0)   # childless, no defined levels -> 0
+
+    def test_normal_multilevel_preamble_levels_unchanged(self):
+        """Control / regression: a real multi-level preamble tree commits with its
+        levels unchanged (the guard only touches level-less preambles)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=1, description="L1", sl_no_value="1")
+        self._seed_review_row("HVAC", 1, "preamble", level=2, parent_index=0,
+                              description="L2", sl_no_value="1.1")
+        self._seed_review_row("HVAC", 2, "line_item", level=0, parent_index=1,
+                              description="item", sl_no_value="a", qty_total=3.0)
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual(n[0].level, 1)
+        self.assertEqual(n[1].level, 2)
+        self.assertEqual(n[2].node_type, "Line Item")
