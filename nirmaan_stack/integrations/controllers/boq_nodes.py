@@ -28,8 +28,12 @@ def validate(doc, method):
         frappe.throw(_("Description is required"))
 
     if doc.node_type == "Preamble":
-        if doc.level is None or doc.level < 1:
-            frappe.throw(_("Level must be a positive integer for Preamble nodes"))
+        # Level 0 is allowed (Phase 5 level-less-preamble guard fix): a preamble whose
+        # source carries no level commits at the level the commit pipeline computes
+        # (max(0, min child level - 1), or the sheet's shallowest defined level, else 0).
+        # Only None / negative levels are rejected.
+        if doc.level is None or doc.level < 0:
+            frappe.throw(_("Level must be a non-negative integer for Preamble nodes"))
         if doc.level > 5:
             frappe.msgprint(
                 _("Preamble level {0} is unusually deep (> 5). Verify the hierarchy is correct.").format(doc.level),

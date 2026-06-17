@@ -158,14 +158,25 @@ class TestBOQNodes(FrappeTestCase):
     # validate: Preamble level rules                                       #
     # ------------------------------------------------------------------ #
 
-    def test_preamble_level_zero_rejected(self):
-        """Level 0 is not a positive integer and must be rejected."""
+    def test_preamble_level_zero_saves(self):
+        """Phase 5 level-less-preamble fix: level 0 is now ALLOWED for a Preamble
+        (the commit pipeline assigns 0 to a level-less preamble); it must SAVE."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 0
+        node.description = "Level-zero preamble"
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.level, 0)
+
+    def test_preamble_level_negative_rejected(self):
+        """A negative Preamble level is still invalid and must be rejected."""
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.sheet = self.sheet_name
             node.node_type = "Preamble"
-            node.level = 0
-            node.description = "Bad level"
+            node.level = -1
+            node.description = "Bad negative level"
             node.insert(ignore_permissions=True)
 
     def test_preamble_level_four_saves_successfully(self):
