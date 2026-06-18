@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import SITEURL from "@/constants/siteURL"
 import { getUrlStringParam } from "@/hooks/useServerDataTable"
+import { useUserData } from "@/hooks/useUserData"
 import { Customers } from "@/types/NirmaanStack/Customers"
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows"
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice"
@@ -49,10 +50,21 @@ interface ProjectFinancialsTabProps {
   advanceAgainstPO: number
 
 }
+// Sales users (Executive / Lead) only see these financial sub-tabs.
+const SALES_ALLOWED_TABS = ["Project Invoices", "Inflow", "Client PO"];
+
 export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
+  const { role } = useUserData();
+  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+
   const initialTab = useMemo(() => {
-    return getUrlStringParam("fTab", "All Payments");
+    const urlTab = getUrlStringParam("fTab", "All Payments");
+    // Sales users default to (and are confined to) their allowed sub-tabs.
+    if (isSales && !SALES_ALLOWED_TABS.includes(urlTab)) {
+      return "Project Invoices";
+    }
+    return urlTab;
   }, []); // Calculate once
 
   const [tab, setTab] = useState<string>(initialTab)
@@ -224,32 +236,36 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
   ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
-  const tabs = useMemo(() => [
-    {
-      label: "All Payments",
-      value: "All Payments"
-    },
-    // {
-    //   label: "All Orders",
-    //   value: "All Orders"
-    // },
-    {
-      label: "All PO Invoices",
-      value: "All PO Invoices"
-    },
-    {
-      label: "Project Invoices",
-      value: "Project Invoices"
-    },
-    {
-      label: "Inflow",
-      value: "Inflow"
-    },
-    {
-      label: "Client PO",
-      value: "Client PO"
-    },
-  ], [])
+  const tabs = useMemo(() => {
+    const allTabs = [
+      {
+        label: "All Payments",
+        value: "All Payments"
+      },
+      // {
+      //   label: "All Orders",
+      //   value: "All Orders"
+      // },
+      {
+        label: "All PO Invoices",
+        value: "All PO Invoices"
+      },
+      {
+        label: "Project Invoices",
+        value: "Project Invoices"
+      },
+      {
+        label: "Inflow",
+        value: "Inflow"
+      },
+      {
+        label: "Client PO",
+        value: "Client PO"
+      },
+    ];
+    // Sales users only see Project Invoices, Inflow, and Client PO.
+    return isSales ? allTabs.filter((t) => SALES_ALLOWED_TABS.includes(t.value)) : allTabs;
+  }, [isSales])
 
   const onClick = useCallback(
     (value: string) => {
@@ -259,6 +275,14 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       }
     }
     , [tab]);
+
+  // Keep Sales users confined to their allowed sub-tabs even if `tab` ends up
+  // on a restricted value (e.g. a stale fTab URL param).
+  useEffect(() => {
+    if (isSales && !SALES_ALLOWED_TABS.includes(tab)) {
+      setTab("Project Invoices");
+    }
+  }, [isSales, tab]);
 
   return (
     <div className="flex-1 space-y-4">

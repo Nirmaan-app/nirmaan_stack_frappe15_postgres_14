@@ -400,6 +400,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isProcurementExecutive = role === "Nirmaan Procurement Executive Profile";
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";
+  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
@@ -455,7 +456,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
-    if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
+    if (isSales) {
+      // Sales users can only see the Overview and Financials tabs.
+      if (activePage !== PROJECT_PAGE_TABS.OVERVIEW && activePage !== PROJECT_PAGE_TABS.FINANCIALS) {
+        setActivePage(PROJECT_PAGE_TABS.OVERVIEW);
+      }
+    } else if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
       setActivePage(PROJECT_PAGE_TABS.CRITICAL_POS);
     } else if (isEstimatesExecutive && !estimatesExecutiveAllowedTabs.has(activePage)) {
       setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
@@ -463,9 +469,23 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       // Redirect non-privileged users (except Procurement Executive and Estimates Executive who have their own rules)
       setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
     }
-  }, [isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
+  }, [isSales, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
 
   const items: MenuItem[] = useMemo(() => {
+    // Sales users (Executive / Lead) can only see the Overview and Financials tabs.
+    if (isSales) {
+      return [
+        {
+          label: "Overview",
+          key: PROJECT_PAGE_TABS.OVERVIEW,
+        },
+        {
+          label: "Financials",
+          key: PROJECT_PAGE_TABS.FINANCIALS,
+        },
+      ];
+    }
+
     // For non-privileged users (not Admin, PMO, Accountant, Procurement Executive, Estimates Executive), show only limited tabs
     if (!isPrivilegedUser && !isProcurementExecutive && !isEstimatesExecutive) {
       return [
@@ -740,7 +760,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {

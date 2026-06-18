@@ -24,27 +24,26 @@ def add_customer_po_with_validation(project_name, new_po_detail):
         frappe.throw(f"Project with name {project_name} not found.", title="Validation Error")
         
     po_number = new_po_detail.get('customer_po_number')
-    
-    if not po_number:
-        frappe.throw("Customer PO Number is mandatory.", title="Validation Error")
 
-    # 2. GLOBAL Validation: Check for duplicate PO Number across ALL child table records
-    
-    try:
-        # Use frappe.get_all with limit=1 to efficiently check for existence
-        # We only need the 'name' field, which is the smallest to fetch.
-        duplicate_pos = frappe.get_all(
-            CHILD_DOCTYPE_NAME, 
-            filters={"customer_po_number": po_number},
-            fields=["name"], # Fetch only the name field
-            limit=1         # Stop after finding the first one
-        )
-    except Exception as e:
-        frappe.log_error(title="PO Detail Doctype Error", message=f"Could not query Doctype '{CHILD_DOCTYPE_NAME}'. Check if the name is correct. Error: {str(e)}")
-        frappe.throw(f"Database error during PO number check. (Check server logs)", title="System Error")
+    # 2. GLOBAL Validation: PO Number is OPTIONAL. Only enforce duplicate-checking
+    # when a PO number is actually provided (a blank value may repeat freely).
+    if po_number:
+        duplicate_pos = []
+        try:
+            # Use frappe.get_all with limit=1 to efficiently check for existence
+            # We only need the 'name' field, which is the smallest to fetch.
+            duplicate_pos = frappe.get_all(
+                CHILD_DOCTYPE_NAME,
+                filters={"customer_po_number": po_number},
+                fields=["name"], # Fetch only the name field
+                limit=1         # Stop after finding the first one
+            )
+        except Exception as e:
+            frappe.log_error(title="PO Detail Doctype Error", message=f"Could not query Doctype '{CHILD_DOCTYPE_NAME}'. Check if the name is correct. Error: {str(e)}")
+            frappe.throw(f"Database error during PO number check. (Check server logs)", title="System Error")
 
-    if len(duplicate_pos) > 0:
-        return {"status":"Duplicate"}
+        if len(duplicate_pos) > 0:
+            return {"status":"Duplicate"}
 
     # 3. Add the new PO detail to the child table
     # The new_po_detail is a dictionary matching the child doctype fields.

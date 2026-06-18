@@ -123,6 +123,8 @@ export const InflowPaymentsRoute = () => {
         role === "Nirmaan Accountant Profile" ||
         role === "Nirmaan Accountant Lead Profile" ||
         role === "Nirmaan Project Lead Profile" ||
+        role === "Nirmaan Sales Executive Profile" ||
+        role === "Nirmaan Sales Lead Profile" ||
         user_id === "Administrator"
 
     if (canAccessInflowPayments) {
