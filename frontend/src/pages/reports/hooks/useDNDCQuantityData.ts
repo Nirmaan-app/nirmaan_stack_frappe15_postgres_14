@@ -14,6 +14,7 @@ export interface DNDCItemRow {
   itemName: string;
   category: string;
   unit: string;
+  billingStatus: "Billable" | "Non-Billable" | "";
   orderedQty: number;
   dnQty: number; // from received_quantity
   dcQty: number; // sum of DC item quantities for this PO+item
@@ -24,6 +25,7 @@ export interface DNDCItemRow {
 export interface DNDCPORow {
   poNumber: string;
   vendorName: string;
+  billingStatus: "Billable" | "Non-Billable" | "";
   totalOrderedQty: number;
   totalDNQty: number;
   totalDCQty: number;
@@ -84,7 +86,7 @@ export function useDNDCQuantityData(projectId: string | null) {
   } = useFrappeGetDocList(
     "Procurement Orders",
     {
-      fields: ["name", "status"],
+      fields: ["name", "status", "billing_status"],
       filters: [
         ["project", "=", projectId],
         ["status", "in", ["Dispatched", "Partially Dispatched", "Delivered", "Partially Delivered"]],
@@ -122,6 +124,9 @@ export function useDNDCQuantityData(projectId: string | null) {
     // 2. Build valid PO set and status map
     const validPOSet = new Set<string>(poList.map((po) => po.name));
     const poStatusMap = new Map<string, string>(poList.map((po) => [po.name, po.status]));
+    const poBillingMap = new Map<string, "Billable" | "Non-Billable" | "">(
+      poList.map((po) => [po.name, (po.billing_status as "Billable" | "Non-Billable" | "") || ""])
+    );
 
     // 3. Merge po_items + custom_items
     const allItems = [
@@ -150,6 +155,7 @@ export function useDNDCQuantityData(projectId: string | null) {
             itemName: string;
             category: string;
             unit: string;
+            billingStatus: "Billable" | "Non-Billable" | "";
           }
         >;
       }
@@ -175,6 +181,7 @@ export function useDNDCQuantityData(projectId: string | null) {
           itemName: item.item_name,
           category: item.category,
           unit: item.unit,
+          billingStatus: (item.billing_status as "Billable" | "Non-Billable" | "") || "",
         });
       }
     }
@@ -259,6 +266,7 @@ export function useDNDCQuantityData(projectId: string | null) {
           itemName: itemData.itemName,
           category,
           unit: itemData.unit,
+          billingStatus: itemData.billingStatus,
           orderedQty: itemData.orderedQty,
           dnQty,
           dcQty,
@@ -279,6 +287,7 @@ export function useDNDCQuantityData(projectId: string | null) {
             itemName: dcData.itemName,
             category: dcData.category,
             unit: dcData.unit,
+            billingStatus: "Billable",
             orderedQty: 0,
             dnQty: 0,
             dcQty: dcData.qty,
@@ -318,6 +327,7 @@ export function useDNDCQuantityData(projectId: string | null) {
       resultRows.push({
         poNumber,
         vendorName: poEntry.vendorName,
+        billingStatus: poBillingMap.get(poNumber) ?? "",
         totalOrderedQty: activeItems.reduce((sum, i) => sum + i.orderedQty, 0),
         totalDNQty,
         totalDCQty,
@@ -362,6 +372,7 @@ export function useDNDCQuantityData(projectId: string | null) {
       resultRows.push({
         poNumber,
         vendorName: dcDoc?.vendor ?? "",
+        billingStatus: poBillingMap.get(poNumber) ?? "",
         totalOrderedQty: 0,
         totalDNQty: 0,
         totalDCQty: activeItems.reduce((sum, i) => sum + i.dcQty, 0),
@@ -373,16 +384,20 @@ export function useDNDCQuantityData(projectId: string | null) {
       });
     }
 
-    // 11. Summary
-    const matchedPOs = resultRows.filter((r) => r.reconcileStatus === "matched").length;
-    const mismatchPOs = resultRows.filter((r) => r.reconcileStatus === "mismatch").length;
-    const noDCUpdatePOs = resultRows.filter((r) => r.reconcileStatus === "no_dc_update").length;
-    const pendingDNPOs = resultRows.filter((r) => r.reconcileStatus === "pending_dn").length;
+    // 11. Summary — Billable POs only. A DC/MIR cannot be filed against a
+    // Non-Billable PO, so including them would inflate "No DC Update" with rows
+    // that can never be reconciled. The cards therefore count the actionable
+    // (Billable) universe, matching the table's default Billing filter.
+    const billableRows = resultRows.filter((r) => r.billingStatus !== "Non-Billable");
+    const matchedPOs = billableRows.filter((r) => r.reconcileStatus === "matched").length;
+    const mismatchPOs = billableRows.filter((r) => r.reconcileStatus === "mismatch").length;
+    const noDCUpdatePOs = billableRows.filter((r) => r.reconcileStatus === "no_dc_update").length;
+    const pendingDNPOs = billableRows.filter((r) => r.reconcileStatus === "pending_dn").length;
 
     return {
       poRows: resultRows,
       summary: {
-        totalPOs: resultRows.length,
+        totalPOs: billableRows.length,
         matchedPOs,
         mismatchPOs,
         noDCUpdatePOs,
