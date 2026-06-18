@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -1127,9 +1128,40 @@ const BoqHubPage = () => {
                 </p>
               )}
               {parseResult.failed.length > 0 && (
-                <p className="text-destructive">
-                  Failed to parse: {parseResult.failed.join(", ")}
-                </p>
+                <div className="text-destructive">
+                  <p className="font-medium">Failed to parse:</p>
+                  <ul className="mt-1 space-y-1">
+                    {parseResult.failed.map((name) => {
+                      // F3: the per-sheet REASON. The boq:parse_run_done socket payload
+                      // carries names only -- the reason lives in the persisted
+                      // parse_failure_* (Slice 1a) on the draft, which rides the BOQs doc
+                      // the hub already fetches + mutate()s on parse-done. VERBATIM #152
+                      // lookup (same as F2 / the hub). The worker COMMITS the stamp BEFORE
+                      // publishing, so the mutate()'d boq carries it; during the sub-second
+                      // window before the refetch lands the lookup is undefined -> NAME-ONLY
+                      // fallback (never a blank / "undefined"); the next render shows the
+                      // name + reason. Language matches the F2 card expand (same reason +
+                      // category strings).
+                      const d = boq.sheet_drafts?.find((sd) => sd.sheet_name === name);
+                      const reason = d?.parse_failure_reason?.trim() || null;
+                      const cat = d?.parse_failure_category || null;
+                      return (
+                        <li key={name} className="flex items-start gap-1.5">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="min-w-0">
+                            {name.trim() || name}
+                            {reason && (
+                              <>
+                                {" "}&mdash; {cat ? `(${cat}) ` : ""}
+                                {reason}
+                              </>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
               {parseResult.parsed.length === 0 &&
                 parseResult.notParsed.length === 0 &&
