@@ -1,6 +1,41 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-18 (Slice 1b -- CONFIG STALENESS DETECTION (proactive #166) -- BACKEND, feat 32e31a2a.
+**Last updated:** 2026-06-18 (Slice 2 -- COMMIT ROUND-TRIP RECONCILIATION (output-fidelity) -- BACKEND, feat
+01c7dbaf. An AUTOMATIC, headless, EVERY-COMMIT verification that the committed tiers (node tree + per-area
+children + faithful grid) equal what the commit PRODUCED. Runs at the tail of each per-sheet write path, BEFORE the
+per-sheet `frappe.db.commit()`; a divergence `frappe.throw`s and the EXISTING Slice-5 per-sheet isolation converts
+the sheet into a clean `{failed}` entry (rollback + reason) -- NO new plumbing, isolation boundary UNCHANGED.
+Recovers the dropped Slice-6 dogfood as an always-on check. **BACKEND ONLY.** **LOCKED SCOPE = OUTPUT-FIDELITY, not
+logic-correctness:** verifies ONLY that the value each transform PRODUCED was COPIED to the DB accurately; it does
+NOT judge whether a produced value is *correct* (valid parent, no cycles, sane rates, declared area,
+level-monotonicity = VALIDITY = tendering's job = OUT OF SCOPE -- no coherence checks built). **ONE CHECK TYPE, two
+anchors:** (a) COPIED fields -> `stored == transform(review-row source)` reusing the in-hand `node_rows` snapshot
+(code/sort_order/source_row_number/description-cascade/unit/make_model/node_type/row_class/qty[Line-Item None->0]/
+the six money fields[word-order reversal]/is_rate_only/is_synthetic/human_is_root[bool]/human_classification/
+human_parent[-1 sentinel]/notes[row_notes rename]/append_notes_raw/attached_notes/edit_log[JSON, empty-normalized]/
+the per-area children[deterministic explosion, flat-stays-flat for free]); (b) DERIVED (EXACTLY TWO) -> `stored ==
+CAPTURED producer output`, NEVER re-running the producer: `parent_node = name_by_idx.get(eff_parent_by_idx.get(idx))`
+(the captured eff-parent map + pass-1 insertion record -- the exact lookup pass-2 used; re-running resolve_effective
+would be the self-confirming trap), `level = docs_by_idx[idx].level` (the in-memory value the producer built -- a
+THIN tripwire: nothing mutates level today so it can't fire under current code, kept for near-zero-cost regression
+value). Plus a node-COUNT check (produced rows vs current stored nodes -> catches a finalized sheet that should have
+nodes but persisted none) + a grid row_number/cells compare. **Numerics compared rounded to the field's own
+`frappe.get_precision` (money 2dp via empty `currency_precision`; qty 3dp via `float_precision`) -- NEVER raw float
+equality -- so the Float->Currency coercion never false-flags** (day-N census: 0 divergences across 584 resolvable
+nodes at 2dp). Source values reused from `node_rows`/`grid_rows` (no re-query drift); stored read fresh in-transaction
+(Frappe sees the uncommitted writes). **SUPPRESS-SET encoded exactly** (blank-qty=0, placeholder description,
+flat-stays-flat[absent kind == 0], gen-specs 0 nodes, minted `commit_provenance_id` + versioning triple + `path` +
+`boq` EXCLUDED from compare, spacer grid-only, note/subtotal/header_repeat -> Other money-null, -1 sentinel, bool
+coercion). **TWO HELPERS** (`_reconcile_node_tree` inline at `_commit_node_tree` tail; `_reconcile_grid` from
+`_commit_one_sheet` before commit) -- no signature change. **TESTS:** `test_commit_pipeline` **33 -> 44** (+11):
+MUST-FIRE (6: corrupted money, dropped per-area child, zero-node finalized, wrong parent_node, mutated level,
+corrupted grid -- each tampers the STORED side after write via a reconcile-helper wrapper, no production-code
+change) + MUST-NOT-FIRE (5: flat-stays-flat, blank-qty/placeholder-desc, gen-specs 0 nodes,
+note-Other-money-null+dropped-spacer-parent-root, re-commit versioning-excluded); the existing 33 faithful-commit
+tests stay green (the reconcile does not break a normal commit). NO schema change, NO migration. Pure-backend ->
+boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md NOT touched (no frontend change). Full detail in
+boq-upload-plan.md "Slice 2 -- commit round-trip reconciliation".)
+// prior: 2026-06-18 (Slice 1b -- CONFIG STALENESS DETECTION (proactive #166) -- BACKEND, feat 32e31a2a.
 The PROACTIVE half of issue #166 (S1-1/S1-2). Slice 1a made the REACTIVE half durable (reason persisted when a
 stale config is DROPPED at parse). 1b flags a stale config ON READ -- before the user triggers a parse -- so a
 later hub-card slice can show "reconfigure this sheet" without first hitting a parse failure. **BACKEND ONLY**
@@ -1192,6 +1227,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - DISPOSITION MAPPING (ties to the gate, NOT re-derived): `_DISPOSITION_TO_SHEET_DISPOSITION` general_specs->grid_only, finalized->grid_and_nodes; `_DISPOSITION_TO_TREAT_AS` general_specs->master_preamble, finalized->data.
 - **`_current_names(doctype, boq, name_field, value)` (Slice 3b)** -- the ONE centralized is-current accessor across all three committed tiers (grid:`source_sheet_name`, BoQ Sheet:`sheet_name`, BOQ Nodes:`sheet`); returns is_current=1 row names (value VERBATIM #152). One helper, three callers.
 - **`_explode_area_children(qty_ba, rate_ba, amount_ba)` (Slice 3b) -- DUAL-SHAPE, NEVER DOWNGRADE (owner-locked):** qty_by_area always flat {area:float}->child.qty (defaults 0.0 when an area is absent from qty but present in rate/amount -- child.qty is reqd=1); rate_by_area NESTED {supply_rate,install_rate,combined_rate}->each on its own child column, FLAT scalar->combined_rate ONLY; amount_by_area NESTED {supply,install,total}->supply_amount/install_amount/total_amount each, FLAT scalar->total_amount ONLY. area_name = dict key verbatim. The real corpus is FLAT; the current parser emits NESTED -- both handled (recon's nested-only assumption was wrong).
+- **`_reconcile_node_tree(...)` + `_reconcile_grid(...)` (Slice 2, feat 01c7dbaf) -- OUTPUT-FIDELITY commit round-trip check.** Run on every per-sheet commit (node-tier INLINE at `_commit_node_tree` tail; grid-tier from `_commit_one_sheet`) BEFORE the per-sheet `frappe.db.commit()`. Verify ONLY that the value each transform PRODUCED was COPIED to the DB faithfully -- NOT logic-correctness (validity/coherence = tendering, OUT OF SCOPE). COPIED fields: `stored == transform(review-row source)` (reusing the in-hand `node_rows`, no re-query). DERIVED (exactly two): `parent_node == name_by_idx.get(eff_parent_by_idx.get(idx))` (captured eff-parent map, NOT re-running resolve_effective) and `level == docs_by_idx[idx].level` (captured in-memory doc; a thin tripwire). Numerics rounded to `frappe.get_precision` (money 2dp / qty 3dp). On divergence `frappe.throw` -> commit_boq's Slice-5 per-sheet isolation routes it to `failed[]` (rollback + reason), isolation boundary UNCHANGED. Suppress-set encoded (blank-qty=0, placeholder desc, flat-stays-flat, gen-specs 0 nodes, minted id + versioning + path + boq excluded, note/Other money-null, -1 sentinel, bool coercion). Helper trio `_text_eq`/`_json_eq`/`_node_type_for` + the `_NODE_MONEY_SOURCE` word-reversal map support the compare.
 
 **Shared single-open helper `sheet_preview._extract_grid_rows(ws, min_row=1, max_row=None)`** (Slice 3a) -- the ONE worksheet->rows transform (`{row_number, cells:{col_letter:value}}`, EmptyCell skip logic, `_to_json_serializable` values). Extracted from the previously-welded/duplicated loop in `get_sheet_preview` + `get_sheet_preview_full`; BOTH now call it (byte-identity test green -> behavior-preserving), AND `commit_pipeline` calls it so the previewed grid and the committed grid can never silently diverge. `max_row=None` -> whole sheet.
 
