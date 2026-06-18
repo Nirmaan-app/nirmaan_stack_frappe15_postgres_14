@@ -933,10 +933,30 @@ class TestCommitBoqPartialFailure(FrappeTestCase):
 
     def tearDown(self):
         TestCommitPipeline._purge(self.boq_name)
+        # Slice F1: commit-failure stamps are committed by commit_boq's except block, so
+        # they survive FrappeTestCase's per-test rollback. Clear them here or they leak
+        # into the next test (the draft rows are shared, created once in setUpClass).
+        for s in self._SHEETS:
+            cn = frappe.db.get_value(
+                "BoQ Sheet Draft",
+                {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": s}, "name")
+            if cn:
+                frappe.db.set_value(
+                    "BoQ Sheet Draft", cn,
+                    {"commit_failure_reason": None, "commit_failure_at": None},
+                    update_modified=False)
         frappe.db.commit()
         super().tearDown()
 
     # ----- helpers ------------------------------------------------------ #
+
+    def _failure_fields(self, sheet_name):
+        """Read the persisted per-sheet commit-failure stamp from the BoQ Sheet Draft
+        (verbatim sheet_name match, #152)."""
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            ["commit_failure_reason", "commit_failure_at"], as_dict=True)
 
     @contextmanager
     def _patched_filepath(self, sheetnames):
@@ -1109,3 +1129,124 @@ class TestCommitBoqPartialFailure(FrappeTestCase):
         self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1"])
         self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S2"])
         self.assertIn("not found", res["failed"][0]["reason"].lower())
+
+    # ================================================================== #
+    # Slice F1 -- DURABLE per-sheet commit-failure persistence            #
+    # ================================================================== #
+
+    def test_f1_commit_failure_persisted_on_last_sheet_failure(self):
+        """PERSIST-ON-FAILURE: the FAILING sheet is LAST in the subset, so no later
+        _commit_one_sheet commit could flush the stamp -- it persists ONLY because of the
+        except block's OWN explicit commit. Proves both persistence and that the explicit
+        commit is load-bearing (non-vacuous). reason == the returned failed[] reason."""
+        real_one = commit_pipeline._commit_one_sheet
+
+        def one_side(boq_name, sheet_name, disposition, grid_rows, draft):
+            if sheet_name == "S3":  # LAST in [S1, S2, S3]
+                raise RuntimeError("induced failure on the last sheet")
+            return real_one(boq_name, sheet_name, disposition, grid_rows, draft)
+
+        with self._patched_filepath(["S1", "S2", "S3"]), \
+             patch.object(commit_pipeline, "_commit_one_sheet", side_effect=one_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2", "S3"])
+
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S3"])
+        stamp = self._failure_fields("S3")
+        self.assertEqual(stamp.commit_failure_reason, res["failed"][0]["reason"])
+        self.assertEqual(stamp.commit_failure_reason, "induced failure on the last sheet")
+        self.assertTrue(stamp.commit_failure_at, "the failure timestamp must be set")
+
+    def test_f1_stamp_survives_rollback_and_no_orphan(self):
+        """KEYSTONE: a POST-FREEZE re-commit failure on the LAST sheet. The except block's
+        frappe.db.rollback() discards the freeze (orphan-prevention) AND the failure stamp
+        -- written AFTER the rollback + committed by the except's own commit -- SURVIVES
+        that very rollback. Combined proof: the new failure-commit does NOT re-flush the
+        rolled-back tier writes (prior version stays current) yet the stamp is durable.
+
+        S1 is pre-committed once (real). Then commit_boq([S2, S1]) runs with
+        _commit_node_tree patched to RAISE for S1 -- only AFTER the real _write_grid +
+        _write_committed_boq_sheet have already frozen S1's prior rows. S1 is LAST, so the
+        stamp persists ONLY via the except's explicit commit (no later sheet)."""
+        first = commit_pipeline._commit_one_sheet(
+            self.boq_name, "S1", "finalized", list(_GRID_ROWS), self._draft("S1"))
+        v1_grid = first["grid_name"]
+        self.assertEqual(frappe.db.get_value(_GRID, v1_grid, "is_current"), 1)
+
+        real_node_tree = commit_pipeline._commit_node_tree
+
+        def node_side(boq_name, sheet_name, *args, **kwargs):
+            if sheet_name == "S1":  # post-freeze failure, LAST in [S2, S1]
+                raise RuntimeError("induced post-freeze failure on S1")
+            return real_node_tree(boq_name, sheet_name, *args, **kwargs)
+
+        with self._patched_filepath(["S2", "S1"]), \
+             patch.object(commit_pipeline, "_commit_node_tree", side_effect=node_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S2", "S1"])
+
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S1"])
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S2"])
+
+        # ORPHAN-PREVENTION still holds: the failure-commit did NOT flush the rolled-back
+        # freeze -- the prior S1 grid is still current, exactly one current, at version 1.
+        self.assertEqual(
+            frappe.db.get_value(_GRID, v1_grid, "is_current"), 1,
+            "prior version must survive; the new failure-commit must not flush the freeze")
+        self.assertEqual(self._current_grids("S1"), [v1_grid])
+        self.assertEqual(frappe.db.get_value(_GRID, v1_grid, "commit_version"), 1)
+
+        # And the stamp SURVIVED the rollback that discarded the freeze.
+        stamp = self._failure_fields("S1")
+        self.assertEqual(stamp.commit_failure_reason, "induced post-freeze failure on S1")
+        self.assertTrue(stamp.commit_failure_at)
+
+    def test_f1_cleared_on_successful_recommit(self):
+        """CLEAR-ON-RE-COMMIT-SUCCESS: a sheet carrying a prior commit_failure stamp ->
+        a subsequent SUCCESSFUL commit clears both fields to None."""
+        # Pre-stamp S1 directly (committed, as the real failure path would leave it).
+        commit_pipeline._record_commit_failure(self.boq_name, "S1", "an earlier failure")
+        frappe.db.commit()
+        pre = self._failure_fields("S1")
+        self.assertEqual(pre.commit_failure_reason, "an earlier failure")  # guard: it is set
+
+        with self._patched_filepath(["S1"]):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1"])
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1"])
+
+        post = self._failure_fields("S1")
+        self.assertIsNone(post.commit_failure_reason)
+        self.assertIsNone(post.commit_failure_at)
+
+    def test_f1_clean_first_commit_leaves_fields_null(self):
+        """NEVER-FAILED = NULL: a clean first commit leaves both failure fields None
+        (the additive nullable default = 'no commit failure')."""
+        with self._patched_filepath(["S1"]):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1"])
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1"])
+        stamp = self._failure_fields("S1")
+        self.assertIsNone(stamp.commit_failure_reason)
+        self.assertIsNone(stamp.commit_failure_at)
+
+    def test_f1_mixed_outcome_only_failed_sheet_stamped(self):
+        """MIXED OUTCOME: one sheet fails (stamped) + the others succeed (clean, no
+        stamp) in the SAME call -- both the returned envelope AND the persisted per-sheet
+        state are correct."""
+        real_one = commit_pipeline._commit_one_sheet
+
+        def one_side(boq_name, sheet_name, disposition, grid_rows, draft):
+            if sheet_name == "S2":
+                raise RuntimeError("induced failure on S2")
+            return real_one(boq_name, sheet_name, disposition, grid_rows, draft)
+
+        with self._patched_filepath(["S1", "S2", "S3"]), \
+             patch.object(commit_pipeline, "_commit_one_sheet", side_effect=one_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2", "S3"])
+
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1", "S3"])
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S2"])
+
+        # S2 stamped; S1 + S3 (clean successes) carry NO stamp.
+        self.assertEqual(self._failure_fields("S2").commit_failure_reason,
+                         "induced failure on S2")
+        self.assertTrue(self._failure_fields("S2").commit_failure_at)
+        self.assertIsNone(self._failure_fields("S1").commit_failure_reason)
+        self.assertIsNone(self._failure_fields("S3").commit_failure_reason)

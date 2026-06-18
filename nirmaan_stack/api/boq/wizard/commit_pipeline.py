@@ -167,6 +167,56 @@ def _commit_failure_reason(e: Exception) -> str:
     return raw or "Commit failed for this sheet -- see server logs."
 
 
+def _record_commit_failure(boq_name: str, sheet_name: str, reason: str) -> None:
+    """Persist a per-sheet commit-failure stamp ADDITIVELY on the BoQ Sheet Draft
+    (Slice F1 -- the durable analog of Slice 1a's parse_failure_*). Writes ONLY the two
+    failure fields (commit_failure_reason / commit_failure_at) -- NEVER wizard_status.
+
+    sheet_name matched VERBATIM (#152 -- trailing-space names exist; PostgreSQL `=` on
+    varchar is byte-exact). A missing child row is silently skipped. NO commit here: the
+    caller owns the commit. In the commit_boq per-sheet except this is called AFTER the
+    mandatory frappe.db.rollback() (so the stamp is not swept away by it) and is followed
+    by the caller's own explicit frappe.db.commit() -- required because commit_boq has no
+    trailing commit, so a last-sheet failure would otherwise never be flushed. The draft
+    is a DIFFERENT doctype from the rolled-back grid/sheet/node tiers, so this set_value is
+    the only pending write and cannot resurrect a rolled-back tier write (T2 orphan-
+    prevention preserved).
+    """
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        return
+    frappe.db.set_value("BoQ Sheet Draft", child_name, {
+        "commit_failure_reason": reason,
+        "commit_failure_at": frappe.utils.now(),
+    }, update_modified=False)
+
+
+def _clear_commit_failure(boq_name: str, sheet_name: str) -> None:
+    """Clear any prior per-sheet commit-failure stamp on a SUCCESSFUL commit (Slice F1 --
+    mirrors Slice 1a's clear-on-success). Sets both failure fields to None so a re-commit
+    that now succeeds drops the stale notice.
+
+    sheet_name matched VERBATIM (#152). Missing child row silently skipped. NO commit:
+    this is folded into _commit_one_sheet's trailing per-sheet frappe.db.commit(), so the
+    clear lands ATOMICALLY with the successful grid/sheet/node write.
+    """
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        return
+    frappe.db.set_value("BoQ Sheet Draft", child_name, {
+        "commit_failure_reason": None,
+        "commit_failure_at": None,
+    }, update_modified=False)
+
+
 def _coerce_config(sheet_config: Any) -> dict:
     """The draft sheet_config blob may arrive as a dict or a JSON string."""
     if not sheet_config:
@@ -325,9 +375,19 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
                 # is_current=1 version). Already-committed earlier sheets are durable and
                 # untouched by this rollback (commit made them permanent).
                 frappe.db.rollback()
+                # PERSIST the failure durably (Slice F1) -- AFTER the rollback above (so the
+                # stamp is not swept away by it) and with its OWN explicit commit (commit_boq
+                # has NO trailing commit; if this is the LAST sheet in the subset, no later
+                # _commit_one_sheet commit would ever flush the stamp -> it would be lost).
+                # The draft is a DIFFERENT doctype from the rolled-back tiers, so after the
+                # rollback this set_value is the only pending write -- it cannot re-flush a
+                # rolled-back tier write, so the orphan-prevention above is preserved.
+                reason = _commit_failure_reason(e)
+                _record_commit_failure(boq_name, sheet_name, reason)
+                frappe.db.commit()
                 failed.append({
                     "sheet_name": sheet_name,
-                    "reason": _commit_failure_reason(e),
+                    "reason": reason,
                 })
                 frappe.log_error(
                     message=f"commit_boq: sheet {sheet_name!r} failed\n\n{frappe.get_traceback()}",
@@ -385,6 +445,11 @@ def _commit_one_sheet(
     # grid equals the extracted grid_rows BEFORE the commit. (The node tier reconciles
     # inline at the tail of _commit_node_tree.) A divergence raises -> per-sheet failed[].
     _reconcile_grid(sheet_name, grid_doc.name, grid_rows)
+
+    # CLEAR any prior commit-failure stamp on success (Slice F1) -- folded into the
+    # per-sheet commit below so the clear is ATOMIC with this successful commit (a
+    # re-commit that now succeeds drops its stale failure notice).
+    _clear_commit_failure(boq_name, sheet_name)
 
     frappe.db.commit()
 

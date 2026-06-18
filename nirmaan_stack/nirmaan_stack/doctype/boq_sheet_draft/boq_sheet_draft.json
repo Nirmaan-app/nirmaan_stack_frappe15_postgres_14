@@ -15,7 +15,9 @@
   "parse_in_progress",
   "parse_failure_category",
   "parse_failure_reason",
-  "parse_failure_at"
+  "parse_failure_at",
+  "commit_failure_reason",
+  "commit_failure_at"
  ],
  "fields": [
   {
@@ -92,6 +94,19 @@
    "fieldname": "parse_failure_at",
    "fieldtype": "Datetime",
    "label": "Parse Failure At",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable reason for the most recent per-sheet COMMIT failure (the durable analog of parse_failure_reason; Slice F1). Freeform -- commit exceptions are heterogeneous (reconciliation divergence, controller validation, sheet-not-in-workbook, generic DB error) and are already flattened to one string by the commit pipeline; no category taxonomy. Blank = no recorded commit failure. Cleared on a subsequent successful commit.",
+   "fieldname": "commit_failure_reason",
+   "fieldtype": "Small Text",
+   "label": "Commit Failure Reason"
+  },
+  {
+   "description": "When the recorded commit failure was captured. Cleared on a subsequent successful commit.",
+   "fieldname": "commit_failure_at",
+   "fieldtype": "Datetime",
+   "label": "Commit Failure At",
    "read_only": 1
   }
  ],
