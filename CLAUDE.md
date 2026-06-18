@@ -1,6 +1,42 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-18 (Slice 1a -- PARSE REASON-BUNDLE (reactive #166) -- BACKEND, feat e4b1fefc.
+**Last updated:** 2026-06-18 (Slice 1b -- CONFIG STALENESS DETECTION (proactive #166) -- BACKEND, feat 32e31a2a.
+The PROACTIVE half of issue #166 (S1-1/S1-2). Slice 1a made the REACTIVE half durable (reason persisted when a
+stale config is DROPPED at parse). 1b flags a stale config ON READ -- before the user triggers a parse -- so a
+later hub-card slice can show "reconfigure this sheet" without first hitting a parse failure. **BACKEND ONLY**
+(read-only endpoint; the hub-card render is a SEPARATE later frontend slice). **VERDICT IMPLEMENTED = validate-on-
+read (recon's approach B), ZERO SCHEMA:** NO fingerprint, NO version-stamp, NO doctype change, NO migration. A
+field-name fingerprint MISSES the dominant real staleness (`ColumnRole` Literal token renames + the
+`_AREA_COMPATIBLE_ROLES` / `model_validator` changes that actually caused #166) and a deep fingerprint can never
+capture imperative validator logic; so 1b runs the SAME `SheetConfig.model_validate` the parser runs -- catching
+everything a parse would and tracking the live model automatically (the property whose ABSENCE caused #166).
+**(1) SHARED HELPER `_validate_sheet_blob(blob, sheet_name) -> Exception | None`** (parse_run.py) -- the SINGLE
+SOURCE OF TRUTH for "does this saved config still validate", used by BOTH the reactive parse-drop path
+(`assemble_mapping_config` Rule 3 / 1a) and the proactive read path (1b). INJECTS sheet_name (production 6-key
+blobs OMIT it; `SheetConfig.sheet_name` has no default -- WITHOUT injection EVERY blob false-positives -- the #1
+cry-wolf trap) and catches a malformed/non-dict blob. Reason text centralized in `_stale_empty_reason(status)` /
+`_stale_invalid_reason(exc)` so the reactive + proactive messages are BYTE-IDENTICAL. `assemble_mapping_config`
+Rule 3 REFACTORED to call the helper + builders -- BEHAVIOR-PRESERVING for 1a (the success path re-validates only
+to obtain the model object, a cheap behaviour-identical re-parse; `TestParseFailureReason` stays green). The empty-
+blob sub-branch stays its own 1a case (NOT routed through model_validate). **(2) NEW `get_stale_sheets(boq_name)`**
+`@frappe.whitelist()` bare (READ-ONLY, GET-capable, mirrors `get_committable_sheets`). Returns `{"stale_sheets":
+[{sheet_name [VERBATIM #152], reason}, ...]}`. **ROUTING PARITY with assemble (no new gating):** general-specs
+pointer / Hidden / Skip -> never stale; Pending / Parse failed / Finalized / blank -> not a data sheet here, never
+stale (UNCONFIGURED != stale -- no cry-wolf; Finalized is data-eligible only under force_reparse, which this normal
+read does not assume -- gate is `status in _RULE3_BASE_STATUSES` = {Config Done, Parsed}); Config Done / Parsed with
+a NON-EMPTY invalid blob -> STALE (reason = validation detail); Config Done / Parsed with an EMPTY blob -> STALE
+mirroring 1a's empty-on-done. **PURE READ -- writes NOTHING** (no set_value/insert/save/commit; write-on-read was
+explicitly rejected). Guard mirrors `run_parse` ("boq_name is required." / "BOQs '...' not found."). **COMPOSITION
+with 1a:** same validation at two triggers (1a reactive persists to `parse_failure_*`; 1b proactive computes a
+transient flag); the shared helper guarantees identical verdicts -- proven by a test asserting 1b's verdict + reason
+MATCH 1a's reactive stamp byte-for-byte. **TESTS:** `test_parse_run` **93 -> 102** (+9 `TestGetStaleSheets`:
+invalid-blob-stale-with-reason, Parsed-status parity, valid-prod-blob-not-stale [the sheet_name-injection proof],
+unconfigured-not-stale, Finalized-not-stale [force_reparse=False], general-specs/Skip/Hidden-not-stale,
+empty-on-done-stale, proactive-matches-reactive, guard); 1a regression green. NO doctype change -> NO `bench
+migrate`. Pure-backend -> boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md NOT touched
+(build-prompt scope; no frontend change this slice). Full detail in boq-upload-plan.md "Slice 1b -- config
+staleness detection".)
+// prior: 2026-06-18 (Slice 1a -- PARSE REASON-BUNDLE (reactive #166) -- BACKEND, feat e4b1fefc.
 The reactive half of issue #166 / principle P2 ("stop erasing the why"): the per-sheet parse-failure REASON,
 previously computed and then discarded (STALE config drops -> an unqueryable `logger.warning` + a nameless
 `not_eligible` list; PARSER/INSERT crashes -> a coarse `error_code` + Error Log only), is now PERSISTED to three
@@ -1122,6 +1158,10 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 **`parse_run.py`** (Phase-1 Slice 1 + Slice 2) -- pure helpers + background worker + endpoint:
 
 - `assemble_mapping_config(boq_name, force_reparse=False)` -- reads BOQs doc + BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Returns `(MappingConfig, not_eligible: list[str])`. Routing (in order, Slice 2c updated): (1) `general_specs_sheets` set membership -> `treat_as="master_preamble"` -- checked FIRST, outranks wizard_status (a Skip sheet in the child table must win); (2) Hidden/Skip -> `SheetConfig(skip=True)`; (3) Reviewed/Parsed with valid blob -> data sheet; (4) Pending/Parse-failed/blank/Reviewed-without-blob/Parsed-Check-Done -> `not_eligible`. Raises `frappe.ValidationError` if BOQ not found or no eligible sheets remain. `GlobalSettings` always defaults (no per-BoQ override). **IMPORTANT:** Injects `raw["sheet_name"] = sheet_name` before `SheetConfig.model_validate(raw)` in Rule 3 -- production wizard blobs omit `sheet_name`; without this injection all Reviewed sheets fall into `not_eligible`. **FORCE RE-PARSE (`force_reparse`, Force Re-parse backend slice):** when `force_reparse=True`, Rule 3 ALSO admits `"Parsed Check Done"` sheets (`if status in {"Reviewed","Parsed"} or (force_reparse and status == "Parsed Check Done")`) -- on the SAME terms as Rule 3 (valid sheet_config blob still required; empty/invalid-blob sub-gates still apply). **CONVENTION future work MUST respect: `"Parsed Check Done"` is parse-eligible ONLY under this flag** -- with `force_reparse=False` (the default, and the normal parse path) it stays in `not_eligible` byte-for-byte as before, so force-reparse can never leak into normal parsing. Scope is `"Parsed Check Done"` ONLY; `"Parse failed"` is NOT widened. A successful re-parse drops the sheet back to `"Parsed"` (Option A, worker status-set line unchanged) and DELETES the prior BoQ Review Rows (discarding human edits/remarks by design).
+
+- `_validate_sheet_blob(blob, sheet_name) -> Exception | None` + `_stale_empty_reason(status)` / `_stale_invalid_reason(exc)` (Slice 1b, feat 32e31a2a) -- the SHARED config-staleness gate + reason vocabulary. `_validate_sheet_blob` returns None if the stored `sheet_config` blob validates as a `SheetConfig`, else the validation/parse Exception; it INJECTS `sheet_name` (production 6-key blobs omit it -- without injection EVERY blob false-positives) and catches a malformed/non-dict blob. It is the SINGLE SOURCE OF TRUTH for "does this saved config still validate", called by BOTH `assemble_mapping_config` Rule 3 (reactive parse-drop / 1a) and `get_stale_sheets` (proactive read / 1b), so the two never diverge; the reason builders make their messages byte-identical. (Rule 3's success path re-validates only to obtain the `SheetConfig` object -- behaviour-identical.)
+
+- `get_stale_sheets(boq_name)` -- `@frappe.whitelist()` bare (READ-ONLY, GET-capable; Slice 1b, proactive #166). Flags sheets whose saved config no longer validates BEFORE a parse is triggered (validate-on-read; ZERO schema -- no stamp/fingerprint/migration). Returns `{"stale_sheets": [{"sheet_name" [VERBATIM #152], "reason"}, ...]}`. ROUTING PARITY with `assemble_mapping_config` (no new gating): general-specs pointer / Hidden / Skip never stale; Pending / Parse failed / Finalized / blank are not data sheets here (UNCONFIGURED != stale -- no cry-wolf; gate = `status in _RULE3_BASE_STATUSES` = {Config Done, Parsed}, i.e. force_reparse=False read semantics -- Finalized is NOT flagged on a normal read); Config Done / Parsed with a non-empty invalid blob -> stale (reason = validation detail via `_stale_invalid_reason`); Config Done / Parsed with an empty blob -> stale (mirrors 1a's empty-on-done, reason via `_stale_empty_reason`). PURE READ -- writes NOTHING (no set_value/insert/save/commit). Guard mirrors `run_parse`. Composes with 1a (same validation, two triggers; shared helper => identical verdict + reason; a test asserts byte-for-byte parity vs the 1a reactive stamp). URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.get_stale_sheets`
 
 - `flatten_resolved_row(resolved_row, sheet_name, row_index)` -- maps a parser `ResolvedRow` + nested `ClassifiedRow` to a flat dict of BoQ Review Row field values. JSON fields returned as Python objects (list/dict), NOT pre-serialized strings. CAVEAT: Frappe rejects Python lists for JSON fieldtype (`get_valid_dict` "cannot be a list"). Callers must `json.dumps()` the four list-JSON fields before `doc.insert()` -- see `_LIST_JSON_FIELDS` module constant. Dict-type JSON fields (`qty_by_area`, `amount_by_area`, `rate_by_area`, `append_notes_raw`) can be passed as Python dicts. **SENTINEL WRITES (agreement #54, both halves now applied):** writes `parent_index=-1` for root rows (None parent → -1) AND `human_parent=-1` for ALL rows (no human override at parse time). Both are required: Frappe coerces unset Int fields to 0, and 0 is a valid row index. `resolve_effective` treats `human_parent >= 0` as a real override -- without the explicit `-1`, every parsed row falsely reports effective_parent_index=0 (flat tree). Fix landed in Slice B1.1b-fix-A.
 
