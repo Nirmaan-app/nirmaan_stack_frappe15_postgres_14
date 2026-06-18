@@ -55,6 +55,7 @@ interface ProjectOverviewTabProps {
 export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
 
   const { role, user_id } = useUserData();
+  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const navigate = useNavigate();
   const {
     createUserPermission,
@@ -534,10 +535,15 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectD
       <Card>
         <CustomerPODetailsCard projectId={projectData.name} />
       </Card>
-      <Card>
-        <ProjectDriveLink projectId={projectData.name} role={role} />
-      </Card>
-      <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name} />
+      {/* Sales users (Executive / Lead) don't see Project Drive Links or Planning. */}
+      {!isSales && (
+        <Card>
+          <ProjectDriveLink projectId={projectData.name} role={role} />
+        </Card>
+      )}
+      {!isSales && (
+        <SevenDayPlanningTab isOverview={true} projectName={projectData?.project_name} />
+      )}
     </div>
   )
 }

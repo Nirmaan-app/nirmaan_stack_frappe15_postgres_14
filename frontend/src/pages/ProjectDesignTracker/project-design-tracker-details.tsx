@@ -367,16 +367,21 @@ interface AddCategoryModalProps {
     availableCategories: CategoryItem[];
     onAdd: (newTasks: Partial<DesignTrackerTask>[]) => Promise<void>;
     hasHandover: boolean;
+    // The zones the tracker actually displays (uniqueZones). Resolved from the
+    // zone child table OR, when that's empty, from the zones on existing tasks.
+    existingZones: string[];
+    // Tracker start_date, used as the base for deadline_offset. Passed from the
+    // parent (which resolves the tracker id from prop OR url) so this modal does
+    // not depend on useParams — that is undefined when the tracker is opened from
+    // the Project page (param is `projectId`, not `id`).
+    startDate?: string;
 }
 
 const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
-    isOpen, onOpenChange, availableCategories, onAdd, hasHandover
+    isOpen, onOpenChange, availableCategories, onAdd, hasHandover, existingZones, startDate
 }) => {
     const [selectedCategories, setSelectedCategories] = useState<CategoryItem[]>([]);
     const [isSaving, setIsSaving] = useState(false);
-
-    const { id: trackerId } = useParams<{ id: string }>();
-    const { trackerDoc } = useDesignTrackerLogic({ trackerId: trackerId! });
 
     React.useEffect(() => {
         if (!isOpen) {
@@ -401,17 +406,19 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
         setIsSaving(true);
 
         const tasksToGenerate: Partial<DesignTrackerTask>[] = [];
-        const existingZones = trackerDoc?.zone && trackerDoc.zone.length > 0
-            ? trackerDoc.zone.map(z => z.tracker_zone)
-            : [undefined];
+        // Apply the new category to the SAME zones the UI shows (passed in as
+        // existingZones / uniqueZones). Only fall back to [undefined] when the
+        // tracker genuinely has no zones at all — otherwise zone-less tasks get
+        // created and vanish under every zone tab (the production bug this fixes).
+        const zonesToApply: (string | undefined)[] = existingZones.length > 0 ? existingZones : [undefined];
 
         selectedCategories.forEach(cat => {
             const taskItems = cat.tasks;
-            existingZones.forEach(zoneName => {
+            zonesToApply.forEach(zoneName => {
                 taskItems.forEach(taskDef => {
                     let calculatedDeadline: string | undefined = undefined;
                     if (taskDef.deadline_offset !== undefined && taskDef.deadline_offset !== null) {
-                        const baseDate = trackerDoc?.start_date ? new Date(trackerDoc.start_date) : new Date();
+                        const baseDate = startDate ? new Date(startDate) : new Date();
                         const d = new Date(baseDate);
                         d.setDate(baseDate.getDate() + Number(taskDef.deadline_offset));
                         calculatedDeadline = d.toISOString().split('T')[0];
@@ -455,7 +462,7 @@ const AddCategoryModal: React.FC<AddCategoryModalProps> = ({
     };
 
     // Calculate total tasks that will be created
-    const existingZonesCount = trackerDoc?.zone?.length || 1;
+    const existingZonesCount = existingZones.length || 1;
     const phaseMultiplier = hasHandover ? 2 : 1;
     const totalTasksToCreate = selectedCategories.reduce(
         (sum, cat) => sum + (cat.tasks?.length || 0), 0
@@ -1938,6 +1945,8 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 availableCategories={availableNewCategories}
                 onAdd={handleAddCategories}
                 hasHandover={hasHandover}
+                existingZones={uniqueZones}
+                startDate={trackerDoc?.start_date}
             />
 
             <AddZoneModal

@@ -501,9 +501,8 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     }, []);
     
     const isFormValid = useMemo(() => {
-        // Enforce: PO Number, Incl. Tax value, AND valid Link/Attachment
+        // PO Number is OPTIONAL. Enforce: Incl. Tax value, PO Date, AND valid Link/Attachment
         return (
-            formData.customer_po_number.trim() !== '' &&
             formData.customer_po_value_inctax > 0 &&
             formData.customer_po_creation_date.trim() !== '' &&
             isLinkAttachmentValid
@@ -515,7 +514,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         e.preventDefault();
         
         if (!isFormValid) {
-            let message = "Please fill all required fields: PO Number, PO Date, Value (Incl. Tax).";
+            let message = "Please fill all required fields: PO Date, Value (Incl. Tax).";
             toast({ title: "Validation Failed", description: message, variant: "destructive" });
             return;
         }
@@ -604,12 +603,11 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     {/* Basic Fields */}
                     <div className="grid grid-cols-1 gap-4">
                         <div className="space-y-2">
-                            <Label htmlFor="customer_po_number">PO Number <span className="text-red-500">*</span></Label>
+                            <Label htmlFor="customer_po_number">PO Number <span className="text-muted-foreground text-xs">(optional)</span></Label>
                             <Input
                                 id="customer_po_number"
                                 value={formData.customer_po_number}
                                 onChange={handleInputChange}
-                                required
                             />
                         </div>
                     </div>

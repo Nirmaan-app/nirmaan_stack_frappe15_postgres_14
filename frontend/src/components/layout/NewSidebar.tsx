@@ -193,6 +193,25 @@ export function NewSidebar() {
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
+    ...(["Nirmaan Sales Executive Profile", "Nirmaan Sales Lead Profile"].includes(role as string)
+      ? [
+        {
+          key: "/projects",
+          icon: BlendIcon,
+          label: "Projects",
+        },
+        {
+          key: "/project-invoices",
+          icon: FileUp,
+          label: "Project Invoices",
+        },
+        {
+          key: "/in-flow-payments",
+          icon: HandCoins,
+          label: "Project Inflows",
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
       ? [
         {
@@ -827,6 +846,7 @@ export function NewSidebar() {
                     "Projects",
                     "Work Orders",
                     "In-Flow Payments",
+                    "Project Inflows",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",
