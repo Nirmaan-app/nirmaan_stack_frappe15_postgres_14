@@ -607,7 +607,13 @@ const getCustomerPOColumns = (
   handleDeleteClick?: (po: CustomerPOTableRow) => void,// PASSED
   role?: string
 ): ColumnDef<CustomerPOTableRow>[] => {
-    
+
+    // Sales roles are view-only for deletion — hide the Delete action for them
+    // (they can still edit). Both Sales Executive and Sales Lead.
+    const hideDelete =
+        role === "Nirmaan Sales Executive Profile" ||
+        role === "Nirmaan Sales Lead Profile";
+
     const columns: ColumnDef<CustomerPOTableRow>[] = [
              {
                accessorKey: "customer_po_creation_date",
@@ -824,7 +830,8 @@ const getCustomerPOColumns = (
                             </Tooltip>
                         </TooltipProvider>
 
-                        {/* Delete Icon */}
+                        {/* Delete Icon — hidden for Sales roles (view-only; cannot delete) */}
+                        {!hideDelete && (
                         <TooltipProvider delayDuration={100}>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -841,6 +848,7 @@ const getCustomerPOColumns = (
                                 <TooltipContent>Delete this Customer PO</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
+                        )}
                     </div>
                 );
             },

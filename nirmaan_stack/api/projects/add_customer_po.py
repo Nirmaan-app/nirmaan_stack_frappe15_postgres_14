@@ -85,8 +85,7 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
     po_incl_tax = flt(updated_po_detail.get('customer_po_value_inctax', 0))
     po_creation_date = updated_po_detail.get('customer_po_creation_date')
 
-    if not po_number or not str(po_number).strip():
-        frappe.throw(_("PO Number is a required field."))
+    # PO Number is optional — do not enforce it here (mirrors the add path).
     if not po_creation_date:
         frappe.throw(_("PO Date is a required field."))
     if po_incl_tax <= 0:
@@ -99,11 +98,13 @@ def update_customer_po_with_validation(project_name, updated_po_detail):
         project = frappe.get_doc("Projects", project_name)
         
         # 2. PERFORM UNIQUENESS CHECK WITHOUT SQL
-        # Check if the updated PO Number already exists in the list (excluding the current row)
-        for row in project.customer_po_details:
-            # We check for a match AND ensure the row found is NOT the one we are currently updating
-            if row.customer_po_number == po_number and row.name != current_row_name:
-                 return {"status": "Duplicate"} 
+        # Only check for duplicates when a PO number is actually provided
+        # (blank PO numbers are optional and may repeat freely).
+        if po_number:
+            for row in project.customer_po_details:
+                # match AND ensure the row found is NOT the one we are currently updating
+                if row.customer_po_number == po_number and row.name != current_row_name:
+                    return {"status": "Duplicate"}
         
         
         # 3. Get the specific child row document using the correct list comprehension (FIX for AttributeError)
