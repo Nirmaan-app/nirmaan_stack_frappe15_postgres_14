@@ -208,6 +208,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
     dcType: "Delivery Challan" | "Material Inspection Report";
   }>({ open: false, mode: "create", dcType: "Delivery Challan" });
 
+  // A DC/MIR cannot be filed against a Non-Billable PO (backend rejects it),
+  // so the upload buttons are disabled with an explanatory tooltip.
+  const isPONonBillable = po?.billing_status === "Non-Billable";
+
   const handleOpenPDDUpload = useCallback((type: "DC" | "MIR") => {
     setPddUploadState({
       open: true,
@@ -234,6 +238,9 @@ export const PODetails: React.FC<PODetailsProps> = ({
       unit: item.unit,
       category: item.category,
       make: item.make,
+      // Required: UploadDCMIRDialog filters PO items to billing_status === "Billable".
+      // Without it every item fails the filter and the DC/MIR is saved with zero items.
+      billing_status: item.billing_status,
     }));
   }, [po?.items]);
 
@@ -660,6 +667,13 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   {po?.status}
                 </Badge>
               </div>
+
+              <Separator orientation="vertical" className="h-5 hidden sm:block" />
+
+              {/* Billing */}
+              <Badge variant={po?.billing_status === "Non-Billable" ? "red" : "green"}>
+                {po?.billing_status === "Non-Billable" ? "Non-Billable" : "Billable"}
+              </Badge>
             </div>
 
             {/* Row 2: Critical PO Tag - below vendor info */}
@@ -864,17 +878,22 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-2.5 border-primary text-primary shrink-0"
-                            onClick={() => handleOpenPDDUpload("DC")}
-                          >
-                            <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
-                            <span className="hidden sm:inline text-xs">Upload DC</span>
-                          </Button>
+                          <span tabIndex={0} className="shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2.5 border-primary text-primary shrink-0"
+                              onClick={() => handleOpenPDDUpload("DC")}
+                              disabled={isPONonBillable}
+                            >
+                              <CirclePlus className="h-3.5 w-3.5 sm:mr-1.5" />
+                              <span className="hidden sm:inline text-xs">Upload DC</span>
+                            </Button>
+                          </span>
                         </TooltipTrigger>
-                        <TooltipContent className="sm:hidden">Upload DC</TooltipContent>
+                        <TooltipContent className={isPONonBillable ? "" : "sm:hidden"}>
+                          {isPONonBillable ? "This PO is Non-Billable" : "Upload DC"}
+                        </TooltipContent>
                       </Tooltip>
                     )}
 
@@ -883,17 +902,22 @@ export const PODetails: React.FC<PODetailsProps> = ({
                     ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile", "Nirmaan Project Lead Profile", "Nirmaan Procurement Executive Profile"].includes(role) && (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 px-2.5 border-primary text-primary shrink-0"
-                            onClick={() => handleOpenPDDUpload("MIR")}
-                          >
-                            <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
-                            <span className="hidden sm:inline text-xs">Upload MIR</span>
-                          </Button>
+                          <span tabIndex={0} className="shrink-0">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2.5 border-primary text-primary shrink-0"
+                              onClick={() => handleOpenPDDUpload("MIR")}
+                              disabled={isPONonBillable}
+                            >
+                              <Upload className="h-3.5 w-3.5 sm:mr-1.5" />
+                              <span className="hidden sm:inline text-xs">Upload MIR</span>
+                            </Button>
+                          </span>
                         </TooltipTrigger>
-                        <TooltipContent className="sm:hidden">Upload MIR</TooltipContent>
+                        <TooltipContent className={isPONonBillable ? "" : "sm:hidden"}>
+                          {isPONonBillable ? "This PO is Non-Billable" : "Upload MIR"}
+                        </TooltipContent>
                       </Tooltip>
                     )}
 

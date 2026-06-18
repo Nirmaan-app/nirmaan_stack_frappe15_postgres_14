@@ -1205,6 +1205,7 @@ export const PurchaseOrder = ({
                     <th className="text-left pl-2 py-3">Item Name</th>
                     <th className="text-center py-3">Unit</th>
                     <th className="text-center py-3">Qty</th>
+                    <th className="text-center py-3">Billing</th>
                     {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                       <th className="text-center py-3">Delivered Qty</th>
                     )}
@@ -1232,6 +1233,13 @@ export const PurchaseOrder = ({
                       </td>
                       <td className="text-center py-3 align-top">{item.unit}</td>
                       <td className="text-center py-3 align-top">{item.quantity}</td>
+                      <td className="text-center py-3 align-top">
+                        {item?.billing_status === "Non-Billable" ? (
+                          <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">Non-Billable</Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">Billable</Badge>
+                        )}
+                      </td>
                       {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                         <td className={`text-center py-3 align-top ${item?.received_quantity === item?.quantity ? "text-green-600" : "text-red-700"
                           }`}>
@@ -1274,6 +1282,11 @@ export const PurchaseOrder = ({
                       </div>
                     )}
                   </div>
+                  {item?.billing_status === "Non-Billable" ? (
+                    <Badge variant="outline" className="shrink-0 bg-gray-100 text-gray-600 border-gray-300">Non-Billable</Badge>
+                  ) : (
+                    <Badge variant="outline" className="shrink-0 bg-green-100 text-green-700 border-green-300">Billable</Badge>
+                  )}
                 </div>
 
                 {/* Item Details Grid */}

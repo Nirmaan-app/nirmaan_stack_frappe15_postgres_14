@@ -134,6 +134,59 @@ function getStatusLabel(status: ReconcileStatus): string {
   }
 }
 
+// A blank billing_status renders as Billable (matches the rest of the app).
+function getBillingLabel(billingStatus: string): "Billable" | "Non-Billable" {
+  return billingStatus === "Non-Billable" ? "Non-Billable" : "Billable";
+}
+
+function getBillingBadge(billingStatus: string) {
+  return billingStatus === "Non-Billable" ? (
+    <Badge className="bg-red-100 text-red-700 border-red-300" variant="outline">
+      Non-Billable
+    </Badge>
+  ) : (
+    <Badge className="bg-green-100 text-green-700 border-green-300" variant="outline">
+      Billable
+    </Badge>
+  );
+}
+
+// Small billing badge for the per-item rows (the parent PO row keeps the regular
+// getBillingBadge). Billable = ACTIVE (clear green); Non-Billable = DISABLED
+// (muted grey, faded) so the two states are unmistakably different.
+function getItemBillingBadge(billingStatus: string) {
+  const base = "text-[10px] leading-none px-1.5 py-0.5 font-normal";
+  return billingStatus === "Non-Billable" ? (
+    <Badge
+      variant="outline"
+      className={`${base} bg-gray-100 text-gray-400 border-gray-200 opacity-60 cursor-not-allowed`}
+    >
+      Non-Billable
+    </Badge>
+  ) : (
+    <Badge
+      variant="outline"
+      className={`${base} bg-green-100 text-green-700 border-green-300`}
+    >
+      Billable
+    </Badge>
+  );
+}
+
+// Non-Billable POs are out of scope for DN/DC reconciliation (DC/MIR can't be
+// filed against them), so their Status cell shows a disabled neutral badge
+// instead of a misleading reconcile status.
+function getNonBillableStatusBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="bg-gray-100 text-gray-400 border-gray-300 opacity-70 cursor-not-allowed"
+    >
+      Non-Billable
+    </Badge>
+  );
+}
+
 // =================================================================================
 // 2. PROJECT TEAM STRIP
 // =================================================================================
@@ -334,6 +387,9 @@ function DNDCQuantityReportContent({
 
   // --- Faceted filters ---
   const [vendorFilter, setVendorFilter] = useState<Set<string>>(new Set());
+  const [billingFilter, setBillingFilter] = useState<Set<string>>(
+    new Set(["Billable"])
+  );
   const [statusFilter, setStatusFilter] = useState<Set<string>>(
     new Set(["mismatch", "no_dc_update", "pending_dn"])
   );
@@ -376,6 +432,14 @@ function DNDCQuantityReportContent({
       .map((s) => ({ label: getStatusLabel(s), value: s }));
   }, [poRows]);
 
+  const billingOptions = useMemo(() => {
+    if (!poRows) return [];
+    const unique = new Set(poRows.map((po) => getBillingLabel(po.billingStatus)));
+    return Array.from(unique)
+      .sort()
+      .map((b) => ({ label: b, value: b }));
+  }, [poRows]);
+
   // --- Search, Filter & Sort Pipeline ---
   const filteredPOs = useMemo(() => {
     if (!poRows) return [];
@@ -396,6 +460,13 @@ function DNDCQuantityReportContent({
       result = result.filter((po) => vendorFilter.has(po.vendorName));
     }
 
+    // Billing status faceted filter
+    if (billingFilter.size > 0) {
+      result = result.filter((po) =>
+        billingFilter.has(getBillingLabel(po.billingStatus))
+      );
+    }
+
     // Status faceted filter
     if (statusFilter.size > 0) {
       result = result.filter((po) =>
@@ -412,7 +483,7 @@ function DNDCQuantityReportContent({
     }
 
     return result;
-  }, [poRows, searchTerm, vendorFilter, statusFilter, sortKey, sortDirection]);
+  }, [poRows, searchTerm, vendorFilter, billingFilter, statusFilter, sortKey, sortDirection]);
 
   // --- Flat rows for virtualization ---
   const flatRows = useMemo(() => {
@@ -467,6 +538,7 @@ function DNDCQuantityReportContent({
     const headers = [
       "PO Number",
       "Vendor",
+      "PO Billing Status",
       "Category",
       "Item Name",
       "Unit",
@@ -483,6 +555,7 @@ function DNDCQuantityReportContent({
         rows.push({
           "PO Number": po.poNumber,
           Vendor: po.vendorName,
+          "PO Billing Status": getBillingLabel(po.billingStatus),
           Category: item.category,
           "Item Name": item.itemName || "N/A",
           Unit: item.unit || "-",
@@ -618,6 +691,17 @@ function DNDCQuantityReportContent({
                   <span>Vendor</span>
                 </div>
               </TableHead>
+              <TableHead className="min-w-[130px]">
+                <div className="flex items-center gap-1">
+                  <SimpleFacetedFilter
+                    title="Billing"
+                    options={billingOptions}
+                    selectedValues={billingFilter}
+                    onSelectedValuesChange={setBillingFilter}
+                  />
+                  <span>Billing</span>
+                </div>
+              </TableHead>
               <TableHead className="min-w-[120px]">Category</TableHead>
               <TableHead className="text-center min-w-[100px]">
                 Items
@@ -662,14 +746,14 @@ function DNDCQuantityReportContent({
           <TableBody>
             {paddingTop > 0 && (
               <TableRow>
-                <td colSpan={10} style={{ height: `${paddingTop}px` }} />
+                <td colSpan={11} style={{ height: `${paddingTop}px` }} />
               </TableRow>
             )}
 
             {virtualRows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={10}
+                  colSpan={11}
                   className="h-24 text-center text-muted-foreground"
                 >
                   {poRows && poRows.length === 0
@@ -688,7 +772,11 @@ function DNDCQuantityReportContent({
                 return (
                   <TableRow
                     key={`po-${po.poNumber}`}
-                    className={`cursor-pointer hover:opacity-80 ${getReconcileRowClasses(po.reconcileStatus)}`}
+                    className={`cursor-pointer hover:opacity-80 ${
+                      po.billingStatus === "Non-Billable"
+                        ? "bg-gray-100 border-l-4 border-l-gray-400 text-muted-foreground"
+                        : getReconcileRowClasses(po.reconcileStatus)
+                    }`}
                     onClick={() => toggleExpand(po.poNumber)}
                   >
                     <TableCell className="py-2 px-2">
@@ -709,6 +797,9 @@ function DNDCQuantityReportContent({
                     </TableCell>
                     <TableCell className="py-2 px-3 text-sm text-muted-foreground">
                       {po.vendorName}
+                    </TableCell>
+                    <TableCell className="py-2 px-3">
+                      {getBillingBadge(po.billingStatus)}
                     </TableCell>
                     <TableCell className="py-2 px-3"></TableCell>
                     <TableCell className="text-center py-2 px-3 text-sm">
@@ -742,7 +833,9 @@ function DNDCQuantityReportContent({
                       )}
                     </TableCell>
                     <TableCell className="text-center py-2 px-3">
-                      {getStatusBadge(po.reconcileStatus)}
+                      {po.billingStatus === "Non-Billable"
+                        ? getNonBillableStatusBadge()
+                        : getStatusBadge(po.reconcileStatus)}
                     </TableCell>
                   </TableRow>
                 );
@@ -754,11 +847,19 @@ function DNDCQuantityReportContent({
               return (
                 <TableRow
                   key={`item-${po.poNumber}-${row.itemIndex}`}
-                  className={getItemRowClasses(item.status)}
+                  className={
+                    po.billingStatus === "Non-Billable" ||
+                    item.billingStatus === "Non-Billable"
+                      ? "bg-gray-50 text-muted-foreground"
+                      : getItemRowClasses(item.status)
+                  }
                 >
                   <TableCell className="py-1.5 px-2"></TableCell>
                   <TableCell className="py-1.5 px-3"></TableCell>
                   <TableCell className="py-1.5 px-3"></TableCell>
+                  <TableCell className="py-1.5 px-3">
+                    {getItemBillingBadge(item.billingStatus)}
+                  </TableCell>
                   <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">
                     {item.category}
                   </TableCell>
@@ -796,7 +897,10 @@ function DNDCQuantityReportContent({
                     )}
                   </TableCell>
                   <TableCell className="text-center py-1.5 px-3">
-                    {getStatusBadge(item.status)}
+                    {po.billingStatus === "Non-Billable" ||
+                    item.billingStatus === "Non-Billable"
+                      ? getNonBillableStatusBadge()
+                      : getStatusBadge(item.status)}
                   </TableCell>
                 </TableRow>
               );
@@ -804,7 +908,7 @@ function DNDCQuantityReportContent({
 
             {paddingBottom > 0 && (
               <TableRow>
-                <td colSpan={10} style={{ height: `${paddingBottom}px` }} />
+                <td colSpan={11} style={{ height: `${paddingBottom}px` }} />
               </TableRow>
             )}
           </TableBody>
