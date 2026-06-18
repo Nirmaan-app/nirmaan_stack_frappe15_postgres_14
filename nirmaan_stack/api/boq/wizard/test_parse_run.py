@@ -36,6 +36,7 @@ from nirmaan_stack.api.boq.wizard.parse_run import (
     check_parse_status,
     flatten_parsed_boq,
     flatten_resolved_row,
+    get_stale_sheets,
     run_parse,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
@@ -2452,3 +2453,180 @@ class TestParseFailureReason(FrappeTestCase):
             set(payload.keys()),
             {"status", "boq_name", "parsed_sheets", "not_parsed_sheets", "failed_sheets"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Group 6: proactive config staleness detection (Slice 1b, reactive #166)
+# ---------------------------------------------------------------------------
+
+class TestGetStaleSheets(FrappeTestCase):
+    """
+    Proactive half of #166 (Slice 1b): get_stale_sheets flags a sheet whose saved
+    config no longer validates BEFORE a parse is triggered, validate-on-read via the
+    SHARED _validate_sheet_blob helper. Asserts routing parity with assemble (no
+    cry-wolf on unconfigured / general-specs / Skip / Hidden / Finalized sheets), the
+    sheet_name-injection anti-false-positive, reason carry, the guard, and -- the
+    composition proof -- that 1b's verdict + reason MATCH 1a's reactive verdict.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_boq(self, drafts, general_specs=None):
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Stale Test {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        for sn in (general_specs or []):
+            boq.append("general_specs_sheets", {"source_sheet_name": sn, "preamble_text": ""})
+        for i, d in enumerate(drafts, start=1):
+            boq.append("sheet_drafts", {"sheet_order": i, **d})
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _stale_map(self, boq_name):
+        """{sheet_name: reason} from get_stale_sheets."""
+        res = get_stale_sheets(boq_name)
+        return {s["sheet_name"]: s["reason"] for s in res["stale_sheets"]}
+
+    # -- STALE: invalid blob (the #166 core) -----------------------------
+
+    def test_invalid_blob_is_stale_with_reason(self):
+        """A Config Done sheet whose blob fails model_validate (unknown role token) is
+        stale; the reason carries the validation detail."""
+        boq = self._make_boq([
+            {"sheet_name": "StaleSheet", "wizard_status": "Config Done", "sheet_config": _INVALID_PROD_BLOB},
+        ])
+        m = self._stale_map(boq.name)
+        self.assertIn("StaleSheet", m)
+        self.assertIn("no longer valid", m["StaleSheet"])
+        # the specific validation detail is carried (the offending role token surfaces)
+        self.assertIn("this_role_no_longer_exists", m["StaleSheet"])
+
+    def test_parsed_status_invalid_blob_also_stale(self):
+        """Rule-3 base-set parity: 'Parsed' (not just 'Config Done') is a data status."""
+        boq = self._make_boq([
+            {"sheet_name": "ParsedStale", "wizard_status": "Parsed", "sheet_config": _INVALID_PROD_BLOB},
+        ])
+        self.assertIn("ParsedStale", self._stale_map(boq.name))
+
+    # -- NOT stale: valid blob (+ sheet_name-injection proof) ------------
+
+    def test_valid_prod_blob_not_stale_proves_sheet_name_injection(self):
+        """A VALID production-shape blob OMITS sheet_name; it must NOT be stale -- proves
+        _validate_sheet_blob injects sheet_name (without which every blob false-positives)."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+        ])
+        self.assertNotIn("GoodSheet", self._stale_map(boq.name))
+
+    # -- NOT stale: unconfigured (no cry-wolf) --------------------------
+
+    def test_unconfigured_sheets_not_stale(self):
+        """Pending / no-blob / Parse-failed sheets are 'not configured', NOT stale.
+        (A literally-blank wizard_status is not insertable -- the field is reqd=1 -- so
+        the only non-data statuses reachable here are Pending / Parse failed.)"""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "PendingSheet", "wizard_status": "Pending"},
+            {"sheet_name": "ParseFailedSheet", "wizard_status": "Parse failed", "sheet_config": _INVALID_PROD_BLOB},
+        ])
+        m = self._stale_map(boq.name)
+        self.assertNotIn("PendingSheet", m)
+        # Parse-failed is not a Rule-3 data status -> not flagged even with a bad blob.
+        self.assertNotIn("ParseFailedSheet", m)
+
+    def test_finalized_invalid_blob_not_stale_force_reparse_false(self):
+        """Finalized is data-eligible only under force_reparse; a normal read does not
+        flag it (force_reparse=False semantics) even with an invalid blob."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "FinalizedSheet", "wizard_status": "Finalized", "sheet_config": _INVALID_PROD_BLOB},
+        ])
+        self.assertNotIn("FinalizedSheet", self._stale_map(boq.name))
+
+    # -- NOT stale: routing parity (general-specs / Skip / Hidden) ------
+
+    def test_general_specs_skip_hidden_not_stale(self):
+        """general-specs / Skip / Hidden sheets are not data sheets -> never stale, even
+        with an invalid blob (routing parity with assemble Rules 1 + 2)."""
+        boq = self._make_boq(
+            [
+                {"sheet_name": "GenSpecs", "wizard_status": "Config Done", "sheet_config": _INVALID_PROD_BLOB},
+                {"sheet_name": "SkipSheet", "wizard_status": "Skip", "sheet_config": _INVALID_PROD_BLOB},
+                {"sheet_name": "HiddenSheet", "wizard_status": "Hidden", "sheet_config": _INVALID_PROD_BLOB},
+            ],
+            general_specs=["GenSpecs"],
+        )
+        m = self._stale_map(boq.name)
+        self.assertNotIn("GenSpecs", m)
+        self.assertNotIn("SkipSheet", m)
+        self.assertNotIn("HiddenSheet", m)
+
+    # -- EMPTY-on-done: mirror 1a EXACTLY -------------------------------
+
+    def test_empty_blob_on_done_is_stale(self):
+        """A Config Done sheet with an EMPTY blob is stale (mirrors 1a's empty-on-done)."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "EmptySheet", "wizard_status": "Config Done"},
+        ])
+        m = self._stale_map(boq.name)
+        self.assertIn("EmptySheet", m)
+        self.assertIn("empty", m["EmptySheet"].lower())
+
+    # -- COMPOSITION: 1b verdict + reason MATCH 1a's reactive verdict ----
+
+    def test_proactive_matches_reactive_invalid_and_empty(self):
+        """The shared helper + reason builders mean 1b (read) and 1a (parse-drop) produce
+        the SAME verdict AND byte-identical reason for the same sheets."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "InvalidSheet", "wizard_status": "Config Done", "sheet_config": _INVALID_PROD_BLOB},
+            {"sheet_name": "EmptySheet", "wizard_status": "Config Done"},
+        ])
+        # 1a reactive: assemble drops the two bad sheets and stamps parse_failure_*.
+        assemble_mapping_config(boq.name)
+
+        def _reactive(sheet_name):
+            return frappe.db.get_value(
+                "BoQ Sheet Draft",
+                {"parent": boq.name, "parenttype": "BOQs", "sheet_name": sheet_name},
+                ["parse_failure_category", "parse_failure_reason"],
+                as_dict=True,
+            )
+
+        # 1b proactive:
+        m = self._stale_map(boq.name)
+
+        for sn in ("InvalidSheet", "EmptySheet"):
+            react = _reactive(sn)
+            self.assertEqual(react.parse_failure_category, "Config stale", f"{sn} 1a category")
+            self.assertIn(sn, m, f"{sn} should be flagged stale by 1b")
+            # byte-identical reason text across the two paths
+            self.assertEqual(m[sn], react.parse_failure_reason, f"{sn} reason parity")
+
+        self.assertNotIn("GoodSheet", m)
+
+    # -- guard ----------------------------------------------------------
+
+    def test_missing_and_unknown_boq_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_stale_sheets(None)
+        with self.assertRaises(frappe.ValidationError):
+            get_stale_sheets("BOQ-DOES-NOT-EXIST-99999")
