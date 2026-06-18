@@ -317,7 +317,54 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-18 -- Phase 5 Slice 5 (frontend) commit-results modal COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitResultsModal.tsx` (NEW) + `CommitDialog.tsx` + `BoqHubPage.tsx`, feat ab4a390b):**
+**Status (2026-06-18 -- Slice F2 hub-card NEEDS-ATTENTION indicator COMPLETE -- FRONTEND, `boqTypes.ts` + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 1f1828d4):**
+The frontend that finally SHOWS the user the per-sheet failure/staleness signals the backend captures: a
+consolidated "needs attention" chip on each hub `SheetCard`, collapsed by default, click-to-expand. THREE per-sheet
+signals -- STALE CONFIG (`get_stale_sheets`, Slice 1b -- a LIVE call, reason only, NO timestamp), PARSE FAILURE
+(`parse_failure_*` on the draft, Slice 1a -- category + reason + timestamp), COMMIT FAILURE (`commit_failure_*` on
+the draft, Slice F1 -- reason + timestamp). FRONTEND ONLY -- no backend change (1a/1b/F1 already provide the data).
+
+- **`boqTypes.ts` (additive).** `BoQSheetDraft` gains five optional fields it can now READ off the BOQs payload:
+  `parse_failure_category?` (`"" | "Config stale" | "Parser error" | "Insert error" | null`, matching the doctype
+  Select), `parse_failure_reason?`, `parse_failure_at?`, `commit_failure_reason?`, `commit_failure_at?`. Plus
+  `StaleSheet { sheet_name; reason }` + `GetStaleSheetsResponse { stale_sheets: StaleSheet[] }` (mirrors
+  `GetCommittedStateResponse`).
+- **THE ONE NEW FETCH (`BoqHubPage.tsx`).** `get_stale_sheets` via `useFrappeGetCall` (the same bare-`@frappe.whitelist`
+  GET family + `boqId ? undefined : null` swrKey gotcha as `get_committed_state`) -> a `staleMap: Map<sheet_name
+  VERBATIM #152, reason>` mirroring `committedMap`, passed as `staleReason` to `SheetCard` at BOTH render sites (the
+  main card list AND the hidden-sheets reveal). The parse/commit stamps RIDE the existing `useFrappeGetDoc("BOQs")`
+  doc payload (child-table fields), so this is the ONLY fetch F2 adds. **`mutateStale` WIRING (the substantive hub
+  work -- stale config is computed LIVE, no stored field, so only a re-fetch clears it):** `void mutateStale()` added
+  to the parse-success path (`applyParseOutcome`), `handleCommitted`, and `handleSaved` -- so fixing config + re-parsing
+  drops the indicator, and a fresh commit failure appears.
+- **THE CHIP + EXPAND (`SheetCard.tsx`).** New optional `staleReason?: string` prop (the two failure stamps come off
+  `draft`). The chip is a NEW sibling in the existing badge cluster (the div holding the isSaving/Parsing/pill/dirty/
+  Committed chips): `AlertTriangle` + "N issue(s)", shown iff >= 1 distinct signal line. **Color (locked): RED**
+  (`bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`) when ANY failure STAMP is present (parse OR
+  commit); **AMBER** (the dirty-chip tokens) when ONLY stale-config. Click toggles an inline expand block built with a
+  local `useState` (`attnOpen`) mirroring the card's existing `editingLabel` inline-expand idiom -- NO new Popover/
+  Collapsible library. Each line: a label (`Stale config` / `Parse failed (<category>)` / `Commit failed`), the reason
+  (muted for stale, `text-destructive` for failures), and for parse/commit a timestamp via the card's existing
+  `fmtCommittedAt` (`at.slice(0,16)` -- reused verbatim, no new formatter).
+- **THE DE-DUP RULE (the one render subtlety, owner-locked).** 1a and 1b describe the SAME staleness with BYTE-IDENTICAL
+  reason text (shared-helper design; re-proven live this slice). So when a live stale reason is present AND
+  `draft.parse_failure_category === "Config stale"` AND `draft.parse_failure_reason === staleReason`, the two collapse
+  into ONE "Stale config" line (carrying the parse timestamp, since the live stale signal has none). Other parse
+  categories (Parser/Insert error) and commit failures are ALWAYS their own line. N (the chip count) = distinct lines
+  after de-dup; the chip hides when N == 0.
+- **EMPTY STATE.** A card with no stale entry AND no `parse_failure_reason` AND no `commit_failure_reason` (guard on
+  the REASON STRINGS, not category -- category can be `""` with no reason) shows NO chip and no expand. Healthy cards
+  stay uncluttered. NO per-signal action buttons -- show + expand only.
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|SheetCard|BoqHubPage|boqTypes` -> empty; 3177
+  baseline unchanged) + in-container Vite build exit 0 (`Done in 1285.37s`). DATA-SIDE live cert on BOQ-26-00145
+  (capture-and-restore; workbook RESTORED to baseline): `get_stale_sheets` fires on a broken config (`[]` ->
+  `["Lights"]`); de-dup string-equality holds (1b reason === stored `Config stale` `parse_failure_reason`, frontend
+  `===` proven True); `_record_commit_failure` stamps the draft; all cleared + restored. **The VISUAL hub render (the
+  chip paints, expand lists the right lines) is an OWNER-OWNED later manual pass -- not headlessly confirmable here.**
+  Full detail in root CLAUDE.md... [N/A this slice -- frontend; see boq-upload-plan.md "Slice F2"]. NEXT = F3/F4 (the
+  parse + commit completion modals highlighting failures with reasons).
+
+// prior: **Status (2026-06-18 -- Phase 5 Slice 5 (frontend) commit-results modal COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitResultsModal.tsx` (NEW) + `CommitDialog.tsx` + `BoqHubPage.tsx`, feat ab4a390b):**
 Surfaces the Slice-5 backend envelope (`commit_boq` -> `{boq_name, committed:[{sheet_name, commit_version, ...}],
 failed:[{sheet_name, reason}]}`, which NO LONGER throws on a per-sheet failure -- feat 09714041). After a commit the
 user now sees an explicit RESULTS acknowledgement instead of the dialog silently closing. FRONTEND-ONLY -- no backend
