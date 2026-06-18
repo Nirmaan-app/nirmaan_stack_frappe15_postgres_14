@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
@@ -193,6 +193,17 @@ const BoqHubPage = () => {
     boqId ? undefined : null
   );
 
+  // F2 "needs attention" -- live stale-config signal (Slice 1b get_stale_sheets). Same
+  // bare-whitelist GET family + null-key gotcha as the reads above. Computed live (no
+  // stored field), so it must be re-fetched (mutateStale) whenever config/parse/commit
+  // changes for the indicator to clear. The parse/commit failure stamps ride the BOQs doc
+  // payload already, so this is the ONLY extra fetch F2 adds.
+  const { data: staleData, mutate: mutateStale } = useFrappeGetCall<{ message: GetStaleSheetsResponse }>(
+    "nirmaan_stack.api.boq.wizard.parse_run.get_stale_sheets",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
   // General-specs endpoint. Called in BoqHubPage because it targets the parent
   // BOQs row, not a child draft (SheetCard handles the child-row endpoints).
   const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
@@ -239,6 +250,7 @@ const BoqHubPage = () => {
 
       if (payload.status === "success") {
         void mutate();
+        void mutateStale();   // F2: a re-parse that fixed a stale config clears the indicator
         setParseResult({
           parsed: payload.parsed_sheets ?? [],
           notParsed: payload.not_parsed_sheets ?? [],
@@ -381,7 +393,7 @@ const BoqHubPage = () => {
   // Calls SWR mutate to re-fetch the BOQ after any successful card action.
   // Server is the source of truth; no local-state authority over wizard_status.
   // mutateWpMap refreshes the work-package map in case a spoke save happened.
-  const handleSaved = () => { void mutate(); void mutateWpMap(); };
+  const handleSaved = () => { void mutate(); void mutateWpMap(); void mutateStale(); };
 
   // ── Work-package map (Slice 3f-readback) ────────────────────────────────────
   // Derived from the get_boq_work_packages response once loaded; empty while loading.
@@ -397,6 +409,12 @@ const BoqHubPage = () => {
   const committedMap = new Map<string, CommittedSheetState>(
     (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
   );
+  // F2: live stale-config reason per sheet (keyed by sheet_name VERBATIM #152). Mirrors
+  // committedMap. Passed to each card as staleReason; the card de-dups it against the
+  // draft's stored parse_failure_* when both describe the same staleness.
+  const staleMap = new Map<string, string>(
+    (staleData?.message?.stale_sheets ?? []).map((s) => [s.sheet_name, s.reason])
+  );
   // After commit_boq RESOLVES (Slice 5): re-fetch the BoQ doc + committed-state (+
   // eligibility) so badges, the "Committed: N" tally, and the dialog sub-labels update
   // with no reload, AND open the acknowledge-only results modal enumerating
@@ -406,6 +424,7 @@ const BoqHubPage = () => {
     void mutate();
     void mutateCommittedState();
     void mutateCommittable();
+    void mutateStale();   // F2: a fresh commit failure (or a cleared one) changes attention
     setCommitResult(result);
     setCommitResultsOpen(true);
   };
@@ -839,6 +858,7 @@ const BoqHubPage = () => {
             onExportCsv={handleExportCsv}
             workHeaders={workPackageMap[draft.sheet_name]}
             committedState={committedMap.get(draft.sheet_name)}
+            staleReason={staleMap.get(draft.sheet_name)}
           />
         ))}
 
@@ -873,6 +893,7 @@ const BoqHubPage = () => {
                     onOpenReview={handleOpenReview}
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
+                    staleReason={staleMap.get(draft.sheet_name)}
                   />
                 ))}
               </div>
