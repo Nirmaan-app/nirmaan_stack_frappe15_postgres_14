@@ -317,7 +317,49 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-18 -- Slice F2 hub-card NEEDS-ATTENTION indicator COMPLETE -- FRONTEND, `boqTypes.ts` + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 1f1828d4):**
+**Status (2026-06-18 -- Slices F3/F4 completion-modal failure REASONS COMPLETE -- FRONTEND, `BoqHubPage.tsx` (F4 = `CommitResultsModal.tsx` verify-only), feat bfa71098):**
+The TRANSIENT counterpart to F2's persistent card: at the moment a parse/commit finishes, the completion modal
+highlights each FAILED sheet WITH its reason. FRONTEND ONLY -- no backend, NO new fetch, NO payload change.
+- **F4 (`CommitResultsModal.tsx`) = ALREADY SATISFIED at Slice 5 -- VERIFY-ONLY, no code change.** It already
+  renders a dedicated "Failed (N)" section with, per sheet, a destructive `<li>` + `AlertTriangle` +
+  `{sheet_name} -- {reason}` (the `{committed, failed}` envelope carries the reason). Re-read, confirmed no gap.
+- **F3 (`BoqHubPage.tsx`, the parse-completion `AlertDialog`) = THE REAL WORK.** The failed line was
+  `parseResult.failed.join(", ")` (bare NAMES). It is now a per-sheet `<ul>/<li>` list mirroring the
+  CommitResultsModal failed-section shape (`AlertTriangle` + `text-destructive` + `{name} -- (category) reason`).
+  **DATA SOURCE (the load-bearing decision):** the `boq:parse_run_done` socket payload (`ParseRunDonePayload`)
+  carries NAMES ONLY by design (`failed_sheets: string[]`); the worker publish site
+  (`parse_run._publish_parse_event`, payload `{status, boq_name, parsed_sheets, not_parsed_sheets, failed_sheets}`)
+  adds no reasons. The REASON lives in the persisted `parse_failure_*` (Slice 1a) on the draft, which rides the
+  `useFrappeGetDoc("BOQs")` doc the hub ALREADY has + ALREADY `mutate()`s on parse-done. So F3 reads each failed
+  sheet's reason at render time via `boq.sheet_drafts?.find(sd => sd.sheet_name === name)` (VERBATIM #152, the same
+  lookup F2 / the hub use) -> `parse_failure_reason` (+ `parse_failure_category` in parens). **NO new fetch.**
+- **FRESHNESS FALLBACK (a correctness requirement, NOT optional).** `applyParseOutcome` calls `mutate()` (async
+  refetch) AND `setParseResult()` (opens the modal immediately). The worker COMMITS the `parse_failure_*` stamps
+  BEFORE publishing the socket event, so once the refetch lands the reasons are present and the open modal
+  re-renders fresh -- but the FIRST render can be pre-mutate, so the draft lookup returns undefined. F3 guards with
+  `reason && (...)` -> renders the sheet NAME ALONE in that window (never blank / "undefined" / crash); the next
+  render shows name + reason. The modal is acknowledge-only and stays open, so the user sees the reason by the time
+  they read it. Do NOT block the modal on the refetch; do NOT add a fetch to force freshness.
+- **UNCHANGED (deliberate).** The `parsed` (foreground) + `notParsed` (NEUTRAL `text-muted-foreground`, names-only)
+  success sub-lines stay exactly as-is -- `notParsed` is a neutral advisory list (skipped / hidden / general-specs /
+  pending), and although stale-config drops DO land in `not_eligible` with a "Config stale" stamp, their reason is
+  shown PERSISTENTLY on the F2 card and is NOT duplicated in this transient modal (notParsed stays neutral, NOT
+  dragged into destructive styling). The whole-run `parseError` block (`PARSE_ERROR_MSGS`, `no_eligible_sheets`
+  NEUTRAL) is a DIFFERENT axis (whole-run failure, not per-sheet) and is untouched. `AlertTriangle` added to the
+  BoqHubPage lucide import. NO timestamp shown in the modal (it is just-happened/transient; the F2 card persists
+  `parse_failure_at`). NO shared failed-list component extracted (two call sites, different data sources -- commit
+  reads the envelope object, parse looks up `sheet_drafts`; abstracting both is over-engineering).
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|SheetCard|BoqHubPage|boqTypes|CommitResultsModal`
+  -> empty; 3177 baseline unchanged) + in-container Vite build exit 0 (`Done in 251.50s`). DATA-SIDE cert on
+  BOQ-26-00145 (restore-first-safe capture-and-restore; workbook RESTORED to baseline): `_record_parse_failure`
+  stamps the "FAS" draft -> a VERBATIM-name lookup resolves `parse_failure_reason` + category "Parser error" (the
+  exact data F3 renders); a missing name -> `find()` undefined -> the name-only fallback path (code-inspected); the
+  three fields restored to the captured baseline verbatim (no JSON round-trip -- these are scalar Select/Small Text/
+  Datetime, not JSON). **The VISUAL modal render is an OWNER-OWNED later manual pass -- not headlessly confirmable.**
+  Full detail in boq-upload-plan.md "Slice F3/F4". This COMPLETES the F-arc (F1 persist -> F2 persistent card ->
+  F3/F4 transient modals).
+
+// prior: **Status (2026-06-18 -- Slice F2 hub-card NEEDS-ATTENTION indicator COMPLETE -- FRONTEND, `boqTypes.ts` + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 1f1828d4):**
 The frontend that finally SHOWS the user the per-sheet failure/staleness signals the backend captures: a
 consolidated "needs attention" chip on each hub `SheetCard`, collapsed by default, click-to-expand. THREE per-sheet
 signals -- STALE CONFIG (`get_stale_sheets`, Slice 1b -- a LIVE call, reason only, NO timestamp), PARSE FAILURE
