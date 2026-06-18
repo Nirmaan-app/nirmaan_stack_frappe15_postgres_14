@@ -1,6 +1,38 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-17 (Phase 5 -- X: COMMIT ALL CLASSIFIED ROWS EXCEPT SPACER AS SEMANTIC NODES --
+**Last updated:** 2026-06-18 (Slice 1a -- PARSE REASON-BUNDLE (reactive #166) -- BACKEND, feat e4b1fefc.
+The reactive half of issue #166 / principle P2 ("stop erasing the why"): the per-sheet parse-failure REASON,
+previously computed and then discarded (STALE config drops -> an unqueryable `logger.warning` + a nameless
+`not_eligible` list; PARSER/INSERT crashes -> a coarse `error_code` + Error Log only), is now PERSISTED to three
+NEW additive fields on `BoQ Sheet Draft` so a LATER frontend slice can render a hub-card notice. **BACKEND ONLY**
+(no frontend built). **PURELY ADDITIVE + TRUTHFUL:** the done-event payload contract
+(`{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}` / `{status,boq_name,error_code}`) stays
+BYTE-FOR-BYTE FROZEN; `wizard_status` writes and the displayed prior rows are UNCHANGED (the notice's whole point
+is "the rows you see are from the PRIOR parse"). **SCHEMA (`boq_sheet_draft.json`, +3 nullable fields, `bench
+migrate` CLEAN, runtime columns + Select options verified via get_meta):** `parse_failure_category` (Select
+`""`/`Config stale`/`Parser error`/`Insert error` -- the S2-8 taxonomy, the three IN-SCOPE failures ONLY;
+skip/hidden/ineligible/general-specs/empty are NOT failures and are deliberately absent), `parse_failure_reason`
+(Small Text), `parse_failure_at` (Datetime, read_only). **THREE IN-SCOPE FAILURE CASES (sheets that were eligible,
+attempted, and went wrong):** (1) **STALE** -- `assemble_mapping_config` Rule-3 empty-blob + invalid-blob branches;
+captures the `SheetConfig.model_validate` exc text (the precise "which field-set is now invalid" detail). Written
+via a NEW `_record_parse_failure(boq,sheet,category,reason)` helper that writes ONLY the three failure fields,
+**NEVER `wizard_status`** (the stale drop has NO status write today and must keep none -- P-d confirmed); (2)
+**PARSER error** -- worker Step-4 `parse_boq` raise; (3) **INSERT error** -- worker Step-5 per-sheet insert except.
+(2)+(3) FOLD the reason into the EXISTING `"Parse failed"` write via `_set_draft_status(extra_fields=...)` (same
+`set_value`, no new/changed status). **S2-5 TRACEABLE HANDLE:** verified `frappe.log_error` RETURNS the inserted
+Error Log doc (`frappe/utils/error.py` `return error_log.insert(...)`); a new `_reason_with_ref` appends `(ref:
+Error Log <name>)` when available, never fabricated (None under read_only/defer_insert). **CLEAR-ON-SUCCESS:** all
+three fields cleared (folded into the existing `"Parsed"` `set_value` alongside has_prior_parse/last_parsed_at), so
+a fixed sheet drops its stale notice. **NON-FAILURES UNTOUCHED:** skip/hidden/ineligible/general-specs get NO
+reason (proven by test). **TESTS:** `test_parse_run` **86 -> 93** (+7, all green: stale invalid-blob [exc detail
+captured, status+prior-rows untouched], stale empty-blob, parser error [+handle], insert error, clear-on-success,
+non-failures-untouched, done-event payload FROZEN). PARKED/out-of-scope (NOT built): EMPTY-but-marked-Parsed (E8,
+success-path mis-classification), config staleness DETECTION/version-stamp (Slice 1b -- shares the "reconfigure"
+signal origin = the Rule-3 blob validate guard), per-sheet parse isolation (DA-1), any payload reshape, all
+frontend. Pure-backend -> boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md deliberately NOT
+touched per the build-prompt scope (no frontend change this slice). Full detail in boq-upload-plan.md "Slice 1a --
+parse reason-bundle".)
+// prior: 2026-06-17 (Phase 5 -- X: COMMIT ALL CLASSIFIED ROWS EXCEPT SPACER AS SEMANTIC NODES --
 BACKEND, feat 711a792b. Makes the committed node tree a COMPLETE SEMANTIC MIRROR of the reviewed BoQ. Before X,
 only preamble + line_item committed as nodes; note / subtotal_marker / header_repeat were grid-only, so the node
 layer was not a full semantic record (the dogfood surfaced a note losing its discrete classification + parent in
@@ -1062,6 +1094,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - `BoQ Sheet Draft.work_packages` -- Table, options "BoQ Sheet Work Package". Multi-link to Work Headers. REPLACES the former single-Link `work_package` field (renamed + converted in feat b14e9015). FRONTEND NOTE: `boqTypes.ts` still has `work_package?: string | null` -- a later frontend slice must update to `work_packages: BoQSheetWorkPackage[]`.
 - `BoQ Sheet Draft.sheet_config` -- JSON, optional. Per-sheet parser config blob (header_row, header_row_count, column_role_map, area_dimensions, etc.). Written by `set_sheet_config`; consumed by parse pass. Never query cross-sheet; always treat as opaque blob outside the wizard.
 - `BOQs.general_specs_sheets` -- Table, options "BoQ General Specs Sheet", in `parser_metadata_section`. REPLACES the removed scalars `BOQs.general_specs_sheet` (Data) + `BOQs.master_preamble` (Long Text) (Slice 2c, feat b5381c0c). Multiple general-specs sheets per workbook are now supported (M2.16 one-per-workbook constraint dropped). New child doctype path: `nirmaan_stack/nirmaan_stack/doctype/boq_general_specs_sheet/`.
+- `BoQ Sheet Draft.parse_failure_category` / `parse_failure_reason` / `parse_failure_at` -- (Slice 1a, reactive #166, feat e4b1fefc) the durable per-sheet parse-failure REASON. `parse_failure_category` Select (`""`/`Config stale`/`Parser error`/`Insert error` -- the three IN-SCOPE failures ONLY; non-failures never set it); `parse_failure_reason` Small Text (the specific why -- the validation exc for STALE, a concise message + an `(ref: Error Log <name>)` handle for crashes); `parse_failure_at` Datetime read_only. ADDITIVE: written WITHOUT touching `wizard_status` (STALE: via `_record_parse_failure`, fields-only; PARSER/INSERT: folded into the existing `"Parse failed"` `_set_draft_status(extra_fields=...)`). CLEARED on a successful parse (folded into the `"Parsed"` write). Read by a LATER frontend hub-card notice slice (not built). Done-event payload UNCHANGED.
 
 **New child doctype BoQ General Specs Sheet (Slice 2c, feat b5381c0c):**
 - Path: `nirmaan_stack/nirmaan_stack/doctype/boq_general_specs_sheet/`
