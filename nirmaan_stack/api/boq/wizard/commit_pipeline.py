@@ -55,7 +55,13 @@ VERBATIM SHEET IDENTITY (#152)
 
 TRANSACTION BOUNDARY
   One trailing frappe.db.commit() PER SHEET (no savepoints). A sheet's grid +
-  BoQ Sheet + node tree land together.
+  BoQ Sheet + node tree land together. PER-SHEET FAILURE ISOLATION (Slice 5): the
+  loop wraps each sheet in try/except; a sheet that raises is rolled back
+  (frappe.db.rollback() -- MANDATORY, since catching the exception suppresses
+  Frappe's request-level rollback and the freeze-before-write would otherwise be
+  flushed by the next sheet's commit and orphan it) and recorded in the returned
+  failed[]; the loop continues. Earlier committed sheets are durable. Mixed
+  committed/failed is a valid outcome (no all-or-nothing wrapper).
 
 Public API:
   commit_boq(boq_name, sheet_subset) -> dict   [whitelisted, POST]
@@ -142,6 +148,25 @@ def _coerce_subset(sheet_subset: Any) -> list[str]:
     return subset
 
 
+def _commit_failure_reason(e: Exception) -> str:
+    """A best-effort, renderable reason for a per-sheet commit failure, with a safe
+    fallback. Prefers the exception's own message (a frappe.throw carries its text on
+    the raised ValidationError), lightly stripped of HTML; NEVER returns empty (the
+    fallback covers a message-less exception, e.g. a bare RuntimeError). Deliberately
+    simple -- no error classification."""
+    raw = ""
+    try:
+        raw = str(e) or ""
+    except Exception:
+        raw = ""
+    try:
+        raw = frappe.utils.strip_html_tags(raw)
+    except Exception:
+        pass
+    raw = raw.strip()
+    return raw or "Commit failed for this sheet -- see server logs."
+
+
 def _coerce_config(sheet_config: Any) -> dict:
     """The draft sheet_config blob may arrive as a dict or a JSON string."""
     if not sheet_config:
@@ -195,7 +220,15 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
 
     SERVER-SIDE GATE RE-CHECK: every sheet in sheet_subset MUST be in the live
     commit gate's eligible set, or the whole call is rejected (throw) before any
-    write or file fetch. The caller's subset is never trusted.
+    write or file fetch. The caller's subset is never trusted. (Eligibility is a
+    precondition -- a whole-call throw; it is NOT a per-sheet runtime failure.)
+
+    PER-SHEET FAILURE ISOLATION (Slice 5): once past the gate, each sheet commits in
+    its own transaction. A sheet that raises mid-write is rolled back (MANDATORY -- so
+    its freeze-before-write does not orphan it once the exception is caught) and
+    recorded in failed[]; the loop continues. Earlier successful sheets stay durable.
+    MIXED STATE (some committed, some failed) is a valid resting outcome -- there is
+    NO all-or-nothing wrapper.
 
     Args:
       boq_name:     an existing BOQs document name.
@@ -206,7 +239,8 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
        "committed": [{"sheet_name", "disposition", "sheet_disposition",
                       "grid_name", "boq_sheet_name", "commit_version", "row_count",
                       "froze_prior", "froze_prior_sheet", "node_count",
-                      "froze_nodes"}], ...}
+                      "froze_nodes"}, ...],
+       "failed": [{"sheet_name", "reason"}, ...]}   # empty list when all succeed
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -250,27 +284,56 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
     tempfile_path = None
     wb = None
     committed: list[dict] = []
+    failed: list[dict] = []
     try:
         # SINGLE fetch + SINGLE open; loop the sheets inside.
         tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
         wb = openpyxl.load_workbook(tempfile_path, data_only=True, read_only=True)
 
         for sheet_name in subset:
-            if sheet_name not in wb.sheetnames:
-                frappe.throw(
-                    f"Sheet '{sheet_name}' not found in the workbook. "
-                    f"Available sheets: {wb.sheetnames}",
-                    title="Sheet not found",
-                )
-            ws = wb[sheet_name]
-            grid_rows = _extract_grid_rows(ws)  # shared transform, single open wb
+            # PER-SHEET FAILURE ISOLATION (Slice 5): a sheet that raises mid-write is
+            # rolled back + recorded in failed[]; the loop continues. Earlier sheets
+            # stay committed (each _commit_one_sheet commits before the next begins),
+            # so MIXED STATE (some committed, some failed) is a valid resting outcome.
+            try:
+                if sheet_name not in wb.sheetnames:
+                    # A genuinely-absent sheet is a PER-SHEET failure (consistent with
+                    # the new contract), NOT a whole-call abort -- the throw is inside
+                    # the per-sheet try so it lands in failed[]. (An ineligible sheet is
+                    # still rejected upfront by the gate re-check, before this loop.)
+                    frappe.throw(
+                        f"Sheet '{sheet_name}' not found in the workbook. "
+                        f"Available sheets: {wb.sheetnames}",
+                        title="Sheet not found",
+                    )
+                ws = wb[sheet_name]
+                grid_rows = _extract_grid_rows(ws)  # shared transform, single open wb
 
-            disposition = disposition_by_sheet[sheet_name]
-            draft = drafts_by_name.get(sheet_name)
-            result = _commit_one_sheet(
-                boq_name, sheet_name, disposition, grid_rows, draft
-            )
-            committed.append(result)
+                disposition = disposition_by_sheet[sheet_name]
+                draft = drafts_by_name.get(sheet_name)
+                result = _commit_one_sheet(
+                    boq_name, sheet_name, disposition, grid_rows, draft
+                )
+                committed.append(result)
+            except Exception as e:
+                # MANDATORY rollback. Catching the exception SUPPRESSES Frappe's
+                # request-level rollback, so we MUST roll back here ourselves -- BEFORE
+                # recording + continuing. Otherwise this sheet's freeze-before-write
+                # (the prior version's is_current set to 0) + its partial new writes stay
+                # pending, and the NEXT sheet's frappe.db.commit() would FLUSH them,
+                # orphaning the sheet (prior frozen, new write incomplete -> NO
+                # is_current=1 version). Already-committed earlier sheets are durable and
+                # untouched by this rollback (commit made them permanent).
+                frappe.db.rollback()
+                failed.append({
+                    "sheet_name": sheet_name,
+                    "reason": _commit_failure_reason(e),
+                })
+                frappe.log_error(
+                    message=f"commit_boq: sheet {sheet_name!r} failed\n\n{frappe.get_traceback()}",
+                    title="BoQ commit per-sheet failure",
+                )
+                continue
     finally:
         if wb is not None:
             wb.close()
@@ -280,7 +343,7 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
             except OSError:
                 pass
 
-    return {"boq_name": boq_name, "committed": committed}
+    return {"boq_name": boq_name, "committed": committed, "failed": failed}
 
 
 def _commit_one_sheet(

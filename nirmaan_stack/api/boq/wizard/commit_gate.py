@@ -35,6 +35,8 @@ Public API:
   compute_committable_sheets(sheet_drafts, general_specs_sheet_names) -> list[dict]
       [PURE helper -- no DB; testable with injected sheet data]
   get_committable_sheets(boq_name) -> dict   [whitelisted, READ-ONLY endpoint]
+  get_committed_state(boq_name) -> dict       [whitelisted, READ-ONLY endpoint;
+      per-sheet CURRENT committed-state from the BoQ Committed Sheet Grid tier]
 """
 from __future__ import annotations
 
@@ -140,3 +142,54 @@ def get_committable_sheets(boq_name: str) -> dict:
         boq_doc.sheet_drafts, general_specs_sheet_names
     )
     return {"committable_sheets": committable}
+
+
+@frappe.whitelist()
+def get_committed_state(boq_name: str) -> dict:
+    """
+    READ-ONLY. Returns the CURRENT committed-state per sheet for a BoQ, sourced
+    from the BoQ Committed Sheet Grid tier.
+
+    The grid tier is the authoritative committed_at source: it is written for BOTH
+    dispositions (grid_only general-specs AND grid_and_nodes finalized), it anchors
+    the shared commit_version, and the Phase-5 commit pipeline's freeze-and-supersede
+    invariant keeps exactly one is_current=1 row per (boq, source_sheet_name). This
+    feeds the Slice-4b hub UI (per-sheet "Committed" badge + timestamp, a
+    "Committed: N" footer count, and last-committed date/time in the commit modal).
+
+    No DB write, no status change -- a pure read (no set_value / insert / save /
+    commit).
+
+    Returns:
+      {"committed_state": [
+          {"sheet_name": str,                 # source_sheet_name VERBATIM (#152)
+           "committed_at": str | None,        # as Frappe returns the Datetime
+           "commit_version": int}, ...]}
+
+    One row per sheet is expected (the one-current invariant). The query filters
+    is_current=1 and each current row is mapped as-is -- NO dedup logic is added for
+    an invariant the pipeline enforces; were it ever violated, a sheet would simply
+    appear more than once rather than being silently collapsed.
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Current committed grid rows for this BoQ. source_sheet_name is the per-sheet
+    # key, matched/returned VERBATIM (#152 -- trailing spaces are significant).
+    rows = frappe.get_all(
+        "BoQ Committed Sheet Grid",
+        filters={"boq": boq_name, "is_current": 1},
+        fields=["source_sheet_name", "committed_at", "commit_version"],
+    )
+
+    committed_state = [
+        {
+            "sheet_name": row.source_sheet_name,
+            "committed_at": row.committed_at,
+            "commit_version": row.commit_version,
+        }
+        for row in rows
+    ]
+    return {"committed_state": committed_state}

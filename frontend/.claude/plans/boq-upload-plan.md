@@ -8204,3 +8204,160 @@ counts 3→4). `test_boq_nodes` 72→74 (+2: Other saves cleanly [no level/qty];
 **OWED — SEPARATE NEXT runs before push:** RE-COMMIT all affected finalized sheets (the live committed nodes still
 reflect the pre-X 2-type tree) + a round-trip RE-VERIFY with an attached_notes verification column. Pure-backend →
 root CLAUDE.md + this plan; frontend/CLAUDE.md NOT touched (no frontend reads nodes).
+
+## Phase 5 Slice 4a — committed-state read endpoint (BACKEND, feat 964e14d0, 2026-06-17)
+
+**Goal.** Give the (coming) Slice-4b hub commit UI a per-sheet CURRENT committed-state read, so it can render a
+"Committed" badge + timestamp on a committed sheet card, a "Committed: N" footer count, and last-committed
+date/time inside the commit modal's already-committed warning. READ-ONLY: one new whitelisted endpoint + its
+tests; no writes, no doctype JSON change, no migration.
+
+**Why a NEW read (recon-confirmed).** The two existing commit endpoints do NOT surface committed-state: the gate
+`get_committable_sheets` returns ELIGIBILITY only ({sheet_name, disposition}); `commit_boq` returns post-commit
+metadata but does not echo `committed_at`. The modal therefore needs BOTH calls (gate for eligibility + this new
+read for committed-state). The authoritative committed_at source is the **`BoQ Committed Sheet Grid`** tier — it is
+written for BOTH dispositions (grid_only general-specs AND grid_and_nodes finalized), anchors the shared
+`commit_version`, and the Slice-3 pipeline's freeze-and-supersede invariant keeps exactly one `is_current=1` row
+per (boq, source_sheet_name); its JSON `committed_at` description already names it the Slice-4 source of truth.
+
+**Implementation (`commit_gate.py`, beside the gate it complements).**
+- New `@frappe.whitelist() def get_committed_state(boq_name) -> dict`. Same missing/unknown-BoQ guard as
+  `get_committable_sheets` (`frappe.throw` "boq_name is required." / "BOQs '...' not found." → `ValidationError`).
+- `frappe.get_all("BoQ Committed Sheet Grid", filters={"boq": boq_name, "is_current": 1}, fields=["source_sheet_name",
+  "committed_at", "commit_version"])`, mapped to `{"sheet_name": <source_sheet_name VERBATIM #152>, "committed_at":
+  <Datetime|None>, "commit_version": int}`. Returns `{"committed_state": [...]}`; empty list when nothing committed.
+- PURE read — no set_value/insert/save/commit. NO dedup logic: the one-current invariant is pipeline-enforced; were
+  it ever violated a sheet would simply appear twice rather than being silently collapsed (noted in the docstring).
+- `get_committable_sheets` / `compute_committable_sheets` / `commit_pipeline.py` / all doctype JSON UNTOUCHED.
+
+**Tests.** `test_commit_gate` 13 → 18 (+5, new `TestGetCommittedState` seeding `BoQ Committed Sheet Grid` rows
+directly — no pipeline run): current state returns committed_at + commit_version; a prior frozen v1 (is_current=0)
++ current v2 → only v2 surfaces (commit_version 2); a trailing-space sheet name round-trips VERBATIM (`"Elec "`
+present, `"Elec"` absent); a BoQ with no committed grid → `{"committed_state": []}`; unknown BoQ throws. The 13
+existing gate tests still pass (same module). RUN in-container `bench --site localhost run-tests --app
+nirmaan_stack --module nirmaan_stack.api.boq.wizard.test_commit_gate` → 18/18 OK.
+
+**Scope.** BACKEND-ONLY (Slice 4b = the hub UI, separate). Pure-backend → root CLAUDE.md + this plan;
+frontend/CLAUDE.md minimal-touch per the DOCS-UPDATE RULE.
+
+## Phase 5 Slice 4b — commit UI: hub button + commit modal + committed badge + count (FRONTEND, feat 53645ab7, 2026-06-17)
+
+**Goal.** The user-facing commit entry point on the BoQ hub, wiring a UI onto the proven engine (`commit_boq`,
+already whitelisted) + the Slice-4a read (`get_committed_state`). Four deliverables: a global "Commit" footer
+button → a checklist modal of commit-eligible sheets; a one-step re-commit warning naming already-committed sheets
++ their last-committed date/time; a per-sheet "Committed" badge + timestamp on committed cards (a SEPARATE marker
+alongside the status pill, NOT a wizard_status); and a "Committed: N" footer tally. FRONTEND-ONLY — no backend
+Python, no doctype JSON.
+
+**Wiring onto proven patterns (no new scaffolding).** The modal mirrors `ExportWorkbookDialog` (the
+`useState<Set<string>>` checklist + not-dismissible-mid-flight + inline `getFrappeError`) and `ParseRunDialog` (the
+`const [step,setStep]=useState<1|2>(1)` two-step warning). The committed timestamp reuses the wizard's
+`slice(0,16)` "date HH:MM" pattern (ReviewTree's `formatEditAt`) via a tiny local `fmtCommittedAt` in each consuming
+file — app-shared `formatDate` is NOT mutated and NO new shared helper file was added.
+
+**Files.**
+- `boqTypes.ts` — ADD `CommittableSheet` / `GetCommittableSheetsResponse` (gate) + `CommittedSheetState` /
+  `GetCommittedStateResponse` (Slice 4a). NO committed field on `BoQSheetDraft`; NO "Committed" in `WizardStatus`.
+- `CommitDialog.tsx` (NEW) — props `{open, onOpenChange, boqName, eligibleSheets, committedState, onCommitted}`.
+  Ticked `Set<string>` initialized EMPTY (opens with nothing ticked, reset on open). Each row: name + disposition
+  hint + a muted "committed {date HH:MM} · v{n}" sub-label (or "not yet committed"). `handleConfirmClick` computes
+  the ticked sheets that ALSO appear in `committedState` (the re-commits); NON-EMPTY → `setStep(2)`, else fire
+  directly. Step 2 = destructive `AlertTriangle` callout NAMING each re-commit sheet WITH its last-committed
+  date/time + "the prior version is frozen, not lost", "Go back" / destructive "Commit anyway". `fireCommit` calls
+  `commit_boq` via `useFrappePostCall` with `{boq_name, sheet_subset: tickedList}` (ordered ticked list, VERBATIM
+  #152; backend re-checks the gate). running/error/not-dismissible-mid-flight copied from Export. On success →
+  `onCommitted()` then close.
+- `BoqHubPage.tsx` — TWO new `useFrappeGetCall` reads (`get_committable_sheets` + `get_committed_state`, same
+  null-key family as the work-package map, each with `mutate`); a `committedMap` (sheet_name VERBATIM → state); the
+  Commit button as the **4th footer sibling** (disabled when `committableSheets.length === 0`, from the GATE not
+  committed-state); the `CommitDialog` mount with `onCommitted = () => { mutate(); mutateCommittedState();
+  mutateCommittable(); }`; the "Committed: N" count (`allDrafts.filter(d => committedMap.has(d.sheet_name))`, in the
+  existing `count>0 && ...` chain — derived from committed-state, NOT `getEffectiveStatus`); `committedState` passed
+  to each `SheetCard` at both render sites.
+- `SheetCard.tsx` — new optional `committedState?: CommittedSheetState`; when present an indigo "Committed" badge
+  renders in the badge cluster ALONGSIDE the status pill (distinct from every STATUS_PILL color; NOT added to
+  STATUS_PILL/WizardStatus) + a muted "· Committed {date HH:MM} · v{n}" sub-line. Same treatment for finalized AND
+  general-specs.
+
+**Verification.** tsc 0 new wizard-file errors; in-container Vite build exit 0. De-stale (pkill -f vite, restart,
+clear site data, unregister SW, reopen, :8080) then live-cert on a real committed BoQ (badge + timestamp, footer
+count, modal nothing-ticked, re-commit warning naming the sheet + date/time). Pure-frontend → all three docs
+(frontend/CLAUDE.md substantive, root CLAUDE.md cross-ref, this plan). The owner drives any live re-commit.
+
+## Phase 5 Slice 5 (backend) — commit_boq reports per-sheet committed + failed (BACKEND, feat 09714041, 2026-06-17)
+
+**Goal.** A commit-results modal (a SEPARATE later frontend prompt) must enumerate per-sheet SUCCESS and per-sheet
+FAILURE. The partial-failure recon established `commit_boq` already commits per sheet (each `_commit_one_sheet`
+ends with `frappe.db.commit()`, so earlier sheets are durable) but on a mid-batch failure it RAISED and aborted the
+rest — the caller never learned which sheets succeeded vs failed. This slice changes propagate-and-abort into
+catch-rollback-continue-and-report. BACKEND-ONLY (`commit_pipeline.py` + its test); the frontend modal is next.
+
+**The change (`commit_pipeline.py`).** The per-sheet loop wraps each sheet's work in `try/except`. On `except`:
+1. **`frappe.db.rollback()` — MANDATORY (the load-bearing safety point).** Catching the exception SUPPRESSES
+   Frappe's request-level rollback (which today, in the raise path, discards the failed sheet's uncommitted work).
+   Without an explicit rollback here, the failed sheet's freeze-before-write (its prior version's `is_current` set
+   to 0) + partial new writes stay pending, and the NEXT sheet's `frappe.db.commit()` FLUSHES them — ORPHANING the
+   sheet (prior frozen to `is_current=0`, new write incomplete → NO `is_current=1` version). The rollback runs
+   FIRST, before recording/continuing. Already-committed earlier sheets are durable (commit made them permanent;
+   rollback only affects the current uncommitted txn).
+2. record `{sheet_name, reason}` in a new `failed[]` (`reason` via new `_commit_failure_reason(e)` — prefers the
+   exception's message, lightly HTML-stripped, with a safe fallback "Commit failed for this sheet -- see server
+   logs."; NEVER empty), `frappe.log_error` the traceback, `continue`.
+Return envelope is now `{boq_name, committed, failed}` — `failed` is `[]` on full success (key always present).
+**MIXED STATE is a valid resting outcome** (3 succeed + 2 fail → 3 durable, 2 rolled back); NO all-or-nothing
+wrapper. The commit-per-sheet boundary + `_commit_one_sheet` + the three tier-writers are UNCHANGED. The
+sheet-not-in-workbook check moved INSIDE the per-sheet try (a genuinely-absent eligible sheet → `failed[]`, loop
+continues); the UPFRONT gate re-check STAYS a whole-call throw (eligibility is a precondition, not a runtime
+failure).
+
+**Tests (`test_commit_pipeline` 27 → 33, +6 in a new `TestCommitBoqPartialFailure`).** These drive `commit_boq`
+(the public loop) with its file path PATCHED — `_fetch_boq_file_to_tempfile` + `openpyxl.load_workbook` (→ a
+`_FakeWB`) + `_extract_grid_rows` (→ synthetic rows) — so no S3 / real workbook is needed; a per-sheet failure is
+induced by monkeypatching `_commit_one_sheet` (or `_commit_node_tree` for the post-freeze orphan case) to raise for
+ONE sheet_name. T1 partial-success durability (3 sheets, #2 fails → #1/#3 persisted, #2 wrote nothing); **T2
+ORPHAN-PREVENTION (load-bearing)** — a re-commit whose new write fails AFTER the real tier-1/tier-2 freezes; asserts
+the prior version stays `is_current=1`; **PROVEN to FAIL (`AssertionError: 0 != 1`) when the `frappe.db.rollback()`
+line is neutered** (verified by temporarily neutering, running, restoring); T3 all-success `failed=[]`; T4 envelope
+shape `{boq_name, committed, failed}` + each failed entry `{sheet_name, reason}`; T5 reason fallback on a
+message-less exception; T6 sheet-absent-from-workbook lands in `failed[]`. Full suite `Ran 33 tests OK`.
+
+**Scope.** BACKEND-ONLY — root CLAUDE.md + this plan; `frontend/CLAUDE.md` intentionally NOT touched (no frontend
+change this slice; the commit-results modal that consumes `failed[]` is a separate frontend prompt). No doctype
+JSON, no migration.
+
+## Phase 5 Slice 5 (frontend) — commit-results acknowledge modal (FRONTEND, feat ab4a390b, 2026-06-18)
+
+**Goal.** Consume the Slice-5 backend envelope (`commit_boq` → `{boq_name, committed:[{sheet_name, commit_version,
+...}], failed:[{sheet_name, reason}]}`, which NO LONGER throws on a per-sheet failure). After a commit the user now
+sees an explicit RESULTS acknowledgement — a hub-scoped OK-dismiss modal that enumerates, SEPARATELY, the sheets
+that committed (with version) and the sheets that failed (with reason). MIXED outcomes are normal. FRONTEND-ONLY.
+
+**Pattern (no new scaffolding).** Mirrors the hub's parse-completion modal: an acknowledge-only `AlertDialog`, open
+driven from result state, single `AlertDialogAction` "OK" + escape dismiss. The result flows up via OPTION (i) —
+`CommitDialog` keeps its "pick + fire" job and hands the resolved envelope to the hub; the hub owns the results
+modal (consistent with the hub owning the parse-completion modal).
+
+**Files.**
+- `boqTypes.ts` — ADD `CommittedSheetResult` (reads `sheet_name` + `commit_version`; other envelope keys optional)
+  + `FailedSheetResult` (`sheet_name` + `reason`) + `CommitBoqResponse` (`{boq_name, committed[], failed[]}`).
+  DISTINCT from `CommittedSheetState` (the get_committed_state read) — this is the commit RESULT.
+- `CommitDialog.tsx` — `fireCommit` now captures `res.message as CommitBoqResponse` and calls
+  `onCommitted(result)` (prop widened `() => void` → `(result: CommitBoqResponse) => void`) then closes. The catch
+  stays for WHOLE-CALL precondition throws (gate re-check / missing boq / empty subset / file fetch); per-sheet
+  failures arrive in `result.failed`, not the catch. Picker behavior (opens nothing-ticked, the step-1/2 re-commit
+  warning) UNCHANGED.
+- `CommitResultsModal.tsx` (NEW) — props `{open, onOpenChange, result: CommitBoqResponse | null}`; renders nothing
+  when `result` is null. Summary header reads all three cases ("Committed N sheet(s)." / "Commit failed for N
+  sheet(s)." / "Committed N sheet(s); M failed."). COMMITTED list (emerald + CheckCircle2, "{sheet} — committed
+  v{n}") and FAILED list (text-destructive + AlertTriangle, "{sheet} — {reason}"), each shown only when non-empty.
+  Single OK + escape dismiss.
+- `BoqHubPage.tsx` — new `commitResult` + `commitResultsOpen` state; `handleCommitted(result)` stores the result,
+  fires the existing mutates (`mutate` / `mutateCommittedState` / `mutateCommittable` — unconditional, harmless on an
+  all-failed commit), and opens the results modal; `<CommitResultsModal>` mounted alongside the other hub modals.
+  The Slice-4b badge/count/committed-state wiring is untouched.
+
+**Verification.** tsc 0 new wizard-file errors (filtered) + in-container Vite build exit 0. HAPPY-PATH live-cert is
+OWNER-OWNED (on BOQ-26-00145: Commit → tick a sheet → results modal shows the committed list + new version; OK
+dismisses; badge/count/version refresh). FAILURE-path render is covered by the Slice-5 backend tests (T1/T4/T5/T6
+populate `failed[]`) + code inspection — NOT exercised live (no real-data mutation, no browser-driving). All three
+docs updated (frontend/CLAUDE.md substantive, root CLAUDE.md cross-ref, this plan).

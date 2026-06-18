@@ -18,6 +18,8 @@ Strategy
 """
 
 import json
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -27,6 +29,28 @@ from nirmaan_stack.api.boq.wizard import commit_pipeline
 _GRID = "BoQ Committed Sheet Grid"
 _SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
+
+
+# Fakes for driving commit_boq's per-sheet loop WITHOUT an S3 fetch / real workbook.
+# The loop only needs wb.sheetnames + wb[name] + wb.close(); _extract_grid_rows is
+# patched to return synthetic rows, so the worksheet object itself is never read.
+class _FakeWS:
+    pass
+
+
+class _FakeWB:
+    def __init__(self, names):
+        self._names = list(names)
+
+    @property
+    def sheetnames(self):
+        return self._names
+
+    def __getitem__(self, key):
+        return _FakeWS()
+
+    def close(self):
+        pass
 # BOQs.before_insert requires a non-empty project; a dummy string + ignore_links
 # satisfies it without a real Projects row (mirrors the Slice-1 doctype test).
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_COMMIT_PIPELINE"
@@ -701,3 +725,228 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(n[0].node_type, "Preamble")
         self.assertEqual(n[0].level, 1, "note child excluded; min priceable child 2 -> 1")
         self.assertEqual(n[1].level, 2)
+
+
+class TestCommitBoqPartialFailure(FrappeTestCase):
+    """Slice 5 -- the per-sheet partial-failure contract of commit_boq.
+
+    commit_boq commits per sheet (each _commit_one_sheet ends with frappe.db.commit())
+    and, on a mid-batch sheet failure, ROLLS BACK that sheet, records it in failed[],
+    and CONTINUES -- so committed[] + failed[] together describe a mixed outcome.
+
+    MECHANISM: these tests drive commit_boq (the public loop) but PATCH its file path
+    -- _fetch_boq_file_to_tempfile + openpyxl.load_workbook (-> _FakeWB) +
+    _extract_grid_rows (-> synthetic _GRID_ROWS) -- so no S3 fetch / real workbook is
+    needed (the same reason the rest of the suite tests _commit_one_sheet directly).
+    A per-sheet failure is induced by monkeypatching _commit_one_sheet (or, for the
+    post-freeze orphan case, _commit_node_tree) to raise for ONE sheet_name while
+    letting the others run for real. _commit_one_sheet commits, so committed rows are
+    cleaned in tearDown.
+    """
+
+    _SHEETS = ["S1", "S2", "S3"]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT
+        boq.boq_name = "Shared Test BoQ for Partial Commit"
+        for i, s in enumerate(cls._SHEETS, start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": s, "sheet_order": i,
+                "wizard_status": "Finalized", "sheet_config": json.dumps(_CFG),
+            })
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+        # commit_boq reads source_file_url before the loop (throws if blank); the
+        # value is never dereferenced because the fetch/open are patched.
+        frappe.db.set_value("BOQs", cls.boq_name, "source_file_url", "/fake/boq.xlsx")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        if hasattr(cls, "boq_name"):
+            TestCommitPipeline._purge(cls.boq_name)
+            frappe.db.delete("BOQs", {"name": cls.boq_name})
+            frappe.db.commit()
+        super().tearDownClass()
+
+    def tearDown(self):
+        TestCommitPipeline._purge(self.boq_name)
+        frappe.db.commit()
+        super().tearDown()
+
+    # ----- helpers ------------------------------------------------------ #
+
+    @contextmanager
+    def _patched_filepath(self, sheetnames):
+        """Patch commit_boq's file path so its loop runs without S3 / a real workbook."""
+        with patch.object(commit_pipeline, "_fetch_boq_file_to_tempfile",
+                          return_value="/tmp/fake_boq_partial.xlsx"), \
+             patch.object(commit_pipeline.openpyxl, "load_workbook",
+                          return_value=_FakeWB(sheetnames)), \
+             patch.object(commit_pipeline, "_extract_grid_rows",
+                          return_value=list(_GRID_ROWS)):
+            yield
+
+    def _draft(self, sheet_name):
+        boq = frappe.get_doc("BOQs", self.boq_name)
+        for d in boq.sheet_drafts:
+            if d.sheet_name == sheet_name:
+                return d
+        raise AssertionError(f"draft {sheet_name!r} not found")
+
+    def _current_grids(self, sheet_name):
+        return frappe.get_all(
+            _GRID,
+            filters={"boq": self.boq_name, "source_sheet_name": sheet_name,
+                     "is_current": 1},
+            pluck="name",
+        )
+
+    # ----- T1. partial-success durability ------------------------------- #
+
+    def test_partial_success_earlier_sheets_durable(self):
+        """A 3-sheet subset where sheet #2 fails -> committed[] = [#1, #3], failed[] =
+        [#2 with a reason]; #1 and #3 are actually persisted (is_current=1 grid) while
+        #2 left NOTHING new (no current grid)."""
+        real_one = commit_pipeline._commit_one_sheet
+
+        def one_side(boq_name, sheet_name, disposition, grid_rows, draft):
+            if sheet_name == "S2":
+                raise RuntimeError("induced failure on S2")
+            return real_one(boq_name, sheet_name, disposition, grid_rows, draft)
+
+        with self._patched_filepath(["S1", "S2", "S3"]), \
+             patch.object(commit_pipeline, "_commit_one_sheet", side_effect=one_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2", "S3"])
+
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1", "S3"])
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S2"])
+        self.assertTrue(res["failed"][0]["reason"])
+
+        # #1 and #3 durable; #2 wrote nothing.
+        self.assertEqual(len(self._current_grids("S1")), 1)
+        self.assertEqual(len(self._current_grids("S3")), 1)
+        self.assertEqual(self._current_grids("S2"), [])
+
+    # ----- T2. ORPHAN PREVENTION (the load-bearing safety test) --------- #
+
+    def test_orphan_prevention_rollback_restores_prior_on_failed_recommit(self):
+        """THE load-bearing test. A RE-COMMIT whose new write fails AFTER the
+        freeze-before-write point must leave the PRIOR committed version intact
+        (is_current=1) -- the except's frappe.db.rollback() discards the freeze.
+
+        Induction: S1 is committed once (real) -> it has a prior is_current=1 grid.
+        Then commit_boq([S1, S2]) runs with _commit_node_tree patched to RAISE for S1
+        -- but only AFTER the REAL tier-1 (_write_grid) + tier-2 (_write_committed_boq_sheet)
+        freezes have already set S1's prior rows is_current=0 and inserted the new ones.
+        S2 (after S1 in the subset) then commits for real.
+
+        *** This test FAILS if the frappe.db.rollback() line in the except is removed ***
+        Without it, S2's frappe.db.commit() flushes S1's pending freeze: S1's prior grid
+        is left is_current=0 and a NODE-LESS new version becomes current (orphaned prior +
+        half-written new). With the rollback, S1's freeze is undone and its prior grid
+        stays is_current=1 at commit_version 1.
+        """
+        first = commit_pipeline._commit_one_sheet(
+            self.boq_name, "S1", "finalized", list(_GRID_ROWS), self._draft("S1"))
+        v1_grid = first["grid_name"]
+        self.assertEqual(frappe.db.get_value(_GRID, v1_grid, "is_current"), 1)
+        self.assertEqual(first["commit_version"], 1)
+
+        real_node_tree = commit_pipeline._commit_node_tree
+
+        def node_side(boq_name, sheet_name, *args, **kwargs):
+            # By the time _commit_node_tree is called, the REAL _write_grid +
+            # _write_committed_boq_sheet have already frozen S1's prior grid + sheet
+            # (is_current -> 0) and inserted the new ones -- the post-freeze failure state.
+            if sheet_name == "S1":
+                raise RuntimeError("induced node-tree failure on S1 (post-freeze)")
+            return real_node_tree(boq_name, sheet_name, *args, **kwargs)
+
+        with self._patched_filepath(["S1", "S2"]), \
+             patch.object(commit_pipeline, "_commit_node_tree", side_effect=node_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2"])
+
+        # S1 failed (rolled back), S2 committed.
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S1"])
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S2"])
+
+        # THE assertion: the prior S1 grid is STILL current -- the rollback discarded
+        # the freeze. (Remove frappe.db.rollback() in the except and this becomes 0.)
+        self.assertEqual(
+            frappe.db.get_value(_GRID, v1_grid, "is_current"), 1,
+            "prior version must survive a failed re-commit (rollback discarded the freeze)")
+        # exactly one current grid for S1, and it is the pre-committed v1 (no failed v2).
+        self.assertEqual(self._current_grids("S1"), [v1_grid])
+        self.assertEqual(frappe.db.get_value(_GRID, v1_grid, "commit_version"), 1)
+
+    # ----- T3. all-success: failed[] present + empty -------------------- #
+
+    def test_all_success_failed_is_empty_list(self):
+        with self._patched_filepath(["S1", "S2", "S3"]):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2", "S3"])
+        self.assertIn("failed", res)                 # key present, not missing
+        self.assertEqual(res["failed"], [])           # and empty
+        self.assertEqual(
+            sorted(c["sheet_name"] for c in res["committed"]), ["S1", "S2", "S3"])
+        for s in ("S1", "S2", "S3"):
+            self.assertEqual(len(self._current_grids(s)), 1)
+
+    # ----- T4. envelope shape ------------------------------------------- #
+
+    def test_envelope_shape_always_boq_committed_failed(self):
+        real_one = commit_pipeline._commit_one_sheet
+
+        def one_side(boq_name, sheet_name, disposition, grid_rows, draft):
+            if sheet_name == "S2":
+                raise RuntimeError("boom")
+            return real_one(boq_name, sheet_name, disposition, grid_rows, draft)
+
+        with self._patched_filepath(["S1", "S2", "S3"]), \
+             patch.object(commit_pipeline, "_commit_one_sheet", side_effect=one_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2", "S3"])
+
+        self.assertEqual(set(res), {"boq_name", "committed", "failed"})
+        self.assertEqual(res["boq_name"], self.boq_name)
+        self.assertTrue(res["failed"])
+        for f in res["failed"]:
+            self.assertEqual(set(f), {"sheet_name", "reason"})
+            self.assertIsInstance(f["reason"], str)
+            self.assertTrue(f["reason"])
+
+    # ----- T5. reason fallback (message-less exception) ----------------- #
+
+    def test_reason_fallback_when_exception_has_no_message(self):
+        """A failure whose exception str() is empty -> reason is the safe fallback
+        (proves _commit_failure_reason never returns empty)."""
+        real_one = commit_pipeline._commit_one_sheet
+
+        def one_side(boq_name, sheet_name, disposition, grid_rows, draft):
+            if sheet_name == "S1":
+                raise RuntimeError()  # no message -> str(e) == ""
+            return real_one(boq_name, sheet_name, disposition, grid_rows, draft)
+
+        with self._patched_filepath(["S1"]), \
+             patch.object(commit_pipeline, "_commit_one_sheet", side_effect=one_side):
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1"])
+
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S1"])
+        self.assertEqual(
+            res["failed"][0]["reason"],
+            "Commit failed for this sheet -- see server logs.")
+
+    # ----- T6. sheet-not-in-workbook is a per-sheet failure ------------- #
+
+    def test_sheet_absent_from_workbook_is_per_sheet_failure(self):
+        """A sheet that is commit-eligible (passes the gate) but ABSENT from the actual
+        workbook lands in failed[] (loop continues), NOT a whole-call throw -- consistent
+        with the new per-sheet contract. (An INELIGIBLE sheet is still rejected upfront by
+        the gate re-check; that path is covered by TestCommitPipeline.)"""
+        with self._patched_filepath(["S1"]):  # S2 eligible but absent from the workbook
+            res = commit_pipeline.commit_boq(self.boq_name, ["S1", "S2"])
+        self.assertEqual([c["sheet_name"] for c in res["committed"]], ["S1"])
+        self.assertEqual([f["sheet_name"] for f in res["failed"]], ["S2"])
+        self.assertIn("not found", res["failed"][0]["reason"].lower())

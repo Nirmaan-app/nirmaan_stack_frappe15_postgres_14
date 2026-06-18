@@ -317,6 +317,86 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-18 -- Phase 5 Slice 5 (frontend) commit-results modal COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitResultsModal.tsx` (NEW) + `CommitDialog.tsx` + `BoqHubPage.tsx`, feat ab4a390b):**
+Surfaces the Slice-5 backend envelope (`commit_boq` -> `{boq_name, committed:[{sheet_name, commit_version, ...}],
+failed:[{sheet_name, reason}]}`, which NO LONGER throws on a per-sheet failure -- feat 09714041). After a commit the
+user now sees an explicit RESULTS acknowledgement instead of the dialog silently closing. FRONTEND-ONLY -- no backend
+Python, no doctype JSON.
+
+- **Result flow = OPTION (i) (hub owns the modal).** `CommitDialog` keeps its "pick + fire" job: `fireCommit` now
+  captures `res.message as CommitBoqResponse` and calls `onCommitted(result)` (prop widened from `() => void` to
+  `(result: CommitBoqResponse) => void`) then closes. The hub's `handleCommitted(result)` stores it, fires the
+  Slice-4b mutates (`mutate` / `mutateCommittedState` / `mutateCommittable` -- UNCONDITIONAL, harmless on an
+  all-failed commit), and opens the results modal. Consistent with the hub owning the parse-completion modal.
+- **`CommitDialog` catch unchanged in spirit.** The `try/catch` STAYS for WHOLE-CALL precondition throws (gate
+  re-check / missing boq / empty subset / file fetch) -- those still `frappe.throw` and surface as the dialog's
+  inline `getFrappeError` text. PER-SHEET failures are NOT thrown; they arrive in `result.failed` and render in the
+  results modal. The picker (opens nothing-ticked, the step-1/step-2 re-commit warning) is byte-for-byte UNCHANGED.
+- **`CommitResultsModal.tsx` (NEW) -- acknowledge-only, mirrors the parse-completion modal.** Props `{open,
+  onOpenChange, result: CommitBoqResponse | null}`; returns null when `result` is null (safe -- opens only once a
+  commit resolves). Uses the `AlertDialog` primitives (same as the parse-completion modal): a one-line SUMMARY that
+  reads all three cases ("Committed N sheet(s)." / "Commit failed for N sheet(s)." / "Committed N sheet(s); M
+  failed."), a COMMITTED `<ul>` (emerald + `CheckCircle2`, "{sheet} -- committed v{commit_version}", shown only when
+  non-empty), a FAILED `<ul>` (`text-destructive` + `AlertTriangle`, "{sheet} -- {reason}", shown only when
+  non-empty), and a single `AlertDialogAction` "OK" (+ escape via `onOpenChange`) that dismisses. Acknowledge-only --
+  nothing in flight at this point, so no not-dismissible guard is needed. Sheet names display-trimmed; never re-sent.
+- **`boqTypes.ts` (additive).** `CommittedSheetResult` (reads `sheet_name` + `commit_version`; other envelope keys
+  optional), `FailedSheetResult` (`sheet_name` + `reason`), `CommitBoqResponse` (`{boq_name, committed[], failed[]}`).
+  DISTINCT from `CommittedSheetState` (the get_committed_state read) -- this is the commit RESULT envelope.
+- **No regression to Slice 4b.** The committed-state fetch, the dual "Committed" badge markers, and the "Committed: N"
+  footer count are untouched; only the success-path handoff (silent close -> results modal) changed.
+- **Verification.** tsc 0 new wizard-file errors (filtered) + in-container Vite build exit 0. HAPPY-PATH live-cert is
+  OWNER-OWNED (not browser-driven here): on BOQ-26-00145, Commit -> tick a sheet -> the results modal shows the
+  committed list + new version + summary "Committed 1 sheet(s)."; OK dismisses; the hub badge/count/version reflect
+  the commit. FAILURE-path render is covered by the Slice-5 backend tests (T1/T4/T5/T6 populate `failed[]`) + code
+  inspection; NOT exercised live (no real-data mutation, no browser-driving). Full detail in root CLAUDE.md +
+  boq-upload-plan.md "Phase 5 Slice 5 (frontend)".
+
+// prior: **Status (2026-06-17 -- Phase 5 Slice 4b commit UI COMPLETE -- FRONTEND, `boqTypes.ts` + `CommitDialog.tsx` (NEW) + `BoqHubPage.tsx` + `SheetCard.tsx`, feat 53645ab7):**
+The user-facing commit entry point on the BoQ hub, wiring a UI onto the proven engine (`commit_boq`, already
+whitelisted) + the Slice-4a read endpoint `get_committed_state`. FRONTEND-ONLY -- no backend Python, no doctype JSON.
+
+- **TWO new hub reads (`BoqHubPage.tsx`).** `get_committable_sheets` (the gate -- eligibility + disposition) and
+  `get_committed_state` (Slice 4a -- per-sheet current committed-state) via `useFrappeGetCall` (the whitelisted-bare
+  GET family the work-package map uses; same `boqId ? undefined : null` swrKey gotcha), each with its own `mutate`.
+  A `committedMap: Map<sheet_name(VERBATIM #152), CommittedSheetState>` is built once and drives the card badges +
+  the footer tally; `committableSheets` drives the Commit button + the dialog. After a commit, `handleCommitted`
+  calls `mutate()` (BoQ doc) + `mutateCommittedState()` + `mutateCommittable()` so badges + count + dialog refresh
+  with NO reload.
+- **Commit button = 4th footer sibling.** Added inside the existing `<div className="flex shrink-0 items-center
+  gap-2">` Tooltip cluster after Export Finalized / Re-parse / Parse workbook. `variant="outline"`, label "Commit",
+  `disabled={committableSheets.length === 0}` (gated on the GATE, NOT committed-state). Opens `commitDialogOpen`.
+- **`CommitDialog.tsx` (NEW) -- mirrors ExportWorkbookDialog (checklist) + ParseRunDialog (two-step).** Props
+  `{open, onOpenChange, boqName, eligibleSheets, committedState, onCommitted}`. Ticked `useState<Set<string>>`
+  initialized EMPTY (opens with NOTHING ticked -- deliberate selection; reset on open). Each row: Checkbox + name +
+  a `(finalized|general specs)` disposition hint + a muted "committed {date HH:MM} · v{n}" sub-label (or "not yet
+  committed"). `const [step,setStep]=useState<1|2>(1)`: `handleConfirmClick` computes the ticked sheets that ALSO
+  appear in `committedState` (the re-commits) -> NON-EMPTY sets step 2, else fires directly. Step 2 = destructive
+  `AlertTriangle` callout NAMING each re-commit sheet WITH its last-committed date/time + "the prior version is
+  frozen (kept as history), not lost", with "Go back" (-> step 1) and a destructive "Commit anyway". `fireCommit`
+  calls `commit_boq` via `useFrappePostCall` with `{boq_name, sheet_subset: tickedList}` (ORDERED ticked list, the
+  Export filter-by-eligible-order pattern; VERBATIM #152; the backend re-checks the gate before any write).
+  running / inline `getFrappeError` / not-dismissible-mid-flight (`if (!isOpen && running) return`) all copied from
+  Export; Confirm disabled when `running || ticked.size === 0`. On success -> `onCommitted()` then close.
+- **`SheetCard.tsx` -- the Committed badge (dual markers).** New optional `committedState?: CommittedSheetState`.
+  When present, an INDIGO "Committed" pill (`bg-indigo-600 ... dark:bg-indigo-700` -- distinct from every
+  STATUS_PILL color) renders in the badge cluster ALONGSIDE the status pill (never replaces it), plus a muted
+  "· Committed {date HH:MM} · v{n}" sub-line below the name/pill row. Applies to ANY committed sheet -- finalized
+  AND general-specs, identical treatment. NOT added to `STATUS_PILL` or `WizardStatus`.
+- **Footer "Committed: N".** `committedCount = allDrafts.filter(d => committedMap.has(d.sheet_name)).length` rendered
+  in the existing `count>0 && ...` chain after "checked". DERIVED from committed-state, NOT a `getEffectiveStatus`
+  bucket (committed-ness is orthogonal to wizard_status).
+- **Date format.** Committed timestamps use the wizard's `slice(0,16)` "YYYY-MM-DD HH:MM" pattern (ReviewTree's
+  `formatEditAt`) via a tiny local `fmtCommittedAt` in BOTH CommitDialog + SheetCard. App-shared `formatDate` is NOT
+  mutated and NO new shared helper file was added.
+- **`boqTypes.ts` (additive).** `CommittableSheet` / `GetCommittableSheetsResponse` (gate) + `CommittedSheetState` /
+  `GetCommittedStateResponse` (4a read). NO committed field on `BoQSheetDraft`; NO "Committed" in `WizardStatus`.
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|CommitDialog|SheetCard|BoqHubPage|boqTypes`
+  -> empty) + in-container Vite build exit 0. Live-cert on a real committed BoQ pending/at session end (badge +
+  date/HH:MM, footer count, modal nothing-ticked, re-commit warning naming the sheet + date/time). Live re-commit
+  left to the owner (avoids mutating live committed data). Full detail in root CLAUDE.md + boq-upload-plan.md
+  "Phase 5 Slice 4b".
+
 **Minimal touch (2026-06-16 -- Phase 5 Slice 2.5, BACKEND ONLY, feat 49b77635):** The committed BOQ Nodes tier
 is now CAPTURE-ONLY -- removed all write-chain money compute (parent `_compute_amounts` +
 `_recompute_parent_rates_from_areas`; child `_apply_rate_fallback` + `_compute_child_amounts`) so reviewed values

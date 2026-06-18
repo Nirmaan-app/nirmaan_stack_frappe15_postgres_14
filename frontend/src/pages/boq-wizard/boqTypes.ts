@@ -439,3 +439,73 @@ export interface UnmarkParsedCheckDoneResponse {
   ok: boolean;
   status: string;
 }
+
+// ── Commit UI types (Phase 5 Slice 4b) ────────────────────────────────────────
+
+/**
+ * One commit-eligible sheet from get_committable_sheets (the READ-ONLY gate).
+ * disposition tells the commit pipeline which write path the sheet uses; the UI
+ * shows it as an optional hint. Eligibility ≠ committed-state (see below).
+ */
+export interface CommittableSheet {
+  sheet_name: string;
+  disposition: "general_specs" | "finalized";
+}
+
+/** Response shape of get_committable_sheets. */
+export interface GetCommittableSheetsResponse {
+  committable_sheets: CommittableSheet[];
+}
+
+/**
+ * One sheet's CURRENT committed-state from get_committed_state (Slice 4a),
+ * sourced from the BoQ Committed Sheet Grid is_current=1 row. sheet_name is the
+ * source_sheet_name VERBATIM (#152) -- join to drafts byte-for-byte, no trim.
+ * NOT a BoQSheetDraft field and NOT a WizardStatus value -- committed-ness is a
+ * SEPARATE marker shown alongside the status pill.
+ */
+export interface CommittedSheetState {
+  sheet_name: string;
+  committed_at: string | null;
+  commit_version: number;
+}
+
+/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
+export interface GetCommittedStateResponse {
+  committed_state: CommittedSheetState[];
+}
+
+/**
+ * One sheet that committed successfully, from the commit_boq envelope (Slice 5
+ * backend, feat 09714041). The backend entry carries more keys (disposition,
+ * grid_name, boq_sheet_name, row_count, node_count, froze_prior, ...); the
+ * results modal reads only sheet_name + commit_version. DISTINCT from
+ * CommittedSheetState (the get_committed_state read) -- this is the commit RESULT.
+ */
+export interface CommittedSheetResult {
+  sheet_name: string;
+  commit_version: number;
+  disposition?: string;
+  row_count?: number;
+  node_count?: number;
+}
+
+/** One sheet that FAILED to commit, from the commit_boq envelope (Slice 5 backend).
+ * commit_boq no longer throws on a per-sheet failure -- it rolls that sheet back and
+ * reports it here (reason is a non-empty renderable string). */
+export interface FailedSheetResult {
+  sheet_name: string;
+  reason: string;
+}
+
+/**
+ * Response shape of commit_boq (Phase 5 Slice 5 backend). committed[] + failed[]
+ * together describe the outcome; MIXED (some of each) is normal. failed is [] on
+ * full success (the key is always present). A whole-call precondition failure
+ * (gate re-check / missing boq / empty subset / file fetch) still THROWS instead.
+ */
+export interface CommitBoqResponse {
+  boq_name: string;
+  committed: CommittedSheetResult[];
+  failed: FailedSheetResult[];
+}

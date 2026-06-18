@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { BoQSheetDraft } from "./boqTypes";
+import type { BoQSheetDraft, CommittedSheetState } from "./boqTypes";
+
+// "date HH:MM" from a Frappe datetime string -- the wizard's slice(0,16) pattern
+// (mirrors ReviewTree's formatEditAt). No date library, no TZ reparse.
+function fmtCommittedAt(at: string | null | undefined): string {
+  return typeof at === "string" ? at.slice(0, 16) : "";
+}
 
 // ── Status pill definitions ──────────────────────────────────────────────────
 // Approach: solid saturated backgrounds with white text for maximum contrast.
@@ -69,6 +75,14 @@ interface SheetCardProps {
    * sheet_name (#152). Mirrors the onOpenReview / onReparse callback convention.
    */
   onExportCsv?: (sheetName: string) => Promise<void>;
+  /**
+   * This sheet's CURRENT committed-state (Phase 5 Slice 4b), from get_committed_state
+   * keyed on sheet_name VERBATIM (#152). When present, the card shows a "Committed"
+   * badge ALONGSIDE the status pill (dual markers -- NOT a wizard_status) plus a muted
+   * "· Committed {date HH:MM}" sub-line. Applies to finalized AND general-specs alike.
+   * undefined => never committed (no badge).
+   */
+  committedState?: CommittedSheetState;
 }
 
 export function SheetCard({
@@ -82,6 +96,7 @@ export function SheetCard({
   workHeaders,
   onReparse,
   onExportCsv,
+  committedState,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -227,8 +242,24 @@ export function SheetCard({
               needs re-parse
             </span>
           )}
+          {/* Committed badge (Slice 4b): a SEPARATE marker shown ALONGSIDE the status
+              pill -- never replaces it, never a wizard_status. Indigo accent, distinct
+              from every STATUS_PILL color. Same treatment for finalized + general-specs. */}
+          {committedState && (
+            <span className="rounded-full px-2.5 py-0.5 text-sm font-medium whitespace-nowrap bg-indigo-600 text-white dark:bg-indigo-700 dark:text-white">
+              Committed
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Committed timestamp sub-line (Slice 4b): muted, matches the last_parsed_at
+          sub-line style; slice(0,16) "date HH:MM". Shown for ANY committed sheet. */}
+      {committedState && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          &middot; Committed {fmtCommittedAt(committedState.committed_at)} &middot; v{committedState.commit_version}
+        </p>
+      )}
 
       {/* ── Action buttons per effective status ──────────────────────────── */}
       <TooltipProvider>
