@@ -2184,3 +2184,271 @@ class TestPerSheetParseMarkersWorker(FrappeTestCase):
                 _run_parse_worker(boq.name, user="Administrator")
         self.assertEqual(self._marker(boq.name, "SheetA"), 0,
             "SheetA marker not cleared on the top-level-exception path (rollback+publish)")
+
+
+# ---------------------------------------------------------------------------
+# Group 5: parse-failure reason persistence (reactive #166, Slice 1a)
+# ---------------------------------------------------------------------------
+
+# Production 6-key blob the wizard saves (no 'sheet_name' key; FIX 1 injects it).
+_VALID_PROD_BLOB = json.dumps(_PROD_BLOB_TMPL)
+
+# A blob that DESERIALIZES (valid JSON) but FAILS SheetConfig.model_validate -- an
+# unknown ColumnRole token, the realistic shape of a config-field-set change that
+# invalidated a pre-existing config (#166 core). Mirrors the prod 6-key shape.
+_INVALID_PROD_BLOB = json.dumps({
+    "area_dimensions": [],
+    "column_role_map": {"A": {"role": "this_role_no_longer_exists", "area": None}},
+    "header_row": 1,
+    "header_row_count": 1,
+    "skip_top_rows_after_header": [],
+    "top_header_rows_override": None,
+})
+
+
+class TestParseFailureReason(FrappeTestCase):
+    """
+    Reactive half of issue #166 (Slice 1a): the per-sheet parse-failure REASON is
+    persisted to BoQ Sheet Draft (parse_failure_category / _reason / _at) instead of
+    being erased to a logger.warning or a coarse list.
+
+    Covers the three IN-SCOPE failure cases (STALE config / PARSER error / INSERT
+    error), clear-on-success, non-failures-stay-untouched, and the FROZEN done-event
+    payload shape. Purely additive -- wizard_status writes and prior rows are not
+    altered by this slice.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        # A 1-sheet workbook (SheetA) for the worker-path tests (local-fetch branch).
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "SheetA"
+        ws.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws.append([1, "Alpha Item", "nos", 2, 100.0, 200.0])
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._wb_path = tmp.name
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._wb_path)
+        except OSError:
+            pass
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    # -- helpers ---------------------------------------------------------
+
+    def _failure(self, boq_name, sheet_name):
+        """Return the failure fields + wizard_status for a sheet draft, as a dict."""
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+            ["parse_failure_category", "parse_failure_reason", "parse_failure_at", "wizard_status"],
+            as_dict=True,
+        )
+
+    def _make_boq(self, drafts, with_file=False):
+        """drafts: list of dicts merged into sheet_drafts rows. with_file wires the
+        local workbook so the worker can fetch+parse."""
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Reason Test {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        if with_file:
+            boq.source_file_url = self.__class__._wb_path
+        for i, d in enumerate(drafts, start=1):
+            row = {"sheet_order": i, **d}
+            boq.append("sheet_drafts", row)
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _run(self, boq_name, sheet_names=None, force_reparse=False):
+        _run_parse_worker(boq_name, sheet_names=sheet_names, user="Administrator",
+                          force_reparse=force_reparse)
+
+    # -- STALE -----------------------------------------------------------
+
+    def test_stale_invalid_blob_records_config_stale(self):
+        """A Config Done sheet whose saved blob no longer validates -> Config stale
+        reason captured (with the validation detail); wizard_status + prior rows
+        untouched."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "StaleSheet", "wizard_status": "Config Done", "sheet_config": _INVALID_PROD_BLOB},
+        ])
+        # Seed a prior review row for the stale sheet -- it must NOT be touched.
+        seed = frappe.new_doc("BoQ Review Row")
+        seed.boq = boq.name
+        seed.sheet_name = "StaleSheet"
+        seed.source_row_number = 1
+        seed.row_index = 0
+        seed.classification = "line_item"
+        for f in _LIST_JSON_FIELDS:
+            setattr(seed, f, json.dumps([]))
+        seed.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        config, not_eligible = assemble_mapping_config(boq.name)
+
+        self.assertIn("StaleSheet", not_eligible)
+        row = self._failure(boq.name, "StaleSheet")
+        self.assertEqual(row.parse_failure_category, "Config stale")
+        self.assertTrue(row.parse_failure_reason)
+        self.assertIn("no longer valid", row.parse_failure_reason)
+        self.assertIsNotNone(row.parse_failure_at)
+        # ADDITIVE: status unchanged, prior rows untouched.
+        self.assertEqual(row.wizard_status, "Config Done")
+        self.assertEqual(
+            frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": "StaleSheet"}), 1
+        )
+
+    def test_stale_empty_blob_records_config_stale(self):
+        """A Config Done sheet with an EMPTY blob -> Config stale; status unchanged."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "EmptySheet", "wizard_status": "Config Done"},  # no blob
+        ])
+        config, not_eligible = assemble_mapping_config(boq.name)
+
+        self.assertIn("EmptySheet", not_eligible)
+        row = self._failure(boq.name, "EmptySheet")
+        self.assertEqual(row.parse_failure_category, "Config stale")
+        self.assertIn("empty", row.parse_failure_reason.lower())
+        self.assertIsNotNone(row.parse_failure_at)
+        self.assertEqual(row.wizard_status, "Config Done")
+
+    # -- PARSER error ----------------------------------------------------
+
+    def test_parser_failure_records_parser_error(self):
+        """parse_boq raising -> every eligible sheet gets a Parser error reason."""
+        from unittest.mock import patch
+        boq = self._make_boq(
+            [{"sheet_name": "SheetA", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB}],
+            with_file=True,
+        )
+        with patch(
+            "nirmaan_stack.api.boq.wizard.parse_run.parse_boq",
+            side_effect=RuntimeError("forced parser failure"),
+        ):
+            self._run(boq.name)
+
+        row = self._failure(boq.name, "SheetA")
+        self.assertEqual(row.parse_failure_category, "Parser error")
+        self.assertTrue(row.parse_failure_reason)
+        self.assertIn("forced parser failure", row.parse_failure_reason)
+        self.assertIsNotNone(row.parse_failure_at)
+        self.assertEqual(row.wizard_status, "Parse failed")  # existing behaviour unchanged
+
+    # -- INSERT error ----------------------------------------------------
+
+    def test_insert_failure_records_insert_error(self):
+        """A per-sheet row insert raising -> Insert error reason for that sheet."""
+        from unittest.mock import patch
+        boq = self._make_boq(
+            [{"sheet_name": "SheetA", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB}],
+            with_file=True,
+        )
+        # parse_boq succeeds; the worker's per-sheet flatten raises -> Step-5 except.
+        with patch(
+            "nirmaan_stack.api.boq.wizard.parse_run.flatten_resolved_row",
+            side_effect=RuntimeError("forced insert failure"),
+        ):
+            self._run(boq.name)
+
+        row = self._failure(boq.name, "SheetA")
+        self.assertEqual(row.parse_failure_category, "Insert error")
+        self.assertTrue(row.parse_failure_reason)
+        self.assertIn("forced insert failure", row.parse_failure_reason)
+        self.assertIsNotNone(row.parse_failure_at)
+        self.assertEqual(row.wizard_status, "Parse failed")
+
+    # -- CLEAR on success ------------------------------------------------
+
+    def test_clear_on_successful_parse(self):
+        """A sheet that previously carried a failure reason is CLEARED on a clean parse."""
+        boq = self._make_boq(
+            [{"sheet_name": "SheetA", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB}],
+            with_file=True,
+        )
+        # Pre-seed a stale failure on SheetA's draft (simulating a prior failed run).
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq.name, "parenttype": "BOQs", "sheet_name": "SheetA"}, "name",
+        )
+        frappe.db.set_value("BoQ Sheet Draft", child, {
+            "parse_failure_category": "Parser error",
+            "parse_failure_reason": "old failure that should be cleared",
+            "parse_failure_at": frappe.utils.now(),
+        })
+        frappe.db.commit()
+
+        self._run(boq.name)
+
+        row = self._failure(boq.name, "SheetA")
+        self.assertEqual(row.wizard_status, "Parsed")
+        self.assertIsNone(row.parse_failure_category)
+        self.assertIsNone(row.parse_failure_reason)
+        self.assertIsNone(row.parse_failure_at)
+
+    # -- NON-FAILURE sheets stay untouched -------------------------------
+
+    def test_non_failure_sheets_untouched(self):
+        """Skip / Hidden / Pending (ineligible) / general-specs sheets are NOT failures
+        -> no reason is written (they must never be mislabeled)."""
+        boq = self._make_boq([
+            {"sheet_name": "GoodSheet", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB},
+            {"sheet_name": "SkipSheet", "wizard_status": "Skip"},
+            {"sheet_name": "HiddenSheet", "wizard_status": "Hidden"},
+            {"sheet_name": "PendingSheet", "wizard_status": "Pending"},
+            {"sheet_name": "GenSpecsSheet", "wizard_status": "Config Done"},
+        ])
+        # Designate GenSpecsSheet as general-specs (pointer overlay).
+        boq.append("general_specs_sheets", {"source_sheet_name": "GenSpecsSheet", "preamble_text": ""})
+        boq.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        assemble_mapping_config(boq.name)
+
+        # "No failure recorded" is falsy: a never-written Select column reads as the
+        # blank option '' (not SQL NULL), so assert falsy rather than strictly None.
+        for sn in ("SkipSheet", "HiddenSheet", "PendingSheet", "GenSpecsSheet"):
+            row = self._failure(boq.name, sn)
+            self.assertFalse(row.parse_failure_category, f"{sn} was mislabeled as a failure")
+            self.assertFalse(row.parse_failure_reason, f"{sn} got a spurious reason")
+
+    # -- PAYLOAD contract frozen -----------------------------------------
+
+    def test_done_event_payload_shape_frozen(self):
+        """The done-event success payload keys are UNCHANGED by this slice."""
+        from unittest.mock import patch
+        boq = self._make_boq(
+            [{"sheet_name": "SheetA", "wizard_status": "Config Done", "sheet_config": _VALID_PROD_BLOB}],
+            with_file=True,
+        )
+        with patch.object(frappe, "publish_realtime") as mock_pub:
+            self._run(boq.name)
+
+        done = [c for c in mock_pub.call_args_list
+                if c.args and c.args[0] == "boq:parse_run_done"]
+        self.assertTrue(done, "boq:parse_run_done was not published")
+        payload = done[-1].args[1]
+        self.assertEqual(
+            set(payload.keys()),
+            {"status", "boq_name", "parsed_sheets", "not_parsed_sheets", "failed_sheets"},
+        )
