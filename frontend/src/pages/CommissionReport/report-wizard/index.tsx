@@ -638,7 +638,14 @@ export const CommissionReportWizard: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        <h1 className="text-lg font-semibold">{template.title}</h1>
+                        <h1 className="text-lg font-semibold">
+                            {/* The Duct template's `title` is the combined
+                                "Pressure / Smoke / Light" string shared by 3 tasks —
+                                show the specific task name instead. */}
+                            {template.templateId === 'duct-pressure/smoke/light-testing-report'
+                                ? childRow.task_name
+                                : template.title}
+                        </h1>
                         <span className="text-xs uppercase text-muted-foreground">
                             {mode === 'view' ? 'View only' : mode === 'edit' ? 'Editing existing' : 'Filling new'}
                         </span>
@@ -1477,6 +1484,14 @@ const ReviewSummary: React.FC<{
                                                                         (group?.[nested.id] as
                                                                             | Record<string, unknown>
                                                                             | undefined) || {};
+                                                                    // Per-group visibleIf: skip a nested section whose gate doesn't match this
+                                                                    // group's values (e.g. show only the IR matrix for the selected Phase).
+                                                                    const vIf = (nested as { visibleIf?: { field: string; equals?: unknown; in?: unknown[] } }).visibleIf;
+                                                                    if (vIf) {
+                                                                        const gvN = (group as Record<string, unknown> | undefined)?.[vIf.field];
+                                                                        const okN = Array.isArray(vIf.in) ? vIf.in.includes(gvN) : vIf.equals !== undefined ? gvN === vIf.equals : true;
+                                                                        if (!okN) return null;
+                                                                    }
                                                                     if (nested.type === 'checklist') {
                                                                         return (
                                                                             <div key={nested.id} className="rounded-md border bg-background">
@@ -1535,6 +1550,52 @@ const ReviewSummary: React.FC<{
                                                                                                     );
                                                                                                 },
                                                                                             )}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (nested.type === 'measurement_matrix') {
+                                                                        const mrows = (group?.[nested.id] as Array<Record<string, unknown>> | undefined) || [];
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="overflow-x-auto">
+                                                                                    <table className="w-full border-collapse text-sm">
+                                                                                        <thead>
+                                                                                            <tr className="border-b text-xs text-muted-foreground">
+                                                                                                {nested.columns.map((c) => (
+                                                                                                    <React.Fragment key={c.key}>
+                                                                                                        <th className="py-1.5 pl-3 pr-2 text-left font-medium">{c.label}</th>
+                                                                                                        <th className="py-1.5 pr-2 text-left font-medium">{c.valueLabel || (c.type === 'number' && (c as NumberField).unit ? `In ${(c as NumberField).unit}` : 'Value')}</th>
+                                                                                                    </React.Fragment>
+                                                                                                ))}
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody>
+                                                                                            {nested.rows.map((rowDef, rIdx) => {
+                                                                                                const rr = mrows[rIdx] || {};
+                                                                                                return (
+                                                                                                    <tr key={rowDef.id} className="border-b last:border-0 align-top">
+                                                                                                        {nested.columns.map((c) => {
+                                                                                                            const cellLabel = rowDef.labels[c.key] || '';
+                                                                                                            const display = formatReviewValue({ ...c, bind: undefined } as Field, rr[c.key]);
+                                                                                                            const isEmpty = display === '—';
+                                                                                                            return (
+                                                                                                                <React.Fragment key={c.key}>
+                                                                                                                    <td className="py-2 pl-3 pr-2 font-medium">{cellLabel}</td>
+                                                                                                                    <td className={'py-2 pr-2 ' + (isEmpty ? 'italic text-muted-foreground' : '')}>{display}</td>
+                                                                                                                </React.Fragment>
+                                                                                                            );
+                                                                                                        })}
+                                                                                                    </tr>
+                                                                                                );
+                                                                                            })}
                                                                                         </tbody>
                                                                                     </table>
                                                                                 </div>

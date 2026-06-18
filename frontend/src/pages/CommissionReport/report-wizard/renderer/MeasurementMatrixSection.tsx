@@ -11,11 +11,14 @@ import { FieldControl } from './FieldControl';
 interface Props {
     section: MeasurementMatrixSectionT;
     forceReadonly?: boolean;
+    /** Override the RHF path root — e.g. "responses.dbs.0" when this matrix is a
+     *  NESTED section inside a `repeating_groups` group. Defaults to "responses". */
+    pathRoot?: string;
 }
 
-export const MeasurementMatrixSection: React.FC<Props> = ({ section, forceReadonly }) => {
+export const MeasurementMatrixSection: React.FC<Props> = ({ section, forceReadonly, pathRoot }) => {
     const { control } = useFormContext();
-    const fieldName = `responses.${section.id}`;
+    const fieldName = `${pathRoot || 'responses'}.${section.id}`;
     const { fields } = useFieldArray({ control, name: fieldName });
 
     return (

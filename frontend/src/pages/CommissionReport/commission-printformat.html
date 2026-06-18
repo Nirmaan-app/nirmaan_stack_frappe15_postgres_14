@@ -307,64 +307,254 @@ thead { display: table-header-group; }
                 </td></tr>
             </table>
 
-        {% elif tpl.templateId == "db-commissioning-report" %}
+        {% elif tpl.templateId in ["db-commissioning-report", "cctv-commissioning-report", "lt-panel-commission-report", "duct-pressure/smoke/light-testing-report"] %}
+
+            {# Generic count-wise renderer: header -> per-group (group fields +
+               optional rowsTable + nested checklist / process) -> top-level
+               `fields` sections (e.g. DB Procedure) -> signatures. Shared by
+               every repeating report (Floor / DB / Equipment / Panel). #}
+            {%- set rg_section = (tpl.sections | selectattr("type", "equalto", "repeating_groups") | list | first) -%}
+            {%- set groups = (rd.responses or {}).get(rg_section.id, []) or [] if rg_section else [] -%}
 
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
-                        <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - DB TESTING" }}</td></tr>
+                        {%- set _gen_title = target.task_name if tpl.templateId == "duct-pressure/smoke/light-testing-report" else (hdr_section.title if hdr_section else tpl.title) -%}
+                        <tr><td class="cv-title" colspan="2">{{ _gen_title }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
-                                <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
                             {% endfor %}
                         {% endif %}
                     </table>
                     <div class="cv-spacer-md"></div>
-                    {% if mm_section %}
-                        {%- set mm_rows = (rd.responses or {}).get(mm_section.id, []) or [] -%}
-                        <div class="cv-section-head">{{ mm_section.title or "1. IR Test:" }}</div>
-                        <table class="cv-mm-table">
-                            <thead><tr>{% for c in (mm_section.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
-                            <tbody>
-                                {% for rowDef in (mm_section.rows or []) %}
-                                    {%- set ns_row = namespace(data=none) -%}
-                                    {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_row.data = r -%}{%- endif -%}{%- endfor -%}
+
+                    {% if rg_section %}
+                    {% if (groups | length > 0) %}
+                        {% for group in groups %}
+                            {%- set g_index0 = loop.index0 -%}
+                            <div style="page-break-inside: avoid; margin-bottom: 14px;">
+                                <div class="cv-sub-head" style="margin-bottom: 0;">{{ rg_section.groupTitlePrefix or 'Group' }} {{ loop.index }}</div>
+
+                                {% if rg_section.groupFields %}
+                                <table class="cv-table">
+                                    {% for gf in rg_section.groupFields %}
+                                        <tr><td class="cv-label" style="width: 18%;">{{ gf.label }}</td><td>{%- set gv = group.get(gf.key) if group is mapping else none -%}{%- if gv is none or gv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ gv }}{%- endif -%}</td></tr>
+                                    {% endfor %}
+                                </table>
+                                {% endif %}
+
+                                {% if rg_section.rowsTable %}
+                                    {%- set rows_raw = (group.get('rows') if group is mapping else []) or [] -%}
+                                    {% if rg_section.rowsTable.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ rg_section.rowsTable.title }}</div>{% endif %}
+                                    <table class="cv-tr-table">
+                                        <thead><tr><th style="width: 40px;">Sl No</th>{% for c in (rg_section.rowsTable.columns or []) %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+                                        <tbody>
+                                            {% for row in rows_raw %}
+                                                <tr class="cv-tr-row">
+                                                    <td style="text-align: center;">{{ loop.index }}</td>
+                                                    {% for c in (rg_section.rowsTable.columns or []) %}
+                                                        <td style="text-align: center;">{%- set cv = row.get(c.key) if row is mapping else none -%}{%- if cv is none or cv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ cv }}{%- if c.unit %} {{ c.unit }}{% endif -%}{%- endif -%}</td>
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% endif %}
+
+                                {% for nsec in (rg_section.nestedSections or []) %}
+                                    {%- set ns_show = namespace(v=true) -%}
+                                    {%- if nsec.visibleIf -%}
+                                        {%- set _gv = group.get(nsec.visibleIf.field) if group is mapping else none -%}
+                                        {%- if nsec.visibleIf.get('in') -%}{%- set ns_show.v = (_gv in nsec.visibleIf['in']) -%}
+                                        {%- elif nsec.visibleIf.get('equals') is not none -%}{%- set ns_show.v = (_gv == nsec.visibleIf.equals) -%}{%- endif -%}
+                                    {%- endif -%}
+                                    {% if ns_show.v %}
+                                    {% if nsec.type == 'checklist' %}
+                                        {%- set nvals = (group.get(nsec.id) if group is mapping else {}) or {} -%}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        <table class="cv-chk">
+                                            <thead><tr>{% for c in (nsec.columns or []) %}{% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>{% elif c.key == "result" %}<th class="cv-result">{{ c.label }}</th>{% elif c.key == "remarks" %}<th class="cv-remarks">{{ c.label }}</th>{% else %}<th>{{ c.label }}</th>{% endif %}{% endfor %}</tr></thead>
+                                            <tbody>
+                                                {% for item in (nsec["items"] or []) %}
+                                                    {%- set ival = nvals.get(item.id, {}) -%}
+                                                    <tr>
+                                                        <td class="cv-num">{{ loop.index }}</td>
+                                                        <td>{{ item.particular }}</td>
+                                                        <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}&mdash;{%- else -%}{{ rv }}{%- endif -%}</td>
+                                                        <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    {% elif nsec.type == 'process' %}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ nsec.title }}</div>{% endif %}
+                                        {% for block in (nsec.blocks or []) %}
+                                            {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                            {% for line in (block["items"] or []) %}<div class="cv-proc-item">{{ line }}</div>{% endfor %}
+                                        {% endfor %}
+                                    {% elif nsec.type == 'measurement_matrix' %}
+                                        {%- set mm_rows = (group.get(nsec.id) if group is mapping else []) or [] -%}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        <table class="cv-mm-table">
+                                            <thead><tr>{% for c in (nsec.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
+                                            <tbody>
+                                                {% for rowDef in (nsec.rows or []) %}
+                                                    {%- set ns_mm = namespace(data=none) -%}
+                                                    {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_mm.data = r -%}{%- endif -%}{%- endfor -%}
+                                                    <tr>
+                                                        {% for c in (nsec.columns or []) %}
+                                                            <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
+                                                            <td class="cv-mm-val">{%- set v = ns_mm.data.get(c.key) if ns_mm.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                                        {% endfor %}
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    {% elif nsec.type == 'image_attachments' %}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        {%- set cols = nsec.columns or 2 -%}
+                                        {%- set ns_imgs = namespace(list=[]) -%}
+                                        {%- for slot in (nsec.slots or []) -%}
+                                            {%- set _akey = rg_section.id ~ '_' ~ g_index0 ~ '_' ~ slot.key -%}
+                                            {%- set slot_items = (rd.attachments or {}).get(_akey) or [] -%}
+                                            {%- if slot_items -%}
+                                                {%- for item in slot_items -%}
+                                                    {%- if item is mapping -%}{%- set raw_url = item.file_url or "" -%}
+                                                    {%- else -%}{%- set raw_url = frappe.db.get_value("Nirmaan Attachments", item, "attachment") or "" -%}{%- endif -%}
+                                                    {%- if raw_url -%}{%- set _ = ns_imgs.list.append({"url": raw_url, "label": slot.label}) -%}{%- endif -%}
+                                                {%- endfor -%}
+                                            {%- else -%}{%- set _ = ns_imgs.list.append({"url": "", "label": slot.label}) -%}{%- endif -%}
+                                        {%- endfor -%}
+                                        {%- set total = ns_imgs.list | length -%}
+                                        {%- set rows_count = ((total + cols - 1) // cols) if total > 0 else 1 -%}
+                                        <table class="cv-img-grid">
+                                            {% for r in range(rows_count) %}
+                                                <tr>
+                                                    {% for c in range(cols) %}
+                                                        {%- set idx = r * cols + c -%}
+                                                        {% if idx < total %}
+                                                            {%- set img = ns_imgs.list[idx] -%}
+                                                            <td>
+                                                                <div class="cv-img-label">{{ img.label }}</div>
+                                                                {% if img.url %}
+                                                                    {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=img.url) -%}
+                                                                    {% if img_url %}<img src="{{ img_url }}" alt="{{ img.label }}" />{% endif %}
+                                                                {% else %}<div class="cv-img-empty">(no image)</div>{% endif %}
+                                                            </td>
+                                                        {% else %}<td>&nbsp;</td>{% endif %}
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </table>
+                                    {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="cv-error">No entries recorded.</div>
+                    {% endif %}
+                    {% endif %}
+
+                    {# Top-level non-repeating sections AFTER the groups: fields (e.g. a notes block),
+                       process (the shared procedure), and -- for OLD pre-repeating snapshots --
+                       checklist / measurement_matrix. Header / repeating_groups / signatures render
+                       elsewhere, so they're skipped here. #}
+                    {% for sec in (tpl.sections or []) %}
+                        {% if sec.type == 'fields' %}
+                            {%- set fvals = (rd.responses or {}).get(sec.id, {}) -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-table">
+                                {% for f in (sec.fields or []) %}
+                                    <tr><td class="cv-label" style="width: 18%;">{{ f.label }}</td><td>{%- set v = fvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% endfor %}
+                            </table>
+                        {% elif sec.type == 'process' %}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            {% for block in (sec.blocks or []) %}
+                                {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                {% for line in (block["items"] or []) %}<div class="cv-proc-item">{{ line }}</div>{% endfor %}
+                            {% endfor %}
+                        {% elif sec.type == 'checklist' %}
+                            {%- set cvals = (rd.responses or {}).get(sec.id, {}) -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-chk">
+                                <thead><tr>{% for c in (sec.columns or []) %}{% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>{% elif c.key == "result" %}<th class="cv-result">{{ c.label }}</th>{% elif c.key == "remarks" %}<th class="cv-remarks">{{ c.label }}</th>{% else %}<th>{{ c.label }}</th>{% endif %}{% endfor %}</tr></thead>
+                                <tbody>
+                                    {% for item in (sec["items"] or []) %}
+                                        {%- set ival = cvals.get(item.id, {}) -%}
+                                        <tr>
+                                            <td class="cv-num">{{ loop.index }}</td>
+                                            <td>{{ item.particular }}</td>
+                                            <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}&mdash;{%- else -%}{{ rv }}{%- endif -%}</td>
+                                            <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% elif sec.type == 'measurement_matrix' %}
+                            {%- set mm_rows = (rd.responses or {}).get(sec.id, []) or [] -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-mm-table">
+                                <thead><tr>{% for c in (sec.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
+                                <tbody>
+                                    {% for rowDef in (sec.rows or []) %}
+                                        {%- set ns_mm = namespace(data=none) -%}
+                                        {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_mm.data = r -%}{%- endif -%}{%- endfor -%}
+                                        <tr>
+                                            {% for c in (sec.columns or []) %}
+                                                <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
+                                                <td class="cv-mm-val">{%- set v = ns_mm.data.get(c.key) if ns_mm.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                            {% endfor %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% elif sec.type == 'image_attachments' %}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            {%- set cols = sec.columns or 2 -%}
+                            {%- set ns_imgs = namespace(list=[]) -%}
+                            {%- for slot in (sec.slots or []) -%}
+                                {%- set slot_items = (rd.attachments or {}).get(slot.key) or [] -%}
+                                {%- if slot_items -%}
+                                    {%- for item in slot_items -%}
+                                        {%- if item is mapping -%}{%- set raw_url = item.file_url or "" -%}
+                                        {%- else -%}{%- set raw_url = frappe.db.get_value("Nirmaan Attachments", item, "attachment") or "" -%}{%- endif -%}
+                                        {%- if raw_url -%}{%- set _ = ns_imgs.list.append({"url": raw_url, "label": slot.label}) -%}{%- endif -%}
+                                    {%- endfor -%}
+                                {%- else -%}{%- set _ = ns_imgs.list.append({"url": "", "label": slot.label}) -%}{%- endif -%}
+                            {%- endfor -%}
+                            {%- set total = ns_imgs.list | length -%}
+                            {%- set rows_count = ((total + cols - 1) // cols) if total > 0 else 1 -%}
+                            <table class="cv-img-grid">
+                                {% for r in range(rows_count) %}
                                     <tr>
-                                        {% for c in (mm_section.columns or []) %}
-                                            <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
-                                            <td class="cv-mm-val">{%- set v = ns_row.data.get(c.key) if ns_row.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                        {% for c in range(cols) %}
+                                            {%- set idx = r * cols + c -%}
+                                            {% if idx < total %}
+                                                {%- set img = ns_imgs.list[idx] -%}
+                                                <td>
+                                                    <div class="cv-img-label">{{ img.label }}</div>
+                                                    {% if img.url %}
+                                                        {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=img.url) -%}
+                                                        {% if img_url %}<img src="{{ img_url }}" alt="{{ img.label }}" />{% endif %}
+                                                    {% else %}<div class="cv-img-empty">(no image)</div>{% endif %}
+                                                </td>
+                                            {% else %}<td>&nbsp;</td>{% endif %}
                                         {% endfor %}
                                     </tr>
                                 {% endfor %}
-                            </tbody>
-                        </table>
-                    {% endif %}
-                    <div class="cv-spacer-md"></div>
-                    {% if notes_section or chk_section %}
-                        <table class="cv-cl-table">
-                            <tr><td class="cv-cl-head">{{ (notes_section.title if notes_section else "") or "2. Check List" }}</td></tr>
-                            {% if notes_section %}
-                                {%- set nvals = (rd.responses or {}).get(notes_section.id, {}) -%}
-                                {%- for f in (notes_section.fields or []) -%}
-                                    {%- set v = nvals.get(f.key) -%}
-                                    {%- if v -%}<tr><td class="cv-cl-proc"><strong>{{ f.label }} :</strong> {{ v }}</td></tr>{%- endif -%}
-                                {%- endfor -%}
-                            {% endif %}
-                            {% if chk_section %}
-                                {%- set cvals = (rd.responses or {}).get(chk_section.id, {}) -%}
-                                {% for item in (chk_section["items"] or []) %}
-                                    {%- set ival = cvals.get(item.id, {}) -%}{%- set rv = ival.get("result") -%}{%- set rm = ival.get("remarks") -%}
-                                    <tr><td>{{ loop.index }}. {{ item.particular }}{%- if rv %} - <strong>{{ rv }}</strong>{%- endif -%}{%- if rm and (rm | trim) %} ({{ rm }}){%- endif -%}</td></tr>
-                                {% endfor %}
-                            {% endif %}
-                        </table>
-                    {% endif %}
+                            </table>
+                        {% endif %}
+                    {% endfor %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
                 </td></tr>
             </table>
+
 
         {% elif tpl.templateId == "socket-testing-report" %}
 

@@ -1158,10 +1158,10 @@
       }
     ]
   },
-  "────── NEXT: WLD Commissioning Report ──────",
+  "────── NEXT:CCTV Commissioning Report ──────",
   {
-    "templateId": "common-template-1",
-    "templateVersion": 1,
+    "templateId": "cctv-commissioning-report",
+    "templateVersion": 2,
     "title": "CCTV Commissioning Report",
     "wizardSteps": [
       {
@@ -1172,10 +1172,10 @@
         ]
       },
       {
-        "key": "checklist",
-        "title": "Checklist",
+        "key": "floors",
+        "title": "Per Floor",
         "sections": [
-          "chk"
+          "floors"
         ]
       },
       {
@@ -1223,234 +1223,247 @@
             "label": "DATE",
             "type": "date",
             "required": true
+          },
+          {
+            "key": "floor_count",
+            "label": "NO. OF FLOORS",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "helpText": "Drives the number of floor sections in the next step."
           }
         ]
       },
       {
-        "id": "chk",
-        "type": "checklist",
-        "title": "CCTV Commissioning Checklist:",
-        "columns": [
+        "id": "floors",
+        "type": "repeating_groups",
+        "title": "CCTV Commissioning — Per Floor",
+        "countBoundTo": "responses.hdr.floor_count",
+        "groupTitlePrefix": "Floor",
+        "maxGroups": 50,
+        "groupFields": [
           {
-            "key": "slno",
-            "label": "S.No"
-          },
-          {
-            "key": "particular",
-            "label": "Description"
-          },
-          {
-            "key": "result",
-            "label": "Result"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
+            "key": "floor",
+            "label": "FLOOR",
+            "type": "text",
+            "required": true,
+            "placeholder": "e.g. Ground / L1 / Basement"
           }
         ],
-        "items": [
+        "nestedSections": [
           {
-            "id": "q1",
-            "particular": "Location of Control Equipments (accessible)",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q2",
-            "particular": "Ensure that cables in the Racks, to the cameras are to be dressed appropriately.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q3",
-            "particular": "Ensure that all DVR / NVR / POE Switch / Cameras & Monitors are placed properly.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q4",
-            "particular": "Ensure that all the cables from Camera to the Network Switch are properly terminated.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q5",
-            "particular": "Ensure that cameras are installed as per the approved drawing.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q6",
-            "particular": "Camera location to be clearly indicated on the monitor during viewing.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q7",
-            "particular": "Focusing of the camera to be adjusted by proper positioning to obtain optimum result.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q8",
-            "particular": "Ensure that the camera Enclosure power supply was installed properly.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q9",
-            "particular": "Ensure that Power supply outlets for the CCTV system were fed by UPS (Optional).",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q10",
-            "particular": "Check the NVR are connected to the security network LAN with Static IP (Optional).",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "N/A"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q11",
-            "particular": "Operation and maintenance information provided.",
-            "result": {
-              "type": "select",
-              "options": [
-                "YES",
-                "NO",
-                "N/A"
-              ],
-              "default": "YES"
-            },
-            "remarks": {
-              "type": "text"
-            }
+            "id": "chk",
+            "type": "checklist",
+            "title": "CCTV Commissioning Checklist:",
+            "columns": [
+              {
+                "key": "slno",
+                "label": "S.No"
+              },
+              {
+                "key": "particular",
+                "label": "Description"
+              },
+              {
+                "key": "result",
+                "label": "Result"
+              },
+              {
+                "key": "remarks",
+                "label": "Remarks"
+              }
+            ],
+            "items": [
+              {
+                "id": "q1",
+                "particular": "Location of Control Equipments (accessible)",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q2",
+                "particular": "Ensure that cables in the Racks, to the cameras are to be dressed appropriately.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q3",
+                "particular": "Ensure that all DVR / NVR / POE Switch / Cameras & Monitors are placed properly.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q4",
+                "particular": "Ensure that all the cables from Camera to the Network Switch are properly terminated.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q5",
+                "particular": "Ensure that cameras are installed as per the approved drawing.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q6",
+                "particular": "Camera location to be clearly indicated on the monitor during viewing.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q7",
+                "particular": "Focusing of the camera to be adjusted by proper positioning to obtain optimum result.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q8",
+                "particular": "Ensure that the camera Enclosure power supply was installed properly.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q9",
+                "particular": "Ensure that Power supply outlets for the CCTV system were fed by UPS (Optional).",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q10",
+                "particular": "Check the NVR are connected to the security network LAN with Static IP (Optional).",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "N/A"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q11",
+                "particular": "Operation and maintenance information provided.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "YES",
+                    "NO",
+                    "N/A"
+                  ],
+                  "default": "YES"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              }
+            ]
           }
         ]
       },
       {
         "id": "sigs",
-        "type": "signatures",
-        "blocks": [
-          {
-            "key": "tested_by",
-            "label": "TESTED BY"
-          },
-          {
-            "key": "consultant",
-            "label": "CONSULTANT"
-          },
-          {
-            "key": "client",
-            "label": "CLIENT"
-          }
-        ]
+        "type": "signatures"
       }
     ]
   },
   "────── NEXT: DB Commissioning Report ──────",
   {
     "templateId": "db-commissioning-report",
-    "templateVersion": 1,
+    "templateVersion": 4,
     "title": "DB Commissioning Report",
     "wizardSteps": [
       {
@@ -1461,18 +1474,17 @@
         ]
       },
       {
-        "key": "ir_test",
-        "title": "IR Test",
+        "key": "dbs",
+        "title": "DB Testing",
         "sections": [
-          "ir_test"
+          "dbs"
         ]
       },
       {
-        "key": "check_list",
-        "title": "Check List",
+        "key": "procedure",
+        "title": "Procedure",
         "sections": [
-          "procedure",
-          "chk"
+          "procedure"
         ]
       },
       {
@@ -1522,78 +1534,250 @@
             "required": true
           },
           {
+            "key": "db_count",
+            "label": "NO. OF DBs",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "helpText": "Drives the number of DB sections in the next step."
+          }
+        ]
+      },
+      {
+        "id": "dbs",
+        "type": "repeating_groups",
+        "title": "DB Testing",
+        "countBoundTo": "responses.hdr.db_count",
+        "groupTitlePrefix": "DB",
+        "maxGroups": 50,
+        "groupFields": [
+          {
             "key": "db_name",
             "label": "DB NAME",
             "type": "text",
             "required": true,
             "placeholder": "e.g. DB-1A"
-          }
-        ]
-      },
-      {
-        "id": "ir_test",
-        "type": "measurement_matrix",
-        "title": "1. IR Test:",
-        "rows": [
-          {
-            "id": "r",
-            "labels": {
-              "pp": "R-Y",
-              "pn": "R-N",
-              "pe": "R-E"
-            }
           },
           {
-            "id": "y",
-            "labels": {
-              "pp": "Y-B",
-              "pn": "Y-N",
-              "pe": "Y-E"
-            }
+            "key": "area",
+            "label": "AREA",
+            "type": "text",
+            "placeholder": "e.g. 2nd Floor, Block A"
           },
           {
-            "id": "b",
-            "labels": {
-              "pp": "B-Y",
-              "pn": "B-N",
-              "pe": "B-E"
-            }
+            "key": "db_type",
+            "label": "PHASE",
+            "type": "select",
+            "options": [
+              "1 Phase",
+              "3 Phase"
+            ],
+            "default": "3 Phase",
+            "required": true
           }
         ],
-        "columns": [
+        "nestedSections": [
           {
-            "key": "pp",
-            "label": "Phase to Phase",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
+            "id": "ir_1ph",
+            "type": "measurement_matrix",
+            "title": "1. IR Test (Insulation Resistance)",
+            "visibleIf": {
+              "field": "db_type",
+              "equals": "1 Phase"
+            },
+            "rows": [
+              {
+                "id": "r1",
+                "labels": {
+                  "pn": "P-N",
+                  "pe": "P-E",
+                  "ne": "N-E"
+                }
+              }
+            ],
+            "columns": [
+              {
+                "key": "pn",
+                "label": "Phase to Neutral",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "pe",
+                "label": "Phase to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "ne",
+                "label": "Neutral to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              }
+            ]
           },
           {
-            "key": "pn",
-            "label": "Phase to Neutral",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
+            "id": "ir_3ph",
+            "type": "measurement_matrix",
+            "title": "1. IR Test (Insulation Resistance)",
+            "visibleIf": {
+              "field": "db_type",
+              "equals": "3 Phase"
+            },
+            "rows": [
+              {
+                "id": "r",
+                "labels": {
+                  "pp": "R-Y",
+                  "pn": "R-N",
+                  "pe": "R-E"
+                }
+              },
+              {
+                "id": "y",
+                "labels": {
+                  "pp": "Y-B",
+                  "pn": "Y-N",
+                  "pe": "Y-E"
+                }
+              },
+              {
+                "id": "b",
+                "labels": {
+                  "pp": "B-Y",
+                  "pn": "B-N",
+                  "pe": "B-E"
+                }
+              }
+            ],
+            "columns": [
+              {
+                "key": "pp",
+                "label": "Phase to Phase",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "pn",
+                "label": "Phase to Neutral",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "pe",
+                "label": "Phase to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              }
+            ]
           },
           {
-            "key": "pe",
-            "label": "Phase to Earth",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
+            "id": "mcb",
+            "type": "checklist",
+            "title": "2. Functional Checklist",
+            "columns": [
+              {
+                "key": "slno",
+                "label": "Sl No"
+              },
+              {
+                "key": "particular",
+                "label": "Particulars"
+              },
+              {
+                "key": "result",
+                "label": "Result"
+              },
+              {
+                "key": "remarks",
+                "label": "Remarks"
+              }
+            ],
+            "items": [
+              {
+                "id": "q1",
+                "particular": "All MCB off indication checked",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q2",
+                "particular": "All MCB ON indication checked",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q3",
+                "particular": "All MCB TRIP indication checked",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q4",
+                "particular": "All MCB ON/OFF Function checked",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              }
+            ]
           }
         ]
       },
       {
         "id": "procedure",
         "type": "fields",
-        "title": "2. Check List",
+        "title": "Procedure",
         "layout": "stack",
         "fields": [
           {
@@ -1606,110 +1790,8 @@
         ]
       },
       {
-        "id": "chk",
-        "type": "checklist",
-        "columns": [
-          {
-            "key": "slno",
-            "label": "Sl No"
-          },
-          {
-            "key": "particular",
-            "label": "Particulars"
-          },
-          {
-            "key": "result",
-            "label": "Result"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
-          }
-        ],
-        "items": [
-          {
-            "id": "q1",
-            "particular": "All MCB off indication checked",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q2",
-            "particular": "All MCB ON indication checked",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q3",
-            "particular": "All MCB TRIP indication checked",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q4",
-            "particular": "All MCB ON/OFF Function checked",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          }
-        ]
-      },
-      {
         "id": "sigs",
-        "type": "signatures",
-        "blocks": [
-          {
-            "key": "tested_by",
-            "label": "TESTED BY"
-          },
-          {
-            "key": "hvac_consultant",
-            "label": "HVAC CONSULTANT"
-          },
-          {
-            "key": "client",
-            "label": "CLIENT"
-          }
-        ]
+        "type": "signatures"
       }
     ]
   },
@@ -3280,8 +3362,8 @@
   "────── NEXT: Duct Pressure Testing Report  ──────",
   {
     "templateId": "duct-pressure/smoke/light-testing-report",
-    "templateVersion": 1,
-     "title": "Duct Pressure Testing Report / Duct Smoke Test Report / Duct Light Test Report",
+    "templateVersion": 4,
+    "title": "Duct Pressure Testing Report / Duct Smoke Test Report / Duct Light Test Report",
     "wizardSteps": [
       {
         "key": "header",
@@ -3291,24 +3373,10 @@
         ]
       },
       {
-        "key": "testing_report",
-        "title": "Testing Report",
+        "key": "equipments",
+        "title": "Equipment Testing",
         "sections": [
-          "general_desc"
-        ]
-      },
-      {
-        "key": "observations",
-        "title": "Observations",
-        "sections": [
-          "obs"
-        ]
-      },
-      {
-        "key": "testing_images",
-        "title": "Testing Images",
-        "sections": [
-          "images"
+          "equipments"
         ]
       },
       {
@@ -3368,21 +3436,25 @@
             "label": "DATE",
             "type": "date",
             "required": true
+          },
+          {
+            "key": "equipment_count",
+            "label": "NO. OF EQUIPMENTS",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "helpText": "Drives the number of equipment sections in the next step."
           }
         ]
       },
       {
-        "id": "general_desc",
-        "type": "fields",
-        "title": "Testing Report",
-        "layout": "stack",
-        "fields": [
-          {
-            "key": "floor_no",
-            "label": "Floor No.",
-            "type": "text",
-            "required": true
-          },
+        "id": "equipments",
+        "type": "repeating_groups",
+        "title": "Equipment Testing",
+        "countBoundTo": "responses.hdr.equipment_count",
+        "groupTitlePrefix": "Equipment",
+        "maxGroups": 50,
+        "groupFields": [
           {
             "key": "equipment_name",
             "label": "Equipment Name",
@@ -3390,10 +3462,11 @@
             "required": true
           },
           {
-            "key": "area",
-            "label": "Area",
+            "key": "area_floor",
+            "label": "Area / Floor",
             "type": "text",
-            "required": true
+            "required": true,
+            "placeholder": "e.g. 2nd Floor / Block A"
           },
           {
             "key": "type_of_duct",
@@ -3415,146 +3488,148 @@
             "type": "text",
             "required": true
           }
-        ]
-      },
-      {
-        "id": "obs",
-        "type": "checklist",
-        "title": "Observations",
-        "columns": [
-          {
-            "key": "slno",
-            "label": "Sl No"
-          },
-          {
-            "key": "particular",
-            "label": "Observation"
-          },
-          {
-            "key": "result",
-            "label": "Results"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
-          }
         ],
-        "items": [
+        "nestedSections": [
           {
-            "id": "q1",
-            "particular": "Visual inspection of Duct for Leakage Test",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
+            "id": "obs",
+            "type": "checklist",
+            "title": "Observations",
+            "columns": [
+              {
+                "key": "slno",
+                "label": "Sl No"
+              },
+              {
+                "key": "particular",
+                "label": "Observation"
+              },
+              {
+                "key": "result",
+                "label": "Results"
+              },
+              {
+                "key": "remarks",
+                "label": "Remarks"
+              }
+            ],
+            "items": [
+              {
+                "id": "q1",
+                "particular": "Visual inspection of Duct for Leakage Test",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "Yes"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q2",
+                "particular": "Inspected all joints before conducting the test",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "Yes"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q3",
+                "particular": "All joints are proper & filled with sealant; if required",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "Yes"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q4",
+                "particular": "Required amount of smoke filled in the duct",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "Yes"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q5",
+                "particular": "{type} leakage at joints?",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "No"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "q6",
+                "particular": "Retest required ?",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Yes",
+                    "No",
+                    "N/A"
+                  ],
+                  "default": "No"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              }
+            ]
           },
           {
-            "id": "q2",
-            "particular": "Inspected all joints before conducting the test",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q3",
-            "particular": "All joints are proper & filled with sealant; if required",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q4",
-            "particular": "Required amount of smoke filled in the duct",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "Yes"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q5",
-            "particular": "{type} leakage at joints?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "q6",
-            "particular": "Retest required ?",
-            "result": {
-              "type": "select",
-              "options": [
-                "Yes",
-                "No",
-                "N/A"
-              ],
-              "default": "No"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          }
-        ]
-      },
-      {
-        "id": "images",
-        "type": "image_attachments",
-        "title": "Testing Images",
-        "columns": 2,
-        "slots": [
-          {
-            "key": "testing_image_1",
-            "label": "Testing Image 1",
-            "accept": "image/*",
-            "maxSizeMb": 5
-          },
-          {
-            "key": "testing_image_2",
-            "label": "Testing Image 2",
-            "accept": "image/*",
-            "maxSizeMb": 5
+            "id": "images",
+            "type": "image_attachments",
+            "title": "Testing Images",
+            "columns": 2,
+            "slots": [
+              {
+                "key": "testing_image_1",
+                "label": "Testing Image 1",
+                "accept": "image/*",
+                "maxSizeMb": 5
+              },
+              {
+                "key": "testing_image_2",
+                "label": "Testing Image 2",
+                "accept": "image/*",
+                "maxSizeMb": 5
+              }
+            ]
           }
         ]
       },
@@ -4337,16 +4412,9 @@
   "────── NEXT: LT Panel Commissioning Report ──────",
   {
     "templateId": "lt-panel-commission-report",
-    "templateVersion": 1,
+    "templateVersion": 3,
     "title": "LT Panel Commission Report",
     "wizardSteps": [
-      {
-        "key": "procedure",
-        "title": "Procedure",
-        "sections": [
-          "proc"
-        ]
-      },
       {
         "key": "header",
         "title": "Header",
@@ -4355,17 +4423,17 @@
         ]
       },
       {
-        "key": "physical_test",
-        "title": "Physical Test",
+        "key": "procedure",
+        "title": "Procedure",
         "sections": [
-          "physical"
+          "proc"
         ]
       },
       {
-        "key": "ir_test",
-        "title": "IR Test",
+        "key": "panels",
+        "title": "Panel Testing",
         "sections": [
-          "ir_test"
+          "panels"
         ]
       },
       {
@@ -4382,6 +4450,48 @@
       }
     ],
     "sections": [
+      {
+        "id": "hdr",
+        "type": "header",
+        "title": "COMMISSIONING REPORT - PANEL TESTING",
+        "fields": [
+          {
+            "key": "vendor",
+            "label": "VENDOR",
+            "type": "text",
+            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
+            "readonly": true
+          },
+          {
+            "key": "project",
+            "label": "PROJECT",
+            "type": "text",
+            "bind": "project.project_name",
+            "readonly": true
+          },
+          {
+            "key": "location",
+            "label": "LOCATION",
+            "type": "text",
+            "bind": "project.location.full",
+            "readonly": true
+          },
+          {
+            "key": "date",
+            "label": "DATE",
+            "type": "date",
+            "required": true
+          },
+          {
+            "key": "panel_count",
+            "label": "NO. OF PANELS",
+            "type": "number",
+            "required": true,
+            "min": 1,
+            "helpText": "Drives the number of panel sections in the next step."
+          }
+        ]
+      },
       {
         "id": "proc",
         "type": "process",
@@ -4427,352 +4537,390 @@
         ]
       },
       {
-        "id": "hdr",
-        "type": "header",
-        "title": "COMMISSIONING REPORT - PANEL TESTING",
-        "fields": [
-          {
-            "key": "vendor",
-            "label": "VENDOR",
-            "type": "text",
-            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
-            "readonly": true
-          },
-          {
-            "key": "project",
-            "label": "PROJECT",
-            "type": "text",
-            "bind": "project.project_name",
-            "readonly": true
-          },
-          {
-            "key": "location",
-            "label": "LOCATION",
-            "type": "text",
-            "bind": "project.location.full",
-            "readonly": true
-          },
-          {
-            "key": "date",
-            "label": "DATE",
-            "type": "date",
-            "required": true
-          },
+        "id": "panels",
+        "type": "repeating_groups",
+        "title": "Panel Testing",
+        "countBoundTo": "responses.hdr.panel_count",
+        "groupTitlePrefix": "Panel",
+        "maxGroups": 50,
+        "groupFields": [
           {
             "key": "panel_name",
             "label": "PANEL NAME",
             "type": "text",
             "required": true,
             "placeholder": "e.g. LT Panel 1A"
-          }
-        ]
-      },
-      {
-        "id": "physical",
-        "type": "checklist",
-        "title": "Physical Test",
-        "columns": [
-          {
-            "key": "slno",
-            "label": "Sl No"
           },
           {
-            "key": "particular",
-            "label": "Particulars"
-          },
-          {
-            "key": "result",
-            "label": "Result"
-          },
-          {
-            "key": "remarks",
-            "label": "Remarks"
+            "key": "phase_type",
+            "label": "PHASE",
+            "type": "select",
+            "options": [
+              "1 Phase",
+              "3 Phase"
+            ],
+            "default": "3 Phase",
+            "required": true
           }
         ],
-        "items": [
+        "nestedSections": [
           {
-            "id": "p1",
-            "particular": "All equipment position & condition.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
+            "id": "physical",
+            "type": "checklist",
+            "title": "Physical Test",
+            "columns": [
+              {
+                "key": "slno",
+                "label": "Sl No"
+              },
+              {
+                "key": "particular",
+                "label": "Particulars"
+              },
+              {
+                "key": "result",
+                "label": "Result"
+              },
+              {
+                "key": "remarks",
+                "label": "Remarks"
+              }
+            ],
+            "items": [
+              {
+                "id": "p1",
+                "particular": "All equipment position & condition.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p2",
+                "particular": "Panel flanges & Chamber Cover.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p3",
+                "particular": "Door Locks & Gasket.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p4",
+                "particular": "Panel coupling and fish plate.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p5",
+                "particular": "Busbar Connection & its supports.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p6",
+                "particular": "Earthing Connection & Continuity.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p7",
+                "particular": "Tightness of Nuts/bolts/screws/fasteners.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p8",
+                "particular": "Incoming & Outgoing Cable Connections.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p9",
+                "particular": "Power & Control Wiring Connections.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p10",
+                "particular": "Indication Lamp, Push Button, Selector Switch.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p11",
+                "particular": "Electrical / Mechanical Interlock Check.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p12",
+                "particular": "Meter & CT / PT Connection.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p13",
+                "particular": "Relay / Protective Devices.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              },
+              {
+                "id": "p14",
+                "particular": "On/Off Operation of Breaker.",
+                "result": {
+                  "type": "select",
+                  "options": [
+                    "Okay",
+                    "Not Okay",
+                    "N/A"
+                  ],
+                  "default": "Okay"
+                },
+                "remarks": {
+                  "type": "text"
+                }
+              }
+            ]
+          },
+          {
+            "id": "ir_1ph",
+            "type": "measurement_matrix",
+            "title": "IR Test",
+            "visibleIf": {
+              "field": "phase_type",
+              "equals": "1 Phase"
             },
-            "remarks": {
-              "type": "text"
-            }
+            "rows": [
+              {
+                "id": "r1",
+                "labels": {
+                  "pn": "P-N",
+                  "pe": "P-E",
+                  "ne": "N-E"
+                }
+              }
+            ],
+            "columns": [
+              {
+                "key": "pn",
+                "label": "Phase to Neutral",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "pe",
+                "label": "Phase to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              },
+              {
+                "key": "ne",
+                "label": "Neutral to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "min": 0
+              }
+            ]
           },
           {
-            "id": "p2",
-            "particular": "Panel flanges & Chamber Cover.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
+            "id": "ir_3ph",
+            "type": "measurement_matrix",
+            "title": "IR Test",
+            "rows": [
+              {
+                "id": "r",
+                "labels": {
+                  "pp": "R-Y",
+                  "pn": "R-N",
+                  "pe": "R-E"
+                }
+              },
+              {
+                "id": "y",
+                "labels": {
+                  "pp": "Y-B",
+                  "pn": "Y-N",
+                  "pe": "Y-E"
+                }
+              },
+              {
+                "id": "b",
+                "labels": {
+                  "pp": "B-R",
+                  "pn": "B-N",
+                  "pe": "B-E"
+                }
+              }
+            ],
+            "columns": [
+              {
+                "key": "pp",
+                "label": "Phase to Phase",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "required": true,
+                "min": 0
+              },
+              {
+                "key": "pn",
+                "label": "Phase to Neutral",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "required": true,
+                "min": 0
+              },
+              {
+                "key": "pe",
+                "label": "Phase to Earth",
+                "valueLabel": "In Volts",
+                "type": "number",
+                "unit": "V",
+                "required": true,
+                "min": 0
+              }
+            ],
+            "visibleIf": {
+              "field": "phase_type",
+              "equals": "3 Phase"
             }
-          },
-          {
-            "id": "p3",
-            "particular": "Door Locks & Gasket.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p4",
-            "particular": "Panel coupling and fish plate.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p5",
-            "particular": "Busbar Connection & its supports.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p6",
-            "particular": "Earthing Connection & Continuity.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p7",
-            "particular": "Tightness of Nuts/bolts/screws/fasteners.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p8",
-            "particular": "Incoming & Outgoing Cable Connections.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p9",
-            "particular": "Power & Control Wiring Connections.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p10",
-            "particular": "Indication Lamp, Push Button, Selector Switch.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p11",
-            "particular": "Electrical / Mechanical Interlock Check.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p12",
-            "particular": "Meter & CT / PT Connection.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p13",
-            "particular": "Relay / Protective Devices.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          },
-          {
-            "id": "p14",
-            "particular": "On/Off Operation of Breaker.",
-            "result": {
-              "type": "select",
-              "options": [
-                "Okay",
-                "Not Okay",
-                "N/A"
-              ],
-              "default": "Okay"
-            },
-            "remarks": {
-              "type": "text"
-            }
-          }
-        ]
-      },
-      {
-        "id": "ir_test",
-        "type": "measurement_matrix",
-        "title": "IR Test",
-        "rows": [
-          {
-            "id": "r",
-            "labels": {
-              "pp": "R-Y",
-              "pn": "R-N",
-              "pe": "R-E"
-            }
-          },
-          {
-            "id": "y",
-            "labels": {
-              "pp": "Y-B",
-              "pn": "Y-N",
-              "pe": "Y-E"
-            }
-          },
-          {
-            "id": "b",
-            "labels": {
-              "pp": "B-R",
-              "pn": "B-N",
-              "pe": "B-E"
-            }
-          }
-        ],
-        "columns": [
-          {
-            "key": "pp",
-            "label": "Phase to Phase",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
-          },
-          {
-            "key": "pn",
-            "label": "Phase to Neutral",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
-          },
-          {
-            "key": "pe",
-            "label": "Phase to Earth",
-            "valueLabel": "In Volts",
-            "type": "number",
-            "unit": "V",
-            "required": true,
-            "min": 0
           }
         ]
       },

@@ -101,6 +101,11 @@ export interface ChecklistSection {
     title?: string;
     columns: ChecklistColumn[];
     items: ChecklistItem[];
+    /** Optional visibility gate when this checklist is a NESTED section inside a
+     *  `repeating_groups` group. `field` is a group-relative field key (e.g.
+     *  "db_type") — the section renders only when the group's value matches.
+     *  Reuses the WizardStepVisibleIf shape ({ field, equals | in }). */
+    visibleIf?: WizardStepVisibleIf;
 }
 
 export interface ImageSlot {

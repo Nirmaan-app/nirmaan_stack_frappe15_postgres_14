@@ -214,8 +214,31 @@ export const resolveInitialValues = ({
                         }
                         return out;
                     }
+                    if (nested.type === 'measurement_matrix') {
+                        const savedArr = Array.isArray(savedNested as unknown)
+                            ? (savedNested as unknown as Array<Record<string, unknown>>)
+                            : null;
+                        const byId = new Map<string, Record<string, unknown>>();
+                        if (savedArr) {
+                            for (const r of savedArr) {
+                                if (r && typeof r.id === 'string') byId.set(r.id, r);
+                            }
+                        }
+                        return nested.rows.map((rowDef) => {
+                            const saved = byId.get(rowDef.id);
+                            const row: Record<string, unknown> = { id: rowDef.id };
+                            for (const col of nested.columns) {
+                                const v = saved?.[col.key];
+                                row[col.key] =
+                                    v === undefined || v === null
+                                        ? resolveFieldValue({ ...col, bind: undefined } as Field, undefined, prefillDict)
+                                        : v;
+                            }
+                            return row;
+                        });
+                    }
                     // Other types (process / signatures / image_attachments / trainees_data_table /
-                    // measurement_matrix / repeating_groups) — no per-group data.
+                    // repeating_groups) — no per-group data.
                     return undefined;
                 };
                 const buildEmptyGroup = (): Record<string, unknown> => {

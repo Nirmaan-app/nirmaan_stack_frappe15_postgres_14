@@ -189,8 +189,11 @@ const validateSection = (
         }
 
         case 'signatures': {
-            if (!Array.isArray(obj.blocks) || obj.blocks.length === 0) {
-                errors.push(err('missing_field', `${path}.blocks required (non-empty)`, path));
+            // `blocks` are optional and ignored at render time — signatures are
+            // driven entirely by Project TDS Setting (see the render_signatures
+            // print macro + SignaturesSection). Validate shape only if present.
+            if (obj.blocks !== undefined && !Array.isArray(obj.blocks)) {
+                errors.push(err('invalid_type', `${path}.blocks must be an array if present`, path));
                 return false;
             }
             return true;

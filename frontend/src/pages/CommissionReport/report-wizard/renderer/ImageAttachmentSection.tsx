@@ -40,6 +40,10 @@ interface Props {
     forceReadonly?: boolean;
     /** Notify parent that a new File doc was created (for cleanup tracking). */
     onAttachmentCreated?: (fileDoc: string) => void;
+    /** Prefix prepended to each slot's attachment key — used when this section
+     *  is NESTED inside a `repeating_groups` group so each group's images get
+     *  their own flat key (e.g. "equipments_0_"). Empty/absent for top-level. */
+    keyPrefix?: string;
 }
 
 const stripLegacyShape = (
@@ -54,6 +58,7 @@ export const ImageAttachmentSection: React.FC<Props> = ({
     projectId,
     forceReadonly,
     onAttachmentCreated,
+    keyPrefix,
 }) => {
     const cols = section.columns ?? 2;
 
@@ -80,6 +85,7 @@ export const ImageAttachmentSection: React.FC<Props> = ({
                         projectId={projectId}
                         forceReadonly={forceReadonly}
                         onAttachmentCreated={onAttachmentCreated}
+                        keyPrefix={keyPrefix}
                     />
                 ))}
             </div>
@@ -94,6 +100,7 @@ interface SlotProps {
     projectId: string;
     forceReadonly?: boolean;
     onAttachmentCreated?: (fileDoc: string) => void;
+    keyPrefix?: string;
 }
 
 const ImageSlotControl: React.FC<SlotProps> = ({
@@ -101,6 +108,7 @@ const ImageSlotControl: React.FC<SlotProps> = ({
     childRowName,
     forceReadonly,
     onAttachmentCreated,
+    keyPrefix,
 }) => {
     const { control, formState, setValue, getValues } = useFormContext();
     const inputId = useId();
@@ -108,7 +116,8 @@ const ImageSlotControl: React.FC<SlotProps> = ({
     const { upload, isCompleted, progress } = useFrappeFileUpload();
     const { call: deleteDoc } = useFrappePostCall('frappe.client.delete');
 
-    const fieldName = `attachments.${slot.key}`;
+    const attachKey = `${keyPrefix ?? ''}${slot.key}`;
+    const fieldName = `attachments.${attachKey}`;
     const max = slot.maxSizeMb ?? COMMISSION_REPORT_IMAGE_MAX_MB_DEFAULT;
     const accept = slot.accept ?? 'image/*';
 
@@ -195,7 +204,7 @@ const ImageSlotControl: React.FC<SlotProps> = ({
         [deleteDoc, fieldName, getValues, setValue],
     );
 
-    const error = (formState.errors?.attachments as Record<string, { message?: string }> | undefined)?.[slot.key];
+    const error = (formState.errors?.attachments as Record<string, { message?: string }> | undefined)?.[attachKey];
 
     return (
         <Controller

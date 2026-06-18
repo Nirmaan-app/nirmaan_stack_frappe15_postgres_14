@@ -96,6 +96,10 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                     section={section}
                     forceReadonly={forceReadonly}
                     groupIndexFilter={groupIndexFilter}
+                    parentName={parentName}
+                    childRowName={childRowName}
+                    projectId={projectId}
+                    onAttachmentCreated={onAttachmentCreated}
                 />
             );
         default: {
