@@ -1,6 +1,34 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-2d -- ROOT-SUGGESTION FIX (`ai_suggested_is_root`) -- BACKEND,
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-2e -- PARSE-RESPONSE HARDENING (extract array from prose) --
+BACKEND, feat pending. Fixes a bug the FIRST LIVE end-to-end API cert surfaced: the real Anthropic model returns
+explanatory PROSE BEFORE the JSON array (e.g. "Looking at the structure...\n\n[...]"), but `parse_ai_response` only
+stripped code fences, so `json.loads` failed on the leading prose -> `_NonRetryable("AI response was not valid JSON:
+Expecting value: line 1 column 1")` -> the whole pass returned ZERO suggestions. (The AI-2b unit tests mocked a CLEAN
+array, so they never caught it -- a mock-too-clean gap.) **(1) NEW `_extract_json_array(text)` (boq_ai_assist.py)** --
+extracts the first BALANCED JSON array from text, tolerant of prose before AND after. Runs `_strip_code_fences` first
+(kept), then finds the FIRST `[` and walks forward tracking bracket depth to its MATCHING `]`, **STRING-LITERAL AWARE**
+(toggles `in_string` on an unescaped `"`, tracks a backslash-escape flag, counts `[`/`]` ONLY when not in a string) --
+so a `[` or `]` inside an `"explanation"` value never breaks the scan; on the matching close it slices `[...]` and
+returns it (trailing prose dropped). No `[` at all, or no balanced close -> returns the stripped text UNCHANGED so the
+caller's `json.loads` STILL raises `_NonRetryable` (genuine garbage is never silently swallowed). **NOTE (delta from
+the build spec's 2a):** the spec proposed a "starts with `[` -> return as-is" fast path; that is WRONG -- a bare array
+FOLLOWED by trailing prose starts with `[` yet hands `json.loads` an "Extra data" error (test T_P2 proved it). So the
+balanced scan is the SINGLE path (it handles bare-array [first `[` at index 0], leading prose, trailing prose, and
+string brackets uniformly); the naive fast path was dropped. **(2) `parse_ai_response`** -- the ONLY change is
+`raw = _strip_code_fences(text)` -> `raw = _extract_json_array(text)`; the `json.loads` try/except -> `_NonRetryable`
+and the not-a-list -> `_NonRetryable` checks are BYTE-FOR-BYTE UNCHANGED. **(3) PROMPT** -- `_AI_PASS_PROMPT_TEMPLATE`
+gains a final hard rule line ("CRITICAL: output the JSON array and NOTHING else... starting with [ and ending with ]")
+to reduce prose frequency; the parser change is the real safety net. `str.replace` `{SHEET_NAME}`/`{ROWS_JSON}`
+convention preserved. **TESTS:** `test_boq_ai_assist` **15 -> 21** (+6 in `TestParseAIResponse`: leading-prose extract;
+trailing-prose ignored; bracket-inside-explanation-string [the string-literal-aware proof]; the REAL-CERT-SHAPE
+multi-line-prose-then-2-element-array reproduction; genuine-garbage-no-`[` still raises `_NonRetryable`; bare-array
+regression -- the fenced-array path stays covered by the existing `test_parse_ai_response_strips_code_fences`). NO
+doctype JSON change -> NO `bench migrate`. NO change outside boq_ai_assist.py + its test; frontend/CLAUDE.md
+deliberately NOT touched (backend only). **NEXT = RE-RUN the LIVE end-to-end Anthropic API cert** (the prior cert
+surfaced this bug; with the parser now prose-tolerant the suggestions should land + write back) covering re-parenting,
+reclassification AND root, then AI-3 (frontend). Full detail in boq-upload-plan.md "Phase 4 Slice AI-2e".)
+// prior: 2026-06-19 (Phase 4 Slice AI-2d -- ROOT-SUGGESTION FIX (`ai_suggested_is_root`) -- BACKEND,
 feat pending. CLOSES the root-suggestion contract gap AI-2c flagged: "AI suggests this row become a top-level root"
 is now both REPRESENTABLE and APPLYABLE. One cohesive change across the full chain (schema -> service -> write-back
 -> resolve_effective). **NO frontend (AI-3).** **(1) SCHEMA `boq_review_row.json`** -- ONE new field

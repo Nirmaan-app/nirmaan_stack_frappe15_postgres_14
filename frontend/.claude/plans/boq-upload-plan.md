@@ -16,7 +16,27 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-2d (AI auto-mapping) -- root-suggestion fix (`ai_suggested_is_root`)
+LATEST: Phase 4 Slice AI-2e (AI auto-mapping) -- parse-response hardening (extract array from prose)
+(BACKEND, 2026-06-19, feat pending). Fixes a bug the FIRST LIVE end-to-end API cert surfaced: the real Anthropic model
+returns explanatory PROSE BEFORE the JSON array, but `parse_ai_response` only stripped code fences, so `json.loads`
+failed on the leading prose (`_NonRetryable: "AI response was not valid JSON: Expecting value: line 1 column 1"`) and
+the whole pass returned ZERO suggestions. (The AI-2b mock used a clean array, so unit tests never caught it.) **NEW
+`_extract_json_array(text)`** extracts the first BALANCED JSON array, tolerant of prose before AND after: strips fences
+first, then finds the first `[` and walks bracket depth to its matching `]`, STRING-LITERAL AWARE (a `[`/`]` inside an
+`"explanation"` value doesn't affect depth); no `[` / no balanced close -> returns the text unchanged so the existing
+`json.loads -> _NonRetryable` still fires on genuine garbage. `parse_ai_response`'s only change: `raw =
+_strip_code_fences(text)` -> `raw = _extract_json_array(text)` (the json.loads + not-a-list `_NonRetryable` checks are
+unchanged). **Delta from spec:** the proposed "starts with `[` -> return as-is" fast path was DROPPED -- a bare array
+with TRAILING prose starts with `[` yet breaks `json.loads` ("Extra data"); the balanced scan is the single, correct
+path (T_P2 proved it). **PROMPT** gains a hard final "output the JSON array and NOTHING else" rule (parser is the real
+safety net; `str.replace` `{SHEET_NAME}`/`{ROWS_JSON}` preserved). **TESTS:** `test_boq_ai_assist` 15 -> **21** (+6:
+leading prose, trailing prose, bracket-in-string, the real-cert multi-line-prose-then-array reproduction, genuine
+garbage still raises, bare-array regression; fenced path stays covered by the existing fence test). NO doctype JSON ->
+NO `bench migrate`. **THE LIVE END-TO-END API CERT IS TO BE RE-RUN after this lands** (the prior cert surfaced this
+bug; with the parser now prose-tolerant the suggestions should parse + write back) -- covering re-parenting,
+reclassification AND root -- then AI-3 (frontend). Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-2d (AI auto-mapping) -- root-suggestion fix (`ai_suggested_is_root`)
 (BACKEND, 2026-06-19, feat pending). CLOSES the AI-2c root-suggestion CONTRACT GAP: "AI suggests this row become a
 top-level root" is now REPRESENTABLE and APPLYABLE. One cohesive change across schema -> service -> write-back ->
 resolve_effective. **NO frontend (AI-3).** **SCHEMA:** new `ai_suggested_is_root` Check (default 0, read_only) on
