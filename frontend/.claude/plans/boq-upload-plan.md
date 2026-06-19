@@ -16,7 +16,23 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3b-1 (AI auto-mapping) -- accept/reject AI suggestions (NON-MODAL paths)
+LATEST: Phase 4 Slice AI-3b-2 (AI auto-mapping) -- accept AI PARENT on WITH-CHILDREN rows (cancel-safe modal)
+(BACKEND + FRONTEND, 2026-06-20, feat pending). The FINAL piece of the AI accept/reject surface: accepting an AI
+parent on a row that HAS children fires the existing RestructureModal (child disposition) in a NEW children-only mode
+with the AI parent PRE-APPLIED, and the status flip rides the modal's Save (never on cancel). **AI-3 (the whole AI
+accept/reject surface: AI-3a display+trigger + AI-3b-1 non-modal accept/reject + AI-3b-2) is now COMPLETE.** Backend:
+`save_review_restructure` gains `mark_ai_accepted=False` (opt-in; flips `ai_suggestion_status="Accepted"` atomically
+in the existing commit, set on target_doc before the first helper save). CANCEL-SAFE BY CONSTRUCTION -- the endpoint
+is reached only via Save (no modal close path hits the backend); R4 asserts no-flag leaves status Pending. Frontend:
+RestructureModal children-only mode (3 new optional props -- preset parent + message line replacing the picker;
+child options unchanged); ReviewTree enables the parent checkbox for with-children rows + routes Apply to open the
+modal (markAiAccepted) instead of the accept endpoint; accept-both folds into one restructure call. No doctype change
+-> no migrate. **TESTS:** test_review_screen 176 -> 181 (+5: R1 parent+children; R2 class+parent both; R3 root; R4
+cancel-safety no-flag-stays-Pending; R5 plain restructure never flips). tsc 0 new wizard errors + Vite build exit 0.
+**NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.** Full detail in root CLAUDE.md +
+frontend/CLAUDE.md.
+
+// prior: Phase 4 Slice AI-3b-1 (AI auto-mapping) -- accept/reject AI suggestions (NON-MODAL paths)
 (BACKEND + FRONTEND, 2026-06-20, feat pending). Makes suggestions ACTIONABLE for the non-modal cases: accept an AI
 CLASSIFICATION, accept an AI PARENT on a CHILDLESS row, and REJECT. The accepted-parent-WITH-CHILDREN path (fires the
 RestructureModal) is AI-3b-2. **Backend (two new `ai_assist.py` endpoints):** `accept_ai_suggestion` reuses

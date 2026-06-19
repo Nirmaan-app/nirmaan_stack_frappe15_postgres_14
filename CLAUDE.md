@@ -1,6 +1,34 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3b-1 -- ACCEPT/REJECT AI suggestions (NON-MODAL paths) --
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3b-2 -- ACCEPT AI PARENT on a WITH-CHILDREN row via the
+cancel-safe RestructureModal -- BACKEND + FRONTEND, feat pending. The FINAL piece of the AI accept/reject surface:
+accepting an AI parent on a row that HAS children fires the existing RestructureModal (for child disposition) in a
+new children-only mode, with the AI parent PRE-APPLIED and the status flip riding the modal's Save (never on cancel).
+**THE AI ACCEPT/REJECT SURFACE (AI-3a + AI-3b-1 + AI-3b-2) IS NOW COMPLETE.** **(1) BACKEND -- `save_review_restructure`
+gains `mark_ai_accepted=False` (last param, HTTP-coerced).** When truthy it sets `target_doc.ai_suggestion_status =
+"Accepted"` AFTER `frappe.get_doc(target_name)` and BEFORE the first `_apply_and_save_row_edit`, so the helper's
+`doc.save()` + the function's SINGLE existing commit make the human writes + the status flip ATOMIC (mirrors the
+AI-3b-1 accept endpoint). **OPT-IN:** omitted/false (every pre-AI-3b-2 caller -- onPickClass, the #162 door) leaves
+`ai_suggestion_status` byte-for-byte untouched. **CANCEL-SAFE BY CONSTRUCTION:** `save_review_restructure` is reached
+ONLY via the modal's Save (recon cold-verified NO modal close path -- Cancel/Esc/close-X/overlay-dismiss -- calls the
+backend; `onClose` is pure state reset, `onInteractOutside` prevents overlay-dismiss), so a cancelled modal never
+flips the status. A test (R4) asserts the flip is opt-in (no flag -> status stays Pending). **(2) FRONTEND --
+RestructureModal children-only mode (3 new OPTIONAL props):** `presetRowParent?` (internal index; -1=root),
+`presetParentMessage?`, `markAiAccepted?`. When `presetRowParent !== undefined`: lazy-init `rowPosition="move"` +
+`rowParentIdx=presetRowParent` (so `canSave`'s move-gate passes immediately) AND the keep/move radio + SheetSearchView
+picker are REPLACED by a read-only indigo message line; the 5 child-placement options are UNCHANGED; `handleSave`
+adds `mark_ai_accepted: true` to the payload. Undefined -> the modal is byte-for-byte unchanged. **(3) FRONTEND --
+ReviewTree panel routing:** the parent checkbox is now ENABLED for with-children rows (the AI-3b-1 `parentBlocked`
+disable is gone); `handleApplyAi` -- when `aiAcceptParent && hasChildrenSet.has(row_index)` -- OPENS the modal
+(`setRestructureModal({row, newClassification, presetRowParent, presetParentMessage, markAiAccepted:true})`) instead
+of calling `accept_ai_suggestion`. ACCEPT-BOTH folds into ONE restructure call: `newClassification` carries the AI
+class (when its checkbox is a real change; else the no-op current class -- the #162 pattern), `presetRowParent`
+carries the AI parent, `mark_ai_accepted` flips status once on Save. Childless / classification-only stay on the
+AI-3b-1 `accept_ai_suggestion` path unchanged. NO doctype JSON change -> NO migrate. **TESTS:** `test_review_screen`
+176 -> **181** (+5: R1 parent+children flip; R2 class+parent both + flip; R3 root accept; R4 no-flag leaves status
+Pending [the cancel-safety semantic]; R5 plain restructure never flips). tsc 0 new wizard errors + Vite build exit 0.
+**NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.** Full UI detail in frontend/CLAUDE.md.)
+// prior: 2026-06-20 (Phase 4 Slice AI-3b-1 -- ACCEPT/REJECT AI suggestions (NON-MODAL paths) --
 BACKEND + FRONTEND, feat pending. Makes AI suggestions ACTIONABLE for the cases that do NOT need the
 RestructureModal: accept an AI CLASSIFICATION, accept an AI PARENT on a CHILDLESS row, and REJECT. The
 accepted-parent-on-a-row-WITH-CHILDREN path (which fires the modal) is AI-3b-2 (separate). **TWO NEW whitelisted
