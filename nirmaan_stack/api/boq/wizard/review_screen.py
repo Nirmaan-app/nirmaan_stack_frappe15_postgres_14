@@ -264,11 +264,12 @@ def resolve_effective(row: Any) -> dict:
         1. human_classification (non-empty)                 -> human
         2. ai_suggested_classification (status Accepted, set) -> AI
         3. classification                                    -> parser
-      effective_parent_index:
+      effective_parent_index (four-layer precedence, AI-2d):
         1. human_is_root truthy                               -> None (human root)
         2. human_parent >= 0                                  -> human row-override
-        3. ai_suggested_parent >= 0 (status Accepted)         -> AI
-        4. parent_index_norm                                 -> parser
+        3. ai_suggested_is_root (status Accepted)             -> None (AI root)
+        4. ai_suggested_parent >= 0 (status Accepted)         -> AI parent
+        5. parent_index_norm                                 -> parser
 
     -1 sentinel convention (parent_index, human_parent, ai_suggested_parent):
       -1 means "no parent / no override / no suggestion". Frappe coerces Int None -> 0 on
@@ -293,6 +294,7 @@ def resolve_effective(row: Any) -> dict:
     ai_suggestion_status = _get(row, "ai_suggestion_status")
     ai_suggested_classification = _get(row, "ai_suggested_classification")
     ai_suggested_parent = _get(row, "ai_suggested_parent")
+    ai_suggested_is_root = _get(row, "ai_suggested_is_root")
     ai_accepted = ai_suggestion_status == "Accepted"
 
     # --- effective_classification: human > AI-accepted > parser ---
@@ -318,8 +320,15 @@ def resolve_effective(row: Any) -> dict:
         human_parent_norm = None if human_parent in (None, -1) else human_parent
         ai_parent_norm = None if ai_suggested_parent in (None, -1) else ai_suggested_parent
         # human_parent_norm is not None covers the real-override case, including human_parent=0.
+        # Precedence: human_parent > ai_suggested_is_root > ai_suggested_parent > parser.
+        # ai_suggested_is_root (AI-2d) is a SEPARATE Check (like human_is_root), orthogonal to
+        # the -1 sentinel: when an Accepted suggestion flags root, the row is effective-root
+        # regardless of ai_suggested_parent. This is what makes a root suggestion representable
+        # (ai_suggested_parent = -1 now means ONLY "no parent-index suggestion", never root).
         if human_parent_norm is not None:
             effective_parent_index = human_parent_norm
+        elif ai_accepted and ai_suggested_is_root:
+            effective_parent_index = None
         elif ai_accepted and ai_parent_norm is not None:
             effective_parent_index = ai_parent_norm
         else:
@@ -337,6 +346,7 @@ def resolve_effective(row: Any) -> dict:
         "ai_suggestion_status": ai_suggestion_status,
         "ai_suggested_classification": ai_suggested_classification,
         "ai_suggested_parent": ai_suggested_parent,
+        "ai_suggested_is_root": 1 if ai_suggested_is_root else 0,
     }
 
 

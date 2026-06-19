@@ -152,6 +152,52 @@ class TestParseAIResponse(unittest.TestCase):
                          "the parent suggestion must be kept when classification is dropped")
         self.assertEqual(out[0]["ai_parent_confidence"], "Medium")
 
+    # -- root flag (AI-2d) --
+
+    def test_parse_root_sets_is_root_flag(self):
+        # AI_P1: suggested_parent null -> ai_suggested_is_root True AND -1 retained
+        # as the no-parent-index sentinel.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": None, "parent_confidence": "High", "explanation": "is a root",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertTrue(out[0]["ai_suggested_is_root"],
+                        "a null suggested_parent must set ai_suggested_is_root True")
+        self.assertEqual(out[0]["ai_suggested_parent"], -1,
+                         "ai_suggested_parent stays -1 (no parent-index suggestion)")
+
+    def test_parse_root_keeps_parent_confidence(self):
+        # AI_P2: a root suggestion is a parent opinion -> keep its confidence.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": None, "parent_confidence": "High", "explanation": "root",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(out[0]["ai_parent_confidence"], "High",
+                         "a root suggestion must keep ai_parent_confidence (guard fixed)")
+
+    def test_parse_no_change_is_root_false(self):
+        # AI_P3: NO_CHANGE -> ai_suggested_is_root False.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": "preamble",
+            "classification_confidence": "Low",
+            "suggested_parent": "NO_CHANGE", "parent_confidence": None, "explanation": "reclass",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertFalse(out[0]["ai_suggested_is_root"],
+                         "NO_CHANGE must leave ai_suggested_is_root False")
+
+    def test_parse_real_parent_is_root_false(self):
+        # AI_P4: a real excel_row parent -> ai_suggested_is_root False.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": 5, "parent_confidence": "High", "explanation": "belongs under sec",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertFalse(out[0]["ai_suggested_is_root"],
+                         "a real parent suggestion must leave ai_suggested_is_root False")
+
 
 class TestRunAIPass(unittest.TestCase):
 

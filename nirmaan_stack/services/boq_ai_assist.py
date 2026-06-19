@@ -239,11 +239,14 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
 
     Each output dict:
       {row_index, ai_suggested_classification, ai_classification_confidence,
-       ai_suggested_parent, ai_parent_confidence, ai_explanation}
+       ai_suggested_parent, ai_suggested_is_root, ai_parent_confidence, ai_explanation}
 
     Translation + defensive rules:
-      - suggested_parent "NO_CHANGE" -> ai_suggested_parent None (no suggestion);
-        null -> -1 (root); <excel_row> -> idx_map lookup -> internal row_index;
+      - suggested_parent "NO_CHANGE" -> ai_suggested_parent None (no suggestion),
+        ai_suggested_is_root False;
+        null -> ai_suggested_parent -1 + ai_suggested_is_root True (AI-2d: the root
+        signal lives in its own flag; -1 is now ONLY the no-parent-index sentinel);
+        <excel_row> -> idx_map lookup -> internal row_index, ai_suggested_is_root False;
         an excel_row not in idx_map -> parent suggestion DROPPED (None) + warn,
         any classification suggestion kept.
       - an element whose excel_row is not in idx_map -> the whole element is skipped
@@ -287,11 +290,15 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
             cls_conf = None
 
         # --- parent ---
+        ai_is_root = False
         raw_parent = element.get("suggested_parent", _NO_CHANGE)
         if raw_parent == _NO_CHANGE:
             ai_parent = None
         elif raw_parent is None:
-            ai_parent = -1  # root suggestion
+            # Root suggestion (AI-2d): the signal lives in its OWN flag. -1 stays the
+            # "no parent-index suggestion" sentinel; ai_is_root carries "become root".
+            ai_parent = -1
+            ai_is_root = True
         else:
             try:
                 pe = int(raw_parent)
@@ -309,15 +316,19 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
                         "not in this sheet", excel, pe,
                     )
                     ai_parent = None
-        # parent confidence only when there is a real parent suggestion (incl. -1 root).
+        # parent confidence only when there is a real parent suggestion (a row index)
+        # OR a root suggestion -- a root opinion ("parent = nothing") keeps its confidence.
         parent_conf = element.get("parent_confidence")
-        parent_conf = parent_conf if (ai_parent is not None and parent_conf in _CONFIDENCE_VALUES) else None
+        parent_conf = parent_conf if (
+            (ai_parent is not None or ai_is_root) and parent_conf in _CONFIDENCE_VALUES
+        ) else None
 
         suggestions.append({
             "row_index": row_index,
             "ai_suggested_classification": ai_cls,
             "ai_classification_confidence": cls_conf,
             "ai_suggested_parent": ai_parent,
+            "ai_suggested_is_root": ai_is_root,
             "ai_parent_confidence": parent_conf,
             "ai_explanation": element.get("explanation") or "",
         })

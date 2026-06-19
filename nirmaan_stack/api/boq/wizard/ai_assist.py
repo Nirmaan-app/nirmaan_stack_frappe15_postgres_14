@@ -66,6 +66,7 @@ _AI_DEFAULTS: dict[str, Any] = {
     "ai_suggested_classification": None,
     "ai_classification_confidence": None,
     "ai_suggested_parent": -1,
+    "ai_suggested_is_root": 0,
     "ai_parent_confidence": None,
     "ai_suggested_level": -1,
     "ai_explanation": None,
@@ -80,6 +81,7 @@ _AI_FETCH_FIELDS = [
     "parent_index", "sl_no_value", "description", "unit",
     "human_classification", "human_parent", "human_is_root",
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
+    "ai_suggested_is_root",
 ]
 
 
@@ -215,26 +217,27 @@ def _apply_ai_suggestions(
             )
             continue
 
-        sug_parent = s.get("ai_suggested_parent")  # None=NO_CHANGE, -1=root, >=0=real
-        if sug_parent is None:
+        # AI-2d: ai_suggested_is_root is the FIRST branch -- a root suggestion is now
+        # fully representable. -1 on ai_suggested_parent means ONLY "no parent-index
+        # suggestion"; the root signal lives in the flag. (Replaces the AI-2c interim
+        # which stored -1/level=-1 and warned that root could not be applied.)
+        is_root = bool(s.get("ai_suggested_is_root"))
+        sug_parent = s.get("ai_suggested_parent")  # None=NO_CHANGE, >=0=real (root via flag)
+        if is_root:
+            # Root suggestion: row becomes top-level. Genuine root level = 1 (per
+            # _effective_level, where a node with no parent is level 1).
+            stored_parent = -1
+            stored_is_root = 1
+            level = 1
+        elif sug_parent is None:
             # NO_CHANGE: store the no-suggestion sentinel; level = the row's current level.
             stored_parent = -1
+            stored_is_root = 0
             level = _effective_level(row_index, eff_parent_by_index)
-        elif sug_parent == -1:
-            # ROOT suggestion -- CONTRACT GAP (see module docstring). Interim: drop the
-            # parent change (store -1, no derivable applied level) but keep any
-            # classification suggestion + the explanation; warn loudly.
-            stored_parent = -1
-            level = -1
-            logger.warning(
-                "boq_ai: root parent suggestion for row_index %r on sheet %r NOT applied "
-                "(resolve_effective cannot represent a root suggestion; -1 means "
-                "no-suggestion). Classification suggestion + explanation preserved.",
-                row_index, sheet_name,
-            )
         else:
             # Real parent (internal row_index). Level = parent's effective level + 1.
             stored_parent = sug_parent
+            stored_is_root = 0
             parent_level = _effective_level(sug_parent, eff_parent_by_index)
             level = (parent_level + 1) if parent_level >= 1 else -1
 
@@ -242,6 +245,7 @@ def _apply_ai_suggestions(
             "ai_suggested_classification": s.get("ai_suggested_classification"),
             "ai_classification_confidence": s.get("ai_classification_confidence"),
             "ai_suggested_parent": stored_parent,
+            "ai_suggested_is_root": stored_is_root,
             "ai_parent_confidence": s.get("ai_parent_confidence"),
             "ai_suggested_level": level,
             "ai_explanation": s.get("ai_explanation") or "",

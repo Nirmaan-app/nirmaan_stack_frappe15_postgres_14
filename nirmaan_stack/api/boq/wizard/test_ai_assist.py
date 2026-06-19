@@ -31,6 +31,7 @@ from nirmaan_stack.api.boq.wizard.ai_assist import (
     get_ai_pass_status,
     run_ai_pass,
 )
+from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
 _SERVICE = "nirmaan_stack.services.boq_ai_assist.run_ai_pass"
@@ -133,8 +134,8 @@ class TestAIAssist(FrappeTestCase):
         return frappe.db.get_value(
             "BoQ Review Row", self.names[ridx],
             ["ai_suggested_classification", "ai_classification_confidence",
-             "ai_suggested_parent", "ai_parent_confidence", "ai_suggested_level",
-             "ai_explanation", "ai_suggestion_status"],
+             "ai_suggested_parent", "ai_suggested_is_root", "ai_parent_confidence",
+             "ai_suggested_level", "ai_explanation", "ai_suggestion_status"],
             as_dict=True,
         )
 
@@ -237,23 +238,77 @@ class TestAIAssist(FrappeTestCase):
         self.assertEqual(r1["ai_suggested_parent"], -1,
                          "a NO_CHANGE (classification-only) suggestion leaves parent at -1")
 
-    def test_root_suggestion_interim_drops_parent_keeps_classification(self):
-        # CONTRACT GAP interim: service returns -1 for a root suggestion; write-back
-        # stores parent -1 + level -1 (resolve_effective no-ops), classification kept.
+    def test_writeback_root_suggestion_sets_flag_and_level(self):
+        # AI_A1 (AI-2d): a root suggestion is now fully represented -- the flag is
+        # stored, parent stays the -1 no-index sentinel, level is the genuine root 1.
         suggestions = [
             {"row_index": 2, "ai_suggested_classification": "preamble",
              "ai_classification_confidence": "High", "ai_suggested_parent": -1,
+             "ai_suggested_is_root": True,
              "ai_parent_confidence": "High", "ai_explanation": "should be a root section"},
         ]
         self._run_worker_with(suggestions)
         r2 = self._row(2)
+        self.assertEqual(r2["ai_suggested_is_root"], 1,
+                         "the root flag must be stored as 1")
         self.assertEqual(r2["ai_suggested_parent"], -1,
-                         "root suggestion (gap) leaves parent at the -1 no-suggestion sentinel")
-        self.assertEqual(r2["ai_suggested_level"], -1,
-                         "no derivable applied level for a dropped root suggestion")
+                         "ai_suggested_parent stays -1 (no parent-index suggestion)")
+        self.assertEqual(r2["ai_suggested_level"], 1,
+                         "a root suggestion's level is 1 (genuine root level)")
         self.assertEqual(r2["ai_suggested_classification"], "preamble",
                          "the classification suggestion is preserved")
         self.assertEqual(r2["ai_suggestion_status"], "Pending")
+
+    def test_writeback_root_then_resolve_effective_is_root(self):
+        # AI_A2 (AI-2d, end-to-end): write a root suggestion, Accept it, and confirm
+        # resolve_effective resolves the row to effective-root through the stored flag.
+        suggestions = [
+            {"row_index": 2, "ai_suggested_classification": None,
+             "ai_classification_confidence": None, "ai_suggested_parent": -1,
+             "ai_suggested_is_root": True,
+             "ai_parent_confidence": "High", "ai_explanation": "root"},
+        ]
+        self._run_worker_with(suggestions)
+        frappe.db.set_value("BoQ Review Row", self.names[2],
+                            "ai_suggestion_status", "Accepted")
+        frappe.db.commit()
+        stored = frappe.db.get_value(
+            "BoQ Review Row", self.names[2],
+            ["classification", "parent_index", "human_classification", "human_parent",
+             "human_is_root", "ai_suggestion_status", "ai_suggested_classification",
+             "ai_suggested_parent", "ai_suggested_is_root"],
+            as_dict=True,
+        )
+        eff = resolve_effective(stored)
+        self.assertIsNone(eff["effective_parent_index"],
+                          "an Accepted stored root suggestion must resolve to effective-root")
+
+    def test_stale_clear_resets_is_root(self):
+        # AI_A3 (AI-2d): a prior root suggestion on a row the new pass does NOT flag
+        # must be reset to 0 by the stale-clear.
+        frappe.db.set_value("BoQ Review Row", self.names[0], {
+            "ai_suggested_classification": None,
+            "ai_suggested_parent": -1,
+            "ai_suggested_is_root": 1,
+            "ai_suggested_level": 1,
+            "ai_explanation": "stale root",
+            "ai_suggestion_status": "Pending",
+        })
+        frappe.db.commit()
+
+        # New pass flags only row 1.
+        self._run_worker_with([
+            {"row_index": 1, "ai_suggested_classification": "preamble",
+             "ai_classification_confidence": "High", "ai_suggested_parent": None,
+             "ai_suggested_is_root": False,
+             "ai_parent_confidence": None, "ai_explanation": "fresh"},
+        ])
+
+        r0 = self._row(0)
+        self.assertEqual(r0["ai_suggested_is_root"], 0,
+                         "a stale prior root flag must be reset to 0")
+        self.assertIsNone(r0["ai_suggestion_status"],
+                          "the stale prior suggestion must be cleared")
 
     # --- T7: stale-clear ---------------------------------------------------
 

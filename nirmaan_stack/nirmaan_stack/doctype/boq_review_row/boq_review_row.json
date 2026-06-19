@@ -68,6 +68,7 @@
   "ai_suggested_classification",
   "ai_classification_confidence",
   "ai_suggested_parent",
+  "ai_suggested_is_root",
   "ai_parent_confidence",
   "ai_suggested_level",
   "ai_explanation",
@@ -402,6 +403,14 @@
    "fieldname": "ai_suggested_parent",
    "fieldtype": "Int",
    "label": "AI Suggested Parent Index",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "AI suggests this row become a top-level root (Phase 4 AI pass). Applied by resolve_effective below the human layer and above the parser, only when ai_suggestion_status is Accepted. Distinct from ai_suggested_parent = -1, which means 'no parent suggestion'.",
+   "fieldname": "ai_suggested_is_root",
+   "fieldtype": "Check",
+   "label": "AI Suggested Root",
    "read_only": 1
   },
   {

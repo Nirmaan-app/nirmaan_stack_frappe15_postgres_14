@@ -240,7 +240,7 @@ class TestResolveEffectiveAILayer(unittest.TestCase):
     def _row(self, classification=None, human_classification=None,
              parent_index=None, human_parent=None, human_is_root=None,
              ai_suggestion_status=None, ai_suggested_classification=None,
-             ai_suggested_parent=None):
+             ai_suggested_parent=None, ai_suggested_is_root=None):
         return {
             "classification": classification,
             "human_classification": human_classification,
@@ -250,6 +250,7 @@ class TestResolveEffectiveAILayer(unittest.TestCase):
             "ai_suggestion_status": ai_suggestion_status,
             "ai_suggested_classification": ai_suggested_classification,
             "ai_suggested_parent": ai_suggested_parent,
+            "ai_suggested_is_root": ai_suggested_is_root,
         }
 
     # -- classification layer --
@@ -359,6 +360,70 @@ class TestResolveEffectiveAILayer(unittest.TestCase):
         ))
         self.assertEqual(eff["effective_classification"], "preamble")
         self.assertEqual(eff["effective_parent_index"], 2)
+
+    # -- AI root suggestion (AI-2d) --
+
+    def test_ai_accepted_root_suggestion_sets_effective_root(self):
+        # AI_13: an accepted root suggestion forces effective_parent_index to None,
+        # regardless of the parser parent_index and the -1 no-suggestion sentinel.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertIsNone(eff["effective_parent_index"],
+                          "an accepted ai_suggested_is_root must make the row effective-root")
+
+    def test_human_parent_beats_ai_root(self):
+        # AI_14: a human row-override beats an accepted AI root suggestion.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=5, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 5,
+                         "human_parent must beat an accepted AI root suggestion")
+
+    def test_human_is_root_and_ai_root_both_root(self):
+        # AI_15: human root + AI root -> None (human wins; same result either way).
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=1,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertIsNone(eff["effective_parent_index"])
+
+    def test_ai_root_pending_not_applied(self):
+        # AI_16: a Pending root suggestion is ignored -> parser parent_index used.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Pending",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "a Pending AI root suggestion must be ignored (parser used)")
+
+    def test_ai_root_in_returned_dict(self):
+        # AI_17: the flag is echoed in the returned dict, coerced to 1/0.
+        eff = resolve_effective(self._row(
+            classification="preamble",
+            ai_suggestion_status="Accepted", ai_suggested_is_root=1,
+        ))
+        self.assertIn("ai_suggested_is_root", eff)
+        self.assertEqual(eff["ai_suggested_is_root"], 1)
+        eff0 = resolve_effective(self._row(classification="preamble"))
+        self.assertEqual(eff0["ai_suggested_is_root"], 0,
+                         "absent/None flag must coerce to 0 in the returned dict")
+
+    def test_ai_real_parent_still_works_with_root_flag_false(self):
+        # AI_18 (regression): the new branch must not break the real-parent path.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=0, ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 3,
+                         "a real AI parent (root flag false) must still apply")
 
 
 # ===========================================================================
