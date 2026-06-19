@@ -1,6 +1,22 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-2e -- PARSE-RESPONSE HARDENING (extract array from prose) --
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-3a -- AI-PASS DISPLAY + TRIGGER (FRONTEND) -- mostly FRONTEND +
+ONE additive backend read-list change. Makes the AI pass TRIGGERABLE + suggestions VISIBLE on the review screen;
+does NOT make them actionable (accept/reject + the RestructureModal children-only mode are AI-3b). **BACKEND
+CHANGE (the only one):** `get_review_rows` `all_fields` (`api/boq/wizard/review_screen.py`) gained 4 ai_* read
+fields -- `ai_classification_confidence`, `ai_parent_confidence`, `ai_suggested_level`, `ai_explanation` -- so they
+ride the per-row payload (the other 4 ai_* already arrive via `resolve_effective`'s echo: ai_suggestion_status /
+ai_suggested_classification / ai_suggested_parent / ai_suggested_is_root). Purely ADDITIVE: no field removed/
+reordered, no doctype JSON change, NO `bench migrate`; `test_review_screen` **176/176 unchanged**. **FRONTEND
+(see frontend/CLAUDE.md for the full as-built):** the `ReviewRow` type gained all 8 ai_* fields + `BoQSheetDraft`
+gained `ai_in_progress` + a new `AiPassDonePayload` type; a "Run AI pass" button (run_ai_pass) on SheetReviewPage
+with a THREE-LAYER poll-safe completion (socket fast-path + poll-until-terminal GUARANTEE + on-mount recovery, so a
+missed `boq:ai_pass_done` socket never hangs the screen -- the historical parse/upload failure mode); an "AI Rec"
+column (confidence badges H/M/L + filter), an "AI Accepted" Status value, and a pending-suggestion row tint, all in
+ReviewTree. Verify: tsc 0 new wizard-file errors + Vite build exit 0. **NEXT = AI-3b** (the accept/reject panel +
+the RestructureModal children-only mode for an accepted parent), then the boq_ai.log token-logging fix. Full UI
+detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 4 Slice AI-3a".)
+// prior: 2026-06-19 (Phase 4 Slice AI-2e -- PARSE-RESPONSE HARDENING (extract array from prose) --
 BACKEND, feat pending. Fixes a bug the FIRST LIVE end-to-end API cert surfaced: the real Anthropic model returns
 explanatory PROSE BEFORE the JSON array (e.g. "Looking at the structure...\n\n[...]"), but `parse_ai_response` only
 stripped code fences, so `json.loads` failed on the leading prose -> `_NonRetryable("AI response was not valid JSON:

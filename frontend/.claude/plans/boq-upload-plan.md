@@ -16,7 +16,24 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-2e (AI auto-mapping) -- parse-response hardening (extract array from prose)
+LATEST: Phase 4 Slice AI-3a (AI auto-mapping) -- AI-pass DISPLAY + TRIGGER (FRONTEND)
+(FRONTEND + 1 additive backend read-list field, 2026-06-19, feat pending). Makes the AI structure-suggestion pass
+TRIGGERABLE and suggestions VISIBLE on the review screen; NOT actionable (accept/reject + the RestructureModal
+children-only mode are AI-3b). **Backend:** `get_review_rows` all_fields gained the 4 ai_* fields NOT echoed by
+resolve_effective (ai_classification_confidence, ai_parent_confidence, ai_suggested_level, ai_explanation) so they
+ride the per-row payload -- additive, no doctype JSON change, no migrate, test_review_screen 176/176 unchanged.
+**Frontend:** `ReviewRow` gained all 8 ai_* fields + `BoQSheetDraft.ai_in_progress` + a new `AiPassDonePayload` type;
+a "Run AI pass" button (run_ai_pass) on SheetReviewPage; an "AI Rec" column (H/M/L confidence badges + a Show-all/
+Any/High/Medium/Low filter), an "AI Accepted" Status value (indigo, branched before isEdited to preserve provenance),
+and a pending-suggestion indigo row tint in ReviewTree (totalCols 7->8). **THE THREE-LAYER COMPLETION MECHANISM (the
+owner reliability requirement):** socket fast-path (`boq:ai_pass_done`) + **poll-until-terminal GUARANTEE**
+(get_ai_pass_status every 3s while ai_in_progress, ref-held interval, idempotent cleanup) + on-mount recovery -- so a
+MISSED socket never hangs the screen (the historical parse/upload missed-socket hang). The screen is NOT set readOnly
+for an AI pass (it only writes ai_* fields). Verify: tsc 0 new wizard-file errors + Vite build exit 0. **NEXT = AI-3b**
+(the accept/reject panel + the RestructureModal children-only mode for an accepted parent), then the boq_ai.log
+token-logging fix is bundled after. Full UI detail in frontend/CLAUDE.md; backend read-path note in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-2e (AI auto-mapping) -- parse-response hardening (extract array from prose)
 (BACKEND, 2026-06-19, feat pending). Fixes a bug the FIRST LIVE end-to-end API cert surfaced: the real Anthropic model
 returns explanatory PROSE BEFORE the JSON array, but `parse_ai_response` only stripped code fences, so `json.loads`
 failed on the leading prose (`_NonRetryable: "AI response was not valid JSON: Expecting value: line 1 column 1"`) and

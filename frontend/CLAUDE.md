@@ -317,7 +317,66 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-18 -- Slices F3/F4 completion-modal failure REASONS COMPLETE -- FRONTEND, `BoqHubPage.tsx` (F4 = `CommitResultsModal.tsx` verify-only), feat bfa71098):**
+**Status (2026-06-19 -- Phase 4 Slice AI-3a AI-PASS DISPLAY + TRIGGER COMPLETE -- FRONTEND + 1 additive backend read-list field, `boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx` + `review_screen.py`, feat pending):**
+The DISPLAY + TRIGGER layer for the AI structure-suggestion pass (backend AI-1..AI-2e). Makes the pass TRIGGERABLE
+and suggestions VISIBLE; does NOT make them actionable -- NO accept/reject panel, NO Apply flow, NO RestructureModal
+change (that is AI-3b). The accepted-suggestion write path is AI-3b; AI-3a is read-only surfacing + the run trigger.
+
+- **Data plumbing (`boqTypes.ts`, additive).** `ReviewRow` gained all 8 ai_* fields (`ai_suggested_classification`,
+  `ai_classification_confidence` "High"|"Medium"|"Low"|null, `ai_suggested_parent`, `ai_parent_confidence`,
+  `ai_suggested_is_root` 0|1, `ai_suggested_level`, `ai_explanation`, `ai_suggestion_status`
+  "Pending"|"Accepted"|"Rejected"|null) -- all OPTIONAL so no existing construction breaks. `BoQSheetDraft` gained
+  `ai_in_progress?: 0|1` (mirror of `parse_in_progress`; rides `useFrappeGetDoc("BOQs")`). NEW `AiPassDonePayload`
+  ({status, boq_name, sheet_name, count?, error_code?}) typed against `ai_assist._publish_ai_event`. **BACKEND:**
+  `get_review_rows` `all_fields` (`review_screen.py`) gained the 4 ai_* NOT echoed by `resolve_effective`
+  (confidence×2, level, explanation) so they ride the payload -- additive, no reorder, no migrate, 176/176 tests
+  unchanged.
+- **THE THREE-LAYER COMPLETION MECHANISM (the reliability requirement -- `SheetReviewPage.tsx`).** The parse/upload
+  screens historically HUNG when a single socket event was MISSED (job done, event fired, client not listening ->
+  stuck on "running" forever). AI-3a MUST NOT reproduce that: **the POLL is the guarantee; the socket is a fast-path
+  optimization.** (1) **Socket fast-path:** a `boq:ai_pass_done` listener via `useContext(FrappeContext)` (newly
+  imported here), mirroring BoqHubPage's `boq:parse_run_done` pattern -- guards `payload.boq_name === boqId &&
+  payload.sheet_name === sheetName`, resolves (mutate + boqMutate + result/error banner + stop poll), plus a
+  `socket.on("connect", ...)` reconnect re-fetch. (2) **Poll-until-terminal:** while `aiInProgress`
+  (`sheetDraft?.ai_in_progress === 1`), `get_ai_pass_status` is polled every 3s; a terminal cached payload
+  (success/error) resolves immediately, an idle+flag-0 edge (finished, no cached payload) refreshes+stops; the
+  interval id is held in a `useRef` with idempotent `stopAiPoll` (cleanup on terminal + unmount + a double-register
+  guard -- a leaked interval hammering the endpoint is its own bug). (3) **On-mount recovery:** because the poll
+  effect keys on `aiInProgress` (which rides the BOQs doc), a pass still running when the user returns to the sheet
+  auto-arms the poll; a pass that finished while away resolves via the cached status payload. `resolveAiOutcome` is a
+  `useCallback` shared by both socket + poll (idempotent on double-resolve).
+- **Run AI pass button (`SheetReviewPage.tsx`).** In the header cluster beside Export CSV / Mark Finalized
+  (`Sparkles` icon). `useFrappePostCall("...ai_assist.run_ai_pass")`, called with `{boq_name, sheet_name}`. Disabled
+  when `reviewLoading || rows.length === 0 || aiInProgress || aiRunLoading || isParsing`. The three documented
+  response shapes (verified vs `ai_assist.py`): `{ok:false,error}` -> a muted inline message
+  (`AI_REJECT_MSGS` for not_parsed/ai_disabled/no_api_key, `getFrappeError` on throw); `{ok:true,cached:true,count}`
+  -> `mutate()` + an indigo "AI pass complete -- N suggestions (cached)" banner, NO socket expected;
+  `{ok:true,enqueued:true}` -> `boqMutate()` so `ai_in_progress` flips in and the poll arms. An amber "AI pass
+  running..." chip shows while `aiInProgress`. **The screen is NOT set readOnly for an AI pass** (unlike parse -- an
+  AI pass only writes ai_* suggestion fields, never human/parser data, so editing stays safe).
+- **AI Rec column + AI Accepted status + row tint (`ReviewTree.tsx`).** A new "AI Rec" column at **position 4**
+  (immediately after Status -- the column order is Expander|Excel Row|Status|AI Rec|Sl.No|Parent|Classification|
+  Description|descriptors|Append Notes; `totalCols` bumped 7->8). Its body cell renders confidence badge(s) for a
+  PENDING suggestion (classification + parent each one H/M/L pill via `AiConfBadge`; both -> two side by side; none/
+  resolved -> blank), driven by an `aiSuggestionInfo(row)` helper (a suggestion only "counts" while
+  ai_suggestion_status === "Pending"; parent = a real index OR `ai_suggested_is_root === 1`). A filter Popover
+  (mirrors the Status/Classification filter idiom): Show all rows (default) / Any AI suggestion / Has High / Has
+  Medium / Has Low, AND-combined with the other filters in `passesFilter` (+ added to the `searchHits` deps for the
+  compose interlock). The **Status** column gained a third value "AI Accepted" (indigo) -- branched on
+  `ai_suggestion_status === "Accepted"` BEFORE the `isEdited` check (an accepted suggestion writes to human_* in
+  AI-3b and would otherwise read "Edited"; this preserves AI provenance) -- with `STATUS_FILTER_LABELS` + the
+  statusFilter type (`StatusFilter`) + `passesFilter` extended to match. A subtle indigo **row tint** for a pending
+  suggestion, placed in `cn()` BEFORE the edited-green tint (so an edited row stays green via twMerge) and before the
+  amber scroll-flash (so the flash still wins) -- matching the existing tint ordering.
+- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|ReviewTree|SheetReviewPage|boqTypes` -> empty;
+  total 3178 = pre-existing drift in Retired Components etc., none referencing the new ai_* symbols) + in-container
+  Vite build exit 0 (`built in 5m 8s`, PWA 164 entries). Backend `test_review_screen` 176/176 unchanged (additive
+  read-list field). No new backend tests this slice (additive field + frontend display). Manual live-cert pending
+  Nitesh: Run AI pass on a parsed sheet -> badges appear in AI Rec, the running chip + completion banner show, and a
+  missed socket still resolves within ~3s via the poll. **NEXT = AI-3b** (accept/reject panel + RestructureModal
+  children-only mode for an accepted parent), then the boq_ai.log token-logging fix.
+
+// prior: **Status (2026-06-18 -- Slices F3/F4 completion-modal failure REASONS COMPLETE -- FRONTEND, `BoqHubPage.tsx` (F4 = `CommitResultsModal.tsx` verify-only), feat bfa71098):**
 The TRANSIENT counterpart to F2's persistent card: at the moment a parse/commit finishes, the completion modal
 highlights each FAILED sheet WITH its reason. FRONTEND ONLY -- no backend, NO new fetch, NO payload change.
 - **F4 (`CommitResultsModal.tsx`) = ALREADY SATISFIED at Slice 5 -- VERIFY-ONLY, no code change.** It already
