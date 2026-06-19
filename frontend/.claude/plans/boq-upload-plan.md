@@ -16,7 +16,21 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3a (AI auto-mapping) -- AI-pass DISPLAY + TRIGGER (FRONTEND)
+LATEST: Phase 4 Slice AI-3a-FIX (AI auto-mapping) -- get_review_rows all_fields missing 4 ai_* fields
+(BACKEND, 2026-06-20, feat pending). The AI Rec badges / row tint / "AI Accepted" status never rendered after a pass
+that reported "12 suggestions" -- the data was correct in the DB, the break was in the row fetch. ROOT CAUSE: AI-3a
+assumed `ai_suggestion_status` / `ai_suggested_classification` / `ai_suggested_parent` / `ai_suggested_is_root` "ride
+the payload for free via resolve_effective's echo." WRONG -- `resolve_effective(d)` READS those from the row dict and
+only re-emits what it read; `get_review_rows` builds `d` from `all_fields`, which omitted those 4, so they came back
+None and the frontend `aiSuggestionInfo` "Pending" gate was always false -> no badges. FIX = add those 4 fields to
+`get_review_rows.all_fields` (the confidence x2 / level / explanation fields are display-only, never read by
+resolve_effective, and were already fetched). No resolve_effective / frontend / doctype change -> no migrate.
+VERIFIED: test_review_screen 176/176 unchanged; `get_review_rows("BOQ-26-00145","HVAC ")` now returns 12 Pending
+rows with non-null suggestion fields. Frontend + data were already correct -> the badges now render (live web reload
+needed for the browser). NEXT remains AI-3b (accept/reject panel + RestructureModal children-only mode), then the
+boq_ai.log token-logging fix. Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-3a (AI auto-mapping) -- AI-pass DISPLAY + TRIGGER (FRONTEND)
 (FRONTEND + 1 additive backend read-list field, 2026-06-19, feat pending). Makes the AI structure-suggestion pass
 TRIGGERABLE and suggestions VISIBLE on the review screen; NOT actionable (accept/reject + the RestructureModal
 children-only mode are AI-3b). **Backend:** `get_review_rows` all_fields gained the 4 ai_* fields NOT echoed by

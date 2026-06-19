@@ -1,6 +1,19 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-3a -- AI-PASS DISPLAY + TRIGGER (FRONTEND) -- mostly FRONTEND +
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3a-FIX -- get_review_rows all_fields was missing the 4
+status/suggestion ai_* fields -- BACKEND, feat pending. The AI Rec badges (+ tint + "AI Accepted" status) never
+rendered though the pass reported "12 suggestions" and the data was correct in the DB. ROOT CAUSE: AI-3a assumed
+`ai_suggestion_status` / `ai_suggested_classification` / `ai_suggested_parent` / `ai_suggested_is_root` "ride the
+payload for free via resolve_effective's echo" -- WRONG. `resolve_effective(d)` READS those fields from the row dict
+`d` and only re-emits what it read; `get_review_rows` built `d = dict(r)` from `all_fields`, which OMITTED those 4,
+so `_get` returned None, the echo wrote None, and the frontend `aiSuggestionInfo` gate (`ai_suggestion_status ===
+"Pending"`) was always false. FIX: add those 4 fields to `get_review_rows.all_fields` (the other 4 -- confidence x2,
+level, explanation -- are display-only, never read by resolve_effective, and were already fetched by AI-3a). ONE
+read-list change; no resolve_effective / frontend / doctype JSON change -> no migrate. VERIFIED: `test_review_screen`
+**176/176 unchanged**; a fresh `get_review_rows("BOQ-26-00145", "HVAC ")` now returns 12 rows with
+`ai_suggestion_status == "Pending"` + non-null suggestion fields (was None). Live web/worker reload needed for the
+browser to pick it up. Frontend + stored data were already correct. Full detail in boq-upload-plan.md.)
+// prior: 2026-06-19 (Phase 4 Slice AI-3a -- AI-PASS DISPLAY + TRIGGER (FRONTEND) -- mostly FRONTEND +
 ONE additive backend read-list change. Makes the AI pass TRIGGERABLE + suggestions VISIBLE on the review screen;
 does NOT make them actionable (accept/reject + the RestructureModal children-only mode are AI-3b). **BACKEND
 CHANGE (the only one):** `get_review_rows` `all_fields` (`api/boq/wizard/review_screen.py`) gained 4 ai_* read
