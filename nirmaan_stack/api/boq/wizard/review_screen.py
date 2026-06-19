@@ -251,26 +251,37 @@ def _chain_has_cycle(row_index: int, rows_by_idx: dict[int, dict]) -> bool:
 
 def resolve_effective(row: Any) -> dict:
     """
-    Compute effective field values using human > parser precedence.
+    Compute effective field values using the three-layer chain: human > AI-accepted > parser.
 
     Accepts a Frappe Document, frappe._dict, or a plain dict.
 
-    -1 sentinel convention (parent_index and human_parent):
-      -1 means "no parent / no override". Frappe coerces Int None -> 0 on insert
-      and 0 is a valid row index, so None cannot be used as a no-parent sentinel at
-      the DB boundary. The worker (flatten_resolved_row) writes -1 for root rows;
-      save_review_edit writes -1 when human_parent is cleared.
-      has_human_parent (Check field) is RETIRED -- the -1-vs-(>=0) distinction now
-      carries the "is there an override?" meaning unambiguously.
+    Layer precedence (Phase 4 P4-1): the AI layer slots BETWEEN human and parser.
+    It applies ONLY when ai_suggestion_status == "Accepted"; a None / "" / "Pending" /
+    "Rejected" status ignores the ai_suggested_* fields entirely. The human layer always
+    wins when present, so this never weakens any existing human-override behaviour.
 
-    Precedence rules:
-      effective_classification = human_classification (if non-empty string) else classification
-      effective_parent_index   = human_parent_norm (if non-None) else parent_index_norm
-        where *_norm = None for values in (None, -1), else the raw value.
-        human_parent >= 0 (incl. 0) is a real override of "parent is row N".
+      effective_classification:
+        1. human_classification (non-empty)                 -> human
+        2. ai_suggested_classification (status Accepted, set) -> AI
+        3. classification                                    -> parser
+      effective_parent_index:
+        1. human_is_root truthy                               -> None (human root)
+        2. human_parent >= 0                                  -> human row-override
+        3. ai_suggested_parent >= 0 (status Accepted)         -> AI
+        4. parent_index_norm                                 -> parser
 
-    Returns both effective values and the raw stored values (parent_index, human_parent
-    may be -1 at the DB layer) so the frontend can render the original alongside effective.
+    -1 sentinel convention (parent_index, human_parent, ai_suggested_parent):
+      -1 means "no parent / no override / no suggestion". Frappe coerces Int None -> 0 on
+      insert and 0 is a valid row index, so None cannot be used as a sentinel at the DB
+      boundary. The worker (flatten_resolved_row) writes -1 for root rows; save_review_edit
+      writes -1 when human_parent is cleared; the AI service writes -1 for "no suggestion".
+      A value >= 0 (incl. 0) is a real value at every layer.
+      has_human_parent (Check field) is RETIRED -- the -1-vs-(>=0) distinction carries the
+      "is there an override?" meaning unambiguously.
+
+    Returns both effective values and the raw stored values (parent_index, human_parent,
+    and the three echoed ai_* fields may be -1/None at the DB layer) so the frontend can
+    render the original / suggested / effective values alongside each other.
     has_human_parent is NOT included in the returned dict (field retired).
     """
     classification = _get(row, "classification")
@@ -278,16 +289,26 @@ def resolve_effective(row: Any) -> dict:
     parent_index = _get(row, "parent_index")
     human_parent = _get(row, "human_parent")
     human_is_root = _get(row, "human_is_root")
+    # AI layer (Phase 4 P4-1): only consulted when ai_suggestion_status == "Accepted".
+    ai_suggestion_status = _get(row, "ai_suggestion_status")
+    ai_suggested_classification = _get(row, "ai_suggested_classification")
+    ai_suggested_parent = _get(row, "ai_suggested_parent")
+    ai_accepted = ai_suggestion_status == "Accepted"
 
-    effective_classification = human_classification if human_classification else classification
+    # --- effective_classification: human > AI-accepted > parser ---
+    if human_classification:
+        effective_classification = human_classification
+    elif ai_accepted and ai_suggested_classification:
+        effective_classification = ai_suggested_classification
+    else:
+        effective_classification = classification
 
-    # Human-root override (Slice 1b-alpha, Option B): human_is_root is a SEPARATE
-    # Check field, orthogonal to human_parent -- it does NOT touch the -1 sentinel
-    # value space (agreement #54). When set, the row is effective-root regardless of
-    # parser parent_index; the human_parent_norm/parent_index_norm derivation is
-    # skipped entirely. The consistency invariant (human_is_root=1 => human_parent=-1)
-    # is enforced at the write chokepoint (_apply_and_save_row_edit), so this guard
-    # never has to reconcile a contradictory row.
+    # --- effective_parent_index: human-root > human-parent > AI-accepted > parser ---
+    # Human-root override (Slice 1b-alpha, Option B): human_is_root is a SEPARATE Check
+    # field, orthogonal to human_parent -- it does NOT touch the -1 sentinel value space
+    # (agreement #54). When set, the row is effective-root regardless of any AI suggestion
+    # or parser parent_index. The consistency invariant (human_is_root=1 => human_parent=-1)
+    # is enforced at the write chokepoint (_apply_and_save_row_edit).
     if human_is_root:
         effective_parent_index = None
     else:
@@ -295,8 +316,14 @@ def resolve_effective(row: Any) -> dict:
         # UNCHANGED -- the -1 sentinel doctrine is untouched.
         parent_index_norm = None if parent_index in (None, -1) else parent_index
         human_parent_norm = None if human_parent in (None, -1) else human_parent
+        ai_parent_norm = None if ai_suggested_parent in (None, -1) else ai_suggested_parent
         # human_parent_norm is not None covers the real-override case, including human_parent=0.
-        effective_parent_index = human_parent_norm if human_parent_norm is not None else parent_index_norm
+        if human_parent_norm is not None:
+            effective_parent_index = human_parent_norm
+        elif ai_accepted and ai_parent_norm is not None:
+            effective_parent_index = ai_parent_norm
+        else:
+            effective_parent_index = parent_index_norm
 
     return {
         "classification": classification,
@@ -306,6 +333,10 @@ def resolve_effective(row: Any) -> dict:
         "human_is_root": 1 if human_is_root else 0,
         "effective_classification": effective_classification,
         "effective_parent_index": effective_parent_index,
+        # AI layer raw values echoed for the frontend (None when not set).
+        "ai_suggestion_status": ai_suggestion_status,
+        "ai_suggested_classification": ai_suggested_classification,
+        "ai_suggested_parent": ai_suggested_parent,
     }
 
 

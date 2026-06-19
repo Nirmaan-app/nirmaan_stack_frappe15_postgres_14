@@ -96,12 +96,24 @@ def _minimal_row(
     human_classification=None,
     human_parent=None,
     source_row_number=None,
+    ai_suggested_classification=None,
+    ai_classification_confidence=None,
+    ai_suggested_parent=-1,
+    ai_parent_confidence=None,
+    ai_suggested_level=-1,
+    ai_explanation=None,
+    ai_suggestion_status=None,
 ):
     """Return a minimal BoQ Review Row field dict for _insert_rows.
 
     parent_index=None means root row -> stored as -1 (Frappe coerces Int None->0
     and 0 is a valid non-root index; -1 is the unambiguous "no parent" sentinel).
     human_parent=None means no override -> stored as -1 for the same reason.
+
+    The 7 ai_* fields (Phase 4 P4-1) default to "no AI suggestion": ai_suggested_parent
+    and ai_suggested_level default to the -1 sentinel; the rest to None; status None.
+    Existing callers are unaffected -- a row with these defaults resolves to the parser
+    layer exactly as before.
     """
     return {
         "sheet_name": sheet_name,
@@ -116,6 +128,13 @@ def _minimal_row(
         "classifier_warnings": [],
         "preamble_candidate_signals": [],
         "edit_log": [],
+        "ai_suggested_classification": ai_suggested_classification,
+        "ai_classification_confidence": ai_classification_confidence,
+        "ai_suggested_parent": ai_suggested_parent,
+        "ai_parent_confidence": ai_parent_confidence,
+        "ai_suggested_level": ai_suggested_level,
+        "ai_explanation": ai_explanation,
+        "ai_suggestion_status": ai_suggestion_status,
     }
 
 
@@ -127,12 +146,17 @@ class TestResolveEffective(unittest.TestCase):
     """Verify human > parser precedence for classification and parent_index."""
 
     def _row(self, classification=None, human_classification=None,
-             parent_index=None, human_parent=None):
+             parent_index=None, human_parent=None,
+             ai_suggestion_status=None, ai_suggested_classification=None,
+             ai_suggested_parent=None):
         return {
             "classification": classification,
             "human_classification": human_classification,
             "parent_index": parent_index,
             "human_parent": human_parent,
+            "ai_suggestion_status": ai_suggestion_status,
+            "ai_suggested_classification": ai_suggested_classification,
+            "ai_suggested_parent": ai_suggested_parent,
         }
 
     def test_human_classification_overrides_parser(self):
@@ -200,6 +224,141 @@ class TestResolveEffective(unittest.TestCase):
         eff = resolve_effective(d)
         self.assertEqual(eff["effective_classification"], "spacer")
         self.assertIsNone(eff["effective_parent_index"])
+
+
+# ===========================================================================
+# Group 1b: resolve_effective AI layer -- pure Python (Phase 4 P4-1)
+# ===========================================================================
+
+class TestResolveEffectiveAILayer(unittest.TestCase):
+    """Verify the three-layer chain human > AI-accepted > parser.
+
+    The AI layer applies ONLY when ai_suggestion_status == "Accepted"; the human
+    layer always wins when present; ai_suggested_parent=-1 is the no-suggestion
+    sentinel (same convention as human_parent)."""
+
+    def _row(self, classification=None, human_classification=None,
+             parent_index=None, human_parent=None, human_is_root=None,
+             ai_suggestion_status=None, ai_suggested_classification=None,
+             ai_suggested_parent=None):
+        return {
+            "classification": classification,
+            "human_classification": human_classification,
+            "parent_index": parent_index,
+            "human_parent": human_parent,
+            "human_is_root": human_is_root,
+            "ai_suggestion_status": ai_suggestion_status,
+            "ai_suggested_classification": ai_suggested_classification,
+            "ai_suggested_parent": ai_suggested_parent,
+        }
+
+    # -- classification layer --
+
+    def test_ai_accepted_classification_used_when_no_human_override(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Accepted", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "line_item")
+
+    def test_human_classification_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification="note",
+            ai_suggestion_status="Accepted", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "note",
+                         "human classification must beat an accepted AI suggestion")
+
+    def test_ai_pending_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Pending", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble",
+                         "a Pending AI suggestion must be ignored")
+
+    def test_ai_rejected_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Rejected", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble",
+                         "a Rejected AI suggestion must be ignored")
+
+    # -- parent layer --
+
+    def test_ai_accepted_parent_used_when_no_human_override(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 3)
+
+    def test_human_parent_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=5, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 5,
+                         "human parent override must beat an accepted AI suggestion")
+
+    def test_human_is_root_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=1,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertIsNone(eff["effective_parent_index"],
+                          "human root must beat an accepted AI suggestion")
+
+    def test_ai_parent_pending_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Pending", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "a Pending AI parent suggestion must be ignored (parser used)")
+
+    def test_ai_parent_negative_sentinel_is_not_applied(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "ai_suggested_parent=-1 is 'no suggestion', not a root suggestion")
+
+    # -- returned-dict shape + robustness --
+
+    def test_ai_fields_present_in_returned_dict(self):
+        eff = resolve_effective(self._row(
+            classification="line_item",
+            ai_suggestion_status="Accepted", ai_suggested_classification="preamble",
+            ai_suggested_parent=2,
+        ))
+        self.assertIn("ai_suggestion_status", eff)
+        self.assertIn("ai_suggested_classification", eff)
+        self.assertIn("ai_suggested_parent", eff)
+        self.assertEqual(eff["ai_suggestion_status"], "Accepted")
+        self.assertEqual(eff["ai_suggested_classification"], "preamble")
+        self.assertEqual(eff["ai_suggested_parent"], 2)
+
+    def test_no_ai_fields_on_row_still_works(self):
+        # No ai_* args -> all None; falls back to the parser layer cleanly.
+        eff = resolve_effective(self._row(classification="preamble", parent_index=4))
+        self.assertEqual(eff["effective_classification"], "preamble")
+        self.assertEqual(eff["effective_parent_index"], 4)
+        self.assertIsNone(eff["ai_suggestion_status"])
+        self.assertIsNone(eff["ai_suggested_classification"])
+        self.assertIsNone(eff["ai_suggested_parent"])
+
+    def test_ai_accepted_both_classification_and_parent(self):
+        eff = resolve_effective(self._row(
+            classification="line_item", parent_index=5,
+            human_classification=None, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_classification="preamble", ai_suggested_parent=2,
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble")
+        self.assertEqual(eff["effective_parent_index"], 2)
 
 
 # ===========================================================================
