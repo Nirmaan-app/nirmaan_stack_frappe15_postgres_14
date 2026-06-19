@@ -379,6 +379,11 @@ export interface ReviewRow {
   ai_suggested_level?: number | null;
   ai_explanation?: string | null;
   ai_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
+  // AI-3c-2b: true when an AI acceptance on this row can still be reverted (the backend
+  // captured a pre-accept snapshot on accept; cleared by a later classification/parent edit
+  // or by finalize). Computed by get_review_rows from ai_accept_snapshot; the raw blob is
+  // never shipped. Drives the Revert AI change button (enabled iff revert_available && !readOnly).
+  revert_available?: boolean;
 }
 
 /**

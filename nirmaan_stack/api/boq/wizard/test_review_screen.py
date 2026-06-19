@@ -3301,6 +3301,45 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertEqual(r1.ai_suggestion_status, "Pending",
                          "the suggestion is re-offered as Pending")
 
+    # -- AI-3c-2b (R6): a later class/parent edit clears the AI-Accepted status -----------
+
+    def test_X1_accept_still_ends_accepted_despite_chokepoint_clear(self):
+        # The chokepoint now clears ai_suggestion_status on a class/parent edit, and the
+        # accept WRITES human_* via that chokepoint -- but it flips status to "Accepted" LAST
+        # (in the flip block, after every helper call), so the accept's final flip wins.
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted",
+                         "the accept's last-flip must win over the chokepoint status-clear")
+
+    def test_X2_later_classparent_edit_clears_accepted_status(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted")
+        # a later human_parent edit OVERRIDES the AI's structural decision
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="human_parent", value=0)
+        r1 = self._get_doc(1)
+        self.assertFalse(r1.ai_suggestion_status,
+                         "a later class/parent edit clears the AI-accepted status")
+        self.assertNotEqual(r1.ai_suggestion_status, "Accepted")
+        self.assertTrue(len(self._as_list(r1.edit_log)) > 0,
+                        "edit_log non-empty -> the row now renders 'Edited' (not 'AI Accepted')")
+
+    def test_X3_later_value_edit_keeps_accepted_status(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        # a VALUE edit does NOT enter the class/parent chokepoint block
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="qty_total", value=5)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted",
+                         "a value edit must NOT clear the status -> row stays 'AI Accepted'")
+
+    def test_X4_classparent_edit_on_unaccepted_row_is_status_noop(self):
+        # row 4 was never AI-accepted (status falsy). A class edit clears status (already
+        # falsy) -> no crash, stays falsy (the clear is a harmless no-op there).
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_classification", value="note")
+        self.assertFalse(self._get_doc(4).ai_suggestion_status,
+                         "the status-clear is a no-op on a row that was never accepted")
+
 
 # ===========================================================================
 # Group 12: Finalized read-only freeze (Slice D1)

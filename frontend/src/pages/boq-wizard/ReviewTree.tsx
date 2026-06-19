@@ -566,6 +566,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
     message: { ok: boolean };
   }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
+  // AI-3c-2b: revert an AI acceptance (restore the row + any children the accept moved to
+  // their pre-accept state, re-offer the suggestion as Pending). Returns no edited_at, so
+  // the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row re-renders
+  // Pending, the AI accept/reject block reappears, and the Revert button + AI Accepted tag go.
+  const { call: revertAiCall, loading: isRevertingAi } = useFrappePostCall<{
+    message: { ok: boolean; ai_suggestion_status: string; reverted_children: number[] };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.revert_ai_acceptance");
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
@@ -649,6 +656,23 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       onRemarkSaved?.();
     } catch (e: unknown) {
       setAiActionError(getFrappeError(e) || "Could not reject the AI suggestion.");
+    }
+  };
+
+  // AI-3c-2b: revert a prior AI acceptance -> the backend restores the row + moved children
+  // to their pre-accept state and flips ai_suggestion_status back to Pending. mutate-only
+  // refresh (no edited_at; the re-fetch re-renders the row Pending so the button disappears).
+  const handleRevertAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    try {
+      await revertAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not revert the AI change.");
     }
   };
 
@@ -2088,6 +2112,39 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               </div>
                             );
                           })()}
+                          {/* AI-3c-2b: Revert AI change. Shown for an Accepted row (the PENDING
+                              accept/reject block above is gone once Accepted). ENABLED iff the
+                              backend still holds a pre-accept snapshot (revert_available) AND the
+                              sheet is editable; greyed with a reason otherwise -- a later
+                              classification/parent edit cleared the snapshot (revert_available
+                              false), or the sheet is finalized (readOnly). handleRevertAi ->
+                              onRemarkSaved (mutate-only re-fetch -> the row re-renders Pending,
+                              the accept/reject block reappears, this button disappears). */}
+                          {row.ai_suggestion_status === "Accepted" && (
+                            <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={!row.revert_available || readOnly || isRevertingAi}
+                                  onClick={() => { void handleRevertAi(row); }}
+                                >
+                                  {isRevertingAi ? "Reverting…" : "Revert AI change"}
+                                </Button>
+                                {readOnly ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    Sheet is finalized — revert unavailable.
+                                  </span>
+                                ) : !row.revert_available ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    Revert no longer available — the row was edited after the AI change.
+                                  </span>
+                                ) : null}
+                              </div>
+                              {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
+                            </div>
+                          )}
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
                               commits via an explicit Apply button that opens the confirm dialog.

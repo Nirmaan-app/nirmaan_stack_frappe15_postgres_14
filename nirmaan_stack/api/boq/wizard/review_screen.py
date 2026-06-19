@@ -998,6 +998,21 @@ def _apply_and_save_row_edit(
                 "ai_accept_snapshot", None,
             )
             doc.ai_snapshot_owner = -1
+        # AI-3c-2b (R6): a later classification/parent edit OVERRIDES the AI's structural
+        # decision (the AI only ever suggests class/parent), so an ACCEPTED row is now a HUMAN
+        # edit, not an AI acceptance -- clear ai_suggestion_status so the Status column stops
+        # reading "AI Accepted" (it checks == "Accepted" before isEdited, so a falsy status
+        # falls through to "Edited"). GATED on the CURRENT status being "Accepted": a Pending
+        # (or Rejected) suggestion has NOT been applied, so a manual class/parent edit must
+        # leave it untouched -- this preserves the restructure cancel-safety contract (a manual
+        # restructure on a Pending-suggestion row must not change ai_suggestion_status; R4).
+        # ORDERING (load-bearing, same self-clear territory as the snapshot clear above): both
+        # accept paths flip ai_suggestion_status = "Accepted" LAST, in their flip block AFTER
+        # every helper call, and revert flips to "Pending" LAST -- so this in-flight clear is
+        # harmless during an accept/revert (their final flip wins). value/text/per-area edits
+        # never enter this block, so they leave an AI-accepted row reading "AI Accepted".
+        if doc.ai_suggestion_status == "Accepted":
+            doc.ai_suggestion_status = None
 
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
