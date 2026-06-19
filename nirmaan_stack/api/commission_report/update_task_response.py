@@ -147,8 +147,22 @@ def update_task_response(
         parsed_response = json.loads(response_data) if isinstance(response_data, str) else response_data
     except Exception:
         frappe.throw("response_data must be valid JSON.")
-    if not isinstance(parsed_response, dict) or not parsed_response.get("responses"):
-        frappe.throw("response_data must contain a non-empty `responses` object.")
+    if not isinstance(parsed_response, dict):
+        frappe.throw("response_data must be a JSON object.")
+    # Zone-wise reports (zone_wise_enable templates) carry their data per-zone
+    # under `zones[]` and leave the flat `responses` map empty. Accept either
+    # shape, but require one to be non-empty so a blank report never persists.
+    _zones = parsed_response.get("zones")
+    _is_zone_wise = (
+        bool(parsed_response.get("zoneWise"))
+        and isinstance(_zones, list)
+        and any(isinstance(z, dict) and z.get("responses") for z in _zones)
+    )
+    if not _is_zone_wise and not parsed_response.get("responses"):
+        frappe.throw(
+            "response_data must contain a non-empty `responses` object "
+            "(or, for a zone-wise report, a non-empty `zones` array)."
+        )
 
     # Cap payload size at 1 MB.
     if len(response_data) > 1024 * 1024:

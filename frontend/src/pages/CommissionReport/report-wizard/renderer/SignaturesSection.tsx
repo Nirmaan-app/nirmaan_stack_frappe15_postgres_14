@@ -45,6 +45,9 @@ interface Props {
     projectId?: string;
     templateId?: string;
     forceReadonly?: boolean;
+    /** Override the RHF path root. Defaults to "responses". Used by zone-wise
+     *  reports so each zone stores its own `zones.<i>.responses.<id>` override. */
+    pathRoot?: string;
 }
 
 /** Returns the full ordered role list for the template, regardless of TDS.
@@ -76,6 +79,7 @@ export const SignaturesSection: React.FC<Props> = ({
     projectId,
     templateId,
     forceReadonly,
+    pathRoot,
 }) => {
     const { data, isLoading } = useFrappeGetDocList<ProjectTDSSettingRow>(
         'Project TDS Setting',
@@ -118,6 +122,7 @@ export const SignaturesSection: React.FC<Props> = ({
                     sectionId={section.id}
                     roles={roles}
                     forceReadonly={forceReadonly}
+                    pathRoot={pathRoot}
                 />
             )}
         </section>
@@ -128,9 +133,10 @@ const SignaturesPicker: React.FC<{
     sectionId: string;
     roles: RoleRow[];
     forceReadonly?: boolean;
-}> = ({ sectionId, roles, forceReadonly }) => {
+    pathRoot?: string;
+}> = ({ sectionId, roles, forceReadonly, pathRoot }) => {
     const { control } = useFormContext();
-    const fieldName = `responses.${sectionId}`;
+    const fieldName = `${pathRoot || 'responses'}.${sectionId}`;
 
     return (
         <Controller

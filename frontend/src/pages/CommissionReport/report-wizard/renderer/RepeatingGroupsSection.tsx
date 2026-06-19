@@ -26,6 +26,9 @@ import { ProcessSection } from './ProcessSection';
  *  group's photos get their own flat attachment key (e.g. "equipments_0_"). */
 interface NestedCtx {
     attachKeyPrefix: string;
+    /** Root of the attachments map (default "attachments"; zone-wise passes
+     *  "zones.<i>.attachments"). Threaded to a nested image_attachments. */
+    attachmentsRoot?: string;
     parentName?: string;
     childRowName?: string;
     projectId?: string;
@@ -39,6 +42,13 @@ interface Props {
      *  the wizard when each group lives on its own synthetic step. Hides the
      *  Add Group button, the count-mismatch banner and the group counter. */
     groupIndexFilter?: number;
+    /** RHF path root for this section's group array + its count binding.
+     *  Defaults to "responses" (non-zone). Zone-wise passes
+     *  "zones.<i>.responses" so each zone's groups are isolated. */
+    pathRoot?: string;
+    /** Root of the attachments map for nested image_attachments. Defaults to
+     *  "attachments"; zone-wise passes "zones.<i>.attachments". */
+    attachmentsRoot?: string;
     /** Upload context — only needed when a group has a nested image_attachments
      *  section. Threaded through to per-group ImageAttachmentSection instances. */
     parentName?: string;
@@ -73,6 +83,8 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
     section,
     forceReadonly,
     groupIndexFilter,
+    pathRoot = 'responses',
+    attachmentsRoot,
     parentName,
     childRowName,
     projectId,
@@ -80,7 +92,7 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
 }) => {
     const { control, getValues } = useFormContext();
     const { toast } = useToast();
-    const groupsName = `responses.${section.id}`;
+    const groupsName = `${pathRoot}.${section.id}`;
     const { fields: groups, append, remove } = useFieldArray({ control, name: groupsName });
 
     const maxGroups = section.maxGroups ?? 50;
@@ -164,10 +176,20 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
     }, [buildEmptyRow, section.groupFields, section.nestedSections, section.rowsTable]);
 
     // ─── Header-driven group seeding ───────────────────────────────────────
+    // `countBoundTo` is authored as an absolute "responses.<…>" path. When this
+    // section is rendered under a zone (pathRoot = "zones.<i>.responses"), the
+    // count binding must point at THAT zone's header field, not the flat root.
+    const boundName = useMemo(() => {
+        if (!section.countBoundTo) return '';
+        if (pathRoot === 'responses') return section.countBoundTo;
+        return section.countBoundTo.startsWith('responses.')
+            ? `${pathRoot}.${section.countBoundTo.slice('responses.'.length)}`
+            : section.countBoundTo;
+    }, [section.countBoundTo, pathRoot]);
     const declaredRaw = useWatch({
         control,
-        name: section.countBoundTo || '',
-        disabled: !section.countBoundTo,
+        name: boundName,
+        disabled: !boundName,
     }) as unknown;
     const declaredCount = useMemo(() => {
         if (!section.countBoundTo) return null;
@@ -327,6 +349,8 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
                             onRemove={() => remove(gIdx)}
                             buildEmptyRow={buildEmptyRow}
                             hideGroupHeader={singleGroupMode}
+                            pathRoot={pathRoot}
+                            attachmentsRoot={attachmentsRoot}
                             parentName={parentName}
                             childRowName={childRowName}
                             projectId={projectId}
@@ -422,6 +446,7 @@ const renderNestedSection = (
                     forceReadonly={forceReadonly}
                     onAttachmentCreated={ctx.onAttachmentCreated}
                     keyPrefix={ctx.attachKeyPrefix}
+                    attachmentsRoot={ctx.attachmentsRoot}
                 />
             );
         default:
@@ -444,6 +469,10 @@ const GroupCard: React.FC<{
     /** When true, hides the in-card group header strip — used by the wizard
      *  in single-group mode since the step title already names the group. */
     hideGroupHeader?: boolean;
+    /** RHF path root (default "responses"; zone-wise "zones.<i>.responses"). */
+    pathRoot: string;
+    /** Attachments map root (default "attachments"; zone-wise "zones.<i>.attachments"). */
+    attachmentsRoot?: string;
     /** Upload context for a nested image_attachments section (per group). */
     parentName?: string;
     childRowName?: string;
@@ -458,13 +487,15 @@ const GroupCard: React.FC<{
     onRemove,
     buildEmptyRow,
     hideGroupHeader,
+    pathRoot,
+    attachmentsRoot,
     parentName,
     childRowName,
     projectId,
     onAttachmentCreated,
 }) => {
     const { control } = useFormContext();
-    const rowsName = `responses.${section.id}.${groupIdx}.rows`;
+    const rowsName = `${pathRoot}.${section.id}.${groupIdx}.rows`;
     const { fields: rows, append, remove } = useFieldArray({
         control,
         name: rowsName,
@@ -480,7 +511,7 @@ const GroupCard: React.FC<{
         : '';
     const canRemoveRow = hasRowsTable && !forceReadonly && rows.length > minRows;
     const canAddRow = hasRowsTable && !forceReadonly && rows.length < maxRows;
-    const groupPathRoot = `responses.${section.id}.${groupIdx}`;
+    const groupPathRoot = `${pathRoot}.${section.id}.${groupIdx}`;
 
     // Per-group conditional nested sections: a nested section may carry a
     // `visibleIf` ({ field, equals | in }) evaluated against THIS group's own
@@ -523,7 +554,7 @@ const GroupCard: React.FC<{
                     {section.groupFields.map((f) => (
                         <FieldControl
                             key={f.key}
-                            name={`responses.${section.id}.${groupIdx}.${f.key}`}
+                            name={`${pathRoot}.${section.id}.${groupIdx}.${f.key}`}
                             field={f}
                             forceReadonly={forceReadonly}
                         />
@@ -627,6 +658,7 @@ const GroupCard: React.FC<{
                         {section.nestedSections.filter(nestedVisible).map((nested) =>
                             renderNestedSection(nested, groupPathRoot, forceReadonly, {
                                 attachKeyPrefix: `${section.id}_${groupIdx}_`,
+                                attachmentsRoot,
                                 parentName,
                                 childRowName,
                                 projectId,

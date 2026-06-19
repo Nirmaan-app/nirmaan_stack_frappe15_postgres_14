@@ -10,9 +10,13 @@ import { FieldControl } from './FieldControl';
 interface Props {
     section: FieldsSectionT;
     forceReadonly?: boolean;
+    /** Override the RHF path root. Defaults to "responses". Used by zone-wise
+     *  reports so this section reads/writes `zones.<i>.responses.<id>.<field>`. */
+    pathRoot?: string;
 }
 
-export const FieldsSection: React.FC<Props> = ({ section, forceReadonly }) => {
+export const FieldsSection: React.FC<Props> = ({ section, forceReadonly, pathRoot }) => {
+    const root = pathRoot || 'responses';
     const cols = section.columns ?? 2;
     const layout = section.layout ?? 'grid';
 
@@ -33,7 +37,7 @@ export const FieldsSection: React.FC<Props> = ({ section, forceReadonly }) => {
                 {section.fields.map((f) => (
                     <FieldControl
                         key={f.key}
-                        name={`responses.${section.id}.${f.key}`}
+                        name={`${root}.${section.id}.${f.key}`}
                         field={f}
                         forceReadonly={forceReadonly}
                     />

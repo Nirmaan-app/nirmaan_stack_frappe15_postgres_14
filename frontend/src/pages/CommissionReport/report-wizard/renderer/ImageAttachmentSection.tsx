@@ -44,6 +44,10 @@ interface Props {
      *  is NESTED inside a `repeating_groups` group so each group's images get
      *  their own flat key (e.g. "equipments_0_"). Empty/absent for top-level. */
     keyPrefix?: string;
+    /** Root form path of the attachments map. Defaults to "attachments"
+     *  (top-level, non-zone). Zone-wise reports pass "zones.<i>.attachments"
+     *  so each zone's images are stored in that zone's own attachments map. */
+    attachmentsRoot?: string;
 }
 
 const stripLegacyShape = (
@@ -59,6 +63,7 @@ export const ImageAttachmentSection: React.FC<Props> = ({
     forceReadonly,
     onAttachmentCreated,
     keyPrefix,
+    attachmentsRoot,
 }) => {
     const cols = section.columns ?? 2;
 
@@ -86,6 +91,7 @@ export const ImageAttachmentSection: React.FC<Props> = ({
                         forceReadonly={forceReadonly}
                         onAttachmentCreated={onAttachmentCreated}
                         keyPrefix={keyPrefix}
+                        attachmentsRoot={attachmentsRoot}
                     />
                 ))}
             </div>
@@ -101,6 +107,7 @@ interface SlotProps {
     forceReadonly?: boolean;
     onAttachmentCreated?: (fileDoc: string) => void;
     keyPrefix?: string;
+    attachmentsRoot?: string;
 }
 
 const ImageSlotControl: React.FC<SlotProps> = ({
@@ -109,6 +116,7 @@ const ImageSlotControl: React.FC<SlotProps> = ({
     forceReadonly,
     onAttachmentCreated,
     keyPrefix,
+    attachmentsRoot,
 }) => {
     const { control, formState, setValue, getValues } = useFormContext();
     const inputId = useId();
@@ -117,7 +125,8 @@ const ImageSlotControl: React.FC<SlotProps> = ({
     const { call: deleteDoc } = useFrappePostCall('frappe.client.delete');
 
     const attachKey = `${keyPrefix ?? ''}${slot.key}`;
-    const fieldName = `attachments.${attachKey}`;
+    const root = attachmentsRoot ?? 'attachments';
+    const fieldName = `${root}.${attachKey}`;
     const max = slot.maxSizeMb ?? COMMISSION_REPORT_IMAGE_MAX_MB_DEFAULT;
     const accept = slot.accept ?? 'image/*';
 
@@ -204,7 +213,13 @@ const ImageSlotControl: React.FC<SlotProps> = ({
         [deleteDoc, fieldName, getValues, setValue],
     );
 
-    const error = (formState.errors?.attachments as Record<string, { message?: string }> | undefined)?.[attachKey];
+    // Resolve the (possibly nested) error container — top-level "attachments"
+    // or a zone's "zones.<i>.attachments" — then read this slot's entry.
+    const errContainer = root.split('.').reduce<unknown>(
+        (acc, k) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[k] : undefined),
+        formState.errors as unknown,
+    ) as Record<string, { message?: string }> | undefined;
+    const error = errContainer?.[attachKey];
 
     return (
         <Controller
