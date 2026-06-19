@@ -132,6 +132,7 @@ Rules for the output:
 - If both change, fill both.
 - Do not include rows you are not changing.
 - If you find no issues at all, return an empty array [].
+- CRITICAL: output the JSON array and NOTHING else. Do not write any explanation, reasoning, or text before or after the array. Your entire response must be the array itself, starting with [ and ending with ].
 
 ## The sheet to review
 
@@ -233,6 +234,61 @@ def _strip_code_fences(text: str) -> str:
     return t.strip()
 
 
+def _extract_json_array(text: str) -> str:
+    """Extract the first balanced JSON array from text, tolerant of prose around it.
+
+    AI-2e (live-cert finding): the real model often returns explanatory prose BEFORE
+    (and sometimes after) the JSON array, e.g. "Looking at the structure...\n\n[...]".
+    The bare json.loads in parse_ai_response would then fail on the leading prose. This
+    helper locates the array so the parser tolerates surrounding prose.
+
+    Strategy:
+      1. Strip code fences first (the existing defensive step).
+      2. Find the FIRST "[" and walk forward tracking bracket depth to its MATCHING "]",
+         RESPECTING string literals so a "[" / "]" inside a JSON string value (e.g. an
+         "explanation" like "row [18] is a note") does NOT affect depth. Toggle in_string
+         on an unescaped double-quote; track a backslash-escape flag so \" inside a string
+         does not toggle. Count brackets only when NOT in_string. This handles all cases
+         uniformly -- a bare array (first "[" at index 0), leading prose, trailing prose
+         (the slice stops at the matching "]", dropping anything after), and string-literal
+         brackets. A naive "starts with [ -> return as-is" fast path is WRONG: a bare array
+         followed by trailing prose starts with "[" yet would hand json.loads "Extra data".
+      3. If there is no "[" at all, or no balanced closing "]" is found, return the
+         stripped text UNCHANGED -- the caller's json.loads then raises the existing
+         _NonRetryable. Genuine garbage is never silently swallowed.
+    """
+    stripped = _strip_code_fences(text)
+
+    start = stripped.find("[")
+    if start == -1:
+        return stripped  # no array at all -> caller's json.loads raises _NonRetryable
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(stripped)):
+        ch = stripped[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return stripped[start:i + 1]
+
+    # Unbalanced (no closing "]") -> hand back the stripped text so json.loads raises.
+    return stripped
+
+
 def parse_ai_response(text: str, idx_map: dict) -> list:
     """Parse the model's JSON array into normalized suggestion dicts keyed by the
     INTERNAL row_index (looked up from idx_map via excel_row).
@@ -255,7 +311,9 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
         classification suggestion dropped (None) + warn, parent suggestion kept.
     ai_suggested_level is NOT computed here -- the caller derives it at write-back.
     """
-    raw = _strip_code_fences(text)
+    # AI-2e: extract the array from surrounding prose (the real model often prefixes
+    # an explanation). Genuine garbage (no array) falls through to the json.loads raise.
+    raw = _extract_json_array(text)
     try:
         data = json.loads(raw)
     except (ValueError, TypeError) as exc:

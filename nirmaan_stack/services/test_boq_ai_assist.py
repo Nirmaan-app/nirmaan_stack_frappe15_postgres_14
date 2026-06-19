@@ -128,6 +128,87 @@ class TestParseAIResponse(unittest.TestCase):
         self.assertEqual(len(out), 1)
         self.assertEqual(out[0]["ai_suggested_parent"], 0)
 
+    # -- prose tolerance (AI-2e: the real model returns prose before the array) --
+
+    def test_parse_ai_response_extracts_array_from_leading_prose(self):
+        # T_P1: prose BEFORE the array is stripped.
+        inner = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": 5, "parent_confidence": "High", "explanation": "x",
+        }])
+        text = "Looking at the structure, the key issues are:\n\n1. blah blah\n\n" + inner
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(len(out), 1, "the array must be extracted from leading prose")
+        self.assertEqual(out[0]["ai_suggested_parent"], 0)
+
+    def test_parse_ai_response_extracts_array_with_trailing_prose(self):
+        # T_P2: prose AFTER the array is ignored.
+        inner = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": 5, "parent_confidence": "High", "explanation": "x",
+        }])
+        text = inner + "\n\nLet me know if you need more detail."
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(len(out), 1, "trailing prose after the array must be ignored")
+        self.assertEqual(out[0]["ai_suggested_parent"], 0)
+
+    def test_parse_ai_response_bracket_inside_explanation_string(self):
+        # T_P3: a literal "[" / "]" inside a JSON string value must not break the
+        # balanced bracket scan.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": "note", "classification_confidence": "High",
+            "suggested_parent": "NO_CHANGE", "parent_confidence": None,
+            "explanation": "row [18] is a note, see section ]bracket[ test",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(len(out), 1, "string-literal brackets must not break the scan")
+        self.assertEqual(out[0]["ai_suggested_classification"], "note")
+        self.assertEqual(out[0]["ai_explanation"], "row [18] is a note, see section ]bracket[ test")
+
+    def test_parse_ai_response_prose_then_array_real_cert_shape(self):
+        # T_P4: reproduce the live-cert failure shape -- a multi-line prose preamble
+        # followed by a multi-element array; all elements parse + map to row_index.
+        inner = json.dumps([
+            {"excel_row": 5, "suggested_classification": "preamble",
+             "classification_confidence": "High", "suggested_parent": "NO_CHANGE",
+             "parent_confidence": None, "explanation": "section header"},
+            {"excel_row": 6, "suggested_classification": None,
+             "classification_confidence": None, "suggested_parent": 5,
+             "parent_confidence": "Medium", "explanation": "belongs under row 5"},
+        ])
+        text = (
+            "Looking at the structure of this sheet, I can see a few areas where the "
+            "parser's hierarchy looks off.\n\n"
+            "Let me identify clear structural corrections.\n\n"
+            + inner
+        )
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(len(out), 2, "both elements must parse out of the prose-prefixed array")
+        self.assertEqual(out[0]["row_index"], 0, "excel_row 5 -> internal row_index 0")
+        self.assertEqual(out[1]["row_index"], 1, "excel_row 6 -> internal row_index 1")
+        self.assertEqual(out[1]["ai_suggested_parent"], 0,
+                         "suggested_parent excel_row 5 -> internal row_index 0")
+
+    def test_parse_ai_response_genuine_garbage_still_raises(self):
+        # T_P5: text with NO "[" at all is genuine garbage -> still _NonRetryable.
+        text = "I could not find any structural issues worth reporting in this sheet."
+        with self.assertRaises(_NonRetryable):
+            parse_ai_response(text, self.idx_map)
+
+    def test_parse_ai_response_bare_array_still_works(self):
+        # T_P6 (regression): a plain bare array with no prose/fences still parses.
+        text = json.dumps([{
+            "excel_row": 6, "suggested_classification": None, "classification_confidence": None,
+            "suggested_parent": 5, "parent_confidence": "High", "explanation": "x",
+        }])
+        out = parse_ai_response(text, self.idx_map)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["ai_suggested_parent"], 0)
+
+    # T_P7 (fenced array still works) is covered by
+    # test_parse_ai_response_strips_code_fences above -- the fence-strip fast path is
+    # unchanged; not duplicated here.
+
     def test_parse_ai_response_drops_unknown_excel_row(self):
         text = json.dumps([{
             "excel_row": 999, "suggested_classification": "note", "classification_confidence": "High",
