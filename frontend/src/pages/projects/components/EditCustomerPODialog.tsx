@@ -132,7 +132,7 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
 
   const isFormValid = useMemo(() => {
     return (
-      formData.customer_po_number.trim() !== "" &&
+      // PO Number is optional
       formData.customer_po_value_inctax > 0 &&
       formData.customer_po_creation_date.trim() !== "" &&
       isLinkAttachmentValid
@@ -219,12 +219,11 @@ export const EditCustomerPODialog: React.FC<EditCustomerPODialogProps> = ({
 
         <form onSubmit={handleSubmit} className="grid gap-6 py-4">
           <div className="space-y-2">
-            <Label htmlFor="customer_po_number">PO Number <span className="text-red-500">*</span></Label>
+            <Label htmlFor="customer_po_number">PO Number</Label>
             <Input
               id="customer_po_number"
               value={formData.customer_po_number}
               onChange={handleInputChange}
-              required
             />
           </div>
 

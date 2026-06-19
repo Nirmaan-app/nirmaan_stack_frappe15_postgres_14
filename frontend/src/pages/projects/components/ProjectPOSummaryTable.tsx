@@ -81,6 +81,7 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
   "vendor_name",
   "procurement_request",
   "status",
+  "billing_status",
   "po_amount_delivered",
   // --- NEW FIELD ---
   "payment_type",
@@ -452,7 +453,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       {
         accessorKey: "creation",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="PO Creation Date" />
+          <DataTableColumnHeader column={column} title="PO Creation Date" className="whitespace-nowrap" />
         ),
         cell: ({ row }) => (
           <div className="font-medium whitespace-nowrap">
@@ -467,7 +468,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       {
         id: "critical_po",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Critical PO" />
+          <DataTableColumnHeader column={column} title="Critical PO" className="whitespace-nowrap pl-5" />
         ),
         cell: ({ row }) => {
           const tasks = criticalTasksByPO.get(row.original.name) || [];
@@ -525,6 +526,26 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           exportValue: (row: ProcurementOrder) => {
             return row.status;
           },
+        },
+      },
+      {
+        accessorKey: "billing_status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Billing" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.billing_status === "Non-Billable" ? "red" : "green"}
+          >
+            {row.original.billing_status === "Non-Billable" ? "Non-Billable" : "Billable"}
+          </Badge>
+        ),
+        enableColumnFilter: true,
+        size: 130,
+        meta: {
+          exportHeaderName: "Billing",
+          exportValue: (row: ProcurementOrder) =>
+            row.billing_status === "Non-Billable" ? "Non-Billable" : "Billable",
         },
       },
       {
@@ -802,6 +823,19 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     enabled: true,
   });
 
+  const {
+    facetOptions: billingFacetOptions,
+    isLoading: isBillingFacetLoading,
+  } = useFacetValues({
+    doctype: DOCTYPE,
+    field: "billing_status",
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: dynamicFilters,
+    enabled: true,
+  });
+
   const facetFilterOptions = useMemo(
     () => ({
       vendor: {
@@ -824,6 +858,11 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         options: paymentTypeFacetOptions,
         isLoading: isPaymentTypeFacetLoading,
       },
+      billing_status: {
+        title: "Billing",
+        options: billingFacetOptions,
+        isLoading: isBillingFacetLoading,
+      },
     }),
     [
       statusFacetOptions,
@@ -834,6 +873,8 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       isOwnerFacetLoading,
       paymentTypeFacetOptions,
       isPaymentTypeFacetLoading,
+      billingFacetOptions,
+      isBillingFacetLoading,
     ]
   );
 

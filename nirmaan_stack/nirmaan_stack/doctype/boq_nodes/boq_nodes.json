@@ -13,6 +13,7 @@
   "parent_node",
   "node_details_section",
   "node_type",
+  "row_class",
   "level",
   "human_classification",
   "human_parent",
@@ -36,15 +37,23 @@
   "install_amount",
   "total_amount",
   "is_rate_only",
+  "is_synthetic",
   "amount_override",
   "notes",
+  "append_notes_raw",
   "edit_reason",
   "review_provenance_section",
+  "review_row_name",
+  "commit_provenance_id",
   "edit_log",
   "edited_by",
   "edited_at",
   "remarks",
-  "attached_notes"
+  "attached_notes",
+  "commit_version_section",
+  "commit_version",
+  "is_current",
+  "committed_at"
  ],
  "fields": [
   {
@@ -87,7 +96,13 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Node Type",
-   "options": "Preamble\nLine Item"
+   "options": "Preamble\nLine Item\nOther"
+  },
+  {
+   "description": "Full effective classification from review (preamble/line_item/note/spacer/subtotal_marker/header_repeat). node_type is the priceability axis (Preamble/Line Item = priceable, Other = non-priceable); row_class is the taxonomy axis. A future pricing walk selects node_type in (Preamble, Line Item).",
+   "fieldname": "row_class",
+   "fieldtype": "Data",
+   "label": "Row Class"
   },
   {
    "depends_on": "eval:doc.node_type == 'Preamble'",
@@ -198,21 +213,18 @@
   {
    "fieldname": "supply_amount",
    "fieldtype": "Currency",
-   "label": "Supply Amount",
-   "read_only": 1
+   "label": "Supply Amount"
   },
   {
    "fieldname": "install_amount",
    "fieldtype": "Currency",
-   "label": "Install Amount",
-   "read_only": 1
+   "label": "Install Amount"
   },
   {
    "fieldname": "total_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Amount",
-   "read_only": 1
+   "label": "Total Amount"
   },
   {
    "default": "0",
@@ -220,8 +232,14 @@
    "fieldname": "is_rate_only",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Rate Only",
-   "read_only": 1
+   "label": "Rate Only"
+  },
+  {
+   "default": "0",
+   "description": "Reserved for future synthetic-row support; not produced by the current parser -- expected 0 on all present-corpus commits. Carried verbatim from the review row so the plumbing is ready if synthetic rows are ever produced.",
+   "fieldname": "is_synthetic",
+   "fieldtype": "Check",
+   "label": "Is Synthetic"
   },
   {
    "default": "0",
@@ -236,6 +254,12 @@
    "label": "Notes"
   },
   {
+   "description": "Per-column append-to-notes values carried verbatim from the review row. JSON object {header-or-letter: value} (dict, NOT a list). Distinct from the flat notes field and the attached_notes list.",
+   "fieldname": "append_notes_raw",
+   "fieldtype": "JSON",
+   "label": "Append Notes Raw"
+  },
+  {
    "description": "Transient: populated by frontend before user edit, cleared after audit entry is written",
    "fieldname": "edit_reason",
    "fieldtype": "Data",
@@ -247,6 +271,18 @@
    "fieldname": "review_provenance_section",
    "fieldtype": "Section Break",
    "label": "Review Provenance"
+  },
+  {
+   "description": "Source BoQ Review Row name (BOQRR-...) this node was committed from. Human-readable provenance tie. MAY DANGLE after a re-parse (review rows are non-durable / deleted+recreated on re-parse) -- it is the readable link, NOT the durable key. The durable key is commit_provenance_id.",
+   "fieldname": "review_row_name",
+   "fieldtype": "Data",
+   "label": "Review Row Name"
+  },
+  {
+   "description": "Commit-minted stable provenance id (frappe.generate_hash). The DURABLE provenance key -- survives review-row churn (re-parse deletes/recreates review rows, but this id stays on the committed node).",
+   "fieldname": "commit_provenance_id",
+   "fieldtype": "Data",
+   "label": "Commit Provenance Id"
   },
   {
    "description": "Pre-commit review edit history, carried verbatim from the review row. List of {field, from, to, by, at, reason} (+ optional area / rate_subkey on per-area edits). Stored opaque -- the element shape is not validated here. KEPT on the node: Nirmaan Versions tracks only post-commit scalar edits and cannot reconstruct this pre-commit history.",
@@ -275,6 +311,32 @@
    "fieldname": "attached_notes",
    "fieldtype": "JSON",
    "label": "Attached Notes"
+  },
+  {
+   "fieldname": "commit_version_section",
+   "fieldtype": "Section Break",
+   "label": "Commit Version"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet) commit version. Shared with the committed grid + BoQ Sheet for the same commit. Set by the Phase-5 commit pipeline (Slice 3b).",
+   "fieldname": "commit_version",
+   "fieldtype": "Int",
+   "label": "Commit Version"
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current version per (boq, sheet). Enforced by the commit pipeline (freeze prior on re-commit), NOT this controller.",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "label": "Is Current"
+  },
+  {
+   "description": "Commit timestamp; set by the Phase-5 commit pipeline (Slice 3b).",
+   "fieldname": "committed_at",
+   "fieldtype": "Datetime",
+   "label": "Committed At",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

@@ -12,7 +12,12 @@
   "sheet_config",
   "has_prior_parse",
   "last_parsed_at",
-  "parse_in_progress"
+  "parse_in_progress",
+  "parse_failure_category",
+  "parse_failure_reason",
+  "parse_failure_at",
+  "commit_failure_reason",
+  "commit_failure_at"
  ],
  "fields": [
   {
@@ -69,6 +74,39 @@
    "fieldname": "parse_in_progress",
    "fieldtype": "Check",
    "label": "Parse In Progress",
+   "read_only": 1
+  },
+  {
+   "description": "Per-sheet parse-failure taxonomy (reactive #166). Only the three IN-SCOPE failure cases are recorded: Config stale (saved sheet_config no longer validates), Parser error (parse_boq raised), Insert error (per-sheet row insert raised). Blank = no recorded failure. Skip/Hidden/Ineligible/general-specs are NOT failures and never set this. Cleared on a subsequent successful parse.",
+   "fieldname": "parse_failure_category",
+   "fieldtype": "Select",
+   "label": "Parse Failure Category",
+   "options": "\nConfig stale\nParser error\nInsert error"
+  },
+  {
+   "description": "Human-readable specific reason for the recorded parse failure (the why that used to die in a logger.warning / coarse list). For Config stale this captures the validation detail; for Parser/Insert errors a concise message plus an Error Log handle when available. Cleared on a subsequent successful parse.",
+   "fieldname": "parse_failure_reason",
+   "fieldtype": "Small Text",
+   "label": "Parse Failure Reason"
+  },
+  {
+   "description": "When the recorded parse failure was captured. Cleared on a subsequent successful parse.",
+   "fieldname": "parse_failure_at",
+   "fieldtype": "Datetime",
+   "label": "Parse Failure At",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable reason for the most recent per-sheet COMMIT failure (the durable analog of parse_failure_reason; Slice F1). Freeform -- commit exceptions are heterogeneous (reconciliation divergence, controller validation, sheet-not-in-workbook, generic DB error) and are already flattened to one string by the commit pipeline; no category taxonomy. Blank = no recorded commit failure. Cleared on a subsequent successful commit.",
+   "fieldname": "commit_failure_reason",
+   "fieldtype": "Small Text",
+   "label": "Commit Failure Reason"
+  },
+  {
+   "description": "When the recorded commit failure was captured. Cleared on a subsequent successful commit.",
+   "fieldname": "commit_failure_at",
+   "fieldtype": "Datetime",
+   "label": "Commit Failure At",
    "read_only": 1
   }
  ],

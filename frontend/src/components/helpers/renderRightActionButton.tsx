@@ -48,6 +48,7 @@ export const RenderRightActionButton = ({
 
   const navigate = useNavigate();
   const { role, user_id } = useUserData()
+  const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
   const { selectedProject } = useContext(UserContext);
   const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
@@ -130,6 +131,8 @@ export const RenderRightActionButton = ({
       </Button>
     );
   } else if (locationPath === "/in-flow-payments") {
+    // Sales users (Executive / Lead) are view-only here — no create button.
+    if (isSales) return null;
     return (
       <Button onClick={toggleNewInflowDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
@@ -137,6 +140,8 @@ export const RenderRightActionButton = ({
       </Button>
     );
   } else if (locationPath === "/project-invoices") {
+    // Sales users (Executive / Lead) are view-only here — no create button.
+    if (isSales) return null;
     return (
       <Button onClick={toggleNewProjectInvoiceDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />

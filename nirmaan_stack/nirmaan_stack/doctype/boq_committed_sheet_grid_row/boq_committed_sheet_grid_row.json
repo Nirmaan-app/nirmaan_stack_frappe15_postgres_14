@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "creation": "2026-06-16 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "row_number",
+  "row_order",
+  "cells"
+ ],
+ "fields": [
+  {
+   "description": "The source Excel row number (faithful 1-based position).",
+   "fieldname": "row_number",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Row Number",
+   "reqd": 1
+  },
+  {
+   "description": "Emission order sort key; preserves order even when row_number is sparse.",
+   "fieldname": "row_order",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Row Order"
+  },
+  {
+   "description": "Arbitrary-width cell map {col_letter: value}, mirroring get_sheet_preview_full's per-row 'cells' shape. JSON (not exploded columns) gives arbitrary width with no grandchild table.",
+   "fieldname": "cells",
+   "fieldtype": "JSON",
+   "label": "Cells"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Committed Sheet Grid Row",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

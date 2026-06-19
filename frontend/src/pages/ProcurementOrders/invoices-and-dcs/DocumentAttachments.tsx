@@ -16,6 +16,7 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Types
 import {
@@ -142,6 +143,10 @@ export const DocumentAttachments = <T extends DocumentType>({
       unit: item.unit,
       category: item.category,
       make: item.make,
+      // Required: UploadDCMIRDialog filters PO items to billing_status === "Billable".
+      // Omitting this made every item fail the filter, so DCs uploaded from the PO
+      // detail page were saved with zero items (the hub mapping already includes it).
+      billing_status: item.billing_status,
     }));
   }, [docType, documentData]);
 
@@ -406,6 +411,11 @@ export const DocumentAttachments = <T extends DocumentType>({
     documentStatus &&
     ["Delivered", "Partially Delivered"].includes(documentStatus);
 
+  // A DC/MIR cannot be filed against a Non-Billable PO (backend rejects it),
+  // so the upload buttons are disabled with an explanatory tooltip.
+  const isPONonBillable =
+    isPO && (documentData as ProcurementOrder)?.billing_status === "Non-Billable";
+
   const handleInvoiceDialogInputChange = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -623,28 +633,50 @@ export const DocumentAttachments = <T extends DocumentType>({
                   </Badge>
                 </div>
                 {isPO && showDcTable && !isEstimatesExecutive && (
-                  <div className="flex gap-2 items-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenPDDUpload("DC")}
-                      className="text-primary border-primary hover:bg-primary/5"
-                      aria-label="Upload Delivery Challan"
-                    >
-                      <CirclePlus className="h-4 w-4 mr-1" aria-hidden="true" />
-                      Upload DC
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleOpenPDDUpload("MIR")}
-                      className="text-primary border-primary hover:bg-primary/5"
-                      aria-label="Upload Material Inspection Report"
-                    >
-                      <Upload className="h-4 w-4 mr-1" aria-hidden="true" />
-                      Upload MIR
-                    </Button>
-                  </div>
+                  <TooltipProvider>
+                    <div className="flex gap-2 items-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenPDDUpload("DC")}
+                              className="text-primary border-primary hover:bg-primary/5"
+                              aria-label="Upload Delivery Challan"
+                              disabled={isPONonBillable}
+                            >
+                              <CirclePlus className="h-4 w-4 mr-1" aria-hidden="true" />
+                              Upload DC
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {isPONonBillable && (
+                          <TooltipContent>This PO is Non-Billable</TooltipContent>
+                        )}
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenPDDUpload("MIR")}
+                              className="text-primary border-primary hover:bg-primary/5"
+                              aria-label="Upload Material Inspection Report"
+                              disabled={isPONonBillable}
+                            >
+                              <Upload className="h-4 w-4 mr-1" aria-hidden="true" />
+                              Upload MIR
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {isPONonBillable && (
+                          <TooltipContent>This PO is Non-Billable</TooltipContent>
+                        )}
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
                 )}
               </CardTitle>
             </CardHeader>

@@ -104,6 +104,51 @@ def _parse_status_key(job_id):
     return f"{_PARSE_STATUS_CACHE_PREFIX}::{job_id}"
 
 
+# ---------------------------------------------------------------------------
+# Config staleness (#166) -- ONE validation + ONE reason vocabulary, shared by the
+# REACTIVE parse-drop path (assemble_mapping_config Rule 3 / Slice 1a) and the
+# PROACTIVE read path (get_stale_sheets / Slice 1b) so their verdict + message can
+# never diverge.
+# ---------------------------------------------------------------------------
+
+def _stale_empty_reason(status: str) -> str:
+    """Config-stale reason for a sheet marked configured but with an EMPTY saved blob."""
+    return (
+        f"Saved configuration is empty although the sheet is marked {status!r}. "
+        f"Re-open and save the sheet configuration to re-parse."
+    )
+
+
+def _stale_invalid_reason(exc: Exception) -> str:
+    """Config-stale reason for a sheet whose saved blob no longer validates."""
+    return f"Saved configuration is no longer valid: {exc}"
+
+
+def _validate_sheet_blob(blob, sheet_name: str) -> Exception | None:
+    """Validate a stored sheet_config blob against the CURRENT SheetConfig model.
+
+    Returns None if it validates, else the validation/parse Exception.
+
+    SINGLE SOURCE OF TRUTH for "does this saved config still validate", shared by the
+    REACTIVE parse-drop path (assemble_mapping_config Rule 3 / Slice 1a) and the
+    PROACTIVE read path (get_stale_sheets / Slice 1b) -- so the two can never disagree.
+
+    Injects sheet_name before validating: production wizard blobs OMIT sheet_name (the
+    6-key shape saved by set_sheet_config), and SheetConfig.sheet_name has no default --
+    WITHOUT this injection EVERY blob would false-positive as invalid. The blob is copied
+    before injection so the caller's dict is never mutated. A malformed-JSON string (or a
+    non-dict blob) is also caught here and returned as the exc, matching the parser's
+    treat-as-stale behaviour."""
+    try:
+        raw = json.loads(blob) if isinstance(blob, str) else blob
+        raw = dict(raw)
+        raw["sheet_name"] = sheet_name
+        SheetConfig.model_validate(raw)
+        return None
+    except Exception as exc:
+        return exc
+
+
 def assemble_mapping_config(
     boq_name: str, force_reparse: bool = False
 ) -> tuple[MappingConfig, list[str]]:
@@ -200,24 +245,42 @@ def assemble_mapping_config(
                     "BoQ %s sheet %r: wizard_status=%r but sheet_config is empty; excluding",
                     boq_name, sheet_name, status,
                 )
+                # STALE (reactive #166): a sheet that LOOKS configured (status
+                # Config Done/Parsed/Finalized) but has no saved config -- record a
+                # durable reason. ADDITIVE: only the failure fields; wizard_status
+                # is left exactly as it was (the sheet still shows its prior state).
+                # Reason via the shared builder so the proactive read path (1b) matches.
+                _record_parse_failure(
+                    boq_name, sheet_name, "Config stale", _stale_empty_reason(status)
+                )
                 not_eligible.append(sheet_name)
                 continue
-            try:
-                raw = json.loads(blob) if isinstance(blob, str) else blob
-                # FIX: production wizard blobs omit 'sheet_name' (the 6-key shape saved by
-                # set_sheet_config has area_dimensions/column_role_map/header_row/header_row_count/
-                # skip_top_rows_after_header/top_header_rows_override -- verified live on
-                # BOQ-26-00150 and BOQ-26-00145). SheetConfig.sheet_name has no default; without
-                # this injection model_validate raises and the sheet falls into not_eligible.
-                raw["sheet_name"] = sheet_name
-                sc = SheetConfig.model_validate(raw)
-            except Exception as exc:
+            # Gate via the SHARED validate helper (1a + 1b single source of truth). It
+            # injects sheet_name (production blobs omit it) and catches a malformed blob.
+            exc = _validate_sheet_blob(blob, sheet_name)
+            if exc is not None:
                 logger.warning(
                     "BoQ %s sheet %r: invalid sheet_config (%s); excluding",
                     boq_name, sheet_name, exc,
                 )
+                # STALE (reactive #166, the core case): a config-field-set change
+                # invalidated a pre-existing blob. The validation exc is the precise
+                # "which field-set is now invalid" detail that was previously erased to
+                # logger.warning only -- capture it as the durable reason. ADDITIVE:
+                # wizard_status is untouched (the sheet keeps its prior rows + state).
+                _record_parse_failure(
+                    boq_name, sheet_name, "Config stale", _stale_invalid_reason(exc)
+                )
                 not_eligible.append(sheet_name)
                 continue
+            # Valid -> build the SheetConfig the parser consumes. _validate_sheet_blob is
+            # the gating source of truth (shared with get_stale_sheets); we re-validate
+            # here only to obtain the model object -- a cheap pure-Python re-parse,
+            # behaviour-identical to the prior single-validate.
+            raw = json.loads(blob) if isinstance(blob, str) else blob
+            raw = dict(raw)
+            raw["sheet_name"] = sheet_name
+            sc = SheetConfig.model_validate(raw)
             sheet_configs.append(sc)
             continue
 
@@ -237,6 +300,89 @@ def assemble_mapping_config(
         sheets=sheet_configs,
     )
     return config, not_eligible
+
+
+@frappe.whitelist()
+def get_stale_sheets(boq_name: str = None) -> dict:
+    """READ-ONLY: which of a BoQ's sheets have a STALE saved config (Slice 1b, proactive #166).
+
+    A sheet is STALE iff it would be a DATA parse target (mirroring assemble_mapping_config's
+    Rule-3 routing under force_reparse=False) AND its saved sheet_config blob fails validation
+    against the CURRENT SheetConfig model -- i.e. a code change to the config field-set / role
+    vocabulary / validators silently invalidated a blob the user never touched. This surfaces
+    the SAME "reconfigure this sheet" condition Slice 1a persists REACTIVELY at parse-drop, but
+    PROACTIVELY, before a parse is ever triggered.
+
+    Detection is validate-on-read via the SHARED _validate_sheet_blob helper (the exact
+    SheetConfig.model_validate the parser runs), so the proactive flag and the reactive
+    parse-drop verdict can never diverge. Tracks the live model automatically -- NO stamp,
+    NO schema field, NO migration.
+
+    ROUTING PARITY (no new gating; mirrors assemble_mapping_config exactly):
+      - general-specs pointer (BOQs.general_specs_sheets) -> master_preamble, never stale.
+      - Hidden / Skip -> skip=True, never stale.
+      - Pending / Parse failed / Finalized / blank -> not a data sheet here, never stale
+        (UNCONFIGURED is not stale -- no cry-wolf; Finalized is data-eligible only under
+        force_reparse, which this normal read does not assume).
+      - Config Done / Parsed (the Rule-3 base set) with a NON-EMPTY blob -> validate; an
+        invalid blob is STALE (reason = the validation detail).
+      - Config Done / Parsed with an EMPTY blob -> STALE, mirroring 1a's empty-on-done case
+        (reason = the same generic empty message via the shared builder).
+
+    PURE READ: computes on read and returns; writes NOTHING (no set_value/insert/save/commit).
+
+    Returns {"stale_sheets": [{"sheet_name": <verbatim #152>, "reason": str}, ...]}.
+    Missing/unknown boq_name -> frappe.throw.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.parse_run.get_stale_sheets
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    boq_doc = frappe.get_doc("BOQs", boq_name)
+
+    # Same general-specs pointer read assemble_mapping_config uses (Rule 1).
+    general_specs_sheet_names: set[str] = {
+        row.source_sheet_name
+        for row in (boq_doc.general_specs_sheets or [])
+        if row.source_sheet_name
+    }
+
+    stale_sheets: list[dict] = []
+    for draft in boq_doc.sheet_drafts:
+        sheet_name = draft.sheet_name
+        status = draft.wizard_status or ""
+
+        # Rule 1 parity: general-specs -> master_preamble (no column map), never stale.
+        if sheet_name in general_specs_sheet_names:
+            continue
+        # Rule 2 parity: Hidden / Skip -> skip=True, never stale.
+        if status in {"Hidden", "Skip"}:
+            continue
+        # Rule 3 parity (force_reparse=False read semantics): only the base data statuses
+        # are candidates. Pending / Parse failed / Finalized / blank are not data sheets ->
+        # not "stale", just not configured-as-data here (no cry-wolf on unconfigured sheets).
+        if status not in _RULE3_BASE_STATUSES:
+            continue
+
+        blob = draft.sheet_config
+        if not blob:
+            # EMPTY-on-done: mirror 1a EXACTLY (1a flags an empty blob on a configured
+            # status as Config stale). Same reason via the shared builder.
+            stale_sheets.append({
+                "sheet_name": sheet_name,  # verbatim (#152)
+                "reason": _stale_empty_reason(status),
+            })
+            continue
+        exc = _validate_sheet_blob(blob, sheet_name)
+        if exc is not None:
+            stale_sheets.append({
+                "sheet_name": sheet_name,  # verbatim (#152)
+                "reason": _stale_invalid_reason(exc),
+            })
+
+    return {"stale_sheets": stale_sheets}
 
 
 def flatten_resolved_row(
@@ -643,13 +789,24 @@ def _run_parse_worker(
         # Step 4: Run parser (handles skip + master_preamble internally)
         try:
             parsed = parse_boq(tempfile_path, config)
-        except Exception:
-            frappe.log_error(
+        except Exception as exc:
+            err = frappe.log_error(
                 title=f"BoQ parse: parse_boq failed for {boq_name}",
                 message=frappe.get_traceback(),
             )
+            # PARSER-FAILED (reactive #166): the reason was previously only in the
+            # coarse error_code + the Error Log. Fold a durable per-sheet reason into
+            # the EXISTING "Parse failed" status write (same set_value, no new/changed
+            # status). parse_boq has no per-sheet isolation (DA-1), so every eligible
+            # sheet is attributed the same parser error -- matching today's behaviour.
+            reason = _reason_with_ref(f"Parser failed: {exc}", err)
+            failed_at = frappe.utils.now()
             for sn in eligible_data_sheets:
-                _set_draft_status(boq_name, sn, "Parse failed")
+                _set_draft_status(boq_name, sn, "Parse failed", extra_fields={
+                    "parse_failure_category": "Parser error",
+                    "parse_failure_reason": reason,
+                    "parse_failure_at": failed_at,
+                })
             frappe.db.commit()
             _publish_parse_event(boq_name, "error", user=user, error_code="parse_failed")
             return
@@ -688,15 +845,21 @@ def _run_parse_worker(
                 # Stamp parse-history fields alongside status in the same DB write so the
                 # frontend can distinguish "never parsed" from "Config Done after config change".
                 if sheet_name not in general_specs_sheet_names_worker:
+                    # CLEAR-ON-SUCCESS (reactive #166): a sheet that now parses cleanly
+                    # must not carry a stale failure notice. Clear the three failure
+                    # fields in the SAME set_value as the status/parse-history write.
                     _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields={
                         "has_prior_parse": 1,
                         "last_parsed_at": frappe.utils.now(),
+                        "parse_failure_category": None,
+                        "parse_failure_reason": None,
+                        "parse_failure_at": None,
                     })
 
                 parsed_sheets.append(sheet_name)
 
-            except Exception:
-                frappe.log_error(
+            except Exception as exc:
+                err = frappe.log_error(
                     title=f"BoQ parse: sheet '{sheet_name}' insert failed",
                     message=frappe.get_traceback(),
                 )
@@ -707,7 +870,14 @@ def _run_parse_worker(
                         title=f"BoQ parse: cleanup after '{sheet_name}' failure failed",
                         message=frappe.get_traceback(),
                     )
-                _set_draft_status(boq_name, sheet_name, "Parse failed")
+                # INSERT-FAILED (reactive #166): fold the durable reason into the
+                # EXISTING per-sheet "Parse failed" status write (same set_value).
+                reason = _reason_with_ref(f"Row insert failed: {exc}", err)
+                _set_draft_status(boq_name, sheet_name, "Parse failed", extra_fields={
+                    "parse_failure_category": "Insert error",
+                    "parse_failure_reason": reason,
+                    "parse_failure_at": frappe.utils.now(),
+                })
                 failed_sheets.append(sheet_name)
 
         # Step 6: Persist preamble text per general-specs sheet.
@@ -868,6 +1038,53 @@ def _set_draft_status(
         frappe.db.set_value("BoQ Sheet Draft", child_name, {"wizard_status": status, **extra_fields})
     else:
         frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", status)
+
+
+def _record_parse_failure(
+    boq_name: str,
+    sheet_name: str,
+    category: str,
+    reason: str,
+) -> None:
+    """Persist a per-sheet parse-failure reason ADDITIVELY (reactive half of #166).
+
+    Writes ONLY the three failure fields (parse_failure_category / _reason / _at) --
+    NEVER wizard_status. This is the write vehicle for the STALE case, where
+    assemble_mapping_config drops the sheet WITHOUT a status write today and must
+    keep doing so (the sheet stays Config Done/Parsed/Finalized; the displayed prior
+    rows stay truthful, the notice only clarifies they are from the prior parse). The
+    crash paths fold the same three fields into their existing "Parse failed"
+    set_value via _set_draft_status(extra_fields=...), so they do not need this.
+
+    sheet_name matched VERBATIM (#152). Missing rows silently skipped. No commit --
+    rides the caller's transaction (the worker commits; assemble's writes are flushed
+    by the worker's next commit).
+    """
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        return
+    frappe.db.set_value("BoQ Sheet Draft", child_name, {
+        "parse_failure_category": category,
+        "parse_failure_reason": reason,
+        "parse_failure_at": frappe.utils.now(),
+    })
+
+
+def _reason_with_ref(reason: str, error_log_doc: Any) -> str:
+    """Append a traceable Error Log handle to a reason when one is available (S2-5).
+
+    frappe.log_error returns the inserted Error Log doc on the normal path (None
+    under read_only / defer_insert). NEVER fabricate a handle -- if no name is
+    available the reason is returned unchanged.
+    """
+    name = getattr(error_log_doc, "name", None)
+    if name:
+        return f"{reason} (ref: Error Log {name})"
+    return reason
 
 
 def _publish_parse_event(

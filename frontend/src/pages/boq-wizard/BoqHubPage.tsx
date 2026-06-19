@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -35,10 +36,12 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, GetReviewRowsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
+import { CommitDialog } from "./CommitDialog";
+import { CommitResultsModal } from "./CommitResultsModal";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -147,6 +150,13 @@ const BoqHubPage = () => {
   // Hub-level XLSX export dialog (Slice D2b).
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
+  // Commit dialog (Phase 5 Slice 4b).
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  // Commit-results acknowledge modal (Phase 5 Slice 5 frontend). commitResult holds
+  // the {committed, failed} envelope; the modal opens once it is set.
+  const [commitResult, setCommitResult] = useState<CommitBoqResponse | null>(null);
+  const [commitResultsOpen, setCommitResultsOpen] = useState(false);
+
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
@@ -160,6 +170,37 @@ const BoqHubPage = () => {
   // convention: null disables until boqId is present.
   const { data: wpMapData, mutate: mutateWpMap } = useFrappeGetCall<{ message: WorkPackageMap }>(
     "nirmaan_stack.api.boq.wizard.update_sheet_draft.get_boq_work_packages",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
+  // Commit-eligibility gate (Phase 5 Slice 4b). READ-ONLY whitelisted GET; same
+  // useFrappeGetCall family + null-key gotcha as the work-package map. Drives the
+  // Commit button's enabled state + the dialog's checklist. mutate on commit so
+  // eligibility stays fresh (commit does not change wizard_status, but harmless).
+  const { data: committableData, mutate: mutateCommittable } = useFrappeGetCall<{ message: GetCommittableSheetsResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_committable_sheets",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
+  // Current committed-state per sheet (Slice 4a endpoint). Drives the per-card
+  // "Committed" badge + timestamp, the "Committed: N" footer tally, and the
+  // dialog's last-committed sub-labels + re-commit warning. mutate after a commit
+  // so badges + count update without a page reload.
+  const { data: committedStateData, mutate: mutateCommittedState } = useFrappeGetCall<{ message: GetCommittedStateResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
+  // F2 "needs attention" -- live stale-config signal (Slice 1b get_stale_sheets). Same
+  // bare-whitelist GET family + null-key gotcha as the reads above. Computed live (no
+  // stored field), so it must be re-fetched (mutateStale) whenever config/parse/commit
+  // changes for the indicator to clear. The parse/commit failure stamps ride the BOQs doc
+  // payload already, so this is the ONLY extra fetch F2 adds.
+  const { data: staleData, mutate: mutateStale } = useFrappeGetCall<{ message: GetStaleSheetsResponse }>(
+    "nirmaan_stack.api.boq.wizard.parse_run.get_stale_sheets",
     { boq_name: boqId ?? "" },
     boqId ? undefined : null
   );
@@ -210,6 +251,7 @@ const BoqHubPage = () => {
 
       if (payload.status === "success") {
         void mutate();
+        void mutateStale();   // F2: a re-parse that fixed a stale config clears the indicator
         setParseResult({
           parsed: payload.parsed_sheets ?? [],
           notParsed: payload.not_parsed_sheets ?? [],
@@ -352,12 +394,41 @@ const BoqHubPage = () => {
   // Calls SWR mutate to re-fetch the BOQ after any successful card action.
   // Server is the source of truth; no local-state authority over wizard_status.
   // mutateWpMap refreshes the work-package map in case a spoke save happened.
-  const handleSaved = () => { void mutate(); void mutateWpMap(); };
+  const handleSaved = () => { void mutate(); void mutateWpMap(); void mutateStale(); };
 
   // ── Work-package map (Slice 3f-readback) ────────────────────────────────────
   // Derived from the get_boq_work_packages response once loaded; empty while loading.
   // Each SheetCard receives its sheet's entry via workHeaders prop.
   const workPackageMap: WorkPackageMap = wpMapData?.message ?? {};
+
+  // ── Commit data (Phase 5 Slice 4b) ──────────────────────────────────────────
+  // The gate's eligible list (sheet_name + disposition) drives the Commit button +
+  // the dialog checklist. The committed-state map (keyed by sheet_name VERBATIM #152)
+  // drives the per-card badge, the dialog's last-committed sub-labels + re-commit
+  // warning, and the footer tally. Both empty while loading.
+  const committableSheets: CommittableSheet[] = committableData?.message?.committable_sheets ?? [];
+  const committedMap = new Map<string, CommittedSheetState>(
+    (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
+  );
+  // F2: live stale-config reason per sheet (keyed by sheet_name VERBATIM #152). Mirrors
+  // committedMap. Passed to each card as staleReason; the card de-dups it against the
+  // draft's stored parse_failure_* when both describe the same staleness.
+  const staleMap = new Map<string, string>(
+    (staleData?.message?.stale_sheets ?? []).map((s) => [s.sheet_name, s.reason])
+  );
+  // After commit_boq RESOLVES (Slice 5): re-fetch the BoQ doc + committed-state (+
+  // eligibility) so badges, the "Committed: N" tally, and the dialog sub-labels update
+  // with no reload, AND open the acknowledge-only results modal enumerating
+  // committed[] + failed[]. The mutates fire unconditionally -- harmless on an
+  // all-failed commit (nothing changed), correct whenever any sheet committed.
+  const handleCommitted = (result: CommitBoqResponse) => {
+    void mutate();
+    void mutateCommittedState();
+    void mutateCommittable();
+    void mutateStale();   // F2: a fresh commit failure (or a cleared one) changes attention
+    setCommitResult(result);
+    setCommitResultsOpen(true);
+  };
 
   // ── Spoke navigation callback (Module 3 Slice 3b-ii) ──────────────────────
   // Passed to each SheetCard so the card stays router-free. Hub owns navigate.
@@ -464,6 +535,10 @@ const BoqHubPage = () => {
   const parsedCheckDoneCount = dataSheets.filter(
     (s) => getEffectiveStatus(s) === "Finalized"
   ).length;
+
+  // Committed tally (Slice 4b): drafts that have a current committed record. NOT a
+  // wizard_status bucket -- derived from committed-state (keyed by sheet_name VERBATIM).
+  const committedCount = allDrafts.filter((s) => committedMap.has(s.sheet_name)).length;
 
   // ── Export eligibility (Slice D2b) ────────────────────────────────────────
   // The global "Export Finalized" button + the dialog checklist operate on every
@@ -783,6 +858,8 @@ const BoqHubPage = () => {
             onReparse={handleReparseCard}
             onExportCsv={handleExportCsv}
             workHeaders={workPackageMap[draft.sheet_name]}
+            committedState={committedMap.get(draft.sheet_name)}
+            staleReason={staleMap.get(draft.sheet_name)}
           />
         ))}
 
@@ -816,6 +893,8 @@ const BoqHubPage = () => {
                     onSaved={handleSaved}
                     onOpenReview={handleOpenReview}
                     workHeaders={workPackageMap[draft.sheet_name]}
+                    committedState={committedMap.get(draft.sheet_name)}
+                    staleReason={staleMap.get(draft.sheet_name)}
                   />
                 ))}
               </div>
@@ -878,6 +957,7 @@ const BoqHubPage = () => {
           {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
           {parsedCount > 0 && ` · ${parsedCount} parsed`}
           {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} checked`}
+          {committedCount > 0 && ` · ${committedCount} committed`}
           {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
@@ -947,6 +1027,27 @@ const BoqHubPage = () => {
               </TooltipTrigger>
               <TooltipContent>{parseGateReason}</TooltipContent>
             </Tooltip>
+            {/* Commit (Phase 5 Slice 4b) -- 4th sibling. Enabled when >= 1 sheet is
+                commit-eligible (the gate); opens the commit modal. The eligible set
+                comes from get_committable_sheets, NOT from committed-state. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    disabled={committableSheets.length === 0}
+                    onClick={() => setCommitDialogOpen(true)}
+                  >
+                    Commit
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {committableSheets.length > 0
+                  ? "Commit eligible sheets (finalized + general-specs) to the permanent record"
+                  : "No sheets are eligible to commit yet"}
+              </TooltipContent>
+            </Tooltip>
           </TooltipProvider>
         </div>
       </div>
@@ -973,6 +1074,24 @@ const BoqHubPage = () => {
         onOpenChange={setExportDialogOpen}
         boqName={boq.name}
         eligibleSheets={exportEligibleSheetNames}
+      />
+
+      {/* ── Commit dialog (Phase 5 Slice 4b) ──────────────────────────────── */}
+      <CommitDialog
+        open={commitDialogOpen}
+        onOpenChange={setCommitDialogOpen}
+        boqName={boq.name}
+        eligibleSheets={committableSheets}
+        committedState={committedMap}
+        onCommitted={handleCommitted}
+      />
+
+      {/* ── Commit-results acknowledge modal (Phase 5 Slice 5 frontend) ────── */}
+      {/* Enumerates committed[] + failed[] from commit_boq; single OK dismiss.   */}
+      <CommitResultsModal
+        open={commitResultsOpen}
+        onOpenChange={setCommitResultsOpen}
+        result={commitResult}
       />
 
       {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}
@@ -1009,9 +1128,40 @@ const BoqHubPage = () => {
                 </p>
               )}
               {parseResult.failed.length > 0 && (
-                <p className="text-destructive">
-                  Failed to parse: {parseResult.failed.join(", ")}
-                </p>
+                <div className="text-destructive">
+                  <p className="font-medium">Failed to parse:</p>
+                  <ul className="mt-1 space-y-1">
+                    {parseResult.failed.map((name) => {
+                      // F3: the per-sheet REASON. The boq:parse_run_done socket payload
+                      // carries names only -- the reason lives in the persisted
+                      // parse_failure_* (Slice 1a) on the draft, which rides the BOQs doc
+                      // the hub already fetches + mutate()s on parse-done. VERBATIM #152
+                      // lookup (same as F2 / the hub). The worker COMMITS the stamp BEFORE
+                      // publishing, so the mutate()'d boq carries it; during the sub-second
+                      // window before the refetch lands the lookup is undefined -> NAME-ONLY
+                      // fallback (never a blank / "undefined"); the next render shows the
+                      // name + reason. Language matches the F2 card expand (same reason +
+                      // category strings).
+                      const d = boq.sheet_drafts?.find((sd) => sd.sheet_name === name);
+                      const reason = d?.parse_failure_reason?.trim() || null;
+                      const cat = d?.parse_failure_category || null;
+                      return (
+                        <li key={name} className="flex items-start gap-1.5">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span className="min-w-0">
+                            {name.trim() || name}
+                            {reason && (
+                              <>
+                                {" "}&mdash; {cat ? `(${cat}) ` : ""}
+                                {reason}
+                              </>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               )}
               {parseResult.parsed.length === 0 &&
                 parseResult.notParsed.length === 0 &&

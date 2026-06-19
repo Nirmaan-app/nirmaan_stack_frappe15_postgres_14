@@ -24,12 +24,20 @@ def validate(doc, method):
 
     if not doc.node_type:
         frappe.throw(_("Node Type is required"))
-    if not doc.description:
+    # Description is required only for the PRICEABLE node types (Preamble / Line Item).
+    # A non-priceable "Other" node (X: note / subtotal_marker / header_repeat) may be
+    # contentless (e.g. a marker), so the constraint no-ops for it -- the rest of the
+    # validation already falls through both type branches for "Other".
+    if doc.node_type in ("Preamble", "Line Item") and not doc.description:
         frappe.throw(_("Description is required"))
 
     if doc.node_type == "Preamble":
-        if doc.level is None or doc.level < 1:
-            frappe.throw(_("Level must be a positive integer for Preamble nodes"))
+        # Level 0 is allowed (Phase 5 level-less-preamble guard fix): a preamble whose
+        # source carries no level commits at the level the commit pipeline computes
+        # (max(0, min child level - 1), or the sheet's shallowest defined level, else 0).
+        # Only None / negative levels are rejected.
+        if doc.level is None or doc.level < 0:
+            frappe.throw(_("Level must be a non-negative integer for Preamble nodes"))
         if doc.level > 5:
             frappe.msgprint(
                 _("Preamble level {0} is unusually deep (> 5). Verify the hierarchy is correct.").format(doc.level),
@@ -51,14 +59,20 @@ def validate(doc, method):
         if not any([doc.supply_rate, doc.install_rate, doc.combined_rate]):
             frappe.msgprint(_("No rate fields are set on this Line Item"), alert=True)
 
-    # Rate consistency: combined_rate must equal supply_rate + install_rate when all are set.
+    # Rate consistency: combined_rate should equal supply_rate + install_rate when all are set.
     # combined_rate of 0 is treated as "not set" (matches Currency field UI behaviour).
+    # CAPTURE-ONLY (Phase 5 Slice 3b): this is a WARNING, not a block. The committed tier
+    # records what review captured VERBATIM; tendering reconciles any rate mismatch. (Was a
+    # frappe.throw pre-3b; relaxed because the commit pipeline re-saves nodes in pass 2 and
+    # a throw would abort an otherwise-faithful commit.)
     if doc.combined_rate and (doc.supply_rate or doc.install_rate):
         expected = (doc.supply_rate or 0) + (doc.install_rate or 0)
         if doc.combined_rate != expected:
-            frappe.throw(
-                _("Combined Rate must equal Supply Rate + Install Rate when all are set. "
-                  "Either remove Combined Rate or use only Combined Rate.")
+            frappe.msgprint(
+                _("Combined Rate does not equal Supply Rate + Install Rate. "
+                  "Recorded as captured; reconcile in tendering."),
+                alert=True,
+                indicator="orange",
             )
 
     if doc.parent_node:
@@ -86,10 +100,14 @@ def validate(doc, method):
 
 
 def before_save(doc, method):
+    # Capture-only (Phase 5 Slice 2.5): the committed tier persists the reviewed values
+    # VERBATIM. All money computation -- amount = rate x qty, the parent rate weighted-
+    # average roll-up, and the child rate inheritance/amount compute -- was REMOVED from
+    # the write chain and moves to the future tendering phase (built against that
+    # consumer's shape). Only the structural path identity is derived here.
+    # NOTE: is_rate_only is NO LONGER auto-set here; its value is carried through from the
+    # BoQ Review Row by the Slice-3 commit pipeline (the parser sets it).
     _compute_path(doc)
-    _process_qty_by_area_rows(doc)
-    _recompute_parent_rates_from_areas(doc)
-    _compute_amounts(doc)
 
 
 def after_insert(doc, method):
@@ -136,36 +154,6 @@ def _compute_path(doc):
     doc.path = f"{parent_path}/{doc.name}"
 
 
-def _compute_amounts(doc):
-    if doc.amount_override:
-        return
-
-    # Reset before recomputing to prevent stale values from a prior save leaking through
-    doc.supply_amount = None
-    doc.install_amount = None
-    doc.total_amount = None
-
-    qty = doc.qty if doc.qty is not None else 0
-
-    if doc.supply_rate is not None:
-        doc.supply_amount = qty * doc.supply_rate
-
-    if doc.install_rate is not None:
-        doc.install_amount = qty * doc.install_rate
-
-    if doc.combined_rate:  # 0 treated as not-set, consistent with validation
-        doc.total_amount = qty * doc.combined_rate
-    elif any([doc.supply_rate, doc.install_rate]):
-        supply = doc.supply_amount or 0
-        install = doc.install_amount or 0
-        doc.total_amount = supply + install
-
-    # Auto-set is_rate_only: qty is explicitly zero and at least one rate is present
-    doc.is_rate_only = 1 if (
-        doc.qty == 0 and any([doc.supply_rate, doc.install_rate, doc.combined_rate])
-    ) else 0
-
-
 def _validate_qty_by_area(doc):
     rows = doc.get("qty_by_area") or []
     if not rows:
@@ -203,40 +191,9 @@ def _validate_qty_by_area(doc):
                             alert=True,
                         )
 
-    # D. Per-child combined_rate consistency — blocking
+    # D. Per-child combined_rate consistency — blocking (STRUCTURAL, kept)
     for row in rows:
         _area_ctrl.validate_child(row)
-
-
-def _process_qty_by_area_rows(doc):
-    rows = doc.get("qty_by_area") or []
-    for row in rows:
-        _area_ctrl.apply_before_save(row, doc)
-
-
-def _recompute_parent_rates_from_areas(doc):
-    rows = doc.get("qty_by_area") or []
-    if not rows:
-        return
-
-    for rate_field in ("supply_rate", "install_rate", "combined_rate"):
-        relevant = [
-            (r.qty or 0, r.get(rate_field))
-            for r in rows
-            if r.get(rate_field) is not None and (r.qty or 0) > 0
-        ]
-        if len(relevant) < 2:
-            continue
-
-        rates = [entry[1] for entry in relevant]
-        if len(set(rates)) <= 1:
-            continue  # all per-area rates are uniform — leave parent untouched
-
-        total_qty = sum(entry[0] for entry in relevant)
-        if total_qty == 0:
-            continue
-
-        doc.set(rate_field, sum(entry[0] * entry[1] for entry in relevant) / total_qty)
 
 
 _NULLABLE_NUMERIC_FIELDS = frozenset({

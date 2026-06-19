@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
@@ -28,7 +29,7 @@ import { Label } from "@/components/ui/label";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
 import { TailSpin } from "react-loader-spinner";
-import { FileText } from "lucide-react";
+import { FileText, Info } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import SITEURL from "@/constants/siteURL";
 
@@ -358,13 +359,23 @@ export const UploadDCMIRDialog = ({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             {/* Section 1: Document */}
             {mode === "create" && (
-              <CustomAttachment
-                selectedFile={selectedFile}
-                onFileSelect={setSelectedFile}
-                label={`Select ${typeLabel} File`}
-                maxFileSize={20 * 1024 * 1024}
-                acceptedTypes={["application/pdf", "image/*"]}
-              />
+              <div className="space-y-1.5">
+                <Label>
+                  {typeLabel} File <span className="text-red-500">*</span>
+                </Label>
+                <CustomAttachment
+                  selectedFile={selectedFile}
+                  onFileSelect={setSelectedFile}
+                  label={`Select ${typeLabel} File`}
+                  maxFileSize={20 * 1024 * 1024}
+                  acceptedTypes={["application/pdf", "image/*"]}
+                />
+                {!selectedFile && (
+                  <p className="text-xs text-muted-foreground">
+                    A {typeLabel} file attachment is required to upload.
+                  </p>
+                )}
+              </div>
             )}
 
             {mode === "edit" && existingDoc?.attachment_url && (
@@ -512,11 +523,22 @@ export const UploadDCMIRDialog = ({
             {/* Section 2: Items */}
             {(dcType === "Delivery Challan" || mirQuantityMode !== undefined) && (
               <div>
-                <p className="text-sm text-muted-foreground mb-2">
-                  {mirQuantityMode === "no"
-                    ? "Select items included in this MIR"
-                    : "Select items and enter delivered/inspected quantities"}
-                </p>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="text-sm text-muted-foreground">
+                    {mirQuantityMode === "no"
+                      ? "Select items included in this MIR"
+                      : "Select items and enter delivered/inspected quantities"}
+                  </p>
+                  {!isITM && (
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 gap-1 border-primary/30 bg-primary/5 text-primary text-xs font-medium"
+                    >
+                      <Info className="h-3 w-3" aria-hidden="true" />
+                      Billable items only
+                    </Badge>
+                  )}
+                </div>
                 <DCMIRItemSelector
                   form={form}
                   showQuantity={dcType === "Delivery Challan" || mirQuantityMode === "yes"}

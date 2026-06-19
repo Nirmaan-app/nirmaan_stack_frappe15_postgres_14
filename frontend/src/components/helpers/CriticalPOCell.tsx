@@ -9,7 +9,7 @@ export const criticalPOLabel = (t: { item_name: string; sub_category?: string })
 
 export const CriticalPOCell = ({ tasks }: { tasks: CriticalPOTask[] }) => {
     if (!tasks || tasks.length === 0) {
-        return <span className="text-gray-300 text-xs">—</span>;
+        return <span className="text-gray-300 text-xs pl-5">—</span>;
     }
 
     return (

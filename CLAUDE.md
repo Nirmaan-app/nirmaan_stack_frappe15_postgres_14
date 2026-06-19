@@ -1,6 +1,416 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-16 (Phase 4 P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive
+**Last updated:** 2026-06-18 (Slice F1 -- DURABLE PER-SHEET COMMIT-FAILURE PERSISTENCE -- BACKEND, feat
+5c095b34. The backend half of the "needs attention" F-arc (F2/F3/F4 = the frontend, NOT this slice). Before F1,
+`commit_boq`'s per-sheet failure handler built an in-memory `failed[]`, `frappe.log_error`'d the traceback, and
+returned the envelope -- but PERSISTED NOTHING per-sheet, so once the HTTP response was gone a hub card had nothing
+durable to read across sessions. F1 PERSISTS the per-sheet commit failure (reason + timestamp) on the `BoQ Sheet
+Draft`, CLEARED on a successful re-commit -- the durable analog of Slice 1a's `parse_failure_*`. **BACKEND ONLY.**
+**SHAPE = a PAIR, NO category Select (owner-confirmed):** commit exceptions are heterogeneous/freeform
+(reconciliation divergence, controller validation throw, sheet-not-in-workbook, generic DB error), already flattened
+to one string by `_commit_failure_reason`; a Select would be mostly "Other". **(1) SCHEMA (`boq_sheet_draft.json`,
++2 additive NULLABLE fields at the tail after `parse_failure_at`; `bench migrate` CLEAN, runtime columns verified
+via `has_column` + `get_meta`):** `commit_failure_reason` (Small Text), `commit_failure_at` (Datetime, read_only). No
+`reqd`, no default, NO data backfill (existing rows = NULL = "no commit failure" = correct). **(2) WRITE HOOK -- the
+ORDERING is load-bearing:** in `commit_boq`'s per-sheet `except`, AFTER the MANDATORY Slice-5 `frappe.db.rollback()`
+(UNCHANGED -- orphan-prevention), a NEW `_record_commit_failure(boq, sheet, reason)` (mirrors `_record_parse_failure`:
+verbatim-#152 child lookup, `set_value` the two fields `update_modified=False`, no commit) THEN an explicit
+`frappe.db.commit()` flushes ONLY the stamp. WHY: (a) the write is AFTER the rollback so the rollback does not sweep it
+away; (b) the explicit commit is REQUIRED because `commit_boq` has NO trailing commit -- a LAST-sheet failure would
+otherwise never be flushed; (c) the draft is a DIFFERENT doctype from the rolled-back grid/sheet/node tiers, so after
+the rollback this `set_value` is the ONLY pending write and CANNOT re-flush a rolled-back tier write (T2 orphan-
+prevention preserved). The `failed.append` now reuses the captured `reason` (no behaviour change). **(3) CLEAR HOOK:**
+a NEW `_clear_commit_failure(boq, sheet)` (both fields -> None) folded into `_commit_one_sheet`'s trailing per-sheet
+`frappe.db.commit()` (after the grid reconcile, before the commit), so a re-commit that now succeeds drops the stale
+stamp ATOMICALLY with the grid/sheet/node write (mirrors 1a's clear-on-success). **PAYLOAD CONTRACT FROZEN:** the
+`{committed, failed}` envelope is byte-for-byte unchanged -- the persisted fields are an additive SUPERSET of what
+`failed[]` already returns. **TESTS:** `test_commit_pipeline` **44 -> 49** (+5, all green, in `TestCommitBoqPartialFailure`
++ a tearDown stamp-clear so committed stamps don't leak): persist-on-LAST-sheet-failure (the failing sheet is last ->
+proves the explicit commit is load-bearing, non-vacuous); KEYSTONE survives-rollback-and-no-orphan (a POST-FREEZE
+re-commit failure on the last sheet -- the prior version STAYS current [orphan-prevention] AND the stamp SURVIVES the
+same rollback that discarded the freeze); clear-on-successful-recommit; clean-first-commit-leaves-NULL;
+mixed-outcome-only-the-failed-sheet-stamped. The existing load-bearing T2 orphan-prevention test is UNTOUCHED + green.
+NO change to parse_run.py / review_screen.py / the reconciliation internals / any frontend. Pure-backend -> root
+CLAUDE.md + boq-upload-plan.md substantive; frontend/CLAUDE.md deliberately NOT touched (build-prompt scope; no
+frontend change). Full detail in boq-upload-plan.md "Slice F1 -- durable commit-failure persistence".)
+// prior: 2026-06-18 (Slice 2 -- COMMIT ROUND-TRIP RECONCILIATION (output-fidelity) -- BACKEND, feat
+01c7dbaf. An AUTOMATIC, headless, EVERY-COMMIT verification that the committed tiers (node tree + per-area
+children + faithful grid) equal what the commit PRODUCED. Runs at the tail of each per-sheet write path, BEFORE the
+per-sheet `frappe.db.commit()`; a divergence `frappe.throw`s and the EXISTING Slice-5 per-sheet isolation converts
+the sheet into a clean `{failed}` entry (rollback + reason) -- NO new plumbing, isolation boundary UNCHANGED.
+Recovers the dropped Slice-6 dogfood as an always-on check. **BACKEND ONLY.** **LOCKED SCOPE = OUTPUT-FIDELITY, not
+logic-correctness:** verifies ONLY that the value each transform PRODUCED was COPIED to the DB accurately; it does
+NOT judge whether a produced value is *correct* (valid parent, no cycles, sane rates, declared area,
+level-monotonicity = VALIDITY = tendering's job = OUT OF SCOPE -- no coherence checks built). **ONE CHECK TYPE, two
+anchors:** (a) COPIED fields -> `stored == transform(review-row source)` reusing the in-hand `node_rows` snapshot
+(code/sort_order/source_row_number/description-cascade/unit/make_model/node_type/row_class/qty[Line-Item None->0]/
+the six money fields[word-order reversal]/is_rate_only/is_synthetic/human_is_root[bool]/human_classification/
+human_parent[-1 sentinel]/notes[row_notes rename]/append_notes_raw/attached_notes/edit_log[JSON, empty-normalized]/
+the per-area children[deterministic explosion, flat-stays-flat for free]); (b) DERIVED (EXACTLY TWO) -> `stored ==
+CAPTURED producer output`, NEVER re-running the producer: `parent_node = name_by_idx.get(eff_parent_by_idx.get(idx))`
+(the captured eff-parent map + pass-1 insertion record -- the exact lookup pass-2 used; re-running resolve_effective
+would be the self-confirming trap), `level = docs_by_idx[idx].level` (the in-memory value the producer built -- a
+THIN tripwire: nothing mutates level today so it can't fire under current code, kept for near-zero-cost regression
+value). Plus a node-COUNT check (produced rows vs current stored nodes -> catches a finalized sheet that should have
+nodes but persisted none) + a grid row_number/cells compare. **Numerics compared rounded to the field's own
+`frappe.get_precision` (money 2dp via empty `currency_precision`; qty 3dp via `float_precision`) -- NEVER raw float
+equality -- so the Float->Currency coercion never false-flags** (day-N census: 0 divergences across 584 resolvable
+nodes at 2dp). Source values reused from `node_rows`/`grid_rows` (no re-query drift); stored read fresh in-transaction
+(Frappe sees the uncommitted writes). **SUPPRESS-SET encoded exactly** (blank-qty=0, placeholder description,
+flat-stays-flat[absent kind == 0], gen-specs 0 nodes, minted `commit_provenance_id` + versioning triple + `path` +
+`boq` EXCLUDED from compare, spacer grid-only, note/subtotal/header_repeat -> Other money-null, -1 sentinel, bool
+coercion). **TWO HELPERS** (`_reconcile_node_tree` inline at `_commit_node_tree` tail; `_reconcile_grid` from
+`_commit_one_sheet` before commit) -- no signature change. **TESTS:** `test_commit_pipeline` **33 -> 44** (+11):
+MUST-FIRE (6: corrupted money, dropped per-area child, zero-node finalized, wrong parent_node, mutated level,
+corrupted grid -- each tampers the STORED side after write via a reconcile-helper wrapper, no production-code
+change) + MUST-NOT-FIRE (5: flat-stays-flat, blank-qty/placeholder-desc, gen-specs 0 nodes,
+note-Other-money-null+dropped-spacer-parent-root, re-commit versioning-excluded); the existing 33 faithful-commit
+tests stay green (the reconcile does not break a normal commit). NO schema change, NO migration. Pure-backend ->
+boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md NOT touched (no frontend change). Full detail in
+boq-upload-plan.md "Slice 2 -- commit round-trip reconciliation".)
+// prior: 2026-06-18 (Slice 1b -- CONFIG STALENESS DETECTION (proactive #166) -- BACKEND, feat 32e31a2a.
+The PROACTIVE half of issue #166 (S1-1/S1-2). Slice 1a made the REACTIVE half durable (reason persisted when a
+stale config is DROPPED at parse). 1b flags a stale config ON READ -- before the user triggers a parse -- so a
+later hub-card slice can show "reconfigure this sheet" without first hitting a parse failure. **BACKEND ONLY**
+(read-only endpoint; the hub-card render is a SEPARATE later frontend slice). **VERDICT IMPLEMENTED = validate-on-
+read (recon's approach B), ZERO SCHEMA:** NO fingerprint, NO version-stamp, NO doctype change, NO migration. A
+field-name fingerprint MISSES the dominant real staleness (`ColumnRole` Literal token renames + the
+`_AREA_COMPATIBLE_ROLES` / `model_validator` changes that actually caused #166) and a deep fingerprint can never
+capture imperative validator logic; so 1b runs the SAME `SheetConfig.model_validate` the parser runs -- catching
+everything a parse would and tracking the live model automatically (the property whose ABSENCE caused #166).
+**(1) SHARED HELPER `_validate_sheet_blob(blob, sheet_name) -> Exception | None`** (parse_run.py) -- the SINGLE
+SOURCE OF TRUTH for "does this saved config still validate", used by BOTH the reactive parse-drop path
+(`assemble_mapping_config` Rule 3 / 1a) and the proactive read path (1b). INJECTS sheet_name (production 6-key
+blobs OMIT it; `SheetConfig.sheet_name` has no default -- WITHOUT injection EVERY blob false-positives -- the #1
+cry-wolf trap) and catches a malformed/non-dict blob. Reason text centralized in `_stale_empty_reason(status)` /
+`_stale_invalid_reason(exc)` so the reactive + proactive messages are BYTE-IDENTICAL. `assemble_mapping_config`
+Rule 3 REFACTORED to call the helper + builders -- BEHAVIOR-PRESERVING for 1a (the success path re-validates only
+to obtain the model object, a cheap behaviour-identical re-parse; `TestParseFailureReason` stays green). The empty-
+blob sub-branch stays its own 1a case (NOT routed through model_validate). **(2) NEW `get_stale_sheets(boq_name)`**
+`@frappe.whitelist()` bare (READ-ONLY, GET-capable, mirrors `get_committable_sheets`). Returns `{"stale_sheets":
+[{sheet_name [VERBATIM #152], reason}, ...]}`. **ROUTING PARITY with assemble (no new gating):** general-specs
+pointer / Hidden / Skip -> never stale; Pending / Parse failed / Finalized / blank -> not a data sheet here, never
+stale (UNCONFIGURED != stale -- no cry-wolf; Finalized is data-eligible only under force_reparse, which this normal
+read does not assume -- gate is `status in _RULE3_BASE_STATUSES` = {Config Done, Parsed}); Config Done / Parsed with
+a NON-EMPTY invalid blob -> STALE (reason = validation detail); Config Done / Parsed with an EMPTY blob -> STALE
+mirroring 1a's empty-on-done. **PURE READ -- writes NOTHING** (no set_value/insert/save/commit; write-on-read was
+explicitly rejected). Guard mirrors `run_parse` ("boq_name is required." / "BOQs '...' not found."). **COMPOSITION
+with 1a:** same validation at two triggers (1a reactive persists to `parse_failure_*`; 1b proactive computes a
+transient flag); the shared helper guarantees identical verdicts -- proven by a test asserting 1b's verdict + reason
+MATCH 1a's reactive stamp byte-for-byte. **TESTS:** `test_parse_run` **93 -> 102** (+9 `TestGetStaleSheets`:
+invalid-blob-stale-with-reason, Parsed-status parity, valid-prod-blob-not-stale [the sheet_name-injection proof],
+unconfigured-not-stale, Finalized-not-stale [force_reparse=False], general-specs/Skip/Hidden-not-stale,
+empty-on-done-stale, proactive-matches-reactive, guard); 1a regression green. NO doctype change -> NO `bench
+migrate`. Pure-backend -> boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md NOT touched
+(build-prompt scope; no frontend change this slice). Full detail in boq-upload-plan.md "Slice 1b -- config
+staleness detection".)
+// prior: 2026-06-18 (Slice 1a -- PARSE REASON-BUNDLE (reactive #166) -- BACKEND, feat e4b1fefc.
+The reactive half of issue #166 / principle P2 ("stop erasing the why"): the per-sheet parse-failure REASON,
+previously computed and then discarded (STALE config drops -> an unqueryable `logger.warning` + a nameless
+`not_eligible` list; PARSER/INSERT crashes -> a coarse `error_code` + Error Log only), is now PERSISTED to three
+NEW additive fields on `BoQ Sheet Draft` so a LATER frontend slice can render a hub-card notice. **BACKEND ONLY**
+(no frontend built). **PURELY ADDITIVE + TRUTHFUL:** the done-event payload contract
+(`{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}` / `{status,boq_name,error_code}`) stays
+BYTE-FOR-BYTE FROZEN; `wizard_status` writes and the displayed prior rows are UNCHANGED (the notice's whole point
+is "the rows you see are from the PRIOR parse"). **SCHEMA (`boq_sheet_draft.json`, +3 nullable fields, `bench
+migrate` CLEAN, runtime columns + Select options verified via get_meta):** `parse_failure_category` (Select
+`""`/`Config stale`/`Parser error`/`Insert error` -- the S2-8 taxonomy, the three IN-SCOPE failures ONLY;
+skip/hidden/ineligible/general-specs/empty are NOT failures and are deliberately absent), `parse_failure_reason`
+(Small Text), `parse_failure_at` (Datetime, read_only). **THREE IN-SCOPE FAILURE CASES (sheets that were eligible,
+attempted, and went wrong):** (1) **STALE** -- `assemble_mapping_config` Rule-3 empty-blob + invalid-blob branches;
+captures the `SheetConfig.model_validate` exc text (the precise "which field-set is now invalid" detail). Written
+via a NEW `_record_parse_failure(boq,sheet,category,reason)` helper that writes ONLY the three failure fields,
+**NEVER `wizard_status`** (the stale drop has NO status write today and must keep none -- P-d confirmed); (2)
+**PARSER error** -- worker Step-4 `parse_boq` raise; (3) **INSERT error** -- worker Step-5 per-sheet insert except.
+(2)+(3) FOLD the reason into the EXISTING `"Parse failed"` write via `_set_draft_status(extra_fields=...)` (same
+`set_value`, no new/changed status). **S2-5 TRACEABLE HANDLE:** verified `frappe.log_error` RETURNS the inserted
+Error Log doc (`frappe/utils/error.py` `return error_log.insert(...)`); a new `_reason_with_ref` appends `(ref:
+Error Log <name>)` when available, never fabricated (None under read_only/defer_insert). **CLEAR-ON-SUCCESS:** all
+three fields cleared (folded into the existing `"Parsed"` `set_value` alongside has_prior_parse/last_parsed_at), so
+a fixed sheet drops its stale notice. **NON-FAILURES UNTOUCHED:** skip/hidden/ineligible/general-specs get NO
+reason (proven by test). **TESTS:** `test_parse_run` **86 -> 93** (+7, all green: stale invalid-blob [exc detail
+captured, status+prior-rows untouched], stale empty-blob, parser error [+handle], insert error, clear-on-success,
+non-failures-untouched, done-event payload FROZEN). PARKED/out-of-scope (NOT built): EMPTY-but-marked-Parsed (E8,
+success-path mis-classification), config staleness DETECTION/version-stamp (Slice 1b -- shares the "reconfigure"
+signal origin = the Rule-3 blob validate guard), per-sheet parse isolation (DA-1), any payload reshape, all
+frontend. Pure-backend -> boq-upload-plan.md + root CLAUDE.md substantive; frontend/CLAUDE.md deliberately NOT
+touched per the build-prompt scope (no frontend change this slice). Full detail in boq-upload-plan.md "Slice 1a --
+parse reason-bundle".)
+// prior: 2026-06-17 (Phase 5 -- X: COMMIT ALL CLASSIFIED ROWS EXCEPT SPACER AS SEMANTIC NODES --
+BACKEND, feat 711a792b. Makes the committed node tree a COMPLETE SEMANTIC MIRROR of the reviewed BoQ. Before X,
+only preamble + line_item committed as nodes; note / subtotal_marker / header_repeat were grid-only, so the node
+layer was not a full semantic record (the dogfood surfaced a note losing its discrete classification + parent in
+the node tree). **NODE SHAPE = OPTION A (owner-locked):** `node_type` stays the PRICEABILITY axis (Preamble / Line
+Item) + a NEW neutral 3rd Select value **`Other`** for non-priceable rows; a NEW field **`row_class` (Data)** carries
+the FULL effective classification (preamble/line_item/note/spacer/subtotal_marker/header_repeat) -- the TAXONOMY
+axis. A future pricing walk stays EXACTLY `node_type in (Preamble, Line Item)`, unchanged. **ROWS COMMITTED AS
+NODES:** preamble, line_item, note, subtotal_marker, AND header_repeat (defensive -- ZERO live data). **SPACER alone
+stays GRID-ONLY** (pure layout, no semantic content; the faithful grid preserves its position) -- the filter is now
+"commit everything EXCEPT spacer", not "only preamble+line_item". **node_type mapping:** preamble->Preamble,
+line_item->Line Item, every other committed class (note/subtotal_marker/header_repeat)->Other; `row_class` = the full
+effective classification for EVERY node. **(1) SCHEMA (`boq_nodes.json`, migrate CLEAN -- additive Select value + one
+Data field):** node_type `Preamble\nLine Item` -> `Preamble\nLine Item\nOther`; new `row_class` Data placed after
+node_type. **(2) CONTROLLER (`boq_nodes.py`):** the description-required throw is GATED to `node_type in (Preamble,
+Line Item)` so an `Other` node may be contentless and no-ops; EVERY other validation branch (Preamble level rules,
+Line-Item level-unset/qty-required, parent rules, combined_rate, qty_by_area) already falls through both `if/elif`
+branches for `Other` -- confirmed, no other relaxation needed. `row_class` is stored, never validated. **(3)
+PIPELINE (`commit_pipeline.py`):** `_NODE_CLASSIFICATIONS` (={preamble,line_item}) RETIRED -> `_PRICEABLE_
+CLASSIFICATIONS` (={preamble,line_item}, for node_type + the level calc) + `_GRID_ONLY_CLASSIFICATIONS` (={spacer},
+the skip set); the `_commit_node_tree` filter flips from "not in node-set -> skip" to "in grid-only-set -> skip".
+`_build_node_pass1` sets `node.row_class = effective_classification` for every node and node_type via a 3-way branch
+(preamble->Preamble+level, line_item->Line Item, else->Other); the `qty None -> 0` default STAYS Line-Item-only
+(Other rows carry no qty/rate/amount -- none exist on the review row). **Q8 LEVEL-GUARD FIX (mandatory -- X would
+break it otherwise):** `_compute_levelless_preamble_levels` now counts ONLY PRICEABLE (preamble/line_item) children
+toward `child_levels`; a note/subtotal (level 0) is NOT a structural child and would wrongly pull a level-less
+preamble to level 0. A preamble whose only children are non-priceable now falls to the childless branch. **NO NOTE
+RE-ATTACH:** the parser ALREADY rolls descendant note text onto the nearest preamble's `attached_notes` (recon:
+populated on 84 preamble review rows, NEVER on note rows) and 3b carries it verbatim onto the preamble node; X
+commits the note as its OWN discrete node WITHOUT a second attach (a second walk would DOUBLE the text). preamble /
+line_item commit EXACTLY as before, including their existing attached_notes carry. **TESTS:** `test_commit_pipeline`
+23->27 (+4: commit-all-except-spacer [note+subtotal->Other, correct row_class, note wired to preamble, spacer NOT a
+node]; Other note carries description + no money; attached_notes NOT doubled; Q8 note-child excluded from level calc;
++ 2 existing node-tree tests RETARGETED in place -- note now a node, counts 3->4); `test_boq_nodes` 72->74 (+2: Other
+saves cleanly [no level/qty]; Other under a Preamble saves); `test_review_screen` **158 UNCHANGED** (import safe);
+parser **597 UNCHANGED**. `bench migrate` CLEAN (`row_class` column + the `Other` Select value verified via get_meta).
+**RE-COMMIT of all affected finalized sheets + a round-trip RE-VERIFY (with an attached_notes verification column)
+are SEPARATE NEXT runs before push** -- the live committed nodes still reflect the pre-X 2-type tree until
+re-committed. Pure-backend -> root CLAUDE.md + plan only; frontend/CLAUDE.md NOT touched (no frontend reads nodes).
+Full detail in boq-upload-plan.md "Phase 5 -- X: commit all classified rows as semantic nodes".)
+// prior: 2026-06-17 (Phase 5 -- LEVEL-LESS PREAMBLE GUARD FIX (post-dogfood) -- BACKEND, feat pending.
+A real commit-pipeline correctness fix the dogfood surfaced: `_build_node_pass1` stamped a flat `level=1` on ANY
+preamble whose parser level was unset/0, which BREAKS the tree when a child is also level 1 (BOQ-26-00145
+'Electrical ' row 18 "Note:" -> 1, but its child row 20 is level 1 -> parent==child level). Read-only recon found
+exactly 3 live cases (all committed at the buggy 1), no squeeze/inversion edges. **THE FIX:** (1) RELAX the
+constraint -- `integrations/controllers/boq_nodes.py` Preamble guard `level is None or level < 1` -> `< 0` (message
+"...non-negative integer..."); preambles may now be level 0 (the JSON `level` is a plain Int, no min -> NO doctype
+change, NO migrate). (2) REWRITE the guard -- `commit_pipeline.py`: a NEW module-level `_real_preamble_level(d)`
+(override>=1 wins, else level>=1, else None=level-less) + `_compute_levelless_preamble_levels(sheet_name,
+node_rows, eff_parent_by_idx)` computed ONCE per sheet in `_commit_node_tree` (reuses the eff map, no re-resolve)
+and passed into `_build_node_pass1`. RULE for a level-less preamble: **WITH children -> max(0, min(child
+effective-level) - 1)** (shallowest child wins; line-item children count as level 0); **CHILDLESS -> the sheet's
+shallowest DEFINED preamble level, else 0** (a sheet of line-items + a lone promoted preamble has no defined levels
+-> 0). A normal preamble with a real >=1 level is UNCHANGED. SAFETY (loud, not hit by current data): a level-less
+preamble with BOTH a parent and children whose computed level wouldn't sit above the parent (squeeze) ->
+`frappe.msgprint` warning + best-effort assign (never silently jam). **THE 3 REAL CASES (now tested with seeded
+rows, not live data):** children all level 1 -> 0 (Electrical row 18); children mix level-0 line-items + level-1
+preamble -> 0 (low side row 191, min child 0); childless, sheet has no levels -> 0 (Fire Fitting row 8). **TESTS:**
+`test_boq_nodes` 71->72 (`test_preamble_level_zero_rejected` retargeted -> `..._zero_saves` [level 0 persists] +
+NEW `..._negative_rejected` [level -1 still throws]); `test_commit_pipeline` 19->23 (+4: with-children, mixed-min,
+childless-no-levels, normal-multilevel-unchanged regression); `test_review_screen` 158 UNCHANGED (import safe);
+parser **597 UNCHANGED**. NO migrate (no schema JSON change). **AFFECTED COMMITTED SHEETS NEED RE-COMMIT +
+round-trip RE-VERIFY (a SEPARATE run) before push** -- the 3 live cases are still committed at the buggy level=1
+until re-committed. Pure-backend -> root CLAUDE.md + plan only; frontend/CLAUDE.md NOT touched. Full detail in
+boq-upload-plan.md "Phase 5 -- level-less preamble guard fix".)
+// prior: 2026-06-17 (Phase 5 Slice 3b -- THE NODE TREE + provenance + three-tier versioning +
+combined_rate relaxation -- BACKEND, feat pending. FILLS the node-write stub Slice 3a left in commit_pipeline.py;
+the second real-data-write slice. **TWO-LAYER MODEL:** a FINALIZED sheet now ALSO commits a node tree (the grid
+stays from 3a); general-specs sheets remain grid-only. **(1) SCHEMA adds (migrate clean):** BOQ Nodes gained
+`review_row_name` (Data -- source BOQRR- name, human-readable tie, MAY DANGLE on re-parse) + `commit_provenance_id`
+(Data -- frappe.generate_hash, the DURABLE provenance key) + `is_synthetic` (Check -- FUTURE-INSURANCE, 0 across the
+whole current corpus, carried verbatim) + `append_notes_raw` (JSON, dict-valued -- unflagged-by-recon add, owner-OK)
++ the per-node versioning triple `commit_version`/`is_current`/`committed_at`; BoQ Sheet gained the SAME versioning
+triple (it had none -- only the grid did). **(2) combined_rate THROW -> WARNING** (capture-only): parent
+(`boq_nodes.py`) + child (`boq_node_qty_by_area.py`) `frappe.throw` -> `frappe.msgprint(alert,indicator=orange)`;
+the node saves, values persist verbatim, tendering reconciles. 3 throw-tests RETARGETED to assert-saves
+(`test_combined_rate_mismatch_warns_not_throws`, `..._leaf_preamble_combined_rate_mismatch_warns`,
+`..._child_combined_rate_mismatch_warns_not_throws`); the 5 success tests untouched. **(3) NODE BODY
+(`_commit_node_tree` replaces the stub):** reads review rows ({boq, sheet_name VERBATIM #152}, row_index asc),
+runs `resolve_effective` (imported from review_screen, NOT reimplemented), maps `effective_classification` ->
+node_type: **preamble -> Preamble (+level), line_item -> Line Item (no level); note/spacer/subtotal_marker/
+header_repeat -> GRID-ONLY, NOT nodes** (the Select has exactly Preamble+Line Item). **TWO-PASS + DEFERRED LIST
+FIELDS (the load-bearing mechanic):** BOQ Nodes has LIST-valued JSON fields (`attached_notes`, `edit_log`) that
+`doc.save()`'s get_valid_dict rejects ("cannot be a list"). So PASS 1 inserts each node parent-less with those two
+fields NULL (dict-valued `append_notes_raw` IS set in pass 1 -- only LISTs trip the wall); PASS 2 sets parent_node +
+`doc.save()` in ANCESTOR-DEPTH order (paths cascade correctly + the parent-chain validation re-runs as a free
+integrity check) -- list-safe because the two list fields are still null; PASS 3 writes `attached_notes`+`edit_log`
+via `frappe.db.set_value(json.dumps(...))` (targeted column write, bypasses full-doc serialization). **MONEY = P4-3
+word-order reversal, Float->Currency (Frappe coerces, no manual round):** rate_supply->supply_rate /
+rate_install->install_rate / rate_combined->combined_rate / amount_supply->supply_amount /
+amount_install->install_amount / amount_total->total_amount; qty_total->qty (Float stays Float); sl_no_value->code,
+row_index->sort_order. is_rate_only/is_synthetic carried verbatim. **HUMAN LAYER carried as PROVENANCE ONLY**
+(human_classification/human_parent[-1 sentinel]/human_is_root copied verbatim, NEVER branched on -- the LIVE wiring
+is parent_node+node_type+level from resolve_effective). **edit_log CARRIED** (P4-4: the node is the durable home for
+the review row's edit history; review rows die on re-parse). notes<-row_notes; attached_notes carried verbatim
+(Option A -- no aggregation/up-roll). **(4) PER-AREA CHILD explosion (`_explode_area_children`) -- DUAL-SHAPE,
+NEVER DOWNGRADE (owner-locked):** qty_by_area always flat {area:float}->child.qty (defaults 0.0 for an area absent
+from qty but present in rate/amount -- child.qty is reqd); rate_by_area NESTED {supply_rate,install_rate,
+combined_rate}->each preserved on its own column, FLAT scalar->combined_rate ONLY; amount_by_area NESTED {supply,
+install,total}->supply_amount/install_amount/total_amount each preserved, FLAT scalar->total_amount ONLY;
+area_name=dict key verbatim. (Recon's nested-only assumption was WRONG -- the real corpus is FLAT; current parser
+output is nested -- both handled. STOP-CHECK 4c-i finding.) **(5) THREE-TIER SHARED VERSIONING + BoQ Sheet FOLD:**
+ONE shared commit_version per (boq, sheet) (anchored on grid max+1) covers grid+sheet+nodes. On re-commit each tier
+FREEZES its prior current via `frappe.db.set_value(is_current=0)` -- NEVER doc.save() (BoQ Sheet's list-valued
+area_dimensions would re-serialize and hit get_valid_dict). **3a's raw-DELETE of the prior BoQ Sheet is RETIRED ->
+freeze-and-supersede** (prior sheet+its nodes survive as a coherent frozen vN snapshot; v1 nodes stay attached to
+frozen sheet v1). **(6) CENTRALIZED is-current accessor `_current_names(doctype, boq, name_field, value)`** (recon
+Q5: none existed) -- one helper, three callers (grid:source_sheet_name, sheet:sheet_name, nodes:sheet). Gate
+re-check (3a) intact. **TESTS:** test_commit_pipeline 11->19 (node tree built preamble+line-items-only/note+spacer
+skipped; provenance+flags; human-layer+notes+edit_log+append_notes_raw carried; per-area nested-granularity-survives
++ flat->total/combined; combined_rate warns-not-throws; three-tier re-commit freeze; is-current accessor; +T7
+retargeted to versioned-not-deleted); test_boq_nodes 71 (3 retargeted, capture-only); test_review_screen 158
+UNCHANGED (resolve_effective import safe); parser **597 UNCHANGED**. `bench migrate` CLEAN. **LIVE TEST (scripted,
+second real-data crossing) BOTH PASS:** FLAT BOQ-26-00145 FAS -> 21 nodes (5 Preamble+16 Line Item, note/spacer
+skipped from 1001 grid rows), parent tree wired 0-dangling, money verbatim, provenance set; re-commit froze
+grid+sheet+nodes to one shared version, prior sheet NOT deleted (frozen), one current per tier. NESTED BOQ-26-00166
+VRF System (set Finalized as test setup) -> 69 nodes, per-area L1/L2 supply_rate/install_rate/combined_rate each
+SURVIVE on committed children (granularity preserved). Pure-backend slice -> root CLAUDE.md + plan only;
+frontend/CLAUDE.md NOT touched (no frontend change). NEXT = Slice 4 (hub commit UI / version picker / Committed
+status). Full detail in boq-upload-plan.md "Phase 5 Slice 3b".)
+// prior: 2026-06-16 (Phase 5 Slice 3a -- GRID FOUNDATION + doctype rename + column-config snapshot +
+single-open commit shell -- BACKEND, feat pending. The FIRST slice of the commit pipeline + the FIRST to write
+REAL parsed BoQ data into the committed schema. **TWO-LAYER MODEL:** every committable sheet commits its COMPLETE
+original as a FAITHFUL GRID (all 6 row classifications, original position) into the renamed faithful-grid doctype;
+FINALIZED sheets will ALSO commit a node tree -- but that is Slice 3b (a PURE STUB here, dispatched + no-op). **(1)
+RENAME** `BoQ Committed General Specs` -> **`BoQ Committed Sheet Grid`** (+ row child -> `BoQ Committed Sheet Grid
+Row`): folders/JSONs/controllers/classes/test all renamed; autoname **`BCGS-` -> `BCSG-`** (free, zero rows).
+Frappe `migrate` AUTO-DELETED the orphaned old DocTypes (built-in orphan cleanup -- "Orphaned DocType(s) found ...
+Deleting") -- harmless (zero rows, no callers); NOT a `delete_doc` I added. **(2) NEW field `sheet_disposition`**
+(Select `grid_only`/`grid_and_nodes`) on the grid doctype -- a closed set paralleling the Slice-2 gate vocabulary
+(room for a future 3rd disposition without a 2nd boolean). MAPPING (ties to the gate, not re-derived): gate
+`general_specs` -> `grid_only`; gate `finalized` -> `grid_and_nodes`. (`commit_version`/`is_current`/`committed_at`
+already existed from Slice 1.) **(3) NEW `nirmaan_stack/api/boq/wizard/commit_pipeline.py`:** `commit_boq(boq_name,
+sheet_subset)` (whitelisted POST) -- re-checks EVERY subset sheet against the LIVE Slice-2 gate (throws on any
+not-eligible BEFORE any fetch/write; never trusts the caller), then SINGLE S3 fetch + SINGLE `load_workbook`, loops
+the sheets. **(4) SINGLE-OPEN PATH:** extracted a SHARED helper **`sheet_preview._extract_grid_rows(ws, min_row,
+max_row)`** from the welded/duplicated row-extraction loop; BOTH preview endpoints now route through it (byte-identity
+test stays green -- behavior-preserving) AND commit_pipeline calls it inside its one open workbook (no per-sheet
+re-open, no per-sheet whitelisted-endpoint loop; reuses `_fetch_boq_file_to_tempfile` verbatim). **(5) GRID
+WRITE-BODY** (per sheet, BOTH dispositions): build `{row_number, cells:{col_letter:value}}` faithfully (NO row
+dropped); persist to the grid + child; **VERBATIM (#152)** `source_sheet_name` on write AND freeze-lookup (PostgreSQL
+`=` on varchar is byte-exact -- trailing spaces significant); **VERSIONING** per (boq, sheet verbatim): new
+`commit_version = max(prior)+1`, `is_current=1`, set `committed_at`, FREEZE prior current -> 0 (exactly one current);
+PER-SHEET transaction (one trailing `frappe.db.commit()` per sheet, NO savepoints). **(6) COMMITTED `BoQ Sheet` per
+sheet (both dispositions, incl. grid-only general-specs -- which the node path never created):** REPLACE semantics
+(no version dim on BoQ Sheet; per-node versioning is 3b) -- raw `frappe.db.delete` the prior (boq, sheet) BoQ Sheet
++ child work_packages, then create fresh. **COLUMN-CONFIG SNAPSHOT** (the linchpin): `column_role_map` +
+`column_headers` + `area_dimensions` (+ `header_row`/`header_row_count`/`treat_as`) pinned VERBATIM from the matching
+draft's `sheet_config`; sheet_order/sheet_label/work_packages carried from the draft; `treat_as` = master_preamble
+(general_specs) / data (finalized). **GOTCHA pinned:** `BoQ Sheet.area_dimensions` is a list-valued JSON field, and
+`delete_doc`'s as_json archive -> `get_valid_dict` REJECTS a list ("cannot be a list"); the replace path therefore
+uses raw `frappe.db.delete` (bare-stub controller, no on_trash) + explicit child cleanup. Node branch =
+`_commit_node_tree_stub` (TODO(3b), no-op). **TESTS:** renamed doctype suite 4/4 (BCGS->BCSG assertion updated);
+NEW `test_commit_pipeline.py` 11/11 (grid round-trip all-rows-kept-in-order; snapshot on finalized AND on grid-only
+general-specs; discriminator mapping; versioning + freeze [exactly one current]; committed_at set; gate-recheck
+negative [ineligible/unknown/empty subset throw, nothing written]; verbatim trailing-space identity [a trimmed
+lookup would leave TWO current grids -- asserted it doesn't]; one BoQ Sheet per sheet after re-commit);
+`test_sheet_preview` 32/32 UNCHANGED (byte-identity green -> refactor behavior-preserving); parser **597 UNCHANGED**.
+`bench migrate` CLEAN (no Role-Profile lock this run; orphan auto-clean noted above). **LIVE TEST (scripted
+commit-and-inspect on BOQ-26-00145 -- the first-real-data crossing) PASS:** gate -> SOW=general_specs, FAS=finalized;
+commit_boq([SOW,FAS]) -> SOW grid_only 39 rows (BoQ Sheet treat_as=master_preamble, empty role-map -- SOW has no
+parser config), FAS grid_and_nodes 1001 rows (BoQ Sheet treat_as=data, header_row=2, role-map A-H, area_dimensions
+['Phase 1','Phase 2']); node stub no-op (zero nodes -- correct); RE-commit -> v1 froze (is_current 0), v2 current,
+exactly ONE current grid per sheet, BoQ Sheet replaced (count 1). 7 files (rename) + 2 new (commit_pipeline +
+test) + sheet_preview refactor. Pure-backend slice -> root CLAUDE.md ONLY (build prompt scoped docs to root +
+plan doc; frontend/CLAUDE.md deliberately NOT touched -- no frontend change this slice). NEXT = Slice 3b (the
+node-tree write path for finalized sheets) + Slice 4 (hub commit UI / picker / Committed status). Full detail in
+boq-upload-plan.md "Phase 5 Slice 3a".)
+// prior: 2026-06-16 (Phase 5 Slice 2.5 -- committed tier is now CAPTURE-ONLY -- BACKEND, feat 49b77635.
+Makes the committed BOQ Nodes tier a TRUTHFUL CAPTURE STORE so the Slice-3 pipeline's reviewed values persist
+VERBATIM: ALL money computation is REMOVED from the controller write chain and moves to the future tendering phase.
+Computation-removal ONLY -- every STRUCTURAL invariant is kept + stays green. **PARENT (`integrations/controllers/
+boq_nodes.py`):** `before_save` now calls only `_compute_path`. REMOVED `_compute_amounts` (recomputed
+supply/install/total_amount from qty x rate + auto-set `is_rate_only`) + `_recompute_parent_rates_from_areas`
+(overwrote the parent rate with a qty-weighted average on per-area divergence) -- calls + defs, zero external
+callers. `_process_qty_by_area_rows` did nothing but reach the child compute, so the whole dead chain (it + the
+child `apply_before_save`) was removed; the `_area_ctrl` import STAYS for `validate_child`. **`is_rate_only` is NO
+LONGER auto-set** -- the FIELD STAYS (structural-audit KEEP) and its value is CARRIED THROUGH from the BoQ Review
+Row by the Slice-3 pipeline (parser sets it; Slice 3 maps it verbatim -- **Slice 3 OWES this**). KEPT: the full
+validate chain (sheet-required, boq<->sheet sync-guard, node_type/description required, level rules, combined_rate
+consistency, parent rules, `_validate_qty_by_area` no-dup-area + per-child tolerance), `_compute_path`,
+after_insert, on_update/`_write_audit`, on_trash. **CHILD (`boq_node_qty_by_area.py`):** REMOVED `apply_before_save`
++ `_apply_rate_fallback` (blank child rate inheriting parent) + `_compute_child_amounts` (child amount = rate x qty);
+KEPT `validate_child`/`_validate_combined_rate` (a blank child rate now stays None so the all-three-set guard
+short-circuits, never spuriously trips). **SCHEMA (`boq_nodes.json`):** dropped `read_only` on `supply_amount` /
+`install_amount` / `total_amount` / `is_rate_only` (now captured, pipeline-written); NO field added/removed;
+`amount_override` KEPT (its only remaining read = the cosmetic non-leaf-Preamble warning in validate). Known
+cosmetic-stale (untouched, tight scope): the `is_rate_only` + `amount_override` field descriptions still mention
+auto-set/recomputation. **TESTS (`test_boq_nodes.py`, still 71 -- now CERTIFIES capture-only):** ~19 compute tests
+retargeted to "set value persists unchanged; blank stays blank, NOT computed/inherited/auto-set" (13 parent + 5
+child retargeted; 5 MIXED split -- kept the structural assertion, dropped the dead `total_amount==` line); the **48
+STRUCTURAL+NEUTRAL tests untouched + green** (proves no structural check read a removed compute value).
+**VERIFICATION:** `bench migrate` CLEAN after clearing 10 stale Role-Profile fixture-sync lock files (recurring
+environmental no-live-worker `DocumentLockedError` in `sync_fixtures`, unrelated; the read_only drops applied in the
+earlier schema-sync phase); `test_boq_nodes` **71/71 OK**; `test_boq_node_qty_by_area` 0 tests (empty stub); parser
+**597 UNCHANGED**. Zero blast radius -- no other test + no live code (api/, parser, patches, commit_gate, Slice-1
+doctype) depends on node auto-compute (the parser's own `is_rate_only`/amount classification is a separate path). 4
+files, +138/-199. Separate docs commit (plan doc + this file substantive; frontend/CLAUDE.md minimal-touch). NEXT =
+Slice 3 must carry `is_rate_only` + all amounts/rates from the review row onto the node verbatim. Full detail in
+boq-upload-plan.md "Phase 5 Slice 2.5".)
+// prior: 2026-06-16 (Phase 5 Slice 2 -- the COMMIT GATE (eligibility) -- BACKEND, feat b93ec41c.
+A READ-ONLY gate answering "which sheets of this BoQ are eligible to COMMIT right now?": it computes + returns a
+list, does NOT commit / write the DB / change wizard_status / call the parser / touch `assemble_mapping_config`.
+Slice 3 (commit pipeline) + Slice 4 (hub commit UI) will both call it; built + unit-tested in isolation first.
+**THE parse-vs-commit distinction (load-bearing):** `assemble_mapping_config` treats "Finalized" as not_eligible
+BY DEFAULT (re-parses Finalized only under force_reparse); the COMMIT gate is the OPPOSITE -- "Finalized" is
+precisely what we commit. So the gate is a SEPARATE, narrower rule keyed on Finalized + general-specs; it does NOT
+import / reuse / consult `assemble_mapping_config` / `force_reparse` (T5 is the regression guard). **NEW
+`nirmaan_stack/api/boq/wizard/commit_gate.py`** (beside `parse_run.py`, matching the wizard-endpoint convention):
+`compute_committable_sheets(sheet_drafts, general_specs_sheet_names) -> list[dict]` (PURE helper, no DB; accepts
+Frappe child docs / `_dict` / plain dicts via a `_get` shim; preserves input order) + `get_committable_sheets(
+boq_name) -> {"committable_sheets": [{sheet_name, disposition}]}` (`@frappe.whitelist()` READ-ONLY; loads
+`BOQs.sheet_drafts` + the `BOQs.general_specs_sheets` pointer, same read pattern `assemble_mapping_config` uses).
+**ELIGIBILITY RULE (the only two dispositions that commit, per PHASE 5 LOCKED INPUTS):** general-specs-designated
+-> disposition **`general_specs`**; else `wizard_status == "Finalized"` -> **`finalized`**; else NOT eligible
+(blank, Pending, Hidden, Config Done, Skip, Parse failed, Parsed). The disposition tells Slice 3 which write path
+to use. **KEY FINDING (verify-first V3):** general-specs is POINTER membership in `BOQs.general_specs_sheets`
+(`source_sheet_name` set), **NOT** `wizard_status == "General specs"` (never literally stored -- a designated
+sheet can carry any status, e.g. Skip). **PRECEDENCE (overlap):** a sheet that is BOTH Finalized AND
+general-specs-designated commits as **`general_specs`** -- mirroring `assemble_mapping_config` Rule 1 (pointer
+checked first, outranks wizard_status); tested in T6. **VERIFICATION:** `test_commit_gate` **13/13 OK**
+in-container (7 pure-helper: T1 Finalized, T2 general-specs-pointer-as-Skip, T3 every ineligible status incl.
+blank "", T4 mixed exact subset, T5 parse-vs-commit distinction, T6 overlap precedence, #152 verbatim pointer
+match; + 6 endpoint end-to-end on a real mixed BoQ incl. unknown-BoQ throws); parser suite **597 UNCHANGED**; NO
+doctype JSON change -> NO migration required (pure read over existing fields). 2 new files, +353 lines, 0
+deletions. No parser / `assemble_mapping_config` / BOQ Nodes / BoQ Sheet / Slice-1 general-specs doctype /
+status-write / frontend change. Separate docs commit (plan doc + this file substantive; frontend/CLAUDE.md
+minimal-touch). NEXT = Slice 3 (commit pipeline) + Slice 4 (hub commit UI). Full detail in boq-upload-plan.md
+"Phase 5 Slice 2".)
+// prior: 2026-06-16 (Phase 5 Slice 1 -- committed general-specs faithful-grid doctype -- BACKEND,
+feat 5fe61bff. The EMPTY committed home for faithful general-specs rows: SCHEMA + bare-stub controllers + tests
+ONLY (NOT the commit pipeline -- no commit logic, no `get_sheet_preview_full` call, no real-data fetch/persist;
+parser / wizard API / BOQ Nodes / BOQs / BoQ Sheet Draft ALL untouched). Resolves C2 (general-specs stored today
+as a LOSSY flattened `preamble_text` blob) by giving the faithful rows a committed home; routing reachable grid
+data into it is Slice 3. **Slice-0 recon verified before build:** V1 the existing `BoQ General Specs Sheet`
+(2 fields source_sheet_name/preamble_text, istable=1) is the lossy blob -- UNTOUCHED, the new doctype is separate;
+V2 `get_sheet_preview_full`'s per-row shape `{"row_number": int, "cells": {col_letter: value}}` (sheet_preview.py
+~:297-302) -- the new child mirrors it so Slice 3 persists that output directly; V3 §9 #136 grandchild-serialization
+holds (one level of child + JSON cells stays first-level). **NEW `BoQ Committed General Specs`** (module Nirmaan
+Stack, `istable=0` STANDALONE top-level -- NOT a child of BOQs because it carries versioning + is queried per
+sheet; autoname **`BCGS-.YY.-.#####`** collision-checked vs BQSH-/BOQ-/BOQN-/BOQRR-; `track_changes=1`, InnoDB,
+10-role permission block mirroring BoQ Sheet). FIELDS: `boq` (Link->BOQs, reqd, search_index, in_standard_filter),
+`source_sheet_name` (Data, reqd, stored VERBATIM #152), the per-sheet VERSION dimension `commit_version` (Int,
+reqd, default 1) + `is_current` (Check, default 1, in_standard_filter), `committed_at` (Datetime, read_only,
+pipeline-set), and child table `rows` -> "BoQ Committed General Specs Row". **NEW child `BoQ Committed General
+Specs Row`** (`istable=1`, permissions []): `row_number` (Int, reqd -- source Excel row), `row_order` (Int --
+emission sort key for sparse rows), `cells` (JSON -- arbitrary-width {col_letter: value} map; JSON not exploded
+columns gives arbitrary width with no grandchild table). **One-current invariant DEFERRED** to the Slice-3
+pipeline -- Slice 1 defines fields only, builds NO enforcement; both controllers are intentionally BARE STUBS
+(`class ...(Document): pass`, no compute, no cross-doc writes) per convention, the parent stub carries a docstring
+noting the deferred invariant; NO `integrations/controllers/` file added. **DESIGN (locked):** one-level child +
+JSON cells keeps the grid first-level (serializes on get_doc per §9 #136); versioning lives on the parent (the
+same model the node tier will carry); the lossy `BoQ General Specs Sheet` blob stays UNTOUCHED + separate.
+**VERIFICATION:** `bench --site localhost migrate` CLEAN (both doctypes install); `test_boq_committed_general_specs`
+**4/4 OK** in-container (T1 arbitrary-width 3/2/5-col round-trip, T2 row_number+row_order ordering recoverable,
+T3 version defaults 1/1 + settable 2/0 [schema only, no enforcement], T4 #152 trailing-space verbatim); parser
+suite **597 UNCHANGED**. 7 new files, +423 lines, 0 deletions. No parser / wizard-API / BOQ Nodes / BOQs / BoQ
+Sheet Draft / hooks.py / frontend change. Separate docs commit (plan doc + this file substantive; frontend/CLAUDE.md
+minimal-touch per DOCS-UPDATE RULE). NEXT = the node-tier commit-version model + the Slice-3 commit pipeline that
+routes `get_sheet_preview_full` output into these rows + enforces one-current. Full detail in boq-upload-plan.md
+"Phase 5 Slice 1".)
+// prior: 2026-06-16 (Phase-5 INPUT RECORD finalized -- DOCUMENTATION ONLY. Mirrors the PK audit doc v1.3
+session-end decisions into the in-repo "PHASE 5 -- LOCKED INPUTS" block ahead of the Phase-5 kickoff. **Checkpoint
+flags resolved:** Flag 1 -- general-specs gets a NEW doctype (CANNOT reuse BOQ Nodes; its node_type/qty/rate/parent
+invariants would fight a general-specs grid row -- target is a simple label/description grid). Flag 2 -- add a
+committed-to-DB marker AND a new hub "Committed" state (two coordinated changes, post-successful-commit). Flag 3 --
+BUILD a review-row -> node provenance link, with a DURABILITY question to settle at design (review rows are
+non-durable across re-parse -> store the review-row name [may dangle] vs a stable identifier). Flags 4/5
+(parent_boq retire + dev purge) CLOSED in P4-FINAL. **LOCKED SEQUENCING:** line-item commit + general-specs
+faithful-row capture built TOGETHER as ONE commit feature (NOT line-items-first) -- a real BoQ has both kinds; the
+commit action / committed status / hub state can't finish until both exist; splitting builds the machinery twice.
+**Phase 4 is CLOSED and pushed (9dae681d..35a8544c); PK audit doc at v1.3.** No code/schema/test touched; only the
+plan doc + this file. Pure-backend/data record -> root CLAUDE.md. Full detail in boq-upload-plan.md "PHASE 5 --
+LOCKED INPUTS".)
+// prior: 2026-06-16 (Phase 4 P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive
 Phase-4 CLOSE. **PHASE 4 COMPLETE** (P4-1 sheet tier -> P4-2 node re-point -> P4-3 mapping lock -> P4-4 missing
 fields -> P4-5 type reconciliation -> P4-6 skip-filter verify -> CHECKPOINT pass -> P4-FINAL). Owner-authorized
 destructive slice (local throwaway instance). **parent_boq RETIRED:** field dropped from `boqs.json` (def +
@@ -707,7 +1117,16 @@ Why `[:19]` truncation: `frappe.utils.now()` returns microsecond-precision strin
 |---|---|---|---|
 | BoQ Upload & Management | `feature/boq-phase-3` | `frontend/.claude/plans/boq-upload-plan.md` | Phases 1.x (parser, 588 tests) + Phase 3 Modules 1a/1b/2a/2b/3 COMPLETE. Review-screen arc COMPLETE: Slice A backend (feat fff26abd; -1 sentinel, resolve_effective / check_structural_integrity / append_edit_log_entry + 3 endpoints) -> B1/B1.1/B2a/B2b/B2c frontend (review tree + column descriptors + advisory flags + detail panel + Status column) -> C-values arc C-v1..C-v2d-fix (inline value/text/per-area editing + per-row Remarks). Restructure surface Slice 1a (searchable sheet-view `SheetSearchView.tsx`, FRONTEND-ONLY, feat 5ecf1820) LIVE-CERTIFIED 2026-06-09 (5/5 PASS on BOQ-26-00145). Slice 1b-alpha BACKEND (feat f7761415) -- shared write helper `_apply_and_save_row_edit` (save-inside/commit-outside) + transactional `save_review_restructure` (atomic reclassify+reparent, batch cycle-guard, FROM-but-not-TO assignable classes) + human-root via NEW `human_is_root` Check field (Option B, orthogonal to the -1 sentinel). CURRENT: Slice 1b-beta FRONTEND COMPLETE (feat e8eeab58) -- the restructure MODAL: detail-panel pill DropdownMenu -> childless light confirm OR staged `RestructureModal` (5 child-placement options, Path A fully-resolved child_moves, mounts certified SheetSearchView untouched as parent picker, row_number->row_index resolution + no-match guard), `onRestructured` reuses handleSaved; dev route + `_DevSheetSearchHarness.tsx` REMOVED. tsc 0 wizard-file errors + build exit 0; manual live-cert LC1-12 pending. Restructure-surface arc COMPLETE pending live-cert. Slice D1 -- "Parsed Check Done" marking + read-only FREEZE + Un-mark (BACKEND + FRONTEND): four-endpoint write freeze on a checked sheet via `_guard_sheet_not_frozen`, mark precondition (Parsed-only), new `unmark_sheet_parsed_check_done`, `readOnly` ReviewTree gating + Mark button + teal banner; test_review_screen 137 -> 147. Slice D2 -- per-sheet review CSV export (FRONTEND ONLY, feat 27866a2e): NEW wizard-local writer `exportReviewCsv.ts` (flat columns, per-area = one column per area per role, numbers raw, UTF-8 BOM) + "Export CSV" header button (status- and view-independent); reuses ReviewTree `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` via export-keyword-only; the shared `src/utils/exportToCsv.ts` deliberately untouched. Slice D2b (latest) -- hub XLSX workbook export + per-card CSV export (FRONTEND + dependency, feat 91bf255d): a global "Export reviewed" footer button -> `ExportWorkbookDialog` (pre-ticked checklist of "Parsed Check Done" sheets) -> SEQUENTIAL `get_review_rows` fetch -> ONE .xlsx (one tab/sheet, numbers numeric, abort-on-any-failure) via NEW `exportReviewXlsx.ts`; a per-card "Export CSV" button -> the existing D2 .csv. NEW dep `exceljs` DYNAMICALLY imported (own lazy chunk, absent from hub/entry chunks); npm `xlsx` forbidden (abandoned + 2 CVEs). The D2 writer refactored to share a `buildReviewSheet` typed-cell core -> .csv stays byte-identical; Excel tab names sanitized+de-duplicated (tab title only, Sheet Name column verbatim #152). `SheetReviewPage.tsx` untouched (writer signature unchanged). OWED: single-pass full-sheet-read endpoint; C-values rate-editing live-cert against a Pattern-2-rate vehicle. **PHASE 4 (committed BoQ-model rebuild) COMPLETE: P4-1 BoQ Sheet tier -> P4-2 node re-point (sheet link + denormalized boq sync-guard) -> P4-3 commit field-mapping lock -> P4-4 8 missing node fields -> P4-5 child Float->Currency -> P4-6 skip-filter verify -> structural CHECKPOINT -> P4-FINAL (parent_boq retired + dev fixtures purged; 34 uploaded live-cert workbooks preserved). NEXT = Phase 5 commit arc (Finalized commit gate + general-specs faithful-row capture).** Full slice-by-slice history + as-built detail: see boq-upload-plan.md. Do not duplicate the changelog here. |
 
-Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BoQ Sheet` (Phase 4 P4-1 -- the committed sheet tier, standalone istable=0, Links up to BOQs, autoname `BQSH-.YY.-.#####`; reuses the `BoQ Sheet Work Package` child for work-header links; nothing writes to it until P5), `BOQ Nodes` (Phase 4 P4-2 -- now links to a `BoQ Sheet` via the new `sheet` Link [the PRIMARY upward tie]; the `boq` Link->BOQs is KEPT DENORMALIZED, controller-synced so `node.boq == sheet.boq` [auto-filled from the sheet when blank, throws on mismatch]; the required-guard moved from boq to sheet. Phase 4 P4-4 -- gained 8 storage fields populated at commit [Phase 5]: human-layer `human_classification`/`human_parent`/`human_is_root`, edit provenance `edit_log` [JSON, opaque, KEPT on node not derived from Nirmaan Versions]/`edited_by`/`edited_at`, `remarks` [Small Text], `attached_notes` [JSON, opaque, own field not folded into `notes`]; `_write_audit` UNCHANGED [tendering-era audit scope is an OPEN decision for the tendering boundary, not inherited]), `BOQ Node Qty By Area` (Phase 4 P4-5 -- its six rate/amount fields `supply_rate`/`install_rate`/`combined_rate`/`supply_amount`/`install_amount`/`total_amount` are now `Currency`, matching the parent BOQ Nodes; `qty` stays `Float`. The P4-3-deferred parent/child Float-vs-Currency inconsistency is now CLOSED). (No separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
+Always read `frontend/.claude/plans/boq-upload-plan.md` before working on BoQ. Active doctypes: `BOQs`, `BoQ Sheet` (Phase 4 P4-1 -- the committed sheet tier, standalone istable=0, Links up to BOQs, autoname `BQSH-.YY.-.#####`; reuses the `BoQ Sheet Work Package` child for work-header links. WRITTEN by the commit pipeline from Phase 5 Slice 3a [column-config snapshot from the draft]; Phase 5 Slice 3b added the versioning triple `commit_version`/`is_current`/`committed_at` -- the sheet is now VERSIONED [freeze-and-supersede via `set_value`, NOT deleted; 3a's raw-delete retired]; nodes attach to it via their `sheet` Link), `BOQ Nodes` (Phase 4 P4-2 -- now links to a `BoQ Sheet` via the new `sheet` Link [the PRIMARY upward tie]; the `boq` Link->BOQs is KEPT DENORMALIZED, controller-synced so `node.boq == sheet.boq` [auto-filled from the sheet when blank, throws on mismatch]; the required-guard moved from boq to sheet. Phase 4 P4-4 -- gained 8 storage fields populated at commit [Phase 5]: human-layer `human_classification`/`human_parent`/`human_is_root`, edit provenance `edit_log` [JSON, opaque, KEPT on node not derived from Nirmaan Versions]/`edited_by`/`edited_at`, `remarks` [Small Text], `attached_notes` [JSON, opaque, own field not folded into `notes`]; `_write_audit` UNCHANGED [tendering-era audit scope is an OPEN decision for the tendering boundary, not inherited]. Phase 5 Slice 2.5 -- the controller is now CAPTURE-ONLY: `_compute_amounts` + `_recompute_parent_rates_from_areas` REMOVED from before_save (no amount = qty x rate recompute, no parent-rate weighted-average overwrite); `is_rate_only` no longer auto-set [field STAYS, value carried from the review row by Slice 3]; `read_only` dropped on supply_amount/install_amount/total_amount/is_rate_only; ALL structural validations kept [sync-guard, level/parent rules, qty_by_area no-dup-area, `_compute_path`]. **Phase 5 post-dogfood fix -- Preamble level constraint RELAXED `>=1` -> `>=0`** (`boq_nodes.py`: throws only on `level is None or < 0`): a level-less preamble may commit at level 0 (the commit pipeline computes it; see `_compute_levelless_preamble_levels`). **Phase 5 Slice 3b -- now WRITTEN by the commit pipeline** [`_commit_node_tree`, FINALIZED sheets only]: gained `review_row_name`+`commit_provenance_id` [provenance], `is_synthetic` [future-insurance Check], `append_notes_raw` [JSON dict], and the versioning triple `commit_version`/`is_current`/`committed_at` [per-node versioning, shared commit_version with grid+sheet]. P4-3 money mapping lands here [rate_*->*_rate / amount_*->*_amount, Float->Currency; sl_no_value->code, row_index->sort_order]; human-layer carried as PROVENANCE ONLY [never branched on]; edit_log+attached_notes carried [list-JSON -> written via pass-3 set_value]. **combined_rate consistency RELAXED to a WARNING** [parent + child; was throw -- capture-only]), `BOQ Node Qty By Area` (Phase 4 P4-5 -- its six rate/amount fields `supply_rate`/`install_rate`/`combined_rate`/`supply_amount`/`install_amount`/`total_amount` are now `Currency`, matching the parent BOQ Nodes; `qty` stays `Float`. The P4-3-deferred parent/child Float-vs-Currency inconsistency is now CLOSED. Phase 5 Slice 2.5 -- child controller is CAPTURE-ONLY too: `_apply_rate_fallback` [blank child rate inheriting parent] + `_compute_child_amounts` [child amount = rate x qty] REMOVED; `validate_child`/`_validate_combined_rate` KEPT but Phase 5 Slice 3b RELAXED its combined_rate check from throw -> WARNING [capture-only; a blank child rate stays None -> the all-three-set guard never spuriously trips]. NOTE: child `qty` + `area_name` are reqd=1, so the per-area explosion defaults child qty to 0.0 for an amount/rate-only area), `BoQ Committed Sheet Grid` (Phase 5 Slice 1 doctype, RENAMED from `BoQ Committed General Specs` in
+Slice 3a -- the committed home for ANY committable sheet's FAITHFUL cell grid [all 6 row classifications,
+original position; grid-only general-specs AND grid+nodes finalized alike]; standalone istable=0, Links up to BOQs,
+autoname `BCSG-.YY.-.#####`; carries the per-sheet commit-version dimension `commit_version`/`is_current` [the
+one-current invariant is ENFORCED by the Slice-3a commit pipeline `commit_pipeline.py`, not the controller] +
+`committed_at` + the Slice-3a `sheet_disposition` Select [grid_only / grid_and_nodes, mapped from the gate's
+general_specs / finalized]; one child table `rows` -> `BoQ Committed Sheet Grid Row` [istable=1:
+`row_number`/`row_order`/`cells` JSON {col_letter: value}, mirroring `get_sheet_preview_full`'s per-row shape].
+SEPARATE from the lossy `BoQ General Specs Sheet` blob doctype, which is UNTOUCHED. Written by `commit_pipeline.py`
+[Slice 3a]; the Finalized node tree is Slice 3b). (No separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
 ---
 
@@ -779,6 +1198,8 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - `BoQ Sheet Draft.work_packages` -- Table, options "BoQ Sheet Work Package". Multi-link to Work Headers. REPLACES the former single-Link `work_package` field (renamed + converted in feat b14e9015). FRONTEND NOTE: `boqTypes.ts` still has `work_package?: string | null` -- a later frontend slice must update to `work_packages: BoQSheetWorkPackage[]`.
 - `BoQ Sheet Draft.sheet_config` -- JSON, optional. Per-sheet parser config blob (header_row, header_row_count, column_role_map, area_dimensions, etc.). Written by `set_sheet_config`; consumed by parse pass. Never query cross-sheet; always treat as opaque blob outside the wizard.
 - `BOQs.general_specs_sheets` -- Table, options "BoQ General Specs Sheet", in `parser_metadata_section`. REPLACES the removed scalars `BOQs.general_specs_sheet` (Data) + `BOQs.master_preamble` (Long Text) (Slice 2c, feat b5381c0c). Multiple general-specs sheets per workbook are now supported (M2.16 one-per-workbook constraint dropped). New child doctype path: `nirmaan_stack/nirmaan_stack/doctype/boq_general_specs_sheet/`.
+- `BoQ Sheet Draft.parse_failure_category` / `parse_failure_reason` / `parse_failure_at` -- (Slice 1a, reactive #166, feat e4b1fefc) the durable per-sheet parse-failure REASON. `parse_failure_category` Select (`""`/`Config stale`/`Parser error`/`Insert error` -- the three IN-SCOPE failures ONLY; non-failures never set it); `parse_failure_reason` Small Text (the specific why -- the validation exc for STALE, a concise message + an `(ref: Error Log <name>)` handle for crashes); `parse_failure_at` Datetime read_only. ADDITIVE: written WITHOUT touching `wizard_status` (STALE: via `_record_parse_failure`, fields-only; PARSER/INSERT: folded into the existing `"Parse failed"` `_set_draft_status(extra_fields=...)`). CLEARED on a successful parse (folded into the `"Parsed"` write). Read by a LATER frontend hub-card notice slice (not built). Done-event payload UNCHANGED.
+- `BoQ Sheet Draft.commit_failure_reason` / `commit_failure_at` -- (Slice F1, feat 5c095b34) the durable per-sheet COMMIT-failure stamp -- the commit-side analog of `parse_failure_*`. A PAIR, NO category Select (commit exceptions are heterogeneous/freeform, already flattened to one string by `_commit_failure_reason`). `commit_failure_reason` Small Text; `commit_failure_at` Datetime read_only. ADDITIVE: written WITHOUT touching `wizard_status` via `_record_commit_failure` (verbatim-#152 child lookup, `set_value` both fields `update_modified=False`). WRITTEN in `commit_boq`'s per-sheet `except` AFTER the mandatory `frappe.db.rollback()` + with its OWN explicit `frappe.db.commit()` (the rollback-then-write-then-commit ordering is load-bearing -- see `commit_pipeline.py` ref below). CLEARED on a successful commit via `_clear_commit_failure` folded into `_commit_one_sheet`'s trailing commit. Read by a LATER frontend hub-card "needs attention" slice (F2, not built). The `{committed, failed}` envelope is UNCHANGED (the fields are an additive superset of `failed[]`).
 
 **New child doctype BoQ General Specs Sheet (Slice 2c, feat b5381c0c):**
 - Path: `nirmaan_stack/nirmaan_stack/doctype/boq_general_specs_sheet/`
@@ -807,6 +1228,10 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 
 - `assemble_mapping_config(boq_name, force_reparse=False)` -- reads BOQs doc + BoQ Sheet Draft child rows, builds a `MappingConfig` Pydantic model for the parser orchestrator. Returns `(MappingConfig, not_eligible: list[str])`. Routing (in order, Slice 2c updated): (1) `general_specs_sheets` set membership -> `treat_as="master_preamble"` -- checked FIRST, outranks wizard_status (a Skip sheet in the child table must win); (2) Hidden/Skip -> `SheetConfig(skip=True)`; (3) Reviewed/Parsed with valid blob -> data sheet; (4) Pending/Parse-failed/blank/Reviewed-without-blob/Parsed-Check-Done -> `not_eligible`. Raises `frappe.ValidationError` if BOQ not found or no eligible sheets remain. `GlobalSettings` always defaults (no per-BoQ override). **IMPORTANT:** Injects `raw["sheet_name"] = sheet_name` before `SheetConfig.model_validate(raw)` in Rule 3 -- production wizard blobs omit `sheet_name`; without this injection all Reviewed sheets fall into `not_eligible`. **FORCE RE-PARSE (`force_reparse`, Force Re-parse backend slice):** when `force_reparse=True`, Rule 3 ALSO admits `"Parsed Check Done"` sheets (`if status in {"Reviewed","Parsed"} or (force_reparse and status == "Parsed Check Done")`) -- on the SAME terms as Rule 3 (valid sheet_config blob still required; empty/invalid-blob sub-gates still apply). **CONVENTION future work MUST respect: `"Parsed Check Done"` is parse-eligible ONLY under this flag** -- with `force_reparse=False` (the default, and the normal parse path) it stays in `not_eligible` byte-for-byte as before, so force-reparse can never leak into normal parsing. Scope is `"Parsed Check Done"` ONLY; `"Parse failed"` is NOT widened. A successful re-parse drops the sheet back to `"Parsed"` (Option A, worker status-set line unchanged) and DELETES the prior BoQ Review Rows (discarding human edits/remarks by design).
 
+- `_validate_sheet_blob(blob, sheet_name) -> Exception | None` + `_stale_empty_reason(status)` / `_stale_invalid_reason(exc)` (Slice 1b, feat 32e31a2a) -- the SHARED config-staleness gate + reason vocabulary. `_validate_sheet_blob` returns None if the stored `sheet_config` blob validates as a `SheetConfig`, else the validation/parse Exception; it INJECTS `sheet_name` (production 6-key blobs omit it -- without injection EVERY blob false-positives) and catches a malformed/non-dict blob. It is the SINGLE SOURCE OF TRUTH for "does this saved config still validate", called by BOTH `assemble_mapping_config` Rule 3 (reactive parse-drop / 1a) and `get_stale_sheets` (proactive read / 1b), so the two never diverge; the reason builders make their messages byte-identical. (Rule 3's success path re-validates only to obtain the `SheetConfig` object -- behaviour-identical.)
+
+- `get_stale_sheets(boq_name)` -- `@frappe.whitelist()` bare (READ-ONLY, GET-capable; Slice 1b, proactive #166). Flags sheets whose saved config no longer validates BEFORE a parse is triggered (validate-on-read; ZERO schema -- no stamp/fingerprint/migration). Returns `{"stale_sheets": [{"sheet_name" [VERBATIM #152], "reason"}, ...]}`. ROUTING PARITY with `assemble_mapping_config` (no new gating): general-specs pointer / Hidden / Skip never stale; Pending / Parse failed / Finalized / blank are not data sheets here (UNCONFIGURED != stale -- no cry-wolf; gate = `status in _RULE3_BASE_STATUSES` = {Config Done, Parsed}, i.e. force_reparse=False read semantics -- Finalized is NOT flagged on a normal read); Config Done / Parsed with a non-empty invalid blob -> stale (reason = validation detail via `_stale_invalid_reason`); Config Done / Parsed with an empty blob -> stale (mirrors 1a's empty-on-done, reason via `_stale_empty_reason`). PURE READ -- writes NOTHING (no set_value/insert/save/commit). Guard mirrors `run_parse`. Composes with 1a (same validation, two triggers; shared helper => identical verdict + reason; a test asserts byte-for-byte parity vs the 1a reactive stamp). URL: `/api/method/nirmaan_stack.api.boq.wizard.parse_run.get_stale_sheets`
+
 - `flatten_resolved_row(resolved_row, sheet_name, row_index)` -- maps a parser `ResolvedRow` + nested `ClassifiedRow` to a flat dict of BoQ Review Row field values. JSON fields returned as Python objects (list/dict), NOT pre-serialized strings. CAVEAT: Frappe rejects Python lists for JSON fieldtype (`get_valid_dict` "cannot be a list"). Callers must `json.dumps()` the four list-JSON fields before `doc.insert()` -- see `_LIST_JSON_FIELDS` module constant. Dict-type JSON fields (`qty_by_area`, `amount_by_area`, `rate_by_area`, `append_notes_raw`) can be passed as Python dicts. **SENTINEL WRITES (agreement #54, both halves now applied):** writes `parent_index=-1` for root rows (None parent → -1) AND `human_parent=-1` for ALL rows (no human override at parse time). Both are required: Frappe coerces unset Int fields to 0, and 0 is a valid row index. `resolve_effective` treats `human_parent >= 0` as a real override -- without the explicit `-1`, every parsed row falsely reports effective_parent_index=0 (flat tree). Fix landed in Slice B1.1b-fix-A.
 
 - `flatten_parsed_boq(parsed_boq, boq_name)` -- iterates `ParsedBoq.sheets`, calls `flatten_resolved_row` per row, injects `boq=boq_name`. `master_preamble` (treat_as="master_preamble") sheets produce no rows. Returns `list[dict]`.
@@ -820,6 +1245,27 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 **`boq:parse_run_done` realtime event** -- `user=`-targeted (unlike `boq:wizard_parse_done` which broadcasts). Success payload: `{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}`. Error payload: `{status,boq_name,error_code}`. Error codes: `missing_file`, `fetch_failed`, `no_eligible_sheets`, `parse_failed`, `internal`. **Payload contract is frozen** -- `_publish_parse_event` clears `parse_in_progress=0` before publishing (Bucket-2 Slice 1) but does NOT change any payload key or error code.
 
 **`general_specs_sheets` empty guard (Slice 2c)** -- `assemble_mapping_config` builds `general_specs_sheet_names: set[str]` from child rows (`row.source_sheet_name for row in boq_doc.general_specs_sheets or []`). An empty child table produces an empty set; set membership check `sheet_name in general_specs_sheet_names` is safely False. `ParsedBoq.master_preambles: dict[str,str]` -- replaces `master_preamble: str|None`. Empty dict = no general-specs sheets parsed this run (does not blank existing child rows -- falsy-skip per row is preserved).
+
+**`commit_gate.py`** (Phase 5 Slice 2, feat b93ec41c) -- the READ-ONLY commit-eligibility gate. SEPARATE from parse-eligibility (does NOT import/reuse/consult `assemble_mapping_config` / `force_reparse` -- the parser treats "Finalized" as not_eligible by default; the commit gate is the opposite, Finalized is exactly what commits). 2 functions:
+
+- `compute_committable_sheets(sheet_drafts, general_specs_sheet_names)` -- PURE helper (no DB; accepts Frappe child docs / `frappe._dict` / plain dicts via a `_get` shim; preserves input order). Returns `list[dict]` of `{"sheet_name", "disposition"}`. RULE: general-specs-designated (membership in `general_specs_sheet_names`) -> disposition `"general_specs"`; else `wizard_status == "Finalized"` -> `"finalized"`; else NOT eligible (blank / Pending / Hidden / Config Done / Skip / Parse failed / Parsed). PRECEDENCE: general-specs outranks Finalized on overlap (mirrors `assemble_mapping_config` Rule 1). The disposition tells the Slice-3 pipeline which write path to use.
+
+- `get_committable_sheets(boq_name)` -- `@frappe.whitelist()` bare (READ-ONLY). Loads `BOQs.sheet_drafts` + the `BOQs.general_specs_sheets` pointer (general-specs = POINTER membership on `source_sheet_name`, NOT `wizard_status == "General specs"` which is never literally stored), applies the pure helper. Returns `{"committable_sheets": [{"sheet_name", "disposition"}, ...]}`. Missing/unknown BoQ -> `frappe.throw`. URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committable_sheets`
+
+- `get_committed_state(boq_name)` -- (Phase 5 Slice 4a, feat 964e14d0) `@frappe.whitelist()` bare (READ-ONLY). The per-sheet CURRENT committed-state read for the Slice-4b hub UI (committed badge + timestamp, "Committed: N" footer count, last-committed date/time in the commit modal). Sourced from the **`BoQ Committed Sheet Grid`** tier -- the authoritative `committed_at` source (written for BOTH dispositions, anchors the shared `commit_version`, one `is_current=1` row per (boq, source_sheet_name) by the pipeline's freeze-and-supersede invariant). Same missing/unknown-BoQ guard as `get_committable_sheets` (`frappe.throw` "boq_name is required." / "BOQs '...' not found."). Queries `frappe.get_all("BoQ Committed Sheet Grid", filters={"boq", "is_current": 1}, fields=["source_sheet_name", "committed_at", "commit_version"])` and maps each current row to `{"sheet_name": <source_sheet_name VERBATIM #152>, "committed_at": <Datetime|None>, "commit_version": int}`. Returns `{"committed_state": [...]}`; empty when nothing committed. SEPARATE from `get_committable_sheets` (eligibility) -- the modal needs BOTH (eligibility + committed-state). PURE read (no set_value/insert/save/commit). No dedup logic (the one-current invariant is pipeline-enforced). `test_commit_gate` 13 -> 18 (+5: current state, superseded-excluded, verbatim trailing space, empty case, unknown-BoQ throws). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state`. **CONSUMED by the frontend (Phase 5 Slice 4b, feat 53645ab7):** the BoQ hub now wires the commit UI onto this read + the existing `commit_boq` -- a "Commit" footer button -> a checklist modal (`CommitDialog.tsx`) of `get_committable_sheets` rows that fires `commit_boq` (POST, `sheet_subset`=ordered ticked list) with a one-step re-commit warning (naming already-committed sheets + their last-committed date/time from this endpoint), a per-card "Committed" badge + timestamp, and a hub "Committed: N" tally. Frontend-only; committed-ness stays a separate marker, NOT a `wizard_status`. Full detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice 4b".
+
+**`commit_pipeline.py`** (Phase 5 Slice 3a, feat pending) -- the combined commit shell + grid write-body. The FIRST writer of REAL parsed BoQ data into the committed schema. Single public endpoint:
+
+- `commit_boq(boq_name, sheet_subset)` -- `@frappe.whitelist(methods=["POST"])`. Commits a subset of a BoQ's sheets. SERVER-SIDE GATE RE-CHECK: every sheet in `sheet_subset` MUST be in the LIVE `compute_committable_sheets` set (same general-specs pointer read the gate uses) or the whole call throws BEFORE any file fetch / write -- the caller's subset is never trusted. `sheet_subset` accepts a JSON-string list or a Python list; empty/missing throws. SINGLE-OPEN: one `_fetch_boq_file_to_tempfile` + one `openpyxl.load_workbook`, then loop the sheets, each grid built by the SHARED `sheet_preview._extract_grid_rows(ws)` inside the one open workbook (no per-sheet re-open, no whitelisted-endpoint loop). **PER-SHEET FAILURE ISOLATION (Phase 5 Slice 5, feat 09714041):** the per-sheet loop wraps each sheet in `try/except` -- catch-rollback-continue-and-report (was propagate-and-abort). On a sheet failure it calls **`frappe.db.rollback()` (MANDATORY -- catching the exception SUPPRESSES Frappe's request-level rollback, so without it the failed sheet's freeze-before-write [prior `is_current` set to 0] + partial new writes stay pending and the NEXT sheet's `frappe.db.commit()` FLUSHES them, ORPHANING the sheet -- prior frozen, new incomplete, NO `is_current=1` version; a test proves T2 FAILS if the rollback line is removed)**, records `{sheet_name, reason}` in a new `failed[]` (`reason` via `_commit_failure_reason(e)` -- best-effort HTML-stripped message + safe fallback, never empty), `frappe.log_error`s the traceback, and continues. **DURABLE PERSISTENCE (Slice F1, feat 5c095b34):** immediately AFTER that mandatory `frappe.db.rollback()` the except calls `_record_commit_failure(boq, sheet, reason)` (`set_value` `commit_failure_reason`/`commit_failure_at` on the draft, `update_modified=False`) THEN an explicit `frappe.db.commit()` -- the rollback-then-write-then-commit ORDER is load-bearing: the write is AFTER the rollback so it survives it, the explicit commit is REQUIRED because `commit_boq` has NO trailing commit (a LAST-sheet failure would otherwise be lost), and the draft is a DIFFERENT doctype from the rolled-back tiers so the stamp cannot re-flush a rolled-back tier write (T2 orphan-prevention preserved). The success path's `_commit_one_sheet` CLEARS the stamp via `_clear_commit_failure` folded into its trailing commit. **MIXED STATE is a valid outcome** (some committed + some failed); NO all-or-nothing wrapper; earlier committed sheets are durable (commit-per-sheet boundary UNCHANGED). The sheet-not-in-workbook check is now INSIDE the per-sheet try (a genuinely-absent eligible sheet -> `failed[]`, loop continues); the UPFRONT gate re-check STAYS a whole-call throw (eligibility is a precondition, not a runtime failure). Returns `{"boq_name", "committed": [{sheet_name, disposition, sheet_disposition, grid_name, boq_sheet_name, commit_version, row_count, froze_prior, froze_prior_sheet, node_count, froze_nodes}, ...], "failed": [{sheet_name, reason}, ...]}` (`failed` is `[]` on full success -- the key is always present). URL: `/api/method/nirmaan_stack.api.boq.wizard.commit_pipeline.commit_boq`. **CONSUMED by the frontend (Phase 5 Slice 5 frontend, feat ab4a390b):** after `commit_boq` resolves, the hub surfaces the `{committed, failed}` envelope in an acknowledge-only `CommitResultsModal` (mirrors the parse-completion modal -- single OK) enumerating the committed sheets (with version) and the failed sheets (with reason); mixed outcomes are normal. `CommitDialog` hands the envelope up via `onCommitted(result)`; the hub stores it, fires the Slice-4b mutates, and opens the modal. Frontend detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice 5 (frontend)".
+- Internal write-body (`_commit_one_sheet` -> `_write_grid` + `_write_committed_boq_sheet` + `_commit_node_tree`): PER-SHEET transaction (one trailing `frappe.db.commit()` per sheet, NO savepoints -- the app-wide pattern). ONE SHARED `commit_version` per (boq, sheet) = `_next_commit_version` (grid max+1) covers grid+sheet+nodes. `_write_grid` -- VERBATIM (#152) `source_sheet_name`; `is_current=1`; `committed_at`; prior current frozen -> 0 via `_current_names` + `set_value`. `_write_committed_boq_sheet` (Slice 3b -- FREEZE-AND-SUPERSEDE, 3a's raw-delete RETIRED) -- freezes the prior current BoQ Sheet via `frappe.db.set_value(is_current=0)` (NOT doc.save() -- the list-valued `area_dimensions` would re-serialize and hit get_valid_dict; see gotcha) then INSERTS a fresh current under the shared version; COLUMN-CONFIG SNAPSHOT from the draft's `sheet_config` (`column_role_map`/`column_headers`/`area_dimensions` json.dumps'd, + `header_row`/`header_row_count`/`treat_as`); `sheet_order`/`sheet_label`/`work_packages` carried; `treat_as` = master_preamble (general_specs) / data (finalized); returns (new_name, prior_current_names). `_commit_node_tree` (Slice 3b, FINALIZED only) -- freezes prior nodes (attached to the frozen prior sheet[s], `set_value` is_current=0), reads review rows + `resolve_effective`, maps preamble/line_item -> nodes (the other 4 classifications grid-only), TWO-PASS write (pass1 insert parent-less with list-JSON fields NULL; pass2 set parent_node + doc.save() in ancestor-depth order; pass3 set_value the list-JSON fields attached_notes/edit_log), per-area child explosion via `_explode_area_children` (dual-shape, never downgrade). Returns {node_count, froze_nodes}. **LEVEL-LESS PREAMBLE GUARD (post-dogfood fix):** a real >=1 level (override or parser) is used unchanged; a level-less preamble (no override, no >=1 level) gets a level computed ONCE per sheet by `_compute_levelless_preamble_levels` -- WITH children -> `max(0, min(child effective-level) - 1)` (shallowest child wins; line-item children = level 0); CHILDLESS -> the sheet's shallowest DEFINED preamble level, else 0. (`_real_preamble_level(d)` is the shared level-less test.) The old flat default of 1 broke trees where a child was also level 1; the controller constraint relaxed >=1 -> >=0 to allow level 0.
+- DISPOSITION MAPPING (ties to the gate, NOT re-derived): `_DISPOSITION_TO_SHEET_DISPOSITION` general_specs->grid_only, finalized->grid_and_nodes; `_DISPOSITION_TO_TREAT_AS` general_specs->master_preamble, finalized->data.
+- **`_current_names(doctype, boq, name_field, value)` (Slice 3b)** -- the ONE centralized is-current accessor across all three committed tiers (grid:`source_sheet_name`, BoQ Sheet:`sheet_name`, BOQ Nodes:`sheet`); returns is_current=1 row names (value VERBATIM #152). One helper, three callers.
+- **`_explode_area_children(qty_ba, rate_ba, amount_ba)` (Slice 3b) -- DUAL-SHAPE, NEVER DOWNGRADE (owner-locked):** qty_by_area always flat {area:float}->child.qty (defaults 0.0 when an area is absent from qty but present in rate/amount -- child.qty is reqd=1); rate_by_area NESTED {supply_rate,install_rate,combined_rate}->each on its own child column, FLAT scalar->combined_rate ONLY; amount_by_area NESTED {supply,install,total}->supply_amount/install_amount/total_amount each, FLAT scalar->total_amount ONLY. area_name = dict key verbatim. The real corpus is FLAT; the current parser emits NESTED -- both handled (recon's nested-only assumption was wrong).
+- **`_reconcile_node_tree(...)` + `_reconcile_grid(...)` (Slice 2, feat 01c7dbaf) -- OUTPUT-FIDELITY commit round-trip check.** Run on every per-sheet commit (node-tier INLINE at `_commit_node_tree` tail; grid-tier from `_commit_one_sheet`) BEFORE the per-sheet `frappe.db.commit()`. Verify ONLY that the value each transform PRODUCED was COPIED to the DB faithfully -- NOT logic-correctness (validity/coherence = tendering, OUT OF SCOPE). COPIED fields: `stored == transform(review-row source)` (reusing the in-hand `node_rows`, no re-query). DERIVED (exactly two): `parent_node == name_by_idx.get(eff_parent_by_idx.get(idx))` (captured eff-parent map, NOT re-running resolve_effective) and `level == docs_by_idx[idx].level` (captured in-memory doc; a thin tripwire). Numerics rounded to `frappe.get_precision` (money 2dp / qty 3dp). On divergence `frappe.throw` -> commit_boq's Slice-5 per-sheet isolation routes it to `failed[]` (rollback + reason), isolation boundary UNCHANGED. Suppress-set encoded (blank-qty=0, placeholder desc, flat-stays-flat, gen-specs 0 nodes, minted id + versioning + path + boq excluded, note/Other money-null, -1 sentinel, bool coercion). Helper trio `_text_eq`/`_json_eq`/`_node_type_for` + the `_NODE_MONEY_SOURCE` word-reversal map support the compare.
+
+**Shared single-open helper `sheet_preview._extract_grid_rows(ws, min_row=1, max_row=None)`** (Slice 3a) -- the ONE worksheet->rows transform (`{row_number, cells:{col_letter:value}}`, EmptyCell skip logic, `_to_json_serializable` values). Extracted from the previously-welded/duplicated loop in `get_sheet_preview` + `get_sheet_preview_full`; BOTH now call it (byte-identity test green -> behavior-preserving), AND `commit_pipeline` calls it so the previewed grid and the committed grid can never silently diverge. `max_row=None` -> whole sheet.
+
+**GOTCHA -- list-valued JSON field + doc.save()/delete_doc (Slice 3a pin; amended 3b):** a JSON field holding a Python LIST (e.g. `BoQ Sheet.area_dimensions`, or BOQ Nodes' `attached_notes`/`edit_log`) can be INSERTED via `json.dumps()` (string passes `get_valid_dict`) but Frappe parses it back to a list on load, so any later `doc.save()` OR `delete_doc` (whose as_json archive calls `get_valid_dict`) THROWS "cannot be a list". MITIGATIONS in use: (1) to FREEZE/flip a field on an existing such doc, use `frappe.db.set_value(...)` (targeted column write, bypasses full-doc serialization) -- this is how 3b freezes the prior BoQ Sheet's `is_current` (the 3a raw-`delete` of the BoQ Sheet is RETIRED -- the sheet is now VERSIONED/frozen, not deleted); (2) to WRITE a list-JSON field while still needing a later `doc.save()`, defer the list field to a post-save `set_value(json.dumps(...))` and keep it NULL across the save (3b's node two-pass leaves attached_notes/edit_log null through pass-2 save, writes them in pass 3). Reads must tolerate the parsed form (`frappe.parse_json(v) if isinstance(v, str) else v`). Dict-valued JSON (e.g. `append_notes_raw`, grid `cells`) is fine -- only LISTs trip the wall.
 
 **New top-level doctype: BoQ Review Row** (Phase-1 Slice 1):
 - Path: `nirmaan_stack/nirmaan_stack/doctype/boq_review_row/`. Autoname `BOQRR-.YY.-.#####`. `track_changes=1`.
