@@ -559,6 +559,35 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
         self.assertEqual(r["ai_suggestion_status"], "Pending")
         self.assertEqual(r["human_parent"], -1)
 
+    # -- G1 (AI-3c-3): accept CLASSIFICATION on a row WITH children -> guard throws --
+
+    def test_G1_accept_classification_with_children_throws(self):
+        # row 0 is the effective parent of row 1 -> it HAS children. Reclassifying it to a
+        # non-parent class (note) would silently orphan row 1 under a note (uncaught by
+        # check_structural_integrity), so the classification accept must be refused here and
+        # routed through the restructure modal (mirrors the accept_parent guard, T5).
+        self._seed_ai(0, ai_suggestion_status="Pending", ai_suggested_classification="note")
+        with self.assertRaises(frappe.ValidationError):
+            accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                 row_index=0, accept_classification=True)
+        # Unchanged: still Pending, human_classification untouched (no silent break).
+        r = self._row(0)
+        self.assertEqual(r["ai_suggestion_status"], "Pending")
+        self.assertIsNone(r["human_classification"])
+
+    # -- G2 (AI-3c-3): accept CLASSIFICATION on a CHILDLESS row -> still works -------
+
+    def test_G2_accept_classification_childless_still_works(self):
+        # The new guard must NOT over-fire: row 2 is a childless line_item root.
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="preamble")
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_classification=True)
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        r = self._row(2)
+        self.assertEqual(r["human_classification"], "preamble")
+        self.assertEqual(r["ai_suggestion_status"], "Accepted")
+
     # -- T6: accept with neither flag -> throws -----------------------------
 
     def test_accept_nothing_throws(self):

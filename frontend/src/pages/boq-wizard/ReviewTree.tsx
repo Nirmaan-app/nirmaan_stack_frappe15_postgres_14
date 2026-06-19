@@ -576,27 +576,48 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // path runs unchanged.
   const handleApplyAi = async (row: ReviewRow) => {
     setAiActionError(null);
-    if (aiAcceptParent && hasChildrenSet.has(row.row_index)) {
-      const ai = aiSuggestionInfo(row);
-      const clsIsChange = ai.hasClass &&
-        row.ai_suggested_classification !== row.effective_classification;
-      const isRoot = row.ai_suggested_is_root === 1;
-      const presetRowParent = isRoot ? -1 : (row.ai_suggested_parent ?? -1);
+    const ai = aiSuggestionInfo(row);
+    const clsIsChange = aiAcceptCls && ai.hasClass &&
+      row.ai_suggested_classification !== row.effective_classification;
+    const isRoot = row.ai_suggested_is_root === 1;
+    const parentIsChange = ai.hasParent && (
+      isRoot ? row.effective_parent_index !== null
+             : row.ai_suggested_parent !== row.effective_parent_index
+    );
+    const parentAccept = aiAcceptParent && parentIsChange;
+    // AI-3c-3: mirror the manual onPickClass rule -- ANY accepted change on a row WITH
+    // children opens the child-disposition RestructureModal (a classification change to a
+    // non-parent class, e.g. Preamble->note, would otherwise silently orphan the children
+    // under a now-non-parent row; check_structural_integrity does not catch note-as-parent).
+    // A classification-ONLY accept must NOT force a parent move: OMIT presetRowParent so the
+    // modal defaults to "keep" the row's own parent (exactly what manual reclassify does).
+    if (hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)) {
+      const presetRowParent = parentAccept
+        ? (isRoot ? -1 : (row.ai_suggested_parent ?? -1))
+        : undefined;
       const parentLabel = isRoot
         ? "Top level (root)"
         : (() => {
-            const src = byIdx.get(presetRowParent)?.source_row_number;
+            const src = presetRowParent !== undefined
+              ? byIdx.get(presetRowParent)?.source_row_number
+              : undefined;
             return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
           })();
       setRestructureModal({
         row,
         // Fold an accepted classification change into the SAME restructure call; else a
         // no-op reclassify (current effective class) -- exactly the #162 door's pattern.
-        newClassification: (aiAcceptCls && clsIsChange)
+        newClassification: clsIsChange
           ? (row.ai_suggested_classification as string)
           : (row.effective_classification as string),
-        presetRowParent,
-        presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
+        // Parent move only when a parent change is being accepted; omitted otherwise
+        // (-> modal keeps the row's own parent, child-disposition only).
+        ...(presetRowParent !== undefined
+          ? {
+              presetRowParent,
+              presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
+            }
+          : {}),
         markAiAccepted: true,
       });
       return;

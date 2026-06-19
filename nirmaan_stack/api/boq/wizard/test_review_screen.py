@@ -3122,6 +3122,37 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertEqual(eff["effective_classification"], "note")
         self.assertEqual(eff["effective_parent_index"], 4)
 
+    def test_R_fix4_classification_only_with_children_keeps_own_parent(self):
+        """AI-3c-3: the path the frontend now routes a classification-ONLY accept on a
+        with-children row to -- mark_ai_accepted + new_classification + child_moves but NO
+        row_new_parent. The class is applied, the children are dispositioned, the status
+        flips to Accepted, and the row's OWN parent is left UNCHANGED (no override -> still
+        resolves to its parser parent). This is the manual reclassify-with-children case."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            # NO row_new_parent -- the row keeps its own parent (child-disposition only).
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["row_moved"], "no row_new_parent -> the row is not moved")
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note", "the AI class is applied")
+        self.assertEqual(r1.human_parent, -1,
+                         "the row's OWN parent is untouched (no override written)")
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+        eff = resolve_effective(r1)
+        self.assertEqual(eff["effective_classification"], "note")
+        self.assertEqual(eff["effective_parent_index"], 0,
+                         "with no override the row still resolves to its parser parent (0)")
+        # the children were dispositioned to row 4 by child_moves
+        for ci in (2, 3):
+            self.assertEqual(self._get_doc(ci).human_parent, 4, f"child {ci} reparented to 4")
+
 
 # ===========================================================================
 # Group 12: Finalized read-only freeze (Slice D1)
