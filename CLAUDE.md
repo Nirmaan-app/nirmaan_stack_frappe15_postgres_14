@@ -1,6 +1,58 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-2b -- ANTHROPIC AI-ASSIST SERVICE (structure suggestions) --
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-2c -- AI-PASS ENDPOINT + WORKER + SOCKET + WRITE-BACK + CACHE --
+BACKEND, feat pending. Wires the AI-2b stateless service into the LIVE flow, MIRRORING the parse flow
+(`run_parse`/`_run_parse_worker`/`_publish_parse_event`) exactly. **NO frontend (AI-3).** ONE new module
+`nirmaan_stack/api/boq/wizard/ai_assist.py`. **(1) ENDPOINT `run_ai_pass(boq_name, sheet_name)`** (`@frappe.whitelist()`)
+-- guards in order: no review rows -> `{ok:False, error:"not_parsed"}`; `get_boq_ai_settings().enabled` false ->
+`ai_disabled`; `get_boq_ai_api_key()` None -> `no_api_key`. **CACHE CHECK** (read): if `last_parsed_at` is set AND a
+cached result exists for it, apply the cached suggestions SYNCHRONOUSLY (write-back) + return `{ok:True, cached:True,
+count:N}` -- the "second click on the same parse" path, NO enqueue, NO API cost. Else `frappe.enqueue` the worker
+(`queue="long"`, `timeout=600`, raw `frappe.generate_hash(length=32)` job id, `user=frappe.session.user`), set
+`ai_in_progress=1` on the sheet draft AFTER a successful enqueue with its OWN `frappe.db.commit()`, return
+`{ok:True, enqueued:True}`. **(2) STATUS ENDPOINT `get_ai_pass_status(boq_name, sheet_name)`** -- reads the per-sheet
+Redis fallback (missed-socket recovery); else `{status:"idle_or_unknown", ai_in_progress:<0/1>}`. **(3) WORKER
+`_run_ai_pass_worker(boq, sheet, user)`** -- mirrors `_run_parse_worker`: `if user: frappe.set_user(user)`; fetch rows
+via `frappe.db.get_all` with an EXPLICIT field list (`_AI_FETCH_FIELDS` -- the structural fields the service reads +
+the human + raw ai_* fields `resolve_effective` needs; `get_review_rows.all_fields` does NOT include the ai_* columns)
+ordered `row_index asc`; merge `resolve_effective` into each row dict; re-read settings + key (FRESH PROCESS);
+`boq_ai_assist.run_ai_pass(sheet, rows, settings, key)`; write-back; cache; `frappe.db.commit()` BEFORE publish;
+`_publish_ai_event(... "success", count=len)`. On failure: `frappe.log_error` + `frappe.db.rollback()` +
+`_publish_ai_event(... "error", error_code=)` + **`raise`** (so RQ marks the job failed -- matches parse). Error codes:
+`_NonRetryable` -> **`ai_failed`**; unexpected -> **`internal`**. **(4) WRITE-BACK `_apply_ai_suggestions(boq, sheet,
+rows, suggestions)`** -- `frappe.db.set_value` SCALAR BYPASS (no doc.save, no edit_log side-effects). **STALE-CLEAR
+FIRST:** resets the 7 ai_* fields to defaults (`_AI_DEFAULTS`: ai_suggested_parent/level=-1, rest None) on every row of
+the sheet that currently carries a non-null `ai_suggestion_status`, THEN applies the new pass (a re-run never leaves
+orphaned Pending suggestions). Per suggestion: writes ai_suggested_classification/confidence/parent/parent_confidence/
+level/explanation + `ai_suggestion_status="Pending"`. **LEVEL DERIVATION (`_effective_level`, walks the
+effective-parent chain to root, root=level 1, bounded + visited-set so a cycle/dangling-parent -> -1):** real parent
+(row_index>=0) -> parent's effective level + 1; NO_CHANGE (service None -> stored -1) -> the row's current effective
+level; ROOT (see gap) -> -1. **(5) `_publish_ai_event(boq, sheet, status, user, **kwargs)`** -- the CHOKE-POINT
+mirroring `_publish_parse_event`: CLEARS `ai_in_progress=0` on the sheet draft + its OWN `frappe.db.commit()` (so EVERY
+exit path -- success + every error -- clears the flag, even after the error-path rollback), builds payload
+`{status, boq_name, sheet_name, **kwargs}`, writes the per-sheet Redis fallback (best-effort try/except), then
+`frappe.publish_realtime("boq:ai_pass_done", payload, user=user|broadcast)` -- COMMIT BEFORE PUBLISH, no after_commit.
+**(6) CACHE:** `_ai_cache_key(boq, sheet, last_parsed_at)` -> `frappe.cache().set_value(..., expires_in_sec=6h)` of the
+RAW suggestion list on worker success; a re-parse bumps `last_parsed_at` -> key miss -> fresh pass. In-flight tracking
+uses `ai_in_progress` ONLY (NO ai_job_id/ai_enqueued_at field added this slice -- none exists; no self-heal). **ROOT-
+SUGGESTION CONTRACT GAP (STOPPED + reported, NOT fixed here):** the AI-2b service returns `ai_suggested_parent==-1`
+for a ROOT suggestion, but `resolve_effective` (AI-1) treats `-1` as "no suggestion" -- so a root suggestion is
+INDISTINGUISHABLE from "no parent change" and cannot be applied. Per the slice's stopping condition NO schema change /
+new field was invented. **INTERIM:** the write-back stores parent `-1` + level `-1` (so resolve_effective correctly
+no-ops the parent) while PRESERVING any classification suggestion + explanation + status Pending, and `logger.warning`s.
+Classification-only + real-parent paths are fully functional. **RECOMMENDED real fix (follow-up slice):** an
+`ai_suggested_is_root` Check field mirroring `human_is_root`, consumed by `resolve_effective` -- touches the doctype
+JSON + review_screen.py, both OUTSIDE AI-2c's exclusive file scope. **TESTS:** NEW `test_ai_assist.py` **14/14 OK**,
+service (`boq_ai_assist.run_ai_pass`) + `frappe.enqueue` MOCKED, NO live API call (T1-T3 endpoint guards
+not_parsed/ai_disabled/no_api_key; T4 enqueue + ai_in_progress=1; T5 write-back classification + real-parent; T6 level
+derivation real-parent=2/NO_CHANGE=1; T7 stale-clear; T8/T9 in_progress cleared on success + on error-with-reraise;
+T10 cache-hit skips enqueue + applies; T11 cache-miss-after-reparse enqueues; T12 classification-only leaves parent
+-1; T13 root-suggestion interim drops parent keeps classification; + status idle shape). NO change to review_screen.py
+/ parse_run.py / boq_ai_assist.py / any doctype JSON. Pure-backend -> root CLAUDE.md + boq-upload-plan.md substantive;
+frontend/CLAUDE.md deliberately NOT touched. **NEXT = the LIVE end-to-end API cert (manual, on BOQ-26-00145/HVAC; the
+key is already set in Desk)**, then AI-3 (the frontend: "Run AI pass" button + suggestion review UI + the
+boq:ai_pass_done socket wiring + accept/reject). Full detail in boq-upload-plan.md "Phase 4 Slice AI-2c".)
+// prior: 2026-06-19 (Phase 4 Slice AI-2b -- ANTHROPIC AI-ASSIST SERVICE (structure suggestions) --
 BACKEND, feat pending. The SERVICE LOGIC ONLY of the AI pass: review rows -> Claude -> parsed structural
 suggestions. **NO endpoint / worker / in-progress flag / socket (AI-2c) and NO frontend (AI-3)** -- the service is
 callable + unit-testable in isolation with a MOCKED Anthropic client. **(1) DEPENDENCY:** added `anthropic>=0.111.0,<1.0`

@@ -16,7 +16,40 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-2b (AI auto-mapping) -- Anthropic ai-assist service (structure suggestions)
+LATEST: Phase 4 Slice AI-2c (AI auto-mapping) -- AI-pass endpoint + worker + socket + write-back + cache
+(BACKEND, 2026-06-19, feat pending). Wires the AI-2b stateless service into the LIVE flow, MIRRORING the parse flow
+(`run_parse`/`_run_parse_worker`/`_publish_parse_event`) exactly. **NO frontend (AI-3).** ONE new module
+`nirmaan_stack/api/boq/wizard/ai_assist.py` + `test_ai_assist.py`. **ENDPOINT `run_ai_pass(boq_name, sheet_name)`**:
+guards (no review rows -> `{ok:False, error:"not_parsed"}`; settings disabled -> `ai_disabled`; no key -> `no_api_key`),
+a CACHE CHECK (apply cached suggestions synchronously + return `{ok:True, cached:True, count}` -- "second click on the
+same parse", no enqueue/API cost), else `frappe.enqueue` (`queue="long"`, raw hash job id, `user`) + set
+`ai_in_progress=1` AFTER a successful enqueue with its own commit -> `{ok:True, enqueued:True}`. **STATUS ENDPOINT
+`get_ai_pass_status`** reads the per-sheet Redis fallback (missed-socket recovery) else `{status:"idle_or_unknown",
+ai_in_progress}`. **WORKER `_run_ai_pass_worker`** mirrors `_run_parse_worker`: fetch rows (explicit field list incl.
+the raw ai_* columns -- `get_review_rows.all_fields` omits them) + merge `resolve_effective`, re-read settings/key
+(fresh process), `boq_ai_assist.run_ai_pass`, write-back, cache, commit BEFORE publish; on failure log + rollback +
+publish error + `raise` (RQ marks the job failed). Error codes: `_NonRetryable` -> `ai_failed`; unexpected ->
+`internal`. **WRITE-BACK `_apply_ai_suggestions`** = `frappe.db.set_value` scalar bypass (no doc.save / edit_log),
+STALE-CLEAR FIRST (reset the 7 ai_* to defaults on every row currently carrying a suggestion status, then apply the
+new pass), status `Pending`; **level derivation** walks the effective-parent chain (root=level 1, bounded/visited-set):
+real parent -> parent level + 1, NO_CHANGE -> the row's current level, root -> -1. **`_publish_ai_event`** = the
+choke-point: clears `ai_in_progress=0` + own commit (EVERY exit path), per-sheet Redis fallback, then
+`frappe.publish_realtime("boq:ai_pass_done", payload, user=)` -- commit BEFORE publish, no after_commit. **CACHE** keyed
+on `(boq, sheet, last_parsed_at)`, 6h TTL; a re-parse bumps last_parsed_at -> key miss -> fresh pass. In-flight uses
+`ai_in_progress` ONLY (no ai_job_id/ai_enqueued_at field added; no self-heal). **ROOT-SUGGESTION CONTRACT GAP (STOPPED
++ reported, NOT fixed):** the AI-2b service returns `ai_suggested_parent==-1` for a ROOT suggestion, but
+`resolve_effective` (AI-1) treats -1 as "no suggestion" -- a root suggestion is indistinguishable from "no parent
+change" and cannot be applied. NO schema change / new field invented. INTERIM: store parent -1 + level -1 (so
+resolve_effective correctly no-ops the parent), PRESERVE any classification suggestion + explanation + Pending status,
+warn. Classification-only + real-parent paths fully functional. RECOMMENDED real fix (follow-up slice): an
+`ai_suggested_is_root` Check mirroring `human_is_root`, consumed by `resolve_effective` (touches the doctype JSON +
+review_screen.py -- OUTSIDE AI-2c's file scope). **TESTS:** NEW `test_ai_assist.py` **14/14 OK**, service +
+`frappe.enqueue` MOCKED, NO live API call. NO change to review_screen.py / parse_run.py / boq_ai_assist.py / any
+doctype JSON. **NEXT = the LIVE end-to-end Anthropic API cert (manual, on BOQ-26-00145/HVAC; the key is already set in
+Desk)**, then AI-3 (frontend: "Run AI pass" button + suggestion review/accept-reject UI + the boq:ai_pass_done socket
+wiring). Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-2b (AI auto-mapping) -- Anthropic ai-assist service (structure suggestions)
 (BACKEND, 2026-06-19, feat pending). The SERVICE LOGIC ONLY of the AI pass: review rows -> Claude -> parsed
 structural suggestions (classification / parent), mapped back to internal row_index. **NO endpoint / worker /
 in-progress flag / socket (those are AI-2c) and NO frontend (AI-3)** -- the service is callable + unit-testable in
