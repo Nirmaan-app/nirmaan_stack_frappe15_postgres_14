@@ -1,6 +1,33 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3b-2 -- ACCEPT AI PARENT on a WITH-CHILDREN row via the
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-1 -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip) --
+BACKEND, feat pending. A history-only correctness fix the AI-3b-2 live use surfaced: accepting an AI suggestion
+recorded a WRONG edit_log (a parent change root->26 logged as the no-op "26 -> 26"; the classification change logged
+"AI-class -> AI-class", which the frontend hides -> the change "vanished" from history). **The WRITES were always
+correct** (human_* + effective values right, status Accepted); ONLY the logged from-value was wrong. **ROOT CAUSE
+(recon-pinned):** BOTH accept paths flipped `ai_suggestion_status="Accepted"` on the in-memory doc BEFORE the
+`_apply_and_save_row_edit` helper calls. The helper captures the edit_log from-value via `resolve_effective(doc)`
+(`["effective_classification"]` / `["effective_parent_index"]`), and `resolve_effective` HONORS the AI layer the
+moment status == "Accepted" -- so the premature flip made it return the very AI value the helper was about to write
+-> from == to -> a no-op entry. **FIX = capture-then-flip (the ONLY change is WHEN the flip happens):** move the
+status flip to AFTER all human writes, BEFORE the existing single commit, in BOTH paths. (1) `ai_assist.accept_ai_suggestion`
+(AI-3b-1): removed the early `doc.ai_suggestion_status = "Accepted"`; after the classification/parent helpers it now
+sets the in-memory attr + `frappe.db.set_value(_REVIEW_ROW, doc.name, "ai_suggestion_status", "Accepted",
+update_modified=False)`. (2) `review_screen.save_review_restructure` (AI-3b-2): the `if mark_ai_accepted:` flip moved
+from before the classification helper to after the child-reparent loop, before the commit, via the same in-memory-attr
++ `set_value` pair on `target_doc`. **ATOMICITY PRESERVED:** `set_value` runs IN the request transaction (no
+auto-commit), so the function's SINGLE existing `frappe.db.commit()` still makes the human_* writes + the flip atomic
+-- NO second independent commit. `resolve_effective`, `_apply_and_save_row_edit`, and ALL write/effective logic are
+UNCHANGED. The child reparent from-values were never affected (children edit child_doc, not the AI'd target).
+**TESTS:** `test_ai_assist` 24 -> **27** (+3: C1 childless parent accept logs from=None/root not the AI value; C2
+classification accept logs from=prior-effective not the AI class; C3 the flip still lands Accepted + effective
+correct). `test_review_screen` 181 -> **184** (+3: R-fix1 mark_ai_accepted parent from=root not "4->4"; R-fix2
+accept-both class from=prior-effective; R-fix3 deferred flip still Accepted + effective correct -- each seeds
+ai_suggested_* == the applied value to reproduce the live bug, so they only pass once the flip is deferred). All prior
+accept tests (R1-R5, T1-T8) unchanged + green. NO doctype JSON change -> NO migrate. frontend/CLAUDE.md NOT touched
+(backend-only; frontend was always correct -- it hid the no-op classification entry, which is now a real entry).
+**NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.**)
+// prior: 2026-06-20 (Phase 4 Slice AI-3b-2 -- ACCEPT AI PARENT on a WITH-CHILDREN row via the
 cancel-safe RestructureModal -- BACKEND + FRONTEND, feat pending. The FINAL piece of the AI accept/reject surface:
 accepting an AI parent on a row that HAS children fires the existing RestructureModal (for child disposition) in a
 new children-only mode, with the AI parent PRE-APPLIED and the status flip riding the modal's Save (never on cancel).

@@ -16,7 +16,25 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3b-2 (AI auto-mapping) -- accept AI PARENT on WITH-CHILDREN rows (cancel-safe modal)
+LATEST: Phase 4 Slice AI-3c-1 (AI auto-mapping) -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip)
+(BACKEND, 2026-06-20, feat pending). A history-only correctness fix the AI-3b-2 live use surfaced: accepting an AI
+suggestion logged a no-op edit history (a parent change root->26 recorded as "26 -> 26"; the classification change
+logged "AI-class -> AI-class", which the frontend hides). **The WRITES were always correct** (human_* + effective
+values right, status Accepted); ONLY the logged from-value was wrong. ROOT CAUSE: BOTH accept paths flipped
+`ai_suggestion_status="Accepted"` BEFORE the `_apply_and_save_row_edit` helpers captured their from-values; the helper
+reads the from-value via `resolve_effective`, which honors the AI layer once status == "Accepted", so it returned the
+AI value the helper was about to write -> from == to. FIX = capture-then-flip: move the flip to AFTER all human writes,
+before the existing single commit, in BOTH `ai_assist.accept_ai_suggestion` (AI-3b-1) and
+`review_screen.save_review_restructure` (AI-3b-2), via an in-memory-attr set + `frappe.db.set_value(...,
+update_modified=False)` that rides the SAME transaction (atomicity preserved -- no second commit). `resolve_effective`
++ `_apply_and_save_row_edit` + all write/effective logic UNCHANGED (only the flip's TIMING moved). TESTS:
+test_ai_assist 24 -> 27 (+3: C1/C2/C3); test_review_screen 181 -> 184 (+3: R-fix1/2/3 -- each seeds ai_suggested_* ==
+the applied value to reproduce the live bug). All prior accept tests (R1-R5, T1-T8) green. NO doctype JSON change ->
+NO migrate. frontend/CLAUDE.md NOT touched (backend-only; the frontend was always correct -- it hid the no-op
+classification entry, which is now a real entry). **NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc
+refresh.** Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-3b-2 (AI auto-mapping) -- accept AI PARENT on WITH-CHILDREN rows (cancel-safe modal)
 (BACKEND + FRONTEND, 2026-06-20, feat pending). The FINAL piece of the AI accept/reject surface: accepting an AI
 parent on a row that HAS children fires the existing RestructureModal (child disposition) in a NEW children-only mode
 with the AI parent PRE-APPLIED, and the status flip rides the modal's Save (never on cancel). **AI-3 (the whole AI
