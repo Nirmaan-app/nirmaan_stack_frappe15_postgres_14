@@ -1,6 +1,36 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-1 (AI auto-mapping) -- AI SUGGESTION FIELDS + resolve_effective
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-2a -- BOQ UPLOAD REVIEW AI SETTINGS DOCTYPE + READER HELPERS --
+BACKEND, feat pending. The settings home for the AI pass's Anthropic API key, MIRRORING the existing
+`Document AI Settings` pattern exactly (recon-confirmed). Unblocks AI-2 (the AI service `boq_ai_assist.py`), which
+will read the key + config via these helpers. **NO API KEY IN CODE/TESTS/DOCS** -- the key is entered MANUALLY via the
+Frappe UI (Desk) after this lands. **(1) NEW Single doctype `BOQ Upload Review AI Settings`** (module Nirmaan Stack,
+`issingle:1`, `allow_rename:1`, InnoDB, System-Manager-ONLY permission block [full RWCD + email/print/share],
+autoname=Single). **OWNER-NAME DELTA (resolved):** the brief specified the name `"BOQ Upload & Review AI Settings"`,
+but Frappe derives the controller module folder from `scrub(name)` which RETAINS `&` -> an invalid Python package
+(`boq_upload_&_review_ai_settings`) and `bench migrate` THREW `ModuleNotFoundError`. Owner chose the `&`-free name
+**`BOQ Upload Review AI Settings`** -> `scrub` = `boq_upload_review_ai_settings` (the specified slug exactly; no folder
+rename). FIELDS (Section-Break grouped, mirroring the reference): config -- `enabled` (Check, default 0), `provider`
+(Select `Anthropic`, default Anthropic), `model` (Data, default `claude-sonnet-4-6`), `max_tokens` (Int, default
+8000), `request_timeout_seconds` (Int, default 120); credentials -- **`anthropic_api_key` (Password -- ENCRYPTED AT
+REST, the load-bearing field; NEVER Data)**. **(2) CONTROLLER** `boq_upload_review_ai_settings.py` -- minimal
+`class BOQUploadReviewAISettings(Document): pass` (the reference's `validate()` required-when-enabled is
+provider-specific and deferred to AI-2; kept minimal per the brief). **(3) READER HELPERS
+`nirmaan_stack/api/boq/wizard/ai_settings.py`** (mirror `services/extraction/files.py`): module const
+`SETTINGS_DOCTYPE = "BOQ Upload Review AI Settings"`; `get_boq_ai_api_key()` -> `get_decrypted_password(SETTINGS_DOCTYPE,
+SETTINGS_DOCTYPE, "anthropic_api_key", raise_exception=False)` -> `(value or "").strip() or None`, except ->
+`frappe.log_error` + None (FAIL-CLOSED); `get_boq_ai_settings()` -> per-field perm-bypassing
+`frappe.db.get_single_value` (enabled[bool]/provider/model/max_tokens/request_timeout_seconds), fail-closed to
+`{"enabled": False, "request_timeout_seconds": 120}`, and DELIBERATELY never reads the secret key. NO caching (fresh
+read each call, mirrors the reference). **TESTS:** NEW `test_ai_settings.py` **4/4 OK** (T1 key None when unset
+[fail-closed]; T2 settings fail-closed default shape on an unset Single; T3 non-secret fields reflected after
+`set_single_value`, restored via addCleanup; T4 the encryption invariant -- `anthropic_api_key` meta fieldtype ==
+"Password"). `bench migrate` CLEAN after the rename (verified: doctype EXISTS, issingle 1, key fieldtype Password; no
+orphan row left by the first failed sync). NO change to commit_pipeline.py / parse_run.py / review_screen.py / any
+frontend / Document AI Settings. Pure-backend -> root CLAUDE.md + boq-upload-plan.md substantive; frontend/CLAUDE.md
+deliberately NOT touched. Full detail in boq-upload-plan.md "Phase 4 Slice AI-2a". NEXT = AI-2 (the Anthropic service
+`boq_ai_assist.py` + AI-assist/accept-reject endpoints) -- the key is set in the Desk UI before AI-2 can run live.)
+// prior: 2026-06-19 (Phase 4 Slice AI-1 (AI auto-mapping) -- AI SUGGESTION FIELDS + resolve_effective
 THREE-LAYER CHAIN -- BACKEND, feat pending. (formerly labelled P4-1; renamed to AI-N to avoid collision with the
 completed committed-model-rebuild P4-1..P4-FINAL arc.) The first slice of the Phase-4 AI pass: the SCHEMA + the resolution wiring, NOTHING ELSE
 (no AI service, no accept/reject endpoint, no frontend -- those are later slices). Phase 4 adds an AI pass that

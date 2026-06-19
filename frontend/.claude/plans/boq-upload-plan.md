@@ -16,7 +16,32 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-1 (AI auto-mapping) -- AI suggestion fields + resolve_effective three-layer chain
+LATEST: Phase 4 Slice AI-2a (AI auto-mapping) -- BOQ Upload Review AI Settings doctype + reader helpers
+(BACKEND, 2026-06-19, feat pending). The settings home for the AI pass's Anthropic API key; **UNBLOCKS AI-2** (the
+service `boq_ai_assist.py` + endpoints will read the key + config via these helpers). **The API key is entered
+MANUALLY via the Frappe UI (Desk) after this merges -- NO key value appears in any code, test, or doc.** Mirrors the
+existing `Document AI Settings` doctype + `services/extraction/files.py` reader pattern exactly (recon-confirmed).
+**NEW Single doctype** `BOQ Upload Review AI Settings` (module Nirmaan Stack, `issingle:1`, InnoDB, System-Manager-ONLY
+perms): config fields `enabled` (Check 0), `provider` (Select Anthropic), `model` (Data `claude-sonnet-4-6`),
+`max_tokens` (Int 8000), `request_timeout_seconds` (Int 120); credentials field **`anthropic_api_key` (Password --
+encrypted at rest, NEVER Data)**. Controller = minimal `class BOQUploadReviewAISettings(Document): pass` (the
+reference's required-when-enabled `validate()` is provider-specific, deferred to AI-2). **OWNER-NAME DELTA (resolved
+mid-build):** the brief specified `"BOQ Upload & Review AI Settings"`, but Frappe scrubs the doctype NAME into the
+controller module path WITHOUT stripping `&` -> module `boq_upload_&_review_ai_settings` is not importable and
+`bench migrate` THREW `ModuleNotFoundError`; the owner chose the `&`-free `BOQ Upload Review AI Settings`, whose
+`scrub` is exactly the specified slug `boq_upload_review_ai_settings` (no folder rename). **READER HELPERS**
+`nirmaan_stack/api/boq/wizard/ai_settings.py` (const `SETTINGS_DOCTYPE = "BOQ Upload Review AI Settings"`):
+`get_boq_ai_api_key()` (decrypted `get_decrypted_password`, fail-closed to None) + `get_boq_ai_settings()`
+(perm-bypassing `get_single_value` per non-secret field, fail-closed to `{enabled: False, request_timeout_seconds:
+120}`, NEVER reads the secret); no caching. **FILES:** doctype JSON + `.py` + `__init__.py`, `ai_settings.py`,
+`test_ai_settings.py` (feat); root `CLAUDE.md` + this plan (docs). **TESTS:** NEW `test_ai_settings` **4/4 OK** (key
+None-when-unset; settings fail-closed default; non-secret fields reflected; the `anthropic_api_key` == Password
+encryption invariant). `bench migrate` CLEAN after the rename (doctype EXISTS, issingle, key=Password; no orphan from
+the first failed sync). No commit_pipeline.py / parse_run.py / review_screen.py / frontend / Document AI Settings
+change. **NEXT = AI-2** (Anthropic service `boq_ai_assist.py` + AI-assist/accept-reject endpoints; set the key in Desk
+first). Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-1 (AI auto-mapping) -- AI suggestion fields + resolve_effective three-layer chain
 (BACKEND, 2026-06-19, feat pending). (formerly labelled P4-1; renamed to AI-N to avoid collision with the completed
 committed-model-rebuild P4-1..P4-FINAL arc.) **NOTE ON NUMBERING (collision resolved):** this "Phase 4" is the
 ORIGINAL plan's **Phase 4 -- AI assist** (§8 / §13), NOT the historical "Phase 4 committed-model rebuild"
