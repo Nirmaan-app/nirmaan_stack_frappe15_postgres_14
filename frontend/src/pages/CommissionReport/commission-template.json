@@ -1158,308 +1158,6 @@
       }
     ]
   },
-  "────── NEXT:CCTV Commissioning Report ──────",
-  {
-    "templateId": "cctv-commissioning-report",
-    "templateVersion": 2,
-    "title": "CCTV Commissioning Report",
-    "wizardSteps": [
-      {
-        "key": "header",
-        "title": "Header",
-        "sections": [
-          "hdr"
-        ]
-      },
-      {
-        "key": "floors",
-        "title": "Per Floor",
-        "sections": [
-          "floors"
-        ]
-      },
-      {
-        "key": "signatures",
-        "title": "Signatures",
-        "sections": [
-          "sigs"
-        ]
-      },
-      {
-        "key": "review",
-        "title": "Review",
-        "sections": []
-      }
-    ],
-    "sections": [
-      {
-        "id": "hdr",
-        "type": "header",
-        "title": "COMMISSIONING REPORT — CCTV",
-        "fields": [
-          {
-            "key": "vendor",
-            "label": "VENDOR",
-            "type": "text",
-            "default": "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)",
-            "readonly": true
-          },
-          {
-            "key": "project",
-            "label": "PROJECT",
-            "type": "text",
-            "bind": "project.project_name",
-            "readonly": true
-          },
-          {
-            "key": "location",
-            "label": "LOCATION",
-            "type": "text",
-            "bind": "project.location.full",
-            "readonly": true
-          },
-          {
-            "key": "date",
-            "label": "DATE",
-            "type": "date",
-            "required": true
-          },
-          {
-            "key": "floor_count",
-            "label": "NO. OF FLOORS",
-            "type": "number",
-            "required": true,
-            "min": 1,
-            "helpText": "Drives the number of floor sections in the next step."
-          }
-        ]
-      },
-      {
-        "id": "floors",
-        "type": "repeating_groups",
-        "title": "CCTV Commissioning — Per Floor",
-        "countBoundTo": "responses.hdr.floor_count",
-        "groupTitlePrefix": "Floor",
-        "maxGroups": 50,
-        "groupFields": [
-          {
-            "key": "floor",
-            "label": "FLOOR",
-            "type": "text",
-            "required": true,
-            "placeholder": "e.g. Ground / L1 / Basement"
-          }
-        ],
-        "nestedSections": [
-          {
-            "id": "chk",
-            "type": "checklist",
-            "title": "CCTV Commissioning Checklist:",
-            "columns": [
-              {
-                "key": "slno",
-                "label": "S.No"
-              },
-              {
-                "key": "particular",
-                "label": "Description"
-              },
-              {
-                "key": "result",
-                "label": "Result"
-              },
-              {
-                "key": "remarks",
-                "label": "Remarks"
-              }
-            ],
-            "items": [
-              {
-                "id": "q1",
-                "particular": "Location of Control Equipments (accessible)",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q2",
-                "particular": "Ensure that cables in the Racks, to the cameras are to be dressed appropriately.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q3",
-                "particular": "Ensure that all DVR / NVR / POE Switch / Cameras & Monitors are placed properly.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q4",
-                "particular": "Ensure that all the cables from Camera to the Network Switch are properly terminated.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q5",
-                "particular": "Ensure that cameras are installed as per the approved drawing.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q6",
-                "particular": "Camera location to be clearly indicated on the monitor during viewing.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q7",
-                "particular": "Focusing of the camera to be adjusted by proper positioning to obtain optimum result.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q8",
-                "particular": "Ensure that the camera Enclosure power supply was installed properly.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q9",
-                "particular": "Ensure that Power supply outlets for the CCTV system were fed by UPS (Optional).",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q10",
-                "particular": "Check the NVR are connected to the security network LAN with Static IP (Optional).",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "N/A"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              },
-              {
-                "id": "q11",
-                "particular": "Operation and maintenance information provided.",
-                "result": {
-                  "type": "select",
-                  "options": [
-                    "YES",
-                    "NO",
-                    "N/A"
-                  ],
-                  "default": "YES"
-                },
-                "remarks": {
-                  "type": "text"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "id": "sigs",
-        "type": "signatures"
-      }
-    ]
-  },
   "────── NEXT: DB Commissioning Report ──────",
   {
     "templateId": "db-commissioning-report",
@@ -3258,8 +2956,8 @@
             "placeholder": "e.g. HVAC"
           },
           {
-            "key": "cfm_reading_count",
-            "label": "Number of CFM Readings",
+            "key": "equipment_count",
+            "label": "Number of Equipment",
             "type": "number",
             "required": true,
             "min": 1,
@@ -3272,8 +2970,8 @@
         "id": "readings",
         "type": "repeating_groups",
         "title": "CFM Readings",
-        "countBoundTo": "responses.hdr.cfm_reading_count",
-        "groupTitlePrefix": "CFM Reading",
+        "countBoundTo": "responses.hdr.equipment_count",
+        "groupTitlePrefix": "Equipment",
         "maxGroups": 50,
         "groupFields": [
           {
@@ -3462,11 +3160,11 @@
             "required": true
           },
           {
-            "key": "area_floor",
-            "label": "Area / Floor",
+            "key": "area",
+            "label": "Area",
             "type": "text",
             "required": true,
-            "placeholder": "e.g. 2nd Floor / Block A"
+            "placeholder": "e.g. Block A"
           },
           {
             "key": "type_of_duct",
@@ -7014,13 +6712,13 @@
             "placeholder": "e.g. HVAC"
           },
           {
-            "key": "num_dx_units",
-            "label": "Number of DX Units",
+            "key": "equipment_count",
+            "label": "Number of Equipment",
             "type": "number",
             "required": true,
             "min": 1,
             "max": 10,
-            "helpText": "Drives the number of DX Unit groups in the next step."
+            "helpText": "Drives the number of Equipment groups in the next step."
           }
         ]
       },
@@ -7028,8 +6726,8 @@
         "id": "units",
         "type": "repeating_groups",
         "title": "DX Units",
-        "countBoundTo": "responses.hdr.num_dx_units",
-        "groupTitlePrefix": "DX Unit",
+        "countBoundTo": "responses.hdr.equipment_count",
+        "groupTitlePrefix": "Equipment",
         "maxGroups": 10,
         "groupFields": [
           {
@@ -7289,13 +6987,13 @@
             "placeholder": "e.g. HVAC"
           },
           {
-            "key": "num_vrf_units",
-            "label": "Number of VRF Units",
+            "key": "equipment_count",
+            "label": "Number of Equipment",
             "type": "number",
             "required": true,
             "min": 1,
             "max": 10,
-            "helpText": "Drives the number of VRF Unit groups in the next step."
+            "helpText": "Drives the number of Equipment groups in the next step."
           }
         ]
       },
@@ -7303,8 +7001,8 @@
         "id": "units",
         "type": "repeating_groups",
         "title": "VRF Units",
-        "countBoundTo": "responses.hdr.num_vrf_units",
-        "groupTitlePrefix": "VRF Unit",
+        "countBoundTo": "responses.hdr.equipment_count",
+        "groupTitlePrefix": "Equipment",
         "maxGroups": 10,
         "groupFields": [
           {
