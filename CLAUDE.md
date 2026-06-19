@@ -1,7 +1,8 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice P4-1 -- AI SUGGESTION FIELDS + resolve_effective THREE-LAYER CHAIN
--- BACKEND, feat pending. The first slice of the Phase-4 AI pass: the SCHEMA + the resolution wiring, NOTHING ELSE
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-1 (AI auto-mapping) -- AI SUGGESTION FIELDS + resolve_effective
+THREE-LAYER CHAIN -- BACKEND, feat pending. (formerly labelled P4-1; renamed to AI-N to avoid collision with the
+completed committed-model-rebuild P4-1..P4-FINAL arc.) The first slice of the Phase-4 AI pass: the SCHEMA + the resolution wiring, NOTHING ELSE
 (no AI service, no accept/reject endpoint, no frontend -- those are later slices). Phase 4 adds an AI pass that
 analyses parser output and suggests corrections to classification / parent / level for rows the deterministic parser
 got wrong; the suggestions are stored as ADDITIVE fields on `BoQ Review Row` and slot into the effective-value chain
@@ -36,7 +37,7 @@ still resolves to the parser layer (AI_11); AI-accepted both axes at once (AI_12
 helper gained the 7 ai_* fields with no-suggestion defaults (ai_suggested_parent/level=-1, rest None/None status), so
 every existing DB-test caller is unaffected. NO change to commit_pipeline.py / parse_run.py / any frontend / any
 other doctype. Pure-backend -> root CLAUDE.md + boq-upload-plan.md substantive; frontend/CLAUDE.md deliberately NOT
-touched (backend-only slice, no frontend change). Full detail in boq-upload-plan.md "Phase 4 Slice P4-1".)
+touched (backend-only slice, no frontend change). Full detail in boq-upload-plan.md "Phase 4 Slice AI-1".)
 // prior: 2026-06-18 (Slice F1 -- DURABLE PER-SHEET COMMIT-FAILURE PERSISTENCE -- BACKEND, feat
 5c095b34. The backend half of the "needs attention" F-arc (F2/F3/F4 = the frontend, NOT this slice). Before F1,
 `commit_boq`'s per-sheet failure handler built an in-memory `failed[]`, `frappe.log_error`'d the traceback, and

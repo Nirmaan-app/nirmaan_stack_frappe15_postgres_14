@@ -16,11 +16,14 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-1 (AI PASS) -- AI suggestion fields + resolve_effective three-layer chain
-(BACKEND, 2026-06-19, feat pending). **NOTE ON NUMBERING (collision flagged for owner):** this "Phase 4" is the
+LATEST: Phase 4 Slice AI-1 (AI auto-mapping) -- AI suggestion fields + resolve_effective three-layer chain
+(BACKEND, 2026-06-19, feat pending). (formerly labelled P4-1; renamed to AI-N to avoid collision with the completed
+committed-model-rebuild P4-1..P4-FINAL arc.) **NOTE ON NUMBERING (collision resolved):** this "Phase 4" is the
 ORIGINAL plan's **Phase 4 -- AI assist** (§8 / §13), NOT the historical "Phase 4 committed-model rebuild"
-(P4-1..P4-FINAL) whose entries appear below -- that earlier arc reused the same "Phase 4 / P4-1" labels. This is the
-FIRST slice of the AI pass and is on branch `feature/boq-phase-4`. **SCOPE = schema + the resolution wiring ONLY**
+(P4-1..P4-FINAL) whose entries appear below -- that earlier arc kept the "Phase 4 / P4-N" labels, so the AI-pass
+slices now use the **AI-N** prefix to avoid the clash. **Naming convention going forward: AI-pass slices use the
+AI-N prefix (AI-1 = this slice: schema + resolve_effective wiring; AI-2 = the AI service + endpoints; AI-3 = the
+frontend suggestion UI).** This is the FIRST slice of the AI pass and is on branch `feature/boq-phase-4`. **SCOPE = schema + the resolution wiring ONLY**
 (no AI service `boq_ai_assist.py`, no accept/reject endpoint, no `ai_in_progress` reader, no frontend -- all later
 slices). The AI pass analyses parser output and suggests corrections to classification / parent / level; suggestions
 are stored as ADDITIVE fields on `BoQ Review Row` and slot into the effective chain BETWEEN human and parser.
