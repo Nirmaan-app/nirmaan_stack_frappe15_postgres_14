@@ -16,7 +16,33 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3c-2a (AI auto-mapping) -- ROW-LEVEL REVERT OF AN AI ACCEPTANCE (BACKEND, 2026-06-20,
+LATEST: Phase 4 Slice AI-3c-2b (AI auto-mapping) -- REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS
+(FRONTEND + a bundled BACKEND status fix R6, 2026-06-20, feat pending). Surfaces AI-3c-2a's row-level revert in the UI
+AND fixes a misleading status. THE AI ACCEPT/REJECT/REVERT SURFACE IS NOW COMPLETE (pending live-cert). NO doctype JSON
+change -> NO migrate (2a's snapshot fields already exist). (1) FRONTEND -- the Revert button (`ReviewTree.tsx` detail
+panel): a NEW block right AFTER the PENDING accept/reject block (which vanishes once Accepted), gated
+`row.ai_suggestion_status === "Accepted"` so it shows for an Accepted row in BOTH editable + read-only panels. `Button
+size=sm variant=outline` "Revert AI change", ENABLED iff `revert_available && !readOnly`, else DISABLED with an
+italic-muted reason (readOnly -> "Sheet is finalized -- revert unavailable."; else `!revert_available` -> "Revert no
+longer available -- the row was edited after the AI change."). `handleRevertAi` -> `revert_ai_acceptance` (sheet_name
+VERBATIM #152) -> `onRemarkSaved` (mutate-only re-fetch; revert returns no edited_at -> the row re-renders Pending, the
+pending block reappears, the button disappears); errors via `aiActionError`/`getFrappeError`. `boqTypes.ts` ReviewRow +
+`revert_available?: boolean`. (2) BACKEND -- R6 (`review_screen.py` `_apply_and_save_row_edit`): the EXISTING AI-3c-2a
+class/parent chokepoint block (`field in ("human_classification","human_parent")`, which clears the revert snapshot)
+now ALSO clears `ai_suggestion_status` so an overridden AI-Accepted row stops reading "AI Accepted" (the Status column
+checks == "Accepted" before isEdited -> a falsy status renders "Edited"). GATED on the CURRENT status being "Accepted"
+(a DELTA from the spec's bare "set None"): a Pending/Rejected suggestion has NOT been applied, so a manual class/parent
+edit leaves it untouched -- preserving the restructure cancel-safety contract (R4; an UNGATED clear broke R4).
+value/text/per-area edits never enter this block -> a value edit on an Accepted row STAYS "AI Accepted" + revert stays
+available. ORDERING (load-bearing): both accept paths flip "Accepted" LAST + revert flips "Pending" LAST, so the
+in-flight clear during an accept/revert is harmless (the final flip wins; X1 + W2 assert it). TESTS: test_review_screen
+192 -> 196 (X1 accept still ends "Accepted"; X2 accept-then-later-parent-edit -> falsy status + non-empty edit_log; X3
+accept-then-VALUE-edit -> stays "Accepted"; X4 class/parent edit on a never-accepted row is a status no-op);
+test_ai_assist 33 unchanged (the accept/reject/revert helper path is Pending -> gate skips). All prior green (R4 +
+W2). tsc 0 new wizard errors (3178 baseline) + Vite build exit 0 (PWA 164 entries). Manual live-cert pending Nitesh.
+**NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.** Full detail in root CLAUDE.md +
+frontend/CLAUDE.md.
+// prior: Phase 4 Slice AI-3c-2a (AI auto-mapping) -- ROW-LEVEL REVERT OF AN AI ACCEPTANCE (BACKEND, 2026-06-20,
 feat pending). UNDO an AI acceptance at the row level: restore the row + any children the accept moved to their EXACT
 pre-accept state, re-offer the suggestion (ai_suggestion_status -> Pending), append honest "reverted" edit_log entries.
 The Revert BUTTON is AI-3c-2b (frontend, next) -> frontend/CLAUDE.md intentionally NOT touched this slice. THE FIRST

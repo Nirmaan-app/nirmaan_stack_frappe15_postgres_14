@@ -317,7 +317,55 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-20 -- Phase 4 Slice AI-3c-3 AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) COMPLETE -- BACKEND + FRONTEND, `ReviewTree.tsx` + `ai_assist.py` (+ test_ai_assist.py + test_review_screen.py), feat pending):**
+**Status (2026-06-20 -- Phase 4 Slice AI-3c-2b REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS COMPLETE -- FRONTEND + a bundled BACKEND status fix (R6), `boqTypes.ts` + `ReviewTree.tsx` + `review_screen.py` (+ test_review_screen.py), feat pending):**
+Surfaces AI-3c-2a's row-level revert in the UI AND fixes a misleading status (today an AI-Accepted row keeps reading
+"AI Accepted" even after the user hand-edits its classification/parent -- the override is hidden; now it reads
+"Edited"). **The AI accept/reject/revert surface is now COMPLETE** (pending live-cert). NO doctype JSON change -> no
+migrate (the 2a snapshot fields already exist).
+
+- **The Revert button (`ReviewTree.tsx` detail panel).** A NEW block placed right AFTER the PENDING accept/reject block
+  (lines ~1993-2090, which renders only while `aiSuggestionInfo(row)` is non-empty -- i.e. `ai_suggestion_status ===
+  "Pending"` -- and so VANISHES once Accepted, so the Revert button CANNOT live inside it). The new block is gated
+  `row.ai_suggestion_status === "Accepted"` so it shows for an Accepted row in BOTH the editable AND the readOnly panel.
+  `<Button size="sm" variant="outline" className="h-7 px-2 text-xs">` reading "Revert AI change" / "Reverting…", inside
+  an indigo-tinted card mirroring the pending block (`border-indigo-200 bg-indigo-50/40` + dark). **ENABLED iff
+  `row.revert_available && !readOnly`**; `disabled={!row.revert_available || readOnly || isRevertingAi}`. DISABLED-with-
+  reason mirrors the pending block's italic-muted "(no change)" pattern (`text-muted-foreground italic text-xs`):
+  readOnly -> "Sheet is finalized — revert unavailable."; else `!revert_available` -> "Revert no longer available — the
+  row was edited after the AI change." Errors via the existing `aiActionError` (`text-xs text-destructive`).
+- **`handleRevertAi` + the refresh choice.** `useFrappePostCall("…ai_assist.revert_ai_acceptance")` typed `{ ok,
+  ai_suggestion_status, reverted_children }`; called with `{ boq_name, sheet_name (VERBATIM #152), row_index }`. On
+  success it runs **`onRemarkSaved?.()`** -- DELIBERATELY the mutate-only full re-fetch (NOT `onSaved`): revert returns
+  NO `edited_at` to thread, and the point is a full re-fetch so the row re-renders Pending (the pending accept/reject
+  block reappears, the Revert button + "AI Accepted" tag disappear). Same pattern reject/dismiss use. `getFrappeError`
+  into `aiActionError` on throw.
+- **`boqTypes.ts` (additive).** `ReviewRow` gains `revert_available?: boolean` after `ai_suggestion_status` -- computed
+  by `get_review_rows` from `ai_accept_snapshot`; the raw blob is never shipped.
+- **BACKEND R6 (`review_screen.py` `_apply_and_save_row_edit`) -- the override-clears-Accepted fix.** The EXISTING
+  AI-3c-2a class/parent chokepoint block (`if field in ("human_classification","human_parent")` -- the one that clears
+  the revert snapshot + back-pointer) now ALSO clears `ai_suggestion_status` so an overridden AI-Accepted row stops
+  reading "AI Accepted" (the Status column at ~1671 checks `=== "Accepted"` BEFORE `isEdited`, so a falsy status falls
+  through to "Edited"). **GATED `if doc.ai_suggestion_status == "Accepted"` (a DELTA from the spec's bare `= None`):** a
+  Pending/Rejected suggestion has NOT been applied, so a manual class/parent edit must leave it untouched -- this
+  PRESERVES the restructure cancel-safety contract (R4: a manual restructure on a Pending-suggestion row must not change
+  the status; the ungated clear broke R4 in-session). **value/text/per-area edits never enter this block** -> a value
+  edit on an AI-Accepted row STAYS "AI Accepted" + revert stays available (the edit-type distinction). **ORDERING
+  (load-bearing):** both accept paths flip `ai_suggestion_status="Accepted"` LAST (flip block, after every helper call)
+  and revert flips "Pending" LAST, so this in-flight clear during an accept/revert is harmless -- the final flip wins
+  (X1 + W2 assert it).
+- **Verification.** `test_review_screen` 192 -> **196** (+4: X1 accept still ends "Accepted" despite the chokepoint
+  clear; X2 accept-then-later-human_parent-edit -> falsy status + non-empty edit_log -> "Edited"; X3 accept-then-VALUE-
+  edit -> stays "Accepted"; X4 class/parent edit on a never-accepted row is a status no-op). `test_ai_assist` **33
+  unchanged** (the accept/reject/revert helper path runs while status is Pending -> the `== "Accepted"` gate skips it).
+  All prior green incl. R4 cancel-safety + W2 revert-to-Pending. tsc 0 new wizard-file errors (filtered
+  `boq-wizard|ReviewTree|boqTypes` -> empty; total 3178 baseline) + in-container Vite build exit 0 (`Done in 343.36s`,
+  PWA 164 entries). Manual live-cert pending Nitesh: accept an AI rec -> "AI Accepted" + "Revert AI change" button
+  shows; Revert -> row returns to pre-accept + the suggestion re-offers Pending; hand-edit the class/parent of an
+  Accepted row -> reads "Edited" + the button greys with the "edited after" reason; a VALUE edit on an Accepted row ->
+  stays "AI Accepted" + revert still offered; finalize -> button greys with the "finalized" reason. **NEXT = the
+  boq_ai.log token-logging fix, then the Phase-4 doc refresh.**
+
+// prior: **Status (2026-06-20 -- Phase 4 Slice AI-3c-3 AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) COMPLETE -- BACKEND + FRONTEND, `ReviewTree.tsx` + `ai_assist.py` (+ test_ai_assist.py + test_review_screen.py), feat pending):**
 Closes a SILENT BROKEN-TREE hole: the AI-accept routing opened the child-disposition RestructureModal ONLY when a
 PARENT change was accepted on a with-children row. A CLASSIFICATION-only accept on a with-children row (e.g.
 Preamble->note) fell through to a bare `accept_ai_suggestion`, which wrote the new class and left the children pointing
