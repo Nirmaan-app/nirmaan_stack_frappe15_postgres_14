@@ -72,7 +72,9 @@
   "ai_parent_confidence",
   "ai_suggested_level",
   "ai_explanation",
-  "ai_suggestion_status"
+  "ai_suggestion_status",
+  "ai_accept_snapshot",
+  "ai_snapshot_owner"
  ],
  "fields": [
   {
@@ -439,6 +441,21 @@
    "fieldtype": "Select",
    "label": "AI Suggestion Status",
    "options": "\nPending\nAccepted\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "Per-row snapshot of the pre-accept state (row + any children the accept moved), captured on an AI-accept Save. Read by revert_ai_acceptance to restore the row; cleared on a later human edit to the row or a moved child, or on finalize. Written only by the backend.",
+   "fieldname": "ai_accept_snapshot",
+   "fieldtype": "JSON",
+   "label": "AI Accept Snapshot",
+   "read_only": 1
+  },
+  {
+   "default": "-1",
+   "description": "Back-pointer: on a child moved by an AI-accept restructure, the row_index of the accepted (owner) row holding the snapshot. Lets a later edit to this child invalidate the owner's snapshot. -1 = not a snapshotted child (Frappe coerces an unset Int to 0, which collides with row_index 0, so -1 is the explicit sentinel).",
+   "fieldname": "ai_snapshot_owner",
+   "fieldtype": "Int",
+   "label": "AI Snapshot Owner Row",
    "read_only": 1
   }
  ],

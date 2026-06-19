@@ -37,6 +37,7 @@ DESIGN NOTES
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import frappe
@@ -483,6 +484,20 @@ def accept_ai_suggestion(
             title="Restructure required",
         )
 
+    # AI-3c-2a: snapshot the row's pre-accept human layer for a future revert. This is the
+    # CHILDLESS accept path (the with-children guards above already threw), so children=[].
+    # Captured BEFORE the helper writes (the true pre-accept state); persisted LAST in the
+    # flip block below so the chokepoint's invalidation clears during the helper writes do
+    # not wipe it (capture-last to dodge the self-clear).
+    accept_snapshot = {
+        "row": {
+            "hc": doc.human_classification or None,
+            "hp": doc.human_parent,
+            "hr": 1 if doc.human_is_root else 0,
+        },
+        "children": [],
+    }
+
     # AI-3c-1: the status flip is deferred to AFTER the human writes (capture-then-flip).
     # _apply_and_save_row_edit reads the edit_log from-value via resolve_effective, which
     # honors the AI layer the moment ai_suggestion_status == "Accepted". Flipping it here
@@ -543,6 +558,12 @@ def accept_ai_suggestion(
     doc.ai_suggestion_status = "Accepted"
     frappe.db.set_value(
         _REVIEW_ROW, doc.name, "ai_suggestion_status", "Accepted", update_modified=False
+    )
+    # AI-3c-2a: persist the revert snapshot LAST (after the helper writes, whose chokepoint
+    # cleared it on each human edit). Childless path -> no child back-pointers to stamp.
+    frappe.db.set_value(
+        _REVIEW_ROW, doc.name, "ai_accept_snapshot", json.dumps(accept_snapshot),
+        update_modified=False,
     )
 
     frappe.db.commit()
@@ -607,6 +628,155 @@ def reject_ai_suggestion(
     frappe.db.commit()
 
     return {"ok": True, "row_index": row_index, "ai_suggestion_status": "Rejected"}
+
+
+# ---------------------------------------------------------------------------
+# Revert an AI acceptance (AI-3c-2a)
+# ---------------------------------------------------------------------------
+
+def _restore_parent_if_changed(doc, boq_name, sheet_name, pre, reason) -> None:
+    """Restore human_parent/human_is_root on `doc` to the snapshot (`pre`) values, but ONLY
+    when they differ from the current stored values -- so a parent-untouched axis produces no
+    spurious edit_log entry. Uses the shared _apply_and_save_row_edit chokepoint (which
+    expresses the root case via set_root and the -1 sentinel for "no override")."""
+    snap_hp = pre.get("hp", -1)
+    snap_hr = 1 if pre.get("hr") else 0
+    cur_hp = doc.human_parent if doc.human_parent is not None else -1
+    cur_hr = 1 if doc.human_is_root else 0
+    if cur_hp == snap_hp and cur_hr == snap_hr:
+        return
+    if snap_hr == 1:
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_parent", None, reason=reason, set_root=True,
+        )
+    else:
+        value = snap_hp if (snap_hp is not None and snap_hp >= 0) else None
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_parent", value, reason=reason,
+        )
+
+
+def _restore_row_human_layer(doc, boq_name, sheet_name, row_pre, reason) -> None:
+    """Restore the accepted ROW's human_classification (when changed) + parent (when changed)."""
+    snap_hc = row_pre.get("hc")  # None -> clears back to the parser classification
+    cur_hc = doc.human_classification or None
+    if cur_hc != snap_hc:
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_classification", snap_hc, reason=reason,
+        )
+    _restore_parent_if_changed(doc, boq_name, sheet_name, row_pre, reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def revert_ai_acceptance(
+    boq_name: str = None, sheet_name: str = None, row_index=None
+) -> dict:
+    """Revert a prior AI acceptance: restore the row (and any children the accept moved) to
+    their captured pre-accept state, RE-OFFER the suggestion (ai_suggestion_status -> Pending),
+    and append honest "reverted" edit_log entries.
+
+    Reads the ai_accept_snapshot captured on the AI-accept Save (throws "nothing to revert"
+    when absent). edit_log policy (owner-locked): APPEND a "reverted" entry; the accept's
+    entries are LEFT intact and edited_at is NOT rolled back (append-only history). Each
+    human_* axis is restored ONLY when it actually changed, so a parent-only accept produces
+    no spurious classification entry (and vice-versa).
+
+    Capture-then-flip IN REVERSE: the human-layer restores run while ai_suggestion_status is
+    still "Accepted", so the helper's edit_log from-value reads the accepted effective value;
+    THEN the status flips to "Pending" and the snapshot + child back-pointers are cleared.
+    set_value runs in this request transaction, so the single commit makes the restores +
+    flip + clear ATOMIC. Guards _not_frozen + _not_parsing (it writes the human layer).
+    sheet_name VERBATIM (#152).
+
+    Returns {ok, row_index, ai_suggestion_status: "Pending", reverted_children: [...]}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.revert_ai_acceptance
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # A revert WRITES the human layer -> respect the same read-only backstops as the accept.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    row_name = frappe.db.get_value(
+        _REVIEW_ROW,
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    doc = frappe.get_doc(_REVIEW_ROW, row_name)
+    raw = doc.ai_accept_snapshot
+    snapshot = raw if isinstance(raw, dict) else (json.loads(raw) if raw else None)
+    if not snapshot:
+        frappe.throw(
+            "There is nothing to revert -- this row has no AI-accept snapshot.",
+            title="Nothing to revert",
+        )
+
+    row_pre = snapshot.get("row") or {}
+    children_pre = snapshot.get("children") or []
+
+    # 1. Restore the accepted row's human layer (while status is still "Accepted").
+    _restore_row_human_layer(
+        doc, boq_name, sheet_name, row_pre, reason="AI acceptance reverted",
+    )
+
+    # 2. Restore each moved child's parent + clear its back-pointer.
+    reverted_children: list = []
+    for ch in children_pre:
+        ci = ch.get("idx")
+        if ci is None:
+            continue
+        ci = int(ci)
+        child_name = frappe.db.get_value(
+            _REVIEW_ROW,
+            {"boq": boq_name, "sheet_name": sheet_name, "row_index": ci},
+            "name",
+        )
+        if not child_name:
+            continue
+        child_doc = frappe.get_doc(_REVIEW_ROW, child_name)
+        _restore_parent_if_changed(
+            child_doc, boq_name, sheet_name, ch,
+            reason="AI acceptance reverted (parent restore)",
+        )
+        frappe.db.set_value(
+            _REVIEW_ROW, child_name, "ai_snapshot_owner", -1, update_modified=False
+        )
+        reverted_children.append(ci)
+
+    # 3. Flip the status back to Pending (re-offer) and clear the snapshot. One commit.
+    doc.ai_suggestion_status = "Pending"
+    frappe.db.set_value(
+        _REVIEW_ROW, doc.name,
+        {"ai_suggestion_status": "Pending", "ai_accept_snapshot": None},
+        update_modified=False,
+    )
+
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "row_index": row_index,
+        "ai_suggestion_status": "Pending",
+        "reverted_children": reverted_children,
+    }
 
 
 # ---------------------------------------------------------------------------

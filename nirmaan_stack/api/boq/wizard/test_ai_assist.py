@@ -32,9 +32,14 @@ from nirmaan_stack.api.boq.wizard.ai_assist import (
     accept_ai_suggestion,
     get_ai_pass_status,
     reject_ai_suggestion,
+    revert_ai_acceptance,
     run_ai_pass,
 )
-from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    get_review_rows,
+    resolve_effective,
+    save_review_edit,
+)
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
 _SERVICE = "nirmaan_stack.services.boq_ai_assist.run_ai_pass"
@@ -678,3 +683,72 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
         par_entries = [e for e in self._edit_log(2) if e["field"] == "human_parent"]
         self.assertEqual(cls_entries[0]["from"], "line_item")
         self.assertIsNone(par_entries[0]["from"])
+
+    # -- AI-3c-2a: row-level revert (childless accept capture + restore + invalidation) -----
+
+    def _snapshot(self, ridx):
+        return frappe.db.get_value("BoQ Review Row", self.names[ridx], "ai_accept_snapshot")
+
+    def _revert_available(self, ridx):
+        rows = get_review_rows(boq_name=self.boq_name, sheet_name=_AR_SHEET)["rows"]
+        match = [r for r in rows if r["row_index"] == ridx]
+        self.assertEqual(len(match), 1)
+        # the raw blob must NOT be shipped -- only the boolean
+        self.assertNotIn("ai_accept_snapshot", match[0],
+                         "the raw snapshot blob must never reach the client")
+        return match[0]["revert_available"]
+
+    def test_V1_accept_childless_captures_snapshot_survives_chokepoint(self):
+        # The self-clear trap: the accept writes human_* via the chokepoint (which CLEARS the
+        # snapshot on every human edit), so the snapshot must be written LAST and SURVIVE.
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_parent=0)
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_parent=True)
+        self.assertIsNotNone(self._snapshot(2),
+                             "ai_accept_snapshot must SURVIVE the accept's own chokepoint clears")
+        self.assertTrue(self._revert_available(2),
+                        "revert_available must be true immediately after an accept")
+
+    def test_V2_revert_restores_parent_status_and_appends_entry(self):
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_parent=0)
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_parent=True)
+        # sanity: the accept applied + snapshot present
+        self.assertEqual(self._row(2)["human_parent"], 0)
+        res = revert_ai_acceptance(boq_name=self.boq_name, sheet_name=_AR_SHEET, row_index=2)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["ai_suggestion_status"], "Pending")
+        r = self._row(2)
+        self.assertEqual(r["human_parent"], -1, "human_parent restored to the pre-accept root sentinel")
+        self.assertEqual(r["human_is_root"], 0)
+        self.assertEqual(r["ai_suggestion_status"], "Pending",
+                         "revert re-offers the suggestion (status -> Pending)")
+        self.assertIsNone(self._snapshot(2), "the snapshot must be cleared after a revert")
+        # the accept's entry stays AND a reverted entry is appended (append-only history)
+        par_entries = [e for e in self._edit_log(2) if e["field"] == "human_parent"]
+        self.assertEqual(len(par_entries), 2,
+                         "the accept's human_parent entry stays + a reverted entry is appended")
+        self.assertEqual(par_entries[0]["to"], 0, "first (accept) entry: -> 0")
+        self.assertEqual(par_entries[-1]["from"], 0,
+                         "second (reverted) entry: from the accepted value (0)")
+        self.assertIsNone(par_entries[-1]["to"], "reverted to root/None")
+
+    def test_V3_revert_without_snapshot_throws(self):
+        # row 2 has no accept (no snapshot) -> revert must throw.
+        with self.assertRaises(frappe.ValidationError):
+            revert_ai_acceptance(boq_name=self.boq_name, sheet_name=_AR_SHEET, row_index=2)
+
+    def test_V4_later_human_edit_invalidates_snapshot(self):
+        # accept classification, then a LATER human_classification edit on the SAME row must
+        # discard the snapshot (rule c-ii) -> revert no longer available.
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_classification=True)
+        self.assertIsNotNone(self._snapshot(2), "snapshot present right after accept")
+        # a later human edit on the accepted row
+        save_review_edit(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                         row_index=2, field="human_classification", value="note")
+        self.assertIsNone(self._snapshot(2),
+                          "a later human_classification edit must clear the snapshot")
+        self.assertFalse(self._revert_available(2),
+                         "revert is no longer available after an invalidating edit")

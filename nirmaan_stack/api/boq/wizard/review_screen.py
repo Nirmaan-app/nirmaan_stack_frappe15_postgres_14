@@ -980,6 +980,25 @@ def _apply_and_save_row_edit(
     doc.flags_dismissed_by = None
     doc.flags_dismissed_at = None
 
+    # AI-3c-2a invalidation (rule c-ii): a later human_classification / human_parent edit
+    # discards any AI-accept revert snapshot. Clear THIS row's own snapshot; and if this row
+    # is a moved child (ai_snapshot_owner >= 0 -- -1 is the "not a child" sentinel; Frappe
+    # coerces an unset Int to 0, hence the explicit >= 0 guard, NOT truthiness), clear the
+    # OWNER row's snapshot and this child's back-pointer.
+    # ORDERING NOTE (load-bearing): this chokepoint ALSO runs during an AI-accept's own
+    # human writes -- but each accept path writes its snapshot LAST (after every helper call),
+    # so the clear here is harmless during the accept; the snapshot is (re)written afterward.
+    if field in ("human_classification", "human_parent"):
+        doc.ai_accept_snapshot = None
+        owner = getattr(doc, "ai_snapshot_owner", None)
+        if owner is not None and owner >= 0:
+            frappe.db.set_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": owner},
+                "ai_accept_snapshot", None,
+            )
+            doc.ai_snapshot_owner = -1
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -1068,6 +1087,9 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # by resolve_effective, so they only ever arrived via all_fields.
         "ai_classification_confidence", "ai_parent_confidence",
         "ai_suggested_level", "ai_explanation",
+        # AI-3c-2a: fetched ONLY to derive the revert_available boolean below. The raw blob
+        # (pre-accept internal state) is DROPPED from the payload -- never shipped to the client.
+        "ai_accept_snapshot",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1082,6 +1104,8 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         d = dict(r)
         _parse_json_fields(d)
         d.update(resolve_effective(d))
+        # AI-3c-2a: ship a presence boolean; DROP the raw pre-accept snapshot blob.
+        d["revert_available"] = bool(d.pop("ai_accept_snapshot", None))
         rows.append(d)
 
     # Work-package join: reuse get_boq_work_packages and pick this sheet.
@@ -1591,6 +1615,30 @@ def save_review_restructure(
                 title="Cycle detected",
             )
 
+    # --- AI-3c-2a: capture the pre-accept state (row + each moved child) for a future
+    #     revert. ONLY on an AI accept (mark_ai_accepted) -- a manual restructure writes NO
+    #     snapshot. Built HERE from the pre-write rows_by_idx (resolve_effective echoes the
+    #     raw human_* values), but PERSISTED LAST (in the flip block below) so the chokepoint
+    #     invalidation that fires during the helper writes cannot wipe it (capture-last). ---
+    accept_snapshot = None
+    if mark_ai_accepted:
+        row_pre = rows_by_idx[row_index]
+        accept_snapshot = {
+            "row": {
+                "hc": row_pre.get("human_classification"),
+                "hp": row_pre.get("human_parent"),
+                "hr": 1 if row_pre.get("human_is_root") else 0,
+            },
+            "children": [
+                {
+                    "idx": ci,
+                    "hp": rows_by_idx[ci].get("human_parent"),
+                    "hr": 1 if rows_by_idx[ci].get("human_is_root") else 0,
+                }
+                for ci in sorted(moves)
+            ],
+        }
+
     # --- Write block (atomic; the shared helper saves each row, single commit at the
     #     end). All validation above passed, so every helper call is on validated input. ---
     user = frappe.session.user
@@ -1678,6 +1726,25 @@ def save_review_restructure(
             "BoQ Review Row", target_doc.name, "ai_suggestion_status", "Accepted",
             update_modified=False,
         )
+        # AI-3c-2a: persist the revert snapshot LAST (after every helper write above, whose
+        # chokepoint cleared it on each human_classification/human_parent edit), and stamp
+        # each moved child's back-pointer to this (owner) row -- so a later edit to a moved
+        # child can find + invalidate this snapshot.
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            "ai_accept_snapshot", json.dumps(accept_snapshot),
+            update_modified=False,
+        )
+        for child_idx in children_moved:
+            child_name = frappe.db.get_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": child_idx},
+                "name",
+            )
+            frappe.db.set_value(
+                "BoQ Review Row", child_name, "ai_snapshot_owner", row_index,
+                update_modified=False,
+            )
 
     frappe.db.commit()
 
@@ -2000,6 +2067,14 @@ def mark_sheet_parsed_check_done(
 
     # Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)
+    # AI-3c-2a invalidation (rule c-ii, finalize): a finalized sheet is read-only, so every
+    # AI-accept revert snapshot + back-pointer on it is discarded (bulk, one filtered write).
+    # sheet_name VERBATIM (#152). Rides the existing commit below.
+    frappe.db.set_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name},
+        {"ai_accept_snapshot": None, "ai_snapshot_owner": -1},
+    )
     frappe.db.commit()
 
     return {

@@ -15,6 +15,7 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
@@ -3152,6 +3153,153 @@ class TestSaveReviewRestructure(FrappeTestCase):
         # the children were dispositioned to row 4 by child_moves
         for ci in (2, 3):
             self.assertEqual(self._get_doc(ci).human_parent, 4, f"child {ci} reparented to 4")
+
+    # -- AI-3c-2a: revert capture (with children) + back-pointer invalidation + finalize -----
+
+    def _snapshot(self, ri):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri},
+            "ai_accept_snapshot")
+
+    def _owner(self, ri):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri},
+            "ai_snapshot_owner")
+
+    def _revert_available(self, ri):
+        rows = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)["rows"]
+        m = [r for r in rows if r["row_index"] == ri]
+        self.assertEqual(len(m), 1)
+        self.assertNotIn("ai_accept_snapshot", m[0],
+                         "the raw snapshot blob must never reach the client")
+        return m[0]["revert_available"]
+
+    def _set_draft_status(self, status):
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": self.sheet_name},
+            "name")
+        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", status)
+        frappe.db.commit()
+
+    def _accept_with_children(self, new_class="preamble", row_new_parent=4):
+        """R1-shape AI accept on row 1 (which has children 2,3) -> capture a snapshot."""
+        self._set_status(1, "Pending")
+        return save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification=new_class,
+            child_moves={2: 4, 3: 4},
+            row_new_parent=row_new_parent,
+            mark_ai_accepted=True,
+        )
+
+    def test_W1_restructure_accept_captures_snapshot_and_backpointers(self):
+        self._accept_with_children()
+        snap = self._snapshot(1)
+        self.assertIsNotNone(snap,
+                             "the snapshot must SURVIVE the accept's own chokepoint clears")
+        blob = json.loads(snap) if isinstance(snap, str) else snap
+        # row pre-state: human layer empty (parser preamble, parent_index=0)
+        self.assertEqual(blob["row"]["hp"], -1)
+        self.assertEqual(blob["row"]["hr"], 0)
+        # each moved child's pre-move human_parent captured (was -1 -> parser parent 1)
+        self.assertEqual(sorted(c["idx"] for c in blob["children"]), [2, 3])
+        for c in blob["children"]:
+            self.assertEqual(c["hp"], -1)
+        # back-pointers stamped on each moved child
+        self.assertEqual(self._owner(2), 1)
+        self.assertEqual(self._owner(3), 1)
+        self.assertTrue(self._revert_available(1))
+
+    def test_W2_revert_restores_row_and_children(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).human_parent, 4, "sanity: accept applied")
+        res = revert_ai_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["ai_suggestion_status"], "Pending")
+        self.assertEqual(sorted(res["reverted_children"]), [2, 3])
+
+        r1 = self._get_doc(1)
+        # row restored: human layer cleared -> resolves back to parser parent 0 + parser class
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertIsNone(r1.human_classification)
+        self.assertEqual(r1.ai_suggestion_status, "Pending")
+        self.assertEqual(resolve_effective(r1)["effective_parent_index"], 0,
+                         "the row resolves back to its parser parent (0)")
+        # children restored to the pre-move parser parent (row 1)
+        for ci in (2, 3):
+            c = self._get_doc(ci)
+            self.assertEqual(c.human_parent, -1)
+            self.assertEqual(resolve_effective(c)["effective_parent_index"], 1,
+                             f"child {ci} resolves back to row 1")
+            self.assertEqual(self._owner(ci), -1, "child back-pointer cleared")
+        # snapshot cleared; "reverted" entries appended on the row + children
+        self.assertIsNone(self._snapshot(1))
+        row_log = self._as_list(r1.edit_log)
+        self.assertTrue(any(e.get("reason") == "AI acceptance reverted" for e in row_log),
+                        "a reverted entry is appended on the row")
+        for ci in (2, 3):
+            clog = self._as_list(self._get_doc(ci).edit_log)
+            self.assertTrue(
+                any(e.get("reason") == "AI acceptance reverted (parent restore)" for e in clog),
+                f"a reverted entry is appended on child {ci}")
+
+    def test_W3_child_edit_invalidates_owner_snapshot(self):
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        # edit a MOVED child's human_parent -> clears the OWNER (row 1) snapshot (c-ii)
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_parent", value=0)
+        self.assertIsNone(self._snapshot(1),
+                          "editing a moved child must clear the OWNER row's snapshot")
+        self.assertEqual(self._owner(2), -1, "the edited child's back-pointer is cleared")
+        self.assertFalse(self._revert_available(1))
+
+    def test_W4_sibling_edit_does_not_clear_snapshot(self):
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        # edit a NON-moved row (row 4, the destination parent; ai_snapshot_owner=-1)
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_parent", value=0)
+        self.assertIsNotNone(self._snapshot(1),
+                             "a non-moved-child edit must NOT clear the owner snapshot "
+                             "(back-pointer precision)")
+        self.assertTrue(self._revert_available(1))
+
+    def test_W5_manual_restructure_writes_no_snapshot(self):
+        # mark_ai_accepted omitted -> a MANUAL restructure must NOT snapshot.
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+        )
+        self.assertIsNone(self._snapshot(1), "a manual restructure writes no snapshot")
+        self.assertEqual(self._owner(2), -1, "no back-pointer on a manual restructure")
+        self.assertFalse(self._revert_available(1))
+
+    def test_W6_finalize_bulk_clears_snapshots(self):
+        self.addCleanup(self._set_draft_status, "Parsed")  # restore for sibling tests
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, confirm=True)
+        self.assertIsNone(self._snapshot(1), "finalize must bulk-clear the snapshot")
+        self.assertEqual(self._owner(2), -1, "finalize must clear the back-pointers")
+        self.assertEqual(self._owner(3), -1)
+
+    def test_W7_post_revert_status_is_edited_with_pending_suggestion(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        revert_ai_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
+        r1 = self._get_doc(1)
+        log = self._as_list(r1.edit_log)
+        self.assertTrue(len(log) > 0,
+                        "edit_log non-empty (accept + reverted entries) -> renders 'Edited'")
+        self.assertEqual(r1.ai_suggestion_status, "Pending",
+                         "the suggestion is re-offered as Pending")
 
 
 # ===========================================================================
