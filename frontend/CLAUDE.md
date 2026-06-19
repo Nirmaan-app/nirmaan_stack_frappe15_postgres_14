@@ -317,7 +317,45 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-20 -- Phase 4 Slice AI-3b-2 ACCEPT AI PARENT on WITH-CHILDREN rows (cancel-safe modal) COMPLETE -- BACKEND + FRONTEND, `review_screen.py` + `RestructureModal.tsx` + `ReviewTree.tsx` (+ test_review_screen.py), feat pending):**
+**Status (2026-06-20 -- Phase 4 Slice AI-3c-3 AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) COMPLETE -- BACKEND + FRONTEND, `ReviewTree.tsx` + `ai_assist.py` (+ test_ai_assist.py + test_review_screen.py), feat pending):**
+Closes a SILENT BROKEN-TREE hole: the AI-accept routing opened the child-disposition RestructureModal ONLY when a
+PARENT change was accepted on a with-children row. A CLASSIFICATION-only accept on a with-children row (e.g.
+Preamble->note) fell through to a bare `accept_ai_suggestion`, which wrote the new class and left the children pointing
+at the now-non-parent row -- uncaught by `check_structural_integrity` (it flags line_item-as-parent only, NOT
+note/spacer-as-parent). The MANUAL `onPickClass` path already opens the modal for ANY with-children reclass; the AI
+path now mirrors it. No doctype JSON change -> no migrate.
+
+- **THE RULE (owner-stated):** any classification change on a row WITH children opens the child-disposition modal; it
+  skips the modal only if the row is CHILDLESS (the manual-edit rule).
+- **Frontend (`ReviewTree.tsx` `handleApplyAi`).** The modal-open condition changed from `aiAcceptParent &&
+  hasChildrenSet.has(row.row_index)` to `hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)`, where
+  `clsIsChange = aiAcceptCls && ai.hasClass && ai_suggested_classification !== effective_classification` and
+  `parentAccept = aiAcceptParent && parentIsChange`. **A classification-ONLY accept OMITS `presetRowParent`**
+  (`undefined`) -> the modal opens in NORMAL mode and, because the row has children, lazy-inits `rowPosition="keep"`
+  (`RestructureModal:156-159`) so the row KEEPS its own parent -- IDENTICAL to manual `onPickClass`->modal (which also
+  passes no parent preset). A parent accept still sets `presetRowParent` (root -> -1, else `ai_suggested_parent`) + the
+  `presetParentMessage` line. `newClassification` = the AI class when `clsIsChange`, else the current effective class
+  (the #162 no-op pattern). `markAiAccepted: true` rides every modal open (status flips on Save, cancel-safe).
+  Childless rows + classification-only accepts on childless rows are UNCHANGED -> the direct `accept_ai_suggestion`
+  path. The `presetRowParent`/`presetParentMessage` keys are spread CONDITIONALLY (`...(presetRowParent !== undefined ?
+  {…} : {})`) so a classification-only open passes neither.
+- **Backend (`ai_assist.py` `accept_ai_suggestion`).** A NEW `accept_classification && _row_has_children(...)` guard
+  (mirrors the existing `accept_parent` guard) THROWS "Restructure required" on a with-children classification accept --
+  closing the silent-break hole even if the frontend is bypassed. The childless classification accept is unaffected.
+  `save_review_restructure` / `resolve_effective` / `check_structural_integrity` UNCHANGED -- the frontend routes the
+  with-children case to the EXISTING `save_review_restructure` (reclassify + child-disposition; supports a class change
+  with NO `row_new_parent` + `mark_ai_accepted`).
+- **Verification.** `test_ai_assist` 27 -> **29** (+2: G1 with-children classification accept throws + row unchanged;
+  G2 childless classification accept still works -- guard does not over-fire). `test_review_screen` 184 -> **185** (+1:
+  R-fix4 mark_ai_accepted + new_classification + child_moves + NO row_new_parent -> class applied, children
+  dispositioned, status Accepted, the row's OWN `human_parent` UNCHANGED [-1, resolves to its parser parent]). tsc 0
+  new wizard-file errors (filtered `boq-wizard|ReviewTree|RestructureModal` -> empty) + in-container Vite build exit 0
+  (PWA 164 entries). Manual live-cert pending Nitesh: on HVAC, a pending-suggestion with-children Preamble with an AI
+  "note" classification rec -> tick classification only + Apply -> the child-disposition modal opens (row keeps its own
+  parent, the 5 child options shown) -> Save -> Status "AI Accepted", children re-placed per choice. **NEXT = the
+  boq_ai.log token-logging fix, then the Phase-4 doc refresh.**
+
+// prior: **Status (2026-06-20 -- Phase 4 Slice AI-3b-2 ACCEPT AI PARENT on WITH-CHILDREN rows (cancel-safe modal) COMPLETE -- BACKEND + FRONTEND, `review_screen.py` + `RestructureModal.tsx` + `ReviewTree.tsx` (+ test_review_screen.py), feat pending):**
 The FINAL piece of the AI accept/reject surface: accepting an AI PARENT on a row that HAS children fires the existing
 RestructureModal (for child disposition) in a NEW children-only mode, with the AI parent PRE-APPLIED and the
 `ai_suggestion_status` flip riding the modal's Save (never on cancel). **The AI accept/reject surface (AI-3a + AI-3b-1

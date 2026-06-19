@@ -16,7 +16,29 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3c-1 (AI auto-mapping) -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip)
+LATEST: Phase 4 Slice AI-3c-3 (AI auto-mapping) -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children)
+(BACKEND + FRONTEND, 2026-06-20, feat pending). Closes a SILENT BROKEN-TREE hole: the AI-accept routing opened the
+child-disposition RestructureModal ONLY when a PARENT change was accepted on a with-children row (`handleApplyAi` gated
+on `aiAcceptParent && hasChildrenSet.has(row_index)`). A CLASSIFICATION-only accept on a with-children row (e.g.
+Preamble->note) fell through to a bare `accept_ai_suggestion`, which wrote the new class and left the children pointing
+at the now-non-parent row -- uncaught by `check_structural_integrity` (flags line_item-as-parent only, NOT
+note/spacer-as-parent). The MANUAL `onPickClass` path already opens the modal for ANY with-children reclass; the AI
+path now mirrors it. THE RULE (owner-stated): any classification change on a row WITH children opens the modal; it
+skips it only if CHILDLESS. FRONTEND (`ReviewTree.tsx` `handleApplyAi`): modal-open condition is now
+`hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)`; a classification-ONLY accept OMITS
+`presetRowParent` -> the modal lazy-inits `rowPosition="keep"` (with children) so the row keeps its own parent, exactly
+like manual `onPickClass`->modal; a parent accept still sets the preset. `markAiAccepted:true` rides every open.
+Childless / classification-only-childless accepts UNCHANGED (direct `accept_ai_suggestion`). BACKEND (`ai_assist.py`):
+a NEW `accept_classification && _row_has_children` guard (mirrors the `accept_parent` guard) THROWS "Restructure
+required" -- closes the hole even if the frontend is bypassed. `save_review_restructure` / `resolve_effective` /
+`check_structural_integrity` UNCHANGED (the frontend routes to the EXISTING reclassify+child-disposition path).
+NO doctype JSON change -> NO migrate. TESTS: test_ai_assist 27 -> 29 (+2: G1 with-children class accept throws + row
+unchanged; G2 childless class accept still works); test_review_screen 184 -> 185 (+1: R-fix4 mark_ai_accepted +
+new_classification + child_moves + NO row_new_parent -> class applied, children dispositioned, status Accepted, row's
+OWN human_parent unchanged). tsc 0 new wizard errors + Vite build exit 0. **NEXT = the boq_ai.log token-logging fix,
+then the Phase-4 doc refresh.** Full detail in root CLAUDE.md + frontend/CLAUDE.md.
+
+// prior: Phase 4 Slice AI-3c-1 (AI auto-mapping) -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip)
 (BACKEND, 2026-06-20, feat pending). A history-only correctness fix the AI-3b-2 live use surfaced: accepting an AI
 suggestion logged a no-op edit history (a parent change root->26 recorded as "26 -> 26"; the classification change
 logged "AI-class -> AI-class", which the frontend hides). **The WRITES were always correct** (human_* + effective

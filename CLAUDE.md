@@ -1,6 +1,38 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-1 -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip) --
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-3 -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) --
+BACKEND + FRONTEND, feat pending. Closes a SILENT BROKEN-TREE hole the recon pinned: the AI-accept routing opened the
+child-disposition RestructureModal ONLY when a PARENT change was accepted on a with-children row (`handleApplyAi`
+gated on `aiAcceptParent && hasChildrenSet.has(row_index)`). A CLASSIFICATION-only accept on a with-children row (e.g.
+Preamble->note) fell through to a bare `accept_ai_suggestion`, which wrote the new class and LEFT the children pointing
+at the now-non-parent row -- a silent broken tree (`check_structural_integrity` flags line_item-as-parent ONLY, NOT
+note/spacer-as-parent, so nothing warned). The MANUAL reclassify path (`onPickClass`) already does the right thing: it
+opens the modal for ANY with-children reclass (`childCount > 0`). **THE RULE (owner-stated, now mirrored in the AI
+path): any classification change on a row WITH children opens the child-disposition modal; it skips the modal only if
+the row is CHILDLESS.** **(1) FRONTEND (`ReviewTree.tsx` `handleApplyAi`):** the modal-open condition is now
+`hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)` where `clsIsChange = aiAcceptCls && a real class
+change` and `parentAccept = aiAcceptParent && parentIsChange`. **Classification-ONLY accept OMITS `presetRowParent`
+(undefined)** -> the RestructureModal opens in NORMAL mode and (because the row has children) lazy-inits
+`rowPosition="keep"` (`RestructureModal:159`), so the row KEEPS its own parent -- exactly what manual
+`onPickClass`->modal does (it passes no parent preset either). A parent accept still sets `presetRowParent` (+ the
+message line) as before. `newClassification` = the AI class when `clsIsChange`, else the row's current effective class
+(the #162 no-op pattern). `markAiAccepted: true` rides every modal open so the status flips on Save. Childless accepts
++ classification-only accepts on childless rows are UNCHANGED (fall through to the direct `accept_ai_suggestion` path).
+**(2) BACKEND (`ai_assist.py` `accept_ai_suggestion`):** a NEW `accept_classification && _row_has_children(...)` guard
+mirrors the existing `accept_parent` guard -- a classification accept on a with-children row now THROWS
+"Restructure required" (closes the silent-break hole even if the frontend is bypassed). The childless classification
+accept is unaffected. `save_review_restructure` / `resolve_effective` / `check_structural_integrity` UNCHANGED (the
+frontend routes the with-children case to the EXISTING `save_review_restructure` reclassify+child-disposition path,
+which already supports a class change with the row's own parent untouched [no `row_new_parent`] + `mark_ai_accepted`).
+NO doctype JSON change -> NO migrate. **TESTS:** `test_ai_assist` 27 -> **29** (+2: G1 accept_classification on a
+with-children row THROWS the guard, row unchanged + status Pending; G2 accept_classification on a CHILDLESS row still
+works -> Accepted, class applied [guard does not over-fire]). `test_review_screen` 184 -> **185** (+1: R-fix4
+mark_ai_accepted + new_classification + child_moves + NO row_new_parent -> class applied, children dispositioned,
+status Accepted, the row's OWN human_parent UNCHANGED [= -1, resolves to its parser parent] -- the path the frontend
+now routes to). All prior accept tests green. tsc 0 new wizard-file errors (filtered boq-wizard|ReviewTree|
+RestructureModal -> empty) + Vite build exit 0 (PWA 164 entries). **NEXT = the boq_ai.log token-logging fix, then the
+Phase-4 doc refresh.** Full UI detail in frontend/CLAUDE.md.)
+// prior: 2026-06-20 (Phase 4 Slice AI-3c-1 -- AI-ACCEPT edit_log FROM-VALUE FIX (capture-then-flip) --
 BACKEND, feat pending. A history-only correctness fix the AI-3b-2 live use surfaced: accepting an AI suggestion
 recorded a WRONG edit_log (a parent change root->26 logged as the no-op "26 -> 26"; the classification change logged
 "AI-class -> AI-class", which the frontend hides -> the change "vanished" from history). **The WRITES were always
