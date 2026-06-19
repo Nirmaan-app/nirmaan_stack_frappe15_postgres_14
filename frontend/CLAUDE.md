@@ -317,7 +317,47 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-19 -- Phase 4 Slice AI-3a AI-PASS DISPLAY + TRIGGER COMPLETE -- FRONTEND + 1 additive backend read-list field, `boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx` + `review_screen.py`, feat pending):**
+**Status (2026-06-20 -- Phase 4 Slice AI-3b-1 ACCEPT/REJECT (NON-MODAL) COMPLETE -- BACKEND + FRONTEND, `ai_assist.py` + `ReviewTree.tsx` (+ test_ai_assist.py), feat pending):**
+Makes AI suggestions ACTIONABLE for the cases that do NOT need the RestructureModal: accept an AI CLASSIFICATION,
+accept an AI PARENT on a CHILDLESS row, and REJECT. The accepted-parent-on-a-row-WITH-CHILDREN path (which fires the
+modal) is AI-3b-2 (separate). No doctype JSON change -> no migrate.
+
+- **Backend -- two NEW endpoints (`ai_assist.py`).** `accept_ai_suggestion(boq_name, sheet_name, row_index,
+  accept_classification, accept_parent)` REUSES `review_screen._apply_and_save_row_edit` (imported, NOT reimplemented)
+  to write human_* to the AI values (`human_classification = ai_suggested_classification`; parent:
+  `ai_suggested_is_root==1 -> set_root=True` else `human_parent = ai_suggested_parent`) AND sets `doc.ai_suggestion_
+  status = "Accepted"` on the SAME doc before the helper's `doc.save()` -> human_* + the status flip in ONE commit (so
+  the row reads "AI Accepted", not plain "Edited", and the badge clears). SCOPE GUARD: parent-accept throws when the
+  row has children (`_row_has_children`, the backend mirror of `hasChildrenSet`); childless => no cycle possible.
+  `reject_ai_suggestion(...)` sets status="Rejected" via `frappe.db.set_value` ONLY -- no human_*, no edited_at (row
+  stays "Original"); suggested values preserved for audit. Both guard frozen + parsing.
+- **Frontend -- the per-field accept/reject panel (`ReviewTree.tsx` row-detail panel).** Below the Classification +
+  Parent lines, a NEW "AI suggestion" block renders ONLY when `aiSuggestionInfo(row).hasClass || hasParent` (a Pending
+  suggestion) AND `!readOnly`. It has a classification checkbox + a parent checkbox, each with an `AiConfBadge` (the
+  AI-3a H/M/L pill) + the suggested value (parent translated to an Excel row via `byIdx`, or "Top level (root)" when
+  `ai_suggested_is_root===1`), the single `ai_explanation` line, and "Apply selected changes" + "Reject" buttons.
+- **Checkbox defaults + the children gate.** Seeded in the existing detail-panel-open effect: default-CHECKED when the
+  AI suggests a REAL change (`ai_suggested_classification !== effective_classification`; for parent, the suggested
+  parent/root differs from the current effective parent); a "(no change)" suggestion is shown disabled. The PARENT
+  checkbox is additionally DISABLED (with a tooltip "…opens the restructure step — coming in the next slice") when
+  `hasChildrenSet.has(row.row_index)` -- so AI-3b-1 never triggers the modal path. `canApply` requires at least one
+  applicable checked box.
+- **Refresh reuse (NO new mechanism).** Apply -> `accept_ai_suggestion` -> `onSaved?.(edited_at)` (the existing
+  setLastSavedAt + mutate; row re-fetches Accepted, badge clears, Status -> "AI Accepted"). Reject ->
+  `reject_ai_suggestion` -> `onRemarkSaved?.()` (the mutate-only refresh used by remark/dismiss; a reject is not a
+  data edit, so no anchor advance). Errors via the house `getFrappeError` (the backend children-guard message
+  surfaces readably).
+- **Verification.** `test_ai_assist` 16 -> **24** (+8, all green: accept classification / childless real-parent /
+  childless root / both; with-children guard throws + row unchanged; nothing-to-accept throws; reject status-only +
+  no edited_at; accept-then-resolve_effective folds the accepted value). `test_review_screen` **176/176** unchanged.
+  tsc 0 new wizard-file errors (filtered `boq-wizard|ReviewTree|SheetReviewPage|boqTypes` -> empty; total 3178,
+  pre-existing drift) + in-container Vite build exit 0 (`built in 359.88s`, PWA 164 entries). Manual live-cert pending
+  Nitesh: on HVAC, open a pending-suggestion row -> tick + Apply -> Status flips to "AI Accepted", badge clears, the
+  effective classification/parent updates; Reject -> badge clears, row stays Original; a row-with-children shows the
+  parent checkbox disabled with the tooltip. **NEXT = AI-3b-2** (the RestructureModal children-only mode for an
+  accepted parent on a row WITH children + the cancel-safe `mark_ai_accepted` coupling), then the boq_ai.log fix.
+
+// prior: **Status (2026-06-19 -- Phase 4 Slice AI-3a AI-PASS DISPLAY + TRIGGER COMPLETE -- FRONTEND + 1 additive backend read-list field, `boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx` + `review_screen.py`, feat pending):**
 The DISPLAY + TRIGGER layer for the AI structure-suggestion pass (backend AI-1..AI-2e). Makes the pass TRIGGERABLE
 and suggestions VISIBLE; does NOT make them actionable -- NO accept/reject panel, NO Apply flow, NO RestructureModal
 change (that is AI-3b). The accepted-suggestion write path is AI-3b; AI-3a is read-only surfacing + the run trigger.

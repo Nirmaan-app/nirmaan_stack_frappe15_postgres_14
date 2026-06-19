@@ -1,6 +1,37 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3a-FIX -- get_review_rows all_fields was missing the 4
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3b-1 -- ACCEPT/REJECT AI suggestions (NON-MODAL paths) --
+BACKEND + FRONTEND, feat pending. Makes AI suggestions ACTIONABLE for the cases that do NOT need the
+RestructureModal: accept an AI CLASSIFICATION, accept an AI PARENT on a CHILDLESS row, and REJECT. The
+accepted-parent-on-a-row-WITH-CHILDREN path (which fires the modal) is AI-3b-2 (separate). **TWO NEW whitelisted
+endpoints in `ai_assist.py`:** `accept_ai_suggestion(boq_name, sheet_name, row_index, accept_classification,
+accept_parent)` -- bools (HTTP-coerced), at least one required. It REUSES the existing
+`review_screen._apply_and_save_row_edit` chokepoint (imported, NOT reimplemented) to write the HUMAN layer to the AI
+values (`human_classification = ai_suggested_classification`; parent: `ai_suggested_is_root==1 -> set_root=True` else
+`human_parent = ai_suggested_parent`), AND sets `doc.ai_suggestion_status = "Accepted"` on the SAME doc before the
+helper's `doc.save()` so human_* + the status flip land in ONE commit -- the row ends with human_* set AND status
+Accepted (the frontend then renders "AI Accepted" instead of plain "Edited", and the badge clears). **SCOPE GUARD:**
+`accept_parent` is rejected (`frappe.throw`) when the row HAS CHILDREN (`_row_has_children` -- the backend mirror of
+ReviewTree's `hasChildrenSet` effective-parent walk, via `resolve_effective`); a childless row has no descendants so
+no cycle is possible (that's why the cycle-guard `save_review_edit` runs is unnecessary here). Self-parent +
+target-exists guards kept. `reject_ai_suggestion(boq_name, sheet_name, row_index)` -- sets `ai_suggestion_status =
+"Rejected"` ONLY via `frappe.db.set_value` (the save_review_remark / dismiss_row_flags bypass): NO human_*, NO
+edited_at/edit_log (a reject is not a data edit; the row stays "Original"); the suggested values stay in the ai_*
+fields (audit of "what the AI suggested" preserved; badge clears because aiSuggestionInfo gates on Pending). Both
+endpoints guard `_guard_sheet_not_frozen` + `_guard_sheet_not_parsing`. **FRONTEND (ReviewTree row-detail panel):**
+a per-field "AI suggestion" block (shown only on a Pending suggestion + not readOnly) -- a classification checkbox +
+a parent checkbox, each with a confidence badge + the suggested value (parent shown as an Excel row via `byIdx`, or
+"Top level (root)"), the one `ai_explanation` line, and "Apply selected changes" + "Reject" buttons. Checkboxes
+default-checked when the AI suggests a REAL change (differs from current effective); a parent change on a row WITH
+children DISABLES the parent checkbox with a tooltip (that's AI-3b-2). Apply -> `accept_ai_suggestion` -> the
+EXISTING `onSaved`->mutate refresh; Reject -> `reject_ai_suggestion` -> the mutate-only `onRemarkSaved` refresh. NO
+doctype JSON change -> NO migrate. **TESTS:** `test_ai_assist` 16 -> **24** (+8: accept classification / childless
+real-parent / childless root / both; with-children guard throws + row unchanged; nothing-to-accept throws; reject
+status-only + no edited_at; accept-then-resolve_effective folds the value). `test_review_screen` **176/176**
+unchanged (the imported `_apply_and_save_row_edit` is unchanged). tsc 0 new wizard errors + Vite build exit 0. **NEXT
+= AI-3b-2** (the RestructureModal children-only mode for an accepted parent on a row WITH children + the cancel-safe
+`mark_ai_accepted` coupling), then the boq_ai.log token-logging fix. Full UI detail in frontend/CLAUDE.md.)
+// prior: 2026-06-20 (Phase 4 Slice AI-3a-FIX -- get_review_rows all_fields was missing the 4
 status/suggestion ai_* fields -- BACKEND, feat pending. The AI Rec badges (+ tint + "AI Accepted" status) never
 rendered though the pass reported "12 suggestions" and the data was correct in the DB. ROOT CAUSE: AI-3a assumed
 `ai_suggestion_status` / `ai_suggested_classification` / `ai_suggested_parent` / `ai_suggested_is_root` "ride the

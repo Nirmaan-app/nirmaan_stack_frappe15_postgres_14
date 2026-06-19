@@ -16,7 +16,26 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3a-FIX (AI auto-mapping) -- get_review_rows all_fields missing 4 ai_* fields
+LATEST: Phase 4 Slice AI-3b-1 (AI auto-mapping) -- accept/reject AI suggestions (NON-MODAL paths)
+(BACKEND + FRONTEND, 2026-06-20, feat pending). Makes suggestions ACTIONABLE for the non-modal cases: accept an AI
+CLASSIFICATION, accept an AI PARENT on a CHILDLESS row, and REJECT. The accepted-parent-WITH-CHILDREN path (fires the
+RestructureModal) is AI-3b-2. **Backend (two new `ai_assist.py` endpoints):** `accept_ai_suggestion` reuses
+`_apply_and_save_row_edit` (imported) to write human_* to the AI values AND flips `ai_suggestion_status="Accepted"` in
+ONE commit (so the row reads "AI Accepted", not "Edited", and the badge clears); a SCOPE GUARD throws if parent-accept
+is attempted on a row WITH children (`_row_has_children` mirrors the frontend `hasChildrenSet`; childless => no cycle
+possible, so no cycle-guard needed). `reject_ai_suggestion` sets status="Rejected" via `set_value` ONLY -- no human_*,
+no edited_at (row stays Original), suggested values preserved for audit. Both guard frozen+parsing. **Frontend
+(ReviewTree detail panel):** a per-field "AI suggestion" block (classification + parent checkboxes, each with a
+confidence badge + suggested value, one explanation line, Apply + Reject), shown only on a Pending suggestion +
+not readOnly; checkboxes default-checked on a REAL change; the parent checkbox is DISABLED with a tooltip for rows
+WITH children (-> AI-3b-2). Apply reuses onSaved->mutate; Reject reuses onRemarkSaved (mutate-only). No doctype change
+-> no migrate. **TESTS:** test_ai_assist 16 -> 24 (+8: accept class/childless-parent/root/both; with-children guard
+throws; nothing-to-accept throws; reject status-only + no edited_at; accept-then-resolve_effective). test_review_screen
+176/176 unchanged. tsc 0 new wizard errors + Vite build exit 0. **NEXT = AI-3b-2** (RestructureModal children-only mode
+for an accepted parent on a row WITH children + the cancel-safe `mark_ai_accepted` coupling), then the boq_ai.log fix.
+Full detail in root CLAUDE.md + frontend/CLAUDE.md.
+
+// prior: Phase 4 Slice AI-3a-FIX (AI auto-mapping) -- get_review_rows all_fields missing 4 ai_* fields
 (BACKEND, 2026-06-20, feat pending). The AI Rec badges / row tint / "AI Accepted" status never rendered after a pass
 that reported "12 suggestions" -- the data was correct in the DB, the break was in the row fetch. ROOT CAUSE: AI-3a
 assumed `ai_suggestion_status` / `ai_suggested_classification` / `ai_suggested_parent` / `ai_suggested_is_root` "ride
