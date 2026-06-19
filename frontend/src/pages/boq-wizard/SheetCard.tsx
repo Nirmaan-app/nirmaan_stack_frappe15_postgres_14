@@ -83,6 +83,13 @@ interface SheetCardProps {
    * undefined => never committed (no badge).
    */
   committedState?: CommittedSheetState;
+  /**
+   * F2 "needs attention": this sheet's LIVE stale-config reason from get_stale_sheets
+   * (Slice 1b), keyed by sheet_name VERBATIM (#152). undefined => not stale. The parse-
+   * and commit-failure signals are read off `draft` (they ride the BOQs payload), so this
+   * is the only extra signal that needs passing in.
+   */
+  staleReason?: string;
 }
 
 export function SheetCard({
@@ -97,10 +104,13 @@ export function SheetCard({
   onReparse,
   onExportCsv,
   committedState,
+  staleReason,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
   const [cardError, setCardError] = useState<string | null>(null);
+  // F2: the "needs attention" detail block is collapsed by default; the chip toggles it.
+  const [attnOpen, setAttnOpen] = useState(false);
   // Per-card CSV export busy state (Slice D2b) -- disables the button while the
   // hub fetches this sheet's rows; failure shows via the shared cardError line.
   const [exporting, setExporting] = useState(false);
@@ -121,6 +131,61 @@ export function SheetCard({
   // #164: this sheet is under active parse/re-parse -- disable its actions + show a
   // "Parsing..." indicator. Reads the per-sheet flag that rides the BOQs doc payload.
   const isParsing = draft.parse_in_progress === 1;
+
+  // ── F2 "needs attention" signals ─────────────────────────────────────────
+  // Three per-sheet signals: STALE CONFIG (live, via staleReason -- no timestamp),
+  // PARSE FAILURE + COMMIT FAILURE (stamps on `draft`, with timestamps). DE-DUP: a live
+  // stale reason that is byte-identical to a stored "Config stale" parse-failure reason
+  // (the shared-helper guarantee) collapses to ONE "Stale config" line carrying the parse
+  // timestamp. Other parse categories (Parser/Insert error) and commit failures are always
+  // their own line. The chip shows iff there is >= 1 distinct line; healthy cards show none.
+  const staleText = staleReason?.trim() || null;
+  const parseText = draft.parse_failure_reason?.trim() || null;
+  const commitText = draft.commit_failure_reason?.trim() || null;
+  // The de-dup keys on raw `===` (the backend guarantees byte-identity for the stale case).
+  const staleIsDupOfParse =
+    !!staleText &&
+    draft.parse_failure_category === "Config stale" &&
+    draft.parse_failure_reason === staleReason;
+
+  type AttnLine = {
+    key: string;
+    label: string;
+    reason: string;
+    at?: string | null; // timestamp (parse/commit only; stale has none)
+    tone: "warning" | "destructive";
+  };
+  const attnLines: AttnLine[] = [];
+  // Stale config gets its OWN line only when it is NOT merged into the parse line.
+  if (staleText && !staleIsDupOfParse) {
+    attnLines.push({ key: "stale", label: "Stale config", reason: staleText, tone: "warning" });
+  }
+  // Parse failure: when it IS the stale dup, render the merged "Stale config" line (with the
+  // parse timestamp); otherwise a distinct "Parse failed (<category>)" line.
+  if (parseText) {
+    attnLines.push({
+      key: "parse",
+      label: staleIsDupOfParse
+        ? "Stale config"
+        : `Parse failed${draft.parse_failure_category ? ` (${draft.parse_failure_category})` : ""}`,
+      reason: parseText,
+      at: draft.parse_failure_at,
+      tone: staleIsDupOfParse ? "warning" : "destructive",
+    });
+  }
+  // Commit failure is always its own line (a different stage).
+  if (commitText) {
+    attnLines.push({
+      key: "commit",
+      label: "Commit failed",
+      reason: commitText,
+      at: draft.commit_failure_at,
+      tone: "destructive",
+    });
+  }
+  // Chip is RED when ANY failure STAMP is present (parse or commit), AMBER when only stale.
+  const hasFailureStamp = !!parseText || !!commitText;
+  const attnCount = attnLines.length;
 
   // ── Re-parse eligibility (Force Re-parse slice) ──────────────────────────
   // A sheet is re-parse-eligible iff it has a prior parse AND its effective status
@@ -250,8 +315,49 @@ export function SheetCard({
               Committed
             </span>
           )}
+          {/* F2: "needs attention" chip -- RED when a failure stamp is present, AMBER when
+              only stale-config. Click toggles the inline detail block below. */}
+          {attnCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAttnOpen((prev) => !prev)}
+              aria-expanded={attnOpen}
+              className={cn(
+                "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+                hasFailureStamp
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+              )}
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {attnCount} {attnCount === 1 ? "issue" : "issues"}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* F2: "needs attention" detail block -- collapsed by default, toggled by the chip.
+          One line per distinct signal (after de-dup): label, optional timestamp, reason. */}
+      {attnOpen && attnCount > 0 && (
+        <div className="mt-2 space-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2">
+          {attnLines.map((l) => (
+            <div key={l.key} className="text-xs">
+              <span className={cn(
+                "font-medium",
+                l.tone === "destructive"
+                  ? "text-destructive"
+                  : "text-amber-700 dark:text-amber-400"
+              )}>
+                {l.label}
+              </span>
+              {l.at && (
+                <span className="text-muted-foreground"> &middot; {fmtCommittedAt(l.at)}</span>
+              )}
+              <p className="mt-0.5 break-words text-muted-foreground">{l.reason}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Committed timestamp sub-line (Slice 4b): muted, matches the last_parsed_at
           sub-line style; slice(0,16) "date HH:MM". Shown for ANY committed sheet. */}

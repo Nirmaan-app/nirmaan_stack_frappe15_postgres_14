@@ -109,6 +109,23 @@ export interface BoQSheetDraft {
    * the review screen for the duration. Flows automatically on useFrappeGetDoc("BOQs").
    */
   parse_in_progress?: 0 | 1;
+  /**
+   * Per-sheet PARSE-failure stamp (Slice 1a, reactive #166). Ride the BOQs payload
+   * (child-table fields on BoQ Sheet Draft) -- no separate fetch. category is one of the
+   * three in-scope failures (matches the doctype Select); reason is the specific why;
+   * at is when it was captured. All cleared on a successful parse. F2 reads these for the
+   * "needs attention" indicator. Absent/blank/null => no recorded parse failure.
+   */
+  parse_failure_category?: "" | "Config stale" | "Parser error" | "Insert error" | null;
+  parse_failure_reason?: string | null;
+  parse_failure_at?: string | null;
+  /**
+   * Per-sheet COMMIT-failure stamp (Slice F1). Rides the BOQs payload like parse_failure_*.
+   * No category (commit exceptions are freeform). reason is the flattened message; at is the
+   * capture time. Cleared on a successful commit. Absent/null => no recorded commit failure.
+   */
+  commit_failure_reason?: string | null;
+  commit_failure_at?: string | null;
 }
 
 // ── Preview response types (Slice 3b-i endpoint, feat bf1a2e64) ───────────────
@@ -473,6 +490,24 @@ export interface CommittedSheetState {
 /** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
 export interface GetCommittedStateResponse {
   committed_state: CommittedSheetState[];
+}
+
+// ── Stale-config signal (Slice 1b get_stale_sheets; consumed by F2) ────────────
+
+/**
+ * One sheet whose saved config no longer validates, from get_stale_sheets (Slice 1b).
+ * Computed LIVE (no stored field) -- reason only, NO timestamp. sheet_name is VERBATIM
+ * (#152) -- join to drafts byte-for-byte, no trim. F2 reads this as one of the three
+ * "needs attention" signals (alongside the draft's parse_failure_* / commit_failure_*).
+ */
+export interface StaleSheet {
+  sheet_name: string;
+  reason: string;
+}
+
+/** Response shape of get_stale_sheets (Slice 1b endpoint). */
+export interface GetStaleSheetsResponse {
+  stale_sheets: StaleSheet[];
 }
 
 /**

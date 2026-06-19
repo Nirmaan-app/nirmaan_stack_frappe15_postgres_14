@@ -8361,3 +8361,425 @@ OWNER-OWNED (on BOQ-26-00145: Commit → tick a sheet → results modal shows th
 dismisses; badge/count/version refresh). FAILURE-path render is covered by the Slice-5 backend tests (T1/T4/T5/T6
 populate `failed[]`) + code inspection — NOT exercised live (no real-data mutation, no browser-driving). All three
 docs updated (frontend/CLAUDE.md substantive, root CLAUDE.md cross-ref, this plan).
+
+---
+
+## Slice 1a -- parse reason-bundle (reactive #166) -- BACKEND (feat e4b1fefc, 2026-06-18)
+
+**What this slice is.** The reactive half of issue #166 and the parse-path instance of principle P2 ("stop erasing
+the why"). When a sheet that was ELIGIBLE and ATTEMPTED fails to parse, the specific REASON was computed and then
+thrown away. This slice makes the per-sheet failure reason DURABLE on `BoQ Sheet Draft` so a LATER frontend slice
+can render a hub-card notice (reason + datetime). **BACKEND ONLY** -- no frontend built here.
+
+**Recon basis (the reason-erasure map, prior read-only recon).** Three IN-SCOPE erasure points: STALE (E2 empty-blob
++ E3 invalid-blob) dropped in `assemble_mapping_config`'s Rule-3 branch to a `logger.warning` + a nameless
+`not_eligible` list; PARSER-FAILED (E6, worker Step 4) and INSERT-FAILED (E7, worker Step 5) coarsened to an
+`error_code` / a name-only `failed_sheets` + an Error Log row with no surfaced handle. OUT OF SCOPE (not failures or
+a different fix): skip/hidden/ineligible/general-specs (never attempted), EMPTY-but-marked-Parsed (E8, success-path
+mis-classification -- PARKED), config staleness DETECTION (Slice 1b), payload reshape, all frontend.
+
+**Preconditions verified before edit (P-a..P-d).** (P-a) `BoQ Sheet Draft` had NO reason field; `has_prior_parse` /
+`last_parsed_at` / `parse_in_progress` exist as the recon said. (P-b) `_set_draft_status(boq,sheet,status,
+extra_fields=None)` merges `{wizard_status: status, **extra_fields}` into ONE `set_value`; existing callers pass no
+extra_fields. (P-c) the three failure sites still matched. (P-d) CRITICAL -- the STALE drop does NOT write the draft
+at all today (only `logger.warning` + `not_eligible.append`); `assemble_mapping_config` is called ONLY by
+`_run_parse_worker` + the tests (`commit_gate` does NOT call it), so a write there pollutes no read-only production
+caller. STALE therefore uses a NEW fields-only helper, never the status helper.
+
+**Core constraint -- purely additive, truthful.** The done-event payload contract
+(`{status,boq_name,parsed_sheets,not_parsed_sheets,failed_sheets}` / `{status,boq_name,error_code}`) stays
+BYTE-FOR-BYTE FROZEN (a test asserts the success-payload key set). `wizard_status` writes and the displayed prior
+rows are UNCHANGED -- the notice's whole point is "the rows you see are from the PRIOR parse," so the rows must
+remain.
+
+**Schema (`boq_sheet_draft.json`, +3 nullable fields; `bench migrate` CLEAN; runtime columns + Select options
+verified via get_meta):**
+- `parse_failure_category` -- Select `""` / `Config stale` / `Parser error` / `Insert error`. The S2-8 taxonomy: the
+  three IN-SCOPE failure values ONLY. Skip/Hidden/Ineligible/general-specs/empty are NOT failures and are absent by
+  design (a 1b/taxonomy concern, not this field).
+- `parse_failure_reason` -- Small Text. The specific why: the `SheetConfig.model_validate` exc text for STALE; a
+  concise message + an Error Log handle for crashes.
+- `parse_failure_at` -- Datetime, read_only.
+
+**The three write sites (`parse_run.py`).**
+- STALE -- `assemble_mapping_config` Rule-3 empty-blob + invalid-blob branches call NEW
+  `_record_parse_failure(boq,sheet,category,reason)`, which writes ONLY the three failure fields via a bare
+  `frappe.db.set_value`, NEVER `wizard_status` (no commit -- rides the worker's transaction). Category `Config stale`.
+- PARSER error -- worker Step-4 `except Exception as exc` (now binds `exc`); the reason folds into the EXISTING
+  `_set_draft_status(... "Parse failed", extra_fields={category,reason,at})` loop over `eligible_data_sheets` (same
+  `set_value`, no new/changed status). `parse_boq` has no per-sheet isolation (DA-1), so every eligible sheet is
+  attributed the same parser error -- matching today's coarse behaviour.
+- INSERT error -- worker Step-5 per-sheet `except Exception as exc`; reason folds into the EXISTING per-sheet
+  `"Parse failed"` `_set_draft_status(extra_fields=...)`.
+
+**S2-5 traceable handle.** Verified `frappe.log_error` RETURNS the inserted Error Log doc
+(`frappe/utils/error.py`: `return error_log.insert(ignore_permissions=True)`; None only under
+read_only/defer_insert). NEW `_reason_with_ref(reason, error_log_doc)` appends `(ref: Error Log <name>)` when a name
+is available and NEVER fabricates one.
+
+**Clear-on-success.** All three fields are cleared (set None) folded into the EXISTING `"Parsed"`
+`_set_draft_status(extra_fields=...)` write (alongside has_prior_parse/last_parsed_at), so a fixed sheet drops its
+stale notice. General-specs sheets never reach that write (gated) and never carry a reason, so no clear is needed.
+
+**Shared "reconfigure" signal (for Slice 1b).** The natural origin of a "this sheet needs reconfiguring" signal on
+this path is the SAME Rule-3 blob deserialize/validate guard in `assemble_mapping_config` (empty + `model_validate`
+failure). 1a surfaces it reactively as a durable reason; 1b's proactive version-stamp detection is the cousin --
+do NOT design the stamp here.
+
+**Tests (`test_parse_run`, 86 -> 93, +7, all green in-container).** New `TestParseFailureReason`: stale invalid-blob
+(exc detail captured; `wizard_status` + prior rows untouched), stale empty-blob, parser error (+handle), insert
+error, clear-on-success, non-failures-untouched (Skip/Hidden/Pending/general-specs stay falsy -- a never-written
+Select reads as `''`, asserted falsy not strictly None), done-event payload FROZEN (captured via patched
+`publish_realtime`).
+
+**Docs.** Pure backend -> this plan + root CLAUDE.md substantive. Per the build-prompt scope, frontend/CLAUDE.md was
+explicitly excluded (no frontend change this slice); the standing DOCS-UPDATE RULE's minimal-touch was flagged as a
+deliberate exception in the build self-report for the owner to reconcile.
+
+---
+
+## Slice 1b -- config staleness detection (proactive #166) -- BACKEND (feat 32e31a2a, 2026-06-18)
+
+**What this slice is.** The PROACTIVE half of issue #166 (S1-1/S1-2). Slice 1a made the REACTIVE half durable (a
+reason persisted when a stale config is DROPPED at parse). 1b flags a stale config ON READ -- before the user
+triggers a parse -- so a LATER frontend hub-card slice can show "reconfigure this sheet" without first hitting a
+parse failure. **BACKEND ONLY** -- a read-only endpoint; no frontend built here.
+
+**Recon verdict implemented = validate-on-read (approach B), ZERO SCHEMA.** No fingerprint, no version-stamp, no
+doctype change, no migration. The recon proved a field-name fingerprint MISSES the dominant real staleness
+(`ColumnRole` Literal token renames + the `_AREA_COMPATIBLE_ROLES` / `model_validator` changes that actually caused
+#166), and a deep fingerprint can never capture imperative validator logic -- chasing it is the balloon. Instead,
+1b runs the SAME `SheetConfig.model_validate` the parser runs: an invalid stored blob is stale. This catches
+everything a parse would, tracks the live model automatically (zero maintenance -- the property whose ABSENCE
+caused #166), and needs NO new field/migration/backfill.
+
+**Read-only verification before edit (reported, no drift).** Confirmed the current (post-1a) Rule-3 shape: an
+empty-blob sub-branch (`_record_parse_failure(... "Config stale", "Saved configuration is empty ...")`, no
+model_validate) and an invalid-blob sub-branch (`try: json.loads + inject sheet_name + SheetConfig.model_validate;
+except: _record_parse_failure(... "Saved configuration is no longer valid: {exc}")`). Confirmed
+`_RULE3_BASE_STATUSES = {"Config Done", "Parsed"}` exists and is the force_reparse=False data set. Confirmed
+`run_parse`'s guard strings ("boq_name is required." / "BOQs '...' not found.") to mirror.
+
+**(1) Shared validate helper + reason builders (`parse_run.py`).** `_validate_sheet_blob(blob, sheet_name) ->
+Exception | None` is the SINGLE SOURCE OF TRUTH for "does this saved config still validate", used by BOTH the
+reactive parse-drop path (`assemble_mapping_config` Rule 3 / 1a) and the proactive read path (`get_stale_sheets` /
+1b). It injects `sheet_name` (production 6-key blobs omit it; `SheetConfig.sheet_name` has no default -- WITHOUT
+injection every blob false-positives, the #1 cry-wolf trap), copies the blob before injecting (no caller mutation),
+and catches a malformed/non-dict blob (returned as the exc, matching the parser's treat-as-stale behaviour).
+`_stale_empty_reason(status)` / `_stale_invalid_reason(exc)` centralize the reason text so the reactive +
+proactive messages are BYTE-IDENTICAL. `assemble_mapping_config` Rule 3 was REFACTORED to call the helper +
+builders -- BEHAVIOR-PRESERVING for 1a: same exclusion, same `_record_parse_failure` calls with byte-identical
+reason text; the success path re-validates once only to obtain the `SheetConfig` model object (a cheap pure-Python
+re-parse, behaviour-identical to the prior single-validate). The empty-blob sub-branch stays its own 1a case (NOT
+routed through model_validate) -- mirrored exactly.
+
+**(2) New `get_stale_sheets(boq_name)` endpoint.** `@frappe.whitelist()` bare (READ-ONLY, GET-capable, mirrors
+`get_committable_sheets`). Returns `{"stale_sheets": [{"sheet_name" [VERBATIM #152], "reason"}, ...]}`. ROUTING
+PARITY with assemble (no new gating): general-specs pointer / Hidden / Skip -> never stale; status not in
+`_RULE3_BASE_STATUSES` (Pending / Parse failed / Finalized / blank) -> not a data sheet here, never stale
+(UNCONFIGURED != stale; Finalized is data-eligible only under force_reparse, which this normal read does not
+assume); Config Done / Parsed with a non-empty invalid blob -> stale (reason = validation detail); Config Done /
+Parsed with an empty blob -> stale (mirrors 1a's empty-on-done). PURE READ -- writes NOTHING (no
+set_value/insert/save/commit; write-on-read was explicitly rejected by the recon). Guard mirrors `run_parse`.
+
+**Anti-cry-wolf (recon §6 traps closed).** sheet_name injection (in the shared helper, both paths get it free);
+routing parity (general-specs / Skip / Hidden / non-data statuses never validated as data sheets); unconfigured !=
+stale (scoped to data-eligible statuses with a blob, plus 1a's empty-on-done). By construction `get_stale_sheets`
+flags stale iff the parser would drop the sheet -- the truest anti-cry-wolf guarantee.
+
+**Composition with 1a (no overlap, no double-write).** 1b writes NOTHING, so it cannot race or double-write with
+1a's reactive `parse_failure_*` writes. They are the SAME validation at two triggers; the shared helper guarantees
+identical verdicts. A test (`test_proactive_matches_reactive_invalid_and_empty`) runs `assemble_mapping_config`
+(1a) then `get_stale_sheets` (1b) on the same BoQ and asserts both flag the same sheets AND the reason text is
+byte-for-byte equal. (The frontend, later, will de-dupe a stored 1a reason and a computed 1b flag into ONE
+"reconfigure" notice -- not this slice.)
+
+**Tests (`test_parse_run`, 93 -> 102, +9, all green in-container; no migration).** New `TestGetStaleSheets`:
+invalid-blob-stale-with-reason (the #166 core), Parsed-status parity, valid-prod-blob-not-stale (the sheet_name-
+injection proof -- a valid blob OMITS sheet_name and must not flag), unconfigured-not-stale (Pending / Parse-failed;
+a literally-blank wizard_status is not insertable -- `reqd=1`), Finalized-not-stale (force_reparse=False),
+general-specs/Skip/Hidden-not-stale (routing parity), empty-on-done-stale, proactive-matches-reactive (shared-helper
++ reason parity vs 1a), guard (missing/unknown boq_name throws). The 1a `TestParseFailureReason` suite stays green
+(the Rule-3 refactor is behavior-preserving).
+
+**Docs.** Pure backend -> this plan + root CLAUDE.md substantive. frontend/CLAUDE.md NOT touched (build-prompt scope
+excluded it; no frontend change this slice).
+
+---
+
+## Slice 2 -- commit round-trip reconciliation (output-fidelity) -- BACKEND (feat 01c7dbaf, 2026-06-18)
+
+**What this slice is.** An AUTOMATIC, headless, EVERY-COMMIT verification that the committed tiers (node tree +
+per-area children + faithful grid) equal what the commit PRODUCED. Runs at the tail of each per-sheet write path,
+BEFORE the per-sheet `frappe.db.commit()`; a divergence `frappe.throw`s and the EXISTING Slice-5 per-sheet isolation
+converts the sheet into a clean `{failed}` entry (rollback + reason). Recovers the dropped Slice-6 dogfood as an
+always-on check. BACKEND ONLY.
+
+**Locked scope = OUTPUT-FIDELITY, not logic-correctness.** Verifies ONLY that the value each transform PRODUCED was
+COPIED to the DB accurately. It does NOT judge whether a produced value is *correct* (valid parent, no cycles, sane
+rates, declared area, level-monotonicity = VALIDITY = tendering's job = OUT OF SCOPE). No coherence/relational
+checks built. The "must be able to fail" rule governs: a derived-value check never re-runs the producer (that would
+be self-confirming) -- it compares against the CAPTURED producer output.
+
+**Build-recon resolved (verified against live code).** The two derived values are observable in-memory in
+`_commit_node_tree`'s scope at the tail: `eff_parent_by_idx` (resolve_effective's captured output), `name_by_idx`
+(pass-1 insertion record), `docs_by_idx` (the in-memory node docs, carrying produced `.level`), and `node_rows`
+(the review-row snapshot). Currency precision: no per-field precision -> system default (money 2dp via empty
+`currency_precision`; qty 3dp via `float_precision=3`). Day-N census: 625 current nodes / 18 sheets, **0
+money/qty copy-divergences** across 584 resolvable nodes at 2dp (the check won't fire on day one; the money
+suppress-set is complete). Slot confirmed: `_commit_one_sheet` does grid -> sheet -> node tree -> commit, so a
+raise before commit routes to commit_boq's per-sheet `try/except` (Slice-5).
+
+**The check (one type, two anchors).**
+- COPIED fields -> `stored == transform(review-row source)` reusing the in-hand `node_rows` (no re-query drift):
+  code, sort_order, source_row_number, description (cascade desc->sl_no->"(untitled)"), unit, make_model,
+  node_type, row_class, qty (Line-Item None->0), the six money fields (word-order reversal), is_rate_only /
+  is_synthetic / human_is_root (bool-coerce), human_classification, human_parent (-1 sentinel), notes (row_notes
+  rename), append_notes_raw / attached_notes / edit_log (JSON, empty-normalized), and the per-area children
+  (deterministic explosion; flat-stays-flat encoded for free).
+- DERIVED (exactly two) -> `stored == CAPTURED producer output`, NEVER re-running the producer: `parent_node =
+  name_by_idx.get(eff_parent_by_idx.get(idx))` (the exact lookup pass-2 used -- re-running resolve_effective would
+  be the self-confirming trap); `level = docs_by_idx[idx].level` (the in-memory value the producer built -- a THIN
+  tripwire: nothing mutates level today, kept for near-zero-cost regression value).
+- Plus a node-COUNT check (produced node rows vs current stored nodes -> catches a finalized sheet that should
+  have nodes but persisted none) and a grid row_number/cells compare.
+
+**Precision + anti-false-flag.** Numerics compared rounded to the field's own `frappe.get_precision` (money 2dp,
+qty 3dp) via `frappe.utils.flt(v, p)` -- never raw float equality -- so Float->Currency coercion never false-flags.
+Stored read fresh in-transaction (Frappe sees the uncommitted writes).
+
+**Suppress-set encoded exactly** (the only differences NOT flagged -- they are our own rules): blank-qty=0,
+placeholder description, flat-stays-flat (absent rate/amount kind normalizes to 0 == stored 0), gen-specs 0 nodes
+(node reconcile not called), minted `commit_provenance_id` + versioning triple + `path` + `boq` EXCLUDED from the
+field list, spacer grid-only (skipped from node_rows), note/subtotal_marker/header_repeat -> Other money-null,
+human_parent -1 sentinel (N-2), bool coercion (N-3), qty None->0 Line-Item-only (N-4), and N-1: node->source paired
+via the in-hand `node_rows`/`name_by_idx`, NOT a `review_row_name` re-lookup -- so historical dangling provenance is
+irrelevant (the check only runs on freshly-committed nodes).
+
+**Implementation.** Two helpers in `commit_pipeline.py`: `_reconcile_node_tree(sheet_name, boq_sheet_name,
+commit_version, node_rows, eff_parent_by_idx, name_by_idx, docs_by_idx)` called inline before
+`_commit_node_tree`'s return; `_reconcile_grid(sheet_name, grid_name, grid_rows)` called in `_commit_one_sheet`
+before the commit. Support helpers `_text_eq` (None/'' equal), `_json_eq` (empty {}/[]/None normalized),
+`_node_type_for`, and the `_NODE_MONEY_SOURCE` word-reversal map. No signature change to the existing functions; no
+new plumbing; isolation boundary unchanged.
+
+**Tests (`test_commit_pipeline`, 33 -> 44, +11, all green in-container; no schema, no migration).** MUST-FIRE (6):
+corrupted money, dropped per-area child, zero-node finalized sheet, wrong parent_node, mutated level, corrupted grid
+-- each tampers the STORED side AFTER the write via a wrapper around the reconcile helper (`_corrupt_then`), so the
+real reconcile reads the corrupted rows; no production code altered. MUST-NOT-FIRE (5): flat-stays-flat,
+blank-qty/placeholder-desc, gen-specs 0 nodes, note-Other-money-null + dropped-spacer-parent-root, re-commit
+versioning-excluded. The existing 33 faithful-commit tests stay green (the reconcile does not break a normal
+commit). The raise->failed[] routing is the existing Slice-5 mechanism (a reconcile raise is just another per-sheet
+exception), already proven by TestCommitBoqPartialFailure -- not duplicated here.
+
+**Docs.** Pure backend -> this plan + root CLAUDE.md substantive. frontend/CLAUDE.md NOT touched (no frontend
+change this slice).
+
+## Slice F1 -- durable per-sheet commit-failure persistence (BACKEND, feat 5c095b34, 2026-06-18)
+
+**What & why.** The backend half of the "needs attention" F-arc (F2 = a hub-card consolidated indicator,
+F3/F4 = the parse/commit completion modals highlighting failures -- all FRONTEND, NOT this slice). Before F1,
+`commit_boq`'s per-sheet failure handler built an in-memory `failed[]`, `frappe.log_error`d the traceback, and
+returned the `{committed, failed}` envelope -- but PERSISTED NOTHING per-sheet. Once the HTTP response was gone a
+hub card had nothing durable to read, so it could not show a commit-failure notice across sessions. F1 PERSISTS the
+per-sheet commit failure (reason + timestamp) on the `BoQ Sheet Draft`, CLEARED on a successful re-commit -- the
+durable analog of Slice 1a's `parse_failure_*`. BACKEND ONLY.
+
+**Shape = a PAIR, NO category Select (recon-decided, owner-confirmed).** Parse had a clean 3-way taxonomy
+(Config stale / Parser error / Insert error) because its failures came from three structurally-distinct phases.
+Commit failures are heterogeneous/freeform -- a reconciliation divergence, a controller validation throw, a
+sheet-not-in-workbook throw, a list-JSON `get_valid_dict` wall, a generic DB error -- and are already flattened to
+one string by `_commit_failure_reason` (best-effort HTML-stripped message + safe fallback, never empty). A Select
+would be mostly "Other", so it was deliberately omitted.
+
+**(1) Schema (`boq_sheet_draft.json`).** Two additive NULLABLE fields at the tail of `field_order`, after
+`parse_failure_at`, mirroring the `parse_failure_*` conventions:
+- `commit_failure_reason` -- Small Text (no `read_only`, matching `parse_failure_reason`).
+- `commit_failure_at` -- Datetime, `read_only: 1` (matching `parse_failure_at`).
+Each carries a `description` documenting "Cleared on a subsequent successful commit". No `reqd`, no default, NO
+data backfill (existing rows get NULL = "no commit failure" = the correct default). `bench migrate` CLEAN; runtime
+columns verified via `frappe.db.has_column("BoQ Sheet Draft", ...)` + `get_meta` (Small Text / Datetime read_only).
+
+**(2) Write hook -- the rollback-then-write-then-commit ORDER is load-bearing.** In `commit_boq`'s per-sheet
+`except`, immediately AFTER the MANDATORY Slice-5 `frappe.db.rollback()` (UNCHANGED -- the orphan-prevention):
+```
+except Exception as e:
+    frappe.db.rollback()                              # (1) FIRST -- unchanged Slice-5 orphan-prevention
+    reason = _commit_failure_reason(e)
+    _record_commit_failure(boq_name, sheet_name, reason)   # (2) set_value the draft, no commit
+    frappe.db.commit()                                # (3) flush ONLY the stamp
+    failed.append({"sheet_name": sheet_name, "reason": reason})   # reuses the captured reason
+    frappe.log_error(...)                             # unchanged
+    continue
+```
+`_record_commit_failure(boq, sheet, reason)` mirrors `_record_parse_failure`: verbatim-#152 child lookup
+(`{"parent", "parenttype": "BOQs", "sheet_name"}` -> name; missing -> silent skip), then ONE
+`frappe.db.set_value("BoQ Sheet Draft", child_name, {commit_failure_reason, commit_failure_at: now()},
+update_modified=False)`, NO commit (the caller owns it). WHY THIS ORDER:
+- The write is AFTER the rollback so the rollback does not sweep it away.
+- The explicit `frappe.db.commit()` is REQUIRED -- this is the one real difference from the parse pattern (which
+  relies on the worker's trailing commit). `commit_boq` has NO trailing commit after the loop; if the failed sheet
+  is the LAST in the subset, no later `_commit_one_sheet` commit would ever flush the stamp -> it would be lost.
+- The draft is a DIFFERENT doctype from the rolled-back grid/sheet/node tiers, and the commit pipeline never writes
+  the draft during a sheet commit, so after the rollback this `set_value` is the ONLY pending write -- it cannot
+  re-flush a rolled-back tier write, so T2 orphan-prevention is preserved.
+
+**(3) Clear hook.** A new `_clear_commit_failure(boq, sheet)` (both fields -> None, same verbatim lookup, no
+commit) folded into `_commit_one_sheet`'s trailing per-sheet `frappe.db.commit()` -- after the grid reconcile,
+before the commit -- so a re-commit that now succeeds drops the stale stamp ATOMICALLY with the successful
+grid/sheet/node write (mirrors 1a's clear-on-success). It runs only on the fully-successful path (a reconcile raise
+earlier propagates to the except, which instead WRITES the stamp).
+
+**Payload contract FROZEN.** The `{committed, failed}` envelope is byte-for-byte unchanged; the persisted fields are
+an additive SUPERSET of what `failed[]` already returns. No return-shape change.
+
+**Tests.** `test_commit_pipeline` **44 -> 49** (+5, all green), added to `TestCommitBoqPartialFailure` (the class
+that drives the public `commit_boq` loop with the file path patched). Its `tearDown` now also clears the two
+commit-failure fields on all sheets -- the stamps are committed (that is the point), so they survive
+FrappeTestCase's per-test rollback and would otherwise leak into the next test (the draft rows are shared, created
+once in setUpClass). The five:
+- `test_f1_commit_failure_persisted_on_last_sheet_failure` -- PERSIST-ON-FAILURE; the failing sheet is LAST in the
+  subset, so no later commit could flush the stamp -> it persists ONLY via the except's own commit (non-vacuous re
+  the explicit commit). reason == the returned `failed[]` reason; `commit_failure_at` set.
+- `test_f1_stamp_survives_rollback_and_no_orphan` -- KEYSTONE. A POST-FREEZE re-commit failure on the LAST sheet
+  (`_commit_node_tree` patched to raise for S1 after the real `_write_grid` + `_write_committed_boq_sheet` froze
+  S1's prior rows; S1 pre-committed once; subset `[S2, S1]` so S1 is last). Asserts BOTH: the prior S1 grid is
+  STILL `is_current=1` at version 1 (the except's rollback discarded the freeze -> orphan-prevention holds, the new
+  failure-commit did NOT re-flush it) AND the S1 stamp is persisted (it SURVIVED the very rollback that discarded
+  the freeze).
+- `test_f1_cleared_on_successful_recommit` -- pre-stamp via `_record_commit_failure` + commit, then a successful
+  `commit_boq([S1])` -> both fields None.
+- `test_f1_clean_first_commit_leaves_fields_null` -- a clean first commit leaves both fields None.
+- `test_f1_mixed_outcome_only_failed_sheet_stamped` -- S2 fails of `[S1, S2, S3]` -> S2 stamped; S1 + S3 (clean
+  successes) carry NO stamp; envelope correct.
+The existing load-bearing T2 orphan-prevention test
+(`test_orphan_prevention_rollback_restores_prior_on_failed_recommit`) is UNTOUCHED + green.
+
+**Scope.** NO change to `parse_run.py` (the parse-failure fields are done -- only READ to mirror), `review_screen.py`,
+the reconciliation internals, or any frontend. Pure-backend -> this plan + root CLAUDE.md substantive;
+frontend/CLAUDE.md deliberately NOT touched (build-prompt scope; no frontend change this slice). NEXT = F2 (the hub
+"needs attention" indicator reading `parse_failure_*` + `commit_failure_*` off the BOQs payload + a separate
+`get_stale_sheets` call).
+
+## Slice F2 -- hub-card "needs attention" indicator (FRONTEND, feat 1f1828d4, 2026-06-18)
+
+**What & why.** The frontend half of the "needs attention" arc: finally SHOW the user the per-sheet
+failure/staleness signals the backend now captures. A consolidated indicator on each hub `SheetCard`, COLLAPSED by
+default (just a chip in the badge cluster), CLICK-TO-EXPAND to list whichever of three signals apply, each with its
+reason and (for parse/commit) the timestamp of the failed attempt. FRONTEND ONLY -- 1a (`parse_failure_*`), 1b
+(`get_stale_sheets`), and F1 (`commit_failure_*`) already provide the data; F2 reads + renders. F3/F4 (the parse +
+commit completion modals highlighting failures) are SEPARATE later slices, NOT this one.
+
+**The three signals (all per-sheet).** (1) STALE CONFIG -- from `get_stale_sheets(boq_name)`, a SEPARATE live call
+(computed on read, no stored field): reason only, NO timestamp. (2) PARSE FAILURE -- `parse_failure_category` /
+`parse_failure_reason` / `parse_failure_at` on the draft (ride the BOQs payload): category + reason + timestamp.
+(3) COMMIT FAILURE -- `commit_failure_reason` / `commit_failure_at` on the draft (F1, ride the BOQs payload): reason
++ timestamp. A card may carry MORE THAN ONE -> one chip, expand lists each applicable line.
+
+**Files (3) + the ONE new fetch.**
+- `boqTypes.ts` (additive only): `BoQSheetDraft` gains the five optional failure fields (the type just lets the
+  frontend READ what already arrives on the doc); new `StaleSheet` + `GetStaleSheetsResponse` mirroring
+  `GetCommittedStateResponse`.
+- `BoqHubPage.tsx`: ONE new `useFrappeGetCall("...parse_run.get_stale_sheets")` (same bare-whitelist GET + null-key
+  gotcha as `get_committed_state`) -> `staleMap: Map<sheet_name VERBATIM #152, reason>` (mirrors `committedMap`),
+  passed as `staleReason` to `SheetCard` at BOTH render sites (main list + hidden-sheets reveal). The parse/commit
+  stamps ride the existing `useFrappeGetDoc("BOQs")` doc, so this is the ONLY fetch added. `void mutateStale()` wired
+  into `applyParseOutcome` (parse success), `handleCommitted`, and `handleSaved` so the LIVE stale signal
+  clears/updates on the same triggers (fix config + re-parse -> indicator clears; fresh commit failure -> appears).
+- `SheetCard.tsx`: new optional `staleReason?: string`; a clickable chip (`AlertTriangle` + "N issue(s)") in the
+  badge cluster, shown iff >= 1 distinct signal -- RED when any failure STAMP present (parse or commit), AMBER when
+  only stale; an inline expand block (local `attnOpen` useState, mirrors the `editingLabel` idiom -- no new
+  Popover/Collapsible) listing each line with the existing `fmtCommittedAt` for timestamps.
+
+**The de-dup rule (the one render subtlety, owner-locked).** 1a and 1b describe the SAME staleness with BYTE-IDENTICAL
+reason text (shared `_stale_invalid_reason`/`_stale_empty_reason`; re-proven live this slice). When a live stale
+reason is present AND `draft.parse_failure_category === "Config stale"` AND `draft.parse_failure_reason ===
+staleReason`, collapse to ONE "Stale config" line (carrying the parse timestamp). Other categories (Parser/Insert
+error) + commit failures are always their own line. N (chip count) = distinct lines after de-dup; chip hides at N==0.
+Empty state: no stale entry AND no parse_failure_reason AND no commit_failure_reason (guard on the REASON STRINGS,
+not category -- category can be "" with no reason) -> NO chip. SHOW + EXPAND only; no per-signal action buttons.
+
+**Verification.** `tsc` 0 new wizard-file errors (filtered `boq-wizard|SheetCard|BoqHubPage|boqTypes` -> empty; 3177
+baseline unchanged) + in-container Vite build exit 0 (`Done in 1285.37s`). DATA-SIDE live cert on BOQ-26-00145
+(capture-and-restore; workbook RESTORED to baseline -- non-negotiable for the cert workbook): on a "Lights" config
+broken with one invalid role token, `get_stale_sheets` flips `[] -> ["Lights"]` (stale_fired); the de-dup
+string-equality holds -- 1b's reason `===` the reason `_record_parse_failure` would store for the same blob
+(`dedup_helper_equal`) AND the stamped `draft.parse_failure_reason === staleReason` with category `"Config stale"`
+(`frontend_dedup_equal`), so the frontend de-dup `===` provably fires; `_record_commit_failure` on "Washroom" stamps
+`commit_failure_reason`/`_at` (commit_stamped); RESTORE verified -- stale gone, parse/commit stamps cleared, the
+broken role token reverted to `sl_no`. **The VISUAL hub render (chip paints, expand lists the right lines, healthy
+cards show nothing) is an OWNER-OWNED later manual pass -- not headlessly confirmable here; the data + build are
+certed.** NOTE: a mid-cert crash (Frappe returns the JSON `sheet_config` field as a parsed dict, not a string, so a
+naive `json.loads` threw and the first restore attempt `set_value`'d a raw dict) left "Lights" broken briefly; it was
+re-restored (column A role -> `sl_no`, `get_stale_sheets` -> `[]`) before the clean re-run -- the workbook ends at
+baseline.
+
+**Scope.** FRONTEND ONLY -- no backend, no completion modals (F3/F4), no `get_stale_sheets`/`commit_boq` change.
+Pure-frontend -> this plan + frontend/CLAUDE.md substantive; root CLAUDE.md deliberately NOT touched (build-prompt
+scope: a frontend slice updates frontend/CLAUDE.md, not root). NEXT = F3/F4 (parse + commit completion modals
+highlighting failures with reasons).
+
+## Slice F3/F4 -- completion modals highlight failures with reasons (FRONTEND, feat bfa71098, 2026-06-18)
+
+**What & why.** The TRANSIENT counterpart to F2's persistent hub card: at the MOMENT a parse or commit finishes,
+the completion modal highlights each FAILED sheet WITH its reason -- so the user sees the why right then, not only
+later on the card. This completes the F-arc (F1 persist commit-failure -> F2 persistent "needs attention" card ->
+F3/F4 transient modals). FRONTEND ONLY -- no backend, NO new fetch, NO payload change.
+
+**F4 (the COMMIT results modal, `CommitResultsModal.tsx`) = ALREADY SATISFIED at Slice 5 -- VERIFY-ONLY.** The recon
+found, and a re-read confirmed, that it already renders a dedicated "Failed (N)" section with, per sheet, a
+destructive `<li>` + `AlertTriangle` + `{sheet_name} -- {reason}` (the `{committed, failed}` envelope carries the
+reason directly). No concrete gap -> NO code change to F4.
+
+**F3 (the PARSE completion modal -- the inline `AlertDialog` in `BoqHubPage.tsx`) = the real work.** Today's failed
+line was `parseResult.failed.join(", ")` -- bare sheet NAMES, no reason. Now it is a per-sheet `<ul>/<li>` list
+mirroring the CommitResultsModal failed-section visual shape: each `<li>` is `text-destructive` with an
+`AlertTriangle` + `{name} -- (category) reason`.
+
+**The data source (recon-confirmed, implemented exactly).** The `boq:parse_run_done` socket payload carries NAMES
+ONLY -- `ParseRunDonePayload` is `{status, boq_name, parsed_sheets?: string[], not_parsed_sheets?: string[],
+failed_sheets?: string[], error_code?}`, and the worker publish site `parse_run._publish_parse_event` (success kwargs
+`parsed_sheets=parsed_sheets, not_parsed_sheets=not_eligible, failed_sheets=failed_sheets`, all `list[str]`) adds no
+per-sheet reasons. The REASON lives in the persisted `parse_failure_*` (Slice 1a) on the draft, which rides the
+`useFrappeGetDoc("BOQs")` doc the hub ALREADY fetches and ALREADY `mutate()`s on parse-done. So F3 reads each failed
+sheet's reason at render time: `boq.sheet_drafts?.find(sd => sd.sheet_name === name)` (VERBATIM #152, the same lookup
+F2 / the hub use) -> `parse_failure_reason` (trimmed) + `parse_failure_category` (in parens). NO new fetch.
+
+**The freshness fallback (a correctness requirement).** `applyParseOutcome` calls `mutate()` (async refetch) AND
+`setParseResult()` (opens the modal immediately). The worker COMMITS the `parse_failure_*` stamps BEFORE publishing
+the socket event, so once the refetch lands the reasons are present and the open (acknowledge-only) modal re-renders
+fresh -- but the FIRST render can be pre-mutate, so the draft lookup returns undefined. F3 guards with `reason &&
+(...)` -> renders the sheet NAME ALONE in that window (never blank / "undefined" / crash); the next render shows
+name + reason. The modal stays open, so the user sees the reason by the time they read it. No fetch is added to force
+freshness; the modal is not blocked on the refetch.
+
+**Unchanged (deliberate).** The `parsed` (foreground) and `notParsed` (NEUTRAL `text-muted-foreground`, names-only)
+success sub-lines are untouched -- `notParsed` stays a neutral advisory list (skipped / hidden / general-specs /
+pending). Although stale-config drops land in `not_eligible` WITH a "Config stale" stamp, their reason is shown
+PERSISTENTLY on the F2 card and is NOT duplicated in this transient modal -- `notParsed` is NOT dragged into
+destructive styling. The whole-run `parseError` block (`PARSE_ERROR_MSGS`; `no_eligible_sheets` NEUTRAL) is a
+DIFFERENT axis (whole-run failure, not per-sheet) and is untouched. `AlertTriangle` was added to BoqHubPage's lucide
+import. NO timestamp is shown in the modal (just-happened/transient; the F2 card persists `parse_failure_at`). NO
+shared failed-list component was extracted (two call sites with different data sources -- commit reads the envelope
+object, parse looks up `sheet_drafts` -- abstracting both is over-engineering for two sites). Language matches the F2
+card expand (same reason + category strings), so the transient modal and the persistent card describe an identical
+failure identically.
+
+**Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|SheetCard|BoqHubPage|boqTypes|CommitResultsModal`
+-> empty; 3177 baseline unchanged) + in-container Vite build exit 0 (`Done in 251.50s`). DATA-SIDE cert on
+BOQ-26-00145 (restore-first-safe capture-and-restore; workbook RESTORED to baseline -- non-negotiable for the cert
+workbook): captured the "FAS" draft's baseline `parse_failure_*` (all None), called
+`parse_run._record_parse_failure(boq, "FAS", "Parser error", <reason>)` + commit, then confirmed the EXACT data F3's
+render reads -- a `find` by verbatim sheet_name resolves `parse_failure_reason` + category "Parser error"
+(`lookup_resolves` / `reason_present` / `category_present` all True); the freshness-fallback case (`find` over a
+non-existent name -> undefined -> the `reason && (...)` guard renders name-only) is code-inspected
+(`fallback_undefined_safe` True); RESTORED by writing the captured baseline values back verbatim (these are scalar
+Select / Small Text / Datetime fields -- NOT JSON, so no dict round-trip gotcha) -> the three fields equal the
+captured baseline (`RESTORED_clean` True). **The VISUAL modal render (the failed list paints with reasons, neutral
+line stays neutral) is an OWNER-OWNED later manual pass -- not headlessly confirmable; the data + build are certed.**
+
+**Scope.** FRONTEND ONLY -- no backend, no boqTypes change (`ParseRunDonePayload` stays names-only by design;
+`parse_failure_*` already on `BoQSheetDraft` from F2), no `get_stale_sheets`/publish-payload change, no SheetCard
+change, no CommitResultsModal change (F4 already done). Pure-frontend -> this plan + frontend/CLAUDE.md substantive;
+root CLAUDE.md deliberately NOT touched (build-prompt scope: a frontend slice updates frontend/CLAUDE.md, not root).
+The F-arc (F1 -> F2 -> F3/F4) is now COMPLETE.

@@ -167,6 +167,56 @@ def _commit_failure_reason(e: Exception) -> str:
     return raw or "Commit failed for this sheet -- see server logs."
 
 
+def _record_commit_failure(boq_name: str, sheet_name: str, reason: str) -> None:
+    """Persist a per-sheet commit-failure stamp ADDITIVELY on the BoQ Sheet Draft
+    (Slice F1 -- the durable analog of Slice 1a's parse_failure_*). Writes ONLY the two
+    failure fields (commit_failure_reason / commit_failure_at) -- NEVER wizard_status.
+
+    sheet_name matched VERBATIM (#152 -- trailing-space names exist; PostgreSQL `=` on
+    varchar is byte-exact). A missing child row is silently skipped. NO commit here: the
+    caller owns the commit. In the commit_boq per-sheet except this is called AFTER the
+    mandatory frappe.db.rollback() (so the stamp is not swept away by it) and is followed
+    by the caller's own explicit frappe.db.commit() -- required because commit_boq has no
+    trailing commit, so a last-sheet failure would otherwise never be flushed. The draft
+    is a DIFFERENT doctype from the rolled-back grid/sheet/node tiers, so this set_value is
+    the only pending write and cannot resurrect a rolled-back tier write (T2 orphan-
+    prevention preserved).
+    """
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        return
+    frappe.db.set_value("BoQ Sheet Draft", child_name, {
+        "commit_failure_reason": reason,
+        "commit_failure_at": frappe.utils.now(),
+    }, update_modified=False)
+
+
+def _clear_commit_failure(boq_name: str, sheet_name: str) -> None:
+    """Clear any prior per-sheet commit-failure stamp on a SUCCESSFUL commit (Slice F1 --
+    mirrors Slice 1a's clear-on-success). Sets both failure fields to None so a re-commit
+    that now succeeds drops the stale notice.
+
+    sheet_name matched VERBATIM (#152). Missing child row silently skipped. NO commit:
+    this is folded into _commit_one_sheet's trailing per-sheet frappe.db.commit(), so the
+    clear lands ATOMICALLY with the successful grid/sheet/node write.
+    """
+    child_name = frappe.db.get_value(
+        "BoQ Sheet Draft",
+        {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+        "name",
+    )
+    if not child_name:
+        return
+    frappe.db.set_value("BoQ Sheet Draft", child_name, {
+        "commit_failure_reason": None,
+        "commit_failure_at": None,
+    }, update_modified=False)
+
+
 def _coerce_config(sheet_config: Any) -> dict:
     """The draft sheet_config blob may arrive as a dict or a JSON string."""
     if not sheet_config:
@@ -325,9 +375,19 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
                 # is_current=1 version). Already-committed earlier sheets are durable and
                 # untouched by this rollback (commit made them permanent).
                 frappe.db.rollback()
+                # PERSIST the failure durably (Slice F1) -- AFTER the rollback above (so the
+                # stamp is not swept away by it) and with its OWN explicit commit (commit_boq
+                # has NO trailing commit; if this is the LAST sheet in the subset, no later
+                # _commit_one_sheet commit would ever flush the stamp -> it would be lost).
+                # The draft is a DIFFERENT doctype from the rolled-back tiers, so after the
+                # rollback this set_value is the only pending write -- it cannot re-flush a
+                # rolled-back tier write, so the orphan-prevention above is preserved.
+                reason = _commit_failure_reason(e)
+                _record_commit_failure(boq_name, sheet_name, reason)
+                frappe.db.commit()
                 failed.append({
                     "sheet_name": sheet_name,
-                    "reason": _commit_failure_reason(e),
+                    "reason": reason,
                 })
                 frappe.log_error(
                     message=f"commit_boq: sheet {sheet_name!r} failed\n\n{frappe.get_traceback()}",
@@ -380,6 +440,16 @@ def _commit_one_sheet(
             boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
             commit_version, committed_at,
         )
+
+    # OUTPUT-FIDELITY RECONCILIATION (Slice 2) -- grid tier. Verify the persisted faithful
+    # grid equals the extracted grid_rows BEFORE the commit. (The node tier reconciles
+    # inline at the tail of _commit_node_tree.) A divergence raises -> per-sheet failed[].
+    _reconcile_grid(sheet_name, grid_doc.name, grid_rows)
+
+    # CLEAR any prior commit-failure stamp on success (Slice F1) -- folded into the
+    # per-sheet commit below so the clear is ATOMIC with this successful commit (a
+    # re-commit that now succeeds drops its stale failure notice).
+    _clear_commit_failure(boq_name, sheet_name)
 
     frappe.db.commit()
 
@@ -604,6 +674,15 @@ def _commit_node_tree(
             updates["edit_log"] = json.dumps(elog)
         if updates:
             frappe.db.set_value(_NODE_DOCTYPE, name, updates, update_modified=False)
+
+    # 5. OUTPUT-FIDELITY RECONCILIATION (Slice 2): verify every just-written node faithfully
+    #    equals what the commit PRODUCED, BEFORE the per-sheet commit. Reuses the in-hand
+    #    maps (no re-query; no re-run of resolve_effective / the level functions). A
+    #    divergence raises -> commit_boq's per-sheet isolation rolls back + records failed[].
+    _reconcile_node_tree(
+        sheet_name, boq_sheet_name, commit_version,
+        node_rows, eff_parent_by_idx, name_by_idx, docs_by_idx,
+    )
 
     return {"node_count": len(node_rows), "froze_nodes": froze_nodes}
 
@@ -860,3 +939,267 @@ def _node_depths(eff_parent_by_idx: dict[int, Any], name_by_idx: dict[int, str])
     for idx in name_by_idx:
         _d(idx, frozenset())
     return depth
+
+
+# ---------------------------------------------------------------------------
+# Output-fidelity reconciliation (Slice 2)
+# ---------------------------------------------------------------------------
+# Runs on EVERY per-sheet commit, at the tail of the write path, BEFORE the per-sheet
+# frappe.db.commit(). It verifies ONE thing: that the value each transform PRODUCED was
+# COPIED to the DB faithfully -- OUTPUT-FIDELITY, not logic-correctness. It does NOT judge
+# whether a produced value is *correct* (valid parent, no cycles, sane rates, declared
+# area, level-monotonicity = VALIDITY = tendering's job = OUT OF SCOPE).
+#
+#   COPIED fields  -> compare stored == transform(review-row source), applying the rename
+#                     + coercion + the deterministic transform; numerics rounded to the
+#                     field's own precision (so float->Currency coercion never false-flags).
+#   DERIVED fields (EXACTLY TWO) -> compare stored == the CAPTURED producer output:
+#     parent_node = name_by_idx.get(eff_parent_by_idx.get(idx))  -- the captured eff-parent
+#       map + insertion record (the exact lookup pass-2 used); NEVER re-runs resolve_effective.
+#     level       = docs_by_idx[idx].level  -- the in-memory value the producer built;
+#       NEVER re-runs the level functions. (Thin tripwire: nothing mutates level today, so
+#       it cannot fail under current code -- kept for near-zero cost regression value.)
+#
+# A divergence frappe.throws a specific message; commit_boq's per-sheet try/except then
+# rolls back + records {sheet_name, reason} in failed[] (Slice-5 isolation, unchanged).
+# Source values are REUSED from node_rows / grid_rows already in hand (no re-query drift);
+# stored values are read fresh in-transaction (Frappe sees the just-written, uncommitted rows).
+
+_NODE_MONEY_FIELDS = (
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+)
+# Node money field -> its review-row source (P4-3 word-order reversal).
+_NODE_MONEY_SOURCE = {
+    "supply_rate": "rate_supply", "install_rate": "rate_install",
+    "combined_rate": "rate_combined",
+    "supply_amount": "amount_supply", "install_amount": "amount_install",
+    "total_amount": "amount_total",
+}
+_CHILD_MONEY_FIELDS = (
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+)
+
+
+def _text_eq(a: Any, b: Any) -> bool:
+    """Text compare treating None and '' as equally 'absent' (Frappe may store either)."""
+    return (a or None) == (b or None)
+
+
+def _json_norm(v: Any) -> Any:
+    """Normalize a JSON value for comparison: parse a JSON string, and treat
+    None / '' / {} / [] as the single 'empty' value None."""
+    if isinstance(v, str):
+        try:
+            v = frappe.parse_json(v)
+        except Exception:
+            pass
+    if v is None or v == "" or v == {} or v == []:
+        return None
+    return v
+
+
+def _json_eq(a: Any, b: Any) -> bool:
+    return _json_norm(a) == _json_norm(b)
+
+
+def _node_type_for(cls: str) -> str:
+    """Produced node_type for an effective classification (mirrors _build_node_pass1)."""
+    if cls == _PREAMBLE_CLS:
+        return "Preamble"
+    if cls == _LINE_ITEM_CLS:
+        return "Line Item"
+    return "Other"
+
+
+def _reconcile_node_tree(
+    sheet_name: str,
+    boq_sheet_name: str,
+    commit_version: int,
+    node_rows: list,
+    eff_parent_by_idx: dict,
+    name_by_idx: dict,
+    docs_by_idx: dict,
+) -> None:
+    """OUTPUT-FIDELITY check for the committed node tree (+ per-area children).
+
+    Raises frappe.ValidationError on the first divergent node. Reuses the in-hand maps
+    (no re-query of the review rows; no re-run of resolve_effective / the level functions).
+    """
+    flt = frappe.utils.flt
+    money_prec = {f: frappe.get_precision(_NODE_DOCTYPE, f) for f in _NODE_MONEY_FIELDS}
+    qty_prec = frappe.get_precision(_NODE_DOCTYPE, "qty")
+    child_money_prec = {
+        f: frappe.get_precision("BOQ Node Qty By Area", f) for f in _CHILD_MONEY_FIELDS
+    }
+    child_qty_prec = frappe.get_precision("BOQ Node Qty By Area", "qty")
+
+    # COUNT: every produced node row must have a current stored node (catches a finalized
+    # sheet that should have nodes but persisted none).
+    stored_count = frappe.db.count(
+        _NODE_DOCTYPE,
+        {"sheet": boq_sheet_name, "is_current": 1, "commit_version": commit_version},
+    )
+    if stored_count != len(node_rows):
+        frappe.throw(
+            f"Commit reconciliation: sheet {sheet_name!r} produced {len(node_rows)} "
+            f"node(s) but {stored_count} were committed.",
+            title="Commit reconciliation failed",
+        )
+
+    read_fields = [
+        "code", "sort_order", "source_row_number", "description", "unit", "make_model",
+        "node_type", "row_class", "qty", "parent_node", "level",
+        "is_rate_only", "is_synthetic",
+        "human_classification", "human_parent", "human_is_root",
+        "notes", "append_notes_raw", "attached_notes", "edit_log",
+        *_NODE_MONEY_FIELDS,
+    ]
+
+    for d, eff in node_rows:
+        idx = d["row_index"]
+        name = name_by_idx[idx]
+        stored = frappe.db.get_value(_NODE_DOCTYPE, name, read_fields, as_dict=True)
+        cls = eff["effective_classification"]
+        node_type = _node_type_for(cls)
+        mism: list[str] = []
+
+        def _t(field, expected):
+            if not _text_eq(stored.get(field), expected):
+                mism.append(f"{field}: produced {expected!r} != stored {stored.get(field)!r}")
+
+        def _exact(field, expected):
+            if stored.get(field) != expected:
+                mism.append(f"{field}: produced {expected!r} != stored {stored.get(field)!r}")
+
+        def _num(field, expected, prec):
+            if flt(expected or 0, prec) != flt(stored.get(field) or 0, prec):
+                mism.append(f"{field}: produced {expected!r} != stored {stored.get(field)!r}")
+
+        def _jsn(field, expected):
+            if not _json_eq(stored.get(field), expected):
+                mism.append(f"{field}: produced {expected!r} != stored {stored.get(field)!r}")
+
+        # --- COPIED scalars (transform(source)) ---
+        _t("code", d.get("sl_no_value"))
+        _exact("sort_order", d.get("row_index"))
+        _exact("source_row_number", d.get("source_row_number"))
+        _t("description", d.get("description") or d.get("sl_no_value") or "(untitled)")
+        _t("unit", d.get("unit"))
+        _t("make_model", d.get("make_model"))
+        _exact("node_type", node_type)
+        _t("row_class", cls)
+        _exact("is_rate_only", 1 if d.get("is_rate_only") else 0)
+        _exact("is_synthetic", 1 if d.get("is_synthetic") else 0)
+        _exact("human_is_root", 1 if d.get("human_is_root") else 0)
+        _t("human_classification", d.get("human_classification"))
+        hp = d.get("human_parent")
+        _exact("human_parent", hp if hp is not None else -1)  # -1 sentinel (N-2)
+        _t("notes", d.get("row_notes"))  # row_notes -> notes rename
+
+        # qty: Line-Item None -> 0; others carry source as-is (N-4). Float precision.
+        qty_expected = d.get("qty_total")
+        if node_type == "Line Item" and qty_expected is None:
+            qty_expected = 0
+        _num("qty", qty_expected, qty_prec)
+
+        # money: word-order reversal, Currency precision.
+        for nf in _NODE_MONEY_FIELDS:
+            _num(nf, d.get(_NODE_MONEY_SOURCE[nf]), money_prec[nf])
+
+        # JSON carried fields (empty {}/[]/None all normalize to absent).
+        _jsn("append_notes_raw", d.get("append_notes_raw"))
+        _jsn("attached_notes", d.get("attached_notes"))
+        _jsn("edit_log", d.get("edit_log"))
+
+        # --- DERIVED: parent_node = captured eff-parent map (NOT re-run resolve_effective) ---
+        expected_parent = name_by_idx.get(eff_parent_by_idx.get(idx))
+        _exact("parent_node", expected_parent)
+
+        # --- DERIVED: level = captured in-memory producer doc (thin tripwire) ---
+        produced_level = docs_by_idx[idx].level
+        if (produced_level or 0) != (stored.get("level") or 0):
+            mism.append(
+                f"level: produced {produced_level!r} != stored {stored.get('level')!r}"
+            )
+
+        # --- per-area children (deterministic explosion -> verify persisted faithfully) ---
+        expected_children = _explode_area_children(
+            d.get("qty_by_area"), d.get("rate_by_area"), d.get("amount_by_area")
+        )
+        stored_children = frappe.db.get_all(
+            "BOQ Node Qty By Area",
+            filters={"parent": name},
+            fields=["area_name", "qty", *_CHILD_MONEY_FIELDS],
+        )
+        if len(expected_children) != len(stored_children):
+            mism.append(
+                f"qty_by_area: produced {len(expected_children)} child(ren) != "
+                f"stored {len(stored_children)}"
+            )
+        else:
+            stored_by_area = {c["area_name"]: c for c in stored_children}
+            for ec in expected_children:
+                sc = stored_by_area.get(ec["area_name"])
+                if sc is None:
+                    mism.append(
+                        f"qty_by_area: produced area {ec['area_name']!r} missing in stored"
+                    )
+                    continue
+                if flt(ec.get("qty") or 0, child_qty_prec) != flt(sc.get("qty") or 0, child_qty_prec):
+                    mism.append(
+                        f"qty_by_area[{ec['area_name']}].qty: produced {ec.get('qty')!r} "
+                        f"!= stored {sc.get('qty')!r}"
+                    )
+                # FLAT-stays-flat: an absent kind in produced normalizes to 0 == stored 0.
+                for cf in _CHILD_MONEY_FIELDS:
+                    if flt(ec.get(cf) or 0, child_money_prec[cf]) != flt(sc.get(cf) or 0, child_money_prec[cf]):
+                        mism.append(
+                            f"qty_by_area[{ec['area_name']}].{cf}: produced {ec.get(cf)!r} "
+                            f"!= stored {sc.get(cf)!r}"
+                        )
+
+        if mism:
+            frappe.throw(
+                f"Commit reconciliation: sheet {sheet_name!r} row_index {idx} (node {name}) "
+                f"diverged from the produced values -- " + "; ".join(mism[:8]),
+                title="Commit reconciliation failed",
+            )
+
+
+def _reconcile_grid(sheet_name: str, grid_name: str, grid_rows: list) -> None:
+    """OUTPUT-FIDELITY check for the committed faithful grid: the persisted grid rows
+    must equal the extracted grid_rows (row_number + cells) in order. Raises on divergence."""
+    stored = frappe.db.get_all(
+        "BoQ Committed Sheet Grid Row",
+        filters={"parent": grid_name},
+        fields=["row_number", "row_order", "cells"],
+        order_by="row_order asc",
+    )
+    if len(stored) != len(grid_rows):
+        frappe.throw(
+            f"Commit reconciliation: sheet {sheet_name!r} grid produced {len(grid_rows)} "
+            f"row(s) but {len(stored)} were committed.",
+            title="Commit reconciliation failed",
+        )
+    stored_by_order = {s["row_order"]: s for s in stored}
+    for order, gr in enumerate(grid_rows):
+        s = stored_by_order.get(order)
+        if s is None:
+            frappe.throw(
+                f"Commit reconciliation: sheet {sheet_name!r} grid row_order {order} missing.",
+                title="Commit reconciliation failed",
+            )
+        if s["row_number"] != gr["row_number"]:
+            frappe.throw(
+                f"Commit reconciliation: sheet {sheet_name!r} grid row_order {order} "
+                f"row_number produced {gr['row_number']} != stored {s['row_number']}.",
+                title="Commit reconciliation failed",
+            )
+        if _json_norm(s["cells"]) != _json_norm(gr["cells"]):
+            frappe.throw(
+                f"Commit reconciliation: sheet {sheet_name!r} grid row {gr['row_number']} "
+                f"cells diverged from the extracted grid.",
+                title="Commit reconciliation failed",
+            )
