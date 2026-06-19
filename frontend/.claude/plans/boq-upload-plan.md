@@ -16,7 +16,39 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive Phase-4 close
+LATEST: Phase 4 Slice P4-1 (AI PASS) -- AI suggestion fields + resolve_effective three-layer chain
+(BACKEND, 2026-06-19, feat pending). **NOTE ON NUMBERING (collision flagged for owner):** this "Phase 4" is the
+ORIGINAL plan's **Phase 4 -- AI assist** (§8 / §13), NOT the historical "Phase 4 committed-model rebuild"
+(P4-1..P4-FINAL) whose entries appear below -- that earlier arc reused the same "Phase 4 / P4-1" labels. This is the
+FIRST slice of the AI pass and is on branch `feature/boq-phase-4`. **SCOPE = schema + the resolution wiring ONLY**
+(no AI service `boq_ai_assist.py`, no accept/reject endpoint, no `ai_in_progress` reader, no frontend -- all later
+slices). The AI pass analyses parser output and suggests corrections to classification / parent / level; suggestions
+are stored as ADDITIVE fields on `BoQ Review Row` and slot into the effective chain BETWEEN human and parser.
+**commit_pipeline.py needs ZERO changes** (it reads only `effective_classification` + `effective_parent_index` from
+`resolve_effective`, so extending that ONE function is the whole wiring change -- confirmed by the recon that
+`_commit_node_tree` reads exactly those two keys, opaquely).
+**WHAT WAS BUILT:** (1) `boq_review_row.json` +7 additive nullable read_only fields under a new
+`ai_suggestions_section` Section Break at the tail (after `flags_dismissed_at`): `ai_suggested_classification` (Data),
+`ai_classification_confidence` (Select High/Medium/Low), `ai_suggested_parent` (Int, -1 sentinel = no suggestion/root
+exactly like `parent_index`/`human_parent`), `ai_parent_confidence` (Select High/Medium/Low), `ai_suggested_level`
+(Int, derived-for-display, NOT read by resolve_effective), `ai_explanation` (Small Text), `ai_suggestion_status`
+(Select Pending/Accepted/Rejected). Written ONLY by the future AI service + accept/reject endpoint -- never the parser
+or human layer. (2) `boq_sheet_draft.json` +1 `ai_in_progress` (Check, default 0, read_only) appended at the tail,
+mirroring `parse_in_progress` exactly. (3) `resolve_effective` (review_screen.py) extended Human > Parser ->
+**Human > AI-accepted > Parser**: reads 3 more fields (5->8), returns 3 more keys (7->10, the raw ai_* echoed); the
+AI layer applies ONLY when `ai_suggestion_status == "Accepted"` (None/""/Pending/Rejected ignore it); `ai_suggested_parent`
+is -1/None-normalised so the -1 sentinel is NEVER treated as a root suggestion; the existing 7 return keys are
+byte-for-byte unchanged and the human layer always wins where present.
+**FILES CHANGED:** `boq_review_row.json`, `boq_sheet_draft.json`, `review_screen.py`, `test_review_screen.py` (feat);
+root `CLAUDE.md` + this plan (docs). **TESTS:** `test_review_screen` **158 -> 170** (+12, all green): new
+`TestResolveEffectiveAILayer` (12 AI-precedence tests) + the module `_minimal_row` and the `TestResolveEffective._row`
+helpers extended with the ai_* params (no-suggestion defaults, so existing callers are unaffected). `_ALL_LIST_JSON_FIELDS`
+unchanged (none of the ai_* fields are list-JSON). **`bench migrate` CLEAN** (all 8 columns install). No commit_pipeline.py /
+parse_run.py / frontend / other-doctype change. NEXT (later AI-pass slices): `boq_ai_assist.py` (Anthropic Claude API
+wrapper, §5.9 / §9), the AI-assist + accept/reject endpoints, the `ai_in_progress` lifecycle + `boq:ai_pass_done`
+socket on the review screen, and the frontend suggestion UI. Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice P4-FINAL -- retire `parent_boq` + purge dev fixtures -- the destructive Phase-4 close
 (BACKEND + DATA, 2026-06-16, feat pending). **COMPLETES PHASE 4** (the committed BoQ-model rebuild: P4-1 sheet
 tier -> P4-2 node re-point -> P4-3 mapping lock -> P4-4 missing fields -> P4-5 type reconciliation -> P4-6
 skip-filter verify -> CHECKPOINT pass -> P4-FINAL cleanup). Owner-authorized destructive slice on the local

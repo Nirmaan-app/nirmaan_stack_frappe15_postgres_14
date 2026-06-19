@@ -1,6 +1,43 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-18 (Slice F1 -- DURABLE PER-SHEET COMMIT-FAILURE PERSISTENCE -- BACKEND, feat
+**Last updated:** 2026-06-19 (Phase 4 Slice P4-1 -- AI SUGGESTION FIELDS + resolve_effective THREE-LAYER CHAIN
+-- BACKEND, feat pending. The first slice of the Phase-4 AI pass: the SCHEMA + the resolution wiring, NOTHING ELSE
+(no AI service, no accept/reject endpoint, no frontend -- those are later slices). Phase 4 adds an AI pass that
+analyses parser output and suggests corrections to classification / parent / level for rows the deterministic parser
+got wrong; the suggestions are stored as ADDITIVE fields on `BoQ Review Row` and slot into the effective-value chain
+BETWEEN the human and parser layers. **commit_pipeline.py needs ZERO changes** -- it reads only
+`effective_classification` + `effective_parent_index` from `resolve_effective`, so extending that ONE function is the
+entire wiring change. **(1) SCHEMA -- `boq_review_row.json`, +7 additive NULLABLE read_only fields (under a new
+`ai_suggestions_section` Section Break at the field_order tail after `flags_dismissed_at`; `bench migrate` CLEAN):**
+`ai_suggested_classification` (Data), `ai_classification_confidence` (Select `\nHigh\nMedium\nLow`),
+`ai_suggested_parent` (Int -- SAME -1 sentinel as `parent_index`/`human_parent`: -1 = no suggestion/root, >=0 = a
+real suggested parent), `ai_parent_confidence` (Select High/Medium/Low), `ai_suggested_level` (Int, derived-for-
+display, NOT read by resolve_effective), `ai_explanation` (Small Text), `ai_suggestion_status` (Select
+`\nPending\nAccepted\nRejected`). ALL 7: read_only=1, no reqd, no default, nullable. Written ONLY by the future AI
+service + accept/reject endpoint -- NEVER by the parser or human edit layer. NOT list-JSON, so
+`test_review_screen._ALL_LIST_JSON_FIELDS` is UNCHANGED. **(2) SCHEMA -- `boq_sheet_draft.json`, +1 field
+`ai_in_progress` (Check, default 0, read_only=1)** appended at the field_order tail, MIRRORING `parse_in_progress`
+exactly (the AI-pass in-flight flag for a later frontend slice; nothing reads it yet). **(3) `resolve_effective`
+(review_screen.py) extended Human > Parser -> Human > AI-accepted > Parser:** reads 3 MORE fields
+(`ai_suggestion_status`, `ai_suggested_classification`, `ai_suggested_parent`; 5 -> 8 via the same `_get` helper) and
+returns 3 MORE keys (the same three raw values echoed for the frontend; 7 -> 10). The AI layer applies ONLY when
+`ai_suggestion_status == "Accepted"`; None/""/Pending/Rejected ignore the ai_suggested_* fields entirely.
+**CLASSIFICATION:** human_classification (non-empty) -> AI-accepted+suggested -> classification.
+**PARENT:** human_is_root -> None; else human_parent>=0 -> human; else AI-accepted + ai_suggested_parent>=0 (norm
+via the -1/None sentinel, so -1 = no suggestion, NEVER root) -> AI; else parent_index_norm. **The existing 7 return
+keys are BYTE-FOR-BYTE UNCHANGED and the human layer ALWAYS wins where present -- no existing human-override path is
+weakened** (proven: all 158 prior tests pass unchanged). NO signature change. **TESTS:** `test_review_screen`
+**158 -> 170** (+12, all green): NEW `TestResolveEffectiveAILayer` (pure-Python, after `TestResolveEffective`,
+shares an extended local `_row()` carrying human_is_root + the 3 ai_* params) -- AI-accepted classification/parent
+used when no human override (AI_1/AI_5); human classification / human_parent / human_is_root each BEAT an accepted AI
+suggestion (AI_2/AI_6/AI_7); Pending + Rejected ignored for both axes (AI_3/AI_4/AI_8); the -1 sentinel is NOT
+applied as a suggestion (AI_9); the 3 ai_* keys are present in the returned dict (AI_10); a row with no ai_* fields
+still resolves to the parser layer (AI_11); AI-accepted both axes at once (AI_12). The module-level `_minimal_row`
+helper gained the 7 ai_* fields with no-suggestion defaults (ai_suggested_parent/level=-1, rest None/None status), so
+every existing DB-test caller is unaffected. NO change to commit_pipeline.py / parse_run.py / any frontend / any
+other doctype. Pure-backend -> root CLAUDE.md + boq-upload-plan.md substantive; frontend/CLAUDE.md deliberately NOT
+touched (backend-only slice, no frontend change). Full detail in boq-upload-plan.md "Phase 4 Slice P4-1".)
+// prior: 2026-06-18 (Slice F1 -- DURABLE PER-SHEET COMMIT-FAILURE PERSISTENCE -- BACKEND, feat
 5c095b34. The backend half of the "needs attention" F-arc (F2/F3/F4 = the frontend, NOT this slice). Before F1,
 `commit_boq`'s per-sheet failure handler built an in-memory `failed[]`, `frappe.log_error`'d the traceback, and
 returned the envelope -- but PERSISTED NOTHING per-sheet, so once the HTTP response was gone a hub card had nothing
