@@ -16,7 +16,37 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-2a (AI auto-mapping) -- BOQ Upload Review AI Settings doctype + reader helpers
+LATEST: Phase 4 Slice AI-2b (AI auto-mapping) -- Anthropic ai-assist service (structure suggestions)
+(BACKEND, 2026-06-19, feat pending). The SERVICE LOGIC ONLY of the AI pass: review rows -> Claude -> parsed
+structural suggestions (classification / parent), mapped back to internal row_index. **NO endpoint / worker /
+in-progress flag / socket (those are AI-2c) and NO frontend (AI-3)** -- the service is callable + unit-testable in
+isolation with a MOCKED Anthropic client. **DEPENDENCY:** added `anthropic>=0.111.0,<1.0` to `pyproject.toml` and
+installed it -- resolved **anthropic 0.111.0** (pulls httpx/anyio/jiter/h11/sniffio/httpcore/docstring-parser; no
+anthropic-related `pip check` conflict -- the only note is the pre-existing google-auth one, unrelated). **NEW
+`nirmaan_stack/services/boq_ai_assist.py`** mirrors `services/extraction/gemini.py`'s retry/backoff/transient pattern
+but calls the Anthropic SDK. **STATELESS:** `settings` (dict) + `api_key` (str) are INJECTED by the caller (AI-2c
+worker, via the AI-2a helpers) -- the service never reads them itself. **Terminal failure RAISES `_NonRetryable`
+(NOT `frappe.throw`)** -- it runs in a worker, which turns the raise into a socket error event. Public functions:
+`run_ai_pass(sheet_name, review_rows, settings, api_key) -> list` (build payload + format prompt +
+`anthropic.Anthropic` + `client.messages.create` + retry loop + `_safe_text` + parse), `build_rows_payload` (rows ->
+`(json_str, idx_map)`; per-row excel_row/classification/level/parent_excel_row[parent's excel row, None root]/sl_no/
+description/unit; effective_* with raw fallback; ALL rows; idx_map = excel_row -> internal row_index),
+`parse_ai_response(text, idx_map)` (strip ```json fences; output keyed by internal row_index; parent translation
+**NO_CHANGE -> None / null -> -1 root / excel_row -> idx_map**, unknown excel_row drops the parent, unknown-row
+element skipped, invalid classification dropped keeping parent; `ai_suggested_level` left to the caller). The
+VALIDATED prompt (`BoQ_Phase4_AI_Pass_Prompt_v1_1`) is embedded VERBATIM as `_AI_PASS_PROMPT_TEMPLATE` (filled via
+`str.replace`, not `.format`, due to literal JSON braces). Constants mirror gemini (`_MAX_RETRIES=2`,
+`_BACKOFF_SECONDS=1.5`, `_TRANSIENT_MARKERS` incl. **529** = Anthropic overloaded; `_NonRetryable`). **Token logging**
+via `frappe.logger("boq_ai").info` (tokens + model + sheet; never the prompt or key). **CACHING DEFERRED to AI-2c**
+(the worker holds the sheet-draft + last_parsed_at context; the service is stateless). **FILES:** `pyproject.toml`,
+`services/boq_ai_assist.py`, `services/test_boq_ai_assist.py` (feat); root `CLAUDE.md` + this plan (docs). **TESTS:**
+NEW `test_boq_ai_assist` **11/11 OK**, Anthropic MOCKED (no live call). **NEXT = AI-2c** (whitelisted endpoint +
+`queue="long"` worker mirroring `run_parse`/`_run_parse_worker`/`_publish_parse_event`: `ai_in_progress` flag,
+user-targeted `boq:ai_pass_done` socket + Redis fallback, per-sheet caching, `ai_*` write-back via the
+`frappe.db.set_value` scalar bypass, `ai_suggested_level` derivation); the **live end-to-end Anthropic API cert
+happens after AI-2c** (the key is already set in Desk). Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-2a (AI auto-mapping) -- BOQ Upload Review AI Settings doctype + reader helpers
 (BACKEND, 2026-06-19, feat pending). The settings home for the AI pass's Anthropic API key; **UNBLOCKS AI-2** (the
 service `boq_ai_assist.py` + endpoints will read the key + config via these helpers). **The API key is entered
 MANUALLY via the Frappe UI (Desk) after this merges -- NO key value appears in any code, test, or doc.** Mirrors the

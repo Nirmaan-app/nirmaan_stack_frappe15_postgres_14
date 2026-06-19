@@ -1,6 +1,45 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-2a -- BOQ UPLOAD REVIEW AI SETTINGS DOCTYPE + READER HELPERS --
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-2b -- ANTHROPIC AI-ASSIST SERVICE (structure suggestions) --
+BACKEND, feat pending. The SERVICE LOGIC ONLY of the AI pass: review rows -> Claude -> parsed structural
+suggestions. **NO endpoint / worker / in-progress flag / socket (AI-2c) and NO frontend (AI-3)** -- the service is
+callable + unit-testable in isolation with a MOCKED Anthropic client. **(1) DEPENDENCY:** added `anthropic>=0.111.0,<1.0`
+to `pyproject.toml` (floor pinned to the resolved version so an older client API can't be selected; capped <1.0)
+and installed into the bench env -- **resolved `anthropic 0.111.0`** (pulled httpx/anyio/jiter/h11/sniffio/httpcore/
+docstring-parser; `pip check` shows NO anthropic-related conflict -- the only note is the PRE-EXISTING google-auth
+one, unrelated; anthropic does not depend on google-auth). **(2) NEW `nirmaan_stack/services/boq_ai_assist.py`** --
+mirrors `services/extraction/gemini.py`'s retry/backoff/transient pattern but calls the Anthropic SDK. **STATELESS BY
+DESIGN:** `settings` (dict) + `api_key` (str) are INJECTED by the caller (the future AI-2c worker, via the AI-2a
+helpers); the service NEVER reads `get_boq_ai_settings`/`get_boq_ai_api_key` itself (keeps it unit-testable).
+**KEY DIFFERENCE from gemini:** terminal failure RAISES `_NonRetryable` (NOT `frappe.throw`) -- it runs in a worker,
+which converts the raise into a socket error event. Components: module constants `_MAX_RETRIES=2`/`_BACKOFF_SECONDS=1.5`/
+`_TRANSIENT_MARKERS` (OVERLOADED/RATE_LIMIT/429/500/502/503/**529**[Anthropic overloaded]/TIMEOUT/CONNECTION) +
+`class _NonRetryable`; the VALIDATED prompt `_AI_PASS_PROMPT_TEMPLATE` embedded VERBATIM (BoQ_Phase4_AI_Pass_Prompt_v1_1,
+validated vs 5 real sheets; filled via `str.replace` not `.format` because the body has literal JSON braces; slots
+`{SHEET_NAME}`/`{ROWS_JSON}`); `build_rows_payload(review_rows) -> (json_str, idx_map)` (per-row excel_row=
+source_row_number / classification / level / parent_excel_row [parent's source_row_number, None for root, translated
+from the effective internal parent_index] / sl_no / description / unit; uses effective_* with raw fallback; ALL rows,
+no cap; idx_map = excel_row -> internal row_index); `parse_ai_response(text, idx_map) -> list` (strips ```json fences;
+keys output by INTERNAL row_index; parent translation **"NO_CHANGE" -> None / null -> -1 (root) / excel_row ->
+idx_map row_index, unknown excel_row -> DROP parent + warn**; element with unknown excel_row SKIPPED entirely; invalid
+classification [not in line_item/preamble/note/spacer] DROPPED, parent kept; `ai_suggested_level` deliberately NOT
+computed here -- derived by the caller at write-back); `run_ai_pass(sheet_name, review_rows, settings, api_key) ->
+list` (builds payload + prompt, `anthropic.Anthropic(api_key=...)`, `client.messages.create(model, max_tokens,
+messages, timeout)`, retry loop `range(1,_MAX_RETRIES+2)`; `_safe_text` concatenates text blocks + raises
+`_NonRetryable` on empty/non-end_turn stop_reason; `_is_transient` mirrors gemini). **TOKEN LOGGING:** a single
+informational line via `frappe.logger("boq_ai").info(...)` (input/output tokens + model + sheet -- NOT the Error Log,
+never logs the prompt or the key). **CACHING DEFERRED to AI-2c** (the worker holds the sheet-draft + last_parsed_at
+context; the service is stateless -- noted in-code). **TESTS:** NEW `services/test_boq_ai_assist.py` **11/11 OK**,
+Anthropic client MOCKED, NO live API call (payload shape + parent-is-excel-row; idx_map; parent translation
+excel/null/NO_CHANGE; code-fence strip; unknown-excel-row drop; invalid-classification drop keeps parent;
+run_ai_pass success via mocked client; retry-on-transient-then-succeed [time.sleep patched]; _NonRetryable on empty
+response). NO endpoint/worker/socket/frontend (AI-2c). Pure-backend -> root CLAUDE.md + boq-upload-plan.md
+substantive; frontend/CLAUDE.md deliberately NOT touched. **NEXT = AI-2c** (the whitelisted endpoint + `queue="long"`
+background worker mirroring `run_parse`/`_run_parse_worker`/`_publish_parse_event` with an `ai_in_progress` flag +
+a user-targeted `boq:ai_pass_done` socket + Redis fallback + the per-sheet caching + the `ai_*` write-back via the
+`frappe.db.set_value` scalar bypass + the `ai_suggested_level` derivation); the live end-to-end API cert happens
+AFTER AI-2c (the key is already set in Desk). Full detail in boq-upload-plan.md "Phase 4 Slice AI-2b".)
+// prior: 2026-06-19 (Phase 4 Slice AI-2a -- BOQ UPLOAD REVIEW AI SETTINGS DOCTYPE + READER HELPERS --
 BACKEND, feat pending. The settings home for the AI pass's Anthropic API key, MIRRORING the existing
 `Document AI Settings` pattern exactly (recon-confirmed). Unblocks AI-2 (the AI service `boq_ai_assist.py`), which
 will read the key + config via these helpers. **NO API KEY IN CODE/TESTS/DOCS** -- the key is entered MANUALLY via the
