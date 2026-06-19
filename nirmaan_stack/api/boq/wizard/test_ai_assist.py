@@ -20,6 +20,7 @@ Anthropic API call is made anywhere in this suite.
   T12 classification-only suggestion leaves ai_suggested_parent at the -1 default
   T13 ROOT suggestion interim: parent dropped to -1, classification preserved (gap)
 """
+import json
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -597,3 +598,54 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
         eff = resolve_effective(stored)
         self.assertEqual(eff["effective_classification"], "preamble",
                          "the accepted classification (now in human_classification) is effective")
+
+    # -- AI-3c-1: edit_log from-value must be the TRUE pre-accept effective value -----
+
+    def _edit_log(self, ridx):
+        raw = frappe.db.get_value("BoQ Review Row", self.names[ridx], "edit_log")
+        if isinstance(raw, str):
+            return json.loads(raw) if raw else []
+        return raw or []
+
+    def test_C1_accept_parent_from_is_pre_accept_root_not_ai_value(self):
+        # Row 2 is a line_item ROOT (parent_index=-1 -> effective root). Accepting an AI
+        # parent=0 must log from = None (root), to = 0 -- the premature-flip bug logged "0 -> 0".
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_parent=0)
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_parent=True)
+        entries = [e for e in self._edit_log(2) if e["field"] == "human_parent"]
+        self.assertEqual(len(entries), 1, "exactly one human_parent entry")
+        self.assertIsNone(entries[0]["from"],
+                          "from must be the TRUE pre-accept effective parent (root), NOT the AI value")
+        self.assertEqual(entries[0]["to"], 0)
+
+    def test_C2_accept_classification_from_is_prior_effective_not_ai_value(self):
+        # Row 2 is a line_item. Accepting AI 'preamble' must log from='line_item', to='preamble'
+        # -- the premature-flip bug logged "preamble -> preamble" (a no-op).
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_classification=True)
+        entries = [e for e in self._edit_log(2) if e["field"] == "human_classification"]
+        self.assertEqual(len(entries), 1, "exactly one human_classification entry")
+        self.assertEqual(entries[0]["from"], "line_item",
+                         "from must be the prior effective class, NOT the AI class")
+        self.assertEqual(entries[0]["to"], "preamble")
+
+    def test_C3_flip_still_happens_after_capture(self):
+        # The flip is DEFERRED but MUST still happen: status Accepted + effective values
+        # correct + persisted (not just in-memory). Also proves the deferred from-values.
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="note", ai_suggested_parent=0)
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_classification=True, accept_parent=True)
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        self.assertEqual(res["effective_classification"], "note")
+        self.assertEqual(res["effective_parent_index"], 0)
+        r = self._row(2)
+        self.assertEqual(r["ai_suggestion_status"], "Accepted",
+                         "the flip is persisted via set_value in the same commit")
+        cls_entries = [e for e in self._edit_log(2) if e["field"] == "human_classification"]
+        par_entries = [e for e in self._edit_log(2) if e["field"] == "human_parent"]
+        self.assertEqual(cls_entries[0]["from"], "line_item")
+        self.assertIsNone(par_entries[0]["from"])

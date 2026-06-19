@@ -1602,15 +1602,12 @@ def save_review_restructure(
         "name",
     )
     target_doc = frappe.get_doc("BoQ Review Row", target_name)
-    # AI-3b-2: when accepting an AI suggestion for a row WITH children (routed here from
-    # the panel via the children-only modal), flip ai_suggestion_status -> "Accepted" on
-    # the SAME doc BEFORE the first helper save, so human_* + the status flip land in the
-    # ONE commit below (atomic, mirrors the AI-3b-1 accept endpoint). CANCEL-SAFE BY
-    # CONSTRUCTION: this endpoint is reached ONLY via the modal's Save -- a cancelled /
-    # Esc'd / overlay-dismissed modal never calls it, so status stays Pending. The flag
-    # is opt-in: when omitted (every existing caller), ai_suggestion_status is untouched.
-    if mark_ai_accepted:
-        target_doc.ai_suggestion_status = "Accepted"
+    # AI-3b-2 / AI-3c-1: the mark_ai_accepted status flip is DEFERRED to after the human
+    # writes (capture-then-flip; see the flip block before the commit below). Flipping it
+    # here -- before the classification + parent helpers -- made resolve_effective (which the
+    # helper reads for the edit_log from-value) honor the AI layer and return the AI value the
+    # helper was about to write, logging a no-op (from == to). The flag stays opt-in + cancel-
+    # safe: this endpoint is reached ONLY via the modal's Save.
     _apply_and_save_row_edit(
         target_doc, boq_name, sheet_name,
         "human_classification", new_classification,
@@ -1669,6 +1666,18 @@ def save_review_restructure(
                 reason=child_reason, user=user,
             )
         children_moved.append(child_idx)
+
+    # AI-3b-2 / AI-3c-1 capture-then-flip: now that the classification + parent helpers above
+    # captured their from-values with the AI layer dormant, flip the status. set_value runs IN
+    # this request transaction, so the single commit below keeps human_* + the flip ATOMIC (no
+    # second independent commit). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
+    # ai_suggestion_status untouched.
+    if mark_ai_accepted:
+        target_doc.ai_suggestion_status = "Accepted"
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name, "ai_suggestion_status", "Accepted",
+            update_modified=False,
+        )
 
     frappe.db.commit()
 

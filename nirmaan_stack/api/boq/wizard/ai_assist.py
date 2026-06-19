@@ -469,10 +469,12 @@ def accept_ai_suggestion(
             title="Restructure required",
         )
 
-    # Flip the status on the in-memory doc BEFORE the helper's doc.save() so the human
-    # write + the status flip land in ONE transaction (the caller commits once below).
-    doc.ai_suggestion_status = "Accepted"
-
+    # AI-3c-1: the status flip is deferred to AFTER the human writes (capture-then-flip).
+    # _apply_and_save_row_edit reads the edit_log from-value via resolve_effective, which
+    # honors the AI layer the moment ai_suggestion_status == "Accepted". Flipping it here
+    # (before the helpers) made resolve_effective return the AI value the helper was about
+    # to write -> from == to -> a no-op edit_log entry. The flip now happens below, before
+    # the single commit, so each helper captures the TRUE pre-accept effective from-value.
     edited_at = None
     if accept_classification:
         ai_cls = doc.ai_suggested_classification
@@ -518,6 +520,16 @@ def accept_ai_suggestion(
                 reason="AI parent suggestion accepted",
             )
         edited_at = doc.edited_at
+
+    # AI-3c-1 capture-then-flip: now that every helper above captured its from-value with
+    # the AI layer dormant, flip the status. set_value runs IN this request transaction, so
+    # the commit below makes the human_* writes (helper doc.save) + this flip ATOMIC -- no
+    # second independent commit. The in-memory attr is also set so the returned
+    # resolve_effective / ai_suggestion_status reflect the Accepted state.
+    doc.ai_suggestion_status = "Accepted"
+    frappe.db.set_value(
+        _REVIEW_ROW, doc.name, "ai_suggestion_status", "Accepted", update_modified=False
+    )
 
     frappe.db.commit()
 

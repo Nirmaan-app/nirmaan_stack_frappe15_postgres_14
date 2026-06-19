@@ -3042,6 +3042,86 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertNotEqual(status, "Accepted",
                             "a plain restructure must NOT flip the status (opt-in flag only)")
 
+    # -- AI-3c-1: edit_log from-value must be the TRUE pre-accept effective value -----
+    # The live bug: mark_ai_accepted flipped the status BEFORE the helpers captured their
+    # from-values, so resolve_effective (which the helper reads for the from-value) returned
+    # the AI value the helper was about to write -> from == to (the user's "26 -> 26"). These
+    # seed ai_suggested_* == the values applied (the real flow: row_new_parent = presetRowParent
+    # = ai_suggested_parent), so they ONLY pass once the flip is deferred to after capture.
+
+    def _seed(self, row_index, **fields):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        frappe.db.set_value("BoQ Review Row", name, fields)
+        frappe.db.commit()
+
+    def test_R_fix1_parent_from_is_pre_accept_root_not_ai_value(self):
+        """R-fix1: row 1 made a PARSER root (parent_index=-1) with children; AI suggests
+        parent=4. The human_parent entry must log from = None (root), to = 4 -- the user's
+        expected 'root -> 4', NOT '4 -> 4'."""
+        self._seed(1, parent_index=-1, ai_suggestion_status="Pending", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",  # no-op class (row 1 is preamble)
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_parent, 4, "the AI parent is applied (write is correct)")
+        entries = [e for e in self._as_list(r1.edit_log) if e["field"] == "human_parent"]
+        self.assertEqual(len(entries), 1, "exactly one human_parent entry")
+        self.assertIsNone(entries[0]["from"],
+                          "from must be the TRUE pre-accept effective parent (root), NOT the AI value")
+        self.assertEqual(entries[0]["to"], 4)
+
+    def test_R_fix2_class_from_is_prior_effective_not_ai_value(self):
+        """R-fix2 (accept-both): AI suggests class 'note' + parent 4. The
+        human_classification entry must log from = 'preamble' (row 1's prior effective
+        class), to = 'note' -- NOT 'note -> note'."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",  # real class change
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        entries = [e for e in self._as_list(r1.edit_log) if e["field"] == "human_classification"]
+        self.assertEqual(len(entries), 1, "exactly one human_classification entry")
+        self.assertEqual(entries[0]["from"], "preamble",
+                         "from must be the prior effective class, NOT the AI class")
+        self.assertEqual(entries[0]["to"], "note")
+
+    def test_R_fix3_flip_still_happens_after_capture(self):
+        """R-fix3: the flip is DEFERRED but MUST still happen -- status Accepted + the human
+        writes + effective values all correct (capture-then-flip preserves the outcome)."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note")
+        self.assertEqual(r1.human_parent, 4)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted",
+                         "the flip is persisted via set_value in the same commit")
+        eff = resolve_effective(r1)
+        self.assertEqual(eff["effective_classification"], "note")
+        self.assertEqual(eff["effective_parent_index"], 4)
+
 
 # ===========================================================================
 # Group 12: Finalized read-only freeze (Slice D1)
