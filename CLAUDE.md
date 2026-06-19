@@ -1,6 +1,46 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-3 -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) --
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-2a -- ROW-LEVEL REVERT OF AN AI ACCEPTANCE -- BACKEND, feat
+pending. Adds the ability to UNDO an AI acceptance at the row level: restore the row (and any children the accept
+moved) to their EXACT pre-accept state, re-offer the suggestion (status -> Pending), and append honest "reverted"
+edit_log entries. The Revert BUTTON is AI-3c-2b (frontend, next) -- so frontend/CLAUDE.md is intentionally NOT touched
+this slice. **THE FIRST MIGRATE SINCE AI-2d** (AI-3a..AI-3c-3 were all field-free). **(1) SCHEMA (`boq_review_row.json`,
++2 additive read_only fields at the tail of `ai_suggestions_section`; `bench migrate` CLEAN, both columns verified via
+information_schema + has_column + meta):** `ai_accept_snapshot` (JSON -- the per-row pre-accept blob `{"row":{hc,hp,hr},
+"children":[{idx,hp,hr},...]}`); `ai_snapshot_owner` (Int, **default "-1"** -- the back-pointer from a moved child to
+the accepted owner row's row_index). **THE -1 DEFAULT IS LOAD-BEARING:** an empirical probe proved Frappe coerces an
+UNSET Int to **0**, which would collide with `row_index 0`; the explicit -1 default + a `>= 0` guard (NOT truthiness)
+make "not a snapshotted child" unambiguous. **(2) CAPTURE -- written LAST in each accept transaction (the SELF-CLEAR
+TRAP):** both accept paths write human_* via `_apply_and_save_row_edit`, whose chokepoint (Step 4) CLEARS the snapshot
+on every human edit -- so the snapshot is built BEFORE the helper calls but PERSISTED in each path's flip block AFTER
+them (so the accept can't wipe its own snapshot; V1/W1 assert it SURVIVES). `accept_ai_suggestion` (childless path):
+captures the row's pre-state, children=[]. `save_review_restructure` (mark_ai_accepted=True ONLY -- a MANUAL
+restructure writes NOTHING, W5): captures the row + each moved child's pre-move human_parent/human_is_root from the
+pre-write `rows_by_idx`, and stamps each moved child's `ai_snapshot_owner = row_index`. **(3) REVERT ENDPOINT
+`revert_ai_acceptance(boq_name, sheet_name, row_index)`** (whitelisted POST, guards _not_frozen + _not_parsing): reads
+the snapshot (throws "nothing to revert" if absent), restores via `_apply_and_save_row_edit` -- the row's
+human_classification + human_parent and each child's human_parent -- each axis ONLY when it actually CHANGED (so a
+parent-only accept appends no spurious classification entry; **delta from the spec's "restore both unconditionally" --
+restore-if-changed avoids no-op edit_log noise while still appending a genuine reverted entry for every real change**).
+Capture-then-flip IN REVERSE: restores run while status is still "Accepted" (so the helper's from-value reads the
+accepted effective value), THEN status flips to "Pending" + the snapshot clears + each child's back-pointer resets to
+-1, all in ONE commit. Returns `{ok, row_index, ai_suggestion_status:"Pending", reverted_children:[...]}`. **(4)
+INVALIDATION (rule c-ii):** the `_apply_and_save_row_edit` chokepoint (the existing flags_dismissed clear site) now ALSO,
+on a `human_classification`/`human_parent` edit, clears THIS row's snapshot AND -- if the row is a moved child
+(`ai_snapshot_owner >= 0`) -- clears the OWNER row's snapshot (back-pointer, NOT a sheet-walk: W4 proves a sibling edit
+does NOT clear) and resets the child's back-pointer. `mark_sheet_parsed_check_done` finalize bulk-clears every snapshot
++ back-pointer on the sheet via one filtered set_value before its existing commit. **(5) READ FLAG:** `get_review_rows`
+fetches `ai_accept_snapshot` ONLY to compute `d["revert_available"] = bool(...)`, then DROPS the raw blob from the
+payload (the internal pre-state never reaches the client). **TESTS:** `test_ai_assist` 29 -> **33** (+4: V1 accept ->
+snapshot survives the chokepoint + revert_available true; V2 revert restores parent + Pending + appends a reverted
+entry [accept entry stays]; V3 no-snapshot throws; V4 a later human edit invalidates). `test_review_screen` 185 ->
+**192** (+7: W1 restructure-accept captures row+children + back-pointers; W2 revert restores row+ALL children + clears
+owners; W3 moved-child edit clears the OWNER snapshot; W4 sibling edit does NOT [back-pointer precision]; W5 manual
+restructure writes no snapshot; W6 finalize bulk-clears; W7 post-revert = non-empty edit_log + Pending [renders
+"Edited" + re-offered]). All prior accept/reject (T*/R*/G*/C*) green; existing get_review_rows + save_review_edit
+suites green (backwards-compat). **NEXT = AI-3c-2b** (the Revert BUTTON: read `revert_available`, call
+`revert_ai_acceptance`, refresh), then the boq_ai.log token-logging fix. Full backend detail in boq-upload-plan.md.)
+// prior: 2026-06-20 (Phase 4 Slice AI-3c-3 -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children) --
 BACKEND + FRONTEND, feat pending. Closes a SILENT BROKEN-TREE hole the recon pinned: the AI-accept routing opened the
 child-disposition RestructureModal ONLY when a PARENT change was accepted on a with-children row (`handleApplyAi`
 gated on `aiAcceptParent && hasChildrenSet.has(row_index)`). A CLASSIFICATION-only accept on a with-children row (e.g.

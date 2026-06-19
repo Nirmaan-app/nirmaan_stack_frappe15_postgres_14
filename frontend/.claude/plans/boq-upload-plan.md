@@ -16,7 +16,37 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3c-3 (AI auto-mapping) -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children)
+LATEST: Phase 4 Slice AI-3c-2a (AI auto-mapping) -- ROW-LEVEL REVERT OF AN AI ACCEPTANCE (BACKEND, 2026-06-20,
+feat pending). UNDO an AI acceptance at the row level: restore the row + any children the accept moved to their EXACT
+pre-accept state, re-offer the suggestion (ai_suggestion_status -> Pending), append honest "reverted" edit_log entries.
+The Revert BUTTON is AI-3c-2b (frontend, next) -> frontend/CLAUDE.md intentionally NOT touched this slice. THE FIRST
+MIGRATE SINCE AI-2d (AI-3a..AI-3c-3 were field-free). SCHEMA (`boq_review_row.json`, +2 read_only fields, migrate CLEAN,
+columns verified via information_schema + has_column + meta): `ai_accept_snapshot` (JSON pre-accept blob
+`{"row":{hc,hp,hr},"children":[{idx,hp,hr},...]}`) + `ai_snapshot_owner` (Int, default "-1", the moved-child ->
+owner-row back-pointer). THE -1 DEFAULT IS LOAD-BEARING: an empirical probe proved Frappe coerces an UNSET Int to 0
+(would collide with row_index 0), so -1 + a `>= 0` guard make "not a snapshotted child" unambiguous. CAPTURE written
+LAST in each accept txn (the SELF-CLEAR TRAP -- the chokepoint clears the snapshot on every human edit, so it is built
+before the helper calls but persisted in the flip block after them; V1/W1 assert survival): `accept_ai_suggestion`
+(childless, children=[]); `save_review_restructure` (mark_ai_accepted=True ONLY -- a MANUAL restructure writes nothing,
+W5 -- captures row + each moved child's pre-move parent + stamps each child's `ai_snapshot_owner = row_index`). REVERT
+ENDPOINT `revert_ai_acceptance(boq_name, sheet_name, row_index)` (whitelisted POST, guards _not_frozen + _not_parsing,
+throws "nothing to revert" when absent): restores the row's human_classification + parent + each child's parent via
+`_apply_and_save_row_edit`, each axis ONLY when it actually CHANGED (a delta from the spec's "restore both
+unconditionally" -- restore-if-changed avoids no-op edit_log noise, still appends a genuine reverted entry per real
+change); capture-then-flip IN REVERSE (restore while status is still Accepted, THEN flip to Pending + clear snapshot +
+reset back-pointers, ONE commit). INVALIDATION (rule c-ii): the `_apply_and_save_row_edit` chokepoint (the
+flags_dismissed clear site) now clears THIS row's snapshot on a human_classification/human_parent edit AND, if the row
+is a moved child (`ai_snapshot_owner >= 0`), clears the OWNER's snapshot via the back-pointer (NOT a sheet-walk -- W4
+proves a sibling edit does NOT clear); finalize (`mark_sheet_parsed_check_done`) bulk-clears every snapshot +
+back-pointer on the sheet before its existing commit. READ FLAG: `get_review_rows` fetches `ai_accept_snapshot` ONLY to
+compute `revert_available = bool(...)` and DROPS the raw blob (pre-state never ships to the client). TESTS:
+test_ai_assist 29 -> 33 (V1 snapshot survives accept + revert_available; V2 revert restores parent + Pending + appends
+reverted entry; V3 no-snapshot throws; V4 later edit invalidates); test_review_screen 185 -> 192 (W1 captures
+row+children+back-pointers; W2 revert restores row+ALL children + clears owners; W3 moved-child edit clears owner; W4
+sibling edit does NOT; W5 manual restructure no snapshot; W6 finalize bulk-clears; W7 post-revert non-empty edit_log +
+Pending). All prior accept/reject (T*/R*/G*/C*) + get_review_rows + save_review_edit suites green (backwards-compat).
+**NEXT = AI-3c-2b (the Revert BUTTON), then the boq_ai.log token-logging fix.** Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice AI-3c-3 (AI auto-mapping) -- AI CLASSIFICATION-ACCEPT MODAL PARITY (with-children)
 (BACKEND + FRONTEND, 2026-06-20, feat pending). Closes a SILENT BROKEN-TREE hole: the AI-accept routing opened the
 child-disposition RestructureModal ONLY when a PARENT change was accepted on a with-children row (`handleApplyAi` gated
 on `aiAcceptParent && hasChildrenSet.has(row_index)`). A CLASSIFICATION-only accept on a with-children row (e.g.
