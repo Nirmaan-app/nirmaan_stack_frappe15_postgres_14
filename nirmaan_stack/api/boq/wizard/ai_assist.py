@@ -45,7 +45,12 @@ from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
     get_boq_ai_settings,
 )
-from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    _apply_and_save_row_edit,
+    _guard_sheet_not_frozen,
+    resolve_effective,
+)
+from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
 from nirmaan_stack.services import boq_ai_assist
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
@@ -352,6 +357,230 @@ def get_ai_pass_status(boq_name: str = None, sheet_name: str = None) -> dict:
         "status": "idle_or_unknown",
         "ai_in_progress": _get_ai_in_progress(boq_name, sheet_name),
     }
+
+
+# ---------------------------------------------------------------------------
+# Accept / reject (AI-3b-1: NON-MODAL paths -- classification + childless parent)
+# ---------------------------------------------------------------------------
+
+def _coerce_bool(v: Any) -> bool:
+    """Coerce an HTTP form value ('1'/'true'/'yes') or a real bool to bool."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "yes")
+    return bool(v)
+
+
+def _row_has_children(boq_name: str, sheet_name: str, row_index: int) -> bool:
+    """True iff any OTHER row in the sheet has this row as its EFFECTIVE parent.
+
+    Mirrors ReviewTree's hasChildrenSet (effective_parent_index walk) on the backend.
+    Uses resolve_effective so an already-Accepted AI parent on another row counts as a
+    real child (a Pending suggestion does NOT change effective_parent_index, so it
+    correctly does not). sheet_name VERBATIM (#152)."""
+    sheet_rows = frappe.db.get_all(
+        _REVIEW_ROW,
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=[
+            "row_index", "classification", "human_classification",
+            "parent_index", "human_parent", "human_is_root",
+            "ai_suggestion_status", "ai_suggested_classification",
+            "ai_suggested_parent", "ai_suggested_is_root",
+        ],
+    )
+    for r in sheet_rows:
+        if int(r.row_index) == row_index:
+            continue
+        if resolve_effective(r).get("effective_parent_index") == row_index:
+            return True
+    return False
+
+
+@frappe.whitelist(methods=["POST"])
+def accept_ai_suggestion(
+    boq_name: str = None,
+    sheet_name: str = None,
+    row_index=None,
+    accept_classification=False,
+    accept_parent=False,
+) -> dict:
+    """Accept an AI suggestion (NON-MODAL scope: classification and/or a CHILDLESS-row
+    parent). Writes the HUMAN layer to the AI values (via the shared
+    _apply_and_save_row_edit chokepoint -- the same human-write + provenance path
+    save_review_edit uses) AND flips ai_suggestion_status="Accepted" in the SAME
+    save/commit, so the row ends with human_* set AND status Accepted (the frontend
+    then renders "AI Accepted" and the badge clears).
+
+    SCOPE GUARD (AI-3b-1): accepting a PARENT change is allowed ONLY when the row has no
+    children -- a row-with-children parent change must go through the RestructureModal
+    (AI-3b-2). A childless row has no descendants, so making it a child of any row cannot
+    create a cycle; that is why the cycle-guard save_review_edit runs is unnecessary here.
+
+    accept_classification / accept_parent are booleans (HTTP "1"/"true"/"yes" coerced);
+    at least one must be true. sheet_name VERBATIM (#152).
+
+    Returns {ok, row_index, ai_suggestion_status, edited_at, effective_classification,
+    effective_parent_index}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.accept_ai_suggestion
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    accept_classification = _coerce_bool(accept_classification)
+    accept_parent = _coerce_bool(accept_parent)
+    if not (accept_classification or accept_parent):
+        frappe.throw(
+            "Nothing to accept -- enable at least one of classification or parent.",
+            title="Nothing to accept",
+        )
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # An accept WRITES the human layer -> respect the same read-only backstops as
+    # save_review_edit (a Finalized sheet, or one whose parse is in flight).
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    row_name = frappe.db.get_value(
+        _REVIEW_ROW,
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    doc = frappe.get_doc(_REVIEW_ROW, row_name)
+
+    # SCOPE GUARD: a parent accept on a row WITH children is the AI-3b-2 (modal) path.
+    if accept_parent and _row_has_children(boq_name, sheet_name, row_index):
+        frappe.throw(
+            "This row has children; accepting a parent change for it must go through "
+            "the restructure step (coming in a later slice). Use 'Change parent' instead.",
+            title="Restructure required",
+        )
+
+    # Flip the status on the in-memory doc BEFORE the helper's doc.save() so the human
+    # write + the status flip land in ONE transaction (the caller commits once below).
+    doc.ai_suggestion_status = "Accepted"
+
+    edited_at = None
+    if accept_classification:
+        ai_cls = doc.ai_suggested_classification
+        if not ai_cls:
+            frappe.throw(
+                "This row has no AI classification suggestion to accept.",
+                title="Nothing to accept",
+            )
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_classification", ai_cls,
+            reason="AI classification suggestion accepted",
+        )
+        edited_at = doc.edited_at
+
+    if accept_parent:
+        if int(doc.ai_suggested_is_root or 0) == 1:
+            # Root suggestion -> human-root override (set_root: human_is_root=1, parent=-1).
+            _apply_and_save_row_edit(
+                doc, boq_name, sheet_name, "human_parent", None,
+                reason="AI parent suggestion accepted (root)", set_root=True,
+            )
+        else:
+            ai_parent = doc.ai_suggested_parent
+            if ai_parent is None or int(ai_parent) < 0:
+                frappe.throw(
+                    "This row has no AI parent suggestion to accept.",
+                    title="Nothing to accept",
+                )
+            ai_parent = int(ai_parent)
+            if ai_parent == row_index:
+                frappe.throw("A row cannot be its own parent.", title="Self-parent rejected")
+            if not frappe.db.exists(
+                _REVIEW_ROW,
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": ai_parent},
+            ):
+                frappe.throw(
+                    f"Suggested parent row_index {ai_parent} does not exist in sheet "
+                    f"'{sheet_name}'.",
+                    title="Invalid parent",
+                )
+            _apply_and_save_row_edit(
+                doc, boq_name, sheet_name, "human_parent", ai_parent,
+                reason="AI parent suggestion accepted",
+            )
+        edited_at = doc.edited_at
+
+    frappe.db.commit()
+
+    eff = resolve_effective(doc)
+    return {
+        "ok": True,
+        "row_index": row_index,
+        "ai_suggestion_status": doc.ai_suggestion_status,
+        "edited_at": edited_at,
+        "effective_classification": eff["effective_classification"],
+        "effective_parent_index": eff["effective_parent_index"],
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def reject_ai_suggestion(
+    boq_name: str = None, sheet_name: str = None, row_index=None
+) -> dict:
+    """Reject an AI suggestion: set ai_suggestion_status="Rejected" ONLY.
+
+    A reject is NOT a data edit -- it does NOT touch human_*, does NOT stamp
+    edited_at/edit_log (the parser value stays effective, the row stays "Original").
+    Uses frappe.db.set_value (the save_review_remark / dismiss_row_flags bypass) so no
+    doc.save side-effects fire. The suggested values are LEFT in the ai_* fields (only
+    the status changes), preserving the audit of "what the AI suggested"; the badge +
+    tint clear because aiSuggestionInfo gates on status === "Pending". sheet_name
+    VERBATIM (#152).
+
+    Returns {ok, row_index, ai_suggestion_status}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    row_name = frappe.db.get_value(
+        _REVIEW_ROW,
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    frappe.db.set_value(_REVIEW_ROW, row_name, "ai_suggestion_status", "Rejected")
+    frappe.db.commit()
+
+    return {"ok": True, "row_index": row_index, "ai_suggestion_status": "Rejected"}
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,9 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard import ai_assist
 from nirmaan_stack.api.boq.wizard.ai_assist import (
     _ai_cache_key,
+    accept_ai_suggestion,
     get_ai_pass_status,
+    reject_ai_suggestion,
     run_ai_pass,
 )
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
@@ -411,3 +413,187 @@ class TestAIAssist(FrappeTestCase):
         status = get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)
         self.assertEqual(status["status"], "idle_or_unknown")
         self.assertIn("ai_in_progress", status)
+
+
+# ===========================================================================
+# AI-3b-1: accept / reject (non-modal -- classification + childless parent)
+# ===========================================================================
+
+_AR_SHEET = "ARSheet"
+
+
+class TestAcceptRejectAiSuggestion(FrappeTestCase):
+    """accept_ai_suggestion / reject_ai_suggestion -- the NON-MODAL accept/reject paths.
+
+    Row layout (rebuilt each test): row 0 preamble root WITH a child (row 1); row 1
+    line_item child of row 0 (itself childless); row 2 line_item root (childless).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "AI Accept/Reject Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": _AR_SHEET, "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
+            frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name, "sheet_name": _AR_SHEET})
+        self.names = {}
+        # (row_index, classification, parent_index)
+        for ridx, cls_, parent in [(0, "preamble", -1), (1, "line_item", 0), (2, "line_item", -1)]:
+            doc = frappe.new_doc("BoQ Review Row")
+            doc.update({
+                "boq": self.boq_name,
+                "sheet_name": _AR_SHEET,
+                "row_index": ridx,
+                "source_row_number": ridx + 2,
+                "classification": cls_,
+                "parent_index": parent,
+                "human_parent": -1,
+                "human_is_root": 0,
+                "ai_suggested_parent": -1,
+                "ai_suggested_level": -1,
+            })
+            doc.insert(ignore_permissions=True)
+            self.names[ridx] = doc.name
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _seed_ai(self, ridx, **fields):
+        frappe.db.set_value("BoQ Review Row", self.names[ridx], fields)
+        frappe.db.commit()
+
+    def _row(self, ridx):
+        return frappe.db.get_value(
+            "BoQ Review Row", self.names[ridx],
+            ["human_classification", "human_parent", "human_is_root",
+             "ai_suggestion_status", "edited_at", "classification", "parent_index",
+             "ai_suggested_classification", "ai_suggested_parent", "ai_suggested_is_root"],
+            as_dict=True,
+        )
+
+    # -- T1: accept classification only -------------------------------------
+
+    def test_accept_classification_only(self):
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="preamble")
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_classification=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        r = self._row(2)
+        self.assertEqual(r["human_classification"], "preamble")
+        self.assertEqual(r["ai_suggestion_status"], "Accepted")
+        self.assertIsNotNone(r["edited_at"], "accept stamps edited_at (it IS a human edit)")
+
+    # -- T2: accept parent (childless, real index) --------------------------
+
+    def test_accept_parent_childless_real_index(self):
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_parent=0)
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_parent=True)
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        r = self._row(2)
+        self.assertEqual(r["human_parent"], 0)
+        self.assertEqual(r["human_is_root"], 0)
+        self.assertEqual(r["ai_suggestion_status"], "Accepted")
+
+    # -- T3: accept parent (childless, root suggestion) ---------------------
+
+    def test_accept_parent_childless_root(self):
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_is_root=1, ai_suggested_parent=-1)
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_parent=True)
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        r = self._row(2)
+        self.assertEqual(r["human_is_root"], 1)
+        self.assertEqual(r["human_parent"], -1)
+        self.assertIsNone(res["effective_parent_index"],
+                          "an accepted root suggestion resolves to effective-root")
+
+    # -- T4: accept BOTH on a childless row ---------------------------------
+
+    def test_accept_both_childless(self):
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="note", ai_suggested_parent=0)
+        res = accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                   row_index=2, accept_classification=True, accept_parent=True)
+        self.assertEqual(res["ai_suggestion_status"], "Accepted")
+        r = self._row(2)
+        self.assertEqual(r["human_classification"], "note")
+        self.assertEqual(r["human_parent"], 0)
+        self.assertEqual(r["ai_suggestion_status"], "Accepted")
+
+    # -- T5: accept parent on a row WITH children -> guard throws -----------
+
+    def test_accept_parent_with_children_throws(self):
+        # row 0 is the effective parent of row 1 -> it HAS children.
+        self._seed_ai(0, ai_suggestion_status="Pending", ai_suggested_parent=2)
+        with self.assertRaises(frappe.ValidationError):
+            accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                                 row_index=0, accept_parent=True)
+        # Unchanged: still Pending, human_parent untouched.
+        r = self._row(0)
+        self.assertEqual(r["ai_suggestion_status"], "Pending")
+        self.assertEqual(r["human_parent"], -1)
+
+    # -- T6: accept with neither flag -> throws -----------------------------
+
+    def test_accept_nothing_throws(self):
+        self._seed_ai(2, ai_suggestion_status="Pending", ai_suggested_classification="note")
+        with self.assertRaises(frappe.ValidationError):
+            accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET, row_index=2)
+
+    # -- T7: reject ---------------------------------------------------------
+
+    def test_reject_sets_status_only(self):
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="preamble")
+        res = reject_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET, row_index=2)
+        self.assertEqual(res["ai_suggestion_status"], "Rejected")
+        r = self._row(2)
+        self.assertEqual(r["ai_suggestion_status"], "Rejected")
+        self.assertIsNone(r["human_classification"], "reject must NOT touch human_*")
+        self.assertEqual(r["human_parent"], -1)
+        self.assertIsNone(r["edited_at"], "reject is not an edit -- edited_at stays unset")
+        # The suggested value is preserved (only the status changed).
+        self.assertEqual(r["ai_suggested_classification"], "preamble")
+
+    # -- T8: accept -> resolve_effective folds the accepted value -----------
+
+    def test_accept_then_resolve_effective_renders_accepted(self):
+        self._seed_ai(2, ai_suggestion_status="Pending",
+                      ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=_AR_SHEET,
+                             row_index=2, accept_classification=True)
+        stored = frappe.db.get_value(
+            "BoQ Review Row", self.names[2],
+            ["classification", "parent_index", "human_classification", "human_parent",
+             "human_is_root", "ai_suggestion_status", "ai_suggested_classification",
+             "ai_suggested_parent", "ai_suggested_is_root"],
+            as_dict=True,
+        )
+        eff = resolve_effective(stored)
+        self.assertEqual(eff["effective_classification"], "preamble",
+                         "the accepted classification (now in human_classification) is effective")

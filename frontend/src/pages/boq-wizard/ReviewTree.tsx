@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -545,6 +545,54 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
+  // AI-3b-1: per-field accept/reject of a PENDING AI suggestion (NON-MODAL scope --
+  // classification + CHILDLESS parent + reject). Checkbox state is seeded when the
+  // detail panel opens (see the seeding effect below); a parent change on a row WITH
+  // children is the AI-3b-2 (modal) path and is disabled here.
+  const [aiAcceptCls, setAiAcceptCls] = useState(false);
+  const [aiAcceptParent, setAiAcceptParent] = useState(false);
+  const [aiActionError, setAiActionError] = useState<string | null>(null);
+  const { call: acceptAiCall, loading: isAcceptingAi } = useFrappePostCall<{
+    message: { ok: boolean; edited_at: string | null };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.accept_ai_suggestion");
+  const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
+    message: { ok: boolean };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
+
+  // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
+  // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
+  const handleApplyAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    try {
+      const res = await acceptAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+        accept_classification: aiAcceptCls,
+        accept_parent: aiAcceptParent,
+      });
+      onSaved?.(res.message.edited_at ?? "");
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not apply the AI suggestion.");
+    }
+  };
+
+  // Reject: status-only (not a data edit) -> mutate-only refresh via onRemarkSaved
+  // (no edited_at to thread; the row stays "Original", the badge + tint clear).
+  const handleRejectAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    try {
+      await rejectAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not reject the AI suggestion.");
+    }
+  };
+
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
     const hasChildrenSet = new Set<number>();
@@ -887,6 +935,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       setRemarkInput("");
       setSaveError(null);
       setRemarkError(null);
+      setAiAcceptCls(false);
+      setAiAcceptParent(false);
+      setAiActionError(null);
       return;
     }
     const r = byIdx.get(expandedDetailRow);
@@ -921,7 +972,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     setRemarkInput(r.remarks ?? "");
     setSaveError(null);
     setRemarkError(null);
-  }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
+    // AI-3b-1: seed the accept checkboxes -- default checked when the AI suggests a REAL
+    // change (different from the current effective value). A parent change on a row WITH
+    // children is the AI-3b-2 path -> not auto-checked here (the checkbox is disabled).
+    const ai = aiSuggestionInfo(r);
+    const clsIsChange = ai.hasClass && r.ai_suggested_classification !== r.effective_classification;
+    const parentIsChange = ai.hasParent && (
+      r.ai_suggested_is_root === 1
+        ? r.effective_parent_index !== null
+        : r.ai_suggested_parent !== r.effective_parent_index
+    );
+    setAiAcceptCls(clsIsChange);
+    setAiAcceptParent(parentIsChange && !hasChildrenSet.has(r.row_index));
+    setAiActionError(null);
+  }, [expandedDetailRow, byIdx, hasChildrenSet, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -1858,6 +1922,108 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               )}
                             </div>
                           </div>
+                          {/* AI-3b-1: per-field accept/reject of a PENDING AI suggestion.
+                              Shown only when the row carries a pending suggestion + not readOnly.
+                              Classification + parent each get a checkbox + confidence badge +
+                              suggested value; one explanation line; Apply + Reject. A parent
+                              change on a row WITH children is the AI-3b-2 (modal) path -> the
+                              parent checkbox is disabled here with a tooltip. */}
+                          {!readOnly && (() => {
+                            const ai = aiSuggestionInfo(row);
+                            if (!(ai.hasClass || ai.hasParent)) return null;
+                            const clsIsChange = ai.hasClass &&
+                              row.ai_suggested_classification !== row.effective_classification;
+                            const parentIsChange = ai.hasParent && (
+                              row.ai_suggested_is_root === 1
+                                ? row.effective_parent_index !== null
+                                : row.ai_suggested_parent !== row.effective_parent_index
+                            );
+                            const parentBlocked = ai.hasParent && hasChildrenSet.has(row.row_index);
+                            const suggestedParentLabel = row.ai_suggested_is_root === 1
+                              ? "Top level (root)"
+                              : (() => {
+                                  const p = row.ai_suggested_parent;
+                                  if (p === null || p === undefined || p < 0) return "—";
+                                  const src = byIdx.get(p)?.source_row_number;
+                                  return src !== undefined ? `row ${src}` : `#${p}`;
+                                })();
+                            const canApply =
+                              (aiAcceptCls && ai.hasClass && clsIsChange) ||
+                              (aiAcceptParent && ai.hasParent && parentIsChange && !parentBlocked);
+                            return (
+                              <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
+                                  <Sparkles className="h-3 w-3" /> AI suggestion
+                                </p>
+                                {ai.hasClass && (
+                                  <label className={cn(
+                                    "flex items-center gap-2 text-xs mb-1",
+                                    clsIsChange ? "cursor-pointer" : "cursor-not-allowed",
+                                  )}>
+                                    <Checkbox
+                                      checked={aiAcceptCls}
+                                      disabled={!clsIsChange}
+                                      onCheckedChange={(c) => setAiAcceptCls(!!c)}
+                                    />
+                                    <AiConfBadge conf={row.ai_classification_confidence ?? null} title="AI classification confidence" />
+                                    <span>
+                                      Classification &rarr;{" "}
+                                      <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
+                                      {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                    </span>
+                                  </label>
+                                )}
+                                {ai.hasParent && (
+                                  <label
+                                    className={cn(
+                                      "flex items-center gap-2 text-xs mb-1",
+                                      (parentIsChange && !parentBlocked) ? "cursor-pointer" : "cursor-not-allowed",
+                                    )}
+                                    title={parentBlocked
+                                      ? "Accepting a parent change for a row with children opens the restructure step — coming in the next slice."
+                                      : undefined}
+                                  >
+                                    <Checkbox
+                                      checked={aiAcceptParent}
+                                      disabled={!parentIsChange || parentBlocked}
+                                      onCheckedChange={(c) => setAiAcceptParent(!!c)}
+                                    />
+                                    <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
+                                    <span>
+                                      Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
+                                      {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                      {parentIsChange && parentBlocked && (
+                                        <span className="text-muted-foreground italic"> (has children — next slice)</span>
+                                      )}
+                                    </span>
+                                  </label>
+                                )}
+                                {row.ai_explanation && (
+                                  <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
+                                )}
+                                {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={!canApply || isAcceptingAi || isRejectingAi}
+                                    onClick={() => { void handleApplyAi(row); }}
+                                  >
+                                    {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={isAcceptingAi || isRejectingAi}
+                                    onClick={() => { void handleRejectAi(row); }}
+                                  >
+                                    {isRejectingAi ? "Rejecting…" : "Reject"}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
                               commits via an explicit Apply button that opens the confirm dialog.
