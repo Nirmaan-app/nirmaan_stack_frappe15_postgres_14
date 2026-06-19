@@ -1,6 +1,41 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-19 (Phase 4 Slice AI-2c -- AI-PASS ENDPOINT + WORKER + SOCKET + WRITE-BACK + CACHE --
+**Last updated:** 2026-06-19 (Phase 4 Slice AI-2d -- ROOT-SUGGESTION FIX (`ai_suggested_is_root`) -- BACKEND,
+feat pending. CLOSES the root-suggestion contract gap AI-2c flagged: "AI suggests this row become a top-level root"
+is now both REPRESENTABLE and APPLYABLE. One cohesive change across the full chain (schema -> service -> write-back
+-> resolve_effective). **NO frontend (AI-3).** **(1) SCHEMA `boq_review_row.json`** -- ONE new field
+`ai_suggested_is_root` (Check, default 0, read_only=1) inserted in field_order immediately AFTER `ai_suggested_parent`
++ a mirror field def (mirrors `human_is_root`'s Check/default-0, carries the ai_* group's read_only). `bench migrate`
+CLEAN (column verified via `has_column` -> true). **(2) `resolve_effective` (review_screen.py)** -- now reads
+`ai_suggested_is_root` (alongside the other ai_* reads) and inserts ONE new branch into the effective_parent_index
+ladder, giving the **FOUR-LAYER parent precedence: human_is_root > human_parent > ai_suggested_is_root >
+ai_suggested_parent > parser**. The `human_is_root` short-circuit STAYS above the whole else-block (human-root still
+wins). The new branch (`elif ai_accepted and ai_suggested_is_root: effective_parent_index = None`) sits BETWEEN the
+human_parent branch and the ai_suggested_parent branch -- applies ONLY when `ai_suggestion_status == "Accepted"`. The
+return dict gains `"ai_suggested_is_root": 1 if ... else 0` (echoed for the frontend, mirroring `human_is_root`). All
+existing keys + behaviour BYTE-FOR-BYTE UNCHANGED except the added branch + key. **(3) `parse_ai_response`
+(boq_ai_assist.py)** -- the null-root branch now sets BOTH `ai_parent = -1` AND a new `ai_is_root = True`; the
+per-suggestion dict gains `"ai_suggested_is_root"`. The `parent_conf` guard widened to
+`(ai_parent is not None or ai_is_root)` so a root suggestion (a parent opinion = "parent is nothing") KEEPS its
+`ai_parent_confidence`. **`-1` on `ai_suggested_parent` now UNAMBIGUOUSLY means "no parent-index suggestion"** (the
+root signal moved to the flag) -- the clean sentinel contract is restored. **(4) WRITE-BACK `_apply_ai_suggestions`
+(ai_assist.py)** -- `ai_suggested_is_root` is the FIRST branch (replacing the AI-2c interim block + its warning):
+root -> `stored_parent=-1`, `stored_is_root=1`, **`level=1`** (the genuine root level per `_effective_level`, where a
+parentless node is level 1); NO_CHANGE (service None) -> -1/0/current-level; real parent -> parent's level+1.
+`ai_suggested_is_root` added to the set_value write-back dict, to `_AI_DEFAULTS` (=0, so stale-clear resets it), and
+to `_AI_FETCH_FIELDS` (the worker feeds rows into resolve_effective, which now reads the flag). **THE AI-2c INTERIM IS
+REPLACED -- root suggestions are now fully functional end-to-end** (service emits flag -> write-back stores it ->
+resolve_effective applies it as effective-root when Accepted). **TESTS (all green):** `test_review_screen` **170 ->
+176** (+6 `TestResolveEffectiveAILayer`: AI_13 accepted-root -> None; AI_14 human_parent beats AI-root; AI_15
+human_is_root + AI-root both root; AI_16 Pending root ignored -> parser; AI_17 flag echoed/coerced in the dict; AI_18
+real-parent regression with root flag false; the local `_row()` helper gained `ai_suggested_is_root`);
+`test_boq_ai_assist` **11 -> 15** (+4: root sets flag + keeps -1; root keeps parent_confidence; NO_CHANGE flag False;
+real-parent flag False); `test_ai_assist` **14 -> 16** (the AI-2c interim test REPLACED by AI_A1 root sets flag/level=1;
++ AI_A2 end-to-end write-back -> Accept -> resolve_effective -> effective-root; + AI_A3 stale-clear resets the flag).
+NO change to any file outside the slice scope; frontend/CLAUDE.md deliberately NOT touched (backend only). **NEXT =
+the LIVE end-to-end Anthropic API cert (manual, on BOQ-26-00145/HVAC; the key is set in Desk) -- now covering
+re-parenting, reclassification AND root** -- then AI-3 (frontend). Full detail in boq-upload-plan.md "Phase 4 Slice AI-2d".)
+// prior: 2026-06-19 (Phase 4 Slice AI-2c -- AI-PASS ENDPOINT + WORKER + SOCKET + WRITE-BACK + CACHE --
 BACKEND, feat pending. Wires the AI-2b stateless service into the LIVE flow, MIRRORING the parse flow
 (`run_parse`/`_run_parse_worker`/`_publish_parse_event`) exactly. **NO frontend (AI-3).** ONE new module
 `nirmaan_stack/api/boq/wizard/ai_assist.py`. **(1) ENDPOINT `run_ai_pass(boq_name, sheet_name)`** (`@frappe.whitelist()`)
@@ -1461,6 +1496,8 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 **Classification target vocab (Slice 1b-alpha):** `_VALID_CLASSIFICATIONS` (all 6 RowClassification literals) remains the FROM/read vocab. `_ASSIGNABLE_CLASSIFICATIONS` (line_item, preamble, note, spacer) is the STRICT SUBSET valid as a write TARGET. `subtotal_marker` and `header_repeat` are parser-only DETECTIONS -- valid existing/FROM states but never assignable. Applied to BOTH `save_review_restructure` and `save_review_edit`'s human_classification path.
 
 **`human_is_root` (Slice 1b-alpha, BoQ Review Row Check field, default 0):** the human-root encoding (Option B). A SEPARATE Check field ORTHOGONAL to `human_parent` -- the -1 sentinel value space (#54: -1/None = no override, >=0 = override-to-row) is UNCHANGED. `resolve_effective` consults `human_is_root` FIRST: truthy -> `effective_parent_index = None` (root), skipping the human_parent_norm/parent_index_norm derivation; else the existing logic runs verbatim. **Consistency invariant** (enforced ONLY at the `_apply_and_save_row_edit` chokepoint): `human_is_root=1` => `human_parent=-1`; a `human_parent>=0` write clears `human_is_root` to 0. Purely additive -- NO data migration (a new Check defaults to 0, correct for every existing row, none of which are human-rooted). `human_is_root` is added to every fetch field-list that feeds `resolve_effective` (get_review_rows, get_structural_breaks, mark_sheet_parsed_check_done, and both cycle-guards) and to the resolve_effective return dict + the frontend ReviewRow type.
+
+**`ai_suggested_is_root` (Slice AI-2d, BoQ Review Row Check field, default 0, read_only):** the AI analog of `human_is_root` -- the AI-layer root encoding. A SEPARATE Check ORTHOGONAL to `ai_suggested_parent` (whose -1 now means ONLY "no parent-index suggestion", never root). `resolve_effective` consults it as the THIRD layer of the four-layer parent precedence **human_is_root > human_parent > ai_suggested_is_root > ai_suggested_parent > parser**: when `ai_suggestion_status == "Accepted"` AND the flag is truthy, `effective_parent_index = None` (AI root), but ONLY below the human layer (a human_parent override or human_is_root still wins). `parse_ai_response` emits it (`suggested_parent: null` -> `ai_suggested_parent=-1` + `ai_suggested_is_root=True`, keeping parent_confidence); the AI-2c write-back stores it (root -> `ai_suggested_is_root=1`, `ai_suggested_parent=-1`, `ai_suggested_level=1`) and resets it in `_AI_DEFAULTS`; it is in `_AI_FETCH_FIELDS` (the worker feeds rows into resolve_effective) and the resolve_effective return dict. This REPLACES the AI-2c interim that could not represent a root suggestion.
 
 ---
 

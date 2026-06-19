@@ -16,7 +16,30 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-2c (AI auto-mapping) -- AI-pass endpoint + worker + socket + write-back + cache
+LATEST: Phase 4 Slice AI-2d (AI auto-mapping) -- root-suggestion fix (`ai_suggested_is_root`)
+(BACKEND, 2026-06-19, feat pending). CLOSES the AI-2c root-suggestion CONTRACT GAP: "AI suggests this row become a
+top-level root" is now REPRESENTABLE and APPLYABLE. One cohesive change across schema -> service -> write-back ->
+resolve_effective. **NO frontend (AI-3).** **SCHEMA:** new `ai_suggested_is_root` Check (default 0, read_only) on
+BoQ Review Row, after `ai_suggested_parent`; `bench migrate` clean. **resolve_effective:** four-layer parent
+precedence **human_is_root > human_parent > ai_suggested_is_root > ai_suggested_parent > parser** (new branch
+`elif ai_accepted and ai_suggested_is_root -> None`, between human_parent and ai_suggested_parent; applies only when
+status Accepted; human-root short-circuit still above); flag echoed in the return dict (1/0). **parse_ai_response:**
+the null-root branch sets `ai_parent=-1` AND `ai_is_root=True`; per-suggestion dict gains `ai_suggested_is_root`; the
+parent_conf guard widened so a root suggestion keeps its confidence. **`-1` on `ai_suggested_parent` now means ONLY
+"no parent-index suggestion"** -- the clean sentinel is restored, the root signal lives in the flag.
+**write-back (`_apply_ai_suggestions`):** `ai_suggested_is_root` is the FIRST branch (replaces the AI-2c interim +
+its warning): root -> stored_parent -1, stored_is_root 1, **level 1** (genuine root level); the flag added to the
+set_value dict, `_AI_DEFAULTS` (=0, stale-clear resets it), and `_AI_FETCH_FIELDS`. **Root suggestions are now fully
+functional end-to-end** (service emits flag -> write-back stores it -> resolve_effective applies effective-root when
+Accepted); the AI-2c interim is REPLACED. **TESTS (green):** `test_review_screen` 170 -> **176** (+6 AI-root:
+accepted-root, human_parent-beats-AI-root, human_is_root+AI-root, Pending-root-ignored, flag-in-dict, real-parent
+regression); `test_boq_ai_assist` 11 -> **15** (+4: root sets flag/keeps -1, root keeps parent_confidence, NO_CHANGE/
+real-parent flag False); `test_ai_assist` 14 -> **16** (AI-2c interim test REPLACED by root-sets-flag/level=1; +
+end-to-end write-back->Accept->resolve_effective->effective-root; + stale-clear resets the flag). **The AI-2c root
+contract gap is now CLOSED.** **NEXT = the LIVE end-to-end Anthropic API cert (manual, on BOQ-26-00145/HVAC; key set
+in Desk) -- now covering re-parenting, reclassification AND root** -- then AI-3 (frontend). Full detail in root CLAUDE.md.
+
+// prior: Phase 4 Slice AI-2c (AI auto-mapping) -- AI-pass endpoint + worker + socket + write-back + cache
 (BACKEND, 2026-06-19, feat pending). Wires the AI-2b stateless service into the LIVE flow, MIRRORING the parse flow
 (`run_parse`/`_run_parse_worker`/`_publish_parse_event`) exactly. **NO frontend (AI-3).** ONE new module
 `nirmaan_stack/api/boq/wizard/ai_assist.py` + `test_ai_assist.py`. **ENDPOINT `run_ai_pass(boq_name, sheet_name)`**:
