@@ -110,6 +110,15 @@ export interface BoQSheetDraft {
    */
   parse_in_progress?: 0 | 1;
   /**
+   * AI-2c: 1 while this sheet is under an active AI pass (set at enqueue, cleared in the
+   * _publish_ai_event choke-point on completion). Mirror of parse_in_progress. The review
+   * screen reads this to disable "Run AI pass" + show the "AI pass running…" chip, and to
+   * recover an in-flight pass on mount. Flows automatically on useFrappeGetDoc("BOQs").
+   * NOTE: unlike parse_in_progress this does NOT make the screen read-only -- an AI pass
+   * only writes the ai_* suggestion fields, never human/parser data.
+   */
+  ai_in_progress?: 0 | 1;
+  /**
    * Per-sheet PARSE-failure stamp (Slice 1a, reactive #166). Ride the BOQs payload
    * (child-table fields on BoQ Sheet Draft) -- no separate fetch. category is one of the
    * three in-scope failures (matches the doctype Select); reason is the specific why;
@@ -186,6 +195,20 @@ export interface ParseRunDonePayload {
   failed_sheets?: string[];
   // error fields
   error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
+}
+
+/**
+ * Payload of the `boq:ai_pass_done` realtime event (AI-2c, ai_assist._publish_ai_event).
+ * User-targeted; room-targeted + not replayed -- a client that misses it recovers via
+ * get_ai_pass_status polling. Shape: {status, boq_name, sheet_name, **kwargs} where the
+ * success kwarg is `count` and the error kwarg is `error_code` ("ai_failed" | "internal").
+ */
+export interface AiPassDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  sheet_name: string;
+  count?: number;
+  error_code?: string;
 }
 
 export interface BOQsDoc {
@@ -341,6 +364,21 @@ export interface ReviewRow {
   // effective values (computed by resolve_effective on backend)
   effective_classification: string | null;
   effective_parent_index: number | null;
+  // AI suggestion layer (AI-1 / AI-2d). Written by the AI pass (run_ai_pass worker)
+  // + the accept/reject endpoint; never by the parser or human edit layer. Applied by
+  // resolve_effective ONLY when ai_suggestion_status === "Accepted" and no human override
+  // (the four-layer chain: human_is_root > human_parent > ai_suggested_is_root >
+  // ai_suggested_parent > parser). -1 sentinel on ai_suggested_parent = "no parent-index
+  // suggestion" (root is carried by ai_suggested_is_root, AI-2d). AI-3a surfaces these
+  // read-only (badges + status + tint); the accept/reject flow is AI-3b.
+  ai_suggested_classification?: string | null;
+  ai_classification_confidence?: "High" | "Medium" | "Low" | null;
+  ai_suggested_parent?: number | null;
+  ai_parent_confidence?: "High" | "Medium" | "Low" | null;
+  ai_suggested_is_root?: 0 | 1;
+  ai_suggested_level?: number | null;
+  ai_explanation?: string | null;
+  ai_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
 }
 
 /**

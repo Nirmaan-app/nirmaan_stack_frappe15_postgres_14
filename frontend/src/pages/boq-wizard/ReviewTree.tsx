@@ -319,12 +319,79 @@ const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] a
 // targets). A filter reads all 6 existing states (incl. subtotal_marker / header_repeat).
 const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtotal_marker", "header_repeat"] as const;
 
-// §9 #159: Status filter option labels.
-const STATUS_FILTER_LABELS: Record<"all" | "edited" | "original", string> = {
+// §9 #159: Status filter option labels. AI-3a adds the third state "ai_accepted"
+// (an AI suggestion was Accepted -- distinct provenance from a plain human edit).
+type StatusFilter = "all" | "edited" | "original" | "ai_accepted";
+const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
   edited: "Edited",
   original: "Original",
+  ai_accepted: "AI Accepted",
 };
+
+// AI-3a: AI Rec column filter. "all" = no narrowing (show every row); "any" = rows with a
+// pending AI suggestion; "high"/"medium"/"low" = rows whose suggestion carries that
+// confidence in EITHER axis (a H+M row appears in both the High and Medium views).
+type AiFilter = "all" | "any" | "high" | "medium" | "low";
+const AI_FILTER_LABELS: Record<AiFilter, string> = {
+  all: "Show all rows",
+  any: "Any AI suggestion",
+  high: "Has High",
+  medium: "Has Medium",
+  low: "Has Low",
+};
+
+// AI-3a: a row's pending-suggestion shape, used by the AI Rec cell + the AI filter.
+// A suggestion only "counts" while ai_suggestion_status === "Pending" (Accepted/Rejected
+// are resolved -> no badge, no tint). Parent suggestion = a real parent index OR a root flag.
+interface AiSuggestionInfo {
+  pending: boolean;
+  hasClass: boolean;
+  hasParent: boolean;
+  classConf: "High" | "Medium" | "Low" | null;
+  parentConf: "High" | "Medium" | "Low" | null;
+}
+function aiSuggestionInfo(row: ReviewRow): AiSuggestionInfo {
+  const pending = row.ai_suggestion_status === "Pending";
+  const hasClass = pending && row.ai_suggested_classification != null;
+  const hasParent =
+    pending &&
+    ((row.ai_suggested_parent != null && row.ai_suggested_parent !== -1) ||
+      row.ai_suggested_is_root === 1);
+  return {
+    pending,
+    hasClass,
+    hasParent,
+    classConf: hasClass ? (row.ai_classification_confidence ?? null) : null,
+    parentConf: hasParent ? (row.ai_parent_confidence ?? null) : null,
+  };
+}
+// AI-3a: does a row carry a pending suggestion at the given confidence (either axis)?
+function aiHasConfidence(info: AiSuggestionInfo, level: "High" | "Medium" | "Low"): boolean {
+  return info.classConf === level || info.parentConf === level;
+}
+// AI-3a: confidence -> small-pill classes (mirror the Status/AI-Accepted pill idiom:
+// High=green, Medium=amber, Low=gray). Null confidence on a present suggestion -> gray dot.
+const AI_CONF_PILL: Record<"High" | "Medium" | "Low", string> = {
+  High: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
+  Medium: "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200",
+  Low: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300",
+};
+function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; title: string }) {
+  const label = conf ? conf[0] : "?"; // H / M / L (or ? when the model omitted confidence)
+  const cls = conf ? AI_CONF_PILL[conf] : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400";
+  return (
+    <span
+      title={title}
+      className={cn(
+        "rounded-full py-0.5 px-1.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+        cls,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
 
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
@@ -611,7 +678,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // classFilter: SHOW-set seeded with all 6 CLS_LABELS values; size === 6 => no narrowing,
   //   unchecking a type hides it (effective_classification membership). Empty set => show none.
   // searchQuery/searchCurrentIdx: description substring search + the cycling hit pointer.
-  const [statusFilter, setStatusFilter] = useState<"all" | "edited" | "original">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // AI-3a: AI Rec column filter (default "all" = no narrowing).
+  const [aiFilter, setAiFilter] = useState<AiFilter>("all");
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
@@ -919,10 +988,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const allClassesShown = classFilter.size === CLASS_FILTER_VALUES.length;
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
+  const aiFilterActive = aiFilter !== "all";
   const passesFilter = (row: ReviewRow): boolean => {
-    // Status predicate -- the isEdited expression (mirrors the inline at the render row;
-    // a remark-only row is Original since save_review_remark never stamps edited_at/edit_log).
-    if (statusFilter !== "all") {
+    // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
+    // use the isEdited expression (mirrors the inline at the render row; a remark-only row
+    // is Original since save_review_remark never stamps edited_at/edit_log).
+    if (statusFilter === "ai_accepted") {
+      if (row.ai_suggestion_status !== "Accepted") return false;
+    } else if (statusFilter !== "all") {
       const edited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
       if (statusFilter === "edited" ? !edited : edited) return false;
     }
@@ -930,6 +1003,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     if (!allClassesShown) {
       const cls = row.effective_classification;
       if (cls === null || !classFilter.has(cls)) return false;
+    }
+    // AI-3a: AI Rec predicate. "any" = a pending suggestion exists; high/medium/low = a
+    // pending suggestion at that confidence in either axis. "all" = no narrowing.
+    if (aiFilter !== "all") {
+      const info = aiSuggestionInfo(row);
+      if (aiFilter === "any") {
+        if (!(info.hasClass || info.hasParent)) return false;
+      } else {
+        const level = aiFilter === "high" ? "High" : aiFilter === "medium" ? "Medium" : "Low";
+        if (!aiHasConfidence(info, level)) return false;
+      }
     }
     return true;
   };
@@ -950,7 +1034,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchQuery, statusFilter, classFilter, showSpacers, showNotes, showSubtotals]);
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, showSpacers, showNotes, showSubtotals]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -1183,7 +1267,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
                       <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
                       <div className="space-y-0.5">
-                        {(["all", "edited", "original"] as const).map(opt => (
+                        {(["all", "edited", "original", "ai_accepted"] as const).map(opt => (
                           <button
                             key={opt}
                             type="button"
@@ -1196,6 +1280,51 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             )}
                           >
                             {STATUS_FILTER_LABELS[opt]}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </th>
+              {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
+                  Popover mirrors the Status/Classification filter pattern. */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                <div className="flex items-center gap-1">
+                  <span>AI Rec</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn(
+                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                          aiFilterActive
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-muted-foreground/60 hover:text-foreground",
+                        )}
+                        aria-label="Filter by AI suggestion"
+                        title="Filter by AI suggestion"
+                      >
+                        <Filter className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">AI suggestion</p>
+                      <div className="space-y-0.5">
+                        {(["all", "any", "high", "medium", "low"] as const).map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setAiFilter(opt)}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
+                              aiFilter === opt
+                                ? "bg-muted font-medium text-foreground"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                            )}
+                          >
+                            {AI_FILTER_LABELS[opt]}
                           </button>
                         ))}
                       </div>
@@ -1324,12 +1453,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
               const remarkMarkerShown = hasRemark;
-              // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
-              // append-to-notes-as-columns: +1 when the combined "Append Notes" column is shown.
+              // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
+              // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
+              // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 7 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              const totalCols = 8 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
+              // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
+              const aiInfo = aiSuggestionInfo(row);
+              const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
 
               // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
               const origParentLabel = (() => {
@@ -1369,6 +1502,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     className={cn(
                       "border-b border-border hover:bg-muted/30 transition-colors",
                       isPreamble && "bg-muted/20",
+                      // AI-3a: subtle indigo tint for a row carrying a PENDING AI suggestion.
+                      // Placed BEFORE the edited-green tint so an edited row stays green
+                      // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
+                      // so the scroll-highlight still wins on flash (existing tint ordering).
+                      hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
                       isEdited && "bg-green-50 dark:bg-green-950/30",
                       // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
@@ -1400,9 +1538,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                       {row.source_row_number}
                     </td>
 
-                    {/* Status (B2c): edit-provenance badge -- not frozen-left */}
+                    {/* Status (B2c): edit-provenance badge -- not frozen-left.
+                        AI-3a: "AI Accepted" (indigo) takes precedence over Edited -- an
+                        accepted suggestion writes to human_* (AI-3b) and would otherwise
+                        read "Edited", erasing the AI provenance. */}
                     <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                      {isEdited ? (
+                      {row.ai_suggestion_status === "Accepted" ? (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
+                          AI Accepted
+                        </span>
+                      ) : isEdited ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                           Edited
                         </span>
@@ -1411,6 +1556,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           Original
                         </span>
                       )}
+                    </td>
+
+                    {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
+                        classification + parent each get one (H/M/L); both -> two side by
+                        side; none / resolved -> blank. */}
+                    <td className="px-2 py-1.5 align-top w-20 border-r border-border">
+                      {(aiInfo.hasClass || aiInfo.hasParent) ? (
+                        <div className="flex items-center gap-1">
+                          {aiInfo.hasClass && (
+                            <AiConfBadge
+                              conf={aiInfo.classConf}
+                              title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
+                            />
+                          )}
+                          {aiInfo.hasParent && (
+                            <AiConfBadge
+                              conf={aiInfo.parentConf}
+                              title={
+                                row.ai_suggested_is_root === 1
+                                  ? `AI suggests making this a top-level root${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                                  : `AI suggests a new parent${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                              }
+                            />
+                          )}
+                        </div>
+                      ) : null}
                     </td>
 
                     {/* Sl.No */}

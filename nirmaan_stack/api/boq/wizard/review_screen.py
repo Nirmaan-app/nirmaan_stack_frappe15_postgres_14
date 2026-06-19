@@ -1057,6 +1057,13 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # "Original"). Rides the row payload so the frontend can render the dismissed
         # marker + derive the "N total -- C cleared" summary; no new endpoint.
         "flags_dismissed", "flags_dismissed_by", "flags_dismissed_at",
+        # AI suggestion layer (AI-3a read path): the 4 ai_* fields NOT already echoed by
+        # resolve_effective's return dict (which carries ai_suggestion_status /
+        # ai_suggested_classification / ai_suggested_parent / ai_suggested_is_root). These
+        # four are needed by the frontend AI Rec column (confidence badges + explanation +
+        # derived level). Additive -- resolve_effective's echo path is untouched.
+        "ai_classification_confidence", "ai_parent_confidence",
+        "ai_suggested_level", "ai_explanation",
     ]
 
     raw_rows = frappe.db.get_all(
