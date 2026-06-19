@@ -499,7 +499,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
 
   // Slice 1b-beta: restructure (reclassify + place children) surface.
   // restructureModal -> the heavy with-children modal; childlessConfirm -> the light path.
-  const [restructureModal, setRestructureModal] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
+  const [restructureModal, setRestructureModal] = useState<{
+    row: ReviewRow;
+    newClassification: string;
+    // AI-3b-2: when an accepted AI parent on a WITH-children row opens the modal, the
+    // parent is pre-applied (children-only mode) + the status flips on Save (cancel-safe).
+    presetRowParent?: number | null;
+    presetParentMessage?: string;
+    markAiAccepted?: boolean;
+  } | null>(null);
   const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
   // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
   const [restructureError, setRestructureError] = useState<string | null>(null);
@@ -561,8 +569,38 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
+  // AI-3b-2: a PARENT accept on a row WITH CHILDREN cannot apply directly (the children
+  // need disposition) -> open the children-only RestructureModal with the AI parent
+  // pre-applied + markAiAccepted (the status flips cancel-safely on the modal's Save).
+  // Otherwise (classification-only, or a CHILDLESS parent) the AI-3b-1 accept endpoint
+  // path runs unchanged.
   const handleApplyAi = async (row: ReviewRow) => {
     setAiActionError(null);
+    if (aiAcceptParent && hasChildrenSet.has(row.row_index)) {
+      const ai = aiSuggestionInfo(row);
+      const clsIsChange = ai.hasClass &&
+        row.ai_suggested_classification !== row.effective_classification;
+      const isRoot = row.ai_suggested_is_root === 1;
+      const presetRowParent = isRoot ? -1 : (row.ai_suggested_parent ?? -1);
+      const parentLabel = isRoot
+        ? "Top level (root)"
+        : (() => {
+            const src = byIdx.get(presetRowParent)?.source_row_number;
+            return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
+          })();
+      setRestructureModal({
+        row,
+        // Fold an accepted classification change into the SAME restructure call; else a
+        // no-op reclassify (current effective class) -- exactly the #162 door's pattern.
+        newClassification: (aiAcceptCls && clsIsChange)
+          ? (row.ai_suggested_classification as string)
+          : (row.effective_classification as string),
+        presetRowParent,
+        presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
+        markAiAccepted: true,
+      });
+      return;
+    }
     try {
       const res = await acceptAiCall({
         boq_name: boqName,
@@ -983,7 +1021,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
         : r.ai_suggested_parent !== r.effective_parent_index
     );
     setAiAcceptCls(clsIsChange);
-    setAiAcceptParent(parentIsChange && !hasChildrenSet.has(r.row_index));
+    // AI-3b-2: default-check a real parent change even on a with-children row (Apply then
+    // routes through the children-only modal). The seed comment below still notes the route.
+    setAiAcceptParent(parentIsChange);
     setAiActionError(null);
   }, [expandedDetailRow, byIdx, hasChildrenSet, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
 
@@ -1922,12 +1962,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               )}
                             </div>
                           </div>
-                          {/* AI-3b-1: per-field accept/reject of a PENDING AI suggestion.
+                          {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
                               Shown only when the row carries a pending suggestion + not readOnly.
                               Classification + parent each get a checkbox + confidence badge +
-                              suggested value; one explanation line; Apply + Reject. A parent
-                              change on a row WITH children is the AI-3b-2 (modal) path -> the
-                              parent checkbox is disabled here with a tooltip. */}
+                              suggested value; one explanation line; Apply + Reject. AI-3b-2: a
+                              parent accept on a row WITH children is allowed -- Apply opens the
+                              children-only RestructureModal (handleApplyAi) instead of the accept
+                              endpoint; the status flips cancel-safely on the modal's Save. */}
                           {!readOnly && (() => {
                             const ai = aiSuggestionInfo(row);
                             if (!(ai.hasClass || ai.hasParent)) return null;
@@ -1938,7 +1979,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                 ? row.effective_parent_index !== null
                                 : row.ai_suggested_parent !== row.effective_parent_index
                             );
-                            const parentBlocked = ai.hasParent && hasChildrenSet.has(row.row_index);
+                            // AI-3b-2: a parent accept on a with-children row routes through the
+                            // modal (child disposition) rather than applying directly.
+                            const parentOpensModal = parentIsChange && hasChildrenSet.has(row.row_index);
                             const suggestedParentLabel = row.ai_suggested_is_root === 1
                               ? "Top level (root)"
                               : (() => {
@@ -1949,7 +1992,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                 })();
                             const canApply =
                               (aiAcceptCls && ai.hasClass && clsIsChange) ||
-                              (aiAcceptParent && ai.hasParent && parentIsChange && !parentBlocked);
+                              (aiAcceptParent && ai.hasParent && parentIsChange);
                             return (
                               <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
@@ -1977,23 +2020,23 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   <label
                                     className={cn(
                                       "flex items-center gap-2 text-xs mb-1",
-                                      (parentIsChange && !parentBlocked) ? "cursor-pointer" : "cursor-not-allowed",
+                                      parentIsChange ? "cursor-pointer" : "cursor-not-allowed",
                                     )}
-                                    title={parentBlocked
-                                      ? "Accepting a parent change for a row with children opens the restructure step — coming in the next slice."
+                                    title={parentOpensModal
+                                      ? "This row has children — applying opens the restructure step to choose where the children go."
                                       : undefined}
                                   >
                                     <Checkbox
                                       checked={aiAcceptParent}
-                                      disabled={!parentIsChange || parentBlocked}
+                                      disabled={!parentIsChange}
                                       onCheckedChange={(c) => setAiAcceptParent(!!c)}
                                     />
                                     <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
                                     <span>
                                       Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
                                       {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
-                                      {parentIsChange && parentBlocked && (
-                                        <span className="text-muted-foreground italic"> (has children — next slice)</span>
+                                      {parentOpensModal && (
+                                        <span className="text-muted-foreground italic"> (opens restructure)</span>
                                       )}
                                     </span>
                                   </label>
@@ -2448,6 +2491,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           row={restructureModal.row}
           newClassification={restructureModal.newClassification}
           rows={rows}
+          presetRowParent={restructureModal.presetRowParent}
+          presetParentMessage={restructureModal.presetParentMessage}
+          markAiAccepted={restructureModal.markAiAccepted}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}

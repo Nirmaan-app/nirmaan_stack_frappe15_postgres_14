@@ -1348,6 +1348,7 @@ def save_review_restructure(
     child_moves=None,
     reason: str = None,
     row_new_parent=None,
+    mark_ai_accepted=False,
 ) -> dict:
     """
     Atomically reclassify ONE row AND reparent a set of its children in a single
@@ -1370,6 +1371,12 @@ def save_review_restructure(
                              every existing caller). -1 = move the row itself to
                              top-level/root. An int row_index = move the row under that
                              row. Frappe passes strings -- int-coerced like the others.
+      mark_ai_accepted    -- OPTIONAL (Slice AI-3b-2). When truthy, flips this row's
+                             ai_suggestion_status -> "Accepted" inside the SAME commit as
+                             the human writes (set on target_doc before the first helper
+                             save). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
+                             ai_suggestion_status untouched. CANCEL-SAFE: only the modal's
+                             Save passes it, so a cancelled modal never flips the status.
 
     Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
     style; nothing is written until every check passes):
@@ -1424,6 +1431,12 @@ def save_review_restructure(
     # Normalize reason: blank/whitespace-only -> None (mirrors save_review_edit).
     if isinstance(reason, str):
         reason = reason.strip() or None
+
+    # AI-3b-2: coerce the HTTP form value ("1"/"true"/"yes") to a real bool.
+    if isinstance(mark_ai_accepted, str):
+        mark_ai_accepted = mark_ai_accepted.strip().lower() in ("1", "true", "yes")
+    else:
+        mark_ai_accepted = bool(mark_ai_accepted)
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
@@ -1589,6 +1602,15 @@ def save_review_restructure(
         "name",
     )
     target_doc = frappe.get_doc("BoQ Review Row", target_name)
+    # AI-3b-2: when accepting an AI suggestion for a row WITH children (routed here from
+    # the panel via the children-only modal), flip ai_suggestion_status -> "Accepted" on
+    # the SAME doc BEFORE the first helper save, so human_* + the status flip land in the
+    # ONE commit below (atomic, mirrors the AI-3b-1 accept endpoint). CANCEL-SAFE BY
+    # CONSTRUCTION: this endpoint is reached ONLY via the modal's Save -- a cancelled /
+    # Esc'd / overlay-dismissed modal never calls it, so status stays Pending. The flag
+    # is opt-in: when omitted (every existing caller), ai_suggestion_status is untouched.
+    if mark_ai_accepted:
+        target_doc.ai_suggestion_status = "Accepted"
     _apply_and_save_row_edit(
         target_doc, boq_name, sheet_name,
         "human_classification", new_classification,

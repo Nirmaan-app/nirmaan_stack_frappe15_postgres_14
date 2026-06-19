@@ -2949,6 +2949,99 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertEqual(r3.human_parent, -1, "the innocent child move must not persist")
         self.assertIsNone(r3.edited_at)
 
+    # -- AI-3b-2: mark_ai_accepted (the cancel-safe ai_suggestion_status flip) --
+
+    def _set_status(self, row_index, status):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        frappe.db.set_value("BoQ Review Row", name, "ai_suggestion_status", status)
+        frappe.db.commit()
+
+    def test_mark_ai_accepted_parent_with_children(self):
+        """R1: mark_ai_accepted=True on a with-children row (real parent change +
+        child_moves) -> human_parent set AND ai_suggestion_status == 'Accepted'."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",  # no-op class (row 1 is preamble)
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_parent, 4, "the AI parent must be applied")
+        self.assertEqual(r1.ai_suggestion_status, "Accepted", "the flip must land in the same commit")
+
+    def test_mark_ai_accepted_both_class_and_parent(self):
+        """R2: mark_ai_accepted=True with BOTH a new_classification AND row_new_parent ->
+        both human fields set AND status 'Accepted' (accept-both folds into one call)."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",  # real class change
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note")
+        self.assertEqual(r1.human_parent, 4)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+
+    def test_mark_ai_accepted_root(self):
+        """R3: mark_ai_accepted=True with row_new_parent=-1 (root accept) ->
+        human_is_root=1 + human_parent=-1 + status 'Accepted'."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=-1,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_is_root, 1)
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+
+    def test_mark_ai_accepted_omitted_leaves_status_pending(self):
+        """R4 (cancel-safety semantic): WITHOUT mark_ai_accepted, ai_suggestion_status is
+        UNCHANGED. The flip is opt-in and the flag is only ever sent on the modal's Save,
+        so any non-save path (which never calls this endpoint) leaves status Pending."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            # mark_ai_accepted omitted
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note", "the reclassify still applies")
+        self.assertEqual(r1.ai_suggestion_status, "Pending",
+                         "without the flag the status must NOT flip (cancel-safety)")
+
+    def test_restructure_without_flag_leaves_status_unflipped(self):
+        """R5 (regression): the existing no-flag shape writes NOTHING to
+        ai_suggestion_status -- it stays at its prior falsy default (Frappe stores an
+        unset Select as ""), never flipped to "Accepted"."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+        )
+        self.assertTrue(result["ok"])
+        status = self._get_doc(1).ai_suggestion_status
+        self.assertFalse(status, "a plain restructure must leave ai_suggestion_status falsy")
+        self.assertNotEqual(status, "Accepted",
+                            "a plain restructure must NOT flip the status (opt-in flag only)")
+
 
 # ===========================================================================
 # Group 12: Finalized read-only freeze (Slice D1)
