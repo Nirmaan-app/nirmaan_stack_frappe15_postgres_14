@@ -317,6 +317,61 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-20 -- Phase 5 Slice 3a PRICING GRID SKELETON + PAGE COMPLETE -- FRONTEND, READ-ONLY, `SheetPricingPage.tsx` (NEW) + `PricingGrid.tsx` (NEW) + `PricingGrid.test.ts` (NEW) + `routesConfig.tsx` + `BoqHubPage.tsx` + `SheetCard.tsx` + `boqTypes.ts`, feat pending):**
+The FIRST on-screen pricing surface: a NEW hub-reached, READ-ONLY page (a 5th sibling wizard route) that opens a
+COMMITTED sheet, calls `get_priced_rows`, and renders the committed rows with their current saved rates + a basic
+priced/un-priced marker -- reusing the Slice-2 `reviewRender` helpers in a NEW grid component (design v1.3 Sec.4 path b
+-- it does NOT import/reuse/retune the ReviewTree component). NO editing (3b), NO Save/Export/Finalize (3c/5), NO
+backend, NO migrate.
+
+- **Route (`routesConfig.tsx`, additive).** `upload-boq/hub/:boqId/pricing/:sheetName` -> lazy
+  `@/pages/boq-wizard/SheetPricingPage` (exports `{ SheetPricingPage as Component }`). 5th wizard sibling; existing 4
+  routes unchanged. sheetName is `encodeURIComponent`'d on nav, RR v6 auto-decodes -> verbatim sheet_name.
+- **`SheetPricingPage.tsx` (NEW) -- shell mirrors SheetReviewPage.** `useParams(boqId, sheetName)`;
+  `useFrappeGetDoc<BOQsDoc>("BOQs", ...)` for the header; `useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  "...pricing.get_priced_rows", { boq_name, sheet_name }, boqId && sheetName ? undefined : null)`. Full-page spinner
+  while BOQs loads; inline loading (`data===undefined`) / error (`data===null`) for the grid; Back nav to the hub
+  (`/upload-boq/hub/:boqId`, entity-id convention -- never navigate(-1)). **Header = Back + title ONLY**
+  (`{boq_name} · V{version} · Pricing · committed v{commit_version}` + the sheet name); NO Save/Export buttons (nothing
+  to save read-only). A muted read-only note strip sets the expectation. **`editable` / `lock_info`** are read from the
+  payload and passed to PricingGrid as INERT reserved props (the future single-editor-lock hook for 3b; no lock logic).
+- **`PricingGrid.tsx` (NEW) -- the read-only grid.** Imports `computeDepths` / `resolveDescriptorValue` /
+  `renderDescriptorCell` / `ClassificationPill` from `./reviewRender` + `ROLE_LABELS` from `./boqTypes`. **Does NOT
+  import ReviewTree** (the locked path-b call) -- `FIXED_ROLE_DEDUPE` is therefore defined LOCALLY (a 2-role
+  `Set(["sl_no","description"])`, documented as a kept-in-sync mirror of ReviewTree's) and `INDENT_PX=20` is mirrored
+  locally. Mirrors ReviewTree's descriptor-render loop MINIMALLY: fixed anchors **Excel Row / Sl.No / Parent**
+  (parent's `source_row_number`, read-only -- muted "↑ N", NO scroll-to nav) **/ Classification** (`<ClassificationPill
+  cls={row.effective_classification} />`, NO chevron) **/ Description** (depth indent `paddingLeft = depth * INDENT_PX`
+  from `computeDepths`, with preamble/line_item styling), then `displayDescriptors = columnDescriptors.filter(d =>
+  !FIXED_ROLE_DEDUPE.has(d.role))` with header `${col} — ${ROLE_LABELS[role] ?? role}${d.area ? ' · '+area : ''}` and
+  body `resolveDescriptorValue(row, d)` -> `renderDescriptorCell(val)`. **Omitted (minimal read-only):** detail panel,
+  inline edit, reclassify, AI columns, restructure modal, remarks, search/filter, column-subset selector, collapse,
+  and the per-area header tint (area is shown in the label; `buildAreaColorMap` is ReviewTree-local/not exported, so
+  skipped to stay decoupled).
+- **PRICED/UN-PRICED MARKER (Q4 -- basic visual, IN for 3a).** Each RATE cell that carries a saved price renders a
+  subtle emerald tint + a small dot, driven SOLELY by the overlay's `priced_*` markers -- per-area
+  `priced_by_area[area][kind] === true` or scalar `priced_rate_<kind> === true` -- **NEVER a zero-check** (a committed
+  0.0 rate can be a valid priced value). Two PURE exported helpers do the derivation: `isRateDescriptor(d)` (rate cell
+  iff `value_field === "rate_by_area"` or in `{rate_supply,rate_install,rate_combined}`) + `isCellPriced(row, d)`. Only
+  RATE cells get a marker (amount/qty never). The rich review-flag layer ("needs a rate" / "won't compute") is Slice 4b.
+- **NEW types (`boqTypes.ts`, additive).** `PricedRow extends ReviewRow` (adds optional `priced_by_area` /
+  `priced_rate_supply` / `priced_rate_install` / `priced_rate_combined`) + `GetPricedRowsResponse` ({ rows: PricedRow[],
+  column_descriptors, commit_version, editable, lock_info }). `PricedRow extends ReviewRow` so the ReviewRow-typed
+  reviewRender helpers accept it with NO retyping. No existing type changed.
+- **Hub entry (`SheetCard.tsx` + `BoqHubPage.tsx`).** A committed-gated **Price** button on `SheetCard` -- a block
+  INDEPENDENT of the status branches (committed-ness is orthogonal to wizard_status), gated `committedState &&
+  onOpenPricing`, mirroring the Review/Edit affordance. New `onOpenPricing?: (sheetName: string) => void` prop
+  (SheetCard stays router-free). `BoqHubPage` adds `handleOpenPricing` (navigate to the pricing route) + passes
+  `onOpenPricing` to both card render sites. Every existing card button / handler / status branch UNCHANGED.
+- **Verification (observed, in-container).** Vitest **20/20 GREEN** (12 Slice-2 reviewRender + 8 NEW PricingGrid marker
+  tests, incl. the ZERO-RATE-IS-PRICED proof; Slice-2 suite unregressed). tsc error count **3178** (== baseline) with
+  **0** in the touched wizard files (filtered `boq-wizard|SheetPricingPage|PricingGrid|BoqHubPage|SheetCard|boqTypes|
+  routesConfig`). Vite build exit 0 (PWA **166** entries -- +2 lazy chunks for the page + grid). **Manual live-cert
+  pending Nitesh:** committed SheetCards show a Price button (non-committed don't); Price -> the pricing page loads +
+  renders rows/pills/depth/cells visually like the review screen; priced rate cells show the marker, un-priced don't
+  (0.0-priced reads priced); Back returns to the hub. **Slice 3a unblocks 3b (inline rate editing).** Full detail in
+  boq-upload-plan.md "Phase 5 Slice 3a".
+
 **Status (2026-06-20 -- Phase 5 Slice 2 SHARED-RENDER EXTRACTION + Vitest harness COMPLETE -- FRONTEND, `reviewRender.tsx` (NEW) + `reviewRender.test.ts` (NEW) + `vitest.config.ts` (NEW) + `ReviewTree.tsx` + `exportReviewCsv.ts` + `package.json`, feat pending):**
 Lifts four render helpers OUT of the ~2580-line `ReviewTree.tsx` into a NEW importable sibling module so the future
 pricing grid (Slice 3a, design v1.3 §4 path b) reuses them instead of duplicating ReviewTree. ZERO behaviour change,

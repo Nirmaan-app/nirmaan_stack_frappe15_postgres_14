@@ -1,6 +1,20 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 5 Slice 2 -- SHARED-RENDER EXTRACTION + Vitest harness -- FRONTEND, feat pending,
+**Last updated:** 2026-06-20 (Phase 5 Slice 3a -- PRICING GRID SKELETON + PAGE -- FRONTEND, READ-ONLY, feat pending,
+branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). The FIRST on-screen pricing surface: a NEW
+hub-reached, READ-ONLY page (5th sibling wizard route `upload-boq/hub/:boqId/pricing/:sheetName` ->
+`SheetPricingPage.tsx`) that opens a COMMITTED sheet, calls **`get_priced_rows`**, and renders the committed rows +
+current saved rates + a basic priced/un-priced marker, via a NEW **`PricingGrid.tsx`** that REUSES the Slice-2
+`reviewRender` helpers (design v1.3 Sec.4 path b -- NOT a ReviewTree retune). The priced marker is driven SOLELY by the
+overlay's `priced_*` fields (NEVER a zero-check; 0.0 can be priced) via two pure, unit-tested helpers
+(`isRateDescriptor`/`isCellPriced`). Hub entry = a committed-gated **Price** button on `SheetCard` (a block independent
+of the status branches, since committed-ness is orthogonal to wizard_status) + a new `onOpenPricing` prop +
+`handleOpenPricing` in `BoqHubPage`. NEW additive frontend types `PricedRow extends ReviewRow` +
+`GetPricedRowsResponse` (boqTypes.ts). NO editing (3b), NO Save/Export (3c/5); `editable`/`lock_info` threaded INERT
+(the 3b lock hook). NO backend / doctype / migrate. VERIFIED: Vitest 20/20 GREEN (12 Slice-2 + 8 new marker tests);
+tsc 3178 (== baseline), 0 in touched files; Vite build exit 0 (PWA 166 entries). Slice 3a unblocks 3b. Full detail in
+frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice 3a".)
+// prior: 2026-06-20 (Phase 5 Slice 2 -- SHARED-RENDER EXTRACTION + Vitest harness -- FRONTEND, feat pending,
 branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Lifted four render helpers out of the ~2580-line
 `ReviewTree.tsx` into a NEW importable sibling **`frontend/src/pages/boq-wizard/reviewRender.tsx`** so the future
 pricing grid (Slice 3a) reuses them instead of duplicating ReviewTree -- ZERO behaviour change, byte-identical move.
