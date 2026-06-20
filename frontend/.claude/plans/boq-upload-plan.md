@@ -16,7 +16,51 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Pricing-overlay read -- get_priced_rows (BACKEND, pure-read, 2026-06-20, feat pending, branch
+LATEST: Phase 5 Slice 2 -- SHARED-RENDER EXTRACTION + Vitest harness (FRONTEND, 2026-06-20, feat pending, branch
+feature/boq-phase-5). Lifts four render helpers OUT of the ~2580-line ReviewTree.tsx into a NEW importable sibling
+module **`reviewRender.tsx`** so the future pricing grid (Slice 3a) reuses them instead of duplicating ReviewTree.
+ZERO behaviour change, ZERO signature change (byte-identical move). This is the prerequisite for 3a (the pricing-grid
+build, design v1.3 §4 path b = reuse extracted review-screen render logic).
+- MOVED to `reviewRender.tsx` (byte-identical bodies): `computeDepths`, `resolveDescriptorValue`,
+  `renderDescriptorCell`, `ClassificationPill` (the 4 helpers) + their two dependencies `fmtNum` (renderDescriptorCell's
+  only caller) and `CLS_PILL_CLASSES` (the pill's colour map). **`CLS_LABELS` ALSO moved** -- it is needed by the pill,
+  so leaving it in ReviewTree would have made a CIRCULAR import (reviewRender->ReviewTree->reviewRender); moving it
+  breaks the cycle. fmtNum + CLS_PILL_CLASSES are module-private; computeDepths / resolveDescriptorValue /
+  renderDescriptorCell / ClassificationPill / CLS_LABELS are exported.
+- **`.tsx` not `.ts` (forced):** ClassificationPill contains JSX, which cannot live in a `.ts` file -- so the module is
+  `reviewRender.tsx`. Importers use the extensionless `./reviewRender` specifier, so nothing rippled. (The build prompt
+  illustratively said `.ts`; the JSX correctness fix to `.tsx` is the only deviation, byte-identical otherwise.)
+- TWO importers re-pointed: `ReviewTree.tsx` (removed the defs, imports the 5 symbols from `./reviewRender`; call sites
+  unchanged -- computeDepths x1, resolveDescriptorValue x4, renderDescriptorCell x1, ClassificationPill x1 JSX) and
+  `exportReviewCsv.ts` (re-points `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS` to `./reviewRender`; keeps
+  `FIXED_ROLE_DEDUPE` from ReviewTree, which did NOT move). No third importer exists (SheetReviewPage imports the
+  ReviewTree COMPONENT only). No re-export shims.
+- **VITEST = the repo's FIRST frontend unit-test harness** (recon confirmed none existed -- only a vestigial Cypress
+  spec). Added: `vitest` devDep (resolved **4.1.9**), `test`/`test:watch` package.json scripts, a STANDALONE
+  `vitest.config.ts` (kept separate from the production vite.config.ts; re-declares the React plugin for the automatic
+  JSX runtime + the `@`->src alias; `environment: 'node'` -- the 3 pure helpers need no DOM).
+- **CHARACTERIZATION-BEFORE-EXTRACTION (the safety method, the whole point of the slice ordering):** the recon
+  established the design-doc claim "the review screen's ~205 tests are the regression gate" is FALSE (those are BACKEND
+  Python tests; nothing touched these frontend functions). So: (Step 1) wrote `reviewRender.test.ts` importing the 3
+  pure helpers FROM ReviewTree.tsx as-they-were (renderDescriptorCell temp-exported), ran GREEN against the CURRENT
+  code -> captured today's behaviour as the golden baseline; (Step 2) moved the code, re-pointed the test import to
+  `./reviewRender`, re-ran the SAME assertions GREEN. The pre/post parity IS the behaviour-preservation proof. (One
+  golden value was a mis-prediction -- a row with a MISSING parent resolves to depth 1, not 0, because computeDepths
+  walks the absent parent as the depth-0 root; the TEST was corrected to the actual current behaviour, per Step 1c.)
+- COVERAGE (12 tests, all GREEN both runs): computeDepths (nested chain depths 0/1/2; missing-parent -> 1; cycle -> 0);
+  resolveDescriptorValue (scalar/value_key-null; nested per-area; missing per-area key -> undefined; null top field ->
+  undefined); renderDescriptorCell (null/undefined -> ""; integer -> "220"; decimal -> fmtNum "150.5"; 0 -> "0"; string
+  verbatim). **ClassificationPill is NOT unit-tested** (returns JSX; would need jsdom/@testing-library, deliberately
+  not added) -- it is covered by the manual live-cert (visual eyeball).
+- **STALE-DOC CORRECTION:** the pill colour map is `CLS_PILL_CLASSES`, NOT `CLS_COLORS` (which does not exist anywhere;
+  the old hex `CLS_COLORS` from B1.1b-i was replaced by `CLS_PILL_CLASSES` in the B2b restyle). The stale `CLS_COLORS`
+  reference in frontend/CLAUDE.md is corrected this slice.
+- VERIFICATION (observed, in-container): Vitest 12/12 GREEN pre-extraction (import from ReviewTree) AND 12/12 GREEN
+  post-extraction (import from reviewRender); tsc error count **3178** (== baseline) with **0** errors in the touched
+  wizard files (filtered `boq-wizard|ReviewTree|reviewRender|exportReviewCsv|boqTypes`); Vite build exit 0 (`built in
+  4m 31s`, PWA 164 entries). Manual live-cert pending Nitesh (pills/cell values/row depth render identically). Full
+  frontend detail in frontend/CLAUDE.md; backend root CLAUDE.md minimal-touch.
+// prior: Phase 5 Pricing-overlay read -- get_priced_rows (BACKEND, pure-read, 2026-06-20, feat pending, branch
 feature/boq-phase-5). The COMPOSING read between Slice 1b and the editor: a NEW whitelisted endpoint
 `get_priced_rows(boq_name, sheet_name)` in `api/boq/wizard/pricing.py` that returns the committed rows for a sheet WITH
 the current saved prices merged in -- so the (future) pricing grid consumes ONE already-merged structure instead of

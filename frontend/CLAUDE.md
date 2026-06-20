@@ -317,6 +317,54 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-20 -- Phase 5 Slice 2 SHARED-RENDER EXTRACTION + Vitest harness COMPLETE -- FRONTEND, `reviewRender.tsx` (NEW) + `reviewRender.test.ts` (NEW) + `vitest.config.ts` (NEW) + `ReviewTree.tsx` + `exportReviewCsv.ts` + `package.json`, feat pending):**
+Lifts four render helpers OUT of the ~2580-line `ReviewTree.tsx` into a NEW importable sibling module so the future
+pricing grid (Slice 3a, design v1.3 §4 path b) reuses them instead of duplicating ReviewTree. ZERO behaviour change,
+ZERO signature change (byte-identical move). Adds the repo's FIRST frontend unit-test harness as the extraction's
+safety net.
+
+- **`reviewRender.tsx` (NEW) -- the shared-render home.** Holds the byte-identical bodies of `computeDepths`,
+  `resolveDescriptorValue`, `renderDescriptorCell`, `ClassificationPill` + their deps `fmtNum` (private) and
+  `CLS_PILL_CLASSES` (private) and `CLS_LABELS`. **Exports:** `computeDepths`, `resolveDescriptorValue`,
+  `renderDescriptorCell`, `ClassificationPill`, `CLS_LABELS`. **`.tsx` not `.ts` (forced):** ClassificationPill returns
+  JSX, illegal in a `.ts` file; importers use the extensionless `./reviewRender` specifier so nothing ripples. Imports
+  only `cn` (`@/lib/utils`) + the `ReviewRow`/`ColumnDescriptor` types (`./boqTypes`) -- a tiny graph (no React import;
+  automatic JSX runtime, same as ReviewTree).
+- **`CLS_LABELS` moved too (circular-import avoidance, the one design call here).** `ClassificationPill` needs
+  `CLS_LABELS`; had it stayed in ReviewTree, `reviewRender` -> ReviewTree -> reviewRender would be circular. Moving
+  `CLS_LABELS` into reviewRender breaks the cycle. BOTH importers (`ReviewTree.tsx` for its ~6 label sites,
+  `exportReviewCsv.ts`) now import `CLS_LABELS` from `./reviewRender`. `FIXED_ROLE_DEDUPE` did NOT move (it is
+  ReviewTree-local + exportReviewCsv-only) -- exportReviewCsv still imports it from `./ReviewTree`.
+- **Importers re-pointed (no third importer; `SheetReviewPage` imports the ReviewTree COMPONENT only).** `ReviewTree.tsx`
+  removed the 7 moved defs, imports the 5 symbols from `./reviewRender`; all call sites unchanged (computeDepths x1,
+  resolveDescriptorValue x4, renderDescriptorCell x1, ClassificationPill x1 JSX). `exportReviewCsv.ts` re-points
+  `resolveDescriptorValue`/`computeDepths`/`CLS_LABELS` to `./reviewRender`, keeps `FIXED_ROLE_DEDUPE` from
+  `./ReviewTree`. No re-export shims.
+- **Vitest harness (repo's FIRST frontend unit tests).** `vitest` (4.1.9) devDep; `test` ("vitest run") + `test:watch`
+  scripts; a STANDALONE `vitest.config.ts` kept separate from the production `vite.config.ts` (re-declares
+  `@vitejs/plugin-react` for the automatic JSX runtime + the `@`->src alias; `environment: 'node'` -- the 3 pure
+  helpers need no DOM). **Run it:** `yarn test` (in-container, per the env runbook). Recon confirmed no prior unit
+  harness existed (only a vestigial Cypress spec).
+- **Characterization-before-extraction (the safety method).** The design-doc claim that the backend's ~205
+  `test_review_screen.py` tests gate this extraction is FALSE -- those are Python tests of `get_review_rows`; they never
+  touch these frontend functions. So: Step 1 wrote 12 golden tests importing the 3 pure helpers FROM ReviewTree
+  as-they-were (renderDescriptorCell temp-exported), GREEN against CURRENT code; Step 2 moved the code + re-pointed the
+  test import to `./reviewRender`, SAME 12 assertions GREEN. Pre/post parity = the behaviour-preservation proof. (One
+  golden value was corrected per Step 1c: a row with a MISSING parent resolves to depth 1, not 0 -- computeDepths walks
+  the absent parent as the depth-0 root -- the TEST was fixed to the actual current behaviour, NOT the function.)
+- **Coverage (12 tests):** computeDepths (nested 0/1/2; missing-parent -> 1; cycle -> 0); resolveDescriptorValue
+  (scalar; nested per-area; missing per-area key -> undefined; null top -> undefined); renderDescriptorCell
+  (null/undefined -> ""; integer "220"; decimal fmtNum "150.5"; 0 -> "0"; string verbatim). **`ClassificationPill` is
+  NOT unit-tested** -- it returns JSX and would need jsdom/@testing-library, deliberately NOT added; it is covered by
+  the manual live-cert (visual eyeball of the review screen).
+- **Verification (observed, in-container).** Vitest **12/12 GREEN** pre-extraction (import from ReviewTree) AND **12/12
+  GREEN** post-extraction (import from reviewRender). tsc error count **3178** (== baseline) with **0** errors in the
+  touched wizard files (filtered `boq-wizard|ReviewTree|reviewRender|exportReviewCsv|boqTypes`). Vite build exit 0
+  (`built in 4m 31s`, PWA 164 entries). **Manual live-cert pending Nitesh:** on a committed/parsed review screen,
+  confirm (a) classification PILLS identical (colours/labels), (b) descriptor CELL values identical (number formatting,
+  blanks), (c) row DEPTH/indentation unchanged. EXPECTED visually identical; if different, the move was not
+  byte-identical. **Slice 2 unblocks 3a (the pricing grid).** Full detail in boq-upload-plan.md "Phase 5 Slice 2".
+
 **Minimal touch (2026-06-20 -- Phase 5 Pricing-overlay read `get_priced_rows`, BACKEND ONLY, feat pending):** Added
 the composing pricing read -- `api/boq/wizard/pricing.py:get_priced_rows(boq_name, sheet_name)` merges the committed
 rows (`get_committed_rows`) with the current saved prices (`get_sheet_pricing`) into ONE structure (rate cells stamped
@@ -1310,7 +1358,7 @@ from URL param (survives refresh; not from the transient store). Module export:
 **Slice B1.1b-i review screen conventions (feat 3e846ba1):**
 
 - **ColumnDescriptor type** (`boqTypes.ts`): `{col, role, area: string|null, value_field, value_key: string|null, rate_subkey: string|null}`. Added alongside `GetReviewRowsResponse.column_descriptors: ColumnDescriptor[]`.
-- **ClassificationPill** (replaces B1's ClassificationBadge): left-bordered pill using locked §2 hex map. Inline `style={{ borderLeft: "3px solid {color}" }}` + `bg-muted/60` class. Hex map constant `CLS_COLORS` in `ReviewTree.tsx`: preamble #888780, line_item #378ADD, note #EF9F27, subtotal_marker #1D9E75, spacer #D3D1C7, header_repeat #94A3B8 (neutral; not in locked map). Fallback: unknown cls → #94A3B8. `CLS_LABELS` parallel constant for label text.
+- **ClassificationPill** (replaces B1's ClassificationBadge): left-bordered pill using locked §2 hex map. Inline `style={{ borderLeft: "3px solid {color}" }}` + `bg-muted/60` class. Hex map constant `CLS_COLORS` in `ReviewTree.tsx`: preamble #888780, line_item #378ADD, note #EF9F27, subtotal_marker #1D9E75, spacer #D3D1C7, header_repeat #94A3B8 (neutral; not in locked map). Fallback: unknown cls → #94A3B8. `CLS_LABELS` parallel constant for label text. **SUPERSEDED (B2b restyle, then Phase 5 Slice 2):** the hex `CLS_COLORS` map was replaced by the Tailwind-class map `CLS_PILL_CLASSES` in the B2b pill restyle (`CLS_COLORS` no longer exists). As of Slice 2, `ClassificationPill` + `CLS_PILL_CLASSES` + `CLS_LABELS` live in `reviewRender.tsx`, not `ReviewTree.tsx`.
 - **FIXED_ROLE_DEDUPE** (`Set(["sl_no","description"])`): these roles are excluded from the descriptor-driven column list. They render as fixed anchor columns (Sl.No = `sl_no_value`, Description = tree column). Other roles appear as descriptor-driven columns.
 - **Anchor letters**: `slNoLetter` and `descriptionLetter` are extracted from `columnDescriptors` BEFORE deduplication (via `.find(d => d.role === "sl_no")?.col`). Used to render "Sl.No (A)" / "Description (B)" on anchor headers. Falls back to plain "Sl.No" / "Description" when the descriptor is absent (sheet not configured or role not mapped).
 - **resolveDescriptorValue(row, d)**: dynamic field access via `(row as unknown as Record<string, unknown>)[d.value_field]`. The `as unknown` intermediate cast is required -- tsc rejects direct cast from `ReviewRow` to `Record<string, unknown>` without it (TS2352 strict overlap check). Walks value_field → value_key → rate_subkey; returns `undefined` at any missing level.

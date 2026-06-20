@@ -1,6 +1,21 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 5 PRICING-OVERLAY READ -- `get_priced_rows` -- BACKEND, pure-read, feat pending,
+**Last updated:** 2026-06-20 (Phase 5 Slice 2 -- SHARED-RENDER EXTRACTION + Vitest harness -- FRONTEND, feat pending,
+branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Lifted four render helpers out of the ~2580-line
+`ReviewTree.tsx` into a NEW importable sibling **`frontend/src/pages/boq-wizard/reviewRender.tsx`** so the future
+pricing grid (Slice 3a) reuses them instead of duplicating ReviewTree -- ZERO behaviour change, byte-identical move.
+MOVED: `computeDepths`, `resolveDescriptorValue`, `renderDescriptorCell`, `ClassificationPill` (+ private deps `fmtNum`,
+`CLS_PILL_CLASSES`, and `CLS_LABELS` -- moved to avoid a circular import since the pill needs it). `.tsx` not `.ts`
+(ClassificationPill is JSX). Re-pointed the two importers (`ReviewTree.tsx`, `exportReviewCsv.ts`); no third importer.
+**Added the repo's FIRST frontend unit-test harness: Vitest** (4.1.9) + `test`/`test:watch` scripts + a standalone
+`vitest.config.ts` (node env; React plugin for automatic JSX + `@` alias). Method = characterization-before-extraction:
+12 golden tests written against the CURRENT code (GREEN), then re-run against the moved module (GREEN) -- the pre/post
+parity is the behaviour-preservation proof (the design-doc claim that the backend's ~205 `test_review_screen.py` tests
+gate this was FALSE -- they never touch these frontend functions). `ClassificationPill` is manual-cert (JSX; no DOM
+test added). VERIFIED: Vitest 12/12 GREEN both runs; tsc 3178 errors (== baseline), 0 in touched wizard files; Vite
+build exit 0 (PWA 164 entries). NO backend / doctype / migrate. Full detail in frontend/CLAUDE.md + boq-upload-plan.md
+"Phase 5 Slice 2".)
+// prior: 2026-06-20 (Phase 5 PRICING-OVERLAY READ -- `get_priced_rows` -- BACKEND, pure-read, feat pending,
 branch `feature/boq-phase-5`. The COMPOSING read between Slice 1b and the editor: a NEW whitelisted endpoint
 **`get_priced_rows(boq_name, sheet_name)`** in `api/boq/wizard/pricing.py` returning the committed rows for a sheet WITH
 the current saved prices merged in -- so the (future) pricing grid consumes ONE already-merged structure instead of
