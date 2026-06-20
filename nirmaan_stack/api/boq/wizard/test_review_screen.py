@@ -140,6 +140,105 @@ def _minimal_row(
     }
 
 
+# ---------------------------------------------------------------------------
+# Hermetic COMMITTED-tier fixture (Phase 5): a minimal current committed sheet
+# (1 BoQ Sheet + a Preamble root + 2 Line Item children + per-area children),
+# satisfying the boq_nodes controller's rules. Shared by the get_committed_rows
+# positives (Slice 1a fixup) AND the pricing endpoints (Slice 1b, test_pricing.py
+# imports these). Shaped like the real multi-area 'Electrical ' sheet (Phase 1 /
+# Phase 2; rate columns E / H) so the multi-area paths are genuinely exercised.
+# ---------------------------------------------------------------------------
+
+# The committed BoQ Sheet column_role_map mirroring 'Electrical ' (D/E/F = Phase 1
+# qty/rate/amount; G/H/I = Phase 2). E + H are the per-area rate columns.
+COMMITTED_FIXTURE_ROLE_MAP = {
+    "A": {"role": "sl_no", "area": None},
+    "B": {"role": "description", "area": None},
+    "C": {"role": "unit", "area": None},
+    "D": {"role": "qty", "area": "Phase 1"},
+    "E": {"role": "rate_combined_by_area", "area": "Phase 1"},
+    "F": {"role": "amount_total_by_area", "area": "Phase 1"},
+    "G": {"role": "qty", "area": "Phase 2"},
+    "H": {"role": "rate_combined_by_area", "area": "Phase 2"},
+    "I": {"role": "amount_install_by_area", "area": "Phase 2"},
+}
+
+
+def build_committed_sheet_fixture(boq_name: str, sheet_name: str, commit_version: int = 1) -> dict:
+    """Insert a minimal VALID current committed sheet for (boq_name, sheet_name): 1 BoQ Sheet
+    (is_current=1, commit_version, the role map) + 1 Preamble root + 2 Line Item children
+    (each with Phase 1 / Phase 2 per-area children). sheet_name stored VERBATIM (#152).
+    Returns {bqsh, preamble, line_items:[...]}. Caller owns the BOQs + cleanup_committed_fixture."""
+    now = frappe.utils.now()
+
+    bs = frappe.new_doc("BoQ Sheet")
+    bs.boq = boq_name
+    bs.sheet_name = sheet_name  # VERBATIM (#152)
+    bs.sheet_order = 1
+    bs.treat_as = "data"
+    bs.header_row = 3
+    bs.header_row_count = 2
+    bs.column_role_map = COMMITTED_FIXTURE_ROLE_MAP   # dict JSON -- safe at insert
+    bs.column_headers = {}
+    bs.area_dimensions = json.dumps(["Phase 1", "Phase 2"])  # list-JSON -> json.dumps
+    bs.commit_version = commit_version
+    bs.is_current = 1
+    bs.committed_at = now
+    bs.insert(ignore_permissions=True)
+
+    pre = frappe.new_doc("BOQ Nodes")
+    pre.sheet = bs.name
+    pre.node_type = "Preamble"
+    pre.row_class = "preamble"
+    pre.level = 1
+    pre.description = "LT CABLES"
+    pre.code = "1.1.0"
+    pre.sort_order = 0
+    pre.source_row_number = 6
+    pre.commit_version = commit_version
+    pre.is_current = 1
+    pre.committed_at = now
+    pre.insert(ignore_permissions=True)
+
+    line_items = []
+    for sort_order, source_row, code, qty in [(1, 34, "1.1.2", 220.0), (2, 35, "1.1.3", 40.0)]:
+        li = frappe.new_doc("BOQ Nodes")
+        li.sheet = bs.name
+        li.node_type = "Line Item"
+        li.row_class = "line_item"
+        li.description = f"cable {code}"
+        li.code = code
+        li.parent_node = pre.name
+        li.qty = qty
+        li.unit = "Mtr"
+        li.source_row_number = source_row
+        li.sort_order = sort_order
+        li.commit_version = commit_version
+        li.is_current = 1
+        li.committed_at = now
+        # per-area children -- Phase 1 carries the qty; Phase 2 is a real zero-qty area.
+        li.append("qty_by_area", {"area_name": "Phase 1", "qty": qty})
+        li.append("qty_by_area", {"area_name": "Phase 2", "qty": 0.0})
+        li.insert(ignore_permissions=True)
+        line_items.append(li.name)
+
+    frappe.db.commit()
+    return {"bqsh": bs.name, "preamble": pre.name, "line_items": line_items}
+
+
+def cleanup_committed_fixture(boq_name: str) -> None:
+    """Raw-delete the committed-tier fixture rows for a boq (pricing + per-area children +
+    nodes + sheet). Raw delete bypasses on_trash (fast, no controller). Call before
+    _cleanup_project (which deletes the BOQs + project)."""
+    node_names = frappe.get_all("BOQ Nodes", filters={"boq": boq_name}, pluck="name")
+    if node_names:
+        frappe.db.delete("BOQ Node Qty By Area", {"parent": ["in", node_names]})
+    frappe.db.delete("BoQ Cell Pricing", {"boq": boq_name})
+    frappe.db.delete("BOQ Nodes", {"boq": boq_name})
+    frappe.db.delete("BoQ Sheet", {"boq": boq_name})
+    frappe.db.commit()
+
+
 # ===========================================================================
 # Group 1: resolve_effective -- pure Python
 # ===========================================================================
@@ -3691,8 +3790,6 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
 # Phase 5 Slice 1a: get_committed_rows (committed-tier read adapter)
 # ===========================================================================
 
-_CR_BOQ = "BOQ-26-00145"        # the real committed multi-area workbook (recon-verified)
-_CR_SHEET = "Electrical "       # VERBATIM trailing space (#152)
 # Draft-only fields that MUST be absent from the AI-free/minimal committed contract.
 _CR_DRAFT_ONLY_KEYS = (
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
@@ -3705,18 +3802,16 @@ _CR_DRAFT_ONLY_KEYS = (
 class TestGetCommittedRows(FrappeTestCase):
     """get_committed_rows -- the committed-tier read adapter (Phase 5 Slice 1a).
 
-    POSITIVE cases run against the real CURRENT-committed multi-area sheet
-    BOQ-26-00145 / 'Electrical ' (read-only; skipped if that data is not present in
-    this DB, so the suite stays CI-safe). The NEGATIVE / empty cases use hermetic
-    throwaway fixtures (no committed nodes needed). The live render on BOQ-26-00145
-    is the owner's manual verification (A12).
+    All cases now run on a HERMETIC committed-node fixture (build_committed_sheet_fixture)
+    -- a minimal multi-area current committed sheet (Phase 1 / Phase 2; rate cols E / H) --
+    so the 5 positives EXECUTE everywhere (the Slice-1b fixup; previously skip-if-absent
+    against live BOQ-26-00145). NEGATIVE / empty cases reuse the same BOQs with an
+    uncommitted sheet name.
     """
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        # Hermetic fixture for the empty/uncommitted-path test (an existing BOQs with
-        # NO committed BoQ Sheet / nodes).
         cls.test_project = _make_project()
         boq = frappe.new_doc("BOQs")
         boq.project = cls.test_project.name
@@ -3724,34 +3819,22 @@ class TestGetCommittedRows(FrappeTestCase):
         boq.tax_treatment = "Pre-tax"
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
-        cls.uncommitted_boq = boq.name
+        cls.boq_name = boq.name
+        cls.uncommitted_boq = boq.name  # same BOQs; an un-committed sheet name -> empty path
+        cls.sheet_name = "Electrical Fix "  # VERBATIM trailing space (#152)
+        cls.fixture = build_committed_sheet_fixture(cls.boq_name, cls.sheet_name, commit_version=1)
 
     @classmethod
     def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq_name)
         _cleanup_project(cls.test_project.name)
         super().tearDownClass()
 
-    # -- live-data guard ----------------------------------------------------
-
-    def _committed_sheet_present(self) -> bool:
-        return bool(frappe.db.get_value(
-            "BoQ Sheet",
-            {"boq": _CR_BOQ, "sheet_name": _CR_SHEET, "is_current": 1},
-            "name",
-        ))
-
-    def _require_live(self):
-        if not self._committed_sheet_present():
-            self.skipTest(
-                f"No current committed sheet {_CR_BOQ}/'{_CR_SHEET}' in this DB; "
-                "live committed-read assertions skipped (owner manual-verifies on dev data)."
-            )
-
-    # -- NEGATIVE: guards (hermetic) ---------------------------------------
+    # -- NEGATIVE: guards ---------------------------------------------------
 
     def test_missing_boq_name_throws(self):
         with self.assertRaises(frappe.ValidationError):
-            get_committed_rows(sheet_name=_CR_SHEET)
+            get_committed_rows(sheet_name=self.sheet_name)
 
     def test_missing_sheet_name_throws(self):
         with self.assertRaises(frappe.ValidationError):
@@ -3763,19 +3846,18 @@ class TestGetCommittedRows(FrappeTestCase):
             get_committed_rows(boq_name="NOPE-DOES-NOT-EXIST", sheet_name="X")
 
     def test_uncommitted_sheet_returns_empty_contract(self):
-        # An existing BOQs with no current committed BoQ Sheet -> graceful empty lists
-        # (NOT a throw) -- mirrors get_review_rows' empty-config -> [].
-        res = get_committed_rows(boq_name=self.uncommitted_boq, sheet_name="Whatever Sheet")
+        # An existing BOQs with no current committed BoQ Sheet at that name -> graceful empty
+        # lists (NOT a throw) -- mirrors get_review_rows' empty-config -> [].
+        res = get_committed_rows(boq_name=self.uncommitted_boq, sheet_name="Uncommitted Sheet ZZ")
         self.assertEqual(res, {"rows": [], "column_descriptors": []})
 
-    # -- POSITIVE: live committed data (BOQ-26-00145 / 'Electrical ') -------
+    # -- POSITIVE: hermetic committed fixture (always runs) -----------------
 
     def test_column_descriptors_are_pure_reuse_of_builder(self):
         # The COLUMN half is a pure reuse: the endpoint's descriptors must equal
         # _build_column_descriptors run on the committed BoQ Sheet's own config.
-        self._require_live()
         sheet = frappe.db.get_value(
-            "BoQ Sheet", {"boq": _CR_BOQ, "sheet_name": _CR_SHEET, "is_current": 1},
+            "BoQ Sheet", {"boq": self.boq_name, "sheet_name": self.sheet_name, "is_current": 1},
             ["column_role_map", "column_headers"], as_dict=True,
         )
         crm = sheet["column_role_map"]
@@ -3783,19 +3865,18 @@ class TestGetCommittedRows(FrappeTestCase):
         crm = crm if isinstance(crm, dict) else (json.loads(crm) if crm else {})
         chd = chd if isinstance(chd, dict) else (json.loads(chd) if chd else {})
         expected = _build_column_descriptors({"column_role_map": crm, "column_headers": chd})
-        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         self.assertEqual(res["column_descriptors"], expected,
                          "committed-read descriptors must equal the builder's output verbatim")
         # And the descriptor set is non-empty + multi-area (rate columns per area).
         rate_descs = [d for d in res["column_descriptors"] if d["value_field"] == "rate_by_area"]
         self.assertGreaterEqual(len(rate_descs), 2,
-                                "Electrical is multi-area -> >=2 per-area rate descriptors")
+                                "multi-area fixture -> >=2 per-area rate descriptors")
 
     def test_rows_carry_redrafted_keys_and_per_area_nesting(self):
-        self._require_live()
-        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         rows = res["rows"]
-        self.assertTrue(rows, "committed Electrical must return rows")
+        self.assertTrue(rows, "committed fixture must return rows")
 
         # Money re-key: rows carry the DRAFT names, NOT the committed node names.
         sample = rows[0]
@@ -3818,30 +3899,28 @@ class TestGetCommittedRows(FrappeTestCase):
             self.assertNotIsInstance(val, dict, "qty_by_area must be flat {area: number}")
 
     def test_hierarchy_synthesized_root_and_child(self):
-        self._require_live()
-        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         rows = res["rows"]
         by_index = {r["row_index"]: r for r in rows}
 
         # A root row (no parent) -> effective_parent_index is None (the null root sentinel,
         # NOT a dangling index, NOT -1).
         roots = [r for r in rows if r["effective_parent_index"] is None]
-        self.assertTrue(roots, "Electrical has at least one committed root node")
+        self.assertTrue(roots, "fixture has at least one committed root node (the preamble)")
 
         # A child row -> its effective_parent_index resolves to a real row in the same set
         # (parent_node was correctly mapped to the parent's row_index/sort_order).
         children = [r for r in rows if r["effective_parent_index"] is not None]
-        self.assertTrue(children, "Electrical has parented nodes")
+        self.assertTrue(children, "fixture has parented line-item nodes")
         child = children[0]
         self.assertIn(child["effective_parent_index"], by_index,
                       "effective_parent_index must point at a real row_index in the set")
-        # row_index is the sort_order analog: 0-based, unique, contiguous-ish (sorted asc).
+        # row_index is the sort_order analog: 0-based, unique, ordered asc.
         self.assertEqual([r["row_index"] for r in rows], sorted(r["row_index"] for r in rows),
                          "rows are ordered by sort_order (the row_index analog)")
 
     def test_classification_from_row_class(self):
-        self._require_live()
-        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         valid = {"line_item", "preamble", "note", "spacer", "subtotal_marker", "header_repeat"}
         for r in res["rows"]:
             self.assertEqual(r["classification"], r["effective_classification"],
@@ -3851,8 +3930,7 @@ class TestGetCommittedRows(FrappeTestCase):
 
     def test_draft_only_fields_omitted(self):
         # The committed contract is AI-free + minimal -- no draft-only keys leak through.
-        self._require_live()
-        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         for r in res["rows"]:
             for k in _CR_DRAFT_ONLY_KEYS:
                 self.assertNotIn(k, r, f"draft-only field {k} must be omitted from committed rows")
