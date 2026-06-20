@@ -13,6 +13,7 @@ import {
   computeAmount,
   buildRateCell,
   nextCell,
+  deriveSaveStatus,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -209,5 +210,26 @@ describe("nextCell", () => {
   it("Enter (mapped to 'down') moves down and stops at the bottom row", () => {
     expect(nextCell({ rowIndex: 0, colIndex: 2 }, "down", R, C)).toEqual({ rowIndex: 1, colIndex: 2 });
     expect(nextCell({ rowIndex: 2, colIndex: 2 }, "down", R, C)).toBeNull();
+  });
+});
+
+// ── Slice 3c: deriveSaveStatus (the save-status chip state) ──────────────────────
+describe("deriveSaveStatus", () => {
+  const base = { inFlight: 0, hasUnsaved: false, hasSaved: false, hasError: false };
+
+  it("error wins over everything", () => {
+    expect(deriveSaveStatus({ ...base, hasError: true, inFlight: 1, hasUnsaved: true })).toBe("failed");
+  });
+  it("in-flight (saving) wins over unsaved/saved when no error", () => {
+    expect(deriveSaveStatus({ ...base, inFlight: 2, hasUnsaved: true, hasSaved: true })).toBe("saving");
+  });
+  it("unsaved drafts (not saving, no error) -> unsaved", () => {
+    expect(deriveSaveStatus({ ...base, hasUnsaved: true, hasSaved: true })).toBe("unsaved");
+  });
+  it("a prior success with nothing pending -> saved", () => {
+    expect(deriveSaveStatus({ ...base, hasSaved: true })).toBe("saved");
+  });
+  it("nothing happened yet -> idle", () => {
+    expect(deriveSaveStatus(base)).toBe("idle");
   });
 });

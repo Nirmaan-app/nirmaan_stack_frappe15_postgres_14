@@ -30,11 +30,27 @@
  * existing commitRate; the committedAttemptRef dedupe absorbs the trailing onBlur). The
  * active cell shows a focus ring + scrolls into view (scroll-mt clears the sticky header).
  *
- * Still OUT (later slices): subtotal roll-up (sum of children), auto-save/debounce +
- * force-save (3c), the single-editor lock (editable/lock_info stay INERT here), remarks +
- * the review-flag layer (4a/4b), Excel write-back (5), finalize/revert (6).
+ * Slice 3c -- AUTO-SAVE + FORCE-SAVE. A per-cell 1000ms lodash debounce auto-commits a
+ * typed-but-uncommitted rate (no blur/Enter/move needed) via the EXISTING commitRate; a
+ * gesture commit cancels that cell's pending debounce (no same-cell race), and pending saves
+ * flush on unmount (no loss on navigate-away). The grid is a forwardRef component exposing
+ * an imperative flush() (the page's "Save now" button) + an onDirtyChange signal (the page's
+ * "Unsaved changes" status). Save mechanism unchanged (still commitRate -> onSaveRate ->
+ * save_cell_price -> mutate).
+ *
+ * Still OUT (later slices): subtotal roll-up (sum of children), the single-editor lock
+ * (editable/lock_info stay INERT here), remarks + the review-flag layer (4a/4b), Excel
+ * write-back (5), finalize/revert (6).
  */
-import { useRef, useState, type KeyboardEvent } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import { debounce, type DebouncedFunc } from "lodash";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
@@ -223,6 +239,27 @@ export function nextCell(
 // parseFloat (in commitRate) tolerates the partial forms ("-"/"." -> NaN -> 0).
 const DECIMAL_IN_PROGRESS = /^-?\d*\.?\d*$/;
 
+// Slice 3c -- auto-save debounce interval (ms): persist a typed-but-uncommitted rate this
+// long after the last keystroke, with no blur/Enter/move gesture needed.
+const AUTOSAVE_MS = 1000;
+
+// Slice 3c -- the save-status chip state, derived purely from the page's save bookkeeping.
+// Priority: a live error wins; then an in-flight save; then unsaved drafts; then a prior
+// success; else idle. Pure -- unit-tested in PricingGrid.test.ts.
+export type SaveStatus = "idle" | "unsaved" | "saving" | "saved" | "failed";
+export function deriveSaveStatus(s: {
+  inFlight: number;
+  hasUnsaved: boolean;
+  hasSaved: boolean; // a save has succeeded at least once (lastSavedAt set)
+  hasError: boolean;
+}): SaveStatus {
+  if (s.hasError) return "failed";
+  if (s.inFlight > 0) return "saving";
+  if (s.hasUnsaved) return "unsaved";
+  if (s.hasSaved) return "saved";
+  return "idle";
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -236,6 +273,11 @@ interface PricingGridProps {
    */
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   /**
+   * Slice 3c: surfaces "has uncommitted drafts" UP to the page (drives the "Unsaved
+   * changes" status). Called whenever the unsaved-drafts state flips.
+   */
+  onDirtyChange?: (hasUnsaved: boolean) => void;
+  /**
    * RESERVED for the future single-editor-lock slice. INERT here -- the grid does NOT gate
    * editing on these (the lock is a later slice). NOT destructured.
    */
@@ -243,7 +285,16 @@ interface PricingGridProps {
   lockInfo?: unknown;
 }
 
-export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGridProps) {
+/** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
+export interface PricingGridHandle {
+  /** Fire all pending debounced saves now + retry any remaining uncommitted draft. */
+  flush: () => void;
+}
+
+export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
+  { rows, columnDescriptors, onSaveRate, onDirtyChange },
+  ref,
+) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
   // shows instantly (live amount) until the save's refetch lands, then it is dropped so the
   // cell falls back to the refetched saved rate.
@@ -258,6 +309,13 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
   // Per-cell focusable element, keyed `${rowIndex}:${colIndex}` -- the <input> for a rate
   // cell, the <td> for every other cell. Used to .focus() the target on a keyboard move.
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
+  const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
+  // Latest draftRates + a latest-state "commit one cell" fn, so a debounced fire / flush
+  // reads CURRENT state at fire time (a captured value would be stale). Synced each render.
+  const draftRatesRef = useRef<Record<string, string>>({});
+  const autoSaveCellRef = useRef<(rowIndexField: number, col: string) => void>(() => {});
 
   // row_index -> row, for resolving a parent's Excel row number.
   const byIdx = new Map<number, PricedRow>(rows.map((r) => [r.row_index, r]));
@@ -289,9 +347,12 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
   // attempt (blur+Enter). Blank/NaN -> 0 (the endpoint coerces blank -> 0.0, still priced).
   const commitRate = (row: PricedRow, d: ColumnDescriptor, rawValue: string) => {
     if (!onSaveRate) return;
+    const key = cellKey(row.row_index, d.col);
+    // Slice 3c: a commit (gesture OR the debounce firing) cancels this cell's pending
+    // auto-save so a later timer can't fire a different/stale value -> no same-cell race.
+    debouncersRef.current.get(key)?.cancel();
     const saved = savedRateStr(row, d);
     if (rawValue === saved) return; // unchanged vs the saved value -> nothing to do
-    const key = cellKey(row.row_index, d.col);
     if (committedAttemptRef.current[key] === rawValue) return; // dedupe blur+Enter same value
     committedAttemptRef.current[key] = rawValue;
     const num = parseFloat(rawValue);
@@ -311,6 +372,33 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
         // Clear the dedupe so a retry of the same value is allowed.
         delete committedAttemptRef.current[key];
       });
+  };
+
+  // Slice 3c: keep the latest-state commit closure + draft snapshot fresh for the
+  // debounce/flush (refs avoid stale captures). Runs after every render.
+  useEffect(() => {
+    draftRatesRef.current = draftRates;
+    autoSaveCellRef.current = (rowIndexField, col) => {
+      const r = rows.find((x) => x.row_index === rowIndexField);
+      const dd = displayDescriptors.find((x) => x.col === col);
+      if (!r || !dd) return;
+      const draft = draftRates[cellKey(r.row_index, dd.col)];
+      if (draft === undefined) return; // nothing pending for this cell
+      commitRate(r, dd, draft);
+    };
+  });
+
+  // Schedule (or restart) the per-cell 1000ms debounced auto-save. The fire reads the
+  // latest draft via autoSaveCellRef; no-ops when the grid is read-only (no onSaveRate).
+  const scheduleAutoSave = (row: PricedRow, d: ColumnDescriptor) => {
+    if (!onSaveRate) return;
+    const key = cellKey(row.row_index, d.col);
+    let deb = debouncersRef.current.get(key);
+    if (!deb) {
+      deb = debounce(() => autoSaveCellRef.current(row.row_index, d.col), AUTOSAVE_MS);
+      debouncersRef.current.set(key, deb);
+    }
+    deb();
   };
 
   // ── Slice 3b.2 nav model ───────────────────────────────────────────────────
@@ -385,6 +473,38 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
     const next = nextCell(activeCell, dir, rows.length, colCount);
     if (next) focusCell(next.rowIndex, next.colIndex);
   };
+
+  // ── Slice 3c: dirty signal + force-flush handle + flush-on-unmount ───────────
+  // Surface "has uncommitted drafts" up to the page (drives the "Unsaved changes" status).
+  const hasUnsaved = Object.keys(draftRates).length > 0;
+  useEffect(() => {
+    onDirtyChange?.(hasUnsaved);
+  }, [hasUnsaved, onDirtyChange]);
+
+  // Force-save flush (the page's "Save now" calls this via the ref): fire all pending
+  // debounced saves now, then retry any remaining draft (e.g. a previously-failed one whose
+  // debounce already fired). Reads current state via refs, so the [] deps are correct.
+  useImperativeHandle(
+    ref,
+    () => ({
+      flush: () => {
+        debouncersRef.current.forEach((deb) => deb.flush());
+        Object.keys(draftRatesRef.current).forEach((k) => {
+          const sep = k.indexOf(":");
+          autoSaveCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1));
+        });
+      },
+    }),
+    [],
+  );
+
+  // Flush-on-unmount: a typed-but-uncommitted value persists on navigate-away (not dropped).
+  useEffect(() => {
+    const debouncers = debouncersRef.current;
+    return () => {
+      debouncers.forEach((deb) => deb.flush());
+    };
+  }, []);
 
   if (rows.length === 0) {
     return (
@@ -542,6 +662,7 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                               const v = e.target.value;
                               if (DECIMAL_IN_PROGRESS.test(v)) {
                                 setDraftRates((prev) => ({ ...prev, [key]: v }));
+                                scheduleAutoSave(row, d); // Slice 3c: debounced 1s auto-save
                               }
                             }}
                             onBlur={() => commitRate(row, d, value)}
@@ -623,4 +744,6 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
       </table>
     </div>
   );
-}
+});
+
+PricingGrid.displayName = "PricingGrid";
