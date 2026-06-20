@@ -47,7 +47,9 @@ from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_settings,
 )
 from nirmaan_stack.api.boq.wizard.review_screen import (
+    _SHEET_FINALIZED,
     _apply_and_save_row_edit,
+    _get_sheet_wizard_status,
     _guard_sheet_not_frozen,
     resolve_effective,
 )
@@ -131,6 +133,15 @@ def _get_ai_in_progress(boq_name: str, sheet_name: str) -> int:
     if not child:
         return 0
     return int(frappe.db.get_value(_SHEET_DRAFT, child, "ai_in_progress") or 0)
+
+
+def _get_parse_in_progress(boq_name: str, sheet_name: str) -> int:
+    """Non-throwing read of the sheet draft's parse_in_progress flag (the {ok:False}
+    pre-flight idiom run_ai_pass uses, vs the throwing _guard_sheet_not_parsing)."""
+    child = _draft_name(boq_name, sheet_name)
+    if not child:
+        return 0
+    return int(frappe.db.get_value(_SHEET_DRAFT, child, "parse_in_progress") or 0)
 
 
 def _get_last_parsed_at(boq_name: str, sheet_name: str):
@@ -274,6 +285,8 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
       {"ok": False, "error": "not_parsed"}   -- the sheet has no review rows yet.
       {"ok": False, "error": "ai_disabled"}  -- BOQ Upload Review AI Settings.enabled is off.
       {"ok": False, "error": "no_api_key"}   -- no Anthropic key configured.
+      {"ok": False, "error": "frozen"}       -- the sheet is "Finalized" (read-only); AI-3c-2d.
+      {"ok": False, "error": "parsing"}      -- a parse is rebuilding this sheet's rows.
 
     Cache HIT (same last_parsed_at): applies the cached suggestions synchronously and
       returns {"ok": True, "cached": True, "count": N} -- NO enqueue, NO API cost.
@@ -304,6 +317,21 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     api_key = get_boq_ai_api_key()
     if not api_key:
         return {"ok": False, "error": "no_api_key"}
+
+    # FREEZE GUARD (AI-3c-2d): a "Finalized" sheet is read-only. run_ai_pass was added later
+    # and was never gated -- a fresh pass would run _apply_ai_suggestions's stale-clear and WIPE
+    # the ai_suggestion_status of already-Accepted rows, a real mutation of a read-only sheet.
+    # Placed BEFORE the cache check below (the cache-hit path ALSO calls _apply_ai_suggestions),
+    # so neither the synchronous cache path nor the enqueue path can touch a frozen sheet.
+    # run_ai_pass uses the {ok:False} pre-flight idiom (not the throwing _guard_sheet_not_frozen),
+    # so we read the status directly via _get_sheet_wizard_status.
+    if _get_sheet_wizard_status(boq_name, sheet_name) == _SHEET_FINALIZED:
+        return {"ok": False, "error": "frozen"}
+    # PARSING GUARD: don't start an AI pass while the parse worker is rebuilding these rows
+    # (mirrors the _guard_sheet_not_parsing the accept/reject/revert endpoints enforce, in the
+    # non-throwing {ok:False} idiom).
+    if _get_parse_in_progress(boq_name, sheet_name):
+        return {"ok": False, "error": "parsing"}
 
     # Cache check: "second click on the same parse" -> apply cached, no API cost.
     last_parsed_at = _get_last_parsed_at(boq_name, sheet_name)

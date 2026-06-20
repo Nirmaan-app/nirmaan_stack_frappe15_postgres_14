@@ -420,6 +420,57 @@ class TestAIAssist(FrappeTestCase):
         self.assertEqual(status["status"], "idle_or_unknown")
         self.assertIn("ai_in_progress", status)
 
+    # --- AI-3c-2d: run_ai_pass freeze + parsing pre-flight gates -----------
+
+    def _restore_draft(self, sheet, fields):
+        self._set_draft(sheet, fields)
+        frappe.db.commit()
+
+    def test_Z1_frozen_sheet_rejected_no_mutation(self):
+        # AI-3c-2d core fix: a "Finalized" sheet is read-only. run_ai_pass must reject
+        # BEFORE the cache/enqueue paths (both run _apply_ai_suggestions's stale-clear),
+        # so an already-Accepted row's ai_suggestion_status is left UNTOUCHED.
+        self._set_draft(_AI_SHEET, {"wizard_status": "Finalized"})
+        self.addCleanup(self._restore_draft, _AI_SHEET, {"wizard_status": "Parsed"})
+        frappe.db.set_value("BoQ Review Row", self.names[1], {
+            "ai_suggestion_status": "Accepted",
+            "ai_suggested_classification": "preamble",
+        })
+        frappe.db.commit()
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue") as mock_enq:
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+        self.assertEqual(result, {"ok": False, "error": "frozen"})
+        self.assertFalse(mock_enq.called, "a frozen sheet must NOT enqueue an AI pass")
+        self.assertEqual(self._row(1)["ai_suggestion_status"], "Accepted",
+                         "the stale-clear must NOT run -> the Accepted status is preserved")
+
+    def test_Z2_nonfinalized_sheet_still_proceeds(self):
+        # Regression: the guard must NOT over-fire -- a normal "Parsed" sheet still enqueues.
+        fake_job = MagicMock()
+        fake_job.id = "job-z2"
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue", return_value=fake_job) as mock_enq:
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result.get("enqueued"))
+        self.assertTrue(mock_enq.called,
+                        "a non-finalized parsed sheet must still enqueue an AI pass")
+
+    def test_Z3_parsing_sheet_rejected(self):
+        # AI-3c-2d secondary: an AI pass must not start while the parse worker is rebuilding rows.
+        self._set_draft(_AI_SHEET, {"parse_in_progress": 1})
+        self.addCleanup(self._restore_draft, _AI_SHEET, {"parse_in_progress": 0})
+        frappe.db.commit()
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue") as mock_enq:
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+        self.assertEqual(result, {"ok": False, "error": "parsing"})
+        self.assertFalse(mock_enq.called, "a parsing sheet must NOT enqueue an AI pass")
+
 
 # ===========================================================================
 # AI-3b-1: accept / reject (non-modal -- classification + childless parent)

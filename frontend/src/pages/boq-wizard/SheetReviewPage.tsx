@@ -58,6 +58,10 @@ const AI_REJECT_MSGS: Record<string, string> = {
   not_parsed: "This sheet has no parsed rows yet. Parse it before running the AI pass.",
   ai_disabled: "The AI pass is disabled. Enable it in BOQ Upload Review AI Settings.",
   no_api_key: "No Anthropic API key is configured. Set one in BOQ Upload Review AI Settings.",
+  // AI-3c-2d: defense in depth -- the button is disabled on a finalized sheet, but a stale
+  // client could still call run_ai_pass and get one of these pre-flight rejects.
+  frozen: "This sheet is finalized and is read-only. Un-mark it to run the AI pass.",
+  parsing: "A parse is still running on this sheet. Wait for it to finish before running the AI pass.",
 };
 // AI-3a: readable messages for a terminal AI-pass FAILURE (boq:ai_pass_done error_code).
 const AI_FAIL_MSGS: Record<string, string> = {
@@ -465,13 +469,16 @@ const SheetReviewPage = () => {
           )}
           {/* AI-3a: Run AI pass. Enabled only with parsed rows + not while an AI pass or a
               parse is in flight. The pass writes ai_* suggestion fields only (read-only here;
-              accept/reject is AI-3b). */}
+              accept/reject is AI-3b). AI-3c-2d: ALSO disabled on a finalized sheet -- a fresh
+              pass would stale-clear (wipe) Accepted rows' status on a read-only sheet (the
+              backend rejects it too, {ok:false,error:"frozen"}); stays VISIBLE, just greyed. */}
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
             onClick={() => { void handleRunAiPass(); }}
-            disabled={reviewLoading || rows.length === 0 || aiInProgress || aiRunLoading || isParsing}
+            disabled={reviewLoading || rows.length === 0 || aiInProgress || aiRunLoading || isParsing || isChecked}
+            title={isChecked ? "Sheet is finalized — un-mark to run the AI pass" : undefined}
           >
             <Sparkles className="h-4 w-4" />
             Run AI pass
