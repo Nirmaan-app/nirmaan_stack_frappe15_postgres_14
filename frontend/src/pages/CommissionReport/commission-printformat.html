@@ -85,10 +85,8 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .cv-meas .cv-meas-lbl { font-weight: 700; width: 25%; }
 
 .cv-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 30px; page-break-inside: avoid; }
-.cv-sigs td { padding: 4px 8px; text-align: center; font-weight: 700; font-size: 10px; border: 0; vertical-align: bottom; }
-.cv-sigs .sig-line { height: 46px; border-bottom: 1px solid #000; margin-bottom: 4px; }
-.cv-sigs .sig-role { font-weight: 700; font-size: 10px; }
-.cv-sigs .sig-cap { font-weight: 400; font-size: 9px; color: #555; }
+.cv-sigs .cv-sig-header td { border: 1px solid #000; text-align: center; padding: 5px; font-size: 11px; font-weight: 700; }
+.cv-sigs .cv-sig-box td { border: 1px solid #000; height: 60px; text-align: center; vertical-align: middle; }
 
 .cv-error { padding: 12px; border: 1px solid #f00; background: #fee; color: #900; }
 
@@ -126,6 +124,7 @@ thead { display: table-header-group; }
         {%- set ns_sigs = namespace(items=[]) -%}
         {%- if template_id == "demo-training-certificate" -%}
             {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_consultant     or "consultant"     in ek) and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
             {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
             {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
@@ -137,7 +136,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div></td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -180,6 +179,16 @@ thead { display: table-header-group; }
     {%- else -%}
         {%- set tpl = json.loads(snapshot_doc.payload) -%}
         {%- set rd = json.loads(target.response_data) -%}
+        {# ZONE-WISE: per-zone data lives in rd.zones[] (the flat rd.responses is empty);
+           non-zone reports use the flat rd. Render the whole report body once per "unit":
+           the flat rd for non-zone, or one unit per zone. Inside the loop `rd` is REBOUND
+           to the current unit, so the entire existing per-templateId body renders that
+           unit's responses/attachments + its signatures unchanged. #}
+        {%- set _zone_wise = (rd.zoneWise and rd.zones) -%}
+        {%- set render_units = (rd.zones if _zone_wise else [rd]) -%}
+        {# Only label/separate zones when there's MORE than one — a single-zone
+           report prints like an ordinary report (no "ZONE:" banner, no page break). #}
+        {%- set _multi_zone = (_zone_wise and (render_units | length > 1)) -%}
 
         {%- set hdr_section   = (tpl.sections | selectattr("type", "equalto", "header") | list | first) -%}
         {%- set chk_section   = (tpl.sections | selectattr("type", "equalto", "checklist") | list | first) -%}
@@ -189,6 +198,14 @@ thead { display: table-header-group; }
         {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
         {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
         {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
+
+        {# ===== Per-unit loop: one pass per zone (zone-wise) or one pass for the whole report (non-zone). ===== #}
+        {% for Z in render_units %}
+        {%- set rd = Z -%}
+        {%- set _zlabel = (Z.get("label") if _multi_zone else none) -%}
+        {# Zone label now lives INSIDE the header table (after LOCATION); here we only
+           force each subsequent zone onto a new page. #}
+        {% if _zlabel and not loop.first %}<div style="page-break-before:always;"></div>{% endif %}
         {# Per-report signature overrides written by the wizard's Signatures step.
            `sig_disabled` = TDS-on roles the user unticked.
            `sig_enabled`  = TDS-off roles the user ticked (manual override). #}
@@ -214,6 +231,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -325,6 +343,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -566,6 +585,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -617,6 +637,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -683,6 +704,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -741,6 +763,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -943,6 +966,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1073,6 +1097,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1173,6 +1198,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1277,6 +1303,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1390,6 +1417,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1441,6 +1469,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1532,6 +1561,7 @@ thead { display: table-header-group; }
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1637,6 +1667,7 @@ thead { display: table-header-group; }
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                                 {% for f in (hdr_section.fields or []) %}
                                     <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                                 {% endfor %}
                             {% endif %}
                         </table>
@@ -1676,6 +1707,7 @@ thead { display: table-header-group; }
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                                 {% for f in (hdr_section.fields or []) %}
                                     <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                                 {% endfor %}
                             {% endif %}
                         </table>
@@ -1712,6 +1744,8 @@ thead { display: table-header-group; }
             </table>
 
         {% endif %}
+
+        {% endfor %}{# end per-unit (zone) loop #}
 
     {%- endif -%}
 {% endif %}

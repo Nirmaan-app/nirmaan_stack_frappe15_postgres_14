@@ -1,7 +1,51 @@
-# Commission Reports — Zone-Wise Plan (FINAL — pending your "confirmed")
+# Commission Reports — Zone-Wise Plan (AS-BUILT)
 
-> **All decisions are resolved.** Read once more; reply **"confirmed"** to build, or edit anything first.
-> Markers: **[V1]** = in this first build. **[LATER]** = deferred. **[NOT DOING]** = out of scope.
+> Built & in use. Wizard live via dev/HMR; print format pushed to the live Print Format doc.
+> **Not yet git-committed** (working branch `commission-fixes`).
+> Full developer reference: `src/pages/CommissionReport/project_commission_zone_wise.md`.
+> The sections below are the original plan; the **As-built status** captures everything that
+> actually shipped (the plan under-scoped — it was 2 tasks + print deferred; reality is 22 tasks
+> + print done).
+
+---
+
+## 0. As-built status (2026-06) — the delta from this plan
+
+**Scope shipped = 22 tasks (not 2).** Every zone-wise-eligible task got `zone_wise_enable:"YES"`
+(fixture + DB), grouped:
+- Equipment/panel (`repeating_groups`): Duct Pressure, Duct Smoke, Duct Light, LT Panel, DB, VRF, DX, CFM.
+- Simple flat (Access-Control-shape): Access Control, CCTV, Nitrogen Pressure, Gas Suppression, Sprinkler Pressure, RR, WLD, VESDA.
+- Trainees-table commissioning/test: LUX, Earthing, LT Cable Megger, PA Commissioning, FA Commissioning, Socket.
+- **The 9 `…Training Report` tasks (templateId `demo-training-certificate`) are `zone_wise_enable:"NO"`** — training is not per-zone.
+
+**Renderer zone-scoping (additive, default params keep non-zone byte-identical):** `pathRoot`
+threaded through Header/Fields/Checklist/Signatures/**RepeatingGroups**/**Trainees**/**Matrix** via
+`SectionRenderer`; `attachmentsRoot` added so a zone's images store under
+`zones.<i>.attachments`. `RepeatingGroupsSection` re-roots its absolute `countBoundTo`; equipment
+steps expand into per-equipment sub-steps **within** each zone (`zoneSlice`+`groupSlice`).
+
+**Two correctness rules (load-bearing):**
+1. Zone add/reorder/delete go through RHF **`useFieldArray`** (`append`/`move`/`remove`) — never
+   `setValue('zones', wholeArray)` (that wipes the active zone's nested `equipments` data).
+2. Each per-zone section is keyed `${step.key}-${sid}` so inputs **remount on zone switch**;
+   a bare `sid` key reused uncontrolled inputs across zones (looked "shared", false required errors).
+
+**Backend (the only backend change):** `api/commission_report/update_task_response.py` accepts the
+zone-wise payload — empty flat `responses` + non-empty `zones[]`. Non-zone path unchanged.
+
+**Print — DONE** (§6.7 / §9.5 were "deferred"; now built and pushed live):
+- The per-`templateId` dispatch is wrapped in `{% for Z in render_units %}` with `{%- set rd = Z -%}`
+  (rebind) — the existing body renders each zone unchanged; each non-first zone page-breaks.
+- The **zone label is a "ZONE" row inside the header table, after LOCATION** (multi-zone only;
+  single-zone prints like an ordinary report).
+- **Signatures = TDS-style boxed table** (bold label row + 60px bordered signing boxes), matching the
+  "Project TDS Report" print format. **Manual signature entries print** (the `enabled[]` override is
+  rendered via `"<key>" in ek`). Wizard `computeAllRoles` ↔ print `render_signatures` kept in lockstep;
+  Consultant added to the `demo-training-certificate` branch (so a TDS-off Consultant is manually
+  selectable + prints). **Architect deliberately not offered** (owner decision).
+
+**Not done:** `print_format.json` fixture left stale (only the live DB print doc updated, per the
+team's Desk-edit workflow); nothing git-committed yet.
 
 ---
 
@@ -104,16 +148,27 @@ All zone logic is **guarded by `zone_wise_enable === "YES"`** so every existing 
    - submit builds `response_data = { zoneWise:true, zones }`; prefill reconstructs zones in edit/view.
 5. **`renderer/SectionRenderer.tsx`** + section components: thread a `pathRoot`/`responsesRoot` so **Header, Checklist, AND Signatures** read/write `zones.<i>.responses.<section>`. Checklist + Matrix already accept `pathRoot`; add it to **HeaderSection**, **FieldsSection**, and **SignaturesSection** (so each zone's `{disabled,enabled}` signature override is stored per zone).
 6. **Review** (in `index.tsx`): (a) **per-zone review** — each zone's flow ends with a Review of that zone (reuse the existing per-section review render, scoped to the zone's `responses`); (b) **all-zones combined review** — a final screen listing every zone's review, rendered **only when `zones.length > 1`**. Submit sits on the final review (combined if >1 zone, else the single zone's own review).
-7. **Print** — **[DEFERRED]** (Q5). Sketch for later: `{% if rd.zoneWise %}{% for zone in rd.zones %} …header + checklist + that zone's signatures (render_signatures with the zone's own disabled/enabled)… {% endfor %}{% endif %}` (keys on `rd.zoneWise`, **not** templateId). Not built in V1.
+7. **Print** — **[DONE]** (see §0). Implemented by wrapping the whole per-`templateId` dispatch in
+   `{% for Z in render_units %}{%- set rd = Z -%}…{% endfor %}` (`render_units = rd.zones if rd.zoneWise else [rd]`)
+   — rebinding `rd` makes the existing body render each zone unchanged, so NO global find-replace was
+   needed. Per-zone page break; zone label as an in-header "ZONE" row after LOCATION (multi-zone only);
+   `render_signatures` per zone (TDS-style boxed table, manual `enabled[]` entries print). Pushed to the
+   live Print Format doc "Project Commission Report - Filled Task"; `print_format.json` fixture left stale.
 
 ---
 
-## 7. Scope (this build)
+## 7. Scope (this build) — DELIVERED + EXPANDED (see §0)
 
-- **[V1 · phase 1]** Access Control Commissioning Report (master task `sbeu8i7qlk`, template `common-template-1`, sections `hdr`+`chk`+`sigs`) — the **flat** case; built + verified first to prove the framework end-to-end.
-- **[V1 · phase 2]** Duct Pressure Testing Report (template `duct-pressure/smoke/light-testing-report`) — the **nested** case: each zone contains the existing **equipment-testing `repeating_groups`** (+ its per-zone count field) AND **per-zone image attachments**. Needs `pathRoot` threaded through `RepeatingGroupsSection` + `ImageAttachmentSection` (`<zoneId>__…` keys) + zone-relative `countBoundTo`. Built right after phase 1.
-- **Per-zone image attachments** — required by phase 2 (Duct); keyed `<zoneId>__<slot>`.
-- **[NOT DOING]** any doctype/schema change; zone-as-a-`repeating_groups`-section (explicitly rejected). *(Per-zone signatures ARE in scope — each zone keeps its own override via the existing flow.)*
+- **[DONE · phase 1]** Access Control Commissioning Report — the **flat** case; built + verified first.
+- **[DONE · phase 2]** Duct Pressure Testing Report — the **nested** case: per-zone equipment
+  `repeating_groups` (zone-relative `countBoundTo`, per-equipment sub-steps) + **per-zone images**.
+  NOTE: per-zone image keys are `equipments_<g>_<slot>` stored under **`zones.<i>.attachments`** (the
+  zone isolation is the attachments ROOT, not a `<zoneId>__` key prefix as the plan guessed).
+- **[DONE · rollout]** Extended to **22 tasks total** (see §0 for the list); the 9 Training reports
+  intentionally left `NO`. `trainees_data_table` was zone-scoped (`pathRoot`) for the 6 trainees-table
+  commissioning/test reports.
+- **[NOT DOING]** any doctype/schema change; zone-as-a-`repeating_groups`-section (rejected).
+  *(Per-zone signatures shipped via the existing override flow.)*
 
 ---
 
@@ -132,4 +187,6 @@ All zone logic is **guarded by `zone_wise_enable === "YES"`** so every existing 
 3. ~~Min/max zones~~ **RESOLVED:** default 1, always ≥ 1; **no hard max** (soft cap 50).
 4. ~~Nav~~ **RESOLVED:** **Option A — tabs (outer) + inner stepper**, reorder via the tab bar.
 6. ~~Signatures~~ **RESOLVED (corrected):** signatures are **per-zone** via the existing all-roles picker/override flow (NOT shared) — each zone stores its own `sigs {disabled, enabled}`.
-5. ~~PDF layout per zone~~ **DEFERRED:** print format on hold — build wizard + data first, discuss print later.
+5. ~~PDF layout per zone~~ **RESOLVED / DONE:** each zone prints on its own page(s) — header (with an
+   in-header "ZONE: <label>" row after LOCATION, multi-zone only) → sections → TDS-style signature
+   boxes. Built via the `render_units` rebind loop; pushed live. See §0.

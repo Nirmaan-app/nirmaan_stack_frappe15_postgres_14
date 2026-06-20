@@ -99,10 +99,17 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                     templateId={templateId}
                     forceReadonly={forceReadonly}
                     onAttachmentCreated={onAttachmentCreated}
+                    pathRoot={responsesRoot}
                 />
             );
         case 'measurement_matrix':
-            return <MeasurementMatrixSection section={section} forceReadonly={forceReadonly} />;
+            return (
+                <MeasurementMatrixSection
+                    section={section}
+                    forceReadonly={forceReadonly}
+                    pathRoot={responsesRoot}
+                />
+            );
         case 'repeating_groups':
             return (
                 <RepeatingGroupsSection

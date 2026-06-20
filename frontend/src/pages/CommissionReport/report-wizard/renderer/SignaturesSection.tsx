@@ -60,6 +60,7 @@ const computeAllRoles = (
     if (templateId === 'demo-training-certificate') {
         return [
             { key: 'manager', label: 'PROJECT MANAGER', inTds: flag(tds?.enable_manager) },
+            { key: 'consultant', label: 'CONSULTANT', inTds: flag(tds?.enable_consultant) },
             { key: 'mep_contractor', label: 'VENDOR', inTds: flag(tds?.enable_mep_contractor) },
             { key: 'client', label: 'CLIENT', inTds: flag(tds?.enable_client) },
             { key: 'gc_contractor', label: 'GC CONTRACTOR', inTds: flag(tds?.enable_gc_contractor) },
