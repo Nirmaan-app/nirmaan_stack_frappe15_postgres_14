@@ -1,6 +1,29 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 5 Slice 1a -- COMMITTED-READ ENDPOINT `get_committed_rows` -- BACKEND, pure-read,
+**Last updated:** 2026-06-20 (Phase 5 Slice 1b -- PRICING-LAYER DOCTYPE + persist -- BACKEND, MIGRATE slice, feat
+pending, branch `feature/boq-phase-5`. Creates the per-cell PRICING LAYER -- a NEW standalone doctype **`BoQ Cell
+Pricing`** (autoname **`BPRC-.YY.-.#####`**, istable:0, track_changes:1) that stores the RATE a user fills into a
+committed Excel cell, sitting ON TOP of the committed tier (NEVER mutates it -- nodes/grid/BoQ Sheet stay capture-only).
+ADDITIVE: no existing doctype JSON changed -> ONE `bench migrate` (clean; doctype + 15 columns verified at runtime).
+**IDENTITY = (boq, sheet_name [VERBATIM #152], excel_row, col_letter, committed_version)** -- the durable Excel address
++ the committed version it prices (survives a re-commit). `col_letter` is STORED (derived from `column_role_map` by
+(role,area)->letter, not on the node); `node` (Link->BOQ Nodes) is a re-resolvable per-version pointer + `description` a
+copy-forward guard -- NEITHER is part of the key. `is_filled` (Check) is the layer's OWN filled-state (committed node
+rates read 0.0, not blank). PRICING LIFECYCLE = its own freeze-and-supersede triple `pricing_version`/`is_current`/
+`priced_at` (mirroring the committed tier) + an `is_finalized` lock (declared, enforced later). Bare-stub controller
+(invariant is endpoint-enforced, NOT in the controller; no hooks.py wiring). NEW `api/boq/wizard/pricing.py`:
+`save_cell_price` (POST -- freeze-and-supersede upsert mirroring commit_pipeline's `_current_names`/`_next_commit_
+version`: freeze prior via `set_value`, insert new is_current=1 / pricing_version=max+1 / is_filled=1; RESOLVES +
+VALIDATES the committed cell exists, throws for a non-cell, stores the resolved node) + `get_sheet_pricing` (GET --
+current pricing set for a (boq, sheet, committed_version)). Guards mirror get_review_rows. **HERMETIC COMMITTED-NODE
+FIXTURE** (`build_committed_sheet_fixture`/`cleanup_committed_fixture` in test_review_screen.py) folds in the owed
+Slice-1a fixup: the 5 get_committed_rows positives were CONVERTED from live-skip-guard to the fixture -> always-run (no
+skip); test_pricing.py imports the shared builder. **TESTS** (bench-verified): test_review_screen **205 -> 205** (5
+positives converted in place, net unchanged, no skips); NEW test_pricing **12** (save/re-save freeze-and-supersede +
+exactly-one-current invariant + multi-area distinct + read + NEG non-existent cell/version/sheet/boq/missing-args). OUT:
+the overlay-onto-1a read, finalize endpoints, copy-forward, frontend. NEXT = the pricing overlay read (merge pricing
+onto get_committed_rows) + finalize-pricing. Full detail in boq-upload-plan.md "Phase 5 Slice 1b".)
+// prior: 2026-06-20 (Phase 5 Slice 1a -- COMMITTED-READ ENDPOINT `get_committed_rows` -- BACKEND, pure-read,
 feat pending, NEW branch `feature/boq-phase-5`. The first Phase-5 (pricing-editor) build: a NEW whitelisted read
 endpoint in `review_screen.py` that adapts the COMMITTED tier (BOQ Nodes + BOQ Node Qty By Area children + the committed
 `BoQ Sheet` column config) into the SAME `{rows, column_descriptors}` descriptor contract `get_review_rows` emits from
@@ -1625,7 +1648,7 @@ one-current invariant is ENFORCED by the Slice-3a commit pipeline `commit_pipeli
 general_specs / finalized]; one child table `rows` -> `BoQ Committed Sheet Grid Row` [istable=1:
 `row_number`/`row_order`/`cells` JSON {col_letter: value}, mirroring `get_sheet_preview_full`'s per-row shape].
 SEPARATE from the lossy `BoQ General Specs Sheet` blob doctype, which is UNTOUCHED. Written by `commit_pipeline.py`
-[Slice 3a]; the Finalized node tree is Slice 3b). (No separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
+[Slice 3a]; the Finalized node tree is Slice 3b), `BoQ Cell Pricing` (Phase 5 Slice 1b -- the per-cell PRICING LAYER on top of the committed tier: standalone istable=0, autoname `BPRC-.YY.-.#####`, track_changes=1. One record per priced committed Excel cell; identity = (boq, sheet_name VERBATIM, excel_row, col_letter, committed_version) -- the durable Excel address + the committed version it prices. col_letter STORED (derived from column_role_map, not on the node); node Link = re-resolvable per-version pointer, description = copy-forward guard -- NEITHER part of the key. `is_filled` = the layer's own filled-state (committed node rates read 0.0, not blank). Own freeze-and-supersede triple `pricing_version`/`is_current`/`priced_at` + `is_finalized` lock, mirroring the committed tier; one current per cell identity, endpoint-enforced (api/boq/wizard/pricing.py `save_cell_price`/`get_sheet_pricing`), NOT in the bare-stub controller. ADDITIVE -- never mutates the committed tier). (No separate audit doctype — audit goes through `Nirmaan Versions` per §7 of the BoQ handover doc / decisions log). Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
 
 ---
 

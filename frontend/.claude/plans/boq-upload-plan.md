@@ -16,7 +16,47 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Slice 1a (Pricing Editor) -- COMMITTED-READ ENDPOINT get_committed_rows (BACKEND, pure-read,
+LATEST: Phase 5 Slice 1b (Pricing Editor) -- PRICING-LAYER DOCTYPE + persist (BACKEND, MIGRATE slice, 2026-06-20,
+feat pending, branch feature/boq-phase-5). Creates the per-cell PRICING LAYER: a NEW standalone doctype that stores the
+RATE a user fills into a committed Excel cell, sitting ON TOP of the committed tier (which it NEVER mutates -- committed
+nodes/grid/BoQ Sheet stay capture-only). ADDITIVE: no existing doctype JSON changed; one new doctype -> ONE `bench
+migrate` (clean; doctype + 15 columns verified at runtime). NO frontend (the overlay-onto-get_committed_rows read,
+finalize-pricing endpoints, copy-forward, and the editor UI are LATER slices).
+- DOCTYPE **"BoQ Cell Pricing"** (scrub `boq_cell_pricing`), autoname **`BPRC-.YY.-.#####`** (collision-checked: no
+  clash with BCSG-/BOQ-/BOQN-/BOQRR-/BQSH-/etc.), istable:0, engine InnoDB, track_changes:1, the 10-role permission
+  block -- mirroring BoQ Committed Sheet Grid / BOQ Nodes house style. Bare-stub controller (`class
+  BoQCellPricing(Document): pass`; the one-current invariant is endpoint-enforced, NOT in the controller, mirroring the
+  committed tier; autoname is the JSON series, no hooks.py wiring). FIELDS (Section-grouped): IDENTITY -- boq
+  (Link->BOQs reqd, denormalized), sheet_name (Data reqd, VERBATIM #152), excel_row (Int reqd), col_letter (Data reqd
+  -- STORED because it is derived from column_role_map by (role,area)->letter, NOT carried on the node),
+  committed_version (Int reqd -- the committed-tier commit_version this prices); SEMANTIC (re-resolvable / guards, NOT
+  identity) -- node (Link->BOQ Nodes, a settable per-version pointer), area (Data), rate_kind (Data), description (Small
+  Text, the copy-forward MATCH GUARD); VALUE+STATE -- rate (Currency), is_filled (Check -- the layer's OWN filled-state,
+  since committed node rates read 0.0 not blank); PRICING LIFECYCLE (mirrors the committed versioning triple) --
+  pricing_version (Int default 1), is_current (Check default 1), priced_at (Datetime read_only), is_finalized (Check
+  default 0, the finalize-pricing lock, declared this slice / enforced later).
+- IDENTITY KEY = (boq, sheet_name, excel_row, col_letter, committed_version) -- the durable Excel address + the
+  committed version it prices (survives a re-commit; the node Link/description are NOT part of the key).
+- NEW endpoints in `api/boq/wizard/pricing.py`: `save_cell_price(...)` (POST) -- freeze-and-supersede upsert mirroring
+  commit_pipeline (`_current_pricing_names`/`_next_pricing_version`; freeze prior current via `set_value is_current=0`
+  NOT doc.save; insert new is_current=1, pricing_version=max+1, is_filled=1, priced_at=now); it RESOLVES + VALIDATES the
+  committed cell exists (BoQ Sheet at that committed_version + a BOQ Nodes row with source_row_number=excel_row at that
+  version) and stores the resolved node -- throws for a non-existent cell/sheet/version, NEVER prices a non-cell.
+  `get_sheet_pricing(boq, sheet, committed_version)` (GET-capable) -- the current (is_current=1) pricing set for a
+  committed (boq, sheet, version); pure read. Guards mirror get_review_rows ("BOQs '...' not found." etc.).
+- HERMETIC COMMITTED-NODE FIXTURE (the owed Slice-1a test fixup): `build_committed_sheet_fixture` +
+  `cleanup_committed_fixture` (module-level in test_review_screen.py, ~80 lines, satisfying the boq_nodes controller's
+  rules) -- 1 current BoQ Sheet (multi-area role map E/H, Phase 1/Phase 2) + a Preamble root + 2 Line Item children with
+  per-area children. The 5 Slice-1a get_committed_rows POSITIVES were CONVERTED from live-skip-guard (BOQ-26-00145) to
+  this fixture so they ALWAYS RUN (no skip). test_pricing.py imports the shared builder (no circular import).
+- TESTS (bench-verified): test_review_screen **205 -> 205** (the 5 positives converted IN PLACE -> always-run, net
+  count unchanged; full suite green, no skips). NEW test_pricing **12** (save->current+is_filled v1; re-save
+  freeze-and-supersede v2 + exactly-one-current; N-resave invariant; multi-area two-cells-same-row distinct;
+  get_sheet_pricing current-set + empty; NEG non-existent cell/version/sheet/boq + missing args). OUT (NOT this slice):
+  the overlay-onto-1a read, finalize-pricing endpoints, copy-forward, the editor UI, frontend. Implements Slice 1b of
+  BoQ_Pricing_Editor_Design_Scoping_v1_2 (the per-cell key + the versioning/copy-forward anchoring). Full detail in root
+  CLAUDE.md.
+// prior: Phase 5 Slice 1a (Pricing Editor) -- COMMITTED-READ ENDPOINT get_committed_rows (BACKEND, pure-read,
 2026-06-20, feat pending, branch feature/boq-phase-5). The first Phase-5 build: a NEW read endpoint that adapts the
 COMMITTED tier (BOQ Nodes + BOQ Node Qty By Area children + the committed BoQ Sheet column config) into the SAME
 {rows, column_descriptors} descriptor contract get_review_rows emits from the DRAFT tier, so the descriptor-driven
