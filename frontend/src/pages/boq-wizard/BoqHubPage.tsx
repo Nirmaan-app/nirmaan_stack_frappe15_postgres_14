@@ -445,6 +445,13 @@ const BoqHubPage = () => {
     navigate(`/upload-boq/hub/${boqId}/review/${encodeURIComponent(sheetName)}`);
   };
 
+  // ── Pricing-screen navigation callback (Phase 5 Slice 3a) ───────────────
+  // Navigates to the per-sheet READ-ONLY pricing screen. Shown only on committed
+  // cards (the Price button gates on committedState). Same encode convention.
+  const handleOpenPricing = (sheetName: string) => {
+    navigate(`/upload-boq/hub/${boqId}/pricing/${encodeURIComponent(sheetName)}`);
+  };
+
   // ── Per-card CSV export (Slice D2b) ───────────────────────────────────────
   // Fetch THIS sheet's review rows, then the EXISTING D2 CSV writer (.csv, NOT
   // xlsx). The hub owns the fetch; the card awaits this promise and shows its own
@@ -855,6 +862,7 @@ const BoqHubPage = () => {
             onSaved={handleSaved}
             onOpenSpoke={handleOpenSpoke}
             onOpenReview={handleOpenReview}
+            onOpenPricing={handleOpenPricing}
             onReparse={handleReparseCard}
             onExportCsv={handleExportCsv}
             workHeaders={workPackageMap[draft.sheet_name]}
@@ -892,6 +900,7 @@ const BoqHubPage = () => {
                     boqName={boq.name}
                     onSaved={handleSaved}
                     onOpenReview={handleOpenReview}
+                    onOpenPricing={handleOpenPricing}
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
                     staleReason={staleMap.get(draft.sheet_name)}

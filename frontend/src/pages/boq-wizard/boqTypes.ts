@@ -426,6 +426,44 @@ export interface GetReviewRowsResponse {
 }
 
 /**
+ * A committed row as returned by get_priced_rows (Phase 5 pricing-overlay read) -- a
+ * ReviewRow with the overlay's PRICED MARKERS merged in. The overlay
+ * (pricing.py get_priced_rows) stamps the saved rate into rate_by_area[area][kind] / the
+ * scalar rate field IN PLACE (so the existing rate fields already carry the price), and
+ * ADDS these marker fields, driven by the pricing layer's is_filled flag -- NEVER a
+ * zero-check (a committed 0.0 rate can be a valid priced value). All optional: an absent
+ * marker => the cell is un-priced.
+ *
+ * Extends ReviewRow so the ReviewRow-typed reviewRender helpers (computeDepths,
+ * resolveDescriptorValue, ClassificationPill) accept a PricedRow without retyping.
+ */
+export interface PricedRow extends ReviewRow {
+  /** Per-area priced markers: priced_by_area[areaName][rateKind] === true => that
+   *  per-area rate cell carries a saved price. (rateKind: supply_rate/install_rate/combined_rate.) */
+  priced_by_area?: Record<string, Record<string, boolean>> | null;
+  /** Scalar rate priced markers (one per scalar rate field). true => priced. */
+  priced_rate_supply?: boolean;
+  priced_rate_install?: boolean;
+  priced_rate_combined?: boolean;
+}
+
+/**
+ * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
+ * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the reserved
+ * editable / lock_info placeholders (the future single-editor-lock hook -- inert in 3a).
+ */
+export interface GetPricedRowsResponse {
+  rows: PricedRow[];
+  column_descriptors: ColumnDescriptor[];
+  /** The committed commit_version these prices price (null when nothing is committed). */
+  commit_version: number | null;
+  /** RESERVED for the future lock slice (3b). Always true in 3a -- no lock exists yet. */
+  editable: boolean;
+  /** RESERVED for the future lock slice (3b). Always null in 3a. */
+  lock_info: unknown | null;
+}
+
+/**
  * Response shape of save_review_edit (Slice C-v1 added `edited_at` for the
  * save-status anchor; Slice C-v2 reads it on a resolved save).
  * NOTE: the endpoint REJECTS (frappe.throw -> HTTP 417) on validation failure
