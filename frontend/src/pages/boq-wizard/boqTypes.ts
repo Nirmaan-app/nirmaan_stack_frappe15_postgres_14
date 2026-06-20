@@ -464,6 +464,24 @@ export interface GetPricedRowsResponse {
 }
 
 /**
+ * Per-cell save args the PricingGrid hands up to the page's onSaveRate (Phase 5 Slice 3b).
+ * The grid supplies the cell IDENTITY (from the row + the rate descriptor); the page fills
+ * boq_name / sheet_name / committed_version + the typed rate, then POSTs save_cell_price.
+ */
+export interface RateCellSaveArgs {
+  /** row.source_row_number (the Excel row -- NOT row_index). */
+  excelRow: number;
+  /** the rate descriptor's col (Excel column letter). */
+  colLetter: string;
+  /** per-area: the descriptor's value_key (= area); scalar: omitted. */
+  area?: string;
+  /** descriptor rate_subkey verbatim (per-area) / derived token (scalar). Guard field, NOT key. */
+  rateKind: string;
+  /** row.description -- the copy-forward MATCH GUARD (always sent). */
+  description: string;
+}
+
+/**
  * Response shape of save_review_edit (Slice C-v1 added `edited_at` for the
  * save-status anchor; Slice C-v2 reads it on a resolved save).
  * NOTE: the endpoint REJECTS (frappe.throw -> HTTP 417) on validation failure

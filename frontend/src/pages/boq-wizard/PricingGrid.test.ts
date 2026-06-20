@@ -5,15 +5,23 @@
 // -- a committed 0.0 rate can be a valid priced value). The JSX grid itself is manual-cert
 // (no jsdom / @testing-library added); only these pure functions are unit-tested.
 import { describe, it, expect } from "vitest";
-import { isRateDescriptor, isCellPriced } from "./PricingGrid";
+import {
+  isRateDescriptor,
+  isCellPriced,
+  isAmountDescriptor,
+  findPairedRateDescriptor,
+  computeAmount,
+  buildRateCell,
+} from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
 function desc(
   value_field: string,
   value_key: string | null = null,
   rate_subkey: string | null = null,
+  col = "X",
 ): ColumnDescriptor {
-  return { col: "X", role: "r", area: value_key, value_field, value_key, rate_subkey };
+  return { col, role: "r", area: value_key, value_field, value_key, rate_subkey };
 }
 
 describe("isRateDescriptor", () => {
@@ -74,5 +82,90 @@ describe("isCellPriced", () => {
     } as unknown as PricedRow;
     expect(isCellPriced(row, desc("amount_by_area", "Phase 1", "total"))).toBe(false);
     expect(isCellPriced(row, desc("qty_by_area", "Phase 1"))).toBe(false);
+  });
+});
+
+// ── Slice 3b helpers ──────────────────────────────────────────────────────────
+
+describe("isAmountDescriptor", () => {
+  it("is true for the per-area amount field and the scalar amount fields", () => {
+    expect(isAmountDescriptor(desc("amount_by_area", "Phase 1", "total"))).toBe(true);
+    expect(isAmountDescriptor(desc("amount_total"))).toBe(true);
+    expect(isAmountDescriptor(desc("amount_supply"))).toBe(true);
+    expect(isAmountDescriptor(desc("amount_install"))).toBe(true);
+  });
+  it("is false for rate / qty / identity descriptors", () => {
+    expect(isAmountDescriptor(desc("rate_by_area", "Phase 1", "combined_rate"))).toBe(false);
+    expect(isAmountDescriptor(desc("rate_combined"))).toBe(false);
+    expect(isAmountDescriptor(desc("qty_by_area", "Phase 1"))).toBe(false);
+    expect(isAmountDescriptor(desc("sl_no_value"))).toBe(false);
+  });
+});
+
+describe("computeAmount", () => {
+  it("returns qty x rate", () => {
+    expect(computeAmount(10, 25)).toBe(250);
+    expect(computeAmount(2.5, 4)).toBe(10);
+  });
+  it("a 0 rate yields 0 (a valid priced amount, not null)", () => {
+    expect(computeAmount(220, 0)).toBe(0);
+  });
+  it("returns null when qty or rate is missing", () => {
+    expect(computeAmount(null, 5)).toBeNull();
+    expect(computeAmount(5, null)).toBeNull();
+    expect(computeAmount(undefined, undefined)).toBeNull();
+  });
+});
+
+describe("findPairedRateDescriptor", () => {
+  it("pairs a per-area amount cell to its same-area rate cell by kind (total->combined_rate)", () => {
+    const descriptors = [
+      desc("rate_by_area", "Phase 1", "combined_rate", "E"),
+      desc("amount_by_area", "Phase 1", "total", "F"),
+      desc("rate_by_area", "Phase 2", "combined_rate", "H"),
+    ];
+    const amountD = descriptors[1];
+    const paired = findPairedRateDescriptor(amountD, descriptors);
+    expect(paired?.col).toBe("E"); // Phase 1 combined_rate -- NOT the Phase 2 rate
+  });
+  it("pairs a scalar amount field to its scalar rate field (amount_total->rate_combined)", () => {
+    const descriptors = [desc("rate_combined", null, null, "D"), desc("amount_total", null, null, "G")];
+    const paired = findPairedRateDescriptor(descriptors[1], descriptors);
+    expect(paired?.col).toBe("D");
+  });
+  it("returns null when no matching rate column is mapped (different kind / absent)", () => {
+    // amount_install Phase 2, but only a combined_rate Phase 2 rate exists -> no pairing.
+    const descriptors = [
+      desc("rate_by_area", "Phase 2", "combined_rate", "H"),
+      desc("amount_by_area", "Phase 2", "install", "I"),
+    ];
+    expect(findPairedRateDescriptor(descriptors[1], descriptors)).toBeNull();
+  });
+});
+
+describe("buildRateCell", () => {
+  const row = {
+    source_row_number: 34,
+    description: "cable 1.1.2",
+  } as unknown as PricedRow;
+
+  it("per-area rate cell: area = value_key, rateKind = rate_subkey verbatim", () => {
+    const cell = buildRateCell(row, desc("rate_by_area", "Phase 1", "combined_rate", "E"));
+    expect(cell).toEqual({
+      excelRow: 34,
+      colLetter: "E",
+      area: "Phase 1",
+      rateKind: "combined_rate",
+      description: "cable 1.1.2",
+    });
+  });
+
+  it("scalar rate cell: area omitted, rateKind derived (rate_combined -> combined_rate)", () => {
+    const cell = buildRateCell(row, desc("rate_combined", null, null, "D"));
+    expect(cell.area).toBeUndefined();
+    expect(cell.colLetter).toBe("D");
+    expect(cell.rateKind).toBe("combined_rate");
+    expect(cell.excelRow).toBe(34);
+    expect(cell.description).toBe("cable 1.1.2");
   });
 });

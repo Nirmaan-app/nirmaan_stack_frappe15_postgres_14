@@ -1,23 +1,27 @@
 /**
- * SheetPricingPage -- READ-ONLY committed-pricing page for one BoQ sheet (Phase 5 Slice 3a).
+ * SheetPricingPage -- committed-pricing page for one BoQ sheet (Phase 5 Slice 3a -> 3b).
  *
- * The first on-screen pricing surface. Shell mirrors SheetReviewPage:
+ * Shell mirrors SheetReviewPage:
  *   - useParams for boqId + sheetName (React Router v6 auto-decodes -> verbatim sheet_name).
  *   - useFrappeGetDoc for the BOQs header (boq_name, version).
- *   - useFrappeGetCall for get_priced_rows (committed rows + merged saved prices).
+ *   - useFrappeGetCall for get_priced_rows (committed rows + merged saved prices) + its mutate.
  *   - Full-page spinner while the BOQs doc loads; inline loading/error for the grid.
  *   - Back nav to /upload-boq/hub/:boqId (entity-id convention, never navigate(-1)).
  *
- * 3a scope (read-only): renders PricingGrid (committed rows + priced/un-priced markers).
- * NO Save / Export / Finalize (nothing to save read-only -- those arrive at 3c/5). NO
- * inline editing (3b). editable / lock_info are read from the payload and threaded into
- * the grid INERT -- the future single-editor-lock hook (3b); no lock logic exists yet.
+ * Slice 3b: owns onSaveRate -- the grid hands up a rate cell's identity, the page fills
+ * boq/sheet/committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
+ * (priced_* markers re-derive authoritatively). RATES ONLY are editable; amounts are
+ * display-only (qty x rate, never persisted). NO Save/Export/Finalize (3c/5); subtotal
+ * roll-up + auto-save + the single-editor lock are later slices (editable / lock_info are
+ * read from the payload + threaded INERT into the grid -- no lock logic yet).
  */
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { BOQsDoc, GetPricedRowsResponse } from "./boqTypes";
+import { getFrappeError } from "@/utils/frappeErrors";
+import type { BOQsDoc, GetPricedRowsResponse, RateCellSaveArgs } from "./boqTypes";
 import { PricingGrid } from "./PricingGrid";
 
 const SheetPricingPage = () => {
@@ -34,11 +38,18 @@ const SheetPricingPage = () => {
 
   // Priced rows: committed rows + merged saved prices for (boqId, sheetName).
   // GET-capable endpoint, SWR-managed. Loading: data === undefined. Error: data === null.
-  const { data: pricedData } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+  // mutate() refetches after a rate save -> the priced_* markers re-derive authoritatively.
+  const { data: pricedData, mutate } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_priced_rows",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
   );
+
+  // Slice 3b: save one rate cell (save_cell_price) + an inline save-error surface.
+  const { call: saveCellPrice } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_cell_price",
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -87,6 +98,35 @@ const SheetPricingPage = () => {
   const pricedLoading = pricedData === undefined;
   const pricedError = pricedData === null;
 
+  // Slice 3b: the page-owned save. The grid hands up the cell identity; the page fills
+  // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
+  // so the priced_* markers re-derive (no client-side marker logic). On throw it surfaces the
+  // error inline AND re-throws so the grid keeps the optimistic draft (the user's input).
+  const handleSaveRate = async (cell: RateCellSaveArgs, rate: number) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to price.");
+      throw new Error("no committed version");
+    }
+    setSaveError(null);
+    try {
+      await saveCellPrice({
+        boq_name: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM -- trailing spaces intact (#152)
+        excel_row: cell.excelRow,
+        col_letter: cell.colLetter,
+        committed_version: commitVersion,
+        rate,
+        area: cell.area, // omitted by the SDK when undefined (scalar path)
+        rate_kind: cell.rateKind,
+        description: cell.description, // copy-forward MATCH GUARD
+      });
+      await mutate();
+    } catch (e: unknown) {
+      setSaveError(getFrappeError(e) || "Could not save the rate. Please try again.");
+      throw e; // let the grid keep the optimistic draft
+    }
+  };
+
   return (
     <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
       {/* ── Header strip (Back + title only -- read-only, no Save/Export) ─────── */}
@@ -114,15 +154,22 @@ const SheetPricingPage = () => {
         </div>
       </div>
 
-      {/* ── Read-only note ────────────────────────────────────────────────────
-          Mirrors the review screen's muted-strip convention; sets the read-only
-          expectation (inline rate editing arrives at Slice 3b). */}
+      {/* ── Editor note ───────────────────────────────────────────────────────
+          Muted-strip convention (mirrors the review screen). Slice 3b: rates are
+          editable; amounts shown are qty x rate (display-only). */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
         <span>
-          Read-only view of the committed sheet with current saved rates. Cells with a
-          saved price are marked; entering rates is coming next.
+          Enter a rate in any rate cell and press Enter or click away to save. Amounts shown
+          are qty x rate (display-only); priced cells are marked. Rates only are editable.
         </span>
       </div>
+
+      {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
+      {saveError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <span>{saveError}</span>
+        </div>
+      )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
       {pricedLoading && (
@@ -141,6 +188,7 @@ const SheetPricingPage = () => {
         <PricingGrid
           rows={rows}
           columnDescriptors={columnDescriptors}
+          onSaveRate={handleSaveRate}
           editable={editable}
           lockInfo={lockInfo}
         />
