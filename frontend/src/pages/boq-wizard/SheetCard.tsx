@@ -56,13 +56,6 @@ interface SheetCardProps {
    */
   onOpenReview?: (sheetName: string) => void;
   /**
-   * Called when the user clicks "Price" on a COMMITTED card (Phase 5 Slice 3a).
-   * Navigates to the read-only pricing screen. Shown ONLY when committedState is present
-   * (committed-ness is orthogonal to wizard_status -- this is its own block, not in a
-   * status branch). Receives the VERBATIM sheet_name; hub owns navigate (router-free card).
-   */
-  onOpenPricing?: (sheetName: string) => void;
-  /**
    * Work-header docnames for this sheet from get_boq_work_packages (Slice 3f-readback).
    * Replaces draft.work_packages read; undefined while the map is loading.
    */
@@ -107,7 +100,6 @@ export function SheetCard({
   onSaved,
   onOpenSpoke,
   onOpenReview,
-  onOpenPricing,
   workHeaders,
   onReparse,
   onExportCsv,
@@ -532,18 +524,6 @@ export function SheetCard({
           </p>
         )}
 
-        {/* ── Price (Phase 5 Slice 3a): committed-gated, INDEPENDENT of the status
-            branches above (committed-ness is orthogonal to wizard_status). Opens the
-            read-only pricing screen. Shown only when this sheet has a current committed
-            record AND the hub wired the callback. */}
-        {committedState && onOpenPricing && (
-          <div className="mt-2">
-            <Button size="sm" variant="outline" disabled={isSaving}
-              onClick={() => onOpenPricing(draft.sheet_name)}>
-              Price
-            </Button>
-          </div>
-        )}
       </TooltipProvider>
 
       {/* ── Inline label editor (Skip cards) ─────────────────────────────── */}

@@ -42,6 +42,7 @@ import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
 import { CommitResultsModal } from "./CommitResultsModal";
+import { TenderingDialog } from "./TenderingDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -152,6 +153,9 @@ const BoqHubPage = () => {
 
   // Commit dialog (Phase 5 Slice 4b).
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
+  // Tendering (pricing-editor entry) dialog (Phase 5 Slice 3a) -- the global entry door:
+  // pick one committed sheet -> open its pricing editor.
+  const [tenderingDialogOpen, setTenderingDialogOpen] = useState(false);
   // Commit-results acknowledge modal (Phase 5 Slice 5 frontend). commitResult holds
   // the {committed, failed} envelope; the modal opens once it is set.
   const [commitResult, setCommitResult] = useState<CommitBoqResponse | null>(null);
@@ -862,7 +866,6 @@ const BoqHubPage = () => {
             onSaved={handleSaved}
             onOpenSpoke={handleOpenSpoke}
             onOpenReview={handleOpenReview}
-            onOpenPricing={handleOpenPricing}
             onReparse={handleReparseCard}
             onExportCsv={handleExportCsv}
             workHeaders={workPackageMap[draft.sheet_name]}
@@ -900,7 +903,6 @@ const BoqHubPage = () => {
                     boqName={boq.name}
                     onSaved={handleSaved}
                     onOpenReview={handleOpenReview}
-                    onOpenPricing={handleOpenPricing}
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
                     staleReason={staleMap.get(draft.sheet_name)}
@@ -1057,6 +1059,28 @@ const BoqHubPage = () => {
                   : "No sheets are eligible to commit yet"}
               </TooltipContent>
             </Tooltip>
+            {/* Tendering (Phase 5 Slice 3a) -- 5th sibling. The designed pricing-editor
+                entry door (design v1.3 Sec.8.5): a global button -> a picker of eligible
+                (committed) sheets -> open ONE in the pricing editor. Gated on committed-ness
+                (the same committedMap the card badges + the Committed tally use). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    disabled={committedMap.size === 0}
+                    onClick={() => setTenderingDialogOpen(true)}
+                  >
+                    Tendering
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {committedMap.size > 0
+                  ? "Open a committed sheet in the pricing editor"
+                  : "No committed sheets to price yet"}
+              </TooltipContent>
+            </Tooltip>
           </TooltipProvider>
         </div>
       </div>
@@ -1093,6 +1117,18 @@ const BoqHubPage = () => {
         eligibleSheets={committableSheets}
         committedState={committedMap}
         onCommitted={handleCommitted}
+      />
+
+      {/* ── Tendering (pricing-editor entry) dialog (Phase 5 Slice 3a) ───────── */}
+      {/* Global entry door: pick one committed sheet -> open its pricing editor. */}
+      <TenderingDialog
+        open={tenderingDialogOpen}
+        onOpenChange={setTenderingDialogOpen}
+        committedState={committedMap}
+        onConfirm={(sheetName) => {
+          setTenderingDialogOpen(false);
+          handleOpenPricing(sheetName);
+        }}
       />
 
       {/* ── Commit-results acknowledge modal (Phase 5 Slice 5 frontend) ────── */}
