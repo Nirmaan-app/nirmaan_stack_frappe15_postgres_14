@@ -317,6 +317,15 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Minimal touch (2026-06-20 -- Phase 5 Pricing-overlay read `get_priced_rows`, BACKEND ONLY, feat pending):** Added
+the composing pricing read -- `api/boq/wizard/pricing.py:get_priced_rows(boq_name, sheet_name)` merges the committed
+rows (`get_committed_rows`) with the current saved prices (`get_sheet_pricing`) into ONE structure (rate cells stamped
+in place + a `priced_by_area`/`priced_rate_*` marker driven by `is_filled`, NOT a zero-check) + the reserved
+`editable`/`lock_info` lock placeholders; `get_committed_rows` gained an additive `commit_version` response key. PURE
+READ, NO migrate. NO FRONTEND CHANGE this slice (the pricing grid that consumes this is a later frontend slice);
+recorded here per the DOCS-UPDATE RULE. Full detail in root `CLAUDE.md` + `boq-upload-plan.md` "Phase 5 Pricing-overlay
+read". test_pricing 12 -> 22, test_review_screen 205 unchanged.
+
 **Status (2026-06-20 -- Phase 4 Slice AI-3c-2d GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP) COMPLETE -- BACKEND + FRONTEND, `ai_assist.py` + `SheetReviewPage.tsx` (+ test_ai_assist.py), feat pending):**
 Closes the last freeze hole in the AI surface. A "Finalized" sheet is read-only (`_guard_sheet_not_frozen`), and
 accept/reject/revert were ALL already guarded -- but `run_ai_pass` was added later and was NEVER gated on EITHER layer,

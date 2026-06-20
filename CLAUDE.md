@@ -1,6 +1,37 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 5 Slice 1b -- PRICING-LAYER DOCTYPE + persist -- BACKEND, MIGRATE slice, feat
+**Last updated:** 2026-06-20 (Phase 5 PRICING-OVERLAY READ -- `get_priced_rows` -- BACKEND, pure-read, feat pending,
+branch `feature/boq-phase-5`. The COMPOSING read between Slice 1b and the editor: a NEW whitelisted endpoint
+**`get_priced_rows(boq_name, sheet_name)`** in `api/boq/wizard/pricing.py` returning the committed rows for a sheet WITH
+the current saved prices merged in -- so the (future) pricing grid consumes ONE already-merged structure instead of
+joining two reads client-side. **PURE READ** -- never writes, never mutates the committed tier, never creates/changes a
+`BoQ Cell Pricing` record. **NO doctype JSON change -> NO migrate.** COMPOSES the two certified reads (reimplements
+NEITHER): imports + calls `review_screen.get_committed_rows` (no circular import -- review_screen does NOT import
+pricing) + this module's `get_sheet_pricing`, then merges; arg/not-found guards inherited from get_committed_rows
+(called first). **ONE ADDITIVE change to `get_committed_rows` (review_screen.py):** adds a top-level **`commit_version`**
+key to its response (the current committed BoQ Sheet's commit_version -- selected in the EXISTING sheet read, surfaced
+on all three return paths, None on the no-sheet empty path); the overlay reads it as the single source of truth for
+"which version is current" and passes it to get_sheet_pricing (re-querying would be a second source that can race).
+Purely additive -- no existing key/row changed. **THE MERGE (descriptor-driven -- col_letter is NOT on the committed
+row):** index current FILLED prices by `(excel_row, col_letter)`; for each row x each RATE descriptor (value_field ==
+`"rate_by_area"` OR a scalar rate field `rate_supply`/`rate_install`/`rate_combined` -- amount/qty descriptors NEVER
+stamped) look up `(row.source_row_number, descriptor.col)`. `source_row_number` is the Excel join key (= pricing
+`excel_row`); `row_index`(=sort_order) is a DIFFERENT space, never used. **STAMP + MARK:** a matched price stamps its
+`rate` IN PLACE (per-area `rate_by_area[area][kind]`, or the scalar rate field) AND sets a parallel marker --
+`priced_by_area[area][kind]=True` (per-area) / `priced_<scalar field>`=True (scalar). The marker comes from the PRESENCE
+of a current price record + its `is_filled` (the index is is_filled-gated), **NEVER a zero-check** (a committed 0.0 rate
+is a valid priced value; a 0.0-rate save with is_filled=1 reads PRICED). Un-priced cells keep their committed value, no
+marker. **RESERVE-FOR-LOCK:** two INERT placeholders `editable: true` + `lock_info: null` (reserved for a future
+single-editor-lock slice; NO locking logic built). **RESPONSE:** `{rows (stamped+markers), column_descriptors
+(passthrough), commit_version, editable, lock_info}`; graceful empties (uncommitted/grid-only -> same shape, no-op
+merge, no throw). **TESTS (bench-verified in-session):** test_pricing **12 -> 22** (+10 TestGetPricedRows:
+priced+unpriced in one row; zero-rate-is-priced [the load-bearing correctness test]; multi-area independence;
+commit_version passthrough; reserved editable/lock_info; scalar-rate cell via a NEW local `_build_scalar_rate_committed_
+sheet` fixture [the shared per-area fixture has no scalar rate column]; descriptors passthrough; uncommitted empty
+shape; missing-args/unknown-boq throw; NO amount/qty stamping). test_review_screen **205 -> 205** (commit_version
+assertions folded into existing committed-read tests -- net count unchanged). Frontend NOT touched (backend-only;
+frontend/CLAUDE.md minimal-touch). Full detail in boq-upload-plan.md "Phase 5 Pricing-overlay read".)
+// prior: 2026-06-20 (Phase 5 Slice 1b -- PRICING-LAYER DOCTYPE + persist -- BACKEND, MIGRATE slice, feat
 pending, branch `feature/boq-phase-5`. Creates the per-cell PRICING LAYER -- a NEW standalone doctype **`BoQ Cell
 Pricing`** (autoname **`BPRC-.YY.-.#####`**, istable:0, track_changes:1) that stores the RATE a user fills into a
 committed Excel cell, sitting ON TOP of the committed tier (NEVER mutates it -- nodes/grid/BoQ Sheet stay capture-only).
