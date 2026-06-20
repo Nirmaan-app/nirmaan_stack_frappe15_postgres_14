@@ -12,6 +12,7 @@ import {
   findPairedRateDescriptor,
   computeAmount,
   buildRateCell,
+  nextCell,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -167,5 +168,46 @@ describe("buildRateCell", () => {
     expect(cell.rateKind).toBe("combined_rate");
     expect(cell.excelRow).toBe(34);
     expect(cell.description).toBe("cable 1.1.2");
+  });
+});
+
+// ── Slice 3b.2: nextCell coordinate nav ─────────────────────────────────────────
+// A 3-row x 4-col grid (rowCount=3, colCount=4); cells (0,0)..(2,3).
+describe("nextCell", () => {
+  const R = 3;
+  const C = 4;
+
+  it("arrows move one cell and STOP at each edge (no wrap)", () => {
+    expect(nextCell({ rowIndex: 1, colIndex: 1 }, "up", R, C)).toEqual({ rowIndex: 0, colIndex: 1 });
+    expect(nextCell({ rowIndex: 1, colIndex: 1 }, "down", R, C)).toEqual({ rowIndex: 2, colIndex: 1 });
+    expect(nextCell({ rowIndex: 1, colIndex: 1 }, "left", R, C)).toEqual({ rowIndex: 1, colIndex: 0 });
+    expect(nextCell({ rowIndex: 1, colIndex: 1 }, "right", R, C)).toEqual({ rowIndex: 1, colIndex: 2 });
+    // edges -> null (no move, no wrap)
+    expect(nextCell({ rowIndex: 0, colIndex: 1 }, "up", R, C)).toBeNull();
+    expect(nextCell({ rowIndex: 2, colIndex: 1 }, "down", R, C)).toBeNull();
+    expect(nextCell({ rowIndex: 1, colIndex: 0 }, "left", R, C)).toBeNull();
+    expect(nextCell({ rowIndex: 1, colIndex: 3 }, "right", R, C)).toBeNull();
+    // an arrow at the row edge does NOT wrap to the next/prev row
+    expect(nextCell({ rowIndex: 0, colIndex: 3 }, "right", R, C)).toBeNull();
+    expect(nextCell({ rowIndex: 1, colIndex: 0 }, "left", R, C)).toBeNull();
+  });
+
+  it("Tab moves right and WRAPS at a row's end to the next row's first cell", () => {
+    expect(nextCell({ rowIndex: 0, colIndex: 1 }, "tab", R, C)).toEqual({ rowIndex: 0, colIndex: 2 });
+    expect(nextCell({ rowIndex: 0, colIndex: 3 }, "tab", R, C)).toEqual({ rowIndex: 1, colIndex: 0 }); // wrap
+    // Tab off the VERY LAST cell of the last row -> null (stop; contain focus)
+    expect(nextCell({ rowIndex: 2, colIndex: 3 }, "tab", R, C)).toBeNull();
+  });
+
+  it("Shift-Tab moves left and WRAPS at a row's start to the previous row's last cell", () => {
+    expect(nextCell({ rowIndex: 1, colIndex: 2 }, "shift-tab", R, C)).toEqual({ rowIndex: 1, colIndex: 1 });
+    expect(nextCell({ rowIndex: 1, colIndex: 0 }, "shift-tab", R, C)).toEqual({ rowIndex: 0, colIndex: 3 }); // wrap
+    // Shift-Tab off the VERY FIRST cell -> null (stop; contain focus)
+    expect(nextCell({ rowIndex: 0, colIndex: 0 }, "shift-tab", R, C)).toBeNull();
+  });
+
+  it("Enter (mapped to 'down') moves down and stops at the bottom row", () => {
+    expect(nextCell({ rowIndex: 0, colIndex: 2 }, "down", R, C)).toEqual({ rowIndex: 1, colIndex: 2 });
+    expect(nextCell({ rowIndex: 2, colIndex: 2 }, "down", R, C)).toBeNull();
   });
 });

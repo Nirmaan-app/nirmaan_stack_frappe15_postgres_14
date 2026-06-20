@@ -1,5 +1,6 @@
 /**
- * PricingGrid -- committed-pricing grid (BoQ Phase 5 Slice 3a read-only -> 3b rate editing).
+ * PricingGrid -- committed-pricing grid (BoQ Phase 5 Slice 3a read-only -> 3b rate editing
+ * -> 3b.2 spreadsheet keyboard nav).
  *
  * Renders the committed rows of one sheet (from get_priced_rows) with their current saved
  * rates + a priced/un-priced marker. Mirrors ReviewTree's descriptor-render loop but REUSES
@@ -19,11 +20,21 @@
  *     row's SAVED rate IF the cell is priced. An un-priced, not-editing amount cell keeps
  *     its committed value unchanged (no regression from 3a).
  *
+ * Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION (design v1.3 Sec.11). The WHOLE grid is a
+ * clean rectangular matrix (5 fixed anchors + N descriptor cells per row); a {rowIndex
+ * (array index into rows), colIndex} active cell is driven by a roving-tabindex model + a
+ * per-cell ref map (the <input> for a rate cell, the <td> for every other cell). Arrows
+ * move one cell + STOP at edges (no wrap); Enter commits + moves down; Tab commits + moves
+ * right and WRAPS to the next row (Shift-Tab reverse); Tab/Shift-Tab off the grid's last/
+ * first cell STOPS (focus contained). Any move COMMITS the active rate cell first (the
+ * existing commitRate; the committedAttemptRef dedupe absorbs the trailing onBlur). The
+ * active cell shows a focus ring + scrolls into view (scroll-mt clears the sticky header).
+ *
  * Still OUT (later slices): subtotal roll-up (sum of children), auto-save/debounce +
  * force-save (3c), the single-editor lock (editable/lock_info stay INERT here), remarks +
  * the review-flag layer (4a/4b), Excel write-back (5), finalize/revert (6).
  */
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
@@ -158,6 +169,60 @@ export function buildRateCell(row: PricedRow, d: ColumnDescriptor): RateCellSave
   return args;
 }
 
+// ── Slice 3b.2: spreadsheet keyboard navigation ─────────────────────────────────
+// Number of fixed anchor columns rendered before the descriptor loop:
+// 0=Excel Row, 1=Sl.No, 2=Parent, 3=Classification, 4=Description. Descriptor cells
+// occupy colIndex FIXED_ANCHOR_COUNT .. (FIXED_ANCHOR_COUNT + displayDescriptors.length - 1).
+export const FIXED_ANCHOR_COUNT = 5;
+
+export type NavDirection = "up" | "down" | "left" | "right" | "tab" | "shift-tab";
+export interface CellCoord {
+  rowIndex: number;
+  colIndex: number;
+}
+
+/**
+ * The next active cell for a nav key, or null when the move has nowhere to go. Pure
+ * (unit-tested). Arrows STOP at edges (no wrap). Enter maps to "down". Tab moves right and
+ * WRAPS at a row's end to the next row's first cell; Shift-Tab moves left and wraps to the
+ * previous row's last cell; Tab off the very last cell (and Shift-Tab off the very first)
+ * returns null (focus stays put -- contained in the grid). rowCount/colCount are the
+ * rendered matrix dimensions (rowCount = rows.length; colCount = FIXED_ANCHOR_COUNT + N).
+ */
+export function nextCell(
+  active: CellCoord,
+  dir: NavDirection,
+  rowCount: number,
+  colCount: number,
+): CellCoord | null {
+  const { rowIndex: r, colIndex: c } = active;
+  switch (dir) {
+    case "up":
+      return r > 0 ? { rowIndex: r - 1, colIndex: c } : null;
+    case "down":
+      return r < rowCount - 1 ? { rowIndex: r + 1, colIndex: c } : null;
+    case "left":
+      return c > 0 ? { rowIndex: r, colIndex: c - 1 } : null;
+    case "right":
+      return c < colCount - 1 ? { rowIndex: r, colIndex: c + 1 } : null;
+    case "tab":
+      if (c < colCount - 1) return { rowIndex: r, colIndex: c + 1 };
+      if (r < rowCount - 1) return { rowIndex: r + 1, colIndex: 0 };
+      return null; // last cell of last row -> stop (contain focus)
+    case "shift-tab":
+      if (c > 0) return { rowIndex: r, colIndex: c - 1 };
+      if (r > 0) return { rowIndex: r - 1, colIndex: colCount - 1 };
+      return null; // first cell of first row -> stop (contain focus)
+    default:
+      return null;
+  }
+}
+
+// A decimal-in-progress: digits, at most one dot, optional leading minus, or empty/partial
+// ("", "-", "1.", "."). Rejects letters / multiple dots so a rate input stays numeric.
+// parseFloat (in commitRate) tolerates the partial forms ("-"/"." -> NaN -> 0).
+const DECIMAL_IN_PROGRESS = /^-?\d*\.?\d*$/;
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -185,6 +250,14 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
   const [draftRates, setDraftRates] = useState<Record<string, string>>({});
   // Dedupe blur + Enter committing the SAME value (and an in-flight re-commit).
   const committedAttemptRef = useRef<Record<string, string>>({});
+
+  // Slice 3b.2 -- spreadsheet keyboard nav. The active cell {rowIndex (array index into
+  // rows), colIndex} is null until the user clicks / tabs in. Roving-tabindex: the active
+  // cell (or (0,0) before any focus) is the single tab stop; arrows/Enter/Tab move it.
+  const [activeCell, setActiveCell] = useState<CellCoord | null>(null);
+  // Per-cell focusable element, keyed `${rowIndex}:${colIndex}` -- the <input> for a rate
+  // cell, the <td> for every other cell. Used to .focus() the target on a keyboard move.
+  const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   // row_index -> row, for resolving a parent's Excel row number.
   const byIdx = new Map<number, PricedRow>(rows.map((r) => [r.row_index, r]));
@@ -240,6 +313,79 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
       });
   };
 
+  // ── Slice 3b.2 nav model ───────────────────────────────────────────────────
+  const colCount = FIXED_ANCHOR_COUNT + displayDescriptors.length;
+  const navKey = (r: number, c: number) => `${r}:${c}`;
+
+  const registerCell = (r: number, c: number, el: HTMLElement | null) => {
+    if (el) cellRefs.current.set(navKey(r, c), el);
+    else cellRefs.current.delete(navKey(r, c));
+  };
+
+  const isActive = (r: number, c: number) =>
+    activeCell !== null && activeCell.rowIndex === r && activeCell.colIndex === c;
+  // Roving tabindex: the active cell is the single tab stop; before any focus, (0,0) is the
+  // entry point so the grid is reachable by Tab from the page.
+  const isTabStop = (r: number, c: number) =>
+    activeCell !== null ? isActive(r, c) : r === 0 && c === 0;
+
+  // Shared per-cell nav className: focus ring on the active cell + a scroll-margin so a
+  // cell scrolled to the top clears the sticky header (no frozen-left to handle).
+  const cellNavClass = (r: number, c: number) =>
+    cn("scroll-mt-9 outline-none", isActive(r, c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400");
+  // Focus props for a <td>-focusable cell (every cell except a rate input).
+  const tdFocusProps = (r: number, c: number) => ({
+    tabIndex: isTabStop(r, c) ? 0 : -1,
+    onFocus: () => setActiveCell({ rowIndex: r, colIndex: c }),
+    ref: (el: HTMLTableCellElement | null) => registerCell(r, c, el),
+  });
+  // Focus props for a rate cell's <input> (the focus target for an editable cell).
+  const inputFocusProps = (r: number, c: number) => ({
+    tabIndex: isTabStop(r, c) ? 0 : -1,
+    onFocus: () => setActiveCell({ rowIndex: r, colIndex: c }),
+    ref: (el: HTMLInputElement | null) => registerCell(r, c, el),
+  });
+
+  const focusCell = (r: number, c: number) => {
+    const el = cellRefs.current.get(navKey(r, c));
+    if (el) {
+      el.focus();
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  };
+
+  // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
+  // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
+  const commitActiveRate = (cell: CellCoord) => {
+    if (!onSaveRate || cell.colIndex < FIXED_ANCHOR_COUNT) return;
+    const d = displayDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
+    if (!d || !isRateDescriptor(d)) return;
+    const row = rows[cell.rowIndex];
+    if (!row) return;
+    const key = cellKey(row.row_index, d.col);
+    commitRate(row, d, draftRates[key] ?? savedRateStr(row, d));
+  };
+
+  // The single grid keydown handler (on the <table>; cell/input keydowns bubble here).
+  // Maps a nav key -> direction, commits the active rate cell, then moves focus. Always
+  // preventDefaults a nav key while the grid is active so arrows never move the input caret
+  // and Tab never escapes the grid (at an edge: commit + stay put).
+  const handleGridKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
+    if (!activeCell) return;
+    let dir: NavDirection | null = null;
+    if (e.key === "ArrowUp") dir = "up";
+    else if (e.key === "ArrowDown") dir = "down";
+    else if (e.key === "ArrowLeft") dir = "left";
+    else if (e.key === "ArrowRight") dir = "right";
+    else if (e.key === "Enter") dir = "down";
+    else if (e.key === "Tab") dir = e.shiftKey ? "shift-tab" : "tab";
+    if (!dir) return; // not a nav key -> let typing / the decimal guard handle it
+    e.preventDefault(); // own the nav keys: no caret move, no tab-escape
+    commitActiveRate(activeCell);
+    const next = nextCell(activeCell, dir, rows.length, colCount);
+    if (next) focusCell(next.rowIndex, next.colIndex);
+  };
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -250,7 +396,7 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
 
   return (
     <div className="rounded-md border border-border overflow-auto max-h-[calc(100vh-14rem)]">
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-xs border-collapse" onKeyDown={handleGridKeyDown}>
         <thead>
           <tr>
             <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -282,7 +428,7 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {rows.map((row, rowIdx) => {
             const depth = depths.get(row.row_index) ?? 0;
             const isPreamble = row.effective_classification === "preamble";
             const isLineItem = row.effective_classification === "line_item";
@@ -292,28 +438,55 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
 
             return (
               <tr key={row.row_index} className="border-b border-border hover:bg-muted/30">
-                {/* Excel Row */}
-                <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums">
+                {/* Excel Row (col 0) */}
+                <td
+                  {...tdFocusProps(rowIdx, 0)}
+                  className={cn(
+                    "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
+                    cellNavClass(rowIdx, 0),
+                  )}
+                >
                   {row.source_row_number}
                 </td>
-                {/* Sl.No */}
-                <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
+                {/* Sl.No (col 1) */}
+                <td
+                  {...tdFocusProps(rowIdx, 1)}
+                  className={cn(
+                    "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border",
+                    cellNavClass(rowIdx, 1),
+                  )}
+                >
                   {row.sl_no_value ?? ""}
                 </td>
-                {/* Parent: parent's Excel row number (muted; read-only -- no scroll-to nav). */}
-                <td className="px-2 py-1.5 align-top w-16 border-r border-border">
+                {/* Parent (col 2): parent's Excel row number (muted; read-only -- focus only). */}
+                <td
+                  {...tdFocusProps(rowIdx, 2)}
+                  className={cn(
+                    "px-2 py-1.5 align-top w-16 border-r border-border",
+                    cellNavClass(rowIdx, 2),
+                  )}
+                >
                   {parentExcelRow !== null ? (
                     <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
                       ↑ {parentExcelRow}
                     </span>
                   ) : null}
                 </td>
-                {/* Classification pill (read-only -- no chevron / reclassify). */}
-                <td className="px-2 py-1.5 align-top w-36 border-r border-border">
+                {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
+                <td
+                  {...tdFocusProps(rowIdx, 3)}
+                  className={cn(
+                    "px-2 py-1.5 align-top w-36 border-r border-border",
+                    cellNavClass(rowIdx, 3),
+                  )}
+                >
                   <ClassificationPill cls={row.effective_classification} />
                 </td>
-                {/* Description: depth indent + per-classification styling (mirrors ReviewTree). */}
-                <td className="px-2 py-1.5 align-top">
+                {/* Description (col 4): depth indent + per-classification styling. */}
+                <td
+                  {...tdFocusProps(rowIdx, 4)}
+                  className={cn("px-2 py-1.5 align-top", cellNavClass(rowIdx, 4))}
+                >
                   <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
                     <span
                       className={cn(
@@ -331,8 +504,9 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                 </td>
                 {/* Descriptor-driven data cells: editable rate inputs, live-amount cells,
                     and read-only qty/other cells. */}
-                {displayDescriptors.map((d) => {
-                  // ── RATE cell: editable <Input> (save on blur/Enter) ──────────────
+                {displayDescriptors.map((d, dIdx) => {
+                  const colIndex = FIXED_ANCHOR_COUNT + dIdx;
+                  // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
                   if (onSaveRate && isRateDescriptor(d)) {
                     const key = cellKey(row.row_index, d.col);
                     const value = draftRates[key] ?? savedRateStr(row, d);
@@ -344,6 +518,8 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                         className={cn(
                           "px-1 py-1 align-top border-l border-border",
                           priced && "bg-emerald-50 dark:bg-emerald-950/30",
+                          isActive(rowIdx, colIndex) &&
+                            "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
                         )}
                       >
                         <div className="flex items-center justify-end gap-1">
@@ -353,21 +529,23 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                               className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
                             />
                           )}
+                          {/* type=text + inputMode=decimal: frees Arrow keys for cell nav
+                              (a number input hijacks them). Decimal guard in onChange keeps
+                              the value numeric. Nav keys (arrows/Enter/Tab) bubble to the
+                              table's onKeyDown; onBlur stays as the commit safety net. */}
                           <Input
-                            type="number"
+                            {...inputFocusProps(rowIdx, colIndex)}
+                            type="text"
+                            inputMode="decimal"
                             value={value}
-                            onChange={(e) =>
-                              setDraftRates((prev) => ({ ...prev, [key]: e.target.value }))
-                            }
-                            onBlur={() => commitRate(row, d, value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                commitRate(row, d, value);
-                                (e.target as HTMLInputElement).blur();
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (DECIMAL_IN_PROGRESS.test(v)) {
+                                setDraftRates((prev) => ({ ...prev, [key]: v }));
                               }
                             }}
-                            className="h-7 text-xs w-20 text-right tabular-nums"
+                            onBlur={() => commitRate(row, d, value)}
+                            className="h-7 text-xs w-20 text-right tabular-nums scroll-mt-9"
                           />
                         </div>
                       </td>
@@ -401,7 +579,11 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                     return (
                       <td
                         key={d.col}
-                        className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                        {...tdFocusProps(rowIdx, colIndex)}
+                        className={cn(
+                          "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                          cellNavClass(rowIdx, colIndex),
+                        )}
                       >
                         {amountVal !== null
                           ? renderDescriptorCell(amountVal)
@@ -416,10 +598,12 @@ export function PricingGrid({ rows, columnDescriptors, onSaveRate }: PricingGrid
                   return (
                     <td
                       key={d.col}
+                      {...tdFocusProps(rowIdx, colIndex)}
                       title={priced ? "Priced" : undefined}
                       className={cn(
                         "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
                         priced && "bg-emerald-50 dark:bg-emerald-950/30",
+                        cellNavClass(rowIdx, colIndex),
                       )}
                     >
                       {priced && (
