@@ -3849,7 +3849,9 @@ class TestGetCommittedRows(FrappeTestCase):
         # An existing BOQs with no current committed BoQ Sheet at that name -> graceful empty
         # lists (NOT a throw) -- mirrors get_review_rows' empty-config -> [].
         res = get_committed_rows(boq_name=self.uncommitted_boq, sheet_name="Uncommitted Sheet ZZ")
-        self.assertEqual(res, {"rows": [], "column_descriptors": []})
+        self.assertEqual(
+            res, {"rows": [], "column_descriptors": [], "commit_version": None}
+        )
 
     # -- POSITIVE: hermetic committed fixture (always runs) -----------------
 
@@ -3934,5 +3936,8 @@ class TestGetCommittedRows(FrappeTestCase):
         for r in res["rows"]:
             for k in _CR_DRAFT_ONLY_KEYS:
                 self.assertNotIn(k, r, f"draft-only field {k} must be omitted from committed rows")
-        # The response shape is the minimal {rows, column_descriptors} -- no draft flags/work_packages.
-        self.assertEqual(set(res.keys()), {"rows", "column_descriptors"})
+        # The response shape adds the additive commit_version key (pricing-overlay slice) --
+        # no draft flags/work_packages leak in. commit_version is the current committed version.
+        self.assertEqual(set(res.keys()), {"rows", "column_descriptors", "commit_version"})
+        self.assertEqual(res["commit_version"], 1,
+                         "get_committed_rows returns the current committed commit_version (fixture = 1)")

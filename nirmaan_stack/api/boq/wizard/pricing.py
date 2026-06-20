@@ -21,14 +21,24 @@ finalize-pricing endpoints, copy-forward, and the editor UI are LATER slices.
 Public API:
   save_cell_price(...)   -> dict   [whitelisted POST]
   get_sheet_pricing(...) -> dict   [whitelisted, GET-capable]
+  get_priced_rows(...)   -> dict   [whitelisted, GET-capable]  -- the overlay read
 """
 from __future__ import annotations
 
 import frappe
 
+from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
+
+# A rate cell is the ONLY cell a price overlays onto. A column_descriptor identifies a
+# rate cell by its value_field: per-area rates nest under "rate_by_area"; scalar rates use
+# one of these singleton fields. Amount / qty descriptors use other value_fields and are
+# NEVER stamped (a saved price must never land on an amount or qty cell).
+_PER_AREA_RATE_FIELD = "rate_by_area"
+_SCALAR_RATE_FIELDS = frozenset({"rate_supply", "rate_install", "rate_combined"})
 
 # Pricing identity = the durable Excel address + the committed version it prices.
 _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "col_letter", "committed_version")
@@ -234,3 +244,111 @@ def get_sheet_pricing(
         order_by="excel_row asc, col_letter asc",
     )
     return {"pricing": pricing}
+
+
+@frappe.whitelist()
+def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
+    """Return the committed rows for (boq_name, sheet_name) WITH the current saved prices
+    merged in -- so the pricing grid consumes ONE already-merged structure instead of
+    joining two reads on the client.
+
+    Composes the two certified reads (it reimplements NEITHER):
+      - get_committed_rows(boq, sheet)            [review_screen.py]
+      - get_sheet_pricing(boq, sheet, version)    [this module]
+    PURE READ -- never writes, never mutates the committed tier, never creates/changes a
+    BoQ Cell Pricing record. @frappe.whitelist() bare (GET-capable; mirrors both sources).
+    sheet_name is passed VERBATIM (#152) to both source calls -- never stripped. Arg /
+    not-found guards are inherited from get_committed_rows (called first, throws on missing
+    boq_name / sheet_name / unknown BOQs).
+
+    THE MERGE (descriptor-driven -- col_letter is NOT on the committed row):
+      - committed_version comes from get_committed_rows' (additive) commit_version key --
+        the single source of truth for "which version is current"; it is passed to
+        get_sheet_pricing so the prices read match the rows read.
+      - Only RATE descriptors carry a price (value_field == "rate_by_area" or a scalar rate
+        field); amount / qty descriptors are NEVER stamped.
+      - The join is (price.excel_row == row.source_row_number) AND
+        (price.col_letter == descriptor.col). source_row_number is the Excel row; row_index
+        (= sort_order) is a DIFFERENT integer space and is NOT used for the join.
+      - PRICED MARKER comes from the PRESENCE of a current price record + its is_filled,
+        NEVER from a zero-check: a committed rate of 0.0 is a valid value, not "un-priced".
+        For a priced cell the saved rate is stamped IN PLACE (the per-area nested cell
+        rate_by_area[area][kind], or the scalar rate field) AND a parallel marker is set:
+        priced_by_area[area][kind] = True for per-area cells, priced_<scalar field> = True
+        for scalar cells. Un-priced cells keep their committed value and carry no marker.
+
+    Returns:
+      {
+        "rows": [...],                # committed rows, rate cells stamped + markers added
+        "column_descriptors": [...],  # passed through from get_committed_rows UNCHANGED
+        "commit_version": <int|None>, # the version that was priced (None if uncommitted)
+        "editable": True,             # RESERVED placeholder for the future lock slice
+        "lock_info": None,            # RESERVED placeholder for the future lock slice
+      }
+    `editable` / `lock_info` are INERT placeholders ONLY -- reserved so a future
+    single-editor-lock slice does not have to reshape this contract. No locking logic,
+    lock doctype, or acquire/release exists or is built here.
+
+    Graceful empties: an uncommitted / grid-only sheet (no committed rows, or no current
+    version) returns the same shape with pricing merged as a no-op (no throw).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_priced_rows
+    """
+    # get_committed_rows owns the arg / not-found guards (throws) + sheet_name VERBATIM.
+    committed = get_committed_rows(boq_name=boq_name, sheet_name=sheet_name)
+    rows = committed.get("rows") or []
+    column_descriptors = committed.get("column_descriptors") or []
+    commit_version = committed.get("commit_version")
+
+    base = {
+        "rows": rows,
+        "column_descriptors": column_descriptors,
+        "commit_version": commit_version,
+        # RESERVED for the future single-editor-lock slice -- inert placeholders, no logic.
+        "editable": True,
+        "lock_info": None,
+    }
+
+    # Nothing committed (no rows or no current version) -> no-op merge, graceful passthrough.
+    if not rows or commit_version is None:
+        return base
+
+    pricing = get_sheet_pricing(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+    )["pricing"]
+
+    # Index current, FILLED prices by the durable cell key (excel_row, col_letter). The
+    # is_filled gate (not a zero-check) is what makes a cell "priced"; a current record
+    # that is not filled is treated as un-priced (its value is left untouched).
+    price_by_cell = {
+        (p["excel_row"], p["col_letter"]): p for p in pricing if p.get("is_filled")
+    }
+    if not price_by_cell:
+        return base
+
+    # Only RATE descriptors are eligible to receive a price (see _SCALAR_RATE_FIELDS doc).
+    rate_descs = [
+        d for d in column_descriptors
+        if d.get("value_field") == _PER_AREA_RATE_FIELD
+        or d.get("value_field") in _SCALAR_RATE_FIELDS
+    ]
+
+    for row in rows:
+        excel_row = row.get("source_row_number")
+        if excel_row is None:
+            continue
+        for d in rate_descs:
+            price = price_by_cell.get((excel_row, d.get("col")))
+            if price is None:
+                continue  # un-priced: leave the committed value untouched, no marker
+            rate_val = price.get("rate")
+            if d.get("value_field") == _PER_AREA_RATE_FIELD:
+                area = d.get("value_key")
+                kind = d.get("rate_subkey")
+                row.setdefault("rate_by_area", {}).setdefault(area, {})[kind] = rate_val
+                row.setdefault("priced_by_area", {}).setdefault(area, {})[kind] = True
+            else:
+                field = d.get("value_field")  # a scalar rate field
+                row[field] = rate_val
+                row["priced_" + field] = True
+
+    return base

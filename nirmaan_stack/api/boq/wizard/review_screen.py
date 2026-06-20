@@ -1304,7 +1304,11 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
       {
         "rows": [{<draft-shaped committed row>, ...}],   # ordered by sort_order
         "column_descriptors": [{col, role, area, value_field, value_key, rate_subkey}, ...],
+        "commit_version": <int|None>,   # the current committed version of this sheet
       }
+    `commit_version` (additive -- pricing-overlay slice) is the current committed BoQ Sheet's
+    commit_version, the single source of truth a pricing overlay passes to get_sheet_pricing
+    (None when nothing is committed). It adds ONE key; no existing key or row changes.
     An uncommitted / grid-only sheet (no current BoQ Sheet, or no current nodes) returns
     empty lists (graceful -- mirrors get_review_rows' empty-config -> []).
 
@@ -1323,12 +1327,12 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     sheet_doc = frappe.db.get_value(
         "BoQ Sheet",
         {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1},
-        ["name", "column_role_map", "column_headers"],
+        ["name", "column_role_map", "column_headers", "commit_version"],
         as_dict=True,
     )
     if not sheet_doc:
         # No current committed sheet for this (boq, sheet) -> nothing committed yet.
-        return {"rows": [], "column_descriptors": []}
+        return {"rows": [], "column_descriptors": [], "commit_version": None}
 
     # Column descriptors: a PURE reuse of the draft-side builder on the committed config.
     # JSON columns may come back parsed (dict) or raw (str) depending on the read path; normalize.
@@ -1346,7 +1350,11 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         order_by="sort_order asc",
     )
     if not nodes:
-        return {"rows": [], "column_descriptors": column_descriptors}
+        return {
+            "rows": [],
+            "column_descriptors": column_descriptors,
+            "commit_version": sheet_doc.get("commit_version"),
+        }
 
     # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
     sortorder_by_name = {n["name"]: n["sort_order"] for n in nodes}
@@ -1366,7 +1374,11 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         _committed_node_to_row(n, children_by_parent.get(n["name"], []), sortorder_by_name)
         for n in nodes
     ]
-    return {"rows": rows, "column_descriptors": column_descriptors}
+    return {
+        "rows": rows,
+        "column_descriptors": column_descriptors,
+        "commit_version": sheet_doc.get("commit_version"),
+    }
 
 
 def _coerce_json_obj(v):
