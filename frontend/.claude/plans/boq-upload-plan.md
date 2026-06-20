@@ -16,7 +16,48 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3c-2d (AI auto-mapping) -- GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP)
+LATEST: Phase 5 Slice 1a (Pricing Editor) -- COMMITTED-READ ENDPOINT get_committed_rows (BACKEND, pure-read,
+2026-06-20, feat pending, branch feature/boq-phase-5). The first Phase-5 build: a NEW read endpoint that adapts the
+COMMITTED tier (BOQ Nodes + BOQ Node Qty By Area children + the committed BoQ Sheet column config) into the SAME
+{rows, column_descriptors} descriptor contract get_review_rows emits from the DRAFT tier, so the descriptor-driven
+frontend render can later draw COMMITTED rows unchanged. NO new doctype, NO schema/JSON change, NO migrate, NO frontend
+(the pricing-layer doctype is Slice 1b; the shared-render extraction + grid are later slices). Lives in review_screen.py
+(it already owns _build_column_descriptors). get_review_rows / _build_column_descriptors / resolve_effective are
+UNCHANGED (read-to-reuse only).
+- COLUMN half = PURE REUSE: `_build_column_descriptors` runs UNCHANGED on the committed `BoQ Sheet.column_role_map`
+  (verified-identical {letter:{role,area}} shape, no draft reach). A test asserts the endpoint's descriptors EQUAL the
+  builder's output verbatim.
+- ROW half = a bounded INVERSION of commit_pipeline.py's draft->committed map (the authority): `_committed_node_to_row`
+  + `_collapse_area_children` re-key each node + its children back to the DRAFT-shaped keys the descriptors read.
+  Money word-order re-key (node.supply_rate->row "rate_supply", combined_rate->"rate_combined",
+  total_amount->"amount_total", etc.); identity (code->"sl_no_value", qty->"qty_total", notes->"row_notes"); per-area
+  RE-COLLAPSE of the BOQ Node Qty By Area children into the nested *_by_area dicts (qty_by_area flat {area:num};
+  rate_by_area {area:{supply_rate,install_rate,combined_rate}}; amount_by_area {area:{supply,install,total}} -- NOTE the
+  amount kind rename total_amount->"total"/supply_amount->"supply"/install_amount->"install", the inverse of
+  _explode_area_children).
+- INDEX-FIELD CHOICE (the one A20 ambiguity, resolved + documented): **row_index = node.sort_order** (NOT
+  source_row_number). Reasoning: commit_pipeline maps draft `row_index -> node.sort_order` (it IS the exact committed
+  analog), and sort_order is 0-based contiguous as computeDepths/byIdx expect; `source_row_number` (sparse 1-based Excel
+  row) is carried SEPARATELY on each row for the Parent column's Excel-row display. `effective_parent_index` = the
+  parent node's sort_order, resolved via node.parent_node (a Link to the parent's NAME) -> a name->sort_order lookup
+  pass; a ROOT (parent_node NULL) -> None (the null root sentinel computeDepths/resolve_effective use, NOT the raw -1).
+- CLASSIFICATION = node.row_class (the full taxonomy the ClassificationPill reads) -> emitted as both `classification`
+  and `effective_classification` (the committed tier has no human/AI override layer; node_type is the priceability axis,
+  not the pill's source). DRAFT-ONLY fields (ai_*, draft edit_log, flags, revert_available, human_*, advisory,
+  validation_warnings) are OMITTED -- the committed contract is AI-free + minimal ({rows, column_descriptors} only; no
+  work_packages/flags, which are draft-advisory). Guards mirror get_review_rows verbatim (boq_name/sheet_name required;
+  "BOQs '...' not found." throw); an uncommitted / no-current-sheet / grid-only sheet -> graceful {rows:[],
+  column_descriptors:[]}. sheet_name VERBATIM (#152).
+- TESTS: test_review_screen 196 -> 205 (+9, both bench-verified in-session): 4 hermetic NEGATIVE/empty (missing
+  boq_name/sheet_name throw; non-existent boq throw [same guard as get_review_rows]; existing-but-uncommitted sheet ->
+  empty contract) + 5 POSITIVE against the real current-committed multi-area sheet BOQ-26-00145/'Electrical ' (read-only,
+  skip-if-absent so CI-safe): descriptors == builder output (the pure-reuse proof); rows carry re-keyed draft names +
+  NOT committed node names + per-area nesting with the amount rename; hierarchy synthesized (root -> None, child ->
+  parent's row_index); classification from row_class; draft-only fields ABSENT + response is exactly {rows,
+  column_descriptors}. Live probe: BOQ-26-00145/'Electrical ' -> 194 rows, 9 descriptors, rates 0.0 (un-priced
+  committed state, as expected), 2 roots. OUT (NOT this slice): the pricing-layer doctype (Slice 1b), the shared-render
+  extraction, any frontend. Implements Slice 1a of BoQ_Pricing_Editor_Design_Scoping_v1_2. Full detail in root CLAUDE.md.
+// prior: Phase 4 Slice AI-3c-2d (AI auto-mapping) -- GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP)
 (BACKEND + FRONTEND, 2026-06-20, feat pending). Closes the last freeze hole in the AI surface. A "Finalized" sheet is
 read-only (`_guard_sheet_not_frozen`), and accept/reject/revert were all already guarded -- but `run_ai_pass` was added
 later and NEVER gated on EITHER layer, so a Finalized sheet could trigger a fresh AI pass whose `_apply_ai_suggestions`
