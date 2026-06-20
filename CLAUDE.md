@@ -1,6 +1,20 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION -- FRONTEND, PricingGrid only,
+**Last updated:** 2026-06-21 (Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS -- FRONTEND, grid + page, feat
+pending, branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Adds to the pricing editor: a **1000ms
+lodash-debounced auto-save** (the rate input's onChange schedules a per-cell debounced commit that fires ~1s after the
+last keystroke -- closing the typed-but-uncommitted gap), a **"Save now" force-save** button (PricingGrid is now a
+`forwardRef` exposing an imperative `flush()` via `useImperativeHandle`; the page header button flushes all pending +
+retries), and a **save-status chip** (idle/unsaved/saving/saved/failed via a pure `deriveSaveStatus`; the page owns an
+in-flight count, a client-clock `lastSavedAt` "Saved as of HH:MM", and a `hasUnsaved` signal from the grid's new
+`onDirtyChange`). All REUSE the existing save (`commitRate -> onSaveRate -> save_cell_price -> mutate`) -- NO new
+endpoint/backend/migrate. Hardening: a gesture commit cancels that cell's pending debounce (no same-cell out-of-order
+race -- commitRate computes the key first + `.cancel()`s); pending saves `.flush()` on grid unmount (no loss on
+navigate-away). The single-editor lock stays a separate later slice (`editable`/`lock_info` INERT). VERIFIED: Vitest
+**39/39 GREEN** (+5 `deriveSaveStatus` tests); tsc 3178 (== baseline), 0 in touched files; Vite build exit 0 (PWA 166
+entries). 3c is the last core-editor save slice. Full detail in frontend/CLAUDE.md + boq-upload-plan.md "Phase 5 Slice
+3c".)
+// prior: 2026-06-21 (Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION -- FRONTEND, PricingGrid only,
 feat pending, branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Makes the whole pricing grid
 arrow/Tab/Enter navigable like Excel (design v1.3 Sec.11): ALL cells navigable via a roving-tabindex + per-cell ref map
 (the `<input>` for a rate cell, the `<td>` for every other cell); rate cells edit-on-focus, all others hold focus.

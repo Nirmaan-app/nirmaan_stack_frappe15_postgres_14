@@ -16,7 +16,43 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION (FRONTEND, PricingGrid only, 2026-06-21, feat pending,
+LATEST: Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS (FRONTEND, grid + page, 2026-06-21, feat pending,
+branch feature/boq-phase-5). Adds debounced auto-save, a "Save now" force-save button, and a save-status chip to the
+pricing editor -- all REUSING the existing save (commitRate -> onSaveRate -> save_cell_price -> mutate). The save
+MECHANISM is unchanged; 3c adds more TRIGGERS + VISIBILITY. NO new endpoint, NO backend, NO migrate, NO lock.
+- DEBOUNCED AUTO-SAVE (1000ms, lodash `debounce`): the rate input's onChange schedules a per-cell debounced commit
+  (`scheduleAutoSave`, keyed by cellKey in `debouncersRef`) that fires ~1s after the last keystroke -- closing the
+  typed-but-uncommitted gap (no blur/Enter/move gesture needed). The fire reads the LATEST draft via a ref
+  (`autoSaveCellRef`, re-synced each render in a no-deps effect) so it never commits a stale captured value, then calls
+  the EXISTING commitRate. AUTOSAVE_MS = 1000.
+- CANCEL-DEBOUNCE-ON-GESTURE (same-cell race guard): commitRate now computes the key FIRST and
+  `debouncersRef.current.get(key)?.cancel()`s the cell's pending debounce on every commit -- so a gesture (blur/Enter/
+  nav) cancels the pending timer and a later auto-save can't fire a different/stale value out of order. (The existing
+  committedAttemptRef dedupe still guards same-VALUE double-fires.)
+- FLUSH-ON-UNMOUNT: a useEffect cleanup `.flush()`es all pending debouncers on grid unmount -> a just-typed value
+  persists on navigate-away (not dropped).
+- FORCE-SAVE = imperative grid handle. PricingGrid is now a `forwardRef` component exposing `flush()` via
+  `useImperativeHandle` (type `PricingGridHandle`): fire all pending debounced saves now + retry any remaining draft
+  (e.g. a previously-failed one). The page's header "Save now" button calls `gridRef.current.flush()`. (Drafts/debounce
+  stay owned by the grid; only flush + a dirty signal are exposed -- no state hoisted.)
+- SAVE-STATUS CHIP (page header): a pure `deriveSaveStatus({inFlight, hasUnsaved, hasSaved, hasError})` -> idle ("All
+  changes saved") / unsaved ("Unsaved changes") / saving ("Saving...") / saved ("Saved as of HH:MM") / failed ("Save
+  failed"), priority error>saving>unsaved>saved>idle. The PAGE owns the inputs: an IN-FLIGHT count (onSaveRate
+  increments before the await, decrements in `finally`), a client-clock `lastSavedAt` (set on save success -- "saved as
+  of" uses the CLIENT clock; save_cell_price returns no timestamp), the existing `saveError`, and `hasUnsaved` from the
+  grid's new `onDirtyChange` callback (the grid reports `Object.keys(draftRates).length > 0`).
+- editable / lock_info STAY INERT (auto-save/force-save are NOT gated on `editable`; no lock built -- that's a separate
+  later slice). Read-only grid (no onSaveRate) no-ops auto-save (the rate input -- the only onChange/scheduleAutoSave
+  site -- doesn't render).
+- VERIFICATION (observed, in-container): Vitest **39/39 GREEN** (12 reviewRender + 27 PricingGrid = 22 prior + 5 NEW
+  `deriveSaveStatus` tests: error>saving>unsaved>saved>idle priority); tsc **3178** (== baseline), **0** in touched
+  files (filtered boq-wizard|PricingGrid|SheetPricingPage|boqTypes); Vite build exit 0 (PWA 166 entries). Manual
+  live-cert pending Nitesh (1s auto-save of a typed-but-left value; chip cycles; Save-now flushes all drafts; cancel-
+  on-gesture -> no double/out-of-order; flush-on-unmount -> no loss on nav; failure keeps draft). PricingGrid.tsx +
+  SheetPricingPage.tsx (+ PricingGrid.test.ts); boqTypes NOT changed (the handle/status types live in PricingGrid).
+  **3c is the last core-editor save slice; the single-editor lock is its own later slice.** Full frontend detail in
+  frontend/CLAUDE.md.
+// prior: Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION (FRONTEND, PricingGrid only, 2026-06-21, feat pending,
 branch feature/boq-phase-5). Makes the WHOLE pricing grid arrow/Tab/Enter navigable like Excel (design v1.3 Sec.11);
 rate cells edit-on-focus, every other cell holds focus. PricingGrid.tsx ONLY -- reuses commitRate/onSaveRate, NO
 save-model change, NO page touch, NO backend, NO migrate.
