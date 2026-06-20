@@ -34,8 +34,8 @@ import {
   resolveDescriptorValue,
   computeDepths,
   CLS_LABELS,
-  FIXED_ROLE_DEDUPE,
-} from "./ReviewTree";
+} from "./reviewRender";
+import { FIXED_ROLE_DEDUPE } from "./ReviewTree";
 
 export interface BuildAndDownloadReviewCsvArgs {
   /** BOQs docname -- used for the filename only. */
