@@ -156,7 +156,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
 
     type Item = { icon: React.ElementType; label: string; onClick: () => void; danger?: boolean };
     const moreItems: Item[] = [];
-    if (canEdit && status === 'Pending' && !isVendor && hasResponse) {
+    if (canEdit && (status === 'Pending' || status === 'Pending Approval') && !isVendor && hasResponse) {
         moreItems.push({ icon: FileEdit, label: 'Edit submission', onClick: () => goWizard('edit') });
     }
     if (canEdit && status === 'Submitted') {

@@ -26,6 +26,7 @@ import { WizardSteps, type WizardStep } from '@/components/ui/wizard-steps';
 import { formatDate } from '@/utils/FormatDate';
 
 import { commissionKeys } from '../commission.constants';
+import { useCommissionEditLock } from '../data/useCommissionLock';
 import { useCommissionTrackerDoc } from '../data/useCommissionQueries';
 import { useReportPrefill } from './data/useReportPrefill';
 import { useReportResponse } from './data/useReportResponse';
@@ -232,6 +233,11 @@ export const CommissionReportWizard: React.FC = () => {
     }, [childRow, currentUser]);
 
     const mode = computeMode(rawMode, isFilled, canEdit);
+
+    // Hold a live "editing now" lock while the report is open for editing, so the
+    // approval queue can warn (and block) approvers that it is mid-edit. View
+    // mode takes no lock; lock-API failures never block editing.
+    useCommissionEditLock({ taskName: childRowName, enabled: mode === 'edit' || mode === 'fill' });
 
     // One-time edit-after-submit warning toast.
     const editWarnedRef = useRef(false);
