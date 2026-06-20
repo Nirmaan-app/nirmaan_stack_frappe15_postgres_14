@@ -16,7 +16,47 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE (FRONTEND, 2026-06-21, feat pending, branch
+LATEST: Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION (FRONTEND, PricingGrid only, 2026-06-21, feat pending,
+branch feature/boq-phase-5). Makes the WHOLE pricing grid arrow/Tab/Enter navigable like Excel (design v1.3 Sec.11);
+rate cells edit-on-focus, every other cell holds focus. PricingGrid.tsx ONLY -- reuses commitRate/onSaveRate, NO
+save-model change, NO page touch, NO backend, NO migrate.
+- ALL CELLS NAVIGABLE via a roving-tabindex + per-cell ref map. `activeCell {rowIndex (ARRAY INDEX into rows, for
+  contiguous +/-1), colIndex}` (null until click/tab-in); the active cell (or (0,0) before any focus) is the single
+  tab stop. A `cellRefs` Map holds the focus target per `${rowIndex}:${colIndex}` -- **the `<input>` for a rate cell,
+  the `<td>` for every other cell** (the input-vs-td asymmetry). `onFocus` on each cell sets activeCell (so click +
+  tab-in + programmatic focus all converge); a keyboard move `.focus()`es the next target.
+- COORDINATE MODEL: colIndex 0-4 = the 5 fixed anchors (Excel Row / Sl.No / Parent / Classification / Description),
+  5..(5+N-1) = displayDescriptors; `FIXED_ANCHOR_COUNT = 5`; colCount = 5 + displayDescriptors.length; rowCount =
+  rows.length. (Grid is a clean rectangular matrix -- recon-verified, every row renders exactly 5 + N cells, no
+  spans.)
+- KEY RULES (pure, unit-tested `nextCell(active, dir, rowCount, colCount)`): arrows move one cell + STOP at edges (no
+  wrap); Enter = commit + move DOWN (stops at bottom); Tab = commit + move RIGHT, WRAP at row end to the next row's
+  first cell; Shift-Tab = commit + move LEFT, wrap to the prev row's last cell; Tab off the very last cell / Shift-Tab
+  off the very first -> STOP (focus CONTAINED in the grid). A single `<table onKeyDown>` handler maps the key ->
+  direction, ALWAYS preventDefaults a nav key (so arrows never move the input caret + Tab never escapes), commits the
+  active rate cell, then focuses the next.
+- COMMIT-ON-MOVE = explicit: the handler calls the existing `commitRate` on the active rate cell before moving; the
+  existing `committedAttemptRef` dedupe absorbs the trailing `onBlur` (no double-save). onBlur commit KEPT as the
+  safety net. Save behaviour byte-for-byte unchanged.
+- type="number" -> **type="text" inputMode="decimal"** on the rate `<Input>` (frees the arrow keys -- a number input
+  hijacks Arrow Left/Right=caret + Up/Down=increment); a `DECIMAL_IN_PROGRESS` regex guard in onChange keeps the value
+  numeric (rejects letters / multiple dots; partial "-"/"." tolerated -> parseFloat -> 0, unchanged). The input's old
+  onKeyDown Enter special-case is REMOVED (the table handler owns Enter/arrows/Tab).
+- ACTIVE HIGHLIGHT = a blue inset ring on the active cell's `<td>` (ring-2 ring-inset ring-blue-500/400). SCROLL-INTO-
+  VIEW on move = `scrollIntoView({block:"nearest", inline:"nearest"})` + `scroll-mt-9` on cells so the active cell
+  clears the STICKY TOP header (no frozen-left column to handle).
+- READ-ONLY cells (anchors + amount + qty + default) are focusable (tabIndex) but NOT editable -- typing does nothing,
+  Enter still moves down. When `onSaveRate` is absent the grid degrades to read-only (rate cells fall to the default
+  branch); nav still works.
+- DEFERRED (unchanged): subtotal roll-up, auto-save/force-save (3c), single-editor lock (editable/lock_info INERT),
+  remarks + flag layer (4a/4b), Excel write-back (5), finalize/revert (6). EDITING IS RATES ONLY.
+- VERIFICATION (observed, in-container): Vitest **34/34 GREEN** (12 reviewRender + 22 PricingGrid = 18 prior 3b + 4 NEW
+  `nextCell` tests: arrow edge-stops/no-wrap, Tab wrap + last-cell-stop, Shift-Tab wrap + first-cell-stop, Enter-down +
+  bottom-stop); tsc **3178** (== baseline), **0** in touched files (filtered boq-wizard|PricingGrid); Vite build exit 0
+  (PWA 166 entries). Manual live-cert pending Nitesh (full arrow/Tab/Enter nav, rate edit-on-focus, move commits, no
+  caret/spinner hijack, Tab contained, active cell scrolls clear of the header, multi-area order/independence).
+  PricingGrid-only; no SheetPricingPage/input.tsx change. Full frontend detail in frontend/CLAUDE.md.
+// prior: Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE (FRONTEND, 2026-06-21, feat pending, branch
 feature/boq-phase-5). Makes the 3a read-only PricingGrid editable for RATES ONLY: type a rate, save on blur/Enter via
 save_cell_price, amount = qty x rate shows live (display-only), the cell flips to priced after a refetch. This is the
 slice where pricing actually happens. NO backend (save_cell_price + get_priced_rows already built), NO migrate.

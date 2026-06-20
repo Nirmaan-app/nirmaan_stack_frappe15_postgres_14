@@ -1,6 +1,20 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE -- FRONTEND, feat pending,
+**Last updated:** 2026-06-21 (Phase 5 Slice 3b.2 -- SPREADSHEET KEYBOARD NAVIGATION -- FRONTEND, PricingGrid only,
+feat pending, branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Makes the whole pricing grid
+arrow/Tab/Enter navigable like Excel (design v1.3 Sec.11): ALL cells navigable via a roving-tabindex + per-cell ref map
+(the `<input>` for a rate cell, the `<td>` for every other cell); rate cells edit-on-focus, all others hold focus.
+Arrows move one cell + STOP at edges (no wrap); Enter = commit + move down; Tab = commit + move right + WRAP to next
+row (Shift-Tab reverse); Tab/Shift-Tab off the grid's last/first cell STOPS (focus contained). Any move COMMITS the
+active rate cell first via the existing `commitRate` (the `committedAttemptRef` dedupe absorbs the trailing onBlur --
+save model unchanged). The rate `<Input>` switches `type="number"` -> `type="text" inputMode="decimal"` (frees the
+arrows) with a decimal-guard onChange. Active cell shows a blue inset ring + scrolls into view (scroll-mt clears the
+sticky header). Pure `nextCell(active, dir, rowCount, colCount)` helper holds the edge-stop/Tab-wrap/Enter-down rules
+(unit-tested). PricingGrid.tsx ONLY -- NO SheetPricingPage/input.tsx change, NO backend/doctype/migrate. VERIFIED:
+Vitest **34/34 GREEN** (+4 nextCell tests); tsc 3178 (== baseline), 0 in touched files; Vite build exit 0 (PWA 166
+entries). Completes the design Sec.11 spreadsheet-keyboard ergonomic for the rate grid. Full detail in frontend/CLAUDE.md
++ boq-upload-plan.md "Phase 5 Slice 3b.2".)
+// prior: 2026-06-21 (Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE -- FRONTEND, feat pending,
 branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Makes the 3a read-only `PricingGrid` editable for
 RATES ONLY: each rate cell is a numeric `<Input>` that **saves on blur/Enter** (no Apply/confirm -- Excel feel) via
 **`save_cell_price`**, the cell flips to priced after a `mutate()` refetch (markers re-derive authoritatively), and the
