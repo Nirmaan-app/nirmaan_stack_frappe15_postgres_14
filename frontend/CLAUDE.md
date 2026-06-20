@@ -317,7 +317,40 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-**Status (2026-06-20 -- Phase 4 Slice AI-3c-2b REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS COMPLETE -- FRONTEND + a bundled BACKEND status fix (R6), `boqTypes.ts` + `ReviewTree.tsx` + `review_screen.py` (+ test_review_screen.py), feat pending):**
+**Status (2026-06-20 -- Phase 4 Slice AI-3c-2d GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP) COMPLETE -- BACKEND + FRONTEND, `ai_assist.py` + `SheetReviewPage.tsx` (+ test_ai_assist.py), feat pending):**
+Closes the last freeze hole in the AI surface. A "Finalized" sheet is read-only (`_guard_sheet_not_frozen`), and
+accept/reject/revert were ALL already guarded -- but `run_ai_pass` was added later and was NEVER gated on EITHER layer,
+so a finalized sheet could still trigger a fresh AI pass whose `_apply_ai_suggestions` STALE-CLEAR wipes the
+`ai_suggestion_status` of already-Accepted rows (a real mutation of a read-only sheet; confirmed live + by recon). NO
+doctype JSON change -> no migrate.
+
+- **Frontend (`SheetReviewPage.tsx`).** The "Run AI pass" button's `disabled=` expression gained `|| isChecked` (=
+  `sheetStatus === "Finalized"`, the SAME finalized signal the "Mark Finalized" button at ~455 uses; `isParsing` was
+  already in the list). So a finalized sheet shows the button **GREYED but VISIBLE** (owner choice: disable-not-hide,
+  mirroring the Revert button's visible-but-disabled treatment). A `title` hint ("Sheet is finalized — un-mark to run
+  the AI pass") renders on the disabled button. `AI_REJECT_MSGS` gains `frozen` ("This sheet is finalized and is
+  read-only. Un-mark it to run the AI pass.") + `parsing` entries -- defense in depth: the button is disabled, but a
+  stale client that still calls `run_ai_pass` now surfaces a readable message instead of an opaque `{ok:false}` code.
+- **Backend (`ai_assist.py` `run_ai_pass`) -- the load-bearing fix.** Two new pre-flight rejects in the existing
+  `{ok:False,error:"<code>"}` idiom (NOT the throwing `_guard_*` -- run_ai_pass returns codes), inserted AFTER the
+  no_api_key check and **BEFORE the cache check** (load-bearing: the cache-HIT path ALSO runs `_apply_ai_suggestions`'s
+  stale-clear, so the guard must precede BOTH the synchronous cache path and the enqueue path): `frozen`
+  (`_get_sheet_wizard_status(boq, sheet) == _SHEET_FINALIZED`, a non-throwing status read) + `parsing` (a new
+  `_get_parse_in_progress` helper mirroring `_get_ai_in_progress`, reading the draft's `parse_in_progress` -- the
+  non-throwing analog of `_guard_sheet_not_parsing`). `_SHEET_FINALIZED` + `_get_sheet_wizard_status` added to the
+  review_screen import; the worker / `_apply_ai_suggestions` / stale-clear are UNCHANGED. **This completes the freeze
+  coverage of the whole AI surface.**
+- **Verification.** `test_ai_assist` 33 -> **36** (+3: Z1 finalized -> `{ok:False,error:"frozen"}` + NO enqueue + an
+  Accepted row's `ai_suggestion_status` UNCHANGED [the stale-clear never ran -- the core proof]; Z2 a non-finalized
+  Parsed sheet still enqueues [the guard does not over-fire]; Z3 `parse_in_progress=1` -> `{ok:False,error:"parsing"}` +
+  NO enqueue). `test_review_screen` **196 unchanged** (review_screen.py not touched). All prior run_ai_pass +
+  accept/reject/revert (V*/T*/G*/C*) green. tsc 0 new wizard-file errors (filtered `boq-wizard|SheetReviewPage` ->
+  empty; total 3178 baseline) + in-container Vite build exit 0 (`Done in 326.85s`, PWA 164 entries). Manual live-cert
+  pending Nitesh: finalize a sheet -> the "Run AI pass" button is greyed with the finalized title; un-mark -> it
+  re-enables; a direct call on a finalized sheet returns the frozen reject and leaves Accepted rows' status intact.
+  **NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.**
+
+// prior: **Status (2026-06-20 -- Phase 4 Slice AI-3c-2b REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS COMPLETE -- FRONTEND + a bundled BACKEND status fix (R6), `boqTypes.ts` + `ReviewTree.tsx` + `review_screen.py` (+ test_review_screen.py), feat pending):**
 Surfaces AI-3c-2a's row-level revert in the UI AND fixes a misleading status (today an AI-Accepted row keeps reading
 "AI Accepted" even after the user hand-edits its classification/parent -- the override is hidden; now it reads
 "Edited"). **The AI accept/reject/revert surface is now COMPLETE** (pending live-cert). NO doctype JSON change -> no

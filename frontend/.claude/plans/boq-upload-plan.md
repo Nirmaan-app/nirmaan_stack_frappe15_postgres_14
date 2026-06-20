@@ -16,7 +16,26 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 4 Slice AI-3c-2b (AI auto-mapping) -- REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS
+LATEST: Phase 4 Slice AI-3c-2d (AI auto-mapping) -- GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP)
+(BACKEND + FRONTEND, 2026-06-20, feat pending). Closes the last freeze hole in the AI surface. A "Finalized" sheet is
+read-only (`_guard_sheet_not_frozen`), and accept/reject/revert were all already guarded -- but `run_ai_pass` was added
+later and NEVER gated on EITHER layer, so a Finalized sheet could trigger a fresh AI pass whose `_apply_ai_suggestions`
+STALE-CLEAR wipes the `ai_suggestion_status` of already-Accepted rows (a real mutation of a read-only sheet; confirmed
+live). NO doctype JSON change -> NO migrate. BACKEND (`ai_assist.py` `run_ai_pass`): two pre-flight rejects in the
+`{ok:False,error:"<code>"}` idiom (NOT throwing), inserted AFTER no_api_key + BEFORE the cache check (load-bearing --
+the cache-HIT path ALSO calls `_apply_ai_suggestions`, so the guard precedes BOTH cache + enqueue): `frozen`
+(`_get_sheet_wizard_status == _SHEET_FINALIZED`, non-throwing read) + `parsing` (new `_get_parse_in_progress` helper
+mirroring `_get_ai_in_progress`). `_SHEET_FINALIZED` + `_get_sheet_wizard_status` added to the review_screen import; the
+worker / stale-clear UNCHANGED. FRONTEND (`SheetReviewPage.tsx`): the "Run AI pass" button `disabled=` gains `||
+isChecked` (= `sheetStatus === "Finalized"`) so a finalized sheet shows it GREYED (stays visible -- disable-not-hide) +
+a `title` hint; `AI_REJECT_MSGS` gains `frozen` + `parsing` messages (defense in depth). THIS COMPLETES THE FREEZE
+COVERAGE OF THE WHOLE AI SURFACE (accept/reject/revert were already guarded; run_ai_pass was the one hole). TESTS:
+test_ai_assist 33 -> 36 (Z1 finalized -> frozen + NO enqueue + Accepted status UNCHANGED [stale-clear never ran]; Z2
+non-finalized still enqueues [no over-fire]; Z3 parse_in_progress -> parsing + NO enqueue); test_review_screen 196
+unchanged (review_screen.py not touched). All prior green. tsc 0 new wizard errors (3178 baseline) + Vite build exit 0
+(PWA 164 entries). Manual live-cert pending Nitesh. **NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc
+refresh.** Full detail in root CLAUDE.md + frontend/CLAUDE.md.
+// prior: Phase 4 Slice AI-3c-2b (AI auto-mapping) -- REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED STATUS
 (FRONTEND + a bundled BACKEND status fix R6, 2026-06-20, feat pending). Surfaces AI-3c-2a's row-level revert in the UI
 AND fixes a misleading status. THE AI ACCEPT/REJECT/REVERT SURFACE IS NOW COMPLETE (pending live-cert). NO doctype JSON
 change -> NO migrate (2a's snapshot fields already exist). (1) FRONTEND -- the Revert button (`ReviewTree.tsx` detail

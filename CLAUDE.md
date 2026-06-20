@@ -1,6 +1,36 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-2b -- REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED
+**Last updated:** 2026-06-20 (Phase 4 Slice AI-3c-2d -- GATE run_ai_pass ON A FINALIZED SHEET (FREEZE GAP) --
+BACKEND + FRONTEND, feat pending. Closes the last freeze hole in the AI surface. A "Finalized" sheet is read-only
+(enforced by `_guard_sheet_not_frozen`), and accept/reject/revert were all already guarded -- but `run_ai_pass` was
+added later and was NEVER gated on EITHER layer, so a Finalized sheet could still trigger a fresh AI pass whose
+`_apply_ai_suggestions` STALE-CLEAR wipes the `ai_suggestion_status` of already-Accepted rows (a real mutation of a
+read-only sheet; confirmed live + by recon). NO doctype JSON change -> NO migrate. **(1) BACKEND (`ai_assist.py`
+`run_ai_pass`):** TWO new pre-flight rejects in the existing `{ok:False,error:"<code>"}` idiom (NOT the throwing
+`_guard_*` -- run_ai_pass returns codes, it does not throw), inserted AFTER the no_api_key check and **BEFORE the cache
+check** (load-bearing -- the cache-HIT path ALSO calls `_apply_ai_suggestions`, so the guard must precede BOTH the
+synchronous cache path and the enqueue path): `if _get_sheet_wizard_status(boq, sheet) == _SHEET_FINALIZED -> {ok:False,
+error:"frozen"}` (the core fix; reads the status NON-throwingly via the imported helper) and `if
+_get_parse_in_progress(boq, sheet) -> {ok:False, error:"parsing"}` (a new helper mirroring `_get_ai_in_progress`,
+reading the draft's `parse_in_progress` -- the non-throwing analog of the `_guard_sheet_not_parsing` the other AI
+endpoints enforce). `_SHEET_FINALIZED` + `_get_sheet_wizard_status` added to the review_screen import. The worker /
+`_apply_ai_suggestions` / stale-clear are UNCHANGED -- the fix is purely the pre-flight gate. **(2) FRONTEND
+(`SheetReviewPage.tsx`):** the "Run AI pass" button's `disabled=` gains `|| isChecked` (`isChecked = sheetStatus ===
+"Finalized"`, the same signal the "Mark Finalized" button uses) so a finalized sheet shows it GREYED (stays VISIBLE per
+owner -- disable-not-hide); a `title` hint ("Sheet is finalized -- un-mark to run the AI pass") on the disabled button;
+and `AI_REJECT_MSGS` gains readable `frozen` + `parsing` entries (defense in depth -- a stale client that still calls
+the endpoint surfaces a clear message). **THIS COMPLETES THE FREEZE COVERAGE OF THE WHOLE AI SURFACE** (accept / reject
+/ revert were already guarded; run_ai_pass was the one hole). **TESTS:** `test_ai_assist` 33 -> **36** (+3: Z1 a
+Finalized sheet -> `{ok:False,error:"frozen"}` + NO enqueue + an Accepted row's `ai_suggestion_status` UNCHANGED [the
+stale-clear never ran -- the core proof]; Z2 a non-finalized Parsed sheet still enqueues [the guard does not over-fire];
+Z3 a sheet with `parse_in_progress=1` -> `{ok:False,error:"parsing"}` + NO enqueue). `test_review_screen` **196
+unchanged** (review_screen.py not touched). All prior run_ai_pass + accept/reject/revert (V*/T*/G*/C*) green. tsc 0 new
+wizard-file errors (filtered `boq-wizard|SheetReviewPage` -> empty; total 3178 baseline) + in-container Vite build exit
+0 (PWA 164 entries). Manual live-cert pending Nitesh: finalize a sheet -> the "Run AI pass" button is greyed with the
+finalized title; un-mark -> it re-enables; a direct run_ai_pass call on a finalized sheet returns the frozen reject and
+leaves Accepted rows' status intact. **NEXT = the boq_ai.log token-logging fix, then the Phase-4 doc refresh.** Full
+detail in frontend/CLAUDE.md.)
+// prior: 2026-06-20 (Phase 4 Slice AI-3c-2b -- REVERT AI CHANGE BUTTON + OVERRIDE CLEARS AI-ACCEPTED
 STATUS -- FRONTEND + a bundled BACKEND status fix (R6), feat pending. Surfaces AI-3c-2a's row-level revert in the UI
 AND fixes a misleading status. **THE AI ACCEPT/REJECT/REVERT SURFACE IS NOW COMPLETE** (pending live-cert). NO doctype
 JSON change -> NO migrate (the 2a snapshot fields already exist). **(1) FRONTEND -- the Revert button (`ReviewTree.tsx`
