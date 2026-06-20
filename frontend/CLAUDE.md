@@ -358,11 +358,21 @@ backend, NO migrate.
   `priced_rate_supply` / `priced_rate_install` / `priced_rate_combined`) + `GetPricedRowsResponse` ({ rows: PricedRow[],
   column_descriptors, commit_version, editable, lock_info }). `PricedRow extends ReviewRow` so the ReviewRow-typed
   reviewRender helpers accept it with NO retyping. No existing type changed.
-- **Hub entry (`SheetCard.tsx` + `BoqHubPage.tsx`).** A committed-gated **Price** button on `SheetCard` -- a block
-  INDEPENDENT of the status branches (committed-ness is orthogonal to wizard_status), gated `committedState &&
-  onOpenPricing`, mirroring the Review/Edit affordance. New `onOpenPricing?: (sheetName: string) => void` prop
-  (SheetCard stays router-free). `BoqHubPage` adds `handleOpenPricing` (navigate to the pricing route) + passes
-  `onOpenPricing` to both card render sites. Every existing card button / handler / status branch UNCHANGED.
+- **Hub entry (CORRECTED by the 3a-fix -- `TenderingDialog.tsx` (NEW) + `BoqHubPage.tsx`; the per-card Price button was
+  REMOVED from `SheetCard.tsx`).** The DESIGNED entry door (design v1.3 Sec.8.5): a global **"Tendering"** button in the
+  hub BOTTOM action row (the `flex gap-2` cluster beside Export Finalized / Re-parse / Parse workbook / Commit), gated
+  on committed-ness (`disabled={committedMap.size === 0}`), opens `TenderingDialog`. `BoqHubPage` keeps
+  `handleOpenPricing` (navigate to the pricing route) -- now called by the modal's `onConfirm` -- + a new
+  `tenderingDialogOpen` state. **The initial 3a per-card "Price" button + the `onOpenPricing` prop were REMOVED from
+  `SheetCard` (clean revert of the 3a addition); every other card button / prop / status branch UNCHANGED.**
+- **`TenderingDialog.tsx` (NEW).** Mirrors CommitDialog's hub-action sheet-picker shell but **single-select via radios**
+  (CommitDialog is a multi-select checklist) and navigate-on-confirm (no in-flight job). Props `{ open, onOpenChange,
+  committedState: Map<string, CommittedSheetState>, onConfirm: (sheetName) => void }`. Lists the eligible (committed)
+  sheets from the SAME `committedMap` the Commit flow + card badges use (each shows name + `committed {date} · v{n}`);
+  `useState<string|null>` for the selected sheet_name (VERBATIM #152), reset on open; the "Open editor" action is
+  enabled only when one sheet is selected; on confirm calls `onConfirm(selected)` and the hub closes + navigates.
+  Router-free (the hub owns navigation). Dismiss mirrors ParseRunDialog (X / Escape / overlay-click;
+  `onOpenChange={(o) => { if (!o) onOpenChange(false); }}`, no in-flight guard).
 - **Verification (observed, in-container).** Vitest **20/20 GREEN** (12 Slice-2 reviewRender + 8 NEW PricingGrid marker
   tests, incl. the ZERO-RATE-IS-PRICED proof; Slice-2 suite unregressed). tsc error count **3178** (== baseline) with
   **0** in the touched wizard files (filtered `boq-wizard|SheetPricingPage|PricingGrid|BoqHubPage|SheetCard|boqTypes|

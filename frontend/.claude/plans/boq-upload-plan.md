@@ -49,11 +49,16 @@ path b -- NOT a ReviewTree retune). NO editing (3b), NO Save/Export/Finalize (3c
   priced_rate_supply / priced_rate_install / priced_rate_combined) + `GetPricedRowsResponse` ({ rows: PricedRow[],
   column_descriptors, commit_version, editable, lock_info }). PricedRow EXTENDS ReviewRow so the ReviewRow-typed
   reviewRender helpers accept it with no retyping. No existing type changed.
-- HUB ENTRY: a committed-gated **Price** button on SheetCard -- a block INDEPENDENT of the status branches
-  (committed-ness is orthogonal to wizard_status), gated `committedState && onOpenPricing`, mirroring the
-  Review/Edit affordance + the new `onOpenPricing?: (sheetName) => void` prop (SheetCard stays router-free). Hub adds
-  `handleOpenPricing` (navigate to the pricing route) + passes `onOpenPricing` to both card render sites. Every
-  existing card button/handler/status branch UNCHANGED.
+- HUB ENTRY (CORRECTED -- 3a-fix, feat-pending): the global **"Tendering"** button in the hub BOTTOM action row
+  (the `flex gap-2` cluster with Export Finalized / Re-parse / Parse workbook / Commit), gated on committed-ness
+  (`disabled={committedMap.size === 0}`), opening a NEW **`TenderingDialog`** -- a RADIO single-select picker of the
+  eligible (committed) sheets (each showing its committed version), Confirm enabled only when one is selected ->
+  `onConfirm(sheetName)` -> `handleOpenPricing` opens that sheet's pricing editor (dismiss mirrors ParseRunDialog; the
+  dialog is router-free). This is the DESIGNED entry door (design v1.3 Sec.8.5: a global hub button -> a list of
+  eligible sheets -> select ONE -> its editor). **The initial 3a build put a per-card "Price" button on committed
+  SheetCards; that was REPLACED by this global Tendering picker** (the per-card Price button + the `onOpenPricing` prop
+  were removed from SheetCard; `handleOpenPricing` was kept and is now called by the modal's Confirm). Every existing
+  card button/handler/status branch UNCHANGED.
 - VERIFICATION (observed, in-container): Vitest **20/20 GREEN** (12 Slice-2 reviewRender + 8 NEW PricingGrid marker
   tests incl. the ZERO-RATE-IS-PRICED proof; Slice-2 suite unregressed); tsc error count **3178** (== baseline),
   **0** in the touched wizard files (filtered boq-wizard|SheetPricingPage|PricingGrid|BoqHubPage|SheetCard|boqTypes|

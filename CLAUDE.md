@@ -7,9 +7,11 @@ hub-reached, READ-ONLY page (5th sibling wizard route `upload-boq/hub/:boqId/pri
 current saved rates + a basic priced/un-priced marker, via a NEW **`PricingGrid.tsx`** that REUSES the Slice-2
 `reviewRender` helpers (design v1.3 Sec.4 path b -- NOT a ReviewTree retune). The priced marker is driven SOLELY by the
 overlay's `priced_*` fields (NEVER a zero-check; 0.0 can be priced) via two pure, unit-tested helpers
-(`isRateDescriptor`/`isCellPriced`). Hub entry = a committed-gated **Price** button on `SheetCard` (a block independent
-of the status branches, since committed-ness is orthogonal to wizard_status) + a new `onOpenPricing` prop +
-`handleOpenPricing` in `BoqHubPage`. NEW additive frontend types `PricedRow extends ReviewRow` +
+(`isRateDescriptor`/`isCellPriced`). Hub entry (CORRECTED by the 3a-fix) = a global **"Tendering"** button in the hub
+bottom action row (gated on committed-ness) -> a `TenderingDialog` RADIO single-select picker of eligible (committed)
+sheets -> Confirm -> `handleOpenPricing` opens that sheet's editor (design v1.3 Sec.8.5). The initial 3a per-card
+"Price" button on `SheetCard` was REPLACED by this global picker (`onOpenPricing` prop removed; `handleOpenPricing`
+kept). NEW additive frontend types `PricedRow extends ReviewRow` +
 `GetPricedRowsResponse` (boqTypes.ts). NO editing (3b), NO Save/Export (3c/5); `editable`/`lock_info` threaded INERT
 (the 3b lock hook). NO backend / doctype / migrate. VERIFIED: Vitest 20/20 GREEN (12 Slice-2 + 8 new marker tests);
 tsc 3178 (== baseline), 0 in touched files; Vite build exit 0 (PWA 166 entries). Slice 3a unblocks 3b. Full detail in
