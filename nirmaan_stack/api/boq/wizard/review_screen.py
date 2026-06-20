@@ -1153,6 +1153,235 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors, "flags": flags}
 
 
+# ---------------------------------------------------------------------------
+# Phase 5 Slice 1a: committed-tier READ adapter (get_committed_rows)
+# ---------------------------------------------------------------------------
+# A pure-read endpoint that reads the CURRENT committed tier (BOQ Nodes + their
+# BOQ Node Qty By Area children + the committed BoQ Sheet's column config) and
+# emits the SAME descriptor + row shape get_review_rows produces from the DRAFT
+# tier, so the descriptor-driven frontend render can draw committed rows unchanged.
+#
+# The COLUMN half is a pure reuse: _build_column_descriptors runs UNCHANGED on the
+# committed BoQ Sheet.column_role_map (verified identical {letter:{role,area}} shape).
+# The ROW half is a bounded INVERSION of commit_pipeline.py's draft->committed map
+# (the authority): committed nodes use different field names than the draft-shaped
+# keys the descriptors read, so each node + its per-area children is re-keyed back.
+
+# Node fields the committed-read fetches (the structural + money + identity set the
+# inversion below maps to the draft-shaped row).
+_COMMITTED_NODE_FIELDS = [
+    "name", "sort_order", "source_row_number", "parent_node", "row_class", "node_type",
+    "level", "code", "description", "unit", "make_model", "qty",
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+    "notes", "append_notes_raw",
+]
+# Per-area child fields (BOQ Node Qty By Area) re-collapsed into the nested *_by_area dicts.
+_COMMITTED_CHILD_FIELDS = [
+    "parent", "area_name", "qty",
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+]
+# Inverse of commit_pipeline._explode_area_children's amount-kind rename: the committed
+# child columns total_amount/supply_amount/install_amount collapse back to the draft
+# amount_by_area kind keys total/supply/install.
+_AMOUNT_FIELD_TO_KIND = {
+    "supply_amount": "supply",
+    "install_amount": "install",
+    "total_amount": "total",
+}
+# Rate child columns keep their names (the draft rate_by_area kind keys are identical).
+_RATE_CHILD_FIELDS = ("supply_rate", "install_rate", "combined_rate")
+
+
+def _collapse_area_children(children: list) -> tuple[dict, dict, dict]:
+    """Re-collapse a node's BOQ Node Qty By Area child rows into the draft's nested
+    *_by_area dicts (the inverse of commit_pipeline._explode_area_children):
+      child.qty                                    -> qty_by_area[area]           (flat)
+      child.{supply,install,combined}_rate         -> rate_by_area[area]{same keys}
+      child.{supply,install,total}_amount          -> amount_by_area[area]{supply,install,total}
+    A kind is emitted only when its stored value is not None (committed Currency columns
+    coerce unset -> 0.0, so on a real committed sheet the 0.0 values ARE present -- which is
+    the truthful un-priced committed state the pricing editor fills)."""
+    qty_by_area: dict = {}
+    rate_by_area: dict = {}
+    amount_by_area: dict = {}
+    for c in children:
+        area = c.get("area_name")
+        if area is None:
+            continue
+        qty_by_area[area] = c.get("qty")
+        rate_kinds = {k: c.get(k) for k in _RATE_CHILD_FIELDS if c.get(k) is not None}
+        if rate_kinds:
+            rate_by_area[area] = rate_kinds
+        amount_kinds = {
+            kind: c.get(fld)
+            for fld, kind in _AMOUNT_FIELD_TO_KIND.items()
+            if c.get(fld) is not None
+        }
+        if amount_kinds:
+            amount_by_area[area] = amount_kinds
+    return qty_by_area, rate_by_area, amount_by_area
+
+
+def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) -> dict:
+    """Invert one committed BOQ Nodes row (+ its per-area children) into the draft-shaped
+    row object the column descriptors read. See commit_pipeline.py for the forward map.
+
+    HIERARCHY (A20): row_index = node.sort_order (the exact committed analog of draft
+    row_index -- commit_pipeline maps draft row_index -> node.sort_order; 0-based contiguous,
+    as computeDepths/byIdx expect). effective_parent_index = the parent node's sort_order
+    (resolved via parent_node -> sortorder_by_name); a root (parent_node NULL) -> None (the
+    null root computeDepths/resolve_effective use, NOT the raw -1 sentinel). source_row_number
+    (sparse 1-based Excel row) is carried separately for the Parent column's display.
+
+    CLASSIFICATION: node.row_class is the full taxonomy the ClassificationPill reads -> emitted
+    as both classification and effective_classification (node_type is the priceability axis,
+    not what the pill renders).
+
+    DRAFT-ONLY fields (ai_*, draft edit_log, flags, revert_available, human_*, advisory) are
+    deliberately OMITTED -- the committed render contract is AI-free and minimal.
+    """
+    qty_by_area, rate_by_area, amount_by_area = _collapse_area_children(children)
+
+    parent_name = node.get("parent_node")
+    eff_parent = sortorder_by_name.get(parent_name) if parent_name else None
+
+    apn = node.get("append_notes_raw")
+    if isinstance(apn, str) and apn:
+        try:
+            apn = json.loads(apn)
+        except (ValueError, TypeError):
+            apn = {}
+
+    row_class = node.get("row_class")
+    return {
+        "name": node.get("name"),
+        "row_index": node.get("sort_order"),
+        "source_row_number": node.get("source_row_number"),
+        "level": node.get("level"),
+        # classification: row_class is the full taxonomy the pill reads (effective == raw here;
+        # the committed tier has no human/AI override layer above it).
+        "classification": row_class,
+        "effective_classification": row_class,
+        "effective_parent_index": eff_parent,
+        # identity / text (commit_pipeline: sl_no_value->code, row_notes->notes)
+        "sl_no_value": node.get("code"),
+        "description": node.get("description"),
+        "unit": node.get("unit"),
+        "make_model": node.get("make_model"),
+        "row_notes": node.get("notes"),
+        "append_notes_raw": apn,
+        # money: word-order re-key back to the draft names (commit_pipeline reversed them)
+        "qty_total": node.get("qty"),
+        "rate_supply": node.get("supply_rate"),
+        "rate_install": node.get("install_rate"),
+        "rate_combined": node.get("combined_rate"),
+        "amount_supply": node.get("supply_amount"),
+        "amount_install": node.get("install_amount"),
+        "amount_total": node.get("total_amount"),
+        # per-area nested dicts re-collapsed from the children
+        "qty_by_area": qty_by_area,
+        "rate_by_area": rate_by_area,
+        "amount_by_area": amount_by_area,
+    }
+
+
+@frappe.whitelist()
+def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
+    """Read the CURRENT committed tier for (boq_name, sheet_name) and emit the same
+    {rows, column_descriptors} descriptor contract get_review_rows emits from the draft
+    tier -- so the descriptor-driven frontend render draws committed rows unchanged.
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_review_rows).
+
+    Rows are ordered by sort_order (the committed analog of the draft's 0-based row_index).
+    Per-area values are rebuilt into the nested *_by_area dicts; money fields are re-keyed to
+    the draft names; hierarchy (row_index / effective_parent_index) is synthesized from
+    sort_order + parent_node. Draft-only fields (ai_*, edit_log, flags, human_*) are OMITTED.
+
+    Returns:
+      {
+        "rows": [{<draft-shaped committed row>, ...}],   # ordered by sort_order
+        "column_descriptors": [{col, role, area, value_field, value_key, rate_subkey}, ...],
+      }
+    An uncommitted / grid-only sheet (no current BoQ Sheet, or no current nodes) returns
+    empty lists (graceful -- mirrors get_review_rows' empty-config -> []).
+
+    sheet_name is matched VERBATIM (the #152 trailing-space landmine -- never strip).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.get_committed_rows
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # The current committed BoQ Sheet carries the column config (same shape the descriptor
+    # builder consumes on the draft side) + is the Link target node.sheet points at.
+    sheet_doc = frappe.db.get_value(
+        "BoQ Sheet",
+        {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1},
+        ["name", "column_role_map", "column_headers"],
+        as_dict=True,
+    )
+    if not sheet_doc:
+        # No current committed sheet for this (boq, sheet) -> nothing committed yet.
+        return {"rows": [], "column_descriptors": []}
+
+    # Column descriptors: a PURE reuse of the draft-side builder on the committed config.
+    # JSON columns may come back parsed (dict) or raw (str) depending on the read path; normalize.
+    sheet_config = {
+        "column_role_map": _coerce_json_obj(sheet_doc.get("column_role_map")),
+        "column_headers": _coerce_json_obj(sheet_doc.get("column_headers")),
+    }
+    column_descriptors = _build_column_descriptors(sheet_config)
+
+    # Current nodes for this sheet (node.sheet is the BoQ Sheet Link), ordered like the draft.
+    nodes = frappe.db.get_all(
+        "BOQ Nodes",
+        filters={"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        fields=_COMMITTED_NODE_FIELDS,
+        order_by="sort_order asc",
+    )
+    if not nodes:
+        return {"rows": [], "column_descriptors": column_descriptors}
+
+    # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
+    sortorder_by_name = {n["name"]: n["sort_order"] for n in nodes}
+
+    # Per-area children for these nodes, grouped by parent node name (one query).
+    node_names = [n["name"] for n in nodes]
+    children_rows = frappe.db.get_all(
+        "BOQ Node Qty By Area",
+        filters={"parent": ["in", node_names], "parenttype": "BOQ Nodes"},
+        fields=_COMMITTED_CHILD_FIELDS,
+    )
+    children_by_parent: dict = {}
+    for c in children_rows:
+        children_by_parent.setdefault(c["parent"], []).append(c)
+
+    rows = [
+        _committed_node_to_row(n, children_by_parent.get(n["name"], []), sortorder_by_name)
+        for n in nodes
+    ]
+    return {"rows": rows, "column_descriptors": column_descriptors}
+
+
+def _coerce_json_obj(v):
+    """Return a JSON field's value as a Python object: parse a str, pass a dict/list through,
+    None/empty -> {}. (BoQ Sheet JSON columns may arrive parsed or raw depending on read path.)"""
+    if isinstance(v, str):
+        if not v:
+            return {}
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return {}
+    return v if isinstance(v, (dict, list)) else {}
+
+
 @frappe.whitelist(methods=["POST"])
 def save_review_edit(
     boq_name: str = None,

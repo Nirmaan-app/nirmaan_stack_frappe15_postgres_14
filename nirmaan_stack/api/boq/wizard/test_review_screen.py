@@ -23,6 +23,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     append_edit_log_entry,
     check_structural_integrity,
     dismiss_row_flags,
+    get_committed_rows,
     get_review_rows,
     get_structural_breaks,
     mark_sheet_parsed_check_done,
@@ -3684,3 +3685,176 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
             row_index=1, field="qty_total", value=7,
         )
         self.assertTrue(res["ok"], "edit on a non-parsing sheet must succeed")
+
+
+# ===========================================================================
+# Phase 5 Slice 1a: get_committed_rows (committed-tier read adapter)
+# ===========================================================================
+
+_CR_BOQ = "BOQ-26-00145"        # the real committed multi-area workbook (recon-verified)
+_CR_SHEET = "Electrical "       # VERBATIM trailing space (#152)
+# Draft-only fields that MUST be absent from the AI-free/minimal committed contract.
+_CR_DRAFT_ONLY_KEYS = (
+    "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
+    "edit_log", "revert_available", "human_classification", "human_parent",
+    "human_is_root", "flags_dismissed", "needs_classification_review",
+    "validation_warnings",
+)
+
+
+class TestGetCommittedRows(FrappeTestCase):
+    """get_committed_rows -- the committed-tier read adapter (Phase 5 Slice 1a).
+
+    POSITIVE cases run against the real CURRENT-committed multi-area sheet
+    BOQ-26-00145 / 'Electrical ' (read-only; skipped if that data is not present in
+    this DB, so the suite stays CI-safe). The NEGATIVE / empty cases use hermetic
+    throwaway fixtures (no committed nodes needed). The live render on BOQ-26-00145
+    is the owner's manual verification (A12).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Hermetic fixture for the empty/uncommitted-path test (an existing BOQs with
+        # NO committed BoQ Sheet / nodes).
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Committed-Read Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.uncommitted_boq = boq.name
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    # -- live-data guard ----------------------------------------------------
+
+    def _committed_sheet_present(self) -> bool:
+        return bool(frappe.db.get_value(
+            "BoQ Sheet",
+            {"boq": _CR_BOQ, "sheet_name": _CR_SHEET, "is_current": 1},
+            "name",
+        ))
+
+    def _require_live(self):
+        if not self._committed_sheet_present():
+            self.skipTest(
+                f"No current committed sheet {_CR_BOQ}/'{_CR_SHEET}' in this DB; "
+                "live committed-read assertions skipped (owner manual-verifies on dev data)."
+            )
+
+    # -- NEGATIVE: guards (hermetic) ---------------------------------------
+
+    def test_missing_boq_name_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(sheet_name=_CR_SHEET)
+
+    def test_missing_sheet_name_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(boq_name=self.uncommitted_boq)
+
+    def test_nonexistent_boq_throws_same_guard_as_review_rows(self):
+        # Mirrors get_review_rows' "BOQs '...' not found." guard -- NOT a new error shape.
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(boq_name="NOPE-DOES-NOT-EXIST", sheet_name="X")
+
+    def test_uncommitted_sheet_returns_empty_contract(self):
+        # An existing BOQs with no current committed BoQ Sheet -> graceful empty lists
+        # (NOT a throw) -- mirrors get_review_rows' empty-config -> [].
+        res = get_committed_rows(boq_name=self.uncommitted_boq, sheet_name="Whatever Sheet")
+        self.assertEqual(res, {"rows": [], "column_descriptors": []})
+
+    # -- POSITIVE: live committed data (BOQ-26-00145 / 'Electrical ') -------
+
+    def test_column_descriptors_are_pure_reuse_of_builder(self):
+        # The COLUMN half is a pure reuse: the endpoint's descriptors must equal
+        # _build_column_descriptors run on the committed BoQ Sheet's own config.
+        self._require_live()
+        sheet = frappe.db.get_value(
+            "BoQ Sheet", {"boq": _CR_BOQ, "sheet_name": _CR_SHEET, "is_current": 1},
+            ["column_role_map", "column_headers"], as_dict=True,
+        )
+        crm = sheet["column_role_map"]
+        chd = sheet["column_headers"]
+        crm = crm if isinstance(crm, dict) else (json.loads(crm) if crm else {})
+        chd = chd if isinstance(chd, dict) else (json.loads(chd) if chd else {})
+        expected = _build_column_descriptors({"column_role_map": crm, "column_headers": chd})
+        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        self.assertEqual(res["column_descriptors"], expected,
+                         "committed-read descriptors must equal the builder's output verbatim")
+        # And the descriptor set is non-empty + multi-area (rate columns per area).
+        rate_descs = [d for d in res["column_descriptors"] if d["value_field"] == "rate_by_area"]
+        self.assertGreaterEqual(len(rate_descs), 2,
+                                "Electrical is multi-area -> >=2 per-area rate descriptors")
+
+    def test_rows_carry_redrafted_keys_and_per_area_nesting(self):
+        self._require_live()
+        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        rows = res["rows"]
+        self.assertTrue(rows, "committed Electrical must return rows")
+
+        # Money re-key: rows carry the DRAFT names, NOT the committed node names.
+        sample = rows[0]
+        for draft_key in ("rate_supply", "rate_combined", "amount_total", "qty_total", "sl_no_value"):
+            self.assertIn(draft_key, sample, f"row must carry draft key {draft_key}")
+        for node_key in ("supply_rate", "combined_rate", "total_amount", "qty", "code"):
+            self.assertNotIn(node_key, sample, f"row must NOT carry committed node key {node_key}")
+
+        # Per-area nesting rebuilt with the amount kind-rename (total/install/supply).
+        multi = next((r for r in rows if r.get("amount_by_area")), None)
+        self.assertIsNotNone(multi, "at least one row must have amount_by_area")
+        for area, kinds in multi["amount_by_area"].items():
+            self.assertIsInstance(kinds, dict, "amount_by_area[area] must be a nested kind dict")
+            self.assertTrue(set(kinds).issubset({"supply", "install", "total"}),
+                            "amount_by_area kinds must be renamed to supply/install/total")
+        # qty_by_area is flat {area: number}.
+        flatq = next((r for r in rows if r.get("qty_by_area")), None)
+        self.assertIsNotNone(flatq)
+        for area, val in flatq["qty_by_area"].items():
+            self.assertNotIsInstance(val, dict, "qty_by_area must be flat {area: number}")
+
+    def test_hierarchy_synthesized_root_and_child(self):
+        self._require_live()
+        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        rows = res["rows"]
+        by_index = {r["row_index"]: r for r in rows}
+
+        # A root row (no parent) -> effective_parent_index is None (the null root sentinel,
+        # NOT a dangling index, NOT -1).
+        roots = [r for r in rows if r["effective_parent_index"] is None]
+        self.assertTrue(roots, "Electrical has at least one committed root node")
+
+        # A child row -> its effective_parent_index resolves to a real row in the same set
+        # (parent_node was correctly mapped to the parent's row_index/sort_order).
+        children = [r for r in rows if r["effective_parent_index"] is not None]
+        self.assertTrue(children, "Electrical has parented nodes")
+        child = children[0]
+        self.assertIn(child["effective_parent_index"], by_index,
+                      "effective_parent_index must point at a real row_index in the set")
+        # row_index is the sort_order analog: 0-based, unique, contiguous-ish (sorted asc).
+        self.assertEqual([r["row_index"] for r in rows], sorted(r["row_index"] for r in rows),
+                         "rows are ordered by sort_order (the row_index analog)")
+
+    def test_classification_from_row_class(self):
+        self._require_live()
+        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        valid = {"line_item", "preamble", "note", "spacer", "subtotal_marker", "header_repeat"}
+        for r in res["rows"]:
+            self.assertEqual(r["classification"], r["effective_classification"],
+                             "committed tier has no override layer -> raw == effective")
+            self.assertIn(r["classification"], valid,
+                          "classification comes from node.row_class (the taxonomy the pill reads)")
+
+    def test_draft_only_fields_omitted(self):
+        # The committed contract is AI-free + minimal -- no draft-only keys leak through.
+        self._require_live()
+        res = get_committed_rows(boq_name=_CR_BOQ, sheet_name=_CR_SHEET)
+        for r in res["rows"]:
+            for k in _CR_DRAFT_ONLY_KEYS:
+                self.assertNotIn(k, r, f"draft-only field {k} must be omitted from committed rows")
+        # The response shape is the minimal {rows, column_descriptors} -- no draft flags/work_packages.
+        self.assertEqual(set(res.keys()), {"rows", "column_descriptors"})
