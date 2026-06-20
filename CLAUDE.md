@@ -1,6 +1,21 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-20 (Phase 5 Slice 3a -- PRICING GRID SKELETON + PAGE -- FRONTEND, READ-ONLY, feat pending,
+**Last updated:** 2026-06-21 (Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE -- FRONTEND, feat pending,
+branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Makes the 3a read-only `PricingGrid` editable for
+RATES ONLY: each rate cell is a numeric `<Input>` that **saves on blur/Enter** (no Apply/confirm -- Excel feel) via
+**`save_cell_price`**, the cell flips to priced after a `mutate()` refetch (markers re-derive authoritatively), and the
+paired amount cell shows **amount = qty x rate live (display-only, NEVER persisted** -- the pricing layer stores rates
+only; design v1.3 Sec.5). The save is PAGE-OWNED: `SheetPricingPage` owns `onSaveRate` (POST save_cell_price + mutate +
+inline getFrappeError), the grid hands up the cell identity via the pure `buildRateCell` (excel_row=source_row_number,
+col_letter=d.col, area/rate_kind from the descriptor, description=copy-forward guard). NEW additive type
+`RateCellSaveArgs`. Live amount is NON-REGRESSIVE (un-priced + not-editing cells keep their committed value; priced /
+editing cells show qty x rate via the pure `computeAmount` + `findPairedRateDescriptor` pairing). DEFERRED: subtotal
+roll-up (fast-follow), auto-save/force-save (3c), the single-editor lock (`editable`/`lock_info` stay INERT), un-price,
+remarks/flag layer (4a/4b). RATES ONLY editable; qty/amount/classification/structure read-only. NO backend / doctype /
+migrate. VERIFIED: Vitest **30/30 GREEN** (12 + 18 PricingGrid, +10 new 3b helper tests); tsc 3178 (== baseline), 0 in
+touched files; Vite build exit 0 (PWA 166 entries). Slice 3b unblocks 3c. Full detail in frontend/CLAUDE.md +
+boq-upload-plan.md "Phase 5 Slice 3b".)
+// prior: 2026-06-20 (Phase 5 Slice 3a -- PRICING GRID SKELETON + PAGE -- FRONTEND, READ-ONLY, feat pending,
 branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). The FIRST on-screen pricing surface: a NEW
 hub-reached, READ-ONLY page (5th sibling wizard route `upload-boq/hub/:boqId/pricing/:sheetName` ->
 `SheetPricingPage.tsx`) that opens a COMMITTED sheet, calls **`get_priced_rows`**, and renders the committed rows +

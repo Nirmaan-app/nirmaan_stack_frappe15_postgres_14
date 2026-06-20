@@ -16,7 +16,45 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Slice 3a -- PRICING GRID SKELETON + PAGE (FRONTEND, READ-ONLY, 2026-06-20, feat pending, branch
+LATEST: Phase 5 Slice 3b -- INLINE RATE EDITING + LIVE AMOUNT COMPUTE (FRONTEND, 2026-06-21, feat pending, branch
+feature/boq-phase-5). Makes the 3a read-only PricingGrid editable for RATES ONLY: type a rate, save on blur/Enter via
+save_cell_price, amount = qty x rate shows live (display-only), the cell flips to priced after a refetch. This is the
+slice where pricing actually happens. NO backend (save_cell_price + get_priced_rows already built), NO migrate.
+- EDITABLE RATE CELLS (PricingGrid.tsx): each RATE cell (`isRateDescriptor(d)`) renders a numeric `<Input>` (h-7
+  text-xs w-20, right-aligned) instead of the read-only value; qty / amount / any non-rate descriptor + classification
+  + structure stay READ-ONLY. **SAVE ON BLUR or ENTER** -- no Apply button, no confirm dialog (the design's Excel feel,
+  high-frequency entry). `commitRate` guards: (a) UNCHANGED vs the saved value -> no-op; (b) DOUBLE-FIRE (blur+Enter
+  same value) deduped via a `committedAttemptRef`; blank/NaN -> 0 (the endpoint coerces blank -> 0.0, still priced).
+  When `onSaveRate` is absent the grid stays read-only (3a behaviour preserved).
+- PAGE-OWNED SAVE (SheetPricingPage.tsx): the grid calls up `onSaveRate(cell: RateCellSaveArgs, rate)`; the page fills
+  boq/sheet/committed_version + the rate, POSTs `save_cell_price` (useFrappePostCall), then `await mutate()` -- the
+  get_priced_rows refetch re-derives the priced_* markers AUTHORITATIVELY (no client-side marker logic). The page now
+  destructures `mutate`. On throw: `getFrappeError` inline error + re-throw so the grid keeps the optimistic draft.
+- DESCRIPTOR -> save_cell_price ARGS (the core map, via the pure `buildRateCell`): excel_row = row.source_row_number;
+  col_letter = d.col; committed_version = the payload's commit_version; rate = the typed number; area = per-area
+  d.value_key (scalar: omitted); rate_kind = d.rate_subkey verbatim (per-area) / derived token (scalar, e.g.
+  rate_combined->combined_rate) -- a guard field, NOT part of the identity key; description = row.description (the
+  copy-forward MATCH GUARD, ALWAYS sent). NEW additive type `RateCellSaveArgs` (boqTypes.ts).
+- LIVE AMOUNT (display-only, NEVER persisted -- the pricing layer stores RATES only; the committed tier is capture-only;
+  the client workbook recomputes its own, design v1.3 Sec.5): an amount cell paired to a rate column (same area +
+  corresponding kind, via the pure `findPairedRateDescriptor` + the amount-kind<->rate-kind maps total<->combined_rate /
+  supply<->supply_rate / install<->install_rate) shows `computeAmount(qty, rate)` where qty = per-area qty_by_area[area]
+  or scalar qty_total. **NON-REGRESSIVE rule:** the effective rate = the optimistically-typed draft (instant) ELSE,
+  when not editing, the row's SAVED rate IF the cell is priced; an UN-PRICED, not-editing amount cell keeps its
+  committed value UNCHANGED (no 3a regression) and a priced cell shows qty x saved-rate (so no refetch flash). Amount
+  cells with no paired rate column render their committed value unchanged.
+- DEFERRED (NOT in 3b): subtotal roll-up (sum of children) -- fast-follow; auto-save/debounce + force-save -> 3c
+  (lodash available, NOT used here); the single-editor lock -> later (editable/lock_info stay INERT, editing is NOT
+  gated on them); clear/un-price a cell (no un-price path; every save is priced); remarks + the review-flag layer
+  (4a/4b); Excel write-back (5); finalize/revert (6). EDITING IS RATES ONLY.
+- VERIFICATION (observed, in-container): Vitest **30/30 GREEN** (12 reviewRender + 18 PricingGrid = 8 prior 3a + 10 NEW
+  3b: isAmountDescriptor, computeAmount incl. 0-rate, findPairedRateDescriptor per-area/scalar/no-pair, buildRateCell
+  per-area/scalar); tsc **3178** (== baseline), **0** in touched files (filtered boq-wizard|PricingGrid|
+  SheetPricingPage|boqTypes); Vite build exit 0 (PWA 166 entries). Manual live-cert pending Nitesh (rate cells
+  editable, save on blur/Enter, live amount, marker flips via refetch, multi-area independent, persists across
+  sessions, 0-rate saves priced, non-rate read-only). **Slice 3b unblocks 3c (auto-save + force-save).** Full frontend
+  detail in frontend/CLAUDE.md.
+// prior: Phase 5 Slice 3a -- PRICING GRID SKELETON + PAGE (FRONTEND, READ-ONLY, 2026-06-20, feat pending, branch
 feature/boq-phase-5). The FIRST on-screen pricing surface: a NEW hub-reached, READ-ONLY page (5th sibling wizard route)
 that opens a COMMITTED sheet, calls get_priced_rows, and renders the committed rows with their current saved rates +
 a basic priced/un-priced marker -- reusing the Slice-2 reviewRender helpers in a NEW grid component (design v1.3 Sec.4
