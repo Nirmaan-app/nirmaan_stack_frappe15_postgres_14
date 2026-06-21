@@ -317,6 +317,55 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-21 -- Phase 5 Summary Panel TOP-DOWN GRID-ALIGNED PARENT-TREE AMOUNT ROLLUPS COMPLETE -- FRONTEND, `pricingRollup.ts` (NEW) + `SummaryPanel.tsx` (NEW) + `pricingRollup.test.ts` (NEW) + `SheetPricingPage.tsx`, feat pending):**
+An Excel-pivot-style SUMMARY over the pricing editor: parent-tree amount rollups, computed PAGE-SIDE from data already
+fetched for the grid (rows + columnDescriptors from get_priced_rows) -- NO backend, NO migrate. ROWS = nodes in the
+committed parent tree (collapsible; expansion depth = aggregation level); COLUMNS = the sheet's OWN amount-column
+structure reproduced exactly; VALUES = each amount column summed over the node's descendants.
+
+- **`pricingRollup.ts` (NEW) -- the pure math (SIBLING module, NOT added to PricingGrid.tsx).** `rollupByParent(rows,
+  columnDescriptors) -> { columns, roots }`. Co-located types `RollupColumn` / `RollupNode` (`{rowIndex, sourceRowNumber,
+  description, classification, depth, ownAmounts, totals, isParent, children}`) / `RollupResult` (boqTypes.ts NOT touched
+  -- these are derived view types, co-located with the producer). Kept as a sibling so the certified `PricingGrid.tsx` +
+  its 27 tests stay byte-untouched; it imports the grid's helpers ONE-WAY (no cycle).
+- **THE SUMMING RULE (locked).** Per-row amount = `computeAmount(qty, pairedRate)` REUSING the EXISTING PricingGrid
+  helpers (`computeAmount` / `findPairedRateDescriptor` / the `PER_AREA_AMOUNT_TO_RATE_KIND` / `SCALAR_AMOUNT_TO_RATE_FIELD`
+  maps) + the qty source (per-area `qty_by_area[area]`, scalar `qty_total`) -- the pairing is reused, never reinvented. A
+  row contributes its OWN amount **by AMOUNT-PRESENCE** (the paired rate yields a number); a missing pairing / missing
+  rate (un-priced or non-priceable row) yields null -> contributes nothing. **node_type is NOT on the delivered committed
+  row, so the priceability gate is expressed as amount-presence, not a type check.** A priced PREAMBLE carries an amount
+  for **ITS OWN ROW only -- never a sum of children**: `node.totals = own + sum(children rolled totals)`, so a preamble's
+  own amount is added exactly once (NO double-count). Each amount descriptor rolls up **INDEPENDENTLY, column-by-column**
+  -- NO merging of per-area and scalar surfaces, NO derived totals. (design v1.3 Sec.6 priceability; node Option A.)
+- **CYCLE-SAFE.** Parent tree built by inverting `effective_parent_index` (the field `reviewRender.computeDepths` walks,
+  imported read-only). computeDepths (reused) has its own memo+cycle guard; the rolled-total recursion uses an in-progress
+  guard, the tree build a DFS path-set guard -- a malformed cycle terminates, never hangs. Roots = parent null / negative
+  / self / absent (mirrors the grid's parent test) so no row is silently dropped.
+- **`SummaryPanel.tsx` (NEW) -- TOP-DOWN, NOT a side drawer.** A plain `<section>` opened ABOVE the grid by the header
+  "Summary" button (now a toggle), FULL-WIDTH, `max-h-[40vh]` with INTERNAL scroll (never pushes the grid off-screen; the
+  grid stays usable below); its own close (X). A `<table>` MIRRORS the grid's column structure: one left "Item" region
+  (`min-w-[616px]` = the grid's 5 anchor columns combined) + one column per `displayDescriptor` (same Excel order, same
+  `w-28 min-w-[112px]` width classes the grid uses); amount columns carry the rollup number, non-amount columns blank so
+  the amount columns line up. **ALIGNMENT IS BEST-EFFORT (owner-chosen "same column order, best-effort widths") -- NOT
+  pixel-perfect**: both tables are `w-full` auto-layout. Pixel-perfect was rejected (would require PricingGrid
+  `table-fixed`/shared colgroup -- out of scope). `FIXED_ROLE_DEDUPE` is defined LOCALLY (the same mirror pattern the grid
+  uses). The collapsible tree uses a flat `collapsed` Set + a visibility flatten (the ReviewTree table-tree idiom), NOT
+  the Collapsible primitive (wrapping `<tr>` in a Collapsible div is invalid table markup). Sticky `<thead>`.
+- **`SheetPricingPage.tsx`.** The "Summary" header button toggles `summaryOpen`; the panel mounts INLINE above the grid
+  (`{summaryOpen && !pricedLoading && !pricedError && <SummaryPanel ... onClose=.../>}`) -- the discarded side-drawer mount
+  + the shadcn `Sheet` shell are gone. PricingGrid / reviewRender / boqTypes / backend UNTOUCHED.
+- **Tests + verification.** `pricingRollup.test.ts` (NEW) **+7** covering the FIVE real committed shapes + 2 negatives:
+  T1 HVAC-like per-area symmetric total; T2 Electrical-like asymmetric per-area (total/install) -- own kinds, not
+  normalized; T3 low-side-like scalar single-total; T4 VRF-like full per-area + scalar split (9 amount cols, independent,
+  no surface-merge/double-count); T5 priced-preamble own amount counted ONCE (parent total = own + children); T6 cycle
+  guard terminates (no hang); T7 blank/un-priced contribute zero. Full Vitest **39 -> 46 GREEN** (12 reviewRender + 27
+  PricingGrid + 7 pricingRollup; Slice-2/3a/3b/3b.2/3c unregressed). tsc **3178** (== baseline), **0** in touched files
+  (filtered `SummaryPanel|pricingRollup|SheetPricingPage`). Vite build exit 0 (PWA 166 entries). **Manual live-cert
+  pending Nitesh:** click Summary -> panel drops down full-width above the grid, amount columns line up with the grid's
+  (best-effort), caps at ~40vh + scrolls inside, grid usable below; expand/collapse changes rollup depth; Electrical
+  shows Phase1-total + Phase2-install as separate aligned columns; VRF shows all split columns separately, no doubling;
+  close returns the grid to full height. Full detail in boq-upload-plan.md "Phase 5 Summary Panel".
+
 **Status (2026-06-21 -- Phase 5 Slice 3c AUTO-SAVE + FORCE-SAVE + SAVE-STATUS COMPLETE -- FRONTEND, `PricingGrid.tsx` + `SheetPricingPage.tsx` + `PricingGrid.test.ts`, feat pending):**
 Adds debounced auto-save, a "Save now" force-save button, and a save-status chip to the pricing editor -- all REUSING
 the existing save (`commitRate -> onSaveRate -> save_cell_price -> mutate`). The save MECHANISM is unchanged; 3c adds

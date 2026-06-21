@@ -16,7 +16,50 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS (FRONTEND, grid + page, 2026-06-21, feat pending,
+LATEST: Phase 5 Summary Panel -- TOP-DOWN GRID-ALIGNED PARENT-TREE AMOUNT ROLLUPS (FRONTEND, 2026-06-21,
+feat pending, branch feature/boq-phase-5). A pull-in, Excel-pivot-style SUMMARY over the pricing editor: ROWS = nodes
+in the committed parent tree (collapsible; expansion depth = aggregation level); COLUMNS = the sheet's OWN
+amount-column structure reproduced exactly (single combined / per-area / supply-install-total split / asymmetric
+per-area / any combination -- the panel imposes NO shape of its own); VALUES = each amount column summed over the
+node's descendants. Computed PAGE-SIDE from data already on the page (rows + columnDescriptors from get_priced_rows) --
+NO new backend call, NO migrate.
+- SHELL (top-down, NOT a side drawer): a plain `<section>` that opens ABOVE the grid via the existing header "Summary"
+  button (now a toggle), FULL-WIDTH, capped at `max-h-[40vh]` with INTERNAL scroll (never pushes the grid off-screen;
+  the grid stays usable below); its own close (X). The panel is a `<table>` MIRRORING the grid's column structure --
+  one left "Item" region (`min-w-[616px]`, matching the grid's 5 anchor columns combined) + one column per
+  `displayDescriptor` in the SAME Excel order with the SAME width classes the grid uses (`w-28 min-w-[112px]`); amount
+  columns carry the rollup number, non-amount columns (unit/qty/rate/append) render blank so the amount columns line
+  up. ALIGNMENT IS BEST-EFFORT (owner-chosen "same column order, best-effort widths") -- NOT pixel-perfect: both tables
+  are `w-full` auto-layout, so they stretch alike but final widths are content-dependent. Pixel-perfect was rejected
+  because it would require making PricingGrid `table-fixed` / a shared colgroup (out-of-scope grid change). The
+  collapsible tree uses a flat `collapsed` Set + a visibility flatten (the ReviewTree table-tree idiom), NOT the
+  Collapsible primitive (wrapping `<tr>` in a Collapsible div is invalid table markup).
+- THE SUMMING RULE (locked): per-row amount = `computeAmount(qty, pairedRate)` REUSING the EXISTING PricingGrid helpers
+  (`computeAmount` / `findPairedRateDescriptor` / `PER_AREA_AMOUNT_TO_RATE_KIND` / `SCALAR_AMOUNT_TO_RATE_FIELD`) + the
+  qty source (per-area `qty_by_area[area]`, scalar `qty_total`) -- the pairing is reused, never reinvented. A row
+  contributes its OWN amount selected by AMOUNT-PRESENCE (the paired rate yields a number); a missing pairing / missing
+  rate (un-priced or non-priceable row) yields null -> contributes nothing. (node_type is NOT on the delivered
+  committed row, so the priceability gate is expressed as amount-presence, not a type check.) A priced PREAMBLE carries
+  an amount for ITS OWN ROW ONLY -- `node.totals = own + sum(children rolled totals)` -- so a preamble's own amount is
+  added exactly once (NO double-count). Each amount descriptor rolls up INDEPENDENTLY, column-by-column -- NO merging of
+  per-area and scalar surfaces, NO derived totals. (design v1.3 Sec.6 priceability; node shape Option A.)
+- PARENT TREE: built by inverting `effective_parent_index` (the field reviewRender.computeDepths walks); "descendants of
+  P" = transitive closure. CYCLE-SAFE: computeDepths (reused) has its own memo+cycle guard; the rolled-total recursion
+  uses an in-progress guard and the tree build a DFS path-set guard -- a malformed cycle terminates, never hangs.
+  Roots = rows whose parent is null/negative/self/absent (mirrors the grid's parent test) so no row is silently dropped.
+- FILES: NEW `pricingRollup.ts` (pure helper `rollupByParent(rows, columnDescriptors) -> {columns, roots}` + types
+  RollupColumn/RollupNode/RollupResult, co-located -- boqTypes.ts NOT touched), NEW `SummaryPanel.tsx` (the top-down
+  panel), NEW `pricingRollup.test.ts` (the math tests), `SheetPricingPage.tsx` (toggle button + inline mount above the
+  grid). PricingGrid.tsx / reviewRender.tsx / boqTypes.ts / backend UNTOUCHED. The rollup helper is a SIBLING module
+  (not added to PricingGrid.tsx) so the certified grid file + its 27 tests stay byte-untouched; it imports the grid's
+  helpers one-way (no cycle).
+- VERIFIED (in-session): Vitest **39 -> 46** (+7 `pricingRollup` -- T1 HVAC-like per-area symmetric total; T2
+  Electrical-like asymmetric per-area total/install; T3 low-side-like scalar single-total; T4 VRF-like full per-area +
+  scalar supply/install/total split [9 amount cols, independent, no surface-merge/double-count]; T5 priced-preamble own
+  amount counted ONCE; T6 cycle guard terminates; T7 blank/un-priced contribute zero); tsc **3178** (== baseline), 0 in
+  touched files; Vite build exit 0 (PWA 166 entries). Manual live-cert (visual alignment + open/close + scroll) pending
+  Nitesh. Full detail below + frontend/CLAUDE.md.
+// prior: Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS (FRONTEND, grid + page, 2026-06-21, feat pending,
 branch feature/boq-phase-5). Adds debounced auto-save, a "Save now" force-save button, and a save-status chip to the
 pricing editor -- all REUSING the existing save (commitRate -> onSaveRate -> save_cell_price -> mutate). The save
 MECHANISM is unchanged; 3c adds more TRIGGERS + VISIBILITY. NO new endpoint, NO backend, NO migrate, NO lock.
