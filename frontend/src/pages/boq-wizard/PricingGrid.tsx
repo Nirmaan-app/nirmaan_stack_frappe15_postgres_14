@@ -60,7 +60,7 @@ import {
   resolveDescriptorValue,
 } from "./reviewRender";
 import { ROLE_LABELS } from "./boqTypes";
-import type { ColumnDescriptor, PricedRow, RateCellSaveArgs } from "./boqTypes";
+import type { ColumnDescriptor, LockInfo, PricedRow, RateCellSaveArgs } from "./boqTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -284,6 +284,15 @@ export function deriveSaveStatus(s: {
   return "idle";
 }
 
+// Single-editor lock (slice B) -- the stable marker the backend prefixes onto a
+// save_cell_price reject when the sheet is held FRESH by ANOTHER user (pricing_lock
+// ._LOCK_HELD_MARKER). getFrappeError preserves the message verbatim, and multiple server
+// messages are ", "-joined, so detect with `includes` (NOT startsWith). Pure -- unit-tested.
+export const TAKEOVER_MARKER = "BOQ_PRICING_LOCKED";
+export function isTakeoverError(msg: string): boolean {
+  return typeof msg === "string" && msg.includes(TAKEOVER_MARKER);
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -302,11 +311,14 @@ interface PricingGridProps {
    */
   onDirtyChange?: (hasUnsaved: boolean) => void;
   /**
-   * RESERVED for the future single-editor-lock slice. INERT here -- the grid does NOT gate
-   * editing on these (the lock is a later slice). NOT destructured.
+   * Single-editor lock (slice B). The grid does NOT read these for gating -- the PAGE owns
+   * the lock UX: it WITHHOLDS onSaveRate when locked (so all edit gates collapse to the
+   * read-only render) and renders the holder banner. These are kept on the props for the
+   * contract + are not destructured here (no per-cell editable check -- onSaveRate is the
+   * single root gate).
    */
   editable?: boolean;
-  lockInfo?: unknown;
+  lockInfo?: LockInfo | null;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */

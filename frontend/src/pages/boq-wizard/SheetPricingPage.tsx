@@ -19,14 +19,14 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Loader2, Save, Sigma } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Loader2, Lock, RefreshCw, Save, Sigma } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { BOQsDoc, GetPricedRowsResponse, RateCellSaveArgs } from "./boqTypes";
-import { PricingGrid, deriveSaveStatus, type PricingGridHandle } from "./PricingGrid";
+import { PricingGrid, deriveSaveStatus, isTakeoverError, type PricingGridHandle } from "./PricingGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
@@ -70,6 +70,19 @@ const SheetPricingPage = () => {
   const [hasUnsaved, setHasUnsaved] = useState(false);
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
+  // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
+  // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
+  const [takenOver, setTakenOver] = useState(false);
+
+  // Reset the takeover flag whenever a FRESH get_priced_rows payload reports the sheet
+  // editable (a Reload re-read found it free / mine / stale). Keyed on the payload identity
+  // so it fires on EVERY refetch -- an [editable] dep would miss a true->true no-change.
+  useEffect(() => {
+    if (pricedData?.message && (pricedData.message.editable ?? true)) {
+      setTakenOver(false);
+    }
+  }, [pricedData]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -77,6 +90,11 @@ const SheetPricingPage = () => {
 
   // Back nav: semantic entity-id route (survives hard refresh -- never navigate(-1)).
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
+  // Lock banners' Reload: re-read get_priced_rows IN PLACE (refreshes editable/lock_info +
+  // resets takenOver via the effect above) -- preferred over a full window reload.
+  const handleReload = () => {
+    void mutate();
+  };
 
   // ── Full-page spinner while the BOQs doc loads ──────────────────────────────
   if (isLoading) {
@@ -117,6 +135,10 @@ const SheetPricingPage = () => {
   const lockInfo = pricedData?.message?.lock_info ?? null;
   const pricedLoading = pricedData === undefined;
   const pricedError = pricedData === null;
+  // HARD READ-ONLY when held FRESH by another user (backend editable===false) OR after a
+  // mid-edit takeover. Withholding onSaveRate collapses ALL of the grid's edit gates (the
+  // single onSaveRate root gate) to the read-only render -- no per-cell editable check.
+  const locked = editable === false || takenOver;
 
   // Slice 3b: the page-owned save. The grid hands up the cell identity; the page fills
   // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
@@ -144,7 +166,15 @@ const SheetPricingPage = () => {
       await mutate();
       setLastSavedAt(new Date()); // Slice 3c: client-clock "saved as of"
     } catch (e: unknown) {
-      setSaveError(getFrappeError(e) || "Could not save the rate. Please try again.");
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) {
+        // Mid-edit takeover (next-save-only): another user acquired the lock. Flip to
+        // read-only via the takeover banner (the grid keeps the draft -- it just can't be
+        // saved). The banner is the surface, so we do NOT also raise the generic error strip.
+        setTakenOver(true);
+      } else {
+        setSaveError(msg || "Could not save the rate. Please try again.");
+      }
       throw e; // let the grid keep the optimistic draft
     } finally {
       setInFlight((n) => n - 1);
@@ -240,6 +270,41 @@ const SheetPricingPage = () => {
         </div>
       </div>
 
+      {/* ── Single-editor lock banners (slice B) ──────────────────────────────
+          Mid-edit takeover takes precedence over the load-time holder banner. A STALE
+          lock returns editable===true -> NEITHER shows (silent auto-takeover on first
+          save). The holder banner shows ONLY when editable===false (truly blocked). */}
+      {takenOver ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet was taken over by another user. Your latest change was not saved.
+            Reload to continue.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : editable === false ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet is being priced by{" "}
+            <span className="font-medium">{lockInfo?.locked_by_name ?? "another user"}</span>.
+            It is read-only until they finish.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : null}
+
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). Slice 3b: rates are
           editable; amounts shown are qty x rate (display-only). */}
@@ -288,7 +353,9 @@ const SheetPricingPage = () => {
           ref={gridRef}
           rows={rows}
           columnDescriptors={columnDescriptors}
-          onSaveRate={handleSaveRate}
+          // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
+          // single onSaveRate root gate) collapses to the read-only render.
+          onSaveRate={locked ? undefined : handleSaveRate}
           onDirtyChange={setHasUnsaved}
           editable={editable}
           lockInfo={lockInfo}

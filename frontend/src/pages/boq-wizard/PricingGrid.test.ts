@@ -15,6 +15,7 @@ import {
   buildRateCell,
   nextCell,
   deriveSaveStatus,
+  isTakeoverError,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -291,5 +292,28 @@ describe("findCorrespondingRateDescriptors", () => {
     const src = ds.find((d) => d.col === "J")!; // L1 combined_rate
     const got = findCorrespondingRateDescriptors(src, ds).map((d) => d.col);
     expect(got).toEqual(["M"]);
+  });
+});
+
+describe("isTakeoverError", () => {
+  it("is true for a message containing the BOQ_PRICING_LOCKED marker", () => {
+    expect(
+      isTakeoverError("BOQ_PRICING_LOCKED: This sheet is being priced by Asha. Reload to continue."),
+    ).toBe(true);
+  });
+
+  it("is true for a ', '-joined multi-message string containing the marker", () => {
+    // getFrappeError joins multiple _server_messages with ", " -- the marker still survives.
+    expect(
+      isTakeoverError("Sheet locked, BOQ_PRICING_LOCKED: being priced by Asha."),
+    ).toBe(true);
+  });
+
+  it("is false for a generic save error", () => {
+    expect(isTakeoverError("Could not save the rate. Please try again.")).toBe(false);
+  });
+
+  it("is false for an empty string", () => {
+    expect(isTakeoverError("")).toBe(false);
   });
 });
