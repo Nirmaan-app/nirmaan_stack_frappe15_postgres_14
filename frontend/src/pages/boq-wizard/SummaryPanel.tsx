@@ -1,57 +1,47 @@
 /**
- * SummaryPanel -- top-down, grid-aligned amount-rollup panel for the pricing editor
- * (BoQ Phase 5).
+ * SummaryPanel -- top-down amount-rollup panel for the pricing editor (BoQ Phase 5).
  *
  * An Excel-pivot-style summary that opens ABOVE the pricing grid (NOT a side drawer):
- *   - FULL-WIDTH, TOP-DOWN: a plain <section> in the page flow above the grid.
- *   - GRID-ALIGNED (best-effort, owner-accepted -- NOT pixel-perfect): the panel renders
- *     a <table> mirroring the grid's column STRUCTURE -- it reproduces the grid's
- *     non-anchor descriptor columns (displayDescriptors, same Excel order) with the SAME
- *     width classes the grid uses (`w-28 min-w-[112px]`), preceded by ONE left "Item"
- *     region whose min-width (~616px) matches the grid's 5 anchor columns combined. Both
- *     tables are `w-full` auto-layout, so they stretch alike. A rollup number sits in the
- *     same column position as the grid amount column it totals; non-amount columns
- *     (unit/qty/rate/append) render as blank spacer cells so the amount columns line up.
- *     (Pixel-perfect alignment was NOT pursued -- it would require making the grid
- *     `table-fixed` / a shared colgroup, an out-of-scope PricingGrid change. Owner chose
- *     "same column order, best-effort widths".)
- *   - FIXED HEIGHT + INTERNAL SCROLL: capped at ~40vh; the tree scrolls inside; the grid
- *     stays usable below and is never pushed off-screen.
+ * a full-width <section>, capped at ~40vh with INTERNAL scroll (never pushes the grid
+ * off-screen; the grid stays usable below), toggled by the header "Summary" button.
  *
- * The collapsible parent tree uses a flat `collapsed` Set + a visibility flatten (the
- * ReviewTree/PricingGrid table-tree idiom) rather than the Collapsible primitive, because
- * wrapping <tr> rows in a Collapsible div is invalid table markup. Behaviour is unchanged:
- * expand/collapse a parent; expansion depth = aggregation level.
+ * DISPLAY (this is a description-plus-amounts table -- it no longer mirrors the grid's
+ * full column set):
+ *   - COLUMNS = a fixed-width Description/Item region + ONE column per AMOUNT descriptor
+ *     (rollup.columns -- the amount columns the math produced; header + cells agree by
+ *     construction). Non-amount descriptors (unit/qty/rate/append) are NOT shown.
+ *   - ROWS = only Preamble + Line Item nodes (the qty-bearing/priceable types; design
+ *     v1.6 §6). All other classifications (note/spacer/subtotal/header-repeat) are
+ *     structural leaves and are NOT rendered. DISPLAY-ONLY: the rollup TOTALS are
+ *     unchanged (priced amounts live only on these types), and because non-priceable
+ *     types are leaves the filter never disconnects the tree (no re-parenting).
+ *   - DEFAULT VIEW = expanded down to the SHALLOWEST preamble tier (defaultCollapsedSet,
+ *     computed from the data -- 0 on a level-less sheet, 1 otherwise; never hardcoded);
+ *     an "Expand all" / "Collapse all" header toggle flips the whole tree; per-row
+ *     chevrons keep working independently.
+ *   - DESCRIPTION = fixed width (320px) with WRAP (long text wraps to multiple lines);
+ *     amount cells stay right-aligned + top-aligned (level with the first wrapped line).
  *
- * Presentational: it memoizes rollupByParent (pure, page-side, no backend call) and
- * renders it. The summing rule (priced-preamble own-row-only, amount-presence selection,
- * column-by-column, cycle-safe) lives entirely in pricingRollup.ts.
- *
- * Totals roll up from OUR OWN parenting -- they may legitimately differ from the client
- * BoQ's printed subtotals (those are unreliable; we aggregate by our hierarchy). Intended.
+ * The math (rollupByParent + minPreambleDepth/defaultCollapsedSet) lives in
+ * pricingRollup.ts; this file is presentational. Totals roll up from OUR OWN parenting --
+ * they may legitimately differ from the client BoQ's printed subtotals (intended).
  */
 import { useMemo, useState } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isAmountDescriptor } from "./PricingGrid";
-import { rollupByParent, type RollupNode } from "./pricingRollup";
-import { ROLE_LABELS } from "./boqTypes";
+import { rollupByParent, defaultCollapsedSet, type RollupNode } from "./pricingRollup";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
 // Indent step per depth level (mirrors the grid's INDENT_PX feel).
 const INDENT_PX = 16;
-
-// The two roles the grid renders as fixed anchors (excluded from its descriptor columns).
-// Mirrors PricingGrid.FIXED_ROLE_DEDUPE (kept in sync; not exported there -- the same
-// local-mirror pattern PricingGrid itself uses to mirror ReviewTree).
-const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
-
-// The grid's left region = 5 anchor columns (Excel Row/Sl.No/Parent = w-16 each = 64px,
-// Classification w-36 = 144px, Description min-w-[280px]) -> ~616px combined min-width.
-// The panel's single "Item" region uses the same min so it best-effort aligns under w-full.
-const ITEM_MIN_W = "min-w-[616px]";
-// Per-descriptor-column width -- byte-identical to the grid's descriptor <th>/<td>.
+// Fixed Description/Item column width (owner-delegated; 320px for readable wrapped lines).
+const ITEM_W = "w-[320px]";
+// Per-amount-column width.
 const COL_W = "w-28 min-w-[112px]";
+
+// The only classifications shown as panel rows -- the priceable/qty-bearing types
+// (design v1.6 §6). classification is the lowercase taxonomy (effective_classification).
+const SHOWN_CLASSIFICATIONS = new Set(["preamble", "line_item"]);
 
 /** Display a rolled amount: blank for absent, "0" for zero, locale-grouped otherwise. */
 function fmtAmount(n: number | null | undefined): string {
@@ -60,24 +50,35 @@ function fmtAmount(n: number | null | undefined): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-/** Mirror the grid header label for a descriptor (`${col} — ${role}${ · area}`). */
-function columnLabel(d: ColumnDescriptor): string {
-  return `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-}
-
 interface FlatRow {
   node: RollupNode;
 }
 
-/** Flatten the rollup forest to the currently-visible rows (children hidden when an
- *  ancestor is collapsed). Mirrors the ReviewTree table-tree visibility idiom. */
+/**
+ * Flatten the rollup forest to currently-visible rows. Only Preamble + Line Item nodes
+ * are pushed (Change 2). A hidden type is a structural LEAF by design, so excluding it
+ * never drops a shown row; the recurse is still guarded so that if a hidden node somehow
+ * had children (contradicts the design) its shown descendants are not silently lost.
+ */
 function flatten(nodes: RollupNode[], collapsed: Set<number>, out: FlatRow[]) {
   for (const node of nodes) {
-    out.push({ node });
-    if (node.children.length > 0 && !collapsed.has(node.rowIndex)) {
+    const shown = SHOWN_CLASSIFICATIONS.has(node.classification ?? "");
+    if (shown) out.push({ node });
+    if (node.children.length > 0 && (!shown || !collapsed.has(node.rowIndex))) {
       flatten(node.children, collapsed, out);
     }
   }
+}
+
+/** Every node WITH CHILDREN in the forest (for "Collapse all" -> only roots visible). */
+function allParentIndexes(roots: RollupNode[]): Set<number> {
+  const set = new Set<number>();
+  const walk = (n: RollupNode) => {
+    if (n.children.length > 0) set.add(n.rowIndex);
+    for (const c of n.children) walk(c);
+  };
+  for (const r of roots) walk(r);
+  return set;
 }
 
 interface SummaryPanelProps {
@@ -88,20 +89,13 @@ interface SummaryPanelProps {
 }
 
 const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPanelProps) => {
-  // collapsed Set (default empty = fully expanded). Toggling a parent hides its subtree.
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
-
-  // displayDescriptors = the grid's non-anchor columns, same Excel order -> the panel
-  // reproduces them all (amounts filled, the rest blank) so amount columns line up.
-  const displayDescriptors = useMemo(
-    () => columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role)),
-    [columnDescriptors],
-  );
-
   const { columns, roots } = useMemo(
     () => rollupByParent(rows, columnDescriptors),
     [rows, columnDescriptors],
   );
+
+  // Default view = expanded down to the shallowest preamble tier (computed from data).
+  const [collapsed, setCollapsed] = useState<Set<number>>(() => defaultCollapsedSet(roots));
 
   const visible = useMemo(() => {
     const out: FlatRow[] = [];
@@ -117,28 +111,43 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
       return next;
     });
 
+  const allExpanded = collapsed.size === 0;
+  const toggleAll = () =>
+    setCollapsed(allExpanded ? allParentIndexes(roots) : new Set<number>());
+
   const hasAmountCols = columns.length > 0;
 
   return (
     <section className="rounded-md border border-border bg-background">
-      {/* Header bar: title + close */}
+      {/* Header bar: title + expand/collapse-all + close */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <h2 className="text-sm font-semibold text-foreground">
+        <h2 className="text-sm font-semibold text-foreground shrink-0">
           Summary &middot; {sheetName.trim() || sheetName}
         </h2>
-        <p className="text-[11px] text-muted-foreground truncate hidden sm:block">
+        <p className="text-[11px] text-muted-foreground truncate hidden md:block">
           Totals rolled up from this BoQ&rsquo;s own parent hierarchy (may differ from the
           client&rsquo;s printed subtotals &mdash; intended).
         </p>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close summary"
-          title="Close summary"
-          className="ml-auto shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="ml-auto shrink-0 flex items-center gap-1">
+          {hasAmountCols && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-xs px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              {allExpanded ? "Collapse all" : "Expand all"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close summary"
+            title="Close summary"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <span aria-hidden className="text-lg leading-none">&times;</span>
+          </button>
+        </div>
       </div>
 
       {!hasAmountCols ? (
@@ -148,27 +157,27 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
       ) : (
         // Fixed height + internal scroll -- never pushes the grid off-screen.
         <div className="overflow-auto max-h-[40vh]">
-          <table className="w-full text-xs border-collapse">
+          <table className="text-xs border-collapse">
             <thead>
               <tr>
                 <th
                   className={cn(
                     "px-2 py-2 text-left font-medium text-muted-foreground border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted",
-                    ITEM_MIN_W,
+                    ITEM_W,
                   )}
                 >
                   Item
                 </th>
-                {displayDescriptors.map((d) => (
+                {columns.map((c) => (
                   <th
-                    key={d.col}
+                    key={c.col}
                     className={cn(
                       "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted",
                       COL_W,
                     )}
-                    title={columnLabel(d)}
+                    title={c.label}
                   >
-                    {columnLabel(d)}
+                    {c.label}
                   </th>
                 ))}
               </tr>
@@ -177,10 +186,10 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
               {visible.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={1 + displayDescriptors.length}
+                    colSpan={1 + columns.length}
                     className="px-2 py-6 text-center text-sm text-muted-foreground"
                   >
-                    No rows to summarize.
+                    No priceable rows to summarize.
                   </td>
                 </tr>
               ) : (
@@ -192,10 +201,10 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
                       key={node.rowIndex}
                       className="border-b border-border hover:bg-muted/30"
                     >
-                      {/* Left "Item" region: indent + expand chevron + description. */}
-                      <td className={cn("px-2 py-1.5 align-top border-r border-border", ITEM_MIN_W)}>
+                      {/* Left "Item" region: fixed width + WRAP; indent + chevron + text. */}
+                      <td className={cn("px-2 py-1.5 align-top border-r border-border", ITEM_W)}>
                         <div
-                          className="flex items-center gap-1 min-w-0"
+                          className="flex items-start gap-1 min-w-0"
                           style={{ paddingLeft: `${node.depth * INDENT_PX}px` }}
                         >
                           {hasChildren ? (
@@ -203,7 +212,7 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
                               type="button"
                               onClick={() => toggle(node.rowIndex)}
                               aria-label={isCollapsed ? "Expand" : "Collapse"}
-                              className="shrink-0 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-muted"
+                              className="shrink-0 mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded hover:bg-muted"
                             >
                               <ChevronRight
                                 className={cn(
@@ -217,10 +226,9 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
                           )}
                           <span
                             className={cn(
-                              "truncate",
+                              "min-w-0 break-words whitespace-normal",
                               hasChildren ? "font-medium text-foreground" : "text-muted-foreground",
                             )}
-                            title={node.description ?? undefined}
                           >
                             {node.description || (
                               <span className="italic text-muted-foreground">(no description)</span>
@@ -228,16 +236,16 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
                           </span>
                         </div>
                       </td>
-                      {/* One cell per grid descriptor column; amounts filled, rest blank. */}
-                      {displayDescriptors.map((d) => (
+                      {/* One cell per AMOUNT column; right-aligned, top-aligned. */}
+                      {columns.map((c) => (
                         <td
-                          key={d.col}
+                          key={c.col}
                           className={cn(
                             "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
                             COL_W,
                           )}
                         >
-                          {isAmountDescriptor(d) ? fmtAmount(node.totals[d.col]) : ""}
+                          {fmtAmount(node.totals[c.col])}
                         </td>
                       ))}
                     </tr>

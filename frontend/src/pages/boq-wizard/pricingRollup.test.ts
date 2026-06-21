@@ -6,7 +6,7 @@
 // structure; two negatives (cycle, blank/un-priced) prove it is safe + correct on edge
 // data. Totals are keyed by the amount descriptor's Excel col letter (RollupNode.totals).
 import { describe, it, expect } from "vitest";
-import { rollupByParent } from "./pricingRollup";
+import { rollupByParent, minPreambleDepth, defaultCollapsedSet } from "./pricingRollup";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
 function desc(
@@ -223,5 +223,56 @@ describe("rollupByParent", () => {
     const norate = p.children.find((c) => c.rowIndex === 2)!;
     expect(zero.ownAmounts["G"]).toBe(0);          // computeAmount(10, 0) === 0
     expect(norate.ownAmounts["G"]).toBeNull();     // computeAmount(5, null) === null
+  });
+});
+
+// ── Summary-panel default-view helpers (display support; math unchanged) ──────────
+// minPreambleDepth + defaultCollapsedSet pin the "open expanded to the shallowest
+// preamble tier" default across level-1, level-0, and single-tier shapes. Built via
+// rollupByParent (descriptors irrelevant -> []) so depth is the real computed depth.
+describe("minPreambleDepth + defaultCollapsedSet", () => {
+  const node = (
+    row_index: number,
+    effective_parent_index: number | null,
+    cls: string,
+  ): PricedRow =>
+    ({ row_index, effective_parent_index, effective_classification: cls } as unknown as PricedRow);
+
+  it("D1 level-1 shallowest: preamble under a depth-0 root -> min depth 1, that tier collapsed", () => {
+    const rows = [
+      node(0, null, "line_item"), // depth 0 (a root parent)
+      node(1, 0, "preamble"),     // depth 1 -- shallowest preamble
+      node(2, 1, "line_item"),    // depth 2
+    ];
+    const { roots } = rollupByParent(rows, []);
+    expect(minPreambleDepth(roots)).toBe(1);
+    expect([...defaultCollapsedSet(roots)]).toEqual([1]); // depth-1 parent collapsed
+  });
+
+  it("D2 level-0/level-less: top preamble at depth 0 -> min depth 0, root collapsed", () => {
+    const rows = [
+      node(0, null, "preamble"), // depth 0 -- shallowest preamble
+      node(1, 0, "line_item"),   // depth 1
+    ];
+    const { roots } = rollupByParent(rows, []);
+    expect(minPreambleDepth(roots)).toBe(0);
+    expect([...defaultCollapsedSet(roots)]).toEqual([0]);
+  });
+
+  it("D3 multiple preambles at one tier: both depth-0 preambles collapsed", () => {
+    const rows = [
+      node(0, null, "preamble"), node(1, 0, "line_item"),
+      node(2, null, "preamble"), node(3, 2, "line_item"),
+    ];
+    const { roots } = rollupByParent(rows, []);
+    expect(minPreambleDepth(roots)).toBe(0);
+    expect([...defaultCollapsedSet(roots)].sort((a, b) => a - b)).toEqual([0, 2]);
+  });
+
+  it("D4 no preamble: min depth null -> empty collapsed (panel opens fully expanded)", () => {
+    const rows = [node(0, null, "line_item"), node(1, 0, "line_item")];
+    const { roots } = rollupByParent(rows, []);
+    expect(minPreambleDepth(roots)).toBeNull();
+    expect(defaultCollapsedSet(roots).size).toBe(0);
   });
 });

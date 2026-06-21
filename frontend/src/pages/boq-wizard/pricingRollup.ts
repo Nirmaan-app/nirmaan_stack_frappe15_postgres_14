@@ -197,3 +197,40 @@ export function rollupByParent(
   const roots = rootIdxs.map((idx) => build(idx, new Set<number>()));
   return { columns, roots };
 }
+
+// ── Summary-panel default-view helpers (display support; rollupByParent UNCHANGED) ──
+// These drive the panel's "open expanded down to the shallowest preamble tier" default.
+// Pure (unit-tested). They READ the rollup forest; they do not change the rollup math.
+
+/**
+ * Minimum effective depth among PREAMBLE nodes in the rollup forest, or null if the sheet
+ * has no preamble. The panel opens expanded down to this tier (0 on a level-less sheet,
+ * 1 otherwise -- computed from the data, never hardcoded).
+ */
+export function minPreambleDepth(roots: RollupNode[]): number | null {
+  let min: number | null = null;
+  const walk = (n: RollupNode) => {
+    if (n.classification === "preamble" && (min === null || n.depth < min)) min = n.depth;
+    for (const c of n.children) walk(c);
+  };
+  for (const r of roots) walk(r);
+  return min;
+}
+
+/**
+ * The default-collapsed set for the panel: every node WITH CHILDREN at the shallowest
+ * preamble depth -- so that tier is visible and everything deeper is collapsed beneath it
+ * (rows shallower than that tier, if any, stay visible because they are not in the set).
+ * Empty when the sheet has no preamble (the panel then opens fully expanded).
+ */
+export function defaultCollapsedSet(roots: RollupNode[]): Set<number> {
+  const depth = minPreambleDepth(roots);
+  const set = new Set<number>();
+  if (depth === null) return set;
+  const walk = (n: RollupNode) => {
+    if (n.depth === depth && n.children.length > 0) set.add(n.rowIndex);
+    for (const c of n.children) walk(c);
+  };
+  for (const r of roots) walk(r);
+  return set;
+}
