@@ -1,6 +1,48 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (Phase 5 Slice 3e -- PRICEABILITY GATE + PER-SHEET OVERRIDE TOGGLE -- FULL-STACK
+**Last updated:** 2026-06-22 (Phase 5 Slice 4a-BE -- ANNOTATION BACKEND (REMARKS + COLOR) -- BACKEND, MIGRATE
+slice, feat pending, branch `feature/boq-phase-5`. Two USER-AUTHORED annotation layers on the pricing editor, stored
+ADDITIVELY on top of the committed tier exactly like `BoQ Cell Pricing` (anchored to the durable Excel address +
+committed version, own freeze-and-supersede triple) -- but carrying NO rate/priceability/lock-identity semantics, so
+TWO SEPARATE doctypes (NOT folded onto BoQ Cell Pricing). **DATA SHEETS ONLY** -- general-specs (grid-only) sheets are
+read-only reference and get no annotation; `get_committed_sheet_grid` / `SheetDataGrid` are UNTOUCHED. Committed tier
+NEVER mutated (§0). Frontend (trailing remarks column, 8-color picker, review-list feed) is the SEPARATE 4a-FE slice.
+**(1) NEW doctype `BoQ Cell Remark`** (per-ROW; istable:0, track_changes:1, autoname **`BRMK-.YY.-.#####`**, mirrors
+the BoQ Cell Pricing house style + its 10-role permission block): IDENTITY = (boq, sheet_name [VERBATIM #152],
+excel_row, committed_version) -- NO col_letter (per-row); `remark` (Small Text); `description` (Small Text -- the
+copy-forward MATCH GUARD for the future Slice-7 copy-forward, NOT part of the key, never branched on here, exactly like
+BoQ Cell Pricing.description); lifecycle triple `remark_version`/`is_current`/`remarked_at`. **(2) NEW doctype
+`BoQ Cell Color`** (per-CELL; autoname **`BCLR-.YY.-.#####`**): IDENTITY = (boq, sheet_name, excel_row, col_letter,
+committed_version); `color` (Select, reqd, EXACTLY 8 stable string tokens -- red/orange/yellow/green/blue/purple/pink/
+grey -- NOT hex; the frontend maps token->swatch); `description` match-guard; lifecycle triple
+`color_version`/`is_current`/`colored_at`. Both controllers are bare stubs (`pass`); the one-current invariant is
+ENDPOINT-enforced (pricing.py), NOT in the controller (mirrors the pricing/committed convention). **(3) `pricing.py` --
+two write endpoints + two reads + the get_priced_rows merge.** `save_row_remark(boq, sheet, excel_row, committed_version,
+remark, description=None)` + `save_cell_color(boq, sheet, excel_row, col_letter, committed_version, color,
+description=None)` (both `@frappe.whitelist(methods=["POST"])`): each RESOLVES the committed ROW via the SAME row-level
+`_resolve_committed_cell` save_cell_price uses (it keys on the node's source_row_number, NOT col_letter, and -- crucially
+-- does NOT gate on node_type, so reusing it imposes NO priceability gate; the 3e priceability guard lives INLINE in
+save_cell_price only). **So a COLOR (and a remark) is allowed on ANY committed cell -- non-priceable, zero-rate, anything
+-- where a PRICE would be rejected** (a test proves the contrast). Both then ACQUIRE/REFRESH the single-editor lock
+(`acquire_or_refresh`) AFTER the resolve + BEFORE any freeze/insert (a lock reject mutates NOTHING), then
+freeze-and-supersede upsert (freeze prior `is_current` via set_value, insert new at version max+1) + one
+`frappe.db.commit()`. Remark cap 250 (`_REMARK_MAX_LEN`, mirrors review_screen) -> throw; color must be one of the 8
+tokens -> throw. **CLEAR semantics:** a blank/whitespace remark OR color FREEZES the prior current and inserts NO new
+current (reads as "no remark"/"no color" -- will not appear in the review-list). `get_sheet_remarks` /
+`get_sheet_colors` (bare whitelist, GET-capable, mirror get_sheet_pricing) return the current set. **get_priced_rows
+MERGE (the per-row loop):** builds a remark index (excel_row->text) + a color index (excel_row->{col_letter:token}) ONCE
+before the loop (no per-row query), then stamps `row["remark"]` (None when absent) + `row["color_by_cell"]`
+({col_letter:token}, only on rows that have a color). The "nothing to merge" early-return now also accounts for
+remarks/colors (not just prices) so an annotation-only sheet still merges. **TESTS:** `test_pricing` 47 -> **63** (+16:
+`TestRowRemark` 7 -- save/v1, freeze-and-supersede/v2, clear-reads-as-none, 250-ok/251-throw, non-existent-row-throw,
+lock-held-by-other-rejects-mutates-nothing, get_priced_rows surfaces remark; `TestCellColor` 9 -- save/v1, freeze/v2,
+all-8-tokens-accepted, invalid-9th-throws, COLOR-ON-NON-PRICEABLE-CELL [the contrast: a price there is rejected, a color
+is accepted], clear-no-current, non-existent-row-throw, lock-reject, get_priced_rows surfaces color_by_cell). `bench
+migrate` CLEAN -- BoQ Cell Remark 20 cols / BoQ Cell Color 21 cols, both istable 0, verified via information_schema. NO
+change to the committed tier / get_committed_sheet_grid / SheetDataGrid / any other file. NEXT = Slice 4a-FE (the
+frontend: trailing remarks column, the 8-color cell picker, the review-list feed -- consumes row["remark"] +
+row["color_by_cell"] + the two save endpoints). Full detail in boq-upload-plan.md "Slice 4a-BE".)
+// prior: 2026-06-21 (Phase 5 Slice 3e -- PRICEABILITY GATE + PER-SHEET OVERRIDE TOGGLE -- FULL-STACK
 (node_type surfacing + server guard + frontend gate/toggle), feat pending, branch `feature/boq-phase-5`. **CLOSES the
 Slice 3 arc.** A rate cell is editable ONLY on a committed row whose **node_type** is "Preamble" or "Line Item"
 (verbatim -- the priceability axis); "Other" (note/spacer/subtotal/header_repeat) renders rate cells READ-ONLY,
