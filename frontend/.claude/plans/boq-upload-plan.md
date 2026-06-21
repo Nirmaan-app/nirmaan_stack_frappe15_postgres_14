@@ -16,7 +16,46 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Summary Panel -- TOP-DOWN GRID-ALIGNED PARENT-TREE AMOUNT ROLLUPS (FRONTEND, 2026-06-21,
+LATEST: Phase 5 Phase-2 PREFILL -- CROSS-AREA PROPOSED RATES (proposed-until-touched) (FRONTEND, 2026-06-21,
+feat pending, branch feature/boq-phase-5; PricingGrid.tsx + PricingGrid.test.ts only -- NO backend, NO boqTypes change,
+SheetPricingPage UNCHANGED). On a MULTI-AREA sheet, when the user saves a PER-AREA rate in one area, the SAME value is
+OFFERED as a PROPOSED (display-only, uncommitted) rate in the CORRESPONDING rate column of the OTHER area(s) for that
+SAME ROW -- but ONLY where that corresponding cell is currently EMPTY (not priced, no user draft). A proposal is VISIBLE
+but NEVER saved on its own: the user touches/edits it (-> promotes to a normal rate edit on the existing save path) or
+ignores it (stays proposed, NEVER committed by auto-save / "Save now" force-save / keyboard nav / unmount).
+- SEPARATE STATE (the load-bearing invariant): a NEW `proposedRates: useState<Record<string,string>>` keyed by the SAME
+  `cellKey(row.row_index, d.col)` as `draftRates`, but kept STRICTLY SEPARATE -- NO save path (`commitRate` /
+  `commitActiveRate` / `scheduleAutoSave` / `flush` / unmount-flush) ever reads `proposedRates`. Those all read
+  `draftRates[key] ?? savedRateStr(...)` only, so a proposal can never reach the server until promoted. (Proposed values
+  MUST NOT go in draftRates -- anything in draftRates is committable.)
+- CORRESPONDENCE = NEW pure exported helper `findCorrespondingRateDescriptors(sourceD, descriptors)` (next to
+  findPairedRateDescriptor, reusing the `PER_AREA_RATE_FIELD = "rate_by_area"` const): returns every descriptor C where
+  source AND C are both `value_field === "rate_by_area"`, SAME `rate_subkey` (non-null), DIFFERENT `value_key` (area,
+  non-null). Returns [] for a scalar / non-rate_by_area source (area null -> no cross-area analog) or a HALF-POPULATED
+  source (null rate_subkey/value_key) -- FAIL-CLOSED. (Recon-verified across the corpus: Electrical/HVAC/Fire Fitting
+  Phase1<->Phase2 combined_rate; VRF L1<->L2 supply/install/combined each; low-side + VRF scalar N/O/P never match.)
+- TRIGGER: hooked in `commitRate`'s success `.then` (where onSaveRate resolves AFTER the page's saveCellPrice + mutate),
+  gated `d.value_field === PER_AREA_RATE_FIELD` so SCALAR saves propose nothing. For each corresponding C it sets
+  `proposedRates[cellKey(row.row_index, C.col)] = String(rate)` ONLY when the cell is EMPTY -- `!isCellPriced(freshRow,C)`
+  (freshRow via a new `rowsRef` synced each render) AND no `draftRatesRef.current[ck]`. An older untouched proposal MAY
+  be overwritten (newest saved value wins); a priced or drafted cell is NEVER overwritten.
+- RENDER: value precedence `draft ?? proposed ?? savedRateStr`; `isProposed = draft===undefined && proposed!==undefined
+  && !priced` -> the rate `<Input>` gets `text-muted-foreground italic` (MUTED GREY ITALIC); the emerald priced tint +
+  dot stay gated on `isCellPriced` (false for a proposal -> neither shows). A priced or user-drafted cell renders normal.
+- PROMOTION: the rate input's onChange (which already writes draftRates) now ALSO deletes the cell's `proposedRates`
+  entry -> a touched proposal becomes a real draft on the normal save path (auto-save + emerald-on-save follow for free).
+- CLEANUP: a `useEffect([rows])` reconciles after each mutate() refetch -- drops any `proposedRates` entry whose cell is
+  now `isCellPriced` on the fresh data (a proposal never lingers on a now-priced cell). Proposals are display-only;
+  reconciliation commits nothing. (Proposals are not wholesale-cleared on sheet change -- matching the existing
+  draftRates behavior; they are non-committable + pruned-on-priced, so a stale cross-sheet proposal is at worst a
+  harmless display artifact. No sheetName prop added.) "0.0 can be priced" preserved (isCellPriced still flag-driven).
+- VERIFIED (in-session): Vitest **50 -> 56** (+6 `findCorrespondingRateDescriptors` tests: per-area symmetric 2-area
+  combined Phase1->Phase2-only; VRF L1 supply_rate->L2 supply_rate-only; scalar source->[]; VRF scalar rate_combined->[];
+  half-populated null-subkey->[]; mixed VRF 9-rate list L1 combined->L2 combined-only never scalar); tsc **3178** (==
+  baseline), 0 in touched files; Vite build exit 0 (PWA 166 entries). Manual live-cert (save a per-area rate -> proposal
+  appears muted-italic in the other area's empty cell; touch promotes + saves; ignore never commits via any path; priced
+  cells never receive) pending Nitesh. Full detail + frontend/CLAUDE.md.
+// prior LATEST: Phase 5 Summary Panel -- TOP-DOWN GRID-ALIGNED PARENT-TREE AMOUNT ROLLUPS (FRONTEND, 2026-06-21,
 feat pending, branch feature/boq-phase-5). A pull-in, Excel-pivot-style SUMMARY over the pricing editor: ROWS = nodes
 in the committed parent tree (collapsible; expansion depth = aggregation level); COLUMNS = the sheet's OWN
 amount-column structure reproduced exactly (single combined / per-area / supply-install-total split / asymmetric

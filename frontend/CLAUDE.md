@@ -317,6 +317,41 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-21 -- Phase 5 Phase-2 PREFILL: CROSS-AREA PROPOSED RATES (proposed-until-touched) COMPLETE -- FRONTEND, `PricingGrid.tsx` + `PricingGrid.test.ts` ONLY, feat pending):**
+On a MULTI-AREA sheet, saving a PER-AREA rate in one area OFFERS the same value as a PROPOSED (display-only) rate in the
+CORRESPONDING rate column of the OTHER area(s) for that SAME ROW, ONLY into EMPTY cells. The proposal is VISIBLE but
+NEVER saved on its own -- the user touches it (promotes to a real edit on the existing save path) or ignores it (never
+committed). NO backend, NO boqTypes change, `SheetPricingPage.tsx` UNCHANGED.
+
+- **THE INVARIANT (future slices MUST respect): proposals live in a SEPARATE `proposedRates` map, NEVER in `draftRates`.**
+  `const [proposedRates, setProposedRates] = useState<Record<string,string>>({})`, keyed by the SAME
+  `cellKey(row.row_index, d.col)`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate` (keyboard
+  nav), `scheduleAutoSave`, the `flush()` force-save handle, and the unmount-flush all read `draftRates[key] ??
+  savedRateStr(...)` ONLY. Anything placed in `draftRates` is committable; a proposal must therefore never be written
+  there until the user touches the cell. Do NOT "simplify" by merging the two maps.
+- **Correspondence helper (NEW, pure, exported, unit-tested):** `findCorrespondingRateDescriptors(sourceD, descriptors)`
+  next to `findPairedRateDescriptor`, reusing `PER_AREA_RATE_FIELD`. Returns descriptors C where source AND C are both
+  `value_field === "rate_by_area"`, SAME `rate_subkey` (non-null), DIFFERENT `value_key` (non-null). `[]` for scalar /
+  non-rate_by_area / half-populated sources (FAIL-CLOSED -- scalar rate columns area=null have no cross-area analog).
+- **Trigger** in `commitRate`'s success `.then` (fires after the page's saveCellPrice + mutate resolve), gated
+  `d.value_field === PER_AREA_RATE_FIELD` (scalar saves propose nothing). Sets `proposedRates[ck] = String(rate)` only
+  when the corresponding cell is EMPTY: `!isCellPriced(freshRow, C)` (freshRow via a new `rowsRef` synced each render) AND
+  no `draftRatesRef.current[ck]`. Newest save overwrites an older untouched proposal; never overwrites priced/drafted.
+- **Render:** value precedence `draft ?? proposed ?? savedRateStr`; `isProposed = draft===undefined &&
+  proposed!==undefined && !priced` -> the rate `<Input>` gets `text-muted-foreground italic`; the emerald tint + dot stay
+  gated on `isCellPriced` (false for a proposal). **Promotion:** the input onChange now also deletes the cell's
+  `proposedRates` entry (a touched proposal becomes a normal draft -> auto-save + emerald-on-save follow). **Cleanup:** a
+  `useEffect([rows])` drops any proposal whose cell is `isCellPriced` on the refetched data. Proposals are NOT
+  wholesale-cleared on sheet change (matches draftRates; non-committable + pruned-on-priced).
+- **Tests + verification.** `PricingGrid.test.ts` 27 -> **33** (+6 `findCorrespondingRateDescriptors`: per-area symmetric
+  2-area combined Phase1->Phase2-only; VRF L1 supply_rate->L2 supply_rate-only; scalar source->[]; VRF scalar
+  rate_combined->[]; half-populated null-subkey->[]; mixed VRF 9-rate list L1 combined->L2 combined-only never scalar).
+  Full Vitest **50 -> 56 GREEN** (12 reviewRender + 33 PricingGrid + 11 pricingRollup). tsc **3178** (== baseline), 0 in
+  touched files. Vite build exit 0 (PWA 166 entries). Manual live-cert pending Nitesh: save a per-area rate -> the other
+  area's empty cell shows it muted-italic; touch -> promotes + saves (turns emerald on save); ignore -> never commits via
+  auto-save / Save now / nav / Back; a priced cell never receives a proposal; "0.0 can be priced" intact. Full detail in
+  boq-upload-plan.md "Phase-2 PREFILL".
+
 **Status (2026-06-21 -- Phase 5 Summary Panel TOP-DOWN GRID-ALIGNED PARENT-TREE AMOUNT ROLLUPS COMPLETE -- FRONTEND, `pricingRollup.ts` (NEW) + `SummaryPanel.tsx` (NEW) + `pricingRollup.test.ts` (NEW) + `SheetPricingPage.tsx`, feat pending):**
 An Excel-pivot-style SUMMARY over the pricing editor: parent-tree amount rollups, computed PAGE-SIDE from data already
 fetched for the grid (rows + columnDescriptors from get_priced_rows) -- NO backend, NO migrate. ROWS = nodes in the
