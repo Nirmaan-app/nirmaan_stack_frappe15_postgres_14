@@ -366,6 +366,26 @@ structure reproduced exactly; VALUES = each amount column summed over the node's
   shows Phase1-total + Phase2-install as separate aligned columns; VRF shows all split columns separately, no doubling;
   close returns the grid to full height. Full detail in boq-upload-plan.md "Phase 5 Summary Panel".
 
+- **DISPLAY REVISIONS (2026-06-21, after owner live-test -- `SummaryPanel.tsx` + 2 additive pure helpers in
+  `pricingRollup.ts` + their tests; the MATH `rollupByParent` + its 7 tests UNCHANGED -- changes only what is SHOWN, not
+  what is SUMMED).** (1) **Columns = Description + AMOUNT only** -- the panel renders `rollup.columns` directly (no more
+  blank unit/qty/rate spacer columns); it is now its own description-plus-amounts table, NOT a mirror of the grid's full
+  column set (grid alignment dropped as a goal). (2) **Rows = Preamble + Line Item only** -- a render-time filter in
+  `flatten` on `node.classification ∈ {"preamble","line_item"}` (the lowercase priceable/qty-bearing taxonomy, design
+  v1.6 §6); other types don't render. DISPLAY-ONLY (totals unchanged; non-priceable types are structural leaves so the
+  filter never disconnects the tree -- no re-parenting; the recurse is still guarded so a hidden node's [design-absent]
+  children would not be silently lost). (3) **Expand/Collapse-all toggle + default = shallowest preamble tier** -- two
+  NEW additive exported pure helpers `minPreambleDepth(roots)` + `defaultCollapsedSet(roots)` (in `pricingRollup.ts`,
+  `rollupByParent` untouched): default `collapsed` = every node WITH CHILDREN at the min preamble depth (computed from
+  data: 0 level-less, 1 otherwise; empty when no preamble = fully expanded). The header toggle flips whole-tree (Collapse
+  all = collapse every parent -> only roots; Expand all = empty); per-row chevrons still work; default seeded via the
+  `useState(() => defaultCollapsedSet(roots))` lazy initializer. (4) **Description = fixed `w-[320px]` + WRAP** (truncate
+  removed, `break-words whitespace-normal`, top-aligned chevron+text); amount cells right/top-aligned. `SheetPricingPage`
+  mount UNCHANGED (props still match). **Tests:** `pricingRollup.test.ts` **46 -> 50** (+4: D1 level-1-shallowest, D2
+  level-0/level-less, D3 multiple-preambles-one-tier, D4 no-preamble; the 7 rollup math tests stay green). tsc **3178**
+  (== baseline), 0 in touched (`SummaryPanel|pricingRollup`). Vite build exit 0 (PWA 166 entries). Manual live-cert
+  (columns, row-filter, default tier + expand-all, wrap) pending Nitesh.
+
 **Status (2026-06-21 -- Phase 5 Slice 3c AUTO-SAVE + FORCE-SAVE + SAVE-STATUS COMPLETE -- FRONTEND, `PricingGrid.tsx` + `SheetPricingPage.tsx` + `PricingGrid.test.ts`, feat pending):**
 Adds debounced auto-save, a "Save now" force-save button, and a save-status chip to the pricing editor -- all REUSING
 the existing save (`commitRate -> onSaveRate -> save_cell_price -> mutate`). The save MECHANISM is unchanged; 3c adds

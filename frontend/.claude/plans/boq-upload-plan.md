@@ -59,6 +59,24 @@ NO new backend call, NO migrate.
   amount counted ONCE; T6 cycle guard terminates; T7 blank/un-priced contribute zero); tsc **3178** (== baseline), 0 in
   touched files; Vite build exit 0 (PWA 166 entries). Manual live-cert (visual alignment + open/close + scroll) pending
   Nitesh. Full detail below + frontend/CLAUDE.md.
+- DISPLAY REVISIONS (2026-06-21, feat pending -- after owner live-test; SummaryPanel.tsx + 2 additive pure helpers;
+  the rollup MATH `rollupByParent` + its 7 tests UNCHANGED -- this changes only what is SHOWN, not what is SUMMED):
+  (1) COLUMNS = Description + AMOUNT columns ONLY -- the panel no longer reproduces the grid's non-amount descriptors as
+  blank spacer columns; it renders `rollup.columns` (the amount descriptors) directly, so it is now its own
+  description-plus-amounts table (grid full-column alignment is no longer a goal). (2) ROWS = Preamble + Line Item ONLY
+  -- a render-time filter on `node.classification` in {"preamble","line_item"} (the lowercase taxonomy / priceable
+  qty-bearing types, design v1.6 §6); note/spacer/subtotal/header_repeat do NOT render. DISPLAY-ONLY: totals unchanged
+  (priced amounts live only on these types); non-priceable types are structural LEAVES so the filter never disconnects
+  the tree (no re-parenting). (3) EXPAND/COLLAPSE-ALL header toggle (flips the whole tree; per-row chevrons still work)
+  + DEFAULT VIEW = expanded down to the SHALLOWEST preamble tier, computed from data (0 on a level-less sheet, 1
+  otherwise -- never hardcoded) via two NEW additive pure helpers in pricingRollup.ts: `minPreambleDepth(roots)` (min
+  depth among preamble nodes, null if none) + `defaultCollapsedSet(roots)` (every node WITH CHILDREN at that depth ->
+  default `collapsed`; empty when no preamble = fully expanded). "Collapse all" = collapse every parent (only roots
+  visible); "Expand all" = empty collapsed. (4) DESCRIPTION column = FIXED width `w-[320px]` + WRAP (truncate dropped,
+  `break-words whitespace-normal`, top-aligned chevron+text); amount cells stay right/top-aligned. VERIFIED: Vitest
+  **46 -> 50** (+4 helper tests D1 level-1-shallowest / D2 level-0/level-less / D3 multiple-preambles-one-tier / D4
+  no-preamble; the 7 rollup math tests stay green); tsc **3178** (== baseline), 0 in touched files; Vite build exit 0
+  (PWA 166 entries). Manual live-cert (columns, row-filter, default tier + expand-all, wrap) pending Nitesh.
 // prior: Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS (FRONTEND, grid + page, 2026-06-21, feat pending,
 branch feature/boq-phase-5). Adds debounced auto-save, a "Save now" force-save button, and a save-status chip to the
 pricing editor -- all REUSING the existing save (commitRate -> onSaveRate -> save_cell_price -> mutate). The save
