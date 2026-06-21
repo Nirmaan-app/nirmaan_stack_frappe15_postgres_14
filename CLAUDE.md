@@ -86,7 +86,7 @@ fresh-mutates-nothing [marker + holder name + no pricing row + holder untouched]
 handled -> exactly ONE row survives, holder stays A]; lock_info free/mine/other-fresh-blocks/other-stale-allows). NO
 release endpoint / socket / heartbeat (expiry is edit-driven; release is implicit via staleness -- all Slice B or
 unneeded). frontend/CLAUDE.md deferred to Slice B (the frontend slice). Full detail in boq-upload-plan.md "Single-Editor
-Lock -- Slice A". **PER-SHEET ISOLATION now TEST-CERTIFIED (test-only, feat pending, 2026-03-12):** the lock is
+Lock -- Slice A". **PER-SHEET ISOLATION now TEST-CERTIFIED (test-only, feat pending, 2026-06-21):** the lock is
 per-(sheet, version), NOT per-workbook -- by construction, since the deterministic name `sha1(boq \x00 sheet_name \x00
 version)` makes a different sheet_name a different PK = a different lock row. A NEW `test_pricing.TestLockPerSheetIsolation`
 (2 committed sheets on ONE boq, one trailing-space #152) CERTIFIES this deterministically -- two users on two DIFFERENT

@@ -127,7 +127,7 @@ frontend render fork. NO migrate (sheet_disposition already exists; the endpoint
   normal pricing grid + all editing chrome; a typed-but-uncommitted rate on a data sheet still flush-saves when you tab
   to the general-specs sheet.
 
-// prior: Slice 3d -- IN-EDITOR SHEET TABS + keyed-remount switch safety (2026-03-12, feat pending, branch
+// prior: Slice 3d -- IN-EDITOR SHEET TABS + keyed-remount switch safety (2026-06-21, feat pending, branch
 feature/boq-phase-5). A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK
 ORDER; clicking another tab opens it in the editor WITHOUT going back to the hub. Full-stack: a small additive backend
 field-add + the frontend tabs. SCOPE: nav-reuse, the key-remount safety fix, page state reset, sheet_order ordering,
@@ -211,7 +211,7 @@ NO backend, NO boqTypes runtime change -- LockInfo already existed). LOCKED DESI
   banner names A; A's mid-edit save -> takeover banner + read-only; Reload clears when free/stale; stale shows nothing).
   Slice A+B COMPLETE the single-editor lock. Full detail in frontend/CLAUDE.md "Single-Editor Lock -- Slice B".
 - PER-SHEET ISOLATION now CERTIFIED by a deterministic test (TEST-ONLY, feat pending, `test_pricing.py`
-  `TestLockPerSheetIsolation`, 2026-03-12): the MIRROR of Slice A's same-sheet guarantee. Two users editing two
+  `TestLockPerSheetIsolation`, 2026-06-21): the MIRROR of Slice A's same-sheet guarantee. Two users editing two
   DIFFERENT sheets of the SAME BoQ (two committed sheets on one boq, one with a trailing space #152) acquire two
   INDEPENDENT lock rows and NEVER contend -- proven at BOTH layers: `acquire_or_refresh` (the lock core -- me holds
   sheet A, other holds sheet B; two distinct rows; neither acquire touches/blocks the other; `read_lock_info` shows each

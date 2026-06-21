@@ -409,7 +409,7 @@ that influence pricing; nothing to edit). Data sheets keep the node-based pricin
   uncommitted rate on a data sheet still flush-saves when you tab away to the general-specs sheet. Full detail in
   boq-upload-plan.md "General-specs faithful-grid read-only view".
 
-**Status (2026-03-12 -- Phase 5 Slice 3d IN-EDITOR SHEET TABS + keyed-remount switch safety COMPLETE -- FULL-STACK (small additive backend + frontend tabs), `commit_gate.py` + `test_commit_gate.py` + `SheetPricingPage.tsx` + `PricingGrid.tsx` + `boqTypes.ts` + `PricingGrid.test.ts`, feat pending):**
+**Status (2026-06-21 -- Phase 5 Slice 3d IN-EDITOR SHEET TABS + keyed-remount switch safety COMPLETE -- FULL-STACK (small additive backend + frontend tabs), `commit_gate.py` + `test_commit_gate.py` + `SheetPricingPage.tsx` + `PricingGrid.tsx` + `boqTypes.ts` + `PricingGrid.test.ts`, feat pending):**
 A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK ORDER; clicking another
 tab opens it in the editor WITHOUT going out to the hub -- reusing the hub's exact nav target. The visible feature is
 tabs; the load-bearing part is the keyed-remount switch-safety fix. NO migrate. NO scope creep (no sheet close/reorder,
@@ -2739,6 +2739,6 @@ Frontend-only. Files touched: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage
 - **ITM DC & MIR**: ITMs in `Partially Delivered` or `Delivered` status can have Delivery Challans + Material Inspection Reports filed against them, parallel to the PO flow. The `PO Delivery Documents` doctype is polymorphic (`parent_doctype` Select + `parent_docname` Dynamic Link). Surfaces with PO/ITM toggle: hub `/prs&milestones/delivery-challans-and-mirs`, project `DC & MIR` tab (sub-tabs for DN > DC Report + DC + MIR), reports `DCs & MIRs` tab. ITM-only: `ITMAttachmentSection` on the ITM detail page. Hub toggle URL-persisted via `parent`; project sub-toggle via `dcmir_parent`; reports toggle via `dcmir_parent`. **PO-only by design** (do NOT mix in ITM rows): Material Usage tab, DN > DC PO report, Bulk Download wizard — all filter by `procurement_order ["is", "set"]`. Mobile cards: `ITMListCards.tsx` mirrors `POListCards.tsx`. Upload dialog `UploadDCMIRDialog` accepts optional `parentDoctype` prop ("Procurement Orders" default, "Internal Transfer Memo" for ITM). `ITMDNDCQuantityReport` is a parent-child grouped reconciliation report (mirrors `DNDCQuantityReport` exactly: parent ITM rows expand to item sub-rows, status rollup, sortable totals, source-project facet, status facet, search, CSV export, info banner, error state). Fetches ITM child items via `get_project_itms` (extended to include items array). PO/ITM toggle UI is a red-active segmented control (mirrors project tab styling). `ITMAttachmentSection` always renders the card when `canView`; only the upload buttons are gated by `canUpload` (status in delivered states) — historical DCs/MIRs never disappear if the ITM moves out of upload-eligible state.
 
 # currentDate
-Today's date is 2026-03-12.
+Today's date is 2026-06-21.
 
       IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
