@@ -22,17 +22,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ClipboardList, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   BOQsDoc,
+  ColorSaveArgs,
   CommittedSheetGridResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
   RateCellSaveArgs,
+  RemarkSaveArgs,
 } from "./boqTypes";
 import {
   PricingGrid,
@@ -110,7 +112,16 @@ const SheetPricingPage = () => {
   const { call: saveCellPrice } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_price",
   );
+  // Slice 4a: the annotation saves (parallel to the rate save -- a separate write path).
+  const { call: saveRowRemark } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_row_remark",
+  );
+  const { call: saveCellColor } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_cell_color",
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Slice 3c: force-save handle (the grid's flush), in-flight count (drives "Saving..."),
   // last-saved time (client clock), and the grid's "has unsaved drafts" signal.
@@ -154,6 +165,7 @@ const SheetPricingPage = () => {
     setTakenOver(false);
     setSummaryOpen(false);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
+    setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
   }, [sheetName]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
@@ -259,6 +271,83 @@ const SheetPricingPage = () => {
     }
   };
 
+  // Slice 4a: save one row's remark (save_row_remark) -- a SEPARATE write path from rates,
+  // mirroring handleSaveRate (in-flight count, takeover detection, mutate refresh). Blank
+  // remark clears (backend). The grid renders read-only when this is withheld (locked).
+  const handleSaveRemark = async (args: RemarkSaveArgs) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to annotate.");
+      throw new Error("no committed version");
+    }
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    try {
+      await saveRowRemark({
+        boq_name: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM (#152)
+        excel_row: args.excelRow,
+        committed_version: commitVersion,
+        remark: args.remark,
+        description: args.description,
+      });
+      await mutate();
+      setLastSavedAt(new Date());
+    } catch (e: unknown) {
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) setTakenOver(true);
+      else setSaveError(msg || "Could not save the remark. Please try again.");
+      throw e;
+    } finally {
+      setInFlight((n) => n - 1);
+    }
+  };
+
+  // Slice 4a: save N color cells (a single pick = 1, an apply-to-row = N) then ONE mutate.
+  // The grid builds the cell list; the page owns the POSTs + the refetch. Blank color clears.
+  const handleSaveColor = async (argsList: ColorSaveArgs[]) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to annotate.");
+      throw new Error("no committed version");
+    }
+    if (argsList.length === 0) return;
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    try {
+      for (const args of argsList) {
+        await saveCellColor({
+          boq_name: boqId, // VERBATIM
+          sheet_name: sheetName, // VERBATIM (#152)
+          excel_row: args.excelRow,
+          col_letter: args.colLetter,
+          committed_version: commitVersion,
+          color: args.color,
+          description: args.description,
+        });
+      }
+      await mutate();
+      setLastSavedAt(new Date());
+    } catch (e: unknown) {
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) setTakenOver(true);
+      else setSaveError(msg || "Could not save the color. Please try again.");
+      throw e;
+    } finally {
+      setInFlight((n) => n - 1);
+    }
+  };
+
+  // Slice 4a: the review-list feed -- rows that carry a remark, derived page-side from the
+  // rows already in hand (no new fetch). A GENERIC review-entry shape ({kind, excelRow,
+  // description, text}) so the 4b flag layer can push computed flags into the SAME list.
+  const remarkEntries = rows
+    .filter((r) => r.remark && r.remark.trim())
+    .map((r) => ({
+      kind: "remark" as const,
+      excelRow: r.source_row_number,
+      description: r.description ?? "",
+      text: (r.remark as string).trim(),
+    }));
+
   // Slice 3c: the save-status chip state (pure derive) + force-save flush.
   const saveStatus = deriveSaveStatus({
     inFlight,
@@ -337,6 +426,18 @@ const SheetPricingPage = () => {
           >
             <Sigma className="h-4 w-4" />
             Summary
+          </Button>
+          {/* Slice 4a: the review-list toggle (rows with a remark). */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setReviewOpen((o) => !o)}
+            disabled={pricedLoading || pricedError}
+            title="Rows flagged for review (rows with a remark)"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Review{remarkEntries.length > 0 ? ` (${remarkEntries.length})` : ""}
           </Button>
           {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
               gun -- its ON state is loudly amber so the user always sees it is on. Default
@@ -485,6 +586,46 @@ const SheetPricingPage = () => {
         />
       )}
 
+      {/* ── Slice 4a: review-list strip (rows with a remark) ─────────────────────
+          Opened ABOVE the grid (mirrors the Summary panel mount). A GENERIC review-entry
+          list -- 4a's feed is "rows with a remark"; 4b adds computed flags to the SAME
+          list. Each entry click-jumps to the row via the grid's scrollToRow handle. */}
+      {!isGridOnly && reviewOpen && !pricedLoading && !pricedError && (
+        <div className="rounded-md border border-border bg-muted/20">
+          <div className="flex items-center justify-between border-b border-border px-3 py-2">
+            <p className="text-sm font-medium text-foreground">
+              Review list &middot; rows with a remark ({remarkEntries.length})
+            </p>
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setReviewOpen(false)}>
+              Close
+            </Button>
+          </div>
+          {remarkEntries.length === 0 ? (
+            <p className="px-3 py-4 text-sm text-muted-foreground">
+              No remarks yet. Add a note on any row to flag it for review.
+            </p>
+          ) : (
+            <ul className="max-h-[30vh] divide-y divide-border overflow-auto">
+              {remarkEntries.map((e) => (
+                <li key={`${e.kind}:${e.excelRow}`}>
+                  <button
+                    type="button"
+                    onClick={() => gridRef.current?.scrollToRow(e.excelRow)}
+                    className="w-full px-3 py-2 text-left hover:bg-muted/40"
+                  >
+                    <span className="mr-2 font-mono text-xs text-muted-foreground">Row {e.excelRow}</span>
+                    <span className="text-xs text-foreground">{e.description || "(no description)"}</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-amber-700 dark:text-amber-400">
+                      {e.text}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
       {pricedLoading && (
         <div className="flex items-center justify-center py-16">
@@ -531,6 +672,10 @@ const SheetPricingPage = () => {
             // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
             // single onSaveRate root gate) collapses to the read-only render.
             onSaveRate={locked ? undefined : handleSaveRate}
+            // Slice 4a: annotation saves gated on the SAME editability signal as rates --
+            // withheld when locked/taken-over so the grid renders remarks/colors read-only.
+            onSaveRemark={locked ? undefined : handleSaveRemark}
+            onSaveColor={locked ? undefined : handleSaveColor}
             onDirtyChange={setHasUnsaved}
             override={override}
             editable={editable}

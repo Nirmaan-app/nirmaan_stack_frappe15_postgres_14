@@ -450,6 +450,58 @@ export interface PricedRow extends ReviewRow {
   priced_rate_supply?: boolean;
   priced_rate_install?: boolean;
   priced_rate_combined?: boolean;
+  /**
+   * Slice 4a: the current per-ROW remark merged by get_priced_rows (null/absent = none).
+   * A remark is annotation, NOT a price -- it never affects the priced markers.
+   */
+  remark?: string | null;
+  /**
+   * Slice 4a: the current per-CELL colors for this row, keyed by Excel col_letter
+   * (the value is a ColorToken). ABSENT (or missing key) => that cell has no color.
+   * A color is pure visual annotation rendered on a SEPARATE channel (a left border),
+   * never the emerald/amber priced background the system owns.
+   */
+  color_by_cell?: Record<string, string>;
+}
+
+/**
+ * The 8 stable color TOKENS for the per-cell highlight (Slice 4a). Stored as tokens
+ * (NOT hex) by BoQ Cell Color; the frontend maps token -> swatch / border class. MUST
+ * stay in sync with the Select options on the BoQ Cell Color doctype.
+ */
+export const COLOR_TOKENS = [
+  "red", "orange", "yellow", "green", "blue", "purple", "pink", "grey",
+] as const;
+export type ColorToken = (typeof COLOR_TOKENS)[number];
+
+/**
+ * Per-ROW remark save args the PricingGrid hands up to the page's onSaveRemark (Slice 4a).
+ * The grid supplies the row identity; the page fills boq_name / sheet_name /
+ * committed_version, then POSTs save_row_remark. A blank `remark` clears.
+ */
+export interface RemarkSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** the note text; "" clears the remark. */
+  remark: string;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
+/**
+ * Per-CELL color save args (Slice 4a). The grid hands up an ARRAY (one entry per cell --
+ * a single pick is one entry, an apply-to-row is N entries); the page POSTs each via
+ * save_cell_color then mutate()s once. A blank `color` clears that cell.
+ */
+export interface ColorSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** the descriptor's col (Excel column letter). */
+  colLetter: string;
+  /** a ColorToken; "" clears the cell's color. */
+  color: string;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
 }
 
 /**

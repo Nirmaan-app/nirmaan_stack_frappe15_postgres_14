@@ -51,16 +51,27 @@ import {
   type KeyboardEvent,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
+import { Palette, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ClassificationPill,
   computeDepths,
   renderDescriptorCell,
   resolveDescriptorValue,
 } from "./reviewRender";
-import { ROLE_LABELS } from "./boqTypes";
-import type { ColumnDescriptor, LockInfo, PricedRow, RateCellSaveArgs } from "./boqTypes";
+import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
+import type {
+  ColorSaveArgs,
+  ColumnDescriptor,
+  LockInfo,
+  PricedRow,
+  RateCellSaveArgs,
+  RemarkSaveArgs,
+} from "./boqTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -347,6 +358,264 @@ export function isGridOnlySheet(
   return match?.sheet_disposition === "grid_only";
 }
 
+// ── Slice 4a: annotation (remarks + color) ──────────────────────────────────────
+// Per-row remark cap -- mirrors the review-screen remark + the backend _REMARK_MAX_LEN.
+const REMARK_MAX_LEN = 250;
+
+// Token -> a LEFT-BORDER class (the user-color visual channel). DELIBERATELY a border,
+// NOT a background: the system owns the cell BACKGROUND (emerald = priced / amber =
+// priced-non-priceable) + a dot + the blue inset focus ring; a left border is a different
+// CSS channel so a colored cell that is ALSO priced/active shows BOTH at once (the border,
+// the emerald/amber fill, the dot, and the ring never mask each other). Literal strings so
+// Tailwind's scanner keeps them. Unknown/absent token -> "" (fail-safe).
+const _COLOR_BORDER: Record<string, string> = {
+  red: "border-l-4 border-l-red-500",
+  orange: "border-l-4 border-l-orange-500",
+  yellow: "border-l-4 border-l-yellow-400",
+  green: "border-l-4 border-l-green-500",
+  blue: "border-l-4 border-l-blue-500",
+  purple: "border-l-4 border-l-purple-500",
+  pink: "border-l-4 border-l-pink-500",
+  grey: "border-l-4 border-l-gray-400",
+};
+// Token -> a solid swatch background (for the palette buttons + the trigger chip).
+const _COLOR_SWATCH: Record<string, string> = {
+  red: "bg-red-500",
+  orange: "bg-orange-500",
+  yellow: "bg-yellow-400",
+  green: "bg-green-500",
+  blue: "bg-blue-500",
+  purple: "bg-purple-500",
+  pink: "bg-pink-500",
+  grey: "bg-gray-400",
+};
+
+/** Token -> the left-border class for a colored cell; "" for unknown/absent. Pure -- tested. */
+export function colorClassForToken(token: string | null | undefined): string {
+  return token ? (_COLOR_BORDER[token] ?? "") : "";
+}
+
+/** Token -> a solid swatch bg class (palette + trigger); "" for unknown/absent. Pure -- tested. */
+export function swatchClassForToken(token: string | null | undefined): string {
+  return token ? (_COLOR_SWATCH[token] ?? "") : "";
+}
+
+/**
+ * The cells an "apply to whole row" color targets = every descriptor (data) column's letter.
+ * The 5 fixed anchors (Excel Row / Sl.No / Parent / Classification / Description) are
+ * structural and not colorable, so the target set is descriptor-driven (row-independent).
+ * Pure -- unit-tested. (Takes only displayDescriptors: the targets don't depend on the row.)
+ */
+export function rowColorCells(displayDescriptors: ColumnDescriptor[]): string[] {
+  return displayDescriptors.map((d) => d.col);
+}
+
+/** A short single-line preview of a remark for the trailing cell / review-list. Pure -- tested. */
+export function remarkPreview(remark: string | null | undefined, max = 60): string {
+  if (!remark) return "";
+  const t = remark.trim();
+  if (!t) return "";
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+/**
+ * The trailing per-row Remarks cell. Click-to-open a small Textarea editor (mirrors the
+ * review-screen remark idiom: own draft/loading/error state, a 250 counter, mutate-only
+ * refresh via the page's onSave). READ-ONLY when onSave is absent (locked/takeover) -> the
+ * stored remark renders as plain text. NOT in the keyboard-nav matrix (click-only).
+ */
+function RemarkCell({
+  remark,
+  onSave,
+}: {
+  remark: string | null | undefined;
+  onSave?: (remark: string) => Promise<void>;
+}) {
+  const stored = remark ?? "";
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(stored);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Read-only: show the stored remark (or nothing). No popover, no editor.
+  if (!onSave) {
+    return stored ? (
+      <span
+        className="text-[11px] text-foreground whitespace-pre-wrap break-words"
+        title={stored}
+      >
+        {remarkPreview(stored, 80)}
+      </span>
+    ) : null;
+  }
+
+  const overCap = draft.length > REMARK_MAX_LEN;
+  const dirty = draft !== stored;
+
+  const commit = async (value: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(value);
+      setOpen(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not save the remark.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) {
+          setDraft(stored); // seed the editor from the stored value on open
+          setError(null);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onKeyDown={(e) => e.stopPropagation()} // don't let the grid matrix hijack keys
+          className={cn(
+            "flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted/50",
+            stored ? "text-foreground" : "italic text-muted-foreground",
+          )}
+          title={stored || "Add a remark"}
+        >
+          <MessageSquare
+            className={cn("h-3 w-3 shrink-0", stored ? "text-amber-600 dark:text-amber-400" : "opacity-50")}
+          />
+          <span className="truncate">{stored ? remarkPreview(stored, 40) : "Add note"}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-2" onKeyDown={(e) => e.stopPropagation()}>
+        <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Remark
+        </p>
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add a note for this row (optional)"
+          rows={3}
+          className="text-xs"
+          autoFocus
+        />
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className={cn("text-[10px]", overCap ? "text-destructive" : "text-muted-foreground")}>
+            {draft.length}/{REMARK_MAX_LEN}
+          </span>
+          <div className="flex items-center gap-1">
+            {stored && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                disabled={saving}
+                onClick={() => commit("")}
+              >
+                Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={saving || overCap || !dirty}
+              onClick={() => commit(draft.trim())}
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+        {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * The per-cell color affordance: a tiny corner trigger (the cell's td is `relative`) opening
+ * an 8-swatch palette + a "Clear color" + an "Apply to whole row" toggle. Picking a swatch
+ * calls onApply(token, wholeRow); clear calls onApply("", wholeRow). The grid maps that to
+ * one-or-N save_cell_color cells. Rendered only when editable (onSaveColor present).
+ */
+function ColorPicker({
+  current,
+  onApply,
+}: {
+  current?: string;
+  onApply: (token: string, wholeRow: boolean) => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [wholeRow, setWholeRow] = useState(false);
+
+  const apply = (token: string) => {
+    void Promise.resolve(onApply(token, wholeRow)).finally(() => setOpen(false));
+  };
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setWholeRow(false);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          title="Highlight color"
+          className="absolute left-0.5 top-0.5 z-[5] h-3 w-3 rounded-sm border border-border opacity-40 hover:opacity-100"
+        >
+          {current ? (
+            <span className={cn("block h-full w-full rounded-sm", swatchClassForToken(current))} />
+          ) : (
+            <Palette className="h-3 w-3 text-muted-foreground" />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-2" onKeyDown={(e) => e.stopPropagation()}>
+        <div className="grid grid-cols-4 gap-1">
+          {COLOR_TOKENS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              title={t}
+              onClick={() => apply(t)}
+              className={cn(
+                "h-6 w-6 rounded-sm border border-border",
+                swatchClassForToken(t),
+                current === t && "ring-2 ring-offset-1 ring-foreground",
+              )}
+            />
+          ))}
+        </div>
+        <label className="mt-2 flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={wholeRow}
+            onChange={(e) => setWholeRow(e.target.checked)}
+          />
+          Apply to whole row
+        </label>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mt-1 h-7 w-full px-2 text-xs"
+          onClick={() => apply("")}
+        >
+          Clear color
+        </Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -373,6 +642,17 @@ interface PricingGridProps {
    */
   override?: boolean;
   /**
+   * Slice 4a: save one row's remark (save_row_remark + mutate). ABSENT => remarks render
+   * read-only (the page withholds it when locked/taken-over, mirroring onSaveRate).
+   */
+  onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
+  /**
+   * Slice 4a: save N color cells (save_cell_color x N + ONE mutate). The grid builds the
+   * cell list (a single pick = 1 entry, an apply-to-row = N entries); the page owns the
+   * POSTs + the single refetch. ABSENT => colors render read-only (gated like onSaveRate).
+   */
+  onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
+  /**
    * Single-editor lock (slice B). The grid does NOT read these for gating -- the PAGE owns
    * the lock UX: it WITHHOLDS onSaveRate when locked (so all edit gates collapse to the
    * read-only render) and renders the holder banner. These are kept on the props for the
@@ -387,10 +667,12 @@ interface PricingGridProps {
 export interface PricingGridHandle {
   /** Fire all pending debounced saves now + retry any remaining uncommitted draft. */
   flush: () => void;
+  /** Slice 4a: scroll a row into view by its Excel row number (the review-list jump). */
+  scrollToRow: (excelRow: number) => void;
 }
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -652,6 +934,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           autoSaveCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1));
         });
       },
+      // Slice 4a: the review-list jump. Resolve the Excel row -> array index (rowsRef is
+      // synced each render), then focus + center the row's first cell (col 0 is registered
+      // in cellRefs, a stable ref) -- onFocus sets activeCell, giving a visible landing.
+      scrollToRow: (excelRow) => {
+        const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
+        if (idx < 0) return;
+        const el = cellRefs.current.get(`${idx}:0`);
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      },
     }),
     [],
   );
@@ -703,6 +997,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 </th>
               );
             })}
+            {/* Slice 4a: trailing Remarks column (per-row; click-to-open editor). NOT a
+                descriptor + NOT in the keyboard-nav matrix. */}
+            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[160px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+              Remarks
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -784,6 +1083,30 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     and read-only qty/other cells. */}
                 {displayDescriptors.map((d, dIdx) => {
                   const colIndex = FIXED_ANCHOR_COUNT + dIdx;
+                  // ── Slice 4a: per-cell color (the SEPARATE left-border channel) + the
+                  //    picker trigger (editable only when onSaveColor is present). The applied
+                  //    color is a left border so it never masks the system emerald/amber
+                  //    priced background, the dot, or the blue inset focus ring -- all coexist.
+                  const cellColor = row.color_by_cell?.[d.col];
+                  const colorBorderClass = cellColor
+                    ? colorClassForToken(cellColor)
+                    : "border-l border-border";
+                  const colorPicker = onSaveColor ? (
+                    <ColorPicker
+                      current={cellColor}
+                      onApply={(token, wholeRow) => {
+                        const cols = wholeRow ? rowColorCells(displayDescriptors) : [d.col];
+                        return onSaveColor(
+                          cols.map((col) => ({
+                            excelRow: row.source_row_number,
+                            colLetter: col,
+                            color: token,
+                            description: row.description ?? undefined,
+                          })),
+                        );
+                      }}
+                    />
+                  ) : null;
                   // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
                   // Slice 3e per-row priceability gate: editable ONLY on a priceable row
                   // (node_type Preamble / Line Item) UNLESS the per-sheet override is on. A
@@ -819,7 +1142,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                               : undefined
                         }
                         className={cn(
-                          "px-1 py-1 align-top border-l border-border",
+                          "relative px-1 py-1 align-top",
+                          colorBorderClass,
                           priced &&
                             (needsReview
                               ? "bg-amber-50 dark:bg-amber-950/30"
@@ -828,6 +1152,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                             "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
                         )}
                       >
+                        {colorPicker}
                         <div className="flex items-center justify-end gap-1">
                           {priced && (
                             <span
@@ -904,10 +1229,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                         key={d.col}
                         {...tdFocusProps(rowIdx, colIndex)}
                         className={cn(
-                          "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                          "relative px-2 py-1.5 text-right align-top tabular-nums",
+                          colorBorderClass,
                           cellNavClass(rowIdx, colIndex),
                         )}
                       >
+                        {colorPicker}
                         {amountVal !== null
                           ? renderDescriptorCell(amountVal)
                           : renderDescriptorCell(resolveDescriptorValue(row, d))}
@@ -934,7 +1261,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                             : undefined
                       }
                       className={cn(
-                        "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                        "relative px-2 py-1.5 text-right align-top tabular-nums",
+                        colorBorderClass,
                         priced &&
                           (needsReview
                             ? "bg-amber-50 dark:bg-amber-950/30"
@@ -942,6 +1270,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                         cellNavClass(rowIdx, colIndex),
                       )}
                     >
+                      {colorPicker}
                       {priced && (
                         <span
                           aria-hidden
@@ -955,6 +1284,23 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     </td>
                   );
                 })}
+                {/* Slice 4a: trailing Remarks cell (per-row). Click-to-open editor when
+                    editable; read-only stored text otherwise. NOT in the keyboard matrix. */}
+                <td className="px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]">
+                  <RemarkCell
+                    remark={row.remark}
+                    onSave={
+                      onSaveRemark
+                        ? (remark) =>
+                            onSaveRemark({
+                              excelRow: row.source_row_number,
+                              remark,
+                              description: row.description ?? undefined,
+                            })
+                        : undefined
+                    }
+                  />
+                </td>
               </tr>
             );
           })}

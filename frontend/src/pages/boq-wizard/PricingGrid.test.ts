@@ -19,6 +19,10 @@ import {
   orderCommittedSheets,
   isGridOnlySheet,
   isPriceableType,
+  colorClassForToken,
+  swatchClassForToken,
+  rowColorCells,
+  remarkPreview,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -400,5 +404,66 @@ describe("isPriceableType", () => {
     expect(isPriceableType("line item")).toBe(false);
     expect(isPriceableType("note")).toBe(false);
     expect(isPriceableType("")).toBe(false);
+  });
+});
+
+// ── Slice 4a: annotation helpers (color + remark) ───────────────────────────────
+describe("colorClassForToken", () => {
+  it("maps each of the 8 tokens to a distinct left-border class", () => {
+    const tokens = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"];
+    const classes = tokens.map((t) => colorClassForToken(t));
+    classes.forEach((c) => expect(c).toMatch(/^border-l-4 border-l-/));
+    expect(new Set(classes).size).toBe(8); // all distinct
+    expect(colorClassForToken("red")).toBe("border-l-4 border-l-red-500");
+  });
+
+  it("returns '' for an unknown / absent token (fail-safe)", () => {
+    expect(colorClassForToken("teal")).toBe("");
+    expect(colorClassForToken(null)).toBe("");
+    expect(colorClassForToken(undefined)).toBe("");
+    expect(colorClassForToken("")).toBe("");
+  });
+});
+
+describe("swatchClassForToken", () => {
+  it("maps a token to a solid bg swatch class; '' for unknown/absent", () => {
+    expect(swatchClassForToken("blue")).toBe("bg-blue-500");
+    expect(swatchClassForToken("grey")).toBe("bg-gray-400");
+    expect(swatchClassForToken("nope")).toBe("");
+    expect(swatchClassForToken(null)).toBe("");
+    expect(swatchClassForToken(undefined)).toBe("");
+  });
+});
+
+describe("rowColorCells", () => {
+  it("returns every descriptor column's letter (the apply-to-row targets)", () => {
+    const ds = [
+      desc("rate_by_area", "Phase 1", "combined_rate", "E"),
+      desc("amount_by_area", "Phase 1", "total", "F"),
+      desc("rate_combined", null, null, "D"),
+    ];
+    expect(rowColorCells(ds)).toEqual(["E", "F", "D"]);
+  });
+
+  it("returns [] for an empty descriptor set", () => {
+    expect(rowColorCells([])).toEqual([]);
+  });
+});
+
+describe("remarkPreview", () => {
+  it("returns '' for null / undefined / blank", () => {
+    expect(remarkPreview(null)).toBe("");
+    expect(remarkPreview(undefined)).toBe("");
+    expect(remarkPreview("   ")).toBe("");
+  });
+
+  it("returns the trimmed text unchanged when within the cap", () => {
+    expect(remarkPreview("  check qty  ")).toBe("check qty");
+  });
+
+  it("truncates with an ellipsis past the cap", () => {
+    const out = remarkPreview("abcdefghij", 5);
+    expect(out).toBe("abcd…");
+    expect(out.length).toBe(5);
   });
 });
