@@ -427,15 +427,33 @@ export function remarkPreview(remark: string | null | undefined, max = 60): stri
 function RemarkCell({
   remark,
   onSave,
+  open,
+  onOpenChange,
+  onMoveDown,
 }: {
   remark: string | null | undefined;
   onSave?: (remark: string) => Promise<void>;
+  /** Slice 4a.2: CONTROLLED open-state (lifted to the grid so the keyboard can open it). */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Slice 4a.2: after a successful Enter-in-editor save, advance focus DOWN one row. */
+  onMoveDown?: () => void;
 }) {
   const stored = remark ?? "";
-  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(stored);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Seed the editor from the stored value whenever it OPENS. `open` is grid-controlled now,
+  // so opening BY KEYBOARD (the grid sets its state directly, not via onOpenChange) still
+  // seeds here. Keyed only on `open` (the open transition is the trigger).
+  useEffect(() => {
+    if (open) {
+      setDraft(stored);
+      setError(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Read-only: show the stored remark (or nothing). No popover, no editor.
   if (!onSave) {
@@ -452,12 +470,16 @@ function RemarkCell({
   const overCap = draft.length > REMARK_MAX_LEN;
   const dirty = draft !== stored;
 
-  const commit = async (value: string) => {
+  // commit(value, moveDown): save via the page; on success close the editor (the grid's
+  // onOpenChange restores focus to THIS cell) then, if moveDown, advance focus DOWN one row
+  // (onMoveDown runs AFTER and wins the focus). On error keep the editor open + show it.
+  const commit = async (value: string, moveDown: boolean) => {
     setSaving(true);
     setError(null);
     try {
       await onSave(value);
-      setOpen(false);
+      onOpenChange(false);
+      if (moveDown) onMoveDown?.();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not save the remark.");
     } finally {
@@ -466,20 +488,12 @@ function RemarkCell({
   };
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o);
-        if (o) {
-          setDraft(stored); // seed the editor from the stored value on open
-          setError(null);
-        }
-      }}
-    >
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          onKeyDown={(e) => e.stopPropagation()} // don't let the grid matrix hijack keys
+          tabIndex={-1} // NOT a matrix tab-stop; the <td> is the nav focus target
+          onClick={(e) => e.stopPropagation()}
           className={cn(
             "flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[11px] hover:bg-muted/50",
             stored ? "text-foreground" : "italic text-muted-foreground",
@@ -492,13 +506,31 @@ function RemarkCell({
           <span className="truncate">{stored ? remarkPreview(stored, 40) : "Add note"}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-2" onKeyDown={(e) => e.stopPropagation()}>
+      <PopoverContent
+        align="end"
+        className="w-72 p-2"
+        onKeyDown={(e) => e.stopPropagation()}
+        onCloseAutoFocus={(e) => e.preventDefault()} // the grid governs focus on close
+      >
         <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Remark
         </p>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter (no Shift) = save-and-move-down (Excel single-line feel); Shift+Enter =
+            // a newline (the Textarea default). Esc = close back to grid nav.
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!overCap) void commit(draft.trim(), true);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenChange(false);
+            }
+          }}
           placeholder="Add a note for this row (optional)"
           rows={3}
           className="text-xs"
@@ -515,7 +547,7 @@ function RemarkCell({
                 variant="ghost"
                 className="h-7 px-2 text-xs"
                 disabled={saving}
-                onClick={() => commit("")}
+                onClick={() => commit("", false)}
               >
                 Clear
               </Button>
@@ -524,7 +556,7 @@ function RemarkCell({
               size="sm"
               className="h-7 px-2 text-xs"
               disabled={saving || overCap || !dirty}
-              onClick={() => commit(draft.trim())}
+              onClick={() => commit(draft.trim(), false)}
             >
               {saving ? "Saving…" : "Save"}
             </Button>
@@ -550,9 +582,15 @@ function ColorPicker({
   onApply: (token: string, wholeRow: boolean) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
+  // Slice 4a.2: DECOUPLE selection from submission to kill the row-apply race. A swatch
+  // click only ARMS a token; the checkbox only toggles wholeRow; NOTHING saves until the
+  // explicit Apply (or Clear) button -- which reads {armed, wholeRow} TOGETHER at click
+  // time, so there is never a moment a half-set intent is sent.
+  const [armed, setArmed] = useState<string | null>(null);
   const [wholeRow, setWholeRow] = useState(false);
 
-  const apply = (token: string) => {
+  // submit reads wholeRow LIVE at Apply-time; token is passed explicitly (armed, or "").
+  const submit = (token: string) => {
     void Promise.resolve(onApply(token, wholeRow)).finally(() => setOpen(false));
   };
 
@@ -561,7 +599,11 @@ function ColorPicker({
       open={open}
       onOpenChange={(o) => {
         setOpen(o);
-        if (o) setWholeRow(false);
+        if (o) {
+          // Seed the armed swatch from the cell's current color; reset the row toggle.
+          setArmed(current ?? null);
+          setWholeRow(false);
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -580,17 +622,18 @@ function ColorPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-2" onKeyDown={(e) => e.stopPropagation()}>
+        {/* Swatches only ARM a token (no save). The armed one shows a ring. */}
         <div className="grid grid-cols-4 gap-1">
           {COLOR_TOKENS.map((t) => (
             <button
               key={t}
               type="button"
               title={t}
-              onClick={() => apply(t)}
+              onClick={() => setArmed(t)}
               className={cn(
                 "h-6 w-6 rounded-sm border border-border",
                 swatchClassForToken(t),
-                current === t && "ring-2 ring-offset-1 ring-foreground",
+                armed === t && "ring-2 ring-offset-1 ring-foreground",
               )}
             />
           ))}
@@ -603,14 +646,25 @@ function ColorPicker({
           />
           Apply to whole row
         </label>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="mt-1 h-7 w-full px-2 text-xs"
-          onClick={() => apply("")}
-        >
-          Clear color
-        </Button>
+        {/* Apply / Clear are the ONLY things that save -- read {armed, wholeRow} together. */}
+        <div className="mt-2 flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 flex-1 px-2 text-xs"
+            onClick={() => submit("")}
+          >
+            Clear
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 flex-1 px-2 text-xs"
+            disabled={armed === null}
+            onClick={() => submit(armed as string)}
+          >
+            Apply
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -695,6 +749,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Per-cell focusable element, keyed `${rowIndex}:${colIndex}` -- the <input> for a rate
   // cell, the <td> for every other cell. Used to .focus() the target on a keyboard move.
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
+  // Slice 4a.2: the remarks editor's open-state, LIFTED to the grid (was local to
+  // RemarkCell) so the keyboard (Enter on the focused remarks cell) can open it, not just
+  // a click. Holds the ARRAY index (rowIdx) of the open row, or null. RemarkCell's
+  // draft/saving/error stay local; only open is controlled here.
+  const [openRemarkRowIdx, setOpenRemarkRowIdx] = useState<number | null>(null);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -815,7 +874,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   };
 
   // ── Slice 3b.2 nav model ───────────────────────────────────────────────────
-  const colCount = FIXED_ANCHOR_COUNT + displayDescriptors.length;
+  // Slice 4a.2: the trailing Remarks column is now the matrix's LAST column. Its colIndex is
+  // FIXED_ANCHOR_COUNT + displayDescriptors.length (just past the descriptors), and colCount
+  // includes it (+1). The +1 only widens nextCell's right/Tab boundary so arrows/Tab reach
+  // the remarks cell; no other colIndex math reads colCount (descriptor cells use
+  // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
+  const remarksColIndex = FIXED_ANCHOR_COUNT + displayDescriptors.length;
+  const colCount = remarksColIndex + 1;
   const navKey = (r: number, c: number) => `${r}:${c}`;
 
   const registerCell = (r: number, c: number, el: HTMLElement | null) => {
@@ -873,6 +938,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // and Tab never escapes the grid (at an edge: commit + stay put).
   const handleGridKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
     if (!activeCell) return;
+    // Slice 4a.2: Enter on the focused REMARKS cell OPENS its editor (not move-down) --
+    // but only when editable (onSaveRemark present). A read-only remarks cell has nothing
+    // to open, so Enter falls through to the generic Enter->down below (matching every other
+    // read-only cell). preventDefault stops the cell's native button/Enter side effects.
+    if (activeCell.colIndex === remarksColIndex && e.key === "Enter" && onSaveRemark) {
+      e.preventDefault();
+      setOpenRemarkRowIdx(activeCell.rowIndex);
+      return;
+    }
     let dir: NavDirection | null = null;
     if (e.key === "ArrowUp") dir = "up";
     else if (e.key === "ArrowDown") dir = "down";
@@ -997,8 +1071,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 </th>
               );
             })}
-            {/* Slice 4a: trailing Remarks column (per-row; click-to-open editor). NOT a
-                descriptor + NOT in the keyboard-nav matrix. */}
+            {/* Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a
+                descriptor; Slice 4a.2 made it the matrix's last navigable column. */}
             <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[160px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
               Remarks
             </th>
@@ -1284,9 +1358,17 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     </td>
                   );
                 })}
-                {/* Slice 4a: trailing Remarks cell (per-row). Click-to-open editor when
-                    editable; read-only stored text otherwise. NOT in the keyboard matrix. */}
-                <td className="px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]">
+                {/* Slice 4a.2: trailing Remarks cell (per-row) -- now the matrix's LAST
+                    column. The <td> is the nav focus target (arrows land here); Enter opens
+                    the editor (handled in handleGridKeyDown), Esc/Save close + restore focus
+                    here, Enter-in-editor saves + moves down. Open-state is grid-controlled. */}
+                <td
+                  {...tdFocusProps(rowIdx, remarksColIndex)}
+                  className={cn(
+                    "px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]",
+                    cellNavClass(rowIdx, remarksColIndex),
+                  )}
+                >
                   <RemarkCell
                     remark={row.remark}
                     onSave={
@@ -1299,6 +1381,22 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                             })
                         : undefined
                     }
+                    open={openRemarkRowIdx === rowIdx}
+                    onOpenChange={(o) => {
+                      setOpenRemarkRowIdx(o ? rowIdx : null);
+                      // On close (Esc / Save / outside-click) restore focus to this cell so
+                      // arrow-nav continues. An Enter-save's onMoveDown runs AFTER and wins.
+                      if (!o) focusCell(rowIdx, remarksColIndex);
+                    }}
+                    onMoveDown={() => {
+                      const next = nextCell(
+                        { rowIndex: rowIdx, colIndex: remarksColIndex },
+                        "down",
+                        rows.length,
+                        colCount,
+                      );
+                      if (next) focusCell(next.rowIndex, next.colIndex);
+                    }}
                   />
                 </td>
               </tr>

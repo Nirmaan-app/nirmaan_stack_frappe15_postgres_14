@@ -220,6 +220,22 @@ describe("nextCell", () => {
     expect(nextCell({ rowIndex: 0, colIndex: 2 }, "down", R, C)).toEqual({ rowIndex: 1, colIndex: 2 });
     expect(nextCell({ rowIndex: 2, colIndex: 2 }, "down", R, C)).toBeNull();
   });
+
+  it("includes the trailing remarks column when colCount is +1 (Slice 4a.2)", () => {
+    // 5 fixed anchors + 2 descriptors -> remarks is the LAST column at colIndex 7;
+    // colCount = FIXED_ANCHOR_COUNT(5) + descriptors(2) + 1 = 8. Two rows (0,1).
+    const RC = 8;
+    // arrow-right from the last descriptor (col 6) lands ON the remarks cell (col 7)
+    expect(nextCell({ rowIndex: 0, colIndex: 6 }, "right", 2, RC)).toEqual({ rowIndex: 0, colIndex: 7 });
+    // arrow-left from remarks returns to the last descriptor
+    expect(nextCell({ rowIndex: 0, colIndex: 7 }, "left", 2, RC)).toEqual({ rowIndex: 0, colIndex: 6 });
+    // arrow-right off the remarks cell (the new right edge) STOPS (no wrap)
+    expect(nextCell({ rowIndex: 0, colIndex: 7 }, "right", 2, RC)).toBeNull();
+    // Tab off the remarks cell WRAPS to the next row's first cell
+    expect(nextCell({ rowIndex: 0, colIndex: 7 }, "tab", 2, RC)).toEqual({ rowIndex: 1, colIndex: 0 });
+    // Tab off the remarks cell of the LAST row STOPS (focus contained)
+    expect(nextCell({ rowIndex: 1, colIndex: 7 }, "tab", 2, RC)).toBeNull();
+  });
 });
 
 // ── Slice 3c: deriveSaveStatus (the save-status chip state) ──────────────────────
