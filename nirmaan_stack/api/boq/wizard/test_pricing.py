@@ -25,8 +25,12 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard.pricing import (
     get_committed_sheet_grid,
     get_priced_rows,
+    get_sheet_colors,
     get_sheet_pricing,
+    get_sheet_remarks,
+    save_cell_color,
     save_cell_price,
+    save_row_remark,
 )
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
@@ -46,6 +50,8 @@ from nirmaan_stack.api.boq.wizard.test_review_screen import (
 
 _PRICING = "BoQ Cell Pricing"
 _LOCK_DT = "BoQ Sheet Pricing Lock"
+_REMARK_DT = "BoQ Cell Remark"
+_COLOR_DT = "BoQ Cell Color"
 
 
 class TestCellPricing(FrappeTestCase):
@@ -1152,3 +1158,288 @@ class TestPriceabilityGuard(FrappeTestCase):
         priced = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
         p_by_row = {r["source_row_number"]: r for r in priced["rows"]}
         self.assertEqual(p_by_row[self.OTHER_ROW]["node_type"], "Other")
+
+
+class TestRowRemark(FrappeTestCase):
+    """Slice 4a: the per-ROW remark layer (BoQ Cell Remark) -- save_row_remark + the
+    get_priced_rows merge. Reuses the shared per-area committed fixture (line items at
+    excel_row 34/35). sheet_name carries a trailing space (#152). Each test starts with a
+    clean remark layer + lock (the committed fixture persists)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Row-Remark Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Remark Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.me = frappe.session.user
+        cls.other = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        frappe.db.delete(_REMARK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_REMARK_DT, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current(self, excel_row):
+        return frappe.get_all(
+            _REMARK_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "committed_version": self.cv, "is_current": 1},
+            fields=["name", "remark", "remark_version", "description"],
+        )
+
+    def _seed_lock(self, user):
+        acquire_or_refresh(self.boq, self.sheet, self.cv, user, frappe.utils.now_datetime())
+        frappe.db.commit()
+
+    # -- POSITIVE -----------------------------------------------------------
+
+    def test_save_creates_current_remark_v1(self):
+        res = save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                              committed_version=self.cv, remark="check the quantity",
+                              description="cable 1.1.2")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["remark_version"], 1)
+        self.assertEqual(res["froze_prior"], 0, "first save freezes nothing")
+        self.assertFalse(res["cleared"])
+        cur = self._current(34)
+        self.assertEqual(len(cur), 1, "exactly one current remark record")
+        self.assertEqual(cur[0]["remark"], "check the quantity")
+        self.assertEqual(cur[0]["description"], "cable 1.1.2", "guard carried, not branched on")
+
+    def test_resave_freezes_prior_and_supersedes(self):
+        save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        committed_version=self.cv, remark="first")
+        res2 = save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                               committed_version=self.cv, remark="second")
+        self.assertEqual(res2["remark_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1, "the re-save froze the prior current")
+        cur = self._current(34)
+        self.assertEqual(len(cur), 1, "exactly ONE current after re-save (freeze-and-supersede)")
+        self.assertEqual(cur[0]["remark"], "second")
+        self.assertEqual(cur[0]["remark_version"], 2)
+
+    def test_clear_blank_reads_as_no_remark(self):
+        save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        committed_version=self.cv, remark="to be cleared")
+        res = save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                              committed_version=self.cv, remark="   ")
+        self.assertTrue(res["cleared"], "blank/whitespace clears the remark")
+        self.assertEqual(res["froze_prior"], 1)
+        self.assertEqual(self._current(34), [], "no current remark after a clear")
+        got = get_sheet_remarks(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(got["remarks"], [], "a cleared remark does not surface")
+
+    def test_cap_250_ok_251_throws(self):
+        ok = save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                             committed_version=self.cv, remark="x" * 250)
+        self.assertTrue(ok["ok"], "exactly 250 chars is allowed")
+        with self.assertRaises(frappe.ValidationError):
+            save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=35,
+                            committed_version=self.cv, remark="y" * 251)
+        self.assertEqual(self._current(35), [], "the over-cap remark wrote nothing")
+
+    # -- NEGATIVE -----------------------------------------------------------
+
+    def test_nonexistent_row_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=9999,
+                            committed_version=self.cv, remark="orphan")
+        self.assertEqual(self._current(9999), [], "no remark for a non-existent row")
+
+    def test_lock_held_by_other_rejects_and_mutates_nothing(self):
+        self._seed_lock(self.other)  # other holds a FRESH lock
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, remark="blocked")
+        self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception), "reject carries the lock marker")
+        self.assertEqual(self._current(34), [], "a lock-rejected remark wrote nothing")
+
+    # -- MERGE into get_priced_rows -----------------------------------------
+
+    def test_get_priced_rows_surfaces_remark(self):
+        save_row_remark(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        committed_version=self.cv, remark="see drawing rev B")
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        by_row = {r["source_row_number"]: r for r in res["rows"]}
+        self.assertEqual(by_row[34]["remark"], "see drawing rev B", "remark merged onto its row")
+        self.assertIsNone(by_row[35]["remark"], "a row with no remark surfaces remark None")
+
+
+class TestCellColor(FrappeTestCase):
+    """Slice 4a: the per-CELL color layer (BoQ Cell Color) -- save_cell_color + the
+    get_priced_rows merge. Reuses the shared committed fixture (line items 34/35) and ADDS
+    one 'Other' (non-priceable) node at source_row 50 to prove color is allowed where a
+    PRICE would be rejected. sheet_name carries a trailing space (#152)."""
+
+    OTHER_ROW = 50
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Cell-Color Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Color Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+        # An 'Other' (non-priceable) node -- a note row at source_row 50.
+        other = frappe.new_doc("BOQ Nodes")
+        other.sheet = cls.fixture["bqsh"]
+        other.node_type = "Other"
+        other.row_class = "note"
+        other.description = "NOTE: rates exclusive of taxes"
+        other.sort_order = 3
+        other.source_row_number = cls.OTHER_ROW
+        other.commit_version = cls.cv
+        other.is_current = 1
+        other.committed_at = frappe.utils.now()
+        other.insert(ignore_permissions=True)
+        cls.other_node = other.name
+        frappe.db.commit()
+
+        cls.me = frappe.session.user
+        cls.other_user = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other_user, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        frappe.db.delete(_COLOR_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_COLOR_DT, {"boq": self.boq})
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current(self, excel_row, col_letter):
+        return frappe.get_all(
+            _COLOR_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "col_letter": col_letter, "committed_version": self.cv, "is_current": 1},
+            fields=["name", "color", "color_version"],
+        )
+
+    def _seed_lock(self, user):
+        acquire_or_refresh(self.boq, self.sheet, self.cv, user, frappe.utils.now_datetime())
+        frappe.db.commit()
+
+    # -- POSITIVE -----------------------------------------------------------
+
+    def test_save_creates_current_color_v1(self):
+        res = save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                              col_letter="E", committed_version=self.cv, color="red",
+                              description="cable 1.1.2")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["color_version"], 1)
+        self.assertFalse(res["cleared"])
+        cur = self._current(34, "E")
+        self.assertEqual(len(cur), 1)
+        self.assertEqual(cur[0]["color"], "red")
+
+    def test_resave_freezes_prior_and_supersedes(self):
+        save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        col_letter="E", committed_version=self.cv, color="red")
+        res2 = save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                               col_letter="E", committed_version=self.cv, color="blue")
+        self.assertEqual(res2["color_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1)
+        cur = self._current(34, "E")
+        self.assertEqual(len(cur), 1, "exactly ONE current after re-save")
+        self.assertEqual(cur[0]["color"], "blue")
+
+    def test_all_8_tokens_accepted(self):
+        for token in ("red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"):
+            res = save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                  col_letter="E", committed_version=self.cv, color=token)
+            self.assertTrue(res["ok"], f"token {token} accepted")
+        self.assertEqual(self._current(34, "E")[0]["color"], "grey", "last token is current")
+
+    def test_invalid_color_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            col_letter="E", committed_version=self.cv, color="teal")
+        self.assertEqual(self._current(34, "E"), [], "an invalid color wrote nothing")
+
+    def test_color_allowed_on_non_priceable_cell(self):
+        # THE contrast: a PRICE on the Other row is rejected without the override...
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+                            col_letter="E", committed_version=self.cv, rate=10.0)
+        # ...but a COLOR on the SAME non-priceable cell is accepted (no priceability gate).
+        res = save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+                              col_letter="E", committed_version=self.cv, color="green")
+        self.assertTrue(res["ok"])
+        cur = self._current(self.OTHER_ROW, "E")
+        self.assertEqual(len(cur), 1, "color saved on a non-priceable cell")
+        self.assertEqual(cur[0]["color"], "green")
+
+    def test_clear_blank_no_current(self):
+        save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        col_letter="E", committed_version=self.cv, color="red")
+        res = save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                              col_letter="E", committed_version=self.cv, color="  ")
+        self.assertTrue(res["cleared"])
+        self.assertEqual(self._current(34, "E"), [], "no current color after a clear")
+        got = get_sheet_colors(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(got["colors"], [])
+
+    # -- NEGATIVE -----------------------------------------------------------
+
+    def test_nonexistent_row_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=9999,
+                            col_letter="E", committed_version=self.cv, color="red")
+
+    def test_lock_held_by_other_rejects_and_mutates_nothing(self):
+        self._seed_lock(self.other_user)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            col_letter="E", committed_version=self.cv, color="red")
+        self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception))
+        self.assertEqual(self._current(34, "E"), [], "a lock-rejected color wrote nothing")
+
+    # -- MERGE into get_priced_rows -----------------------------------------
+
+    def test_get_priced_rows_surfaces_color_by_cell(self):
+        save_cell_color(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                        col_letter="E", committed_version=self.cv, color="yellow")
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        by_row = {r["source_row_number"]: r for r in res["rows"]}
+        self.assertEqual(by_row[34]["color_by_cell"], {"E": "yellow"}, "color merged per cell")
+        self.assertNotIn("color_by_cell", by_row[35], "a row with no color carries no color_by_cell")

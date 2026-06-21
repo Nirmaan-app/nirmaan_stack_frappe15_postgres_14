@@ -55,6 +55,23 @@ _PRICEABLE_NODE_TYPES = frozenset({"Preamble", "Line Item"})
 # Pricing identity = the durable Excel address + the committed version it prices.
 _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "col_letter", "committed_version")
 
+# ── Annotation layers (Slice 4a) -- per-ROW remark + per-CELL color ───────────────
+# Two ADDITIVE doctypes that sit ON TOP of the committed tier exactly like BoQ Cell
+# Pricing (anchored to the durable Excel address + committed version, own freeze-and-
+# supersede triple) -- but they carry NO rate/priceability/lock-identity semantics, so
+# they are separate doctypes (NOT folded onto BoQ Cell Pricing). The committed tier is
+# NEVER mutated. DATA SHEETS ONLY -- general-specs (grid-only) sheets are read-only and
+# get no annotation (get_committed_sheet_grid / SheetDataGrid are untouched).
+_REMARK = "BoQ Cell Remark"
+_COLOR = "BoQ Cell Color"
+
+# Per-row remark cap -- mirrors review_screen._REMARK_MAX_LEN (the review-screen remark).
+_REMARK_MAX_LEN = 250
+
+# The 8 color tokens (stable strings, NOT hex -- the frontend maps token -> swatch).
+# MUST stay in sync with the Select options in boq_cell_color.json.
+_COLOR_TOKENS = frozenset({"red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"})
+
 
 def _parse_json_field(value, default):
     """Return a stored JSON field's value as a Python object. The committed BoQ Sheet JSON
@@ -316,6 +333,333 @@ def get_sheet_pricing(
     return {"pricing": pricing}
 
 
+# ── Annotation write/read helpers (Slice 4a) ─────────────────────────────────────
+# Freeze-and-supersede plumbing mirroring _current_pricing_names / _next_pricing_version,
+# generalized over a doctype + its version field (the per-row remark has no col_letter).
+
+def _annot_identity_filters(boq_name, sheet_name, excel_row, committed_version, col_letter=None):
+    """Identity filter for an annotation record. col_letter is included ONLY for the
+    per-cell color layer (the per-row remark omits it). sheet_name VERBATIM (#152)."""
+    filters = {
+        "boq": boq_name,
+        "sheet_name": sheet_name,
+        "excel_row": excel_row,
+        "committed_version": committed_version,
+    }
+    if col_letter is not None:
+        filters["col_letter"] = col_letter
+    return filters
+
+
+def _current_annot_names(doctype, boq_name, sheet_name, excel_row, committed_version, col_letter=None):
+    """Names of the is_current=1 annotation record(s) for one identity (0 or 1 -- the
+    invariant). Mirrors _current_pricing_names."""
+    filters = _annot_identity_filters(boq_name, sheet_name, excel_row, committed_version, col_letter)
+    filters["is_current"] = 1
+    return frappe.get_all(doctype, filters=filters, pluck="name")
+
+
+def _next_annot_version(doctype, version_field, boq_name, sheet_name, excel_row, committed_version, col_letter=None):
+    """The next version for one annotation identity = max prior + 1 (first save = 1).
+    Mirrors _next_pricing_version."""
+    agg = frappe.get_all(
+        doctype,
+        filters=_annot_identity_filters(boq_name, sheet_name, excel_row, committed_version, col_letter),
+        fields=[f"max({version_field}) as mv"],
+    )
+    return ((agg[0].mv if agg else None) or 0) + 1
+
+
+@frappe.whitelist(methods=["POST"])
+def save_row_remark(
+    boq_name: str = None,
+    sheet_name: str = None,
+    excel_row=None,
+    committed_version=None,
+    remark: str = None,
+    description: str = None,
+) -> dict:
+    """Save a per-ROW remark onto one committed Excel row -- upsert the CURRENT remark
+    record for that row (freeze-and-supersede), mirroring save_cell_price.
+
+    Identity = (boq, sheet_name [VERBATIM #152], excel_row, committed_version). The
+    committed row at that address/version MUST exist (resolved + validated server-side via
+    the SAME row-level _resolve_committed_cell save_cell_price uses -- it keys on the node's
+    source_row_number, NOT col_letter, and a remark is allowed on ANY row, so its node_type
+    is IGNORED here, no priceability gate). The committed tier is NOT mutated.
+
+    LOCK: acquires/refreshes the single-editor lock (acquire_or_refresh) exactly like
+    save_cell_price -- placed AFTER the row-resolve, BEFORE any freeze/insert, so a lock
+    rejection (held fresh by another user) mutates NOTHING.
+
+    CLEAR semantics: a blank / whitespace-only remark CLEARS -- it freezes the prior
+    current (is_current=0) and inserts NO new current, so the row then has no is_current
+    record and reads as "no remark" (it will not appear in the review-list).
+
+    `description` is stored as the copy-forward MATCH GUARD (a future-slice carry, like
+    BoQ Cell Pricing.description) -- not part of the key, never branched on.
+
+    Returns {ok, name, remark_version, is_current, froze_prior, cleared}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_row_remark
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if excel_row is None or excel_row == "":
+        frappe.throw("excel_row is required.", title="Missing field: excel_row")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    excel_row = _coerce_int(excel_row, "excel_row")
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # Normalize: blank/whitespace-only -> None (clears the remark).
+    if isinstance(remark, str):
+        remark = remark.strip() or None
+    if remark is not None and len(remark) > _REMARK_MAX_LEN:
+        frappe.throw(
+            f"Remark is too long ({len(remark)} chars). Maximum is {_REMARK_MAX_LEN}.",
+            title="Remark too long",
+        )
+
+    # The committed ROW must exist (row-level check; node_type ignored -- a remark is
+    # allowed on any row, no priceability gate).
+    _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected
+    # write mutates nothing). Holder = session user; shares this request's transaction.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
+
+    # Freeze any prior current via set_value (NEVER doc.save). Mirrors the pricing tier.
+    prior = _current_annot_names(_REMARK, boq_name, sheet_name, excel_row, committed_version)
+    for name in prior:
+        frappe.db.set_value(_REMARK, name, "is_current", 0)
+
+    # CLEAR: freeze only, insert no new current -> reads as "no remark".
+    if remark is None:
+        frappe.db.commit()
+        return {
+            "ok": True,
+            "name": None,
+            "remark_version": None,
+            "is_current": 0,
+            "froze_prior": len(prior),
+            "cleared": True,
+        }
+
+    remark_version = _next_annot_version(
+        _REMARK, "remark_version", boq_name, sheet_name, excel_row, committed_version
+    )
+    doc = frappe.new_doc(_REMARK)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.excel_row = excel_row
+    doc.committed_version = committed_version
+    doc.description = description
+    doc.remark = remark
+    doc.remark_version = remark_version
+    doc.is_current = 1
+    doc.remarked_at = frappe.utils.now()
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "name": doc.name,
+        "remark_version": remark_version,
+        "is_current": 1,
+        "froze_prior": len(prior),
+        "cleared": False,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_cell_color(
+    boq_name: str = None,
+    sheet_name: str = None,
+    excel_row=None,
+    col_letter: str = None,
+    committed_version=None,
+    color: str = None,
+    description: str = None,
+) -> dict:
+    """Save a per-CELL color tag onto one committed Excel cell -- upsert the CURRENT color
+    record for that cell (freeze-and-supersede), mirroring save_cell_price.
+
+    Identity = (boq, sheet_name [VERBATIM #152], excel_row, col_letter, committed_version).
+    The committed row at that address/version MUST exist (resolved via the SAME row-level
+    _resolve_committed_cell -- it keys on source_row_number, NOT col_letter, exactly as
+    save_cell_price does when it stores col_letter without a per-column node check).
+
+    NO PRICEABILITY GATE: a color is pure visual annotation, allowed on ANY cell
+    (non-priceable / zero-rate / anything) -- _resolve_committed_cell does NOT gate on
+    node_type (that guard is inline in save_cell_price only), so reusing it imposes no gate.
+
+    LOCK: acquires/refreshes the single-editor lock exactly like save_cell_price (AFTER
+    the resolve, BEFORE any freeze/insert -- a rejection mutates nothing).
+
+    `color` must be one of the 8 enum tokens (else throw). A blank color CLEARS (freeze
+    prior current, insert no new current -> no current color). A whole-row apply is N
+    calls (the frontend fans out; this endpoint takes one cell).
+
+    `description` is the copy-forward MATCH GUARD -- not part of the key, never branched on.
+
+    Returns {ok, name, color_version, is_current, froze_prior, cleared}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_cell_color
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if excel_row is None or excel_row == "":
+        frappe.throw("excel_row is required.", title="Missing field: excel_row")
+    if not col_letter:
+        frappe.throw("col_letter is required.", title="Missing field: col_letter")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    excel_row = _coerce_int(excel_row, "excel_row")
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # Normalize: blank/whitespace-only -> None (clears the color).
+    if isinstance(color, str):
+        color = color.strip() or None
+    if color is not None and color not in _COLOR_TOKENS:
+        frappe.throw(
+            f"Invalid color '{color}'. Must be one of: {', '.join(sorted(_COLOR_TOKENS))}.",
+            title="Invalid color",
+        )
+
+    # The committed cell's ROW must exist (NO priceability gate -- color is allowed
+    # anywhere). _resolve_committed_cell is row-level (keys on source_row_number).
+    _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # Single-editor lock -- AFTER the resolve, BEFORE the freeze/insert.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
+
+    prior = _current_annot_names(
+        _COLOR, boq_name, sheet_name, excel_row, committed_version, col_letter=col_letter
+    )
+    for name in prior:
+        frappe.db.set_value(_COLOR, name, "is_current", 0)
+
+    # CLEAR: freeze only, insert no new current -> no current color.
+    if color is None:
+        frappe.db.commit()
+        return {
+            "ok": True,
+            "name": None,
+            "color_version": None,
+            "is_current": 0,
+            "froze_prior": len(prior),
+            "cleared": True,
+        }
+
+    color_version = _next_annot_version(
+        _COLOR, "color_version", boq_name, sheet_name, excel_row, committed_version,
+        col_letter=col_letter,
+    )
+    doc = frappe.new_doc(_COLOR)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.excel_row = excel_row
+    doc.col_letter = col_letter
+    doc.committed_version = committed_version
+    doc.description = description
+    doc.color = color
+    doc.color_version = color_version
+    doc.is_current = 1
+    doc.colored_at = frappe.utils.now()
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "name": doc.name,
+        "color_version": color_version,
+        "is_current": 1,
+        "froze_prior": len(prior),
+        "cleared": False,
+    }
+
+
+@frappe.whitelist()
+def get_sheet_remarks(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Current per-row remarks (is_current=1) for one committed (boq, sheet, committed_version).
+    @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_pricing). Pure read.
+    sheet_name VERBATIM (#152). Returns {"remarks": [{...}]} (empty when none).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_sheet_remarks
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    remarks = frappe.get_all(
+        _REMARK,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        fields=["name", "excel_row", "remark", "description", "remark_version", "remarked_at"],
+        order_by="excel_row asc",
+    )
+    return {"remarks": remarks}
+
+
+@frappe.whitelist()
+def get_sheet_colors(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Current per-cell colors (is_current=1) for one committed (boq, sheet, committed_version).
+    @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_pricing). Pure read.
+    sheet_name VERBATIM (#152). Returns {"colors": [{...}]} (empty when none).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_sheet_colors
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    colors = frappe.get_all(
+        _COLOR,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        fields=["name", "excel_row", "col_letter", "color", "description", "color_version", "colored_at"],
+        order_by="excel_row asc, col_letter asc",
+    )
+    return {"colors": colors}
+
+
 @frappe.whitelist()
 def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     """Return the committed rows for (boq_name, sheet_name) WITH the current saved prices
@@ -347,9 +691,17 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         priced_by_area[area][kind] = True for per-area cells, priced_<scalar field> = True
         for scalar cells. Un-priced cells keep their committed value and carry no marker.
 
+    ANNOTATIONS (Slice 4a -- data sheets only): the current per-row remark + per-cell
+    colors are merged in the SAME per-row loop (built once into indexes, no per-row query):
+      - row["remark"]       = the current remark text for that excel_row (None when absent)
+      - row["color_by_cell"]= {col_letter: color_token, ...} for that row (only when the
+                              row has at least one current color; absent otherwise)
+    Both sit on top of the committed tier (BoQ Cell Remark / BoQ Cell Color); the committed
+    tier is never mutated.
+
     Returns:
       {
-        "rows": [...],                # committed rows, rate cells stamped + markers added
+        "rows": [...],                # committed rows, rate cells stamped + markers + 4a annotations
         "column_descriptors": [...],  # passed through from get_committed_rows UNCHANGED
         "commit_version": <int|None>, # the version that was priced (None if uncommitted)
         "editable": True,             # RESERVED placeholder for the future lock slice
@@ -408,7 +760,23 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     price_by_cell = {
         (p["excel_row"], p["col_letter"]): p for p in pricing if p.get("is_filled")
     }
-    if not price_by_cell:
+
+    # Slice 4a annotations: build the remark index (per excel_row) + the color index
+    # (per excel_row -> {col_letter: token}) ONCE, before the loop -- no per-row query.
+    remark_by_row = {
+        r["excel_row"]: r["remark"]
+        for r in get_sheet_remarks(
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+        )["remarks"]
+    }
+    colors_by_row: dict = {}
+    for c in get_sheet_colors(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+    )["colors"]:
+        colors_by_row.setdefault(c["excel_row"], {})[c["col_letter"]] = c["color"]
+
+    # Nothing to merge at all (no prices, no remarks, no colors) -> graceful passthrough.
+    if not price_by_cell and not remark_by_row and not colors_by_row:
         return base
 
     # Only RATE descriptors are eligible to receive a price (see _SCALAR_RATE_FIELDS doc).
@@ -422,6 +790,12 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         excel_row = row.get("source_row_number")
         if excel_row is None:
             continue
+        # 4a: per-ROW remark (None when absent) + per-CELL colors for this row.
+        row["remark"] = remark_by_row.get(excel_row)
+        row_colors = colors_by_row.get(excel_row)
+        if row_colors:
+            row["color_by_cell"] = row_colors
+        # prices (existing behavior, unchanged).
         for d in rate_descs:
             price = price_by_cell.get((excel_row, d.get("col")))
             if price is None:
