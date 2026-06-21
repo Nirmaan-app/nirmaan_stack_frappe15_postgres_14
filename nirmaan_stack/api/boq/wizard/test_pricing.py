@@ -664,3 +664,210 @@ class TestSingleEditorLock(FrappeTestCase):
         self.assertIs(res["editable"], True, "a stale lock is acquirable -> editable")
         # get_priced_rows did NOT take over (still held by other; only save_cell_price acquires).
         self.assertEqual(self._lock_row()["locked_by"], self.other)
+
+
+class TestLockPerSheetIsolation(FrappeTestCase):
+    """Single-editor pricing lock -- PER-SHEET isolation (the MIRROR of slice A's same-sheet
+    guarantee). Two users editing two DIFFERENT sheets of the SAME BoQ acquire two
+    INDEPENDENT locks and never contend.
+
+    TRUE BY CONSTRUCTION: the lock identity is name = sha1(boq \\x00 sheet_name \\x00 version),
+    so a different sheet_name => a different primary key => a different lock row => no
+    collision. These tests CERTIFY that deterministically (a substitute for a two-user live
+    cert, which is not possible on a single local machine) AND guard against a regression
+    that drops sheet_name from the identity. They drive BOTH layers: acquire_or_refresh (the
+    lock core) AND save_cell_price (the real entry point the frontend calls). A same-sheet
+    contrast test proves the lock DOES block -- so the different-sheet passes are meaningful.
+
+    TWO committed sheets on ONE boq; sheet A carries a trailing space (#152). me = the
+    session user (the real save_cell_price saver); other = a second real User holding the
+    OTHER sheet via acquire_or_refresh -- mirroring the existing lock suite, which never
+    frappe.set_user()s (so the suite is never left on a switched user). Driving me's save
+    through the real save_cell_price endpoint still proves isolation at the layer the
+    frontend calls; other-as-holder via acquire_or_refresh is permission-agnostic.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Pricing Lock Isolation Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.cv = 1
+        cls.sheet_a = "Iso Sheet A "  # VERBATIM trailing space (#152)
+        cls.sheet_b = "Iso Sheet B"
+        # TWO committed sheets on the SAME boq -- the helper keys on (boq, sheet_name), so two
+        # distinct names build two distinct committed sheets + node sets on the one BOQs.
+        cls.fixture_a = build_committed_sheet_fixture(cls.boq, cls.sheet_a, commit_version=cls.cv)
+        cls.fixture_b = build_committed_sheet_fixture(cls.boq, cls.sheet_b, commit_version=cls.cv)
+        cls.me = frappe.session.user
+        cls.other = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        # cleanup_committed_fixture deletes ALL nodes/sheets/pricing for the boq -> BOTH sheets.
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _lock_row(self, sheet_name):
+        name = _lock_identity(self.boq, sheet_name, self.cv)
+        return frappe.db.get_value(
+            _LOCK_DT, name, ["locked_by", "last_edit_at"], as_dict=True
+        )
+
+    def _boq_lock_count(self):
+        return frappe.db.count(_LOCK_DT, {"boq": self.boq})
+
+    # -- Test 1: identity is per-(sheet, version) ---------------------------
+
+    def test_lock_identity_is_per_sheet_and_per_version(self):
+        """The construction proof: the deterministic lock name is keyed on sheet_name AND
+        committed_version -- a one-liner guard against a regression dropping either."""
+        ia = _lock_identity(self.boq, self.sheet_a, self.cv)
+        ib = _lock_identity(self.boq, self.sheet_b, self.cv)
+        ia_v2 = _lock_identity(self.boq, self.sheet_a, self.cv + 1)
+        self.assertNotEqual(ia, ib, "different sheet_name -> different lock identity")
+        self.assertNotEqual(ia, ia_v2, "different committed_version -> different lock identity")
+        self.assertNotEqual(ib, ia_v2)
+
+    # -- Test 2: two users, two sheets, both acquire, no contention ---------
+
+    def test_two_users_two_sheets_both_acquire_no_contention(self):
+        """acquire_or_refresh layer: me holds A, other holds B -- two independent rows, and
+        neither acquire touched/blocked the other."""
+        now = frappe.utils.now_datetime()
+        # me acquires sheet A.
+        acquire_or_refresh(self.boq, self.sheet_a, self.cv, self.me, now)
+        frappe.db.commit()
+        row_a = self._lock_row(self.sheet_a)
+        self.assertIsNotNone(row_a, "sheet A lock acquired")
+        self.assertEqual(row_a["locked_by"], self.me)
+        a_edit_at = row_a["last_edit_at"]
+
+        # other acquires sheet B -- must SUCCEED (no throw) despite me holding A.
+        acquire_or_refresh(self.boq, self.sheet_b, self.cv, self.other, now)
+        frappe.db.commit()
+        row_b = self._lock_row(self.sheet_b)
+        self.assertIsNotNone(row_b, "sheet B lock acquired independently (me holding A did not block)")
+        self.assertEqual(row_b["locked_by"], self.other)
+
+        # TWO distinct lock rows for this boq, with distinct identities.
+        self.assertEqual(self._boq_lock_count(), 2, "two independent locks -- no collision")
+        self.assertNotEqual(
+            _lock_identity(self.boq, self.sheet_a, self.cv),
+            _lock_identity(self.boq, self.sheet_b, self.cv),
+        )
+
+        # NO CONTENTION: other's sheet-B acquire did NOT touch sheet A (holder + timestamp).
+        row_a_after = self._lock_row(self.sheet_a)
+        self.assertEqual(row_a_after["locked_by"], self.me, "sheet A holder unchanged by B's acquire")
+        self.assertEqual(
+            frappe.utils.get_datetime(row_a_after["last_edit_at"]),
+            frappe.utils.get_datetime(a_edit_at),
+            "sheet A last_edit_at untouched by sheet B's acquire",
+        )
+
+    def test_read_lock_info_is_independent_per_sheet(self):
+        """Cross-check via read_lock_info: each user sees their OWN sheet as theirs and the
+        OTHER's sheet as not-theirs -- the locks are independent per sheet."""
+        now = frappe.utils.now_datetime()
+        acquire_or_refresh(self.boq, self.sheet_a, self.cv, self.me, now)
+        acquire_or_refresh(self.boq, self.sheet_b, self.cv, self.other, now)
+        frappe.db.commit()
+
+        # other looking at sheet A: held by me, NOT by other.
+        li_a = read_lock_info(self.boq, self.sheet_a, self.cv, self.other, now)
+        self.assertIsNotNone(li_a)
+        self.assertFalse(li_a["is_locked_by_me"], "sheet A is not other's")
+        self.assertEqual(li_a["locked_by_user"], self.me)
+
+        # me looking at sheet B: held by other, NOT by me.
+        li_b = read_lock_info(self.boq, self.sheet_b, self.cv, self.me, now)
+        self.assertIsNotNone(li_b)
+        self.assertFalse(li_b["is_locked_by_me"], "sheet B is not mine")
+        self.assertEqual(li_b["locked_by_user"], self.other)
+
+        # Each user sees their OWN sheet as theirs.
+        self.assertTrue(
+            read_lock_info(self.boq, self.sheet_a, self.cv, self.me, now)["is_locked_by_me"],
+            "me sees sheet A as mine",
+        )
+        self.assertTrue(
+            read_lock_info(self.boq, self.sheet_b, self.cv, self.other, now)["is_locked_by_me"],
+            "other sees sheet B as theirs",
+        )
+
+    # -- Test 3: same isolation at the save_cell_price entry point ----------
+
+    def test_save_cell_price_isolation_across_sheets(self):
+        """The real frontend path: me drives save_cell_price on sheet A while other holds
+        sheet B -- the save succeeds (acquires A for me), and sheet B's lock is undisturbed."""
+        now = frappe.utils.now_datetime()
+        # other independently holds sheet B (fresh) via the lock core.
+        acquire_or_refresh(self.boq, self.sheet_b, self.cv, self.other, now)
+        frappe.db.commit()
+        b_before = self._lock_row(self.sheet_b)
+
+        # me drives the REAL endpoint on sheet A -- must SUCCEED despite other holding B.
+        save_cell_price(boq_name=self.boq, sheet_name=self.sheet_a, excel_row=34,
+                        col_letter="E", committed_version=self.cv, rate=150.0)
+
+        # me's save acquired sheet A's lock for me...
+        row_a = self._lock_row(self.sheet_a)
+        self.assertIsNotNone(row_a, "save_cell_price acquired sheet A's lock")
+        self.assertEqual(row_a["locked_by"], self.me, "holder is the saver (session user)")
+        # ...and wrote a current pricing row on sheet A (the save was NOT blocked by B's lock).
+        cur = frappe.get_all(
+            _PRICING,
+            filters={"boq": self.boq, "sheet_name": self.sheet_a, "excel_row": 34,
+                     "col_letter": "E", "is_current": 1},
+            pluck="rate",
+        )
+        self.assertEqual(cur, [150.0], "sheet A price written -- not blocked by sheet B's lock")
+
+        # sheet B's lock is UNDISTURBED by me's save on sheet A (holder + timestamp).
+        b_after = self._lock_row(self.sheet_b)
+        self.assertEqual(b_after["locked_by"], self.other, "sheet B still held by other")
+        self.assertEqual(
+            frappe.utils.get_datetime(b_after["last_edit_at"]),
+            frappe.utils.get_datetime(b_before["last_edit_at"]),
+            "sheet B last_edit_at untouched by the sheet A save",
+        )
+        # TWO independent locks now exist (A=me via the endpoint, B=other).
+        self.assertEqual(self._boq_lock_count(), 2)
+
+    # -- Test 4: same-sheet STILL contends (the contrast guard) -------------
+
+    def test_same_sheet_still_contends_contrast_guard(self):
+        """CONTRAST: the SAME sheet (A) DOES still contend -- proves the different-sheet tests
+        pass BECAUSE the sheets differ, not because the lock never blocks. Driven through the
+        real save_cell_price endpoint: other holds A fresh -> me's save on A is rejected."""
+        now = frappe.utils.now_datetime()
+        acquire_or_refresh(self.boq, self.sheet_a, self.cv, self.other, now)  # other holds A fresh
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_price(boq_name=self.boq, sheet_name=self.sheet_a, excel_row=34,
+                            col_letter="E", committed_version=self.cv, rate=150.0)
+        self.assertIn(
+            _LOCK_HELD_MARKER, str(ctx.exception),
+            "same-sheet save by another user is REJECTED -- the lock DOES block",
+        )
+        # The reject mutated nothing: sheet A is still held by other (unchanged).
+        self.assertEqual(self._lock_row(self.sheet_a)["locked_by"], self.other)
