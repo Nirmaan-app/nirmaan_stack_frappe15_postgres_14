@@ -22,11 +22,12 @@
 import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Loader2, Save } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Loader2, Save, Sigma } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { BOQsDoc, GetPricedRowsResponse, RateCellSaveArgs } from "./boqTypes";
 import { PricingGrid, deriveSaveStatus, type PricingGridHandle } from "./PricingGrid";
+import { SummaryPanel } from "./SummaryPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
 // timestamp). HH:MM, mirroring SheetReviewPage's fmtSavedTime shape (client-clock seeded).
@@ -67,6 +68,8 @@ const SheetPricingPage = () => {
   const [inFlight, setInFlight] = useState(0);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -217,6 +220,17 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
+            onClick={() => setSummaryOpen((o) => !o)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title="Toggle the parent-tree amount summary"
+          >
+            <Sigma className="h-4 w-4" />
+            Summary
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
             onClick={() => gridRef.current?.flush()}
             title="Flush any pending edits and save now"
           >
@@ -242,6 +256,18 @@ const SheetPricingPage = () => {
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
           <span>{saveError}</span>
         </div>
+      )}
+
+      {/* ── Summary panel (top-down, grid-aligned, fixed-height, internal scroll) ──
+          Opens ABOVE the grid; computed page-side from the same rows + descriptors the
+          grid renders (no new backend call). The grid stays usable below. */}
+      {summaryOpen && !pricedLoading && !pricedError && (
+        <SummaryPanel
+          rows={rows}
+          columnDescriptors={columnDescriptors}
+          sheetName={displaySheetName}
+          onClose={() => setSummaryOpen(false)}
+        />
       )}
 
       {/* ── Grid ──────────────────────────────────────────────────────────────── */}
