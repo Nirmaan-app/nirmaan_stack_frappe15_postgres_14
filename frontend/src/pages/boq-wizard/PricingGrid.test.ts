@@ -16,6 +16,7 @@ import {
   nextCell,
   deriveSaveStatus,
   isTakeoverError,
+  orderCommittedSheets,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -315,5 +316,36 @@ describe("isTakeoverError", () => {
 
   it("is false for an empty string", () => {
     expect(isTakeoverError("")).toBe(false);
+  });
+});
+
+// ── Slice 3d: orderCommittedSheets (workbook tab order) ─────────────────────────
+describe("orderCommittedSheets", () => {
+  const s = (sheet_name: string, sheet_order: number | null) => ({ sheet_name, sheet_order });
+
+  it("orders by sheet_order ascending (out-of-order input -> workbook order)", () => {
+    const out = orderCommittedSheets([s("Sheet_X", 3), s("Sheet_Y", 1), s("Sheet_Z", 2)]);
+    expect(out.map((x) => x.sheet_name)).toEqual(["Sheet_Y", "Sheet_Z", "Sheet_X"]);
+    // sheet_order rides through unchanged (the tab strip reads it).
+    expect(out.map((x) => x.sheet_order)).toEqual([1, 2, 3]);
+  });
+
+  it("sorts a null sheet_order LAST, tiebroken by name", () => {
+    const out = orderCommittedSheets([s("B", null), s("A", null), s("C", 5)]);
+    expect(out.map((x) => x.sheet_name)).toEqual(["C", "A", "B"]);
+  });
+
+  it("preserves the sheet_name VERBATIM (a trailing space is NOT trimmed, #152)", () => {
+    // "Elec " (order 2) and "Elec" (order 1) are DISTINCT names; both round-trip verbatim.
+    const out = orderCommittedSheets([s("Elec ", 2), s("Elec", 1)]);
+    expect(out.map((x) => x.sheet_name)).toEqual(["Elec", "Elec "]);
+    expect(out[1].sheet_name).toBe("Elec "); // trailing space intact
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [s("B", 2), s("A", 1)];
+    const out = orderCommittedSheets(input);
+    expect(input.map((x) => x.sheet_name)).toEqual(["B", "A"]); // original order untouched
+    expect(out.map((x) => x.sheet_name)).toEqual(["A", "B"]);
   });
 });

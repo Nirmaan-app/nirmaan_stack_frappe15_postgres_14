@@ -293,6 +293,31 @@ export function isTakeoverError(msg: string): boolean {
   return typeof msg === "string" && msg.includes(TAKEOVER_MARKER);
 }
 
+// ── Slice 3d: in-editor sheet tabs ─────────────────────────────────────────────
+/**
+ * Committed sheets in WORKBOOK ORDER for the in-editor sheet-tab strip: sort by
+ * sheet_order ascending; a null/undefined sheet_order sorts LAST (defensive -- in
+ * practice every committed sheet carries one), tiebroken by sheet_name (#152 -- compared
+ * VERBATIM, never trimmed) for a stable, deterministic order. Returns a NEW array (does
+ * not mutate input). Pure -- unit-tested in PricingGrid.test.ts.
+ */
+export function orderCommittedSheets<
+  T extends { sheet_name: string; sheet_order: number | null },
+>(sheets: T[]): T[] {
+  const byName = (a: T, b: T) => (a.sheet_name < b.sheet_name ? -1 : a.sheet_name > b.sheet_name ? 1 : 0);
+  return [...sheets].sort((a, b) => {
+    const ao = a.sheet_order;
+    const bo = b.sheet_order;
+    const aNull = ao === null || ao === undefined;
+    const bNull = bo === null || bo === undefined;
+    if (aNull || bNull) {
+      if (aNull && bNull) return byName(a, b);
+      return aNull ? 1 : -1; // a null-order sheet sorts AFTER a numbered one
+    }
+    return ao !== bo ? ao - bo : byName(a, b);
+  });
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];

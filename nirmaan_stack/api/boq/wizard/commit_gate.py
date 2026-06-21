@@ -160,11 +160,23 @@ def get_committed_state(boq_name: str) -> dict:
     No DB write, no status change -- a pure read (no set_value / insert / save /
     commit).
 
+    sheet_order (Slice 3d -- workbook tab order for the in-editor sheet tabs) is NOT a
+    field on the committed-grid tier; it lives on the committed "BoQ Sheet" tier (the
+    per-sheet config snapshot the commit pipeline writes for BOTH dispositions, carried
+    from the draft). It is sourced here via a lookup keyed by the committed sheet
+    identity (boq + sheet_name, is_current=1) and the result is ordered by it ascending.
+
     Returns:
       {"committed_state": [
           {"sheet_name": str,                 # source_sheet_name VERBATIM (#152)
            "committed_at": str | None,        # as Frappe returns the Datetime
-           "commit_version": int}, ...]}
+           "commit_version": int,
+           "sheet_order": int | None}, ...]}  # committed BoQ Sheet.sheet_order;
+                                              # None if no current BoQ Sheet matches
+                                              # (defensive -- in practice every
+                                              # committed sheet has one). Result is
+                                              # sorted by sheet_order ascending, None
+                                              # last, tiebroken by sheet_name.
 
     One row per sheet is expected (the one-current invariant). The query filters
     is_current=1 and each current row is mapped as-is -- NO dedup logic is added for
@@ -184,12 +196,29 @@ def get_committed_state(boq_name: str) -> dict:
         fields=["source_sheet_name", "committed_at", "commit_version"],
     )
 
+    # sheet_order is on the committed "BoQ Sheet" tier, not the grid tier. Look it up by
+    # the committed sheet identity (boq + sheet_name, is_current=1). sheet_name is the
+    # join key, matched VERBATIM (#152). A committed grid row should always have a
+    # matching current BoQ Sheet (the pipeline writes both); default None if not.
+    order_rows = frappe.get_all(
+        "BoQ Sheet",
+        filters={"boq": boq_name, "is_current": 1},
+        fields=["sheet_name", "sheet_order"],
+    )
+    order_by_sheet = {r.sheet_name: r.sheet_order for r in order_rows}
+
     committed_state = [
         {
             "sheet_name": row.source_sheet_name,
             "committed_at": row.committed_at,
             "commit_version": row.commit_version,
+            "sheet_order": order_by_sheet.get(row.source_sheet_name),
         }
         for row in rows
     ]
+    # Workbook order: by sheet_order ascending. A row with no matching committed BoQ
+    # Sheet (sheet_order None) sorts LAST, tiebroken by sheet_name for a stable order.
+    committed_state.sort(
+        key=lambda e: (e["sheet_order"] is None, e["sheet_order"] or 0, e["sheet_name"])
+    )
     return {"committed_state": committed_state}

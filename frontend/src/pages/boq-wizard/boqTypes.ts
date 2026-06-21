@@ -604,6 +604,12 @@ export interface CommittedSheetState {
   sheet_name: string;
   committed_at: string | null;
   commit_version: number;
+  /**
+   * Workbook tab order (committed BoQ Sheet.sheet_order; Slice 3d). null when no
+   * current committed BoQ Sheet matches (defensive -- in practice every committed
+   * sheet carries one). Drives the in-editor sheet-tab strip order.
+   */
+  sheet_order: number | null;
 }
 
 /** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */

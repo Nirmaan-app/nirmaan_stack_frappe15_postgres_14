@@ -307,3 +307,62 @@ class TestGetCommittedState(FrappeTestCase):
     def test_unknown_boq_throws(self):
         with self.assertRaises(frappe.exceptions.ValidationError):
             get_committed_state("BOQ-DOES-NOT-EXIST-999")
+
+
+class TestGetCommittedStateOrdering(FrappeTestCase):
+    """Slice 3d: get_committed_state now carries sheet_order (sourced from the committed
+    BoQ Sheet tier, NOT the grid tier) and returns the sheets in WORKBOOK ORDER.
+
+    Seeds committed grid rows (the committed-state source) AND the matching current
+    BoQ Sheet rows (the sheet_order source) with sheet_order OUT of natural order, then
+    asserts every entry carries sheet_order and the list comes back ordered by it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT_COMMITTED
+        boq.boq_name = "Shared Test BoQ for Committed State Ordering"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        # Three committed sheets seeded OUT of natural order: Gamma(3), Alpha(1), Beta(2).
+        # Grid rows = the committed-state source; BoQ Sheet rows = the sheet_order source.
+        seed = [("Gamma", 3), ("Alpha", 1), ("Beta", 2)]
+        for name, order in seed:
+            grid = frappe.new_doc("BoQ Committed Sheet Grid")
+            grid.boq = cls.boq_name
+            grid.source_sheet_name = name
+            grid.commit_version = 1
+            grid.is_current = 1
+            grid.committed_at = "2026-06-17 10:00:00"
+            grid.insert(ignore_permissions=True, ignore_links=True)
+
+            sheet = frappe.new_doc("BoQ Sheet")
+            sheet.boq = cls.boq_name
+            sheet.sheet_name = name
+            sheet.sheet_order = order
+            sheet.commit_version = 1
+            sheet.is_current = 1
+            sheet.insert(ignore_permissions=True, ignore_links=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        name = getattr(cls, "boq_name", None)
+        if name:
+            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
+            frappe.db.delete("BoQ Sheet", {"boq": name})
+            frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def test_shape_includes_sheet_order_and_result_is_ordered(self):
+        rows = get_committed_state(self.boq_name)["committed_state"]
+        # Every entry now carries sheet_order.
+        for r in rows:
+            self.assertIn("sheet_order", r)
+        # Out-of-order seed -> returned in workbook order (sheet_order ascending).
+        self.assertEqual([r["sheet_name"] for r in rows], ["Alpha", "Beta", "Gamma"])
+        self.assertEqual([r["sheet_order"] for r in rows], [1, 2, 3])

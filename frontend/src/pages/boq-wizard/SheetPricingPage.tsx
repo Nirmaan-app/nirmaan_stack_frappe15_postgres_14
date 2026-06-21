@@ -24,9 +24,21 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, ArrowLeft, Check, Loader2, Lock, RefreshCw, Save, Sigma } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { BOQsDoc, GetPricedRowsResponse, RateCellSaveArgs } from "./boqTypes";
-import { PricingGrid, deriveSaveStatus, isTakeoverError, type PricingGridHandle } from "./PricingGrid";
+import type {
+  BOQsDoc,
+  GetCommittedStateResponse,
+  GetPricedRowsResponse,
+  RateCellSaveArgs,
+} from "./boqTypes";
+import {
+  PricingGrid,
+  deriveSaveStatus,
+  isTakeoverError,
+  orderCommittedSheets,
+  type PricingGridHandle,
+} from "./PricingGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
@@ -56,6 +68,16 @@ const SheetPricingPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
+  // In-editor sheet tabs (slice 3d): the SAME BoQ's committed sheets for the tab strip.
+  // Fetched in the page (a light single get_all read -- the SAME endpoint the hub uses);
+  // disabled until boqId is present (swrKey gotcha). Ordered by sheet_order (workbook
+  // order) below via the pure orderCommittedSheets helper.
+  const { data: committedStateData } = useFrappeGetCall<{ message: GetCommittedStateResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null,
+  );
+
   // Slice 3b: save one rate cell (save_cell_price) + an inline save-error surface.
   const { call: saveCellPrice } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_price",
@@ -83,6 +105,22 @@ const SheetPricingPage = () => {
       setTakenOver(false);
     }
   }, [pricedData]);
+
+  // Slice 3d: page per-sheet state reset on a tab switch. The PAGE does NOT remount on a
+  // pricing->pricing route change (same route element), so its sheet-specific state would
+  // carry stale into the new sheet. Reset it when :sheetName changes. The grid itself is
+  // key-remounted on sheetName (drafts flush-on-unmount to the OLD sheet, the new grid
+  // starts clean), and hasUnsaved re-derives from the remounted grid's onDirtyChange.
+  // inFlight is DELIBERATELY NOT reset: a flush-on-unmount save from the old grid
+  // increments/decrements it in a pair, so a hard reset to 0 would underflow when that
+  // in-flight save's finally runs (and "Saving..." on the new sheet during the flush is
+  // honest -- a save IS in flight).
+  useEffect(() => {
+    setSaveError(null);
+    setLastSavedAt(null);
+    setTakenOver(false);
+    setSummaryOpen(false);
+  }, [sheetName]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -124,6 +162,11 @@ const SheetPricingPage = () => {
   if (!sheetName) {
     return <p className="p-6 text-sm text-destructive">Missing sheet identifier in URL.</p>;
   }
+
+  // Slice 3d: the BoQ's committed sheets in workbook order (sheet_order), for the tab
+  // strip. Empty while the list loads -> the strip renders nothing (the grid never waits
+  // on it). The active tab is the current :sheetName (matched VERBATIM, #152).
+  const committedSheets = orderCommittedSheets(committedStateData?.message?.committed_state ?? []);
 
   // Data derived from the priced-rows fetch.
   const rows = pricedData?.message?.rows ?? [];
@@ -305,6 +348,32 @@ const SheetPricingPage = () => {
         </div>
       ) : null}
 
+      {/* ── In-editor sheet tabs (slice 3d) ───────────────────────────────────
+          Switch to another COMMITTED sheet of the SAME BoQ without going out to the
+          hub. Workbook order (sheet_order); active tab = the current :sheetName
+          (VERBATIM, #152); label = the trimmed display name. A tab change navigates to
+          that sheet's editor (the hub's exact nav target) -> the route re-runs + the
+          key-remounted grid (below) flushes the old drafts and starts clean. The list
+          loads independently -- the strip simply doesn't render until it arrives. */}
+      {committedSheets.length > 0 && (
+        <Tabs
+          value={decodedSheetName}
+          onValueChange={(val) => {
+            if (val !== decodedSheetName) {
+              navigate(`/upload-boq/hub/${boqId ?? ""}/pricing/${encodeURIComponent(val)}`);
+            }
+          }}
+        >
+          <TabsList className="flex flex-wrap h-auto justify-start gap-1">
+            {committedSheets.map((s) => (
+              <TabsTrigger key={s.sheet_name} value={s.sheet_name} className="max-w-[16rem] truncate">
+                {s.sheet_name.trim() || s.sheet_name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). Slice 3b: rates are
           editable; amounts shown are qty x rate (display-only). */}
@@ -350,6 +419,10 @@ const SheetPricingPage = () => {
 
       {!pricedLoading && !pricedError && (
         <PricingGrid
+          // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
+          // grid -- the existing flush-on-unmount commits the OLD sheet's pending drafts to
+          // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
+          key={sheetName}
           ref={gridRef}
           rows={rows}
           columnDescriptors={columnDescriptors}
