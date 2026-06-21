@@ -33,7 +33,15 @@ fresh-mutates-nothing [marker + holder name + no pricing row + holder untouched]
 handled -> exactly ONE row survives, holder stays A]; lock_info free/mine/other-fresh-blocks/other-stale-allows). NO
 release endpoint / socket / heartbeat (expiry is edit-driven; release is implicit via staleness -- all Slice B or
 unneeded). frontend/CLAUDE.md deferred to Slice B (the frontend slice). Full detail in boq-upload-plan.md "Single-Editor
-Lock -- Slice A".)
+Lock -- Slice A". **PER-SHEET ISOLATION now TEST-CERTIFIED (test-only, feat pending, 2026-03-12):** the lock is
+per-(sheet, version), NOT per-workbook -- by construction, since the deterministic name `sha1(boq \x00 sheet_name \x00
+version)` makes a different sheet_name a different PK = a different lock row. A NEW `test_pricing.TestLockPerSheetIsolation`
+(2 committed sheets on ONE boq, one trailing-space #152) CERTIFIES this deterministically -- two users on two DIFFERENT
+sheets of the same BoQ acquire two INDEPENDENT locks with ZERO contention, proven at BOTH `acquire_or_refresh` (lock core)
+AND `save_cell_price` (the real endpoint), plus a same-sheet CONTRAST guard (other holds A fresh -> me's save on A is
+rejected with `_LOCK_HELD_MARKER`) so the different-sheet passes aren't vacuous. It substitutes for the impossible-on-one-
+machine two-user live cert AND guards against a regression dropping sheet_name from the identity. test_pricing **31 -> 36**
+(+5); NO production code changed.)
 // prior: 2026-06-21 (Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS -- FRONTEND, grid + page, feat
 pending, branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Adds to the pricing editor: a **1000ms
 lodash-debounced auto-save** (the rate input's onChange schedules a per-cell debounced commit that fires ~1s after the

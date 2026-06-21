@@ -99,6 +99,19 @@ NO backend, NO boqTypes runtime change -- LockInfo already existed). LOCKED DESI
   (== baseline), 0 in touched files; Vite build exit 0. Manual live-cert pending Nitesh (two-user: B blocked read-only +
   banner names A; A's mid-edit save -> takeover banner + read-only; Reload clears when free/stale; stale shows nothing).
   Slice A+B COMPLETE the single-editor lock. Full detail in frontend/CLAUDE.md "Single-Editor Lock -- Slice B".
+- PER-SHEET ISOLATION now CERTIFIED by a deterministic test (TEST-ONLY, feat pending, `test_pricing.py`
+  `TestLockPerSheetIsolation`, 2026-03-12): the MIRROR of Slice A's same-sheet guarantee. Two users editing two
+  DIFFERENT sheets of the SAME BoQ (two committed sheets on one boq, one with a trailing space #152) acquire two
+  INDEPENDENT lock rows and NEVER contend -- proven at BOTH layers: `acquire_or_refresh` (the lock core -- me holds
+  sheet A, other holds sheet B; two distinct rows; neither acquire touches/blocks the other; `read_lock_info` shows each
+  user their OWN sheet as theirs + the OTHER's as not-theirs) AND `save_cell_price` (the real frontend entry point -- me
+  saves on sheet A while other holds sheet B; the save succeeds + acquires A for me + leaves B undisturbed). A
+  same-sheet CONTRAST guard (other holds A fresh -> me's `save_cell_price` on A is REJECTED with the `_LOCK_HELD_MARKER`)
+  proves the lock DOES block, so the different-sheet passes are NOT vacuous. True BY CONSTRUCTION (identity =
+  sha1(boq \x00 sheet_name \x00 version) -> different sheet_name = different PK = different row); the test is a SUBSTITUTE
+  for the two-user live cert (impossible on one local machine) AND a regression guard against dropping sheet_name from the
+  identity. NO production code changed. test_pricing **31 -> 36** (+5), all green. (Coverage = `acquire_or_refresh` +
+  `save_cell_price`; the thin browser/UI two-user path stays for real use.)
 
 PRIOR: Single-Editor Lock -- Slice A (BACKEND: doctype + atomic acquire-on-first-edit) (2026-06-21, feat pending,
 branch feature/boq-phase-5). The pricing editor's single-editor lock, backend + the atomicity guarantee, certified
