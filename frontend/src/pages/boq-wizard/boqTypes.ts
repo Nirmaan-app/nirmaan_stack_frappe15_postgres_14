@@ -448,19 +448,39 @@ export interface PricedRow extends ReviewRow {
 }
 
 /**
+ * Single-editor pricing lock state (slice A backend: pricing_lock.read_lock_info).
+ * Present on get_priced_rows when the committed sheet+version is locked; `null` when free.
+ * A lock is acquired on the holder's FIRST save_cell_price and goes stale 5 min after the
+ * last edit. Slice B consumes this to gate the grid + show the holder's name.
+ */
+export interface LockInfo {
+  /** The holder's User id (email). */
+  locked_by_user: string;
+  /** The holder's display full name (server-resolved). */
+  locked_by_name: string;
+  /** True when the session user IS the holder. */
+  is_locked_by_me: boolean;
+  /** ISO datetime of the holder's last edit (drives staleness). */
+  last_edit_at: string | null;
+  /** True when now - last_edit_at > 5 min (the lock is acquirable by another user). */
+  is_stale: boolean;
+}
+
+/**
  * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
- * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the reserved
- * editable / lock_info placeholders (the future single-editor-lock hook -- inert in 3a).
+ * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the single-editor
+ * lock fields (slice A): `editable` (precomputed gate -- false only when held fresh by
+ * another user) + `lock_info` (the holder details, or null when free).
  */
 export interface GetPricedRowsResponse {
   rows: PricedRow[];
   column_descriptors: ColumnDescriptor[];
   /** The committed commit_version these prices price (null when nothing is committed). */
   commit_version: number | null;
-  /** RESERVED for the future lock slice (3b). Always true in 3a -- no lock exists yet. */
+  /** Precomputed gate: true if FREE / locked-by-me / stale; false only when held fresh by another. */
   editable: boolean;
-  /** RESERVED for the future lock slice (3b). Always null in 3a. */
-  lock_info: unknown | null;
+  /** The current lock holder details, or null when the sheet+version is free. */
+  lock_info: LockInfo | null;
 }
 
 /**

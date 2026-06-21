@@ -27,6 +27,14 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_sheet_pricing,
     save_cell_price,
 )
+from nirmaan_stack.api.boq.wizard import pricing_lock
+from nirmaan_stack.api.boq.wizard.pricing_lock import (
+    LOCK_STALE_SECONDS,
+    _LOCK_HELD_MARKER,
+    _lock_identity,
+    acquire_or_refresh,
+    read_lock_info,
+)
 from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
 from nirmaan_stack.api.boq.wizard.test_review_screen import (
     _cleanup_project,
@@ -36,6 +44,7 @@ from nirmaan_stack.api.boq.wizard.test_review_screen import (
 )
 
 _PRICING = "BoQ Cell Pricing"
+_LOCK_DT = "BoQ Sheet Pricing Lock"
 
 
 class TestCellPricing(FrappeTestCase):
@@ -64,8 +73,10 @@ class TestCellPricing(FrappeTestCase):
         super().tearDownClass()
 
     def setUp(self):
-        # Each test starts with a clean pricing layer (the committed fixture persists).
+        # Each test starts with a clean pricing layer + lock (the committed fixture persists).
+        # save_cell_price now acquires a single-editor lock, so clear it for isolation.
         frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
         frappe.db.commit()
 
     # -- helpers ------------------------------------------------------------
@@ -296,6 +307,7 @@ class TestGetPricedRows(FrappeTestCase):
 
     def setUp(self):
         frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})  # save_cell_price acquires a lock now
         frappe.db.commit()
 
     # -- helpers ------------------------------------------------------------
@@ -355,10 +367,13 @@ class TestGetPricedRows(FrappeTestCase):
         # And the price from THAT version is what merged.
         self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 150.0)
 
-    def test_reserved_lock_placeholders(self):
+    def test_free_sheet_editable_and_no_lock(self):
+        # A committed sheet with NO lock (no one has edited it) -> free: editable True,
+        # lock_info None. (Slice A: lock_info is no longer ALWAYS None -- see
+        # TestSingleEditorLock for the locked shapes.)
         res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
-        self.assertIs(res["editable"], True, "editable is the reserved always-true placeholder")
-        self.assertIsNone(res["lock_info"], "lock_info is the reserved null placeholder")
+        self.assertIs(res["editable"], True, "a free sheet is editable")
+        self.assertIsNone(res["lock_info"], "a free sheet (no lock) has lock_info None")
 
     def test_scalar_rate_cell_priced(self):
         # Un-priced baseline: the committed scalar rate (999.0) shows, no marker.
@@ -419,3 +434,233 @@ class TestGetPricedRows(FrappeTestCase):
             get_priced_rows(boq_name=self.boq)  # no sheet_name
         with self.assertRaises(frappe.ValidationError):
             get_priced_rows(boq_name="NOPE-DOES-NOT-EXIST", sheet_name="X")
+
+
+class TestSingleEditorLock(FrappeTestCase):
+    """Single-editor pricing lock (slice A): acquire-on-first-edit, refresh, reject,
+    stale takeover, the ATOMIC exactly-one-winner guarantee, and the get_priced_rows
+    lock_info shapes. Reuses the shared per-area committed fixture so save_cell_price's
+    committed-cell check passes. sheet_name carries a trailing space (#152).
+
+    `me` = the session user (the saver in save_cell_price); `other` = a DIFFERENT real
+    User used to stand up a competing lock holder.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Pricing Lock Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Lock Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.me = frappe.session.user
+        cls.other = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _lock_row(self):
+        name = _lock_identity(self.boq, self.sheet, self.cv)
+        return frappe.db.get_value(
+            _LOCK_DT, name, ["locked_by", "last_edit_at"], as_dict=True
+        )
+
+    def _lock_count(self):
+        return frappe.db.count(
+            _LOCK_DT,
+            {"boq": self.boq, "sheet_name": self.sheet, "committed_version": self.cv},
+        )
+
+    def _seed_lock(self, user, last_edit_at):
+        """Stand up a lock row owned by `user` with a controlled last_edit_at."""
+        acquire_or_refresh(self.boq, self.sheet, self.cv, user, frappe.utils.now_datetime())
+        name = _lock_identity(self.boq, self.sheet, self.cv)
+        frappe.db.set_value(_LOCK_DT, name, "last_edit_at", last_edit_at, update_modified=False)
+        frappe.db.commit()
+
+    # -- acquire / refresh --------------------------------------------------
+
+    def test_first_save_acquires_lock(self):
+        save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+                        committed_version=self.cv, rate=150.0)
+        lock = self._lock_row()
+        self.assertIsNotNone(lock, "the first save acquires a lock")
+        self.assertEqual(lock["locked_by"], self.me, "holder is the saver (session user)")
+        self.assertIsNotNone(lock["last_edit_at"], "last_edit_at is stamped")
+        self.assertEqual(self._lock_count(), 1)
+
+    def test_second_save_by_holder_refreshes_and_keeps_holder(self):
+        save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+                        committed_version=self.cv, rate=150.0)
+        name = _lock_identity(self.boq, self.sheet, self.cv)
+        # Backdate so the refresh is observable.
+        old = frappe.utils.add_to_date(frappe.utils.now_datetime(), minutes=-2)
+        frappe.db.set_value(_LOCK_DT, name, "last_edit_at", old, update_modified=False)
+        frappe.db.commit()
+        save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+                        committed_version=self.cv, rate=175.0)
+        lock = self._lock_row()
+        self.assertEqual(lock["locked_by"], self.me, "holder unchanged on a refresh")
+        self.assertGreater(
+            frappe.utils.get_datetime(lock["last_edit_at"]),
+            frappe.utils.get_datetime(old),
+            "last_edit_at advanced on the holder's save",
+        )
+        self.assertEqual(self._lock_count(), 1)
+
+    # -- reject (held fresh by another) -------------------------------------
+
+    def test_save_by_other_while_fresh_is_rejected_and_mutates_nothing(self):
+        # `other` holds a FRESH lock; `me` (session user) tries to save -> reject.
+        self._seed_lock(self.other, frappe.utils.now_datetime())
+        before = self._lock_row()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+                            committed_version=self.cv, rate=150.0)
+        msg = str(ctx.exception)
+        self.assertIn(_LOCK_HELD_MARKER, msg, "reject carries the stable lock marker")
+        self.assertIn(
+            pricing_lock._get_user_full_name(self.other), msg,
+            "reject names the current holder",
+        )
+        # REJECT MUTATES NOTHING: no pricing row was written...
+        self.assertEqual(
+            frappe.get_all(_PRICING, filters={"boq": self.boq, "excel_row": 34, "col_letter": "E"}),
+            [], "a rejected save creates no pricing record",
+        )
+        # ...and the lock holder + timestamp are untouched.
+        after = self._lock_row()
+        self.assertEqual(after["locked_by"], self.other, "holder unchanged after a reject")
+        self.assertEqual(
+            frappe.utils.get_datetime(after["last_edit_at"]),
+            frappe.utils.get_datetime(before["last_edit_at"]),
+            "the holder's last_edit_at is untouched by a rejected save",
+        )
+
+    # -- stale takeover -----------------------------------------------------
+
+    def test_stale_lock_taken_over_by_new_user(self):
+        # `other` holds a STALE lock (last edit > 5 min ago); `me` saves -> takeover.
+        stale = frappe.utils.add_to_date(
+            frappe.utils.now_datetime(), seconds=-(LOCK_STALE_SECONDS + 60)
+        )
+        self._seed_lock(self.other, stale)
+        save_cell_price(boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+                        committed_version=self.cv, rate=150.0)
+        lock = self._lock_row()
+        self.assertEqual(lock["locked_by"], self.me, "a stale lock flips to the new saver")
+        self.assertGreater(
+            frappe.utils.get_datetime(lock["last_edit_at"]),
+            frappe.utils.get_datetime(stale),
+            "last_edit_at refreshed on takeover",
+        )
+        self.assertEqual(self._lock_count(), 1, "takeover overwrites in place (no second row)")
+        # The price WAS written (takeover proceeds).
+        cur = frappe.get_all(_PRICING, filters={"boq": self.boq, "excel_row": 34,
+                             "col_letter": "E", "is_current": 1}, pluck="rate")
+        self.assertEqual(cur, [150.0])
+
+    # -- THE ATOMICITY TEST (exactly one winner) ----------------------------
+
+    def test_atomicity_concurrent_first_edit_exactly_one_winner(self):
+        """Deterministically exercise the PK-collision path: a winner A already holds a
+        FRESH lock; we force B's acquire to BELIEVE the sheet is free (patch the FIRST
+        _read_lock to None) so B attempts the INSERT -- which COLLIDES on the deterministic
+        primary key. The collision must RAISE (DuplicateEntryError), be caught, B re-reads
+        the winner, and B is rejected. Proves exactly-one-winner: the duplicate insert does
+        NOT create a second row, and the holder stays A."""
+        now = frappe.utils.now_datetime()
+        # A wins first (fresh holder).
+        acquire_or_refresh(self.boq, self.sheet, self.cv, self.other, now)
+        frappe.db.commit()
+        name = _lock_identity(self.boq, self.sheet, self.cv)
+
+        real_read = pricing_lock._read_lock
+        calls = {"n": 0}
+
+        def fake_read(boq, sheet_name, version):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # B's acquire sees "free" -> attempts the colliding insert
+            return real_read(boq, sheet_name, version)  # re-read after collision -> finds A
+
+        pricing_lock._read_lock = fake_read
+        try:
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                acquire_or_refresh(self.boq, self.sheet, self.cv, self.me, now)
+        finally:
+            pricing_lock._read_lock = real_read
+
+        # The collision RAISED + was HANDLED (re-read A, rejected) -- not swallowed: if the
+        # duplicate insert had been silently allowed, acquire would have returned (B holder),
+        # not thrown the reject below.
+        self.assertGreaterEqual(calls["n"], 2, "B re-read after the collision")
+        self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception), "B was rejected (collision handled)")
+        # EXACTLY ONE row survived -- the duplicate insert collided, it did not duplicate.
+        self.assertEqual(self._lock_count(), 1, "exactly one winner -- no duplicate row")
+        # The holder is still A (the winner); B never overwrote.
+        self.assertEqual(frappe.db.get_value(_LOCK_DT, name, "locked_by"), self.other)
+
+    # -- lock_info shapes out of get_priced_rows (PURE READ) ----------------
+
+    def test_lock_info_free(self):
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIsNone(res["lock_info"], "free sheet -> lock_info None")
+        self.assertIs(res["editable"], True)
+
+    def test_lock_info_mine(self):
+        self._seed_lock(self.me, frappe.utils.now_datetime())
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        li = res["lock_info"]
+        self.assertIsNotNone(li)
+        self.assertTrue(li["is_locked_by_me"], "session user holds it")
+        self.assertFalse(li["is_stale"])
+        self.assertEqual(li["locked_by_user"], self.me)
+        self.assertIs(res["editable"], True, "editable when I hold it")
+
+    def test_lock_info_other_fresh_blocks(self):
+        self._seed_lock(self.other, frappe.utils.now_datetime())
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        li = res["lock_info"]
+        self.assertFalse(li["is_locked_by_me"], "another user holds it")
+        self.assertEqual(li["locked_by_user"], self.other)
+        self.assertEqual(li["locked_by_name"], pricing_lock._get_user_full_name(self.other))
+        self.assertFalse(li["is_stale"])
+        self.assertIs(res["editable"], False, "NOT editable when held fresh by another")
+        # PURE READ: the read did not mutate the lock (still exactly one, holder unchanged).
+        self.assertEqual(self._lock_count(), 1)
+        self.assertEqual(self._lock_row()["locked_by"], self.other)
+
+    def test_lock_info_other_stale_allows(self):
+        stale = frappe.utils.add_to_date(
+            frappe.utils.now_datetime(), seconds=-(LOCK_STALE_SECONDS + 60)
+        )
+        self._seed_lock(self.other, stale)
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        li = res["lock_info"]
+        self.assertFalse(li["is_locked_by_me"])
+        self.assertTrue(li["is_stale"], "another user's lock is stale")
+        self.assertIs(res["editable"], True, "a stale lock is acquirable -> editable")
+        # get_priced_rows did NOT take over (still held by other; only save_cell_price acquires).
+        self.assertEqual(self._lock_row()["locked_by"], self.other)

@@ -26,8 +26,10 @@ Public API:
 from __future__ import annotations
 
 import frappe
+from frappe.utils import now_datetime
 
 from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
 
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
@@ -163,6 +165,15 @@ def save_cell_price(
 
     # The cell must exist in the committed tier (also yields the node pointer to store).
     node_name = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # Single-editor lock (acquire-on-first-edit). Placed AFTER the committed-cell check (a
+    # non-cell still throws first) and BEFORE the freeze/insert below, so a REJECTED save
+    # (the sheet is held fresh by ANOTHER user) mutates NOTHING. The lock acquire/refresh/
+    # takeover write shares THIS request's transaction + the single trailing commit below,
+    # so the lock-touch and the price write land atomically together. Holder = session user.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
 
     # Freeze-and-supersede: freeze any prior current via set_value (NEVER doc.save), then
     # insert the new current under the next pricing version. Mirrors the committed tier.
@@ -303,10 +314,26 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": rows,
         "column_descriptors": column_descriptors,
         "commit_version": commit_version,
-        # RESERVED for the future single-editor-lock slice -- inert placeholders, no logic.
+        # Single-editor lock (slice A) -- PURE READ (this endpoint NEVER acquires/mutates
+        # the lock; only save_cell_price does). Defaults below cover the uncommitted /
+        # no-version case (free -> editable, lock_info None).
         "editable": True,
         "lock_info": None,
     }
+
+    # A committed sheet+version has a lock identity -> surface its current lock state.
+    # editable precomputes the slice-B gate: True if FREE / MINE / STALE, False only when
+    # held FRESH by another user. lock_info still ships so the grid can show the holder.
+    if commit_version is not None:
+        lock_info = read_lock_info(
+            boq_name, sheet_name, commit_version, frappe.session.user, now_datetime()
+        )
+        base["lock_info"] = lock_info
+        base["editable"] = (
+            lock_info is None
+            or lock_info["is_locked_by_me"]
+            or lock_info["is_stale"]
+        )
 
     # Nothing committed (no rows or no current version) -> no-op merge, graceful passthrough.
     if not rows or commit_version is None:
