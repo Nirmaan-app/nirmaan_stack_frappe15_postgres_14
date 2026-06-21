@@ -47,6 +47,11 @@ _GRID_ROW = "BoQ Committed Sheet Grid Row"
 _PER_AREA_RATE_FIELD = "rate_by_area"
 _SCALAR_RATE_FIELDS = frozenset({"rate_supply", "rate_install", "rate_combined"})
 
+# PRICEABILITY axis (Slice 3e): a rate may be saved only on a committed row whose node_type
+# is one of these (verbatim). Every other type ("Other" -- note/spacer/subtotal/header_repeat)
+# is non-priceable and is rejected by save_cell_price UNLESS the per-sheet override is asserted.
+_PRICEABLE_NODE_TYPES = frozenset({"Preamble", "Line Item"})
+
 # Pricing identity = the durable Excel address + the committed version it prices.
 _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "col_letter", "committed_version")
 
@@ -71,6 +76,15 @@ def _coerce_int(value, field: str) -> int:
         return int(value)
     except (ValueError, TypeError):
         frappe.throw(f"{field} must be an integer.", title="Invalid field")
+
+
+def _coerce_bool(value) -> bool:
+    """HTTP-safe truthiness: a whitelisted endpoint receives a STRING over HTTP, so the
+    real bools True/1 AND the string forms "true"/"1"/"yes"/"on" all read truthy; everything
+    else (None, "", "false", "0") is False. Mirrors the force_reparse coercion convention."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    return bool(value)
 
 
 def _identity_filters(boq_name, sheet_name, excel_row, col_letter, committed_version) -> dict:
@@ -103,11 +117,13 @@ def _next_pricing_version(boq_name, sheet_name, excel_row, col_letter, committed
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
-def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version):
+def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version) -> dict:
     """Resolve + VALIDATE that a committed cell exists at (boq, sheet_name, excel_row) for
-    the given committed_version. Returns the committed BOQ Nodes name (the node ref to store).
-    Throws if the committed sheet or node at that address/version does not exist -- never
-    create a price for a non-existent cell. sheet_name matched VERBATIM (#152)."""
+    the given committed_version. Returns {"name": <BOQ Nodes name>, "node_type": <str>} -- the
+    node ref to store + its PRICEABILITY axis (resolved at the SAME get_value, no extra query,
+    for the Slice-3e priceability guard). Throws if the committed sheet or node at that
+    address/version does not exist -- never create a price for a non-existent cell. sheet_name
+    matched VERBATIM (#152)."""
     bqsh = frappe.db.get_value(
         _BOQ_SHEET,
         {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
@@ -119,7 +135,7 @@ def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version):
             f"for BoQ '{boq_name}'.",
             title="No committed sheet",
         )
-    node_name = frappe.db.get_value(
+    node = frappe.db.get_value(
         _NODE,
         {
             "boq": boq_name,
@@ -127,15 +143,16 @@ def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version):
             "source_row_number": excel_row,
             "commit_version": committed_version,
         },
-        "name",
+        ["name", "node_type"],
+        as_dict=True,
     )
-    if not node_name:
+    if not node:
         frappe.throw(
             f"No committed cell (node) at Excel row {excel_row} on sheet '{sheet_name}' "
             f"(committed_version {committed_version}).",
             title="No committed cell",
         )
-    return node_name
+    return node
 
 
 @frappe.whitelist(methods=["POST"])
@@ -149,6 +166,7 @@ def save_cell_price(
     area: str = None,
     rate_kind: str = None,
     description: str = None,
+    allow_non_priceable=None,
 ) -> dict:
     """Save a rate into one committed Excel cell -- upsert the CURRENT pricing record for
     that cell (freeze-and-supersede): freeze any prior current (set_value is_current=0),
@@ -159,6 +177,14 @@ def save_cell_price(
     Identity = (boq, sheet_name [VERBATIM #152], excel_row, col_letter, committed_version);
     col_letter is stored (it is not on the node). area / rate_kind / description are stored
     as semantic/guard fields, NOT part of the key. The committed tier is NOT mutated.
+
+    PRICEABILITY GUARD (Slice 3e -- a DELIBERATE, RECORDED §6 loosening of the §0 "server
+    always rejects" rule): a rate may be saved only on a committed row whose node_type is
+    priceable (Preamble / Line Item). A non-priceable row ("Other") is REJECTED by default;
+    it is ACCEPTED only when `allow_non_priceable` is asserted (HTTP-coerced) -- the per-sheet
+    override the human deliberately turns on. An override-priced cell (a rate on a
+    non-priceable row) is a DERIVABLE "needs review" anomaly (node_type rides the read row +
+    the priced flag) -- NO marker field is stamped.
 
     Returns {ok, name, pricing_version, is_current, is_filled, froze_prior}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_cell_price
@@ -183,8 +209,21 @@ def save_cell_price(
     except (ValueError, TypeError):
         frappe.throw("rate must be a number.", title="Invalid rate")
 
-    # The cell must exist in the committed tier (also yields the node pointer to store).
-    node_name = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+    # The cell must exist in the committed tier (also yields the node pointer + node_type).
+    node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+    node_name = node["name"]
+
+    # PRICEABILITY GUARD (Slice 3e). Placed AFTER the committed-cell check (a non-cell still
+    # throws first) and BEFORE the lock acquire / the freeze+insert below, so a REJECTED
+    # non-priceable write mutates NOTHING (mirrors the lock reject-mutates-nothing discipline).
+    # DELIBERATE, RECORDED §6 loosening: reject a non-priceable row by default, accept it ONLY
+    # when the human asserts the per-sheet override (allow_non_priceable, HTTP-coerced).
+    if node.get("node_type") not in _PRICEABLE_NODE_TYPES and not _coerce_bool(allow_non_priceable):
+        frappe.throw(
+            f"This row is not priceable (node type: {node.get('node_type') or 'unknown'}). "
+            f"Enable the override to price it.",
+            title="Not priceable",
+        )
 
     # Single-editor lock (acquire-on-first-edit). Placed AFTER the committed-cell check (a
     # non-cell still throws first) and BEFORE the freeze/insert below, so a REJECTED save

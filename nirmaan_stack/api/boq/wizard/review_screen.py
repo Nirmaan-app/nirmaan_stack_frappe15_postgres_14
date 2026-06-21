@@ -1264,6 +1264,11 @@ def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) 
         # the committed tier has no human/AI override layer above it).
         "classification": row_class,
         "effective_classification": row_class,
+        # node_type is the PRICEABILITY axis (Preamble / Line Item = priceable; Other =
+        # non-priceable). Surfaced on the delivered row so the pricing editor's priceability
+        # gate (Slice 3e) keys on the SAME field the server guard uses, and so a price on a
+        # non-priceable row is DERIVABLE later (4b) -- node_type + the priced flag.
+        "node_type": node.get("node_type"),
         "effective_parent_index": eff_parent,
         # identity / text (commit_pipeline: sl_no_value->code, row_notes->notes)
         "sl_no_value": node.get("code"),

@@ -22,9 +22,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Loader2, Lock, RefreshCw, Save, Sigma } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   BOQsDoc,
@@ -119,6 +120,11 @@ const SheetPricingPage = () => {
   const [hasUnsaved, setHasUnsaved] = useState(false);
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
+  // editable ONLY on a priceable row (node_type Preamble / Line Item). When ON, it unlocks
+  // editing on non-priceable rows for THIS sheet THIS session AND sends allow_non_priceable
+  // to save_cell_price so the server accepts those writes. Resets per sheet (below).
+  const [override, setOverride] = useState(false);
   // Single-editor lock (slice B): a mid-edit takeover (a save rejected with the
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
@@ -147,6 +153,7 @@ const SheetPricingPage = () => {
     setLastSavedAt(null);
     setTakenOver(false);
     setSummaryOpen(false);
+    setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
   }, [sheetName]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
@@ -232,6 +239,7 @@ const SheetPricingPage = () => {
         area: cell.area, // omitted by the SDK when undefined (scalar path)
         rate_kind: cell.rateKind,
         description: cell.description, // copy-forward MATCH GUARD
+        allow_non_priceable: override, // Slice 3e: the asserted per-sheet override
       });
       await mutate();
       setLastSavedAt(new Date()); // Slice 3c: client-clock "saved as of"
@@ -330,6 +338,28 @@ const SheetPricingPage = () => {
             <Sigma className="h-4 w-4" />
             Summary
           </Button>
+          {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
+              gun -- its ON state is loudly amber so the user always sees it is on. Default
+              off. Suppressed for grid-only (handled by the !isGridOnly cluster gate). */}
+          <Button
+            size="sm"
+            variant={override ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              override &&
+                "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700",
+            )}
+            aria-pressed={override}
+            onClick={() => setOverride((o) => !o)}
+            title={
+              override
+                ? "Override ON -- non-priceable rows are editable; priced non-priceable cells are flagged for review. Click to turn off."
+                : "Allow pricing non-priceable rows (notes / spacers). Off by default."
+            }
+          >
+            {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {override ? "Override ON" : "Override"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -425,6 +455,17 @@ const SheetPricingPage = () => {
         )}
       </div>
 
+      {/* ── Slice 3e: override-on banner (loud, amber -- the override is a loaded gun). */}
+      {!isGridOnly && override && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <Unlock className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span>
+            Override on: non-priceable rows (notes / spacers) are editable. A rate saved on one
+            is flagged amber for review.
+          </span>
+        </div>
+      )}
+
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
       {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -491,6 +532,7 @@ const SheetPricingPage = () => {
             // single onSaveRate root gate) collapses to the read-only render.
             onSaveRate={locked ? undefined : handleSaveRate}
             onDirtyChange={setHasUnsaved}
+            override={override}
             editable={editable}
             lockInfo={lockInfo}
           />

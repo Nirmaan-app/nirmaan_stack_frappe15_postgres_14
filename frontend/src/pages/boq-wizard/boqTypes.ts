@@ -438,6 +438,11 @@ export interface GetReviewRowsResponse {
  * resolveDescriptorValue, ClassificationPill) accept a PricedRow without retyping.
  */
 export interface PricedRow extends ReviewRow {
+  /** The PRICEABILITY axis (Slice 3e): "Preamble" / "Line Item" = priceable; "Other" =
+   *  non-priceable. Surfaced by get_priced_rows so the grid's per-row priceability gate
+   *  keys on the SAME field the server guard uses. Optional (an old/absent payload -> the
+   *  helper treats it as non-priceable). */
+  node_type?: "Preamble" | "Line Item" | "Other" | null;
   /** Per-area priced markers: priced_by_area[areaName][rateKind] === true => that
    *  per-area rate cell carries a saved price. (rateKind: supply_rate/install_rate/combined_rate.) */
   priced_by_area?: Record<string, Record<string, boolean>> | null;

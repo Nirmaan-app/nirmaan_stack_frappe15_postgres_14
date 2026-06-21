@@ -1017,3 +1017,138 @@ class TestGetCommittedSheetGrid(FrappeTestCase):
             get_committed_sheet_grid(self.boq, "Nonexistent Sheet", self.cv)
         with self.assertRaises(frappe.ValidationError):
             get_committed_sheet_grid(self.boq, self.gen_sheet, 999)
+
+
+class TestPriceabilityGuard(FrappeTestCase):
+    """Slice 3e: save_cell_price rejects a rate on a NON-priceable committed row (node_type
+    'Other') by default, and ACCEPTS it only when allow_non_priceable is asserted. Reuses the
+    shared committed fixture (Preamble row 6 + Line Items 34/35) and ADDS one 'Other' node
+    (a note row) at source_row 50 -- seeded in THIS class's own setup (the shared builder is
+    untouched). Also asserts node_type now rides the delivered committed/priced row."""
+
+    OTHER_ROW = 50  # the Other node's Excel source_row_number
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Priceability Guard Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Guard Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+        # ADD an 'Other' (non-priceable) node to the SAME committed sheet -- a note row.
+        # boq auto-fills from sheet (P4-2); Other carries no qty/level/parent requirement.
+        other = frappe.new_doc("BOQ Nodes")
+        other.sheet = cls.fixture["bqsh"]
+        other.node_type = "Other"
+        other.row_class = "note"
+        other.description = "NOTE: rates are exclusive of taxes"
+        other.sort_order = 3
+        other.source_row_number = cls.OTHER_ROW
+        other.commit_version = cls.cv
+        other.is_current = 1
+        other.committed_at = frappe.utils.now()
+        other.insert(ignore_permissions=True)
+        cls.other_node = other.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    def _price_count(self, excel_row):
+        return frappe.db.count(
+            _PRICING, {"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row}
+        )
+
+    def _lock_count(self):
+        return frappe.db.count(_LOCK_DT, {"boq": self.boq})
+
+    # -- the guard: non-priceable rejected without override --------------------
+
+    def test_non_priceable_rejected_without_override(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_price(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+                col_letter="E", committed_version=self.cv, rate=99.0,
+            )
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        # A rejected write mutated NOTHING -- no price row AND the lock was never acquired
+        # (the guard sits BEFORE acquire_or_refresh).
+        self.assertEqual(self._price_count(self.OTHER_ROW), 0, "no price row written")
+        self.assertEqual(self._lock_count(), 0, "the lock was not acquired on a rejected write")
+
+    # -- the override: non-priceable accepted with allow_non_priceable ---------
+
+    def test_non_priceable_accepted_with_override(self):
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+            col_letter="E", committed_version=self.cv, rate=99.0,
+            allow_non_priceable=True,
+        )
+        self.assertTrue(res["ok"])
+        cur = frappe.get_all(
+            _PRICING,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": self.OTHER_ROW,
+                     "col_letter": "E", "committed_version": self.cv, "is_current": 1},
+            fields=["rate", "node", "is_filled"],
+        )
+        self.assertEqual(len(cur), 1, "the override accepted the write -> one current price row")
+        self.assertEqual(cur[0]["rate"], 99.0)
+        self.assertEqual(cur[0]["node"], self.other_node, "stores the resolved Other node pointer")
+
+    def test_override_accepts_http_string_true(self):
+        # HTTP coercion: the whitelisted endpoint receives a STRING. "true" must read truthy.
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+            col_letter="E", committed_version=self.cv, rate=12.0,
+            allow_non_priceable="true",
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.OTHER_ROW), 1)
+
+    # -- priceable rows save normally either way (regression) ------------------
+
+    def test_priceable_saves_without_override(self):
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1",
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(34), 1)
+
+    def test_priceable_saves_with_override_too(self):
+        # The override does not break a priceable save (it just isn't needed there).
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1", allow_non_priceable=True,
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(34), 1)
+
+    # -- node_type rides the delivered row (the gate's data dependency) --------
+
+    def test_node_type_on_committed_and_priced_rows(self):
+        committed = get_committed_rows(boq_name=self.boq, sheet_name=self.sheet)
+        by_row = {r["source_row_number"]: r for r in committed["rows"]}
+        self.assertIn("node_type", by_row[6], "node_type is surfaced on the committed row")
+        self.assertEqual(by_row[6]["node_type"], "Preamble")
+        self.assertEqual(by_row[34]["node_type"], "Line Item")
+        self.assertEqual(by_row[self.OTHER_ROW]["node_type"], "Other")
+        # get_priced_rows passes the committed rows through -> node_type rides it too.
+        priced = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        p_by_row = {r["source_row_number"]: r for r in priced["rows"]}
+        self.assertEqual(p_by_row[self.OTHER_ROW]["node_type"], "Other")

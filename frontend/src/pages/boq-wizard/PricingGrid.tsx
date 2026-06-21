@@ -111,6 +111,17 @@ export function isAmountDescriptor(d: ColumnDescriptor): boolean {
 }
 
 /**
+ * PRICEABILITY axis (Slice 3e): a rate cell is editable (and the server accepts a save
+ * without the override) ONLY on a committed row whose node_type is "Preamble" or "Line Item"
+ * (VERBATIM). Every other type ("Other" -- note/spacer/subtotal/header_repeat), as well as a
+ * null/undefined node_type (old/absent payload), is non-priceable. Keys on the SAME field the
+ * server guard uses (save_cell_price), so the two axes can never drift. Pure -- unit-tested.
+ */
+export function isPriceableType(nodeType: string | null | undefined): boolean {
+  return nodeType === "Preamble" || nodeType === "Line Item";
+}
+
+/**
  * True iff this (row, descriptor) RATE cell carries a saved price -- driven SOLELY by the
  * overlay's priced_* markers (which the backend sets from the pricing layer's is_filled),
  * NEVER by a zero-check on the value (a committed 0.0 rate can be a valid priced value).
@@ -354,6 +365,14 @@ interface PricingGridProps {
    */
   onDirtyChange?: (hasUnsaved: boolean) => void;
   /**
+   * Priceability override (Slice 3e, per-sheet per-session). Default false. When false, a
+   * rate cell is editable ONLY on a priceable row (node_type Preamble / Line Item); a
+   * non-priceable row ("Other") renders read-only. When TRUE, the override unlocks editing on
+   * non-priceable rows too (the page also sends allow_non_priceable to save_cell_price). A
+   * rate saved onto a non-priceable row is marked amber ("needs review") regardless.
+   */
+  override?: boolean;
+  /**
    * Single-editor lock (slice B). The grid does NOT read these for gating -- the PAGE owns
    * the lock UX: it WITHHOLDS onSaveRate when locked (so all edit gates collapse to the
    * read-only render) and renders the holder banner. These are kept on the props for the
@@ -371,7 +390,7 @@ export interface PricingGridHandle {
 }
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -766,9 +785,21 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 {displayDescriptors.map((d, dIdx) => {
                   const colIndex = FIXED_ANCHOR_COUNT + dIdx;
                   // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
-                  if (onSaveRate && isRateDescriptor(d)) {
+                  // Slice 3e per-row priceability gate: editable ONLY on a priceable row
+                  // (node_type Preamble / Line Item) UNLESS the per-sheet override is on. A
+                  // non-priceable row with the override off falls through to the read-only
+                  // render below (where its needs-review marker still shows).
+                  if (
+                    onSaveRate &&
+                    isRateDescriptor(d) &&
+                    (isPriceableType(row.node_type) || override)
+                  ) {
                     const key = cellKey(row.row_index, d.col);
                     const priced = isCellPriced(row, d);
+                    // A priced cell on a NON-priceable row is the "needs review" anomaly
+                    // (override-priced) -> amber instead of emerald (lightweight 3e marker;
+                    // the full review flag is 4b).
+                    const needsReview = priced && !isPriceableType(row.node_type);
                     // Value precedence: user draft (highest) -> cross-area proposal
                     // (middle) -> saved/empty (lowest).
                     const draft = draftRates[key];
@@ -780,10 +811,19 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     return (
                       <td
                         key={d.col}
-                        title={priced ? "Priced" : undefined}
+                        title={
+                          needsReview
+                            ? "Priced on a non-priceable row -- flagged for review"
+                            : priced
+                              ? "Priced"
+                              : undefined
+                        }
                         className={cn(
                           "px-1 py-1 align-top border-l border-border",
-                          priced && "bg-emerald-50 dark:bg-emerald-950/30",
+                          priced &&
+                            (needsReview
+                              ? "bg-amber-50 dark:bg-amber-950/30"
+                              : "bg-emerald-50 dark:bg-emerald-950/30"),
                           isActive(rowIdx, colIndex) &&
                             "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
                         )}
@@ -792,7 +832,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                           {priced && (
                             <span
                               aria-hidden
-                              className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
+                              className={cn(
+                                "inline-block h-1.5 w-1.5 rounded-full shrink-0",
+                                needsReview ? "bg-amber-500" : "bg-emerald-500",
+                              )}
                             />
                           )}
                           {/* type=text + inputMode=decimal: frees Arrow keys for cell nav
@@ -872,24 +915,40 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     );
                   }
 
-                  // ── Default read-only cell (qty / others; rate when no onSaveRate) ───
+                  // ── Default read-only cell (qty / others; rate when no onSaveRate, OR a
+                  //    non-priceable rate cell with the override off) ────────────────────
                   const val = resolveDescriptorValue(row, d);
                   const priced = isRateDescriptor(d) && isCellPriced(row, d);
+                  // A priced non-priceable rate cell that lands here (override off) still
+                  // shows the amber needs-review marker -- the anomaly stays visible.
+                  const needsReview = priced && !isPriceableType(row.node_type);
                   return (
                     <td
                       key={d.col}
                       {...tdFocusProps(rowIdx, colIndex)}
-                      title={priced ? "Priced" : undefined}
+                      title={
+                        needsReview
+                          ? "Priced on a non-priceable row -- flagged for review"
+                          : priced
+                            ? "Priced"
+                            : undefined
+                      }
                       className={cn(
                         "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
-                        priced && "bg-emerald-50 dark:bg-emerald-950/30",
+                        priced &&
+                          (needsReview
+                            ? "bg-amber-50 dark:bg-amber-950/30"
+                            : "bg-emerald-50 dark:bg-emerald-950/30"),
                         cellNavClass(rowIdx, colIndex),
                       )}
                     >
                       {priced && (
                         <span
                           aria-hidden
-                          className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle"
+                          className={cn(
+                            "mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle",
+                            needsReview ? "bg-amber-500" : "bg-emerald-500",
+                          )}
                         />
                       )}
                       {renderDescriptorCell(val)}

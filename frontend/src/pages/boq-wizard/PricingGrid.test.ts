@@ -18,6 +18,7 @@ import {
   isTakeoverError,
   orderCommittedSheets,
   isGridOnlySheet,
+  isPriceableType,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -375,5 +376,29 @@ describe("isGridOnlySheet", () => {
   it("matches sheet_name VERBATIM (#152 -- trailing space is significant)", () => {
     expect(isGridOnlySheet(list, "Elec ")).toBe(true); // trailing-space grid_only
     expect(isGridOnlySheet(list, "Elec")).toBe(false); // trimmed != stored -> not found
+  });
+});
+
+// ── Slice 3e: priceability gate -- isPriceableType ──────────────────────────────
+describe("isPriceableType", () => {
+  it("is true for the priceable node types (VERBATIM)", () => {
+    expect(isPriceableType("Preamble")).toBe(true);
+    expect(isPriceableType("Line Item")).toBe(true);
+  });
+
+  it("is false for Other (non-priceable)", () => {
+    expect(isPriceableType("Other")).toBe(false);
+  });
+
+  it("is false for null / undefined (absent node_type -> non-priceable)", () => {
+    expect(isPriceableType(null)).toBe(false);
+    expect(isPriceableType(undefined)).toBe(false);
+  });
+
+  it("is false for any unrecognized / mis-cased value (no fuzzy match)", () => {
+    expect(isPriceableType("preamble")).toBe(false); // lowercase taxonomy != node_type axis
+    expect(isPriceableType("line item")).toBe(false);
+    expect(isPriceableType("note")).toBe(false);
+    expect(isPriceableType("")).toBe(false);
   });
 });
