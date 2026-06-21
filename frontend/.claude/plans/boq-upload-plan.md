@@ -16,7 +16,64 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: General-specs FAITHFUL-GRID READ-ONLY VIEW in the pricing editor (2026-06-21, feat pending, branch
+LATEST: Slice 3e -- PRICEABILITY GATE + PER-SHEET OVERRIDE TOGGLE (2026-06-21, feat pending, branch
+feature/boq-phase-5). **This CLOSES the Slice 3 arc.** A rate cell is editable ONLY on a committed row whose node_type
+is "Preamble" or "Line Item" (verbatim -- the priceability axis); every other type ("Other": note/spacer/subtotal/
+header_repeat) renders rate cells READ-ONLY -- enforced BOTH in the grid (UX) AND server-side in save_cell_price (the
+real boundary), keyed on the SAME field both sides so the two axes can't drift. PLUS a per-sheet, per-session OVERRIDE
+TOGGLE (default OFF): a header button that, when ON, unlocks rate editing on non-priceable rows for THAT sheet THIS
+session, and makes save_cell_price ACCEPT those writes (an `allow_non_priceable` flag travels with the save). A rate
+saved on a non-priceable row is a "needs review" anomaly -- recorded as DERIVABLE (NO new schema): get_priced_rows now
+surfaces node_type on the row, so a priced cell on a non-priceable node_type is computable; 3e adds only the surfacing
++ a lightweight amber in-cell marker; the full review-flag UI is a LATER slice (4b). NO migrate (no schema change).
+- **RECORDED §6 LOOSENING (not drift).** The locked §0 rule is "the server always rejects an invalid write." 3e
+  DELIBERATELY loosens this for priceability: save_cell_price rejects a non-priceable write BY DEFAULT, and ACCEPTS it
+  ONLY when the human asserts the per-sheet override (`allow_non_priceable`). This is an intentional, recorded §6 change
+  -- the guard rejects by default, accepts on asserted override -- NOT a regression of §0.
+- **BACKEND (1) -- node_type surfaced on the delivered committed row (`review_screen.py` `_committed_node_to_row`).**
+  node_type was already QUERIED in `_COMMITTED_NODE_FIELDS` but DROPPED before the row; now emitted as
+  `"node_type": node.get("node_type")` (the value already in hand -- no extra query). Flows through get_priced_rows
+  untouched -> reaches the grid + is DERIVABLE for the 4b anomaly. Verified: committed nodes carry node_type populated
+  (377 Line Item / 145 Other / 103 Preamble; 0 null/blank), and get_priced_rows now delivers it per row.
+- **BACKEND (2) -- the server guard + override (`pricing.py`).** `_resolve_committed_cell` now resolves node_type at
+  the SAME get_value (`["name","node_type"], as_dict`) and returns a dict `{"name", "node_type"}` (its single caller,
+  save_cell_price, adapted). save_cell_price gains `allow_non_priceable=None` (whitelisted, HTTP-coerced via a new
+  `_coerce_bool`). NEW guard, placed AFTER the committed-cell resolve and BEFORE the lock acquire / freeze+insert (so a
+  rejected non-priceable write mutates NOTHING -- mirrors the lock reject-mutates-nothing discipline): if node_type not
+  in {"Preamble","Line Item"} AND not allow_non_priceable -> `frappe.throw` ("This row is not priceable (node type:
+  <X>). Enable the override to price it."); when the override is asserted, ACCEPT. NO marker field on BoQ Cell Pricing
+  (derive only).
+- **FRONTEND (3) -- the per-row gate + amber marker (`PricingGrid.tsx`).** NEW pure exported helper
+  `isPriceableType(nodeType)` -> nodeType === "Preamble" || "Line Item" (VERBATIM; false for Other / null / undefined;
+  no fuzzy/lowercase match). NEW `override?: boolean` prop (default false). The rate-cell editable branch extends from
+  `if (onSaveRate && isRateDescriptor(d))` to `if (onSaveRate && isRateDescriptor(d) && (isPriceableType(row.node_type)
+  || override))`; when false the cell falls through to the EXISTING read-only render (no new branch). The override
+  "needs review" MARKER: a priced cell on a non-priceable row (`priced && !isPriceableType(row.node_type)`) renders
+  AMBER (bg-amber-50 + amber dot + title "Priced on a non-priceable row -- flagged for review") instead of the emerald
+  priced marker -- in BOTH the editable branch AND the read-only fall-through (so the anomaly stays visible when the
+  override is OFF, e.g. on reload after an override save). `PricedRow.node_type?: "Preamble"|"Line Item"|"Other"|null`
+  (boqTypes.ts).
+- **FRONTEND (4) -- the toggle (`SheetPricingPage.tsx`, per-sheet per-session).** `const [override, setOverride] =
+  useState(false)` (mirrors summaryOpen). A header-cluster button (beside Summary / Save now, inside the `!isGridOnly`
+  cluster so it's SUPPRESSED for grid-only): default OFF reads "Override" with a Lock icon; ON reads "Override ON" with
+  an Unlock icon + loud amber fill + aria-pressed (a loaded gun -- visibly on). Resets per sheet via
+  `setOverride(false)` added to the existing `useEffect([sheetName])`. Passed `override={override}` to PricingGrid. In
+  handleSaveRate, `allow_non_priceable: override` added to the saveCellPrice args (the page reads its own override
+  state). A loud amber inline banner shows below the editor note while override is ON.
+- **VERIFIED:** backend `test_pricing` **41 -> 47** (+6 `TestPriceabilityGuard`: Other rejected w/o override [+
+  rejected-mutates-nothing: no price row AND lock not acquired]; Other accepted w/ override; override accepts the HTTP
+  string "true"; priceable saves w/ and w/o override; node_type rides the committed + priced rows). `test_review_screen`
+  **205 unchanged** (the node_type emit is additive -- no consumer broke). Vitest **68 -> 72** (+4 `isPriceableType`:
+  Preamble/Line Item true; Other/null/undefined/lowercase/empty false). tsc **3178** (== baseline), **0** in touched
+  files. Vite build exit 0. NO migrate. Live API cert: get_priced_rows delivers node_type per row; _resolve_committed_cell
+  returns `{name, node_type:'Other'}` for a real Other node. **Manual live-cert pending Nitesh (the toggle + marker are
+  manual-cert):** on a data sheet with notes/spacers, a non-priceable row's rate cell is read-only by default; flip
+  Override ON (loud amber button + banner) -> the non-priceable rate cell becomes editable; save a rate on it -> the
+  cell is marked AMBER ("needs review"), and the priceable cells stay emerald; turn Override OFF (or switch sheets and
+  back) -> the override resets, the amber-priced cell stays amber + read-only; a direct save on a non-priceable row
+  without the override is rejected server-side.
+
+// prior: General-specs FAITHFUL-GRID READ-ONLY VIEW in the pricing editor (2026-06-21, feat pending, branch
 feature/boq-phase-5). A GRID-ONLY (general-specs) committed sheet -- SOW, MEP Make List, Assumptions & Exclusions,
 etc. -- commits a FAITHFUL grid with ZERO nodes, so the node-based `get_priced_rows` renders it EMPTY in the pricing
 editor. FIX: when the active tab is a grid-only sheet, render its FAITHFUL committed grid as READ-ONLY reference

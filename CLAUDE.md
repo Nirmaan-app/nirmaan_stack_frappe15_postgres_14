@@ -1,6 +1,33 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (GENERAL-SPECS FAITHFUL-GRID READ-ONLY VIEW in the pricing editor -- FULL-STACK
+**Last updated:** 2026-06-21 (Phase 5 Slice 3e -- PRICEABILITY GATE + PER-SHEET OVERRIDE TOGGLE -- FULL-STACK
+(node_type surfacing + server guard + frontend gate/toggle), feat pending, branch `feature/boq-phase-5`. **CLOSES the
+Slice 3 arc.** A rate cell is editable ONLY on a committed row whose **node_type** is "Preamble" or "Line Item"
+(verbatim -- the priceability axis); "Other" (note/spacer/subtotal/header_repeat) renders rate cells READ-ONLY,
+enforced BOTH in the grid AND server-side in `save_cell_price`, keyed on the SAME field both sides. PLUS a per-sheet,
+per-session OVERRIDE TOGGLE (default OFF) that unlocks non-priceable rate editing for that sheet this session + makes
+the server ACCEPT those writes (`allow_non_priceable`). A rate on a non-priceable row is a "needs review" anomaly --
+DERIVABLE (NO new schema: node_type now rides the read row + the priced flag); 3e adds the surfacing + a lightweight
+amber in-cell marker; the full review flag is slice 4b. NO migrate. **(1) node_type surfaced on the delivered committed
+row** -- `review_screen.py` `_committed_node_to_row` now emits `"node_type": node.get("node_type")` (already queried in
+`_COMMITTED_NODE_FIELDS`, no extra query); flows through `get_priced_rows` untouched. **(2) The server guard +
+override (`pricing.py`)** -- `_resolve_committed_cell` now resolves node_type at the SAME `get_value`
+(`["name","node_type"], as_dict`) and returns `{"name","node_type"}` (its single caller adapted); `save_cell_price`
+gains `allow_non_priceable=None` (HTTP-coerced via new `_coerce_bool`) and a guard placed AFTER the cell-resolve +
+BEFORE the lock acquire / freeze+insert (so a rejected non-priceable write mutates NOTHING): node_type not in
+{"Preamble","Line Item"} AND not allow_non_priceable -> `frappe.throw`; override asserted -> ACCEPT. This is a
+**DELIBERATE, RECORDED §6 loosening** of the §0 "server always rejects" rule (reject by default, accept on asserted
+override) -- NOT drift. NO marker field on BoQ Cell Pricing (derive only). **(3) Frontend** -- `PricingGrid.tsx`: NEW
+pure `isPriceableType(nodeType)` (VERBATIM Preamble/Line Item; false for Other/null), NEW `override?` prop, the
+rate-cell branch extended to `(isPriceableType(row.node_type) || override)`, and an AMBER "needs review" marker for a
+priced non-priceable cell (in both the editable branch + the read-only fall-through); `SheetPricingPage.tsx`: a
+per-sheet per-session override toggle (loud amber when ON, suppressed for grid-only, resets in `useEffect([sheetName])`)
+threading `allow_non_priceable` into the save; `PricedRow.node_type` (boqTypes.ts). **TESTS:** `test_pricing` 41 -> 47
+(`TestPriceabilityGuard`: reject w/o override + mutates-nothing, accept w/ override, HTTP "true", priceable regression,
+node_type on the row); `test_review_screen` 205 unchanged (additive emit); Vitest 68 -> 72 (`isPriceableType`). tsc 3178
+(== baseline), 0 in touched; Vite build exit 0. Live cert: get_priced_rows delivers node_type per row;
+_resolve_committed_cell returns `{name, node_type:'Other'}`. Full detail in boq-upload-plan.md "Slice 3e".)
+// prior: 2026-06-21 (GENERAL-SPECS FAITHFUL-GRID READ-ONLY VIEW in the pricing editor -- FULL-STACK
 (additive backend read + frontend render fork), feat pending, branch `feature/boq-phase-5`. A GRID-ONLY
 (general-specs) committed sheet commits a FAITHFUL grid with ZERO nodes, so the node-based `get_priced_rows`
 renders it EMPTY in the pricing editor. FIX: when the active tab is a grid-only sheet, render its FAITHFUL committed
