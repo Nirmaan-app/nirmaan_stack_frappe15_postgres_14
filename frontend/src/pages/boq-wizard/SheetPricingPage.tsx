@@ -353,12 +353,12 @@ const SheetPricingPage = () => {
             onClick={() => setOverride((o) => !o)}
             title={
               override
-                ? "Override ON -- non-priceable rows are editable; priced non-priceable cells are flagged for review. Click to turn off."
-                : "Allow pricing non-priceable rows (notes / spacers). Off by default."
+                ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
+                : "Allow pricing rows that aren't line items (notes, spacers). Off by default."
             }
           >
             {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-            {override ? "Override ON" : "Override"}
+            {override ? "Pricing any row" : "Price any row"}
           </Button>
           <Button
             size="sm"
@@ -460,8 +460,8 @@ const SheetPricingPage = () => {
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <Unlock className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>
-            Override on: non-priceable rows (notes / spacers) are editable. A rate saved on one
-            is flagged amber for review.
+            Pricing any row is on: non-line-item rows (notes / spacers) are editable. A rate
+            saved on one is flagged amber for review.
           </span>
         </div>
       )}
