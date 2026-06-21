@@ -16,7 +16,58 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Single-Editor Lock -- Slice B (FRONTEND: read-only gating + holder banner + takeover) (2026-06-21, feat
+LATEST: Slice 3d -- IN-EDITOR SHEET TABS + keyed-remount switch safety (2026-03-12, feat pending, branch
+feature/boq-phase-5). A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK
+ORDER; clicking another tab opens it in the editor WITHOUT going back to the hub. Full-stack: a small additive backend
+field-add + the frontend tabs. SCOPE: nav-reuse, the key-remount safety fix, page state reset, sheet_order ordering,
+stale-lock-on-switch = no-op. NO sheet close/reorder, no "new sheet", no cross-BoQ tabs, no keyboard tab-cycling.
+- **BACKEND `get_committed_state` (commit_gate.py) -- ADDITIVE sheet_order + ordering.** `sheet_order` is NOT a field on
+  the queried `BoQ Committed Sheet Grid` tier; it lives on the committed `BoQ Sheet` tier (the per-sheet config snapshot
+  the commit pipeline writes for BOTH dispositions, carried from the draft). So it is SOURCED via a second lookup
+  (`frappe.get_all("BoQ Sheet", {boq, is_current:1}, ["sheet_name","sheet_order"])` -> a `{sheet_name: sheet_order}`
+  dict, joined on the committed sheet identity, sheet_name VERBATIM #152). Each committed_state entry gains
+  `sheet_order` (None if no current BoQ Sheet matches -- defensive; in practice every committed sheet has one), and the
+  result is `.sort`ed by `(sheet_order is None, sheet_order or 0, sheet_name)` -> workbook order, None last, name
+  tiebreak. PURELY ADDITIVE: existing keys/shape unchanged; the HUB (maps committedMap by sheet_name + doesn't assume
+  order) stays UNCHANGED (its TenderingDialog list is now in workbook order -- a free improvement). NO migrate
+  (sheet_order already exists on BoQ Sheet; this is a query field-add). `CommittedSheetState` (boqTypes.ts) gains
+  `sheet_order: number | null`.
+- **THE KEY-REMOUNT SAFETY FIX (the load-bearing change, WHY it matters).** A pricing->pricing tab switch does NOT
+  remount the page/grid today (same RR route element, no key), so `draftRates` + in-flight debounced saves would carry
+  across while `rows` swap underneath -- a leftover draft keyed `${row_index}:${col}` could fire against the NEW sheet's
+  same-indexed row (silent cross-sheet corruption). FIX: `key={sheetName}` (the VERBATIM param) on the `<PricingGrid>`
+  mount -> a tab switch UNMOUNTS+REMOUNTS the grid -> the EXISTING flush-on-unmount (`debouncers.forEach(deb =>
+  deb.flush())` in a `[]`-deps cleanup, recon-verified to fire on unmount) commits the OLD sheet's pending drafts TO THE
+  OLD SHEET (old closures captured old boqId/sheetName/commitVersion), and the NEW sheet gets a CLEAN grid (empty
+  draftRates/proposedRates). Flush-then-switch: nothing lost, nothing cross-contaminated, no warn-modal. **Invariant
+  future slices MUST keep: the grid stays keyed on sheetName so a switch can't carry drafts across.**
+- **PAGE PER-SHEET STATE RESET.** The PAGE does NOT remount on a pricing->pricing route change, so a
+  `useEffect([sheetName])` resets the sheet-specific page state: `saveError -> null`, `lastSavedAt -> null`,
+  `takenOver -> false`, `summaryOpen -> false`. `inFlight` is DELIBERATELY NOT reset (a flush-on-unmount save from the
+  old grid increments/decrements it in a pair; a hard reset to 0 would underflow when that in-flight save's finally runs
+  -- and "Saving..." on the new sheet during the flush is honest). `hasUnsaved` re-derives from the remounted grid's
+  `onDirtyChange(false)` on mount. The existing `takenOver`-reset effect keyed on `pricedData` stays.
+- **THE TAB STRIP (SheetPricingPage.tsx, shadcn Tabs).** Fetched IN THE PAGE via `useFrappeGetCall` on the SAME
+  `get_committed_state` endpoint the hub uses (a light single get_all; engineering call -- stated). Ordered by the NEW
+  pure exported helper `orderCommittedSheets` (in PricingGrid.tsx, the established home for this feature's unit-tested
+  pure helpers). `<Tabs value={decodedSheetName}>` (active tab = current :sheetName VERBATIM #152) with one
+  `<TabsTrigger value={s.sheet_name}>` per committed sheet (value = VERBATIM sheet_name, label = `s.sheet_name.trim()`
+  for DISPLAY only). `onValueChange` navigates to the hub's EXACT target
+  `/upload-boq/hub/${boqId}/pricing/${encodeURIComponent(val)}` (no-op guard on self). Placed below the lock banners,
+  above the editor note. Single committed sheet -> a lone tab renders (you-are-here context; stated). List loads
+  independently -- the strip simply doesn't render until it arrives (grid never waits).
+- **STALE-LOCK ON SWITCH = NO ACTION (confirmed design).** There is NO lock-release endpoint; the old sheet's lock
+  expires 5 min after last edit. Switching sheets just leaves it to go stale. NO release call added.
+- **VERIFIED:** backend test_commit_gate **18 -> 19** (+1 `TestGetCommittedStateOrdering`: seeds grid rows + matching
+  current BoQ Sheet rows with sheet_order OUT of order -> asserts the shape includes sheet_order AND the result is
+  ordered ascending). Vitest **60 -> 64 GREEN** (+4 `orderCommittedSheets`: ascending order; null-order last + name
+  tiebreak; sheet_name VERBATIM incl. trailing-space #152; no-mutate). tsc **3178** (== baseline), **0** in touched
+  files (`SheetPricingPage|PricingGrid|boqTypes|tabs.tsx`). Vite build exit 0. NO bench migrate. Manual live-cert
+  pending Nitesh (multi-sheet): tabs list committed sheets in workbook order; clicking a tab opens that sheet; a pending
+  typed-but-uncommitted rate on sheet A persists to A when you tab to B (flush-on-unmount), and B opens clean; the lock
+  banner re-derives per sheet. Full detail in frontend/CLAUDE.md.
+
+PRIOR: Single-Editor Lock -- Slice B (FRONTEND: read-only gating + holder banner + takeover) (2026-06-21, feat
 pending, branch feature/boq-phase-5). The frontend half that CONSUMES Slice A's `editable`/`lock_info` -- Slice A+B
 together COMPLETE the single-editor lock. FRONTEND ONLY (PricingGrid.tsx + SheetPricingPage.tsx + PricingGrid.test.ts;
 NO backend, NO boqTypes runtime change -- LockInfo already existed). LOCKED DESIGN implemented exactly:
