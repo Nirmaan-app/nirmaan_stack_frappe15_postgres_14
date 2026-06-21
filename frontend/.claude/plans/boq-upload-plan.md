@@ -16,7 +16,59 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice 4a-BE -- ANNOTATION BACKEND (REMARKS + COLOR) (2026-06-22, feat pending, branch
+LATEST: Slice 4a-FE -- ANNOTATION FRONTEND (REMARKS + COLOR) (2026-06-22, feat pending, branch
+feature/boq-phase-5). The frontend half of Slice 4a -- the UI consuming the 4a-BE contract. Two annotation surfaces
+on the DATA-SHEET pricing grid (PricingGrid only; general-specs SheetDataGrid is read-only reference, UNTOUCHED).
+FRONTEND ONLY -- no backend / doctype / test_pricing change. Files: `PricingGrid.tsx`, `SheetPricingPage.tsx`,
+`boqTypes.ts`, `PricingGrid.test.ts`.
+- **CONSUMED CONTRACT (live from 4a-BE):** `get_priced_rows` rows carry `row["remark"]` (string|null) +
+  `row["color_by_cell"]` ({col_letter: token}, absent = none); endpoints `save_row_remark` / `save_cell_color` (blank
+  clears; remark cap 250; a whole-row color = N save_cell_color calls). `PricedRow` gains `remark?` + `color_by_cell?`;
+  NEW `COLOR_TOKENS`/`ColorToken` (8 tokens) + `RemarkSaveArgs`/`ColorSaveArgs` (boqTypes.ts, additive).
+- **READ-ONLY GATING REUSE (the single root signal).** The grid's editability is the PRESENCE of a save callback
+  (onSaveRate). The page passes `onSaveRemark`/`onSaveColor` ONLY when `!locked` (`locked ? undefined : handle`, exactly
+  mirroring onSaveRate). When withheld (locked / taken-over), the grid renders remarks/colors READ-ONLY (no popover, no
+  picker). NO second editability signal invented.
+- **(1) REMARKS column (`PricingGrid.tsx`).** A trailing `<th>Remarks</th>` + per-row `<td>` AFTER the descriptor map
+  (the established trailing-column pattern). A `RemarkCell` component: click-to-open a shadcn Popover with a `<Textarea>`
+  (rows 3), a live 250 counter, Save + Clear (own draft/saving/error state, seeded on open, mutate-only refresh via the
+  page) -- mirrors the review-screen remark idiom (NOT imported). READ-ONLY (no onSave) -> plain stored text.
+  **EXCLUDED FROM THE KEYBOARD MATRIX** (a remark is multi-line; "Enter = move down" conflicts): NOT registered in
+  cellRefs, `colCount`/`nextCell` UNCHANGED (the existing nextCell tests stay green). The trigger button
+  `stopPropagation`s keydowns so the grid's table-level nav handler never hijacks it; the Popover content is portaled.
+- **(2) COLOR fill (`PricingGrid.tsx`).** Per-descriptor-cell affordance: a tiny corner `ColorPicker` trigger (the td
+  is now `relative`) opening an 8-swatch palette + "Apply to whole row" checkbox + "Clear color". The applied color
+  renders on a **SEPARATE VISUAL CHANNEL -- a thick LEFT BORDER** (`colorClassForToken` -> `border-l-4 border-l-<c>`),
+  DELIBERATELY not a background: the system owns the cell BACKGROUND (emerald priced / amber priced-non-priceable) + the
+  dot + the blue inset focus ring, so a colored cell that is ALSO priced/active shows BOTH (border + fill + dot + ring,
+  no masking). Picking calls `onApply(token, wholeRow)`; the grid maps to a `ColorSaveArgs[]` (1 cell, or
+  `rowColorCells(displayDescriptors)` = every descriptor col for apply-to-row); the PAGE owns the N POSTs + ONE mutate
+  (`handleSaveColor`). Clear sends `color:""`. READ-ONLY -> border shown, no trigger.
+- **(3) PAGE handlers (`SheetPricingPage.tsx`).** `handleSaveRemark` / `handleSaveColor` mirror `handleSaveRate`:
+  in-flight count (drives the Saving chip), POST(s) -> `mutate()` (remark/color re-derive authoritatively), client-clock
+  lastSavedAt, and the SAME `isTakeoverError(BOQ_PRICING_LOCKED)` detection (an annotation save rejected by a held lock
+  flips the page read-only + takeover banner, consistent with rates). The rate save path (commitRate/onSaveRate) is
+  UNCHANGED -- annotations are a PARALLEL write.
+- **(4) MINIMAL REVIEW-LIST (`SheetPricingPage.tsx`).** A "Review (N)" header toggle opens a collapsible strip ABOVE
+  the grid (mirrors the Summary mount) listing rows with a remark; each entry click-jumps via a NEW
+  `PricingGridHandle.scrollToRow(excelRow)` (resolves excel_row -> array index via rowsRef, focuses+centres the row's
+  col-0 cell). Entries are a GENERIC `{kind, excelRow, description, text}` shape derived page-side (no new fetch), so the
+  4b flag layer pushes computed flags into the SAME list. (Jump IS built -- not deferred.)
+- **NEW pure exported helpers (unit-tested):** `colorClassForToken` (token->border class; "" fail-safe for unknown/
+  null), `swatchClassForToken` (token->bg swatch; ""), `rowColorCells(displayDescriptors)` (the apply-to-row target
+  cols -- NOTE: takes only the descriptors, not `row`, since the targets are row-independent -- a deviation from the
+  prompt's `(row, displayDescriptors)` sketch), `remarkPreview` (trim + ellipsis; "" for blank).
+- **VERIFIED:** Vitest **72 -> 80** (+8 in PricingGrid.test.ts: colorClassForToken [8 distinct + fail-safe],
+  swatchClassForToken, rowColorCells, remarkPreview; the existing nextCell/nav tests UNCHANGED + green). tsc **3178**
+  (== baseline), **0** in touched files (filtered SheetPricingPage|PricingGrid|boqTypes). Vite build exit 0 (PWA 168
+  entries). **Manual live-cert pending Nitesh:** on a committed DATA sheet -- a trailing Remarks column with
+  click-to-edit + 250 counter; a per-cell color picker (border channel, apply-to-cell + apply-to-row + clear) that
+  coexists with the emerald/amber priced markers; the Review (N) strip lists remarked rows and click-jumps; on a
+  general-specs (grid-only) sheet NONE of this shows (SheetDataGrid path); when the sheet is locked by another user the
+  remarks/colors are visible but read-only. **NEXT = 4b** (the computed flag layer -- pushes flags into the SAME
+  review-list seam) + the F1-F4 formula builder. Full detail in frontend/CLAUDE.md "Slice 4a-FE".
+
+PRIOR: Slice 4a-BE -- ANNOTATION BACKEND (REMARKS + COLOR) (2026-06-22, feat pending, branch
 feature/boq-phase-5). The backend half of Slice 4a: two USER-AUTHORED annotation layers on the pricing editor, stored
 ADDITIVELY on top of the committed tier exactly like `BoQ Cell Pricing` (anchored to the durable Excel address +
 committed version, with their own freeze-and-supersede lifecycle) -- but carrying NO rate / priceability / lock-identity
