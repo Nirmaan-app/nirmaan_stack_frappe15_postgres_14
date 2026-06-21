@@ -16,7 +16,45 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Phase 5 Phase-2 PREFILL -- CROSS-AREA PROPOSED RATES (proposed-until-touched) (FRONTEND, 2026-06-21,
+LATEST: Single-Editor Lock -- Slice A (BACKEND: doctype + atomic acquire-on-first-edit) (2026-06-21, feat pending,
+branch feature/boq-phase-5). The pricing editor's single-editor lock, backend + the atomicity guarantee, certified
+ALONE. Slice B (frontend gating, holder-name banner, takeover/reload UX, optional socket) is a SEPARATE later prompt.
+LOCKED DESIGN implemented exactly: acquire ON FIRST EDIT (the first save_cell_price for a (boq, sheet_name,
+committed_version) -- reading acquires nothing); EXACTLY-ONE-WINNER under a concurrent first-edit; expiry = 5 min after
+the LAST edit (edit-driven, NO heartbeat); STALE takeover by a different user; HARD READ-ONLY reject server-side when
+held FRESH by another; holder display name via the reused `pr_editing_lock._get_user_full_name`.
+- DOCTYPE `BoQ Sheet Pricing Lock` (NEW; istable:0, track_changes:0 -- volatile lock state): boq (Link->BOQs),
+  sheet_name (Data, VERBATIM #152), committed_version (Int), locked_by (Link->User), last_edit_at (Datetime).
+- ATOMICITY = a DETERMINISTIC PRIMARY KEY (why a doctype, NOT Redis: exactly-one-winner + DURABLE across restart; the
+  app's prior-art `pr_editing_lock.py` is a Redis get-then-set = TOCTOU/non-atomic, and Frappe's cache has no
+  set-if-not-exists). The controller `autoname()` sets `name = _lock_identity(...)` = sha1 hex of
+  `f"{boq}\x00{sheet_name}\x00{int(version)}"` (NUL-joined: "Elec "/"Elec" DISTINCT #152; arbitrary chars/length safe).
+  Two concurrent first-edits both INSERT the SAME name -> Postgres PK collision raises `frappe.exceptions.
+  DuplicateEntryError`; one wins, the loser re-reads + is rejected/takes-over. BENCH-PROVEN: a duplicate insert raises
+  `duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"`, and the txn stays usable after
+  `rollback(save_point=...)`. (Chose deterministic-NAME over a composite unique index -- the PK is the strongest, most
+  portable atomic guarantee with no separate index; the recon's preferred approach.)
+- MODULE `api/boq/wizard/pricing_lock.py`: `LOCK_STALE_SECONDS = 300`; `_lock_identity`/`_read_lock`/`_is_stale`;
+  `acquire_or_refresh(boq, sheet, version, user, now)` -- 4 branches: (1) FREE -> `savepoint(_ACQUIRE_SAVEPOINT)` +
+  INSERT, on DuplicateEntryError `rollback(save_point=...)` + re-read + fall through (the loser path); (2) MINE ->
+  refresh last_edit_at; (3) OTHER+FRESH -> `frappe.throw` prefixed `_LOCK_HELD_MARKER = "BOQ_PRICING_LOCKED"` + holder
+  full name (writes NOTHING); (4) OTHER+STALE -> takeover. `read_lock_info(...)` -> structured dict, PURE READ.
+- GATE in `save_cell_price` (pricing.py): `acquire_or_refresh(... frappe.session.user, now_datetime())` slots AFTER
+  `_resolve_committed_cell` (:167) and BEFORE the freeze `_current_pricing_names` (:180) -- REJECT MUTATES NOTHING; the
+  lock write shares the request txn + the single trailing `frappe.db.commit()` so lock-touch + price are atomic together.
+- `get_priced_rows`: structured `lock_info` (None free, else {locked_by_user, locked_by_name, is_locked_by_me,
+  last_edit_at iso, is_stale}) vs `frappe.session.user` -- PURE READ (never acquires); `editable` = True if
+  FREE/MINE/STALE, False only when held FRESH by another (precomputes the Slice-B gate).
+- boqTypes.ts (ONLY frontend touch): `lock_info: unknown | null` -> structured `LockInfo | null`; PricingGrid/
+  SheetPricingPage UNTOUCHED (Slice B). frontend/CLAUDE.md deferred to Slice B (the frontend slice).
+- VERIFIED: `bench migrate` CLEAN (doctype live, istable 0, PK-collision proven live); test_pricing 22 -> 31 (+9
+  TestSingleEditorLock: first-save-acquires; holder-refresh; reject-fresh-mutates-nothing [marker + holder name + zero
+  pricing rows + holder/last_edit untouched]; stale-takeover; THE ATOMICITY TEST [monkeypatch the first `_read_lock`->
+  None so user B attempts the INSERT against A's live row -> collision RAISES + handled -> exactly ONE row, holder stays
+  A]; lock_info free/mine/other-fresh-blocks/other-stale-allows). NO release endpoint / socket / heartbeat (expiry
+  edit-driven; release implicit via staleness). NEXT = Slice B (frontend lock gating + takeover-reload UX).
+
+PRIOR (was LATEST): Phase 5 Phase-2 PREFILL -- CROSS-AREA PROPOSED RATES (proposed-until-touched) (FRONTEND, 2026-06-21,
 feat pending, branch feature/boq-phase-5; PricingGrid.tsx + PricingGrid.test.ts only -- NO backend, NO boqTypes change,
 SheetPricingPage UNCHANGED). On a MULTI-AREA sheet, when the user saves a PER-AREA rate in one area, the SAME value is
 OFFERED as a PROPOSED (display-only, uncommitted) rate in the CORRESPONDING rate column of the OTHER area(s) for that

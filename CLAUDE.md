@@ -1,6 +1,40 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS -- FRONTEND, grid + page, feat
+**Last updated:** 2026-06-21 (SINGLE-EDITOR LOCK -- SLICE A (backend: doctype + atomic acquire-on-first-edit) --
+BACKEND, feat pending, branch `feature/boq-phase-5`. The pricing editor's single-editor lock, backend half + the
+atomicity guarantee, certified ALONE (frontend gating / holder-name banner / takeover-reload UX = Slice B). NEW doctype
+**`BoQ Sheet Pricing Lock`** (istable:0, track_changes:0 -- volatile lock state) keyed by (boq, sheet_name [VERBATIM
+#152], committed_version) with fields locked_by (Link->User) + last_edit_at (Datetime). **ATOMICITY = a DETERMINISTIC
+PRIMARY KEY (exactly-one-winner):** the controller's `autoname()` sets `name = _lock_identity(...)` = a sha1 hex of
+`f"{boq}\x00{sheet_name}\x00{int(version)}"` (NUL-joined, so "Elec "/"Elec" are DISTINCT, #152; arbitrary chars/length
+never break the PK). Two concurrent first-edits both INSERT the SAME name -> the Postgres PK collision raises
+`frappe.exceptions.DuplicateEntryError`; exactly one insert wins, the loser re-reads + is rejected/takes-over. BENCH-
+PROVEN live: a duplicate insert raises `duplicate key value violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"`
++ the txn stays usable after `rollback(save_point=...)`. (Chose deterministic-NAME over a composite unique index: the PK
+is the strongest, most portable atomic guarantee + needs no separate index; the recon's preferred approach.) **NEW
+module `api/boq/wizard/pricing_lock.py`:** `LOCK_STALE_SECONDS = 300` (5-min edit-driven expiry, NO heartbeat);
+`_lock_identity` / `_read_lock` / `_is_stale`; `acquire_or_refresh(boq, sheet, version, user, now)` -- the 4-branch core:
+(1) FREE -> savepoint + INSERT (atomic; on DuplicateEntryError `rollback(save_point=_ACQUIRE_SAVEPOINT)` + re-read +
+fall through); (2) MINE -> refresh last_edit_at; (3) OTHER + FRESH -> REJECT via `frappe.throw` prefixed with the stable
+marker `_LOCK_HELD_MARKER = "BOQ_PRICING_LOCKED"` + the holder's full name (writes NOTHING); (4) OTHER + STALE ->
+TAKEOVER (locked_by=user, last_edit_at=now). `read_lock_info(...)` -> the structured dict (PURE READ). Holder name via
+`pr_editing_lock._get_user_full_name` (REUSED -- handles "Administrator" + Nirmaan Users fallback). **GATE in
+`save_cell_price` (pricing.py):** `acquire_or_refresh(... frappe.session.user, now_datetime())` slots AFTER
+`_resolve_committed_cell` (:167) and BEFORE the freeze `_current_pricing_names` (:180) -- so a REJECTED save mutates
+NOTHING; the lock write shares the request txn + the single trailing `frappe.db.commit()` (lock-touch + price atomic).
+**`get_priced_rows`** now returns structured `lock_info` (None when free, else {locked_by_user, locked_by_name,
+is_locked_by_me, last_edit_at iso, is_stale}) computed against `frappe.session.user` -- a PURE READ (never acquires);
+`editable` = True if FREE/MINE/STALE, False only when held FRESH by another (precomputes the Slice-B gate). **boqTypes.ts
+(only frontend touch this slice):** `lock_info: unknown | null` -> a structured `LockInfo | null` interface; PricingGrid/
+SheetPricingPage UNTOUCHED (Slice B). VERIFIED: `bench migrate` CLEAN (doctype live, istable 0, deterministic-PK
+collision proven); test_pricing **22 -> 31** (+9 TestSingleEditorLock: acquire-on-first-save; holder-refresh; reject-
+fresh-mutates-nothing [marker + holder name + no pricing row + holder untouched]; stale-takeover; THE ATOMICITY TEST
+[monkeypatch first `_read_lock`->None so user B attempts the INSERT against A's existing row -> collision RAISES + is
+handled -> exactly ONE row survives, holder stays A]; lock_info free/mine/other-fresh-blocks/other-stale-allows). NO
+release endpoint / socket / heartbeat (expiry is edit-driven; release is implicit via staleness -- all Slice B or
+unneeded). frontend/CLAUDE.md deferred to Slice B (the frontend slice). Full detail in boq-upload-plan.md "Single-Editor
+Lock -- Slice A".)
+// prior: 2026-06-21 (Phase 5 Slice 3c -- AUTO-SAVE + FORCE-SAVE + SAVE-STATUS -- FRONTEND, grid + page, feat
 pending, branch `feature/boq-phase-5`. Minimal-touch cell (frontend slice). Adds to the pricing editor: a **1000ms
 lodash-debounced auto-save** (the rate input's onChange schedules a per-cell debounced commit that fires ~1s after the
 last keystroke -- closing the typed-but-uncommitted gap), a **"Save now" force-save** button (PricingGrid is now a
