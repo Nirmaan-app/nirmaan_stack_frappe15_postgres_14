@@ -317,6 +317,51 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-22 -- Phase 5 Slice 4a.2 REMARKS KEYBOARD-NAV + COLOR ROW-APPLY FIX COMPLETE -- FRONTEND, `PricingGrid.tsx` + `PricingGrid.test.ts`, fix pending):**
+Two owner-found 4a-FE issues, both FRONTEND-ONLY (the 4a.2 recon DB-proved the backend is correct: save_cell_color
+freeze-and-supersedes a re-color cleanly + a whole-row apply writes all cols end-to-end). `SheetPricingPage.tsx` /
+`boqTypes.ts` / backend / SheetDataGrid UNTOUCHED.
+
+- **FINDING 1 -- the trailing REMARKS cell now joins the keyboard matrix.** 4a-FE excluded it (a multi-line Textarea's
+  Enter conflicts with grid Enter=down); the owner now wants arrow-reachability. (a) **colCount + 1**: `remarksColIndex =
+  FIXED_ANCHOR_COUNT + displayDescriptors.length`, `colCount = remarksColIndex + 1`. The +1 ONLY widens nextCell's
+  right/Tab boundary -- no other colIndex math reads colCount (descriptor cells use `FIXED_ANCHOR_COUNT + dIdx`; anchors
+  0-4; `commitActiveRate` safely no-ops on the remarks cell since `displayDescriptors[length]` is undefined). (b) the
+  remarks **`<td>` is the nav focus target** (`tdFocusProps(rowIdx, remarksColIndex)` + `cellNavClass` for the ring);
+  arrows land + onFocus sets activeCell. (c) **Open-state LIFTED to the grid** (`openRemarkRowIdx: number|null`, array
+  index) -> `RemarkCell` is now CONTROLLED (`open` + `onOpenChange` props; draft/saving/error stay LOCAL, seeded on the
+  open transition via `useEffect([open])` so keyboard-open -- which sets the grid state directly, not via onOpenChange --
+  still seeds). (d) **Enter opens the editor**: a new branch in `handleGridKeyDown` BEFORE the generic Enter->down --
+  `if (activeCell.colIndex === remarksColIndex && e.key === "Enter" && onSaveRemark) { preventDefault; setOpenRemarkRowIdx;
+  return; }`. A READ-ONLY remarks cell (no onSaveRemark) skips the branch -> Enter falls through to the generic
+  Enter->down, matching every other read-only cell. (e) **Esc closes** (Textarea onKeyDown -> `onOpenChange(false)`; the
+  grid's onOpenChange refocuses the cell via `focusCell`). (f) **Enter INSIDE the editor = save-and-move-down**: the
+  Textarea onKeyDown Enter (no Shift) -> `commit(draft.trim(), true)` -> save, close, then `onMoveDown` =
+  `nextCell({rowIndex,colIndex:remarksColIndex}, "down", ...) + focusCell` -- REUSES the matrix path a rate cell's Enter
+  uses (not a reimplementation); Shift+Enter = newline (kept); on a save error the editor STAYS open. `onCloseAutoFocus`
+  is `preventDefault`'d so the GRID (not Radix) governs focus on close; the trigger button is `tabIndex={-1}` (not a
+  competing nav stop). **The existing rate-cell nav is byte-for-byte UNCHANGED.**
+- **FINDING 2 -- apply-whole-row color intermittently lost (a frontend state/timing RACE).** Root cause (recon,
+  DB-proven): the row-apply was a fragile two-step where the SWATCH CLICK was the trigger reading a separate transient
+  `wholeRow` checkbox -> a "whole row" pick sometimes wrote only the one cell. **FIX (locked): DECOUPLE selection from
+  submission.** ColorPicker now -- a swatch click only ARMS a token (`armed` state, visibly ringed, NO save); the
+  checkbox only toggles `wholeRow`; an explicit **Apply** button (disabled until `armed !== null`) is the ONLY thing
+  that saves, reading `{armed, wholeRow}` TOGETHER at click time via `submit(armed)`; a **Clear** button sends `""`.
+  Apply/Clear close the popover; opening seeds `armed` from the cell's current color + resets `wholeRow`. **This kills
+  the race by construction** -- no moment a half-set intent is sent. The grid's `onApply(token, wholeRow)` fan-out
+  (`wholeRow ? rowColorCells(displayDescriptors) : [d.col]`) and the page's `handleSaveColor` (N POSTs + one mutate) are
+  UNCHANGED -- only the picker's decide/submit changed (swatch-click-saves -> arm-then-Apply).
+- **VERIFIED:** Vitest **80 -> 81** (+1; PricingGrid.test.ts 57 -> 58: a new nextCell test for the +1 column -- arrow-
+  right lands on remarks, arrow-left returns, right-edge stop, Tab-wrap to next row, last-row Tab stop; the existing 4
+  nextCell tests UNCHANGED + green, proving the rate-cell nav matrix is intact). tsc **3178** (== baseline), **0** in
+  touched files. Vite build exit 0 (PWA 168 entries). **The live race was NOT browser-reproduced this slice** (no
+  browser tooling; the recon DB evidence already proved the intermittency + exonerated the backend) -- the
+  decouple-and-Apply fix removes the racy trigger regardless. **Manual live-cert pending Nitesh:** arrow onto the
+  remarks cell -> Enter opens the editor -> type -> Enter saves + moves down a row; Esc closes back to grid nav; color a
+  cell, then from a DIFFERENT cell arm a swatch + check "apply to whole row" + Apply -> the whole row fills reliably;
+  rate-cell arrow/Tab/Enter nav unchanged. **NEXT = 4b** (computed-flag layer into the review-list seam) + the F1-F4
+  formula builder. Full detail in boq-upload-plan.md "Slice 4a.2".
+
 **Status (2026-06-22 -- Phase 5 Slice 4a-FE ANNOTATION FRONTEND (REMARKS + COLOR) COMPLETE -- FRONTEND, `PricingGrid.tsx` + `SheetPricingPage.tsx` + `boqTypes.ts` + `PricingGrid.test.ts`, feat pending):**
 The frontend half of Slice 4a -- the UI consuming the 4a-BE backend (two doctypes + endpoints + the get_priced_rows
 merge). Two annotation surfaces on the DATA-SHEET pricing grid. FRONTEND ONLY -- no backend / doctype / test_pricing
