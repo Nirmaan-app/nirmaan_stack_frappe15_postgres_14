@@ -17,6 +17,7 @@ import {
   deriveSaveStatus,
   isTakeoverError,
   orderCommittedSheets,
+  isGridOnlySheet,
 } from "./PricingGrid";
 import type { ColumnDescriptor, PricedRow } from "./boqTypes";
 
@@ -347,5 +348,32 @@ describe("orderCommittedSheets", () => {
     const out = orderCommittedSheets(input);
     expect(input.map((x) => x.sheet_name)).toEqual(["B", "A"]); // original order untouched
     expect(out.map((x) => x.sheet_name)).toEqual(["A", "B"]);
+  });
+});
+
+// ── General-specs faithful-grid view: isGridOnlySheet (disposition lookup) ──────
+describe("isGridOnlySheet", () => {
+  const list = [
+    { sheet_name: "SOW", sheet_disposition: "grid_only" },
+    { sheet_name: "Electrical", sheet_disposition: "grid_and_nodes" },
+    { sheet_name: "Elec ", sheet_disposition: "grid_only" }, // trailing-space variant
+  ];
+
+  it("returns true for a grid_only sheet", () => {
+    expect(isGridOnlySheet(list, "SOW")).toBe(true);
+  });
+
+  it("returns false for a grid_and_nodes data sheet", () => {
+    expect(isGridOnlySheet(list, "Electrical")).toBe(false);
+  });
+
+  it("returns false when the sheet is not found (indeterminate window)", () => {
+    expect(isGridOnlySheet(list, "Unknown")).toBe(false);
+    expect(isGridOnlySheet([], "SOW")).toBe(false); // empty list (still loading)
+  });
+
+  it("matches sheet_name VERBATIM (#152 -- trailing space is significant)", () => {
+    expect(isGridOnlySheet(list, "Elec ")).toBe(true); // trailing-space grid_only
+    expect(isGridOnlySheet(list, "Elec")).toBe(false); // trimmed != stored -> not found
   });
 });

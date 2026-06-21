@@ -610,11 +610,35 @@ export interface CommittedSheetState {
    * sheet carries one). Drives the in-editor sheet-tab strip order.
    */
   sheet_order: number | null;
+  /**
+   * The commit-time disposition discriminator (general-specs grid view): "grid_only"
+   * (a faithful grid, ZERO nodes -- general specs) or "grid_and_nodes" (a node-based
+   * priceable data sheet -- finalized). Drives the pricing editor's read-only
+   * faithful-grid fork for grid-only sheets.
+   */
+  sheet_disposition: "grid_only" | "grid_and_nodes";
 }
 
 /** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
 export interface GetCommittedStateResponse {
   committed_state: CommittedSheetState[];
+}
+
+/**
+ * Response shape of get_committed_sheet_grid (pricing.py) -- the FAITHFUL committed cell
+ * grid for one (boq, sheet, committed_version) + its column-config snapshot. Drives the
+ * pricing editor's READ-ONLY general-specs view via SheetDataGrid. Rows reuse
+ * SheetPreviewRow (the committed grid row shape). The config maps may be EMPTY ({} / [])
+ * for a general-specs sheet -- the grid rows are returned regardless (SheetDataGrid then
+ * falls back to raw Excel column letters).
+ */
+export interface CommittedSheetGridResponse {
+  rows: SheetPreviewRow[];
+  column_role_map: Record<string, ColumnRoleEntry>;
+  column_headers: Record<string, string>;
+  area_dimensions: string[];
+  header_row: number | null;
+  header_row_count: number;
 }
 
 // ── Stale-config signal (Slice 1b get_stale_sheets; consumed by F2) ────────────

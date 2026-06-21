@@ -19,11 +19,14 @@ a (boq, sheet, committed_version)) path. The overlay-onto-get_committed_rows rea
 finalize-pricing endpoints, copy-forward, and the editor UI are LATER slices.
 
 Public API:
-  save_cell_price(...)   -> dict   [whitelisted POST]
-  get_sheet_pricing(...) -> dict   [whitelisted, GET-capable]
-  get_priced_rows(...)   -> dict   [whitelisted, GET-capable]  -- the overlay read
+  save_cell_price(...)          -> dict   [whitelisted POST]
+  get_sheet_pricing(...)        -> dict   [whitelisted, GET-capable]
+  get_priced_rows(...)          -> dict   [whitelisted, GET-capable]  -- the overlay read
+  get_committed_sheet_grid(...) -> dict   [whitelisted, GET-capable]  -- the faithful grid
 """
 from __future__ import annotations
+
+import json
 
 import frappe
 from frappe.utils import now_datetime
@@ -34,6 +37,8 @@ from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_l
 _PRICING = "BoQ Cell Pricing"
 _BOQ_SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
+_GRID = "BoQ Committed Sheet Grid"
+_GRID_ROW = "BoQ Committed Sheet Grid Row"
 
 # A rate cell is the ONLY cell a price overlays onto. A column_descriptor identifies a
 # rate cell by its value_field: per-area rates nest under "rate_by_area"; scalar rates use
@@ -44,6 +49,21 @@ _SCALAR_RATE_FIELDS = frozenset({"rate_supply", "rate_install", "rate_combined"}
 
 # Pricing identity = the durable Excel address + the committed version it prices.
 _IDENTITY_FIELDS = ("boq", "sheet_name", "excel_row", "col_letter", "committed_version")
+
+
+def _parse_json_field(value, default):
+    """Return a stored JSON field's value as a Python object. The committed BoQ Sheet JSON
+    columns are written via json.dumps (so a raw read returns a str) but some read paths
+    (get_value as_dict) hand back an already-parsed dict/list -- handle both. None / "" /
+    a parse failure fall back to `default`."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (ValueError, TypeError):
+            return default
+    return value
 
 
 def _coerce_int(value, field: str) -> int:
@@ -379,3 +399,93 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
                 row["priced_" + field] = True
 
     return base
+
+
+@frappe.whitelist()
+def get_committed_sheet_grid(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Return the FAITHFUL committed cell grid for one (boq, sheet_name [VERBATIM #152],
+    committed_version) -- every committed Excel row in position + the per-sheet column-config
+    snapshot -- so the pricing editor can render a GRID-ONLY (general-specs) sheet as a
+    READ-ONLY reference. A general-specs sheet commits grid-only (a faithful grid, ZERO nodes),
+    so the node-based get_priced_rows renders it empty; this read fills that gap.
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_pricing / get_priced_rows).
+    PURE READ -- never writes (no set_value / insert / save / commit). sheet_name matched
+    VERBATIM (#152). Guards mirror the other committed reads (throw on missing/unknown).
+
+    CRITICAL (the empty-config case): the grid rows are returned EVEN WHEN column_role_map /
+    column_headers are empty ({}) -- a general-specs sheet like SOW carries no parser config;
+    the row return is NEVER gated on a non-empty config (the frontend falls back to raw Excel
+    column letters).
+
+    Returns:
+      {
+        "rows": [{"row_number": int, "cells": {col_letter: value}}, ...],  # row_order asc
+        "column_role_map": {...},   # from the committed BoQ Sheet snapshot (may be {})
+        "column_headers": {...},    # (may be {})
+        "area_dimensions": [...],   # (may be [])
+        "header_row": int | None,
+        "header_row_count": int,
+      }
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # The committed faithful grid for this (boq, sheet_name VERBATIM, version).
+    grid_name = frappe.db.get_value(
+        _GRID,
+        {"boq": boq_name, "source_sheet_name": sheet_name, "commit_version": committed_version},
+        "name",
+    )
+    if not grid_name:
+        frappe.throw(
+            f"No committed grid for sheet '{sheet_name}' at committed_version "
+            f"{committed_version} on BoQ '{boq_name}'.",
+            title="No committed grid",
+        )
+
+    grid_rows = frappe.get_all(
+        _GRID_ROW,
+        filters={"parent": grid_name, "parenttype": _GRID},
+        fields=["row_number", "row_order", "cells"],
+        order_by="row_order asc",
+    )
+    rows = [
+        {"row_number": r["row_number"], "cells": _parse_json_field(r.get("cells"), {})}
+        for r in grid_rows
+    ]
+
+    # The per-sheet column-config snapshot lives on the committed BoQ Sheet (pinned at commit
+    # for BOTH dispositions; a general-specs sheet has empty role/header maps -- still returned).
+    sheet_doc = frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        ["column_role_map", "column_headers", "area_dimensions", "header_row", "header_row_count"],
+        as_dict=True,
+    )
+
+    return {
+        "rows": rows,
+        "column_role_map": _parse_json_field(
+            sheet_doc.get("column_role_map") if sheet_doc else None, {}
+        ),
+        "column_headers": _parse_json_field(
+            sheet_doc.get("column_headers") if sheet_doc else None, {}
+        ),
+        "area_dimensions": _parse_json_field(
+            sheet_doc.get("area_dimensions") if sheet_doc else None, []
+        ),
+        "header_row": sheet_doc.get("header_row") if sheet_doc else None,
+        "header_row_count": (sheet_doc.get("header_row_count") if sheet_doc else None) or 1,
+    }

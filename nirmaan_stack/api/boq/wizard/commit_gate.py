@@ -171,6 +171,8 @@ def get_committed_state(boq_name: str) -> dict:
           {"sheet_name": str,                 # source_sheet_name VERBATIM (#152)
            "committed_at": str | None,        # as Frappe returns the Datetime
            "commit_version": int,
+           "sheet_disposition": str,           # "grid_only" | "grid_and_nodes" (the
+                                              # commit-time discriminator)
            "sheet_order": int | None}, ...]}  # committed BoQ Sheet.sheet_order;
                                               # None if no current BoQ Sheet matches
                                               # (defensive -- in practice every
@@ -193,7 +195,7 @@ def get_committed_state(boq_name: str) -> dict:
     rows = frappe.get_all(
         "BoQ Committed Sheet Grid",
         filters={"boq": boq_name, "is_current": 1},
-        fields=["source_sheet_name", "committed_at", "commit_version"],
+        fields=["source_sheet_name", "committed_at", "commit_version", "sheet_disposition"],
     )
 
     # sheet_order is on the committed "BoQ Sheet" tier, not the grid tier. Look it up by
@@ -213,6 +215,10 @@ def get_committed_state(boq_name: str) -> dict:
             "committed_at": row.committed_at,
             "commit_version": row.commit_version,
             "sheet_order": order_by_sheet.get(row.source_sheet_name),
+            # The explicit grid_only / grid_and_nodes discriminator (set at commit; general
+            # specs -> grid_only, finalized -> grid_and_nodes). Surfaced so the pricing editor
+            # can fork a grid-only sheet to a read-only faithful-grid view (no node-based grid).
+            "sheet_disposition": row.sheet_disposition,
         }
         for row in rows
     ]

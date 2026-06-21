@@ -366,3 +366,46 @@ class TestGetCommittedStateOrdering(FrappeTestCase):
         # Out-of-order seed -> returned in workbook order (sheet_order ascending).
         self.assertEqual([r["sheet_name"] for r in rows], ["Alpha", "Beta", "Gamma"])
         self.assertEqual([r["sheet_order"] for r in rows], [1, 2, 3])
+
+
+class TestGetCommittedStateDisposition(FrappeTestCase):
+    """get_committed_state surfaces the sheet_disposition discriminator (grid_only /
+    grid_and_nodes) so the pricing editor can fork a grid-only general-specs sheet to a
+    read-only faithful-grid view. Seeds one grid_only + one grid_and_nodes current grid
+    row and asserts each surfaces its own disposition."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT_COMMITTED
+        boq.boq_name = "Shared Test BoQ for Committed State Disposition"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        for name, disp in (("Specs", "grid_only"), ("Electrical", "grid_and_nodes")):
+            grid = frappe.new_doc("BoQ Committed Sheet Grid")
+            grid.boq = cls.boq_name
+            grid.source_sheet_name = name
+            grid.sheet_disposition = disp
+            grid.commit_version = 1
+            grid.is_current = 1
+            grid.committed_at = "2026-06-21 10:00:00"
+            grid.insert(ignore_permissions=True, ignore_links=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        name = getattr(cls, "boq_name", None)
+        if name:
+            frappe.db.delete("BoQ Committed Sheet Grid", {"boq": name})
+            frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def test_disposition_surfaces_per_sheet(self):
+        by_sheet = {
+            r["sheet_name"]: r for r in get_committed_state(self.boq_name)["committed_state"]
+        }
+        self.assertEqual(by_sheet["Specs"]["sheet_disposition"], "grid_only")
+        self.assertEqual(by_sheet["Electrical"]["sheet_disposition"], "grid_and_nodes")

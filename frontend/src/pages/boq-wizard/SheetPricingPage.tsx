@@ -28,6 +28,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   BOQsDoc,
+  CommittedSheetGridResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
   RateCellSaveArgs,
@@ -35,10 +36,12 @@ import type {
 import {
   PricingGrid,
   deriveSaveStatus,
+  isGridOnlySheet,
   isTakeoverError,
   orderCommittedSheets,
   type PricingGridHandle,
 } from "./PricingGrid";
+import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
 // Slice 3c: "saved as of" uses the CLIENT clock at save-success (save_cell_price returns no
@@ -76,6 +79,30 @@ const SheetPricingPage = () => {
     "nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state",
     { boq_name: boqId ?? "" },
     boqId ? undefined : null,
+  );
+
+  // General-specs faithful-grid fork: a GRID-ONLY (general-specs) committed sheet commits a
+  // faithful grid with ZERO nodes, so the node-based get_priced_rows renders it empty. Detect
+  // it via the EXPLICIT sheet_disposition discriminator (NOT by inferring "empty rows"). The
+  // lookup fails to FALSE in the indeterminate (committed-state still loading) window, so a
+  // data sheet never briefly renders as grid-only -- it stays on the normal pricing path until
+  // the disposition is positively known.
+  const isGridOnly = isGridOnlySheet(
+    committedStateData?.message?.committed_state ?? [],
+    sheetName ?? "",
+  );
+  // commit_version comes from get_priced_rows (it carries it for BOTH dispositions -- a
+  // grid-only sheet still has a current committed BoQ Sheet). The faithful-grid fetch is
+  // disabled until it's a known grid-only sheet WITH a version.
+  const commitVersionForGrid = pricedData?.message?.commit_version ?? null;
+  const { data: gridData } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
+    "nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: commitVersionForGrid ?? 0,
+    },
+    isGridOnly && boqId && sheetName && commitVersionForGrid !== null ? undefined : null,
   );
 
   // Slice 3b: save one rate cell (save_cell_price) + an inline save-error surface.
@@ -258,7 +285,10 @@ const SheetPricingPage = () => {
           </h1>
         </div>
 
-        {/* ── Slice 3c: save-status chip + force-save ───────────────────────── */}
+        {/* ── Slice 3c: save-status chip + force-save ─────────────────────────
+            SUPPRESSED for a grid-only (general-specs) sheet -- it is read-only
+            reference, nothing to save, summarize, or flush. */}
+        {!isGridOnly && (
         <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
           <div className="flex items-center gap-1.5 text-xs">
             {saveStatus === "saving" && (
@@ -311,13 +341,15 @@ const SheetPricingPage = () => {
             Save now
           </Button>
         </div>
+        )}
       </div>
 
       {/* ── Single-editor lock banners (slice B) ──────────────────────────────
           Mid-edit takeover takes precedence over the load-time holder banner. A STALE
           lock returns editable===true -> NEITHER shows (silent auto-takeover on first
-          save). The holder banner shows ONLY when editable===false (truly blocked). */}
-      {takenOver ? (
+          save). The holder banner shows ONLY when editable===false (truly blocked).
+          SUPPRESSED entirely for a grid-only sheet (no editing -> no lock). */}
+      {isGridOnly ? null : takenOver ? (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
           <p className="text-amber-900 dark:text-amber-100 flex-1">
@@ -375,18 +407,26 @@ const SheetPricingPage = () => {
       )}
 
       {/* ── Editor note ───────────────────────────────────────────────────────
-          Muted-strip convention (mirrors the review screen). Slice 3b: rates are
-          editable; amounts shown are qty x rate (display-only). */}
+          Muted-strip convention (mirrors the review screen). For a grid-only
+          general-specs sheet it is a read-only reference note; otherwise the Slice-3b
+          rate-editing note. */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-        <span>
-          Enter a rate in any rate cell. It auto-saves a second after you stop typing (or on
-          Enter / click away / arrow-move) -- or press &ldquo;Save now&rdquo;. Amounts shown
-          are qty x rate (display-only); priced cells are marked. Rates only are editable.
-        </span>
+        {isGridOnly ? (
+          <span>
+            This is a general-specifications sheet -- read-only reference. There is nothing to
+            price here.
+          </span>
+        ) : (
+          <span>
+            Enter a rate in any rate cell. It auto-saves a second after you stop typing (or on
+            Enter / click away / arrow-move) -- or press &ldquo;Save now&rdquo;. Amounts shown
+            are qty x rate (display-only); priced cells are marked. Rates only are editable.
+          </span>
+        )}
       </div>
 
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
-      {saveError && (
+      {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
           <span>{saveError}</span>
         </div>
@@ -395,7 +435,7 @@ const SheetPricingPage = () => {
       {/* ── Summary panel (top-down, grid-aligned, fixed-height, internal scroll) ──
           Opens ABOVE the grid; computed page-side from the same rows + descriptors the
           grid renders (no new backend call). The grid stays usable below. */}
-      {summaryOpen && !pricedLoading && !pricedError && (
+      {!isGridOnly && summaryOpen && !pricedLoading && !pricedError && (
         <SummaryPanel
           rows={rows}
           columnDescriptors={columnDescriptors}
@@ -417,22 +457,44 @@ const SheetPricingPage = () => {
         </p>
       )}
 
+      {/* ── Render fork: grid-only -> faithful read-only grid; else the pricing grid.
+          We wait for pricedData (it carries commit_version, which the faithful-grid fetch
+          needs) before either render. */}
       {!pricedLoading && !pricedError && (
-        <PricingGrid
-          // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
-          // grid -- the existing flush-on-unmount commits the OLD sheet's pending drafts to
-          // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
-          key={sheetName}
-          ref={gridRef}
-          rows={rows}
-          columnDescriptors={columnDescriptors}
-          // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
-          // single onSaveRate root gate) collapses to the read-only render.
-          onSaveRate={locked ? undefined : handleSaveRate}
-          onDirtyChange={setHasUnsaved}
-          editable={editable}
-          lockInfo={lockInfo}
-        />
+        isGridOnly ? (
+          <SheetDataGrid
+            // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
+            // once (pagination stubbed). Reuses SheetDataGrid as-is; falls back to raw Excel
+            // column letters when the config maps are empty (a general-specs sheet has none).
+            rows={gridData?.message?.rows ?? []}
+            hasMore={false}
+            isInitLoading={gridData === undefined}
+            initError={gridData === null ? "Failed to load the sheet grid." : null}
+            isLoadingMore={false}
+            loadMoreError={null}
+            onLoadMore={() => {}}
+            columnRoleMap={gridData?.message?.column_role_map ?? {}}
+            headerRow={gridData?.message?.header_row ?? null}
+            headerRowCount={(gridData?.message?.header_row_count ?? 1) as 1 | 2}
+            areaList={gridData?.message?.area_dimensions ?? []}
+          />
+        ) : (
+          <PricingGrid
+            // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
+            // grid -- the existing flush-on-unmount commits the OLD sheet's pending drafts to
+            // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
+            key={sheetName}
+            ref={gridRef}
+            rows={rows}
+            columnDescriptors={columnDescriptors}
+            // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
+            // single onSaveRate root gate) collapses to the read-only render.
+            onSaveRate={locked ? undefined : handleSaveRate}
+            onDirtyChange={setHasUnsaved}
+            editable={editable}
+            lockInfo={lockInfo}
+          />
+        )
       )}
     </div>
   );

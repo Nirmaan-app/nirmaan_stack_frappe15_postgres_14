@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.pricing import (
+    get_committed_sheet_grid,
     get_priced_rows,
     get_sheet_pricing,
     save_cell_price,
@@ -871,3 +872,148 @@ class TestLockPerSheetIsolation(FrappeTestCase):
         )
         # The reject mutated nothing: sheet A is still held by other (unchanged).
         self.assertEqual(self._lock_row(self.sheet_a)["locked_by"], self.other)
+
+
+class TestGetCommittedSheetGrid(FrappeTestCase):
+    """The faithful committed-grid read for the read-only general-specs view.
+
+    Seeds two committed grids DIRECTLY (no commit pipeline run): a CONFIGURED data sheet
+    (non-empty column_role_map etc.) and an EMPTY-CONFIG general-specs sheet (empty
+    column_role_map -- the SOW shape) -- proving the row return is NEVER gated on config.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        cls.cv = 1
+
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "TEST faithful grid BoQ"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq = boq.name
+
+        # (1) CONFIGURED sheet -- a non-empty column-config snapshot + 2 grid rows.
+        cls.cfg_sheet = "Electrical"
+        cls._make_grid(
+            cls.cfg_sheet,
+            rows=[
+                {"row_number": 5, "cells": {"A": "1.1", "B": "Cabling", "C": 12}},
+                {"row_number": 6, "cells": {"A": "1.2", "B": "Trunking", "C": 8}},
+            ],
+        )
+        cls._make_boq_sheet(
+            cls.cfg_sheet,
+            column_role_map={"A": {"role": "sl_no", "area": None},
+                             "B": {"role": "description", "area": None}},
+            column_headers={"A": "Sl.No", "B": "Description"},
+            area_dimensions=["Phase 1"],
+            header_row=2,
+            header_row_count=1,
+        )
+
+        # (2) EMPTY-CONFIG general-specs sheet -- the SOW shape (empty maps), rows still present.
+        cls.gen_sheet = "SOW"
+        cls._make_grid(
+            cls.gen_sheet,
+            rows=[
+                {"row_number": 1, "cells": {"A": "Scope of Work"}},
+                {"row_number": 2, "cells": {"A": "1. General", "B": "All works as per drawings"}},
+                {"row_number": 3, "cells": {"A": "2. Exclusions"}},
+            ],
+        )
+        cls._make_boq_sheet(
+            cls.gen_sheet,
+            column_role_map={},
+            column_headers={},
+            area_dimensions=[],
+            header_row=0,
+            header_row_count=1,
+        )
+        frappe.db.commit()
+
+    @classmethod
+    def _make_grid(cls, sheet_name, rows):
+        grid = frappe.new_doc("BoQ Committed Sheet Grid")
+        grid.boq = cls.boq
+        grid.source_sheet_name = sheet_name
+        grid.commit_version = cls.cv
+        grid.is_current = 1
+        grid.committed_at = "2026-06-21 10:00:00"
+        # Seed rows OUT of row_order to prove the order_by row_order asc.
+        for order, r in reversed(list(enumerate(rows))):
+            grid.append("rows", {
+                "row_number": r["row_number"],
+                "row_order": order,
+                "cells": r["cells"],
+            })
+        grid.insert(ignore_permissions=True, ignore_links=True)
+        return grid.name
+
+    @classmethod
+    def _make_boq_sheet(cls, sheet_name, column_role_map, column_headers,
+                        area_dimensions, header_row, header_row_count):
+        bs = frappe.new_doc("BoQ Sheet")
+        bs.boq = cls.boq
+        bs.sheet_name = sheet_name
+        bs.sheet_order = 0
+        bs.commit_version = cls.cv
+        bs.is_current = 1
+        # JSON fields stored as json.dumps strings (the commit pipeline's pattern).
+        bs.column_role_map = json.dumps(column_role_map)
+        bs.column_headers = json.dumps(column_headers)
+        bs.area_dimensions = json.dumps(area_dimensions)
+        bs.header_row = header_row
+        bs.header_row_count = header_row_count
+        bs.insert(ignore_permissions=True, ignore_links=True)
+        return bs.name
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def test_configured_sheet_returns_rows_and_config(self):
+        res = get_committed_sheet_grid(self.boq, self.cfg_sheet, self.cv)
+        # Rows returned in row_order (seeded reversed) -> ascending by row_number here.
+        self.assertEqual([r["row_number"] for r in res["rows"]], [5, 6])
+        self.assertEqual(res["rows"][0]["cells"], {"A": "1.1", "B": "Cabling", "C": 12})
+        # Config snapshot parsed back to Python objects.
+        self.assertEqual(res["column_role_map"]["A"], {"role": "sl_no", "area": None})
+        self.assertEqual(res["column_headers"], {"A": "Sl.No", "B": "Description"})
+        self.assertEqual(res["area_dimensions"], ["Phase 1"])
+        self.assertEqual(res["header_row"], 2)
+        self.assertEqual(res["header_row_count"], 1)
+
+    def test_empty_config_general_specs_returns_rows(self):
+        """THE empty-config case: a general-specs sheet (SOW shape) with an empty
+        column_role_map STILL returns its grid rows -- the return is never config-gated."""
+        res = get_committed_sheet_grid(self.boq, self.gen_sheet, self.cv)
+        self.assertEqual(len(res["rows"]), 3, "all 3 grid rows returned despite empty config")
+        self.assertEqual([r["row_number"] for r in res["rows"]], [1, 2, 3])
+        self.assertEqual(res["rows"][1]["cells"], {"A": "1. General", "B": "All works as per drawings"})
+        # Config is empty -- and that is fine, not an error.
+        self.assertEqual(res["column_role_map"], {})
+        self.assertEqual(res["column_headers"], {})
+        self.assertEqual(res["area_dimensions"], [])
+
+    def test_missing_args_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid(None, self.gen_sheet, self.cv)
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid(self.boq, None, self.cv)
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid(self.boq, self.gen_sheet, None)
+
+    def test_unknown_boq_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid("BOQ-DOES-NOT-EXIST-999", self.gen_sheet, self.cv)
+
+    def test_unknown_sheet_or_version_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid(self.boq, "Nonexistent Sheet", self.cv)
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_sheet_grid(self.boq, self.gen_sheet, 999)

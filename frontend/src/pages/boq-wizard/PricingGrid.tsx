@@ -318,6 +318,24 @@ export function orderCommittedSheets<
   });
 }
 
+/**
+ * Is the active sheet a GRID-ONLY (general-specs) committed sheet? Looks the active
+ * sheet up in the committed-state list by sheet_name (VERBATIM, #152 -- never trimmed)
+ * and returns true ONLY when its sheet_disposition is explicitly "grid_only".
+ *
+ * Returns FALSE for: a data sheet ("grid_and_nodes") AND the indeterminate window (the
+ * sheet not yet in the list while committed-state loads). The fail-to-false default is
+ * load-bearing -- it guarantees a data sheet NEVER briefly renders as grid-only, and a
+ * grid-only sheet only forks once its disposition is positively known. Pure -- unit-tested.
+ */
+export function isGridOnlySheet(
+  committedSheets: { sheet_name: string; sheet_disposition?: string }[],
+  sheetName: string,
+): boolean {
+  const match = committedSheets.find((s) => s.sheet_name === sheetName);
+  return match?.sheet_disposition === "grid_only";
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
