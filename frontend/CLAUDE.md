@@ -317,6 +317,57 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-21 -- SINGLE-EDITOR LOCK Slice B: FRONTEND read-only gating + holder banner + takeover COMPLETE -- FRONTEND, `PricingGrid.tsx` + `SheetPricingPage.tsx` + `PricingGrid.test.ts`, feat pending):**
+The frontend half of the single-editor pricing lock -- consumes Slice A's `editable` + `lock_info` from get_priced_rows
+to make the grid HARD READ-ONLY when locked, show a holder-name banner, and flip the page to read-only on a mid-edit
+takeover. FRONTEND ONLY -- NO backend, NO boqTypes runtime change (the `LockInfo` interface already landed in Slice A).
+Slice A (backend doctype + atomic acquire + structured lock_info) + Slice B together COMPLETE the single-editor lock.
+
+- **SLICE-A-OWED LockInfo NOTE (folded in here per the deferral):** Slice A added to `boqTypes.ts` the
+  `LockInfo` interface -- `{ locked_by_user, locked_by_name, is_locked_by_me, last_edit_at (string|null), is_stale }` --
+  and tightened `GetPricedRowsResponse.lock_info: LockInfo | null` (+ `editable: boolean`). `lock_info` is `null` when
+  the committed sheet+version is FREE, else the holder details; `editable` is the backend-precomputed gate: `true` when
+  FREE / locked-by-me / STALE, `false` ONLY when held FRESH by another user. A backend reject (held fresh) throws a
+  frappe error whose message is prefixed with the stable marker `BOQ_PRICING_LOCKED`.
+- **HARD READ-ONLY = WITHHOLD onSaveRate (the load-bearing reuse).** The grid's editability is a SINGLE root gate --
+  `onSaveRate` presence (every edit path guards on it: the rate-cell render branch `if (onSaveRate && isRateDescriptor)`,
+  `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the `flush` handle, `handleGridKeyDown`). So the PAGE passes
+  `onSaveRate={locked ? undefined : handleSaveRate}` and ALL gates collapse to the existing read-only cell render (plain
+  text + the emerald priced tint) with ZERO new per-gate checks. `locked = editable === false || takenOver`. **Do NOT
+  add a per-cell `editable` check -- it duplicates the onSaveRate guard.** The grid's `lockInfo` prop was retyped
+  `unknown` -> `LockInfo | null` (type-only; the grid does NOT read it -- the page owns the banner + error surface).
+- **`isTakeoverError(msg)` (NEW pure exported helper in `PricingGrid.tsx`, unit-tested):** `msg.includes("BOQ_PRICING_
+  LOCKED")` -- `.includes` NOT `.startsWith` because `getFrappeError` ", "-joins multiple `_server_messages` (and
+  preserves the message verbatim, so the marker survives). Placed beside `deriveSaveStatus` with the other exported pure
+  helpers; imported by `PricingGrid.test.ts`.
+- **PAGE (`SheetPricingPage.tsx`):** (1) `const locked = editable === false || takenOver` -> withhold onSaveRate. (2)
+  Load-time HOLDER banner (house-style amber strip mirroring SheetReviewPage's parsing banner; `Lock` icon) shown ONLY
+  when `editable === false`, naming `lockInfo?.locked_by_name` + Reload + Go-to-hub. (3) `const [takenOver,
+  setTakenOver] = useState(false)`; in `handleSaveRate`'s catch, `if (isTakeoverError(getFrappeError(e)))
+  setTakenOver(true)` (else the generic `setSaveError`) -- the takeover is the banner's surface, so NO generic error
+  strip for it; still re-throws so the grid keeps the draft. (4) A distinct amber TAKEOVER banner (`AlertTriangle`) when
+  `takenOver` ("taken over by another user ... Reload to continue"). Takeover banner takes precedence over the holder
+  banner (mutually exclusive ternary). (5) Reload = `handleReload = () => void mutate()` (re-reads lock state IN PLACE;
+  preferred over window.location.reload).
+- **TAKEOVER RESET = a `useEffect` keyed on `pricedData`** (the payload identity -> fires on EVERY refetch; an
+  `[editable]` dep would miss a true->true no-change): `if (pricedData?.message && (pricedData.message.editable ?? true))
+  setTakenOver(false)` -- a Reload that finds the sheet free/mine/stale clears the takeover and the page is editable
+  again. The effect sits with the other hooks BEFORE the early returns (reads `pricedData` from the useFrappeGetCall).
+- **STALE = SILENT (NO banner):** a stale lock returns `editable === true`, so onSaveRate is NOT withheld and NEITHER
+  banner shows -- the user edits normally and their first save auto-takes-over server-side. The banner condition is
+  `editable === false` (NOT lock_info presence), so a stale/`previously priced by X` note is deliberately never shown.
+- **UNCHANGED:** the save mechanism (`commitRate -> onSaveRate -> save_cell_price -> mutate`), auto-save/debounce/flush,
+  the Phase-2 cross-area prefill, keyboard nav, the summary panel, the emerald priced markers (all still work when NOT
+  locked). NO socket / poll / "take over" button (takeover is automatic server-side on a stale lock's first edit).
+- **VERIFIED:** Vitest **56 -> 60 GREEN** (+4 `isTakeoverError`: marker-containing / ", "-joined-marker -> true;
+  generic / "" -> false; full suite = 12 reviewRender + 37 PricingGrid + 11 pricingRollup). tsc **3178** (== baseline),
+  **0** in touched files (filtered `SheetPricingPage|PricingGrid|boqTypes`). Vite build exit **0**. **Manual live-cert
+  pending Nitesh (two-user):** user A prices a cell -> user B opens the sheet: B's grid is read-only + an amber banner
+  names A; A keeps editing fine; if A goes idle >5 min and B saves, B takes over (silent); A's NEXT save -> the takeover
+  banner + read-only; A clicks Reload -> if free/stale, editable again, else B's name shown; a stale lock shows NO
+  banner. **Single-editor lock COMPLETE (Slice A backend + Slice B frontend).** Full detail in boq-upload-plan.md
+  "Single-Editor Lock -- Slice B".
+
 **Status (2026-06-21 -- Phase 5 Phase-2 PREFILL: CROSS-AREA PROPOSED RATES (proposed-until-touched) COMPLETE -- FRONTEND, `PricingGrid.tsx` + `PricingGrid.test.ts` ONLY, feat pending):**
 On a MULTI-AREA sheet, saving a PER-AREA rate in one area OFFERS the same value as a PROPOSED (display-only) rate in the
 CORRESPONDING rate column of the OTHER area(s) for that SAME ROW, ONLY into EMPTY cells. The proposal is VISIBLE but

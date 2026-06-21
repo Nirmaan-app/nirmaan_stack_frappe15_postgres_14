@@ -16,7 +16,40 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Single-Editor Lock -- Slice A (BACKEND: doctype + atomic acquire-on-first-edit) (2026-06-21, feat pending,
+LATEST: Single-Editor Lock -- Slice B (FRONTEND: read-only gating + holder banner + takeover) (2026-06-21, feat
+pending, branch feature/boq-phase-5). The frontend half that CONSUMES Slice A's `editable`/`lock_info` -- Slice A+B
+together COMPLETE the single-editor lock. FRONTEND ONLY (PricingGrid.tsx + SheetPricingPage.tsx + PricingGrid.test.ts;
+NO backend, NO boqTypes runtime change -- LockInfo already existed). LOCKED DESIGN implemented exactly:
+- HARD READ-ONLY via WITHHOLDING onSaveRate (the elegant reuse). Recon-verified that the grid's editability is a SINGLE
+  root gate -- `onSaveRate` presence (guarded at the rate-cell render branch, commitRate, commitActiveRate,
+  scheduleAutoSave, the flush handle, handleGridKeyDown). So the page passes `onSaveRate={locked ? undefined :
+  handleSaveRate}`; ALL seven gates collapse to the existing read-only cell render with ZERO new per-gate checks.
+  `locked = editable === false || takenOver`. (NO per-cell `editable` check was added -- that would duplicate the
+  onSaveRate guard.)
+- LOAD-TIME HOLDER BANNER: a house-style amber strip (matching SheetReviewPage's parsing banner) shown ONLY when
+  `editable === false` (the backend returns false ONLY when held FRESH by ANOTHER user), naming
+  `lock_info.locked_by_name` ("being priced by NAME ... read-only until they finish") + Reload + Go-to-hub buttons.
+- MID-EDIT TAKEOVER (NEXT-SAVE-ONLY, no socket/poll): a NEW pure helper `isTakeoverError(msg)` (exported from
+  PricingGrid.tsx, unit-tested) detects the Slice-A reject by `msg.includes("BOQ_PRICING_LOCKED")` (the stable marker;
+  `.includes` not `.startsWith` -- getFrappeError ", "-joins multiple server messages, and preserves the message
+  verbatim). In handleSaveRate's catch: `if (isTakeoverError(getFrappeError(e))) setTakenOver(true)` (else the generic
+  setSaveError). `takenOver` flips the page read-only (same withhold mechanism) + shows a distinct amber takeover banner
+  ("taken over by another user ... Reload to continue"). The grid keeps the optimistic draft (it just can't be saved).
+- STALE = SILENT (NO banner): a stale lock returns `editable === true` from the backend, so the page does NOT withhold
+  onSaveRate and shows NEITHER banner -- the user edits normally and their first save auto-takes-over server-side. The
+  banner condition is `editable === false` (NOT lock_info presence), so stale never surfaces anything.
+- TAKEOVER RESET: a `useEffect` keyed on `pricedData` (the payload identity, so it fires on EVERY refetch -- an
+  [editable] dep would miss a true->true no-change) resets `takenOver=false` whenever a FRESH get_priced_rows payload
+  reports `editable === true` (a Reload re-read found it free/mine/stale). Reload = `mutate()` (re-reads lock state in
+  place; preferred over window.location.reload).
+- The grid's `lockInfo` prop retyped `unknown` -> `LockInfo | null` (type-only; the grid does NOT read it -- the PAGE
+  owns the banner + error surface). Save mechanism / auto-save / prefill / summary panel UNCHANGED.
+- VERIFIED: Vitest 56 -> 60 (+4 isTakeoverError: marker / ", "-joined-marker -> true; generic / "" -> false); tsc 3178
+  (== baseline), 0 in touched files; Vite build exit 0. Manual live-cert pending Nitesh (two-user: B blocked read-only +
+  banner names A; A's mid-edit save -> takeover banner + read-only; Reload clears when free/stale; stale shows nothing).
+  Slice A+B COMPLETE the single-editor lock. Full detail in frontend/CLAUDE.md "Single-Editor Lock -- Slice B".
+
+PRIOR: Single-Editor Lock -- Slice A (BACKEND: doctype + atomic acquire-on-first-edit) (2026-06-21, feat pending,
 branch feature/boq-phase-5). The pricing editor's single-editor lock, backend + the atomicity guarantee, certified
 ALONE. Slice B (frontend gating, holder-name banner, takeover/reload UX, optional socket) is a SEPARATE later prompt.
 LOCKED DESIGN implemented exactly: acquire ON FIRST EDIT (the first save_cell_price for a (boq, sheet_name,
