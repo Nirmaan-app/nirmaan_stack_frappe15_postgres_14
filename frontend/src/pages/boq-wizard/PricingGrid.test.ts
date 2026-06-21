@@ -10,6 +10,7 @@ import {
   isCellPriced,
   isAmountDescriptor,
   findPairedRateDescriptor,
+  findCorrespondingRateDescriptors,
   computeAmount,
   buildRateCell,
   nextCell,
@@ -231,5 +232,64 @@ describe("deriveSaveStatus", () => {
   });
   it("nothing happened yet -> idle", () => {
     expect(deriveSaveStatus(base)).toBe("idle");
+  });
+});
+
+// ── Phase-2 prefill: findCorrespondingRateDescriptors (cross-area rate correspondence) ──
+// Covers the real committed corpus shapes (recon-verified). The match key is:
+// both value_field === "rate_by_area", SAME rate_subkey, DIFFERENT value_key; everything
+// else (scalar, half-populated) returns [].
+describe("findCorrespondingRateDescriptors", () => {
+  // The full VRF 9-rate descriptor set (L1/L2 supply/install/combined per-area + N/O/P scalar).
+  const vrf9 = (): ColumnDescriptor[] => [
+    desc("rate_by_area", "L1", "supply_rate", "H"),
+    desc("rate_by_area", "L1", "install_rate", "I"),
+    desc("rate_by_area", "L1", "combined_rate", "J"),
+    desc("rate_by_area", "L2", "supply_rate", "K"),
+    desc("rate_by_area", "L2", "install_rate", "L"),
+    desc("rate_by_area", "L2", "combined_rate", "M"),
+    desc("rate_supply", null, null, "N"),
+    desc("rate_install", null, null, "O"),
+    desc("rate_combined", null, null, "P"),
+  ];
+
+  it("per-area symmetric 2-area combined (Electrical/HVAC/FF): Phase 1 -> Phase 2 only", () => {
+    const ds = [
+      desc("rate_by_area", "Phase 1", "combined_rate", "E"),
+      desc("rate_by_area", "Phase 2", "combined_rate", "H"),
+    ];
+    expect(findCorrespondingRateDescriptors(ds[0], ds).map((d) => d.col)).toEqual(["H"]);
+  });
+
+  it("VRF triple subkey: L1 supply_rate -> L2 supply_rate ONLY (not install/combined/scalar)", () => {
+    const ds = vrf9();
+    const src = ds.find((d) => d.col === "H")!; // L1 supply_rate
+    expect(findCorrespondingRateDescriptors(src, ds).map((d) => d.col)).toEqual(["K"]);
+  });
+
+  it("scalar source (low side rate_supply, area null) -> []", () => {
+    const ds = [desc("rate_supply"), desc("rate_install")];
+    expect(findCorrespondingRateDescriptors(ds[0], ds)).toEqual([]);
+  });
+
+  it("VRF scalar source (rate_combined, area null) -> [] (no per-area analog)", () => {
+    const ds = vrf9();
+    const src = ds.find((d) => d.col === "P")!; // scalar rate_combined
+    expect(findCorrespondingRateDescriptors(src, ds)).toEqual([]);
+  });
+
+  it("half-populated source (rate_by_area, null rate_subkey) -> [] (fail-closed)", () => {
+    const ds = [
+      desc("rate_by_area", "Phase 1", null, "E"),
+      desc("rate_by_area", "Phase 2", "combined_rate", "H"),
+    ];
+    expect(findCorrespondingRateDescriptors(ds[0], ds)).toEqual([]);
+  });
+
+  it("mixed VRF list: L1 combined (J) -> L2 combined (M) ONLY, never a scalar", () => {
+    const ds = vrf9();
+    const src = ds.find((d) => d.col === "J")!; // L1 combined_rate
+    const got = findCorrespondingRateDescriptors(src, ds).map((d) => d.col);
+    expect(got).toEqual(["M"]);
   });
 });

@@ -153,6 +153,30 @@ export function findPairedRateDescriptor(
   return descriptors.find((r) => r.value_field === rateField) ?? null;
 }
 
+/**
+ * Phase-2 prefill correspondence: given a JUST-SAVED per-area rate descriptor, return
+ * every OTHER-AREA rate descriptor that is the SAME logical column -- i.e. both are
+ * value_field === "rate_by_area", the SAME rate_subkey (kind), and a DIFFERENT value_key
+ * (area). Returns [] for a scalar / non-rate_by_area source, or a half-populated source
+ * (null rate_subkey or value_key) -- fail-closed: only a clean per-area cell corresponds.
+ * Scalar rate columns (area null) have no cross-area analog, so they never match.
+ * Pure -- unit-tested in PricingGrid.test.ts.
+ */
+export function findCorrespondingRateDescriptors(
+  sourceD: ColumnDescriptor,
+  descriptors: ColumnDescriptor[],
+): ColumnDescriptor[] {
+  if (sourceD.value_field !== PER_AREA_RATE_FIELD) return [];
+  if (sourceD.rate_subkey === null || sourceD.value_key === null) return [];
+  return descriptors.filter(
+    (c) =>
+      c.value_field === PER_AREA_RATE_FIELD &&
+      c.rate_subkey === sourceD.rate_subkey &&
+      c.value_key !== null &&
+      c.value_key !== sourceD.value_key,
+  );
+}
+
 /** amount = qty x rate. Returns null if either operand is missing. Pure -- unit-tested. */
 export function computeAmount(
   qty: number | null | undefined,
@@ -299,6 +323,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // shows instantly (live amount) until the save's refetch lands, then it is dropped so the
   // cell falls back to the refetched saved rate.
   const [draftRates, setDraftRates] = useState<Record<string, string>>({});
+  // Phase-2 prefill: cross-area PROPOSED rates -- displayed (muted/italic) but NOT
+  // committed. Keyed by the SAME cellKey(row.row_index, d.col) as draftRates, but kept
+  // STRICTLY SEPARATE: no save path (commitRate / commitActiveRate / scheduleAutoSave /
+  // flush / unmount-flush) ever reads proposedRates, so a proposal is never sent to the
+  // server until the user touches the cell (which promotes it into draftRates).
+  const [proposedRates, setProposedRates] = useState<Record<string, string>>({});
   // Dedupe blur + Enter committing the SAME value (and an in-flight re-commit).
   const committedAttemptRef = useRef<Record<string, string>>({});
 
@@ -316,6 +346,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // reads CURRENT state at fire time (a captured value would be stale). Synced each render.
   const draftRatesRef = useRef<Record<string, string>>({});
   const autoSaveCellRef = useRef<(rowIndexField: number, col: string) => void>(() => {});
+  // Latest rows snapshot (synced each render) -- the post-save propagation trigger reads
+  // it to check a corresponding cell's CURRENT priced state at save-resolve time.
+  const rowsRef = useRef<PricedRow[]>(rows);
 
   // row_index -> row, for resolving a parent's Excel row number.
   const byIdx = new Map<number, PricedRow>(rows.map((r) => [r.row_index, r]));
@@ -366,6 +399,29 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           return next;
         });
         delete committedAttemptRef.current[key];
+        // Phase-2 prefill: on a successful PER-AREA rate save, OFFER the same value as a
+        // PROPOSED (display-only) rate in the corresponding rate column of the OTHER
+        // area(s) for THIS row -- but only into EMPTY cells (not priced, no user draft).
+        // Proposals live in proposedRates (NEVER draftRates), so no save path commits
+        // them. Scalar saves propose nothing (findCorrespondingRateDescriptors -> []).
+        if (d.value_field === PER_AREA_RATE_FIELD) {
+          const corr = findCorrespondingRateDescriptors(d, displayDescriptors);
+          if (corr.length > 0) {
+            const freshRow = rowsRef.current.find((r) => r.row_index === row.row_index);
+            setProposedRates((prev) => {
+              const next = { ...prev };
+              for (const c of corr) {
+                const ck = cellKey(row.row_index, c.col);
+                const alreadyPriced = freshRow ? isCellPriced(freshRow, c) : false;
+                const hasDraft = draftRatesRef.current[ck] !== undefined;
+                // Empty-only: never overwrite a priced or user-drafted cell. An older
+                // untouched proposal MAY be overwritten -- newest saved value wins.
+                if (!alreadyPriced && !hasDraft) next[ck] = String(rate);
+              }
+              return next;
+            });
+          }
+        }
       })
       .catch(() => {
         // Failure: keep the draft (the user sees what they typed; the page shows the error).
@@ -378,6 +434,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // debounce/flush (refs avoid stale captures). Runs after every render.
   useEffect(() => {
     draftRatesRef.current = draftRates;
+    rowsRef.current = rows;
     autoSaveCellRef.current = (rowIndexField, col) => {
       const r = rows.find((x) => x.row_index === rowIndexField);
       const dd = displayDescriptors.find((x) => x.col === col);
@@ -480,6 +537,33 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   useEffect(() => {
     onDirtyChange?.(hasUnsaved);
   }, [hasUnsaved, onDirtyChange]);
+
+  // Phase-2 prefill cleanup: when the refetched data shows a cell is now priced, drop any
+  // stale proposal for it (a proposal must never linger on a now-priced cell). Keyed on
+  // `rows` (the refetch trigger). Proposals are display-only -- this commits nothing.
+  useEffect(() => {
+    setProposedRates((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      let changed = false;
+      const next = { ...prev };
+      for (const ck of keys) {
+        const sep = ck.indexOf(":");
+        const ri = Number(ck.slice(0, sep));
+        const col = ck.slice(sep + 1);
+        const r = byIdx.get(ri);
+        const dd = displayDescriptors.find((x) => x.col === col);
+        if (r && dd && isCellPriced(r, dd)) {
+          delete next[ck];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // byIdx + displayDescriptors are recomputed each render from rows/columnDescriptors;
+    // we intentionally key only on `rows` (the refetch trigger).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   // Force-save flush (the page's "Save now" calls this via the ref): fire all pending
   // debounced saves now, then retry any remaining draft (e.g. a previously-failed one whose
@@ -629,8 +713,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                   // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
                   if (onSaveRate && isRateDescriptor(d)) {
                     const key = cellKey(row.row_index, d.col);
-                    const value = draftRates[key] ?? savedRateStr(row, d);
                     const priced = isCellPriced(row, d);
+                    // Value precedence: user draft (highest) -> cross-area proposal
+                    // (middle) -> saved/empty (lowest).
+                    const draft = draftRates[key];
+                    const proposed = proposedRates[key];
+                    const value = draft ?? proposed ?? savedRateStr(row, d);
+                    // A cell renders "proposed" (muted/italic) only when the displayed
+                    // value is the proposal -- no user draft and not priced.
+                    const isProposed = draft === undefined && proposed !== undefined && !priced;
                     return (
                       <td
                         key={d.col}
@@ -662,11 +753,24 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                               const v = e.target.value;
                               if (DECIMAL_IN_PROGRESS.test(v)) {
                                 setDraftRates((prev) => ({ ...prev, [key]: v }));
+                                // Promotion: touching a proposed cell turns it into a real
+                                // draft -> drop the proposal so it stops rendering proposed
+                                // and the normal save path (auto-save + emerald-on-save)
+                                // takes over.
+                                setProposedRates((prev) => {
+                                  if (prev[key] === undefined) return prev;
+                                  const next = { ...prev };
+                                  delete next[key];
+                                  return next;
+                                });
                                 scheduleAutoSave(row, d); // Slice 3c: debounced 1s auto-save
                               }
                             }}
                             onBlur={() => commitRate(row, d, value)}
-                            className="h-7 text-xs w-20 text-right tabular-nums scroll-mt-9"
+                            className={cn(
+                              "h-7 text-xs w-20 text-right tabular-nums scroll-mt-9",
+                              isProposed && "text-muted-foreground italic",
+                            )}
                           />
                         </div>
                       </td>
