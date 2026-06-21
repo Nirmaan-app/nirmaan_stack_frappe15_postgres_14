@@ -16,7 +16,61 @@ single-pass full-sheet-read endpoint landed (`get_sheet_preview_full`, feat 196e
 into the picker by SheetSearchView v2 (feat fc7147db -- block below). Slice 1b-beta2 (feat 1ed9d3b7) adds
 row-self-reparent. Slice 1b-beta2b (feat 20e1f5a7) closes finding-9 + finding-10. Force Re-parse
 BACKEND floor (flag-gated `force_reparse` eligibility for "Parsed Check Done", feat 95928637) landed.
-LATEST: Slice 3d -- IN-EDITOR SHEET TABS + keyed-remount switch safety (2026-03-12, feat pending, branch
+LATEST: General-specs FAITHFUL-GRID READ-ONLY VIEW in the pricing editor (2026-06-21, feat pending, branch
+feature/boq-phase-5). A GRID-ONLY (general-specs) committed sheet -- SOW, MEP Make List, Assumptions & Exclusions,
+etc. -- commits a FAITHFUL grid with ZERO nodes, so the node-based `get_priced_rows` renders it EMPTY in the pricing
+editor. FIX: when the active tab is a grid-only sheet, render its FAITHFUL committed grid as READ-ONLY reference
+(the user reads the SOW/scope/assumptions that influence pricing; there is nothing to edit). Data sheets keep the
+node-based pricing grid exactly as before. Full-stack: an additive backend read-field + a NEW read endpoint + the
+frontend render fork. NO migrate (sheet_disposition already exists; the endpoint is a pure read).
+- **BACKEND -- `sheet_disposition` surfaced on `get_committed_state` (commit_gate.py).** Added `sheet_disposition`
+  (grid_only / grid_and_nodes -- the commit-time discriminator, set at commit on `BoQ Committed Sheet Grid`) to the
+  endpoint's grid-tier `fields=[...]` + the per-sheet return dict. PURELY ADDITIVE (existing keys unchanged); the hub's
+  consumption (maps by sheet_name) is unaffected. `CommittedSheetState` (boqTypes.ts) gains
+  `sheet_disposition: "grid_only" | "grid_and_nodes"`. So the page's existing committed-sheets list now carries each
+  sheet's disposition -> the render fork reads it with NO extra fetch.
+- **BACKEND -- NEW endpoint `get_committed_sheet_grid(boq_name, sheet_name, committed_version)` (pricing.py).**
+  Placed in pricing.py (the pricing editor's read module, beside `get_priced_rows`); commit_gate stays focused on
+  eligibility/state. `@frappe.whitelist()` bare (GET-capable). Returns the faithful committed grid for ONE (boq,
+  sheet_name VERBATIM #152, committed_version): `{rows: [{row_number, cells}], column_role_map, column_headers,
+  area_dimensions, header_row, header_row_count}`. Reads the grid rows from `BoQ Committed Sheet Grid Row`
+  (filter parent=the current grid for that boq+sheet+version, ORDER BY row_order asc) + the column-config snapshot from
+  the committed `BoQ Sheet` (a NEW `_parse_json_field` guard handles BOTH a json.dumps STRING and an already-parsed
+  dict/list, since `get_value(as_dict)` returns the JSON fields parsed). PURE READ (no set_value/insert/save/commit);
+  same missing/unknown guards as the other committed reads (throw on missing boq/sheet/version, unknown boq,
+  no committed grid). **THE EMPTY-CONFIG CASE (load-bearing):** the row return is NEVER gated on a non-empty config --
+  a general-specs sheet (SOW) has empty `column_role_map`/`column_headers`/`area_dimensions`, and its grid ROWS are
+  returned regardless (the render falls back to raw Excel column letters). VERIFIED live: BOQ-26-00145 / 'SOW' v5 ->
+  39 grid rows with empty config.
+- **FRONTEND -- the render fork (`SheetPricingPage.tsx`) + suppression.** A pure exported helper
+  `isGridOnlySheet(committedSheets, sheetName)` (in PricingGrid.tsx, the home for this feature's tested helpers) looks
+  the active sheet up by VERBATIM sheet_name and returns true ONLY for `sheet_disposition === "grid_only"`. It
+  FAILS-TO-FALSE in the indeterminate (committed-state still loading) window, so a data sheet NEVER briefly renders
+  grid-only -- it stays on the normal pricing path until the disposition is positively known. When `isGridOnly`: the
+  page fetches the faithful grid (`get_committed_sheet_grid`, useFrappeGetCall disabled until boqId+sheetName+
+  commit_version known -- commit_version comes from the already-running get_priced_rows) and renders `SheetDataGrid`
+  (reused AS-IS, read-only, pagination stubbed: hasMore=false, onLoadMore=noop, loading flags off, all rows at once).
+  When NOT grid-only: the existing `PricingGrid` + lock/summary/save chrome, byte-for-byte as before. SUPPRESSED for
+  grid-only: the lock banners, the save-status chip, the Summary toggle + panel, "Save now", `onSaveRate`, the save-
+  error strip; the editor note is replaced with a read-only reference note ("This is a general-specifications sheet --
+  read-only reference. There is nothing to price here."). The tab strip STAYS (the user can tab back to a data sheet);
+  the key-remount discipline (3d) is unaffected (PricingGrid still keyed on sheetName for the data-sheet branch).
+- **NEW type (boqTypes.ts):** `CommittedSheetGridResponse` (rows reuse `SheetPreviewRow`; config maps may be empty) +
+  `CommittedSheetState.sheet_disposition`.
+- **VERIFIED:** backend `test_commit_gate` **19 -> 20** (+1 `TestGetCommittedStateDisposition`: grid_only + grid_and_nodes
+  surface their own disposition); `test_pricing` **36 -> 41** (+5 `TestGetCommittedSheetGrid`: configured sheet returns
+  rows+config in row_order; THE empty-config general-specs case returns rows with empty config; missing-args / unknown-boq
+  / unknown-sheet-or-version throw). Vitest **64 -> 68** (+4 `isGridOnlySheet`: grid_only->true; grid_and_nodes->false;
+  not-found/empty-list->false [indeterminate]; VERBATIM trailing-space #152). tsc **3178** (== baseline), **0** in touched
+  files. Vite build exit 0. NO bench migrate (sheet_disposition already exists; the endpoint is a read). Live API cert:
+  `get_committed_sheet_grid("BOQ-26-00145","SOW",5)` -> 39 rows + empty config; `get_committed_state` surfaces SOW/MEP
+  Make List=grid_only, the data sheets=grid_and_nodes. **Manual live-cert pending Nitesh:** open a committed BoQ with
+  both a general-specs sheet and a data sheet; tab to the general-specs sheet -> its faithful Excel grid renders
+  read-only with NO rate cells / lock banner / summary / save chrome + the reference note; tab to a data sheet -> the
+  normal pricing grid + all editing chrome; a typed-but-uncommitted rate on a data sheet still flush-saves when you tab
+  to the general-specs sheet.
+
+// prior: Slice 3d -- IN-EDITOR SHEET TABS + keyed-remount switch safety (2026-03-12, feat pending, branch
 feature/boq-phase-5). A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK
 ORDER; clicking another tab opens it in the editor WITHOUT going back to the hub. Full-stack: a small additive backend
 field-add + the frontend tabs. SCOPE: nav-reuse, the key-remount safety fix, page state reset, sheet_order ordering,

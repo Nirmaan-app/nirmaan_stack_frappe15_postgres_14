@@ -317,6 +317,52 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
+**Status (2026-06-21 -- GENERAL-SPECS FAITHFUL-GRID READ-ONLY VIEW in the pricing editor COMPLETE -- FULL-STACK (additive backend read + frontend render fork), `commit_gate.py` + `pricing.py` + `test_commit_gate.py` + `test_pricing.py` + `SheetPricingPage.tsx` + `PricingGrid.tsx` + `boqTypes.ts` + `PricingGrid.test.ts`, feat pending):**
+A GRID-ONLY (general-specs) committed sheet -- SOW, MEP Make List, Assumptions & Exclusions, etc. -- commits a FAITHFUL
+grid with ZERO nodes, so the node-based `get_priced_rows` renders it EMPTY in the pricing editor. When the active tab is
+a grid-only sheet, render its FAITHFUL committed grid as READ-ONLY reference (the user reads the SOW/scope/assumptions
+that influence pricing; nothing to edit). Data sheets keep the node-based pricing grid exactly as before. NO migrate.
+
+- **DISPOSITION-DRIVEN FORK (the detection rule).** Grid-only is detected via the EXPLICIT `sheet_disposition`
+  discriminator (grid_only / grid_and_nodes), NOT by inferring "empty rows" (ambiguous vs loading/error). Surfaced on
+  `get_committed_state` (additive `sheet_disposition` field) so the page's EXISTING committed-sheets list carries each
+  sheet's disposition -> NO extra fetch for the lookup. `CommittedSheetState` (boqTypes.ts) gains
+  `sheet_disposition: "grid_only" | "grid_and_nodes"`.
+- **`isGridOnlySheet(committedSheets, sheetName)` (NEW pure exported helper in `PricingGrid.tsx`, unit-tested).** Looks
+  the active sheet up by VERBATIM sheet_name (#152) and returns true ONLY for `sheet_disposition === "grid_only"`.
+  **FAILS-TO-FALSE in the indeterminate (committed-state still loading) window** -- a data sheet NEVER briefly renders
+  grid-only; a grid-only sheet forks only once its disposition is positively known. (The page handles the loading window
+  by staying on the normal pricing path until known.)
+- **THE GRID-ONLY RENDER (`SheetPricingPage.tsx`).** When `isGridOnly`: fetch the faithful grid via the NEW endpoint
+  `get_committed_sheet_grid(boq_name, sheet_name, committed_version)` (useFrappeGetCall, disabled until
+  boqId+sheetName+commit_version are known -- commit_version comes from the already-running `get_priced_rows`, which
+  carries it for BOTH dispositions) and render the EXISTING `SheetDataGrid` (reused AS-IS, read-only) with the committed
+  rows + the column-config snapshot. Pagination STUBBED (hasMore=false, onLoadMore=noop, loading/loadMore flags off --
+  all committed rows at once). NO PricingGrid, NO onSaveRate. SheetDataGrid falls back to raw Excel column letters when
+  the config maps are empty (a general-specs sheet has none). SheetDataGrid was NOT touched -- the spoke (SheetSpokePage)
+  usage is unbroken.
+- **SUPPRESSION for grid-only (gated `!isGridOnly` / the `isGridOnly ? ... :` fork).** The lock banners, the save-status
+  chip, the Summary toggle + panel, "Save now", `onSaveRate`, and the save-error strip are ALL gated off; the editor note
+  is replaced with a read-only reference note ("This is a general-specifications sheet -- read-only reference. There is
+  nothing to price here."). The TAB STRIP STAYS (the user can tab back to a data sheet). The key-remount discipline (3d)
+  is unaffected -- PricingGrid is still `key={sheetName}` on the data-sheet branch, so a tab switch from a data sheet to a
+  general-specs sheet cleanly unmounts the data grid (its pending drafts flush-on-unmount to the OLD sheet) and the
+  general-specs branch mounts a fresh read-only SheetDataGrid.
+- **NEW type (boqTypes.ts):** `CommittedSheetGridResponse` (rows reuse `SheetPreviewRow`; config maps may be empty) +
+  `CommittedSheetState.sheet_disposition`.
+- **VERIFIED:** backend `test_commit_gate` **19 -> 20** (+1 disposition surfacing); `test_pricing` **36 -> 41** (+5
+  `TestGetCommittedSheetGrid`: configured sheet returns rows+config in row_order; THE empty-config general-specs case
+  returns rows with empty config; missing-args/unknown-boq/unknown-sheet-or-version throw). Vitest **64 -> 68** (+4
+  `isGridOnlySheet`: grid_only->true; grid_and_nodes->false; not-found/empty-list->false [indeterminate]; VERBATIM
+  trailing-space #152). tsc **3178** (== baseline), **0** in touched files (`SheetPricingPage|PricingGrid|boqTypes|
+  SheetDataGrid`). Vite build exit 0. NO bench migrate. Live API cert: `get_committed_sheet_grid("BOQ-26-00145","SOW",5)`
+  -> 39 rows + empty config; `get_committed_state` surfaces SOW/MEP Make List=grid_only, the data sheets=grid_and_nodes.
+  **Manual live-cert pending Nitesh:** open a committed BoQ with both a general-specs sheet and a data sheet; tab to the
+  general-specs sheet -> its faithful Excel grid renders read-only with NO rate cells / lock banner / summary / save
+  chrome + the reference note; tab to a data sheet -> the normal pricing grid + all editing chrome; a typed-but-
+  uncommitted rate on a data sheet still flush-saves when you tab away to the general-specs sheet. Full detail in
+  boq-upload-plan.md "General-specs faithful-grid read-only view".
+
 **Status (2026-03-12 -- Phase 5 Slice 3d IN-EDITOR SHEET TABS + keyed-remount switch safety COMPLETE -- FULL-STACK (small additive backend + frontend tabs), `commit_gate.py` + `test_commit_gate.py` + `SheetPricingPage.tsx` + `PricingGrid.tsx` + `boqTypes.ts` + `PricingGrid.test.ts`, feat pending):**
 A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK ORDER; clicking another
 tab opens it in the editor WITHOUT going out to the hub -- reusing the hub's exact nav target. The visible feature is
