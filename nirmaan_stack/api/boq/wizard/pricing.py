@@ -31,7 +31,7 @@ import json
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows, _build_column_descriptors
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
 
 _PRICING = "BoQ Cell Pricing"
@@ -39,6 +39,32 @@ _BOQ_SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
 _GRID = "BoQ Committed Sheet Grid"
 _GRID_ROW = "BoQ Committed Sheet Grid Row"
+
+# ── Amount-formula layer (Formula Builder F1) ────────────────────────────────────
+# A per-COLUMN, per-committed-version USER-DECLARED amount FORMULA -- ADDITIVE, sits on
+# top of the committed tier like BoQ Cell Pricing (never mutates it). F1 STORES + SERVES;
+# it does NOT evaluate (the evaluator is F2, the grid display F4).
+_FORMULA = "BoQ Cell Amount Formula"
+
+# The AMOUNT value_fields a formula may TARGET (the amount-target gate -- a rate/qty target
+# is rejected). amount_by_area = per-area; the three scalars = singleton amount columns.
+# These mirror _SINGLETON_ROLE_TO_FIELD's amount entries + the per-area amount branch in
+# review_screen._build_column_descriptors (the single source of the descriptor classes).
+_AMOUNT_VALUE_FIELDS = frozenset(
+    {"amount_by_area", "amount_total", "amount_supply", "amount_install"}
+)
+
+# The fields read back for a current formula record (the read + the merge share this).
+_FORMULA_READ_FIELDS = [
+    "name", "boq", "sheet_name", "committed_version",
+    "target_value_field", "target_value_key", "target_rate_subkey",
+    "target_col", "description", "formula",
+    "formula_version", "is_current", "defined_at", "is_finalized",
+]
+
+# Structural-validation guard: the token tree must not nest pathologically deep (F1 does a
+# STRUCTURAL check only -- F2 owns evaluation + the cycle guard).
+_FORMULA_MAX_DEPTH = 50
 
 # A rate cell is the ONLY cell a price overlays onto. A column_descriptor identifies a
 # rate cell by its value_field: per-area rates nest under "rate_by_area"; scalar rates use
@@ -660,6 +686,365 @@ def get_sheet_colors(
     return {"colors": colors}
 
 
+# ── Amount-formula helpers + endpoints (Formula Builder F1) ──────────────────────
+
+
+def _normalize_optional(value):
+    """An optional Data arg -> None when blank/whitespace-only (the wire sends "" for an
+    omitted field over HTTP); a non-empty value is kept VERBATIM (areas are matched against
+    descriptor value_keys exactly -- never stripped of meaningful content)."""
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip() == "":
+        return None
+    return value
+
+
+def _validate_formula_structure(node, depth: int = 0) -> None:
+    """STRUCTURAL validation of the token-tree JSON (Formula Builder F1 -- store-time only;
+    F1 does NOT evaluate and does NOT cycle-check, those are F2). Throws on malformed.
+
+    A node is EXACTLY ONE of:
+      operator -> {"op": "+"|"*", "operands": [<node>, <node>, ...]}  (operands non-empty)
+      leaf ref -> {"ref": {"value_field": <non-empty str>,
+                           "value_key": <str|null>, "rate_subkey": <str|null>}}
+    NO literal node (numeric literals are barred). A node carrying both "op" and "ref",
+    neither, a "literal" key, a bad op, empty operands, or a wrong-typed ref -> throw.
+    """
+    if depth > _FORMULA_MAX_DEPTH:
+        frappe.throw("Formula is nested too deeply.", title="Invalid formula")
+    if not isinstance(node, dict):
+        frappe.throw("Each formula node must be an object.", title="Invalid formula")
+    if "literal" in node:
+        frappe.throw("Numeric literals are not allowed in a formula.", title="Invalid formula")
+    has_op = "op" in node
+    has_ref = "ref" in node
+    if has_op and has_ref:
+        frappe.throw(
+            "A formula node must be EITHER an operator or a ref, not both.",
+            title="Invalid formula",
+        )
+    if not has_op and not has_ref:
+        frappe.throw(
+            "Each formula node must be an operator {op, operands} or a leaf {ref}.",
+            title="Invalid formula",
+        )
+    if has_op:
+        if node["op"] not in {"+", "*"}:
+            frappe.throw(
+                f"Unsupported operator {node['op']!r} (only + and * are allowed).",
+                title="Invalid formula",
+            )
+        operands = node.get("operands")
+        if not isinstance(operands, list) or len(operands) == 0:
+            frappe.throw(
+                "An operator node needs a non-empty 'operands' list.",
+                title="Invalid formula",
+            )
+        for child in operands:
+            _validate_formula_structure(child, depth + 1)
+        return
+    # leaf ref
+    ref = node["ref"]
+    if not isinstance(ref, dict):
+        frappe.throw("A formula ref must be an object.", title="Invalid formula")
+    vf = ref.get("value_field")
+    if not vf or not isinstance(vf, str):
+        frappe.throw("A formula ref needs a non-empty value_field.", title="Invalid formula")
+    for k in ("value_key", "rate_subkey"):
+        if k in ref and ref[k] is not None and not isinstance(ref[k], str):
+            frappe.throw(f"A formula ref's {k} must be a string or null.", title="Invalid formula")
+
+
+def _coerce_formula_obj(formula):
+    """Accept the formula as a dict or a JSON string. Returns (obj, is_blank). A None /
+    blank / whitespace-only value -> (None, True) (the CLEAR signal). A malformed JSON
+    string -> throw (never silently swallow). A non-dict/non-str -> throw."""
+    if formula is None:
+        return None, True
+    if isinstance(formula, str):
+        if formula.strip() == "":
+            return None, True
+        try:
+            return json.loads(formula), False
+        except (ValueError, TypeError):
+            frappe.throw("Formula is not valid JSON.", title="Invalid formula")
+    if isinstance(formula, dict):
+        return formula, False
+    frappe.throw("Formula must be a JSON object.", title="Invalid formula")
+
+
+def _formula_identity_filters(boq_name, sheet_name, committed_version,
+                              target_value_field, target_value_key, target_rate_subkey) -> dict:
+    """The per-COLUMN formula identity filter. sheet_name VERBATIM (#152). The three
+    nullable identity slots (target_value_key / target_rate_subkey) use ['is','not set']
+    when None so Postgres NULL semantics match (the default/scalar discriminator is NULL)."""
+    filters = {
+        "boq": boq_name,
+        "sheet_name": sheet_name,
+        "committed_version": committed_version,
+        "target_value_field": target_value_field,
+    }
+    filters["target_value_key"] = (
+        target_value_key if target_value_key is not None else ["is", "not set"]
+    )
+    filters["target_rate_subkey"] = (
+        target_rate_subkey if target_rate_subkey is not None else ["is", "not set"]
+    )
+    return filters
+
+
+def _current_formula_names(boq_name, sheet_name, committed_version,
+                           target_value_field, target_value_key, target_rate_subkey) -> list:
+    """Names of the is_current=1 formula record(s) for one column identity (0 or 1 -- the
+    invariant). Mirrors _current_pricing_names."""
+    filters = _formula_identity_filters(
+        boq_name, sheet_name, committed_version,
+        target_value_field, target_value_key, target_rate_subkey,
+    )
+    filters["is_current"] = 1
+    return frappe.get_all(_FORMULA, filters=filters, pluck="name")
+
+
+def _next_formula_version(boq_name, sheet_name, committed_version,
+                          target_value_field, target_value_key, target_rate_subkey) -> int:
+    """The next formula version for one column identity = max prior + 1 (first save = 1).
+    Mirrors _next_pricing_version."""
+    agg = frappe.get_all(
+        _FORMULA,
+        filters=_formula_identity_filters(
+            boq_name, sheet_name, committed_version,
+            target_value_field, target_value_key, target_rate_subkey,
+        ),
+        fields=["max(formula_version) as mv"],
+    )
+    return ((agg[0].mv if agg else None) or 0) + 1
+
+
+def _committed_amount_descriptors(boq_name, sheet_name, committed_version) -> list:
+    """The AMOUNT column descriptors of the committed sheet at (boq, sheet_name VERBATIM,
+    committed_version) -- the source of truth for the amount-target gate. Reuses the
+    certified review_screen._build_column_descriptors on the committed config snapshot.
+    Throws if no committed sheet exists at that address/version (never define a formula on a
+    non-existent sheet)."""
+    sheet_cfg = frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        ["column_role_map", "column_headers"],
+        as_dict=True,
+    )
+    if not sheet_cfg:
+        frappe.throw(
+            f"No committed sheet '{sheet_name}' at committed_version {committed_version} "
+            f"for BoQ '{boq_name}'.",
+            title="No committed sheet",
+        )
+    descriptors = _build_column_descriptors({
+        "column_role_map": _parse_json_field(sheet_cfg.get("column_role_map"), {}),
+        "column_headers": _parse_json_field(sheet_cfg.get("column_headers"), {}),
+    })
+    return [d for d in descriptors if d.get("value_field") in _AMOUNT_VALUE_FIELDS]
+
+
+def _current_formula_records(boq_name, sheet_name, committed_version) -> list:
+    """Current (is_current=1) formula records for one committed (boq, sheet, version), with
+    the stored `formula` JSON parsed back to an object. Shared by the read endpoint + the
+    get_priced_rows merge. sheet_name VERBATIM (#152)."""
+    records = frappe.get_all(
+        _FORMULA,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        fields=_FORMULA_READ_FIELDS,
+        order_by="target_value_field asc, target_col asc",
+    )
+    for r in records:
+        r["formula"] = _parse_json_field(r.get("formula"), None)
+    return records
+
+
+@frappe.whitelist(methods=["POST"])
+def save_amount_formula(
+    boq_name: str = None,
+    sheet_name: str = None,
+    committed_version=None,
+    target_value_field: str = None,
+    target_value_key: str = None,
+    target_rate_subkey: str = None,
+    formula=None,
+    target_col: str = None,
+    description: str = None,
+) -> dict:
+    """Save a per-COLUMN amount FORMULA -- upsert the CURRENT formula record for that column
+    identity (freeze-and-supersede), mirroring save_cell_price. F1 STORES + SERVES; it does
+    NOT evaluate (F2) and does NOT cycle-check (F2).
+
+    Identity = (boq, sheet_name [VERBATIM #152], committed_version, target_value_field,
+    target_value_key, target_rate_subkey). DEFAULT-vs-OVERRIDE discriminator = whether
+    `target_value_key` is NULL (the logical-column area-WILDCARD default, OR 'scalar' for a
+    scalar amount column) or a CONCRETE area string (a PER-AREA OVERRIDE). target_col /
+    description are stored GUARDS, NOT part of the key. The committed tier is NOT mutated.
+
+    AMOUNT-TARGET GATE (the analog of the priceability gate): the target MUST be an AMOUNT
+    column on the committed config -- target_value_field in the amount set AND a matching
+    descriptor exists (for a per-area default, >=1 area's amount column of that
+    value_field/rate_subkey). A rate/qty target -> throw, nothing written.
+
+    STRUCTURAL VALIDATION: the formula JSON must be a well-formed token tree (operator
+    {op,operands} or leaf {ref}; ops in {+,*}; no literal node; non-empty operands) -> throw
+    if malformed. A blank/None formula CLEARS (freeze prior current, insert none) -- mirrors
+    the remark/color clear semantics.
+
+    LOCK: acquires/refreshes the single-editor lock (acquire_or_refresh) -- AFTER the
+    target-resolve + structural validation, BEFORE any freeze/insert, so a lock rejection
+    (held fresh by another user) or a validation throw mutates NOTHING.
+
+    Returns {ok, name, formula_version, is_current, froze_prior, cleared}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_amount_formula
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not target_value_field:
+        frappe.throw("target_value_field is required.", title="Missing field: target_value_field")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+    # Normalize the nullable identity + guard fields (HTTP "" -> None). The NULL on
+    # target_value_key IS the default/scalar-vs-override discriminator.
+    target_value_key = _normalize_optional(target_value_key)
+    target_rate_subkey = _normalize_optional(target_rate_subkey)
+    target_col = _normalize_optional(target_col)
+    description = _normalize_optional(description)
+
+    # AMOUNT-TARGET GATE -- reject a non-amount target BEFORE any lock/write.
+    if target_value_field not in _AMOUNT_VALUE_FIELDS:
+        frappe.throw(
+            f"Target value_field '{target_value_field}' is not an amount column. "
+            f"A formula may only target an amount column.",
+            title="Not an amount target",
+        )
+    amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
+    if target_value_field == "amount_by_area":
+        if target_value_key is None:
+            # Wildcard DEFAULT: >=1 area's amount column of this value_field + rate_subkey.
+            matched = any(
+                d["value_field"] == "amount_by_area"
+                and d["rate_subkey"] == target_rate_subkey
+                for d in amount_descs
+            )
+        else:
+            # Per-area OVERRIDE: the concrete (area, kind) amount column must exist.
+            matched = any(
+                d["value_field"] == "amount_by_area"
+                and d["value_key"] == target_value_key
+                and d["rate_subkey"] == target_rate_subkey
+                for d in amount_descs
+            )
+    else:
+        # Scalar amount column (value_key None == scalar): the scalar amount col must exist.
+        matched = any(d["value_field"] == target_value_field for d in amount_descs)
+    if not matched:
+        frappe.throw(
+            "No matching committed amount column for the requested formula target "
+            f"(value_field={target_value_field!r}, area={target_value_key!r}, "
+            f"kind={target_rate_subkey!r}).",
+            title="No matching amount column",
+        )
+
+    # STRUCTURAL validation of the formula (or detect the CLEAR signal). Done BEFORE the
+    # lock so a malformed formula mutates nothing.
+    formula_obj, is_clear = _coerce_formula_obj(formula)
+    if not is_clear:
+        _validate_formula_structure(formula_obj)
+
+    # Single-editor lock -- AFTER target-resolve + validation, BEFORE the freeze/insert
+    # (a rejection mutates nothing). Holder = session user; shares this request's transaction.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
+
+    # Freeze any prior current via set_value (NEVER doc.save). Mirrors the pricing tier.
+    prior = _current_formula_names(
+        boq_name, sheet_name, committed_version,
+        target_value_field, target_value_key, target_rate_subkey,
+    )
+    for name in prior:
+        frappe.db.set_value(_FORMULA, name, "is_current", 0)
+
+    # CLEAR: freeze only, insert no new current -> the column has no formula.
+    if is_clear:
+        frappe.db.commit()
+        return {
+            "ok": True,
+            "name": None,
+            "formula_version": None,
+            "is_current": 0,
+            "froze_prior": len(prior),
+            "cleared": True,
+        }
+
+    formula_version = _next_formula_version(
+        boq_name, sheet_name, committed_version,
+        target_value_field, target_value_key, target_rate_subkey,
+    )
+    doc = frappe.new_doc(_FORMULA)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.committed_version = committed_version
+    doc.target_value_field = target_value_field
+    doc.target_value_key = target_value_key
+    doc.target_rate_subkey = target_rate_subkey
+    doc.target_col = target_col
+    doc.description = description
+    doc.formula = json.dumps(formula_obj)
+    doc.formula_version = formula_version
+    doc.is_current = 1
+    doc.defined_at = frappe.utils.now()
+    doc.is_finalized = 0
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "name": doc.name,
+        "formula_version": formula_version,
+        "is_current": 1,
+        "froze_prior": len(prior),
+        "cleared": False,
+    }
+
+
+@frappe.whitelist()
+def get_sheet_amount_formulas(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Current per-column amount formulas (is_current=1) for one committed (boq, sheet,
+    committed_version). @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_pricing).
+    Pure read. sheet_name VERBATIM (#152). The stored token-tree `formula` is returned
+    PARSED (an object, not a JSON string). Returns {"formulas": [{...}]} (empty when none).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_sheet_amount_formulas
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+    return {"formulas": _current_formula_records(boq_name, sheet_name, committed_version)}
+
+
 @frappe.whitelist()
 def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     """Return the committed rows for (boq_name, sheet_name) WITH the current saved prices
@@ -706,6 +1091,9 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "commit_version": <int|None>, # the version that was priced (None if uncommitted)
         "editable": True,             # RESERVED placeholder for the future lock slice
         "lock_info": None,            # RESERVED placeholder for the future lock slice
+        "column_formulas": [...],     # F1: per-COLUMN amount formulas (NOT per-row); each
+                                      # {target_value_field, target_value_key,
+                                      #  target_rate_subkey, target_col, formula(object)}
       }
     `editable` / `lock_info` are INERT placeholders ONLY -- reserved so a future
     single-editor-lock slice does not have to reshape this contract. No locking logic,
@@ -730,6 +1118,10 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # no-version case (free -> editable, lock_info None).
         "editable": True,
         "lock_info": None,
+        # Amount formulas (Formula Builder F1) -- PER-COLUMN (NOT per-row), built ONCE below
+        # when a version is committed. Empty for an uncommitted/grid-only sheet. The grid/F4
+        # consumes this; F1 just delivers it.
+        "column_formulas": [],
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -745,6 +1137,18 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             or lock_info["is_locked_by_me"]
             or lock_info["is_stale"]
         )
+        # Amount formulas (F1): the current per-column formulas for this committed version,
+        # shaped PER-COLUMN for the grid lookup (built once; NOT stamped onto any row).
+        base["column_formulas"] = [
+            {
+                "target_value_field": f["target_value_field"],
+                "target_value_key": f["target_value_key"],
+                "target_rate_subkey": f["target_rate_subkey"],
+                "target_col": f["target_col"],
+                "formula": f["formula"],  # already parsed to an object by the reader
+            }
+            for f in _current_formula_records(boq_name, sheet_name, commit_version)
+        ]
 
     # Nothing committed (no rows or no current version) -> no-op merge, graceful passthrough.
     if not rows or commit_version is None:

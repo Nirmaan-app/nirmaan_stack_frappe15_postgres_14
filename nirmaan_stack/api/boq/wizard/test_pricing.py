@@ -25,9 +25,11 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard.pricing import (
     get_committed_sheet_grid,
     get_priced_rows,
+    get_sheet_amount_formulas,
     get_sheet_colors,
     get_sheet_pricing,
     get_sheet_remarks,
+    save_amount_formula,
     save_cell_color,
     save_cell_price,
     save_row_remark,
@@ -52,6 +54,7 @@ _PRICING = "BoQ Cell Pricing"
 _LOCK_DT = "BoQ Sheet Pricing Lock"
 _REMARK_DT = "BoQ Cell Remark"
 _COLOR_DT = "BoQ Cell Color"
+_FORMULA_DT = "BoQ Cell Amount Formula"
 
 
 class TestCellPricing(FrappeTestCase):
@@ -1443,3 +1446,438 @@ class TestCellColor(FrappeTestCase):
         by_row = {r["source_row_number"]: r for r in res["rows"]}
         self.assertEqual(by_row[34]["color_by_cell"], {"E": "yellow"}, "color merged per cell")
         self.assertNotIn("color_by_cell", by_row[35], "a row with no color carries no color_by_cell")
+
+
+def _build_scalar_amount_committed_sheet(boq_name: str, sheet_name: str, commit_version: int = 1) -> str:
+    """Insert a minimal committed sheet whose AMOUNT column is SCALAR (area=None) -- the
+    branch the per-area shared fixture (amount cols are *_by_area) does NOT exercise. Columns
+    A=sl_no, B=description, C=qty_total, D=rate_combined (scalar rate), E=amount_total (scalar
+    amount). 1 Preamble + 1 Line Item at Excel row 10. Returns the line-item node name.
+    sheet_name VERBATIM (#152). Cleaned up by cleanup_committed_fixture (deletes all committed
+    rows for the boq)."""
+    now = frappe.utils.now()
+    bs = frappe.new_doc("BoQ Sheet")
+    bs.boq = boq_name
+    bs.sheet_name = sheet_name  # VERBATIM (#152)
+    bs.sheet_order = 3
+    bs.treat_as = "data"
+    bs.header_row = 1
+    bs.header_row_count = 1
+    bs.column_role_map = {
+        "A": {"role": "sl_no", "area": None},
+        "B": {"role": "description", "area": None},
+        "C": {"role": "qty_total", "area": None},
+        "D": {"role": "rate_combined", "area": None},   # SCALAR rate
+        "E": {"role": "amount_total", "area": None},    # SCALAR amount (the formula target)
+    }
+    bs.column_headers = {}
+    bs.area_dimensions = json.dumps([])
+    bs.commit_version = commit_version
+    bs.is_current = 1
+    bs.committed_at = now
+    bs.insert(ignore_permissions=True)
+
+    pre = frappe.new_doc("BOQ Nodes")
+    pre.sheet = bs.name
+    pre.node_type = "Preamble"
+    pre.row_class = "preamble"
+    pre.level = 1
+    pre.description = "SCALAR AMOUNT PREAMBLE"
+    pre.code = "SA.0"
+    pre.sort_order = 0
+    pre.source_row_number = 8
+    pre.commit_version = commit_version
+    pre.is_current = 1
+    pre.committed_at = now
+    pre.insert(ignore_permissions=True)
+
+    li = frappe.new_doc("BOQ Nodes")
+    li.sheet = bs.name
+    li.node_type = "Line Item"
+    li.row_class = "line_item"
+    li.description = "scalar amount item"
+    li.code = "SA.1"
+    li.parent_node = pre.name
+    li.qty = 5.0
+    li.unit = "Nos"
+    li.combined_rate = 999.0
+    li.total_amount = 4995.0
+    li.source_row_number = 10
+    li.sort_order = 1
+    li.commit_version = commit_version
+    li.is_current = 1
+    li.committed_at = now
+    li.insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    return li.name
+
+
+# A well-formed token tree: qty x rate (the area-WILDCARD default; area-bound operands carry
+# value_key=None = "bind to the current area" -- the F1 default-template shape).
+_WILDCARD_QTY_X_RATE = {
+    "op": "*",
+    "operands": [
+        {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}},
+        {"ref": {"value_field": "rate_by_area", "value_key": None, "rate_subkey": "combined_rate"}},
+    ],
+}
+# The PER-AREA OVERRIDE analog: operands name a concrete area (value_key set).
+_PHASE1_QTY_X_RATE = {
+    "op": "*",
+    "operands": [
+        {"ref": {"value_field": "qty_by_area", "value_key": "Phase 1", "rate_subkey": None}},
+        {"ref": {"value_field": "rate_by_area", "value_key": "Phase 1", "rate_subkey": "combined_rate"}},
+    ],
+}
+# A SCALAR formula: scalar qty_total x scalar rate_combined.
+_SCALAR_QTY_X_RATE = {
+    "op": "*",
+    "operands": [
+        {"ref": {"value_field": "qty_total", "value_key": None, "rate_subkey": None}},
+        {"ref": {"value_field": "rate_combined", "value_key": None, "rate_subkey": None}},
+    ],
+}
+
+
+class TestAmountFormula(FrappeTestCase):
+    """Formula Builder F1: the BoQ Cell Amount Formula doctype + save_amount_formula /
+    get_sheet_amount_formulas + the get_priced_rows column_formulas merge.
+
+    Reuses the shared per-area committed fixture (build_committed_sheet_fixture: amount cols
+    F [Phase 1, total] + I [Phase 2, install]; rate cols E/H combined) + a local SCALAR-amount
+    committed sheet (amount col E = amount_total scalar). sheet_name carries a trailing space
+    (#152). The committed tier is read-only here; each test starts with a clean formula layer
+    + lock. `me` = session user; `other` = a second real User for the lock-contention test.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Amount-Formula Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.cv = 1
+        cls.sheet = "Formula Fix "  # VERBATIM trailing space (#152)
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.scalar_sheet = "Formula Scalar Fix "  # VERBATIM trailing space (#152)
+        cls.scalar_node = _build_scalar_amount_committed_sheet(cls.boq, cls.scalar_sheet, cls.cv)
+        cls.me = frappe.session.user
+        cls.other = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_FORMULA_DT, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current(self, sheet, tvf, tvk, trs):
+        """Current records for one column identity (None-safe identity match in Python --
+        avoids NULL-filter subtleties)."""
+        recs = frappe.get_all(
+            _FORMULA_DT,
+            filters={"boq": self.boq, "sheet_name": sheet, "committed_version": self.cv,
+                     "is_current": 1},
+            fields=["name", "target_value_field", "target_value_key", "target_rate_subkey",
+                    "formula", "formula_version"],
+        )
+        return [r for r in recs
+                if r["target_value_field"] == tvf and r["target_value_key"] == tvk
+                and r["target_rate_subkey"] == trs]
+
+    def _all_current(self, sheet):
+        return frappe.get_all(
+            _FORMULA_DT,
+            filters={"boq": self.boq, "sheet_name": sheet, "committed_version": self.cv,
+                     "is_current": 1},
+            fields=["target_value_field", "target_value_key", "target_rate_subkey"],
+        )
+
+    def _count(self, sheet):
+        return frappe.db.count(_FORMULA_DT, {"boq": self.boq, "sheet_name": sheet})
+
+    def _seed_lock(self, user):
+        acquire_or_refresh(self.boq, self.sheet, self.cv, user, frappe.utils.now_datetime())
+        frappe.db.commit()
+
+    # -- POSITIVE: default / override / scalar ------------------------------
+
+    def test_save_default_wildcard_current_v1(self):
+        # A per-area DEFAULT for the "total" amount column: target_value_key NULL (wildcard).
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE, target_col="F",
+            description="amount total",
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["formula_version"], 1)
+        self.assertEqual(res["froze_prior"], 0)
+        self.assertFalse(res["cleared"])
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        self.assertEqual(len(cur), 1, "exactly one current default record")
+        # formula stored verbatim (parsed back to the same object).
+        self.assertEqual(json.loads(cur[0]["formula"]), _WILDCARD_QTY_X_RATE)
+
+    def test_default_and_override_coexist_as_distinct(self):
+        # DEFAULT (key NULL) + OVERRIDE (concrete area) for the SAME logical column -> two
+        # SEPARATE current records (distinct identities), both current.
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE,
+        )
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key="Phase 1",
+            target_rate_subkey="total", formula=_PHASE1_QTY_X_RATE,
+        )
+        default_cur = self._current(self.sheet, "amount_by_area", None, "total")
+        override_cur = self._current(self.sheet, "amount_by_area", "Phase 1", "total")
+        self.assertEqual(len(default_cur), 1, "the wildcard default is its own current record")
+        self.assertEqual(len(override_cur), 1, "the per-area override is a DISTINCT current record")
+        self.assertEqual(len(self._all_current(self.sheet)), 2,
+                         "default + override coexist (distinct identities)")
+
+    def test_save_scalar_amount_formula(self):
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.scalar_sheet, committed_version=self.cv,
+            target_value_field="amount_total", target_value_key=None,
+            target_rate_subkey=None, formula=_SCALAR_QTY_X_RATE, target_col="E",
+        )
+        self.assertTrue(res["ok"])
+        cur = self._current(self.scalar_sheet, "amount_total", None, None)
+        self.assertEqual(len(cur), 1, "one current scalar formula")
+
+    # -- freeze-and-supersede + clear ---------------------------------------
+
+    def test_resave_freezes_prior_and_supersedes(self):
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE,
+        )
+        res2 = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_PHASE1_QTY_X_RATE,  # a different (valid) tree
+        )
+        self.assertEqual(res2["formula_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1, "the re-save froze the prior current")
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        self.assertEqual(len(cur), 1, "exactly ONE current after re-save (the invariant)")
+        self.assertEqual(cur[0]["formula_version"], 2)
+        # total versions for this identity = 2 (v1 frozen, v2 current).
+        allv = frappe.get_all(
+            _FORMULA_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "committed_version": self.cv,
+                     "target_value_field": "amount_by_area", "target_rate_subkey": "total",
+                     "target_value_key": ["is", "not set"]},
+            fields=["formula_version", "is_current"], order_by="formula_version asc",
+        )
+        self.assertEqual([v["formula_version"] for v in allv], [1, 2])
+        self.assertEqual([v["is_current"] for v in allv], [0, 1], "v1 frozen, v2 current")
+
+    def test_clear_blank_formula_removes_current(self):
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE,
+        )
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula="",  # CLEAR
+        )
+        self.assertTrue(res["cleared"])
+        self.assertEqual(res["froze_prior"], 1, "clear froze the prior current")
+        self.assertEqual(self._current(self.sheet, "amount_by_area", None, "total"), [],
+                         "no current formula after clear")
+
+    def test_accepts_json_string_formula(self):
+        # The wire may send the formula as a JSON STRING (not a dict) -- both accepted.
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=json.dumps(_WILDCARD_QTY_X_RATE),
+        )
+        self.assertTrue(res["ok"])
+        cur = self._current(self.sheet, "amount_by_area", None, "total")
+        self.assertEqual(json.loads(cur[0]["formula"]), _WILDCARD_QTY_X_RATE)
+
+    # -- NEGATIVE: amount-target gate ---------------------------------------
+
+    def test_reject_non_amount_target_rate(self):
+        # A RATE target (value_field rate_by_area) is rejected -> nothing written.
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="rate_by_area", target_value_key="Phase 1",
+                target_rate_subkey="combined_rate", formula=_WILDCARD_QTY_X_RATE,
+            )
+        self.assertEqual(self._count(self.sheet), 0, "a non-amount target wrote nothing")
+
+    def test_reject_non_amount_target_qty(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="qty_by_area", target_value_key="Phase 1",
+                target_rate_subkey=None, formula=_WILDCARD_QTY_X_RATE,
+            )
+        self.assertEqual(self._count(self.sheet), 0)
+
+    def test_reject_amount_target_not_on_sheet(self):
+        # An amount value_field that has no matching committed column (rate_subkey 'supply'
+        # is not mapped on this sheet) -> throw, nothing written.
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="supply", formula=_WILDCARD_QTY_X_RATE,
+            )
+        self.assertEqual(self._count(self.sheet), 0)
+
+    # -- NEGATIVE: structural validation ------------------------------------
+
+    def test_reject_literal_node(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="total",
+                formula={"op": "+", "operands": [{"literal": 5},
+                                                 {"ref": {"value_field": "qty_by_area",
+                                                          "value_key": None, "rate_subkey": None}}]},
+            )
+        self.assertEqual(self._count(self.sheet), 0, "a literal node wrote nothing")
+
+    def test_reject_bad_operator(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="total",
+                formula={"op": "-", "operands": [
+                    {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}}]},
+            )
+        self.assertEqual(self._count(self.sheet), 0)
+
+    def test_reject_empty_operands(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="total", formula={"op": "+", "operands": []},
+            )
+        self.assertEqual(self._count(self.sheet), 0)
+
+    def test_reject_malformed_validates_before_lock(self):
+        # A malformed formula must mutate nothing -- including NOT acquiring the lock (the
+        # structural check is BEFORE acquire_or_refresh).
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="total", formula={"nonsense": True},
+            )
+        self.assertEqual(self._count(self.sheet), 0)
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0,
+                         "a malformed-formula reject never acquired the lock")
+
+    # -- NEGATIVE: lock contention ------------------------------------------
+
+    def test_lock_held_by_other_rejects_and_mutates_nothing(self):
+        self._seed_lock(self.other)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field="amount_by_area", target_value_key=None,
+                target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE,
+            )
+        self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception))
+        self.assertEqual(self._count(self.sheet), 0, "a lock-rejected formula wrote nothing")
+
+    # -- READ + MERGE -------------------------------------------------------
+
+    def test_get_sheet_amount_formulas_returns_current_parsed(self):
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE,
+        )
+        res = get_sheet_amount_formulas(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )
+        self.assertEqual(len(res["formulas"]), 1)
+        f = res["formulas"][0]
+        self.assertEqual(f["formula"], _WILDCARD_QTY_X_RATE, "formula returned PARSED (object)")
+        self.assertIsNone(f["target_value_key"], "default is target_value_key NULL")
+
+    def test_get_sheet_amount_formulas_empty_when_none(self):
+        res = get_sheet_amount_formulas(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )
+        self.assertEqual(res, {"formulas": []})
+
+    def test_get_priced_rows_surfaces_column_formulas(self):
+        # default + override both appear as DISTINCT per-column entries in column_formulas.
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_WILDCARD_QTY_X_RATE, target_col="F",
+        )
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key="Phase 1",
+            target_rate_subkey="total", formula=_PHASE1_QTY_X_RATE, target_col="F",
+        )
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIn("column_formulas", res, "the envelope carries column_formulas")
+        cf = res["column_formulas"]
+        self.assertEqual(len(cf), 2, "default + override both surface as distinct entries")
+        # shape: per-column (NOT per-row); keys present + formula parsed.
+        keys = {(e["target_value_field"], e["target_value_key"], e["target_rate_subkey"]) for e in cf}
+        self.assertEqual(
+            keys,
+            {("amount_by_area", None, "total"), ("amount_by_area", "Phase 1", "total")},
+        )
+        for e in cf:
+            self.assertIn("formula", e)
+            self.assertIn("target_col", e)
+            self.assertIsInstance(e["formula"], dict, "formula is a parsed object")
+        # And NOT stamped onto any row.
+        for row in res["rows"]:
+            self.assertNotIn("column_formulas", row)
+            self.assertNotIn("formula", row)
+
+    def test_get_priced_rows_column_formulas_empty_uncommitted(self):
+        res = get_priced_rows(boq_name=self.boq, sheet_name="No Such Sheet ZZ ")
+        self.assertEqual(res["column_formulas"], [], "uncommitted sheet -> empty column_formulas")
+
+    # -- missing args -------------------------------------------------------
+
+    def test_missing_args_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_amount_formula(
+                boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+                target_value_field=None, formula=_WILDCARD_QTY_X_RATE,  # no target_value_field
+            )
+        with self.assertRaises(frappe.ValidationError):
+            get_sheet_amount_formulas(boq_name=self.boq, sheet_name=self.sheet)  # no version
