@@ -76,6 +76,7 @@ def create_payment_request_for_service(data: str) -> str:
         "status"        : "Approved" if auto_approve else "Requested",
     })
     if auto_approve:
+        pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
         pay.approval_date = nowdate()
         pay.ceo_approval_date = nowdate()
     pay.insert()
@@ -166,6 +167,7 @@ def create_project_payment(doctype: str, docname: str, vendor: str, amount: floa
             "status": "Approved" if auto_approve else "Requested",
         })
         if auto_approve:
+            pay.auto_approved = 1   # mark so auto-approvals are distinguishable from manual ones
             pay.approval_date = nowdate()
             pay.ceo_approval_date = nowdate()   # both gates cleared by the rule
 

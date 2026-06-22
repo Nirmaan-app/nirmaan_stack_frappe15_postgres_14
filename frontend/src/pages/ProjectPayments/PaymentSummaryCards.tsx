@@ -226,6 +226,10 @@ interface PaymentStats {
     total_ceo_approval_done_today_amount: number;
     total_ceo_approval_done_7_days: number;
     total_ceo_approval_done_7_days_amount: number;
+    total_auto_approval_today: number;
+    total_auto_approval_today_amount: number;
+    total_auto_approval_7_days: number;
+    total_auto_approval_7_days_amount: number;
     payment_done_today: number;
     payment_done_today_amount: number;
     payment_done_7_days: number;
@@ -341,12 +345,13 @@ const TileShell: React.FC<{
 };
 
 // Breakdown row used inside composite tiles.
-type BreakdownTone = "red" | "amber" | "blue" | "emerald";
+type BreakdownTone = "red" | "amber" | "blue" | "emerald" | "violet";
 const TONE_CLASSES: Record<BreakdownTone, { dot: string; text: string }> = {
     red: { dot: "bg-red-500", text: "text-red-600 dark:text-red-400" },
     amber: { dot: "bg-amber-500", text: "text-amber-600 dark:text-amber-400" },
     blue: { dot: "bg-blue-500", text: "text-blue-600 dark:text-blue-400" },
     emerald: { dot: "bg-emerald-500", text: "text-emerald-600 dark:text-emerald-400" },
+    violet: { dot: "bg-violet-500", text: "text-violet-600 dark:text-violet-400" },
 };
 
 const BreakdownRow: React.FC<{
@@ -427,6 +432,10 @@ const RecentActivityTile: React.FC<{
     l17dCount: number;
     ceo7dAmount: number;
     ceo7dCount: number;
+    autoTodayAmount: number;
+    autoTodayCount: number;
+    auto7dAmount: number;
+    auto7dCount: number;
     paidTodayAmount: number;
     paidTodayCount: number;
     paid7dAmount: number;
@@ -443,6 +452,8 @@ const RecentActivityTile: React.FC<{
     ceoTodayAmount, ceoTodayCount,
     l17dAmount, l17dCount,
     ceo7dAmount, ceo7dCount,
+    autoTodayAmount, autoTodayCount,
+    auto7dAmount, auto7dCount,
     paidTodayAmount, paidTodayCount,
     paid7dAmount, paid7dCount,
     inflowAmount, inflowCount,
@@ -462,7 +473,7 @@ const RecentActivityTile: React.FC<{
                             <Info className="w-3 h-3 text-muted-foreground cursor-pointer opacity-50 group-hover:opacity-100 shrink-0" />
                         </HoverCardTrigger>
                         <HoverCardContent className="text-xs w-auto p-2">
-                            Approvals (L1 + CEO) and payments fulfilled, for today and the last 7 days.
+                            Approvals (L1 + CEO + Auto) and payments fulfilled, for today and the last 7 days.
                         </HoverCardContent>
                     </HoverCard>
                 </div>
@@ -471,6 +482,7 @@ const RecentActivityTile: React.FC<{
                     <div className="space-y-1 sm:pr-4">
                         <BreakdownRow tone="amber" label="L1 Approval Today" labelLong="L1 Approval Today" amount={l1TodayAmount} count={l1TodayCount} />
                         <BreakdownRow tone="blue" label="CEO Approval Today" labelLong="CEO Approval Today" amount={ceoTodayAmount} count={ceoTodayCount} />
+                        <BreakdownRow tone="violet" label="Auto Approval Today" labelLong="Auto Approval Today" amount={autoTodayAmount} count={autoTodayCount} />
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid Today" amount={paidTodayAmount} count={paidTodayCount} />
                     </div>
@@ -478,6 +490,7 @@ const RecentActivityTile: React.FC<{
                     <div className="space-y-1 sm:pl-4">
                         <BreakdownRow tone="amber" label="L1 Approval (7 days)" labelLong="L1 Approval (7 days)" amount={l17dAmount} count={l17dCount} />
                         <BreakdownRow tone="blue" label="CEO Approval (7 days)" labelLong="CEO Approval (7 days)" amount={ceo7dAmount} count={ceo7dCount} />
+                        <BreakdownRow tone="violet" label="Auto Approval (7 days)" labelLong="Auto Approval (7 days)" amount={auto7dAmount} count={auto7dCount} />
                         <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
                         <BreakdownRow tone="emerald" label="Paid" labelLong="Paid (7 days)" amount={paid7dAmount} count={paid7dCount} />
                     </div>
@@ -712,6 +725,10 @@ const PaymentSummaryTable: React.FC<{ totalCount: number }> = ({ totalCount }) =
                                 l17dCount={stats.total_approval_done_7_days}
                                 ceo7dAmount={stats.total_ceo_approval_done_7_days_amount}
                                 ceo7dCount={stats.total_ceo_approval_done_7_days}
+                                autoTodayAmount={stats.total_auto_approval_today_amount}
+                                autoTodayCount={stats.total_auto_approval_today}
+                                auto7dAmount={stats.total_auto_approval_7_days_amount}
+                                auto7dCount={stats.total_auto_approval_7_days}
                                 paidTodayAmount={stats.payment_done_today_amount}
                                 paidTodayCount={stats.payment_done_today}
                                 paid7dAmount={stats.payment_done_7_days_amount}
