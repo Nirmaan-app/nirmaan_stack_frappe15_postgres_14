@@ -378,10 +378,26 @@ zero-substitution; broken beats not_yet; NEVER throws). Wire types (`AmountFormu
 (PricingGrid.tsx:1277-1300) with `evaluateAmountColumn`; F2 does NOT touch PricingGrid.** `pricingRollup.ts`/`SummaryPanel`
 (the cross-row subtotal surface) is SEPARATE + untouched.
 
+**Amount-formula builder `AmountFormulaBuilder.tsx` + `formulaTokens.ts` (Formula Builder F3 -- the click-to-insert editor;
+full detail: plan §"Formula Builder F3"):** a per-amount-column shadcn Popover (ColorPicker/RemarkCell house style),
+mounted by `PricingGrid` inside each AMOUNT `<th>` (gated `isAmountDescriptor`). The user ASSEMBLES a formula by clicking
+real columns + `+ × ( )` -- NO free text, NO number input (literals barred by construction). The builder edits a flat
+TOKEN LIST; `formulaTokens.parseTokens` (PURE, unit-tested -- the F3 risk spot) parses it to the F1 tree on save
+(`×`-over-`+` precedence, brackets override, n-ary flatten; errors empty/dangling/unbalanced). **DEFAULT-as-template:**
+`tokenRefForMode(d, mode)` inserts a WILDCARD leaf (value_key null) for a default on an area-bound column (F2 binds it
+per-area) vs a CONCRETE ref for an override/scalar. The default/override toggle shows ONLY on a per-area amount column.
+Cycle check at save REUSES F2 (`wouldCreateCycle` runs `evaluateAmountColumn` with a dummy `× 1` lookup -> broken === cycle;
+NOT reimplemented). The header `ƒ = …` label reads `column_formulas` (applicable via F2 `pickFormula` precedence). Save ->
+the page's `onSaveFormula` (`SheetPricingPage.handleSaveFormula` -> `save_amount_formula` POST + mutate; tree as JSON
+string, `""` clears); **withheld when locked** -> the header renders read-only (the callback-presence gate). New wire type
+`AmountFormulaSaveArgs` in boqTypes.ts. **F3 only AUTHORS the formula -- the amount-cell COMPUTE path
+(`findPairedRateDescriptor`) is UNCHANGED; F4 owns that swap.**
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F2 -- pure amount-formula evaluator
-`amountFormula.ts` + Vitest (2026-06-22); Slice 4a.2 -- remarks keyboard-nav + color row-apply fix (2026-06-22).
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F3 -- click-to-insert builder UI
+`AmountFormulaBuilder.tsx` + `formulaTokens.ts` (2026-06-23); Formula Builder F2 -- pure amount-formula evaluator
+`amountFormula.ts` + Vitest (2026-06-22).
 
 (Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
 `boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
