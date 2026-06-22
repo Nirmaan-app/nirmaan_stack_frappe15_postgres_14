@@ -10001,3 +10001,657 @@ line stays neutral) is an OWNER-OWNED later manual pass -- not headlessly confir
 change, no CommitResultsModal change (F4 already done). Pure-frontend -> this plan + frontend/CLAUDE.md substantive;
 root CLAUDE.md deliberately NOT touched (build-prompt scope: a frontend slice updates frontend/CLAUDE.md, not root).
 The F-arc (F1 -> F2 -> F3/F4) is now COMPLETE.
+
+## Phase 5 Pricing Editor -- slice detail (rehomed from CLAUDE, docs-hygiene stage 1, 2026-06-22)
+
+These `### Phase 5 Pricing Editor -- ...` sections are the canonical detail home for the Phase-5 PRICING-EDITOR arc
+(2026-06-20 -> 2026-06-22). Until now this arc's full as-built detail lived ONLY in the two CLAUDE.md files (root for
+the backend slices, frontend for the frontend slices); the plan held only a terse top-changelog pointer. Stage 1 of the
+docs-hygiene cleanup rehomes that detail here (additively, verbatim-faithful to the CLAUDE blocks) so the bloated CLAUDE
+status blocks can be deleted in a later stage. **Naming note:** every heading is prefixed "Phase 5 Pricing Editor --"
+to avoid colliding with the Module-3 config-panel spoke slices that share bare numbers (e.g. `### Module 3 Slice 3e --
+two-layer review gate` is the CONFIG-PANEL gate, a DIFFERENT slice from the pricing "Slice 3e" priceability gate below).
+The composing `get_priced_rows` read already has its own dedicated section above (`## Phase 5 Pricing-overlay read --
+get_priced_rows`) and is NOT duplicated here -- the slices below cross-reference it.
+
+### Phase 5 Pricing Editor -- Slice 1a -- committed-read endpoint get_committed_rows (BACKEND, pure-read, feat pending, 2026-06-20)
+
+**Goal.** The first Phase-5 build: a NEW whitelisted read endpoint `get_committed_rows` in `review_screen.py` that adapts
+the COMMITTED tier (BOQ Nodes + BOQ Node Qty By Area children + the committed `BoQ Sheet` column config) into the SAME
+`{rows, column_descriptors}` descriptor contract `get_review_rows` emits from the DRAFT tier -- so the descriptor-driven
+frontend render can later draw committed rows unchanged. NO new doctype, NO schema/JSON change, NO migrate, NO frontend
+(the pricing-layer doctype is Slice 1b). `get_review_rows` / `_build_column_descriptors` / `resolve_effective` UNCHANGED
+(read-to-reuse).
+
+**Column half = pure reuse.** `_build_column_descriptors` runs UNCHANGED on the committed `column_role_map` (identical
+`{letter:{role,area}}` shape).
+
+**Row half = a bounded INVERSION of `commit_pipeline.py`'s draft->committed map** (`_committed_node_to_row` +
+`_collapse_area_children`): money word-order re-key (node `supply_rate`->`rate_supply`, `combined_rate`->`rate_combined`,
+`total_amount`->`amount_total`, ...); identity (`code`->`sl_no_value`, `qty`->`qty_total`, `notes`->`row_notes`); the
+per-area children RE-COLLAPSED into the nested `*_by_area` dicts (`qty_by_area` flat; `rate_by_area`
+`{area:{supply_rate,install_rate,combined_rate}}`; `amount_by_area` `{area:{supply,install,total}}` -- the amount-kind
+rename `total_amount`->`total` / `supply_amount`->`supply` / `install_amount`->`install`).
+
+**Index-field choice (A20).** `row_index = node.sort_order` (the exact committed analog -- commit_pipeline maps draft
+`row_index`->`sort_order`; 0-based contiguous as `computeDepths` expects). `effective_parent_index` = parent node's
+`sort_order` via `parent_node`->name->sort_order, ROOT (parent_node NULL) -> None; `source_row_number` carried separately
+for the Parent column's Excel display. `classification`/`effective_classification` = `node.row_class` (the pill's
+taxonomy; `node_type` is the separate priceability axis). DRAFT-ONLY fields (ai_*, edit_log, flags, revert_available,
+human_*) OMITTED -- AI-free minimal contract. Guards mirror `get_review_rows` (boq/sheet required; "BOQs '...' not
+found." throw); uncommitted/grid-only -> graceful empty lists. sheet_name VERBATIM (#152).
+
+**Tests.** `test_review_screen` 196 -> **205** (+9: 4 hermetic negative/empty + 5 positive against the live committed
+multi-area BOQ-26-00145/'Electrical ', skip-if-absent so CI-safe). Live probe: 194 rows, 9 descriptors, rates 0.0
+(un-priced committed state), 2 roots. NEXT = Slice 1b. (See root CLAUDE.md `// prior:` "Phase 5 Slice 1a"; this is the
+rehomed full detail.)
+
+### Phase 5 Pricing Editor -- Slice 1b -- pricing-layer doctype BoQ Cell Pricing + save_cell_price + get_sheet_pricing (BACKEND, MIGRATE, feat pending, 2026-06-20)
+
+**Goal.** Creates the per-cell PRICING LAYER -- a NEW standalone doctype **`BoQ Cell Pricing`** (autoname
+**`BPRC-.YY.-.#####`**, istable:0, track_changes:1) that stores the RATE a user fills into a committed Excel cell,
+sitting ON TOP of the committed tier (NEVER mutates it -- nodes/grid/BoQ Sheet stay capture-only). ADDITIVE: no existing
+doctype JSON changed -> ONE `bench migrate` (clean; doctype + 15 columns verified at runtime).
+
+**Identity tuple (load-bearing -- a future slice must respect it).** `(boq, sheet_name [VERBATIM #152], excel_row,
+col_letter, committed_version)` -- the durable Excel address + the committed version it prices (survives a re-commit).
+`col_letter` is STORED (derived from `column_role_map` by `(role,area)->letter`, NOT on the node); `node`
+(Link->BOQ Nodes) is a re-resolvable per-version pointer + `description` a copy-forward match guard -- NEITHER is part of
+the key. `is_filled` (Check) is the layer's OWN filled-state (committed node rates read 0.0, not blank, so a separate
+filled flag is required).
+
+**Pricing lifecycle = its OWN freeze-and-supersede triple** `pricing_version` / `is_current` / `priced_at` (mirroring
+the committed tier) + an `is_finalized` lock (declared, enforced later). Bare-stub controller -- the one-current
+invariant is ENDPOINT-enforced (in `pricing.py`), NOT in the controller (no hooks.py wiring; mirrors the
+pricing/committed convention).
+
+**Endpoints (NEW `api/boq/wizard/pricing.py`).** `save_cell_price` (POST) -- freeze-and-supersede upsert mirroring
+commit_pipeline's `_current_names`/`_next_commit_version`: freeze prior via `set_value`, insert new `is_current=1` /
+`pricing_version=max+1` / `is_filled=1`; RESOLVES + VALIDATES the committed cell exists (throws for a non-cell), stores
+the resolved node. `get_sheet_pricing` (GET) -- the current pricing set for a `(boq, sheet, committed_version)`. Guards
+mirror `get_review_rows`.
+
+**Hermetic fixture (folds in the owed Slice-1a fixup).** `build_committed_sheet_fixture` / `cleanup_committed_fixture`
+(in `test_review_screen.py`) converted the 5 `get_committed_rows` positives from live-skip-guard to always-run (no
+skip); `test_pricing.py` imports the shared builder.
+
+**Tests.** `test_review_screen` **205 -> 205** (5 positives converted in place, net unchanged, no skips); NEW
+`test_pricing` **12** (save/re-save freeze-and-supersede + exactly-one-current invariant + multi-area distinct + read +
+NEG non-existent cell/version/sheet/boq/missing-args). OUT: the overlay-onto-1a read (= `get_priced_rows`, separate
+section), finalize endpoints, copy-forward, frontend. (See root CLAUDE.md `// prior:` "Phase 5 Slice 1b".)
+
+### Phase 5 Pricing Editor -- Slice 2 -- shared-render extraction + Vitest harness (FRONTEND, feat pending, 2026-06-20)
+
+**Goal.** Lifts four render helpers OUT of the ~2580-line `ReviewTree.tsx` into a NEW importable sibling
+`frontend/src/pages/boq-wizard/reviewRender.tsx` so the future pricing grid (Slice 3a, design v1.3 §4 path b) reuses
+them instead of duplicating ReviewTree. ZERO behaviour change, ZERO signature change (byte-identical move). Adds the
+repo's FIRST frontend unit-test harness (Vitest) as the extraction's safety net.
+
+**`reviewRender.tsx` (NEW).** Holds the byte-identical bodies of `computeDepths`, `resolveDescriptorValue`,
+`renderDescriptorCell`, `ClassificationPill` + their private deps `fmtNum`, `CLS_PILL_CLASSES`, and `CLS_LABELS`.
+Exports `computeDepths`, `resolveDescriptorValue`, `renderDescriptorCell`, `ClassificationPill`, `CLS_LABELS`. **`.tsx`
+not `.ts` (forced):** ClassificationPill returns JSX. **`CLS_LABELS` moved too (the one design call):**
+`ClassificationPill` needs it; had it stayed in ReviewTree, `reviewRender`->ReviewTree->reviewRender would be circular,
+so moving `CLS_LABELS` breaks the cycle. `FIXED_ROLE_DEDUPE` did NOT move (ReviewTree-local + exportReviewCsv-only).
+
+**Importers re-pointed:** `ReviewTree.tsx` (removed the 7 defs, imports 5 symbols) + `exportReviewCsv.ts`; no third
+importer (`SheetReviewPage` imports the ReviewTree COMPONENT only). No re-export shims.
+
+**Vitest harness.** `vitest` (4.1.9) devDep + `test`/`test:watch` scripts + a STANDALONE `vitest.config.ts` (re-declares
+`@vitejs/plugin-react` for automatic JSX + the `@`->src alias; `environment: 'node'`). Run via `yarn test` in-container.
+**Method = characterization-before-extraction:** 12 golden tests written against the CURRENT code (GREEN), then re-run
+against the moved module (GREEN); the pre/post parity is the behaviour-preservation proof (the design-doc claim that the
+backend's ~205 `test_review_screen.py` tests gate this was FALSE -- they never touch these frontend functions). One
+golden value corrected per Step 1c (a missing-parent row resolves to depth 1, not 0 -- the TEST was wrong, not the fn).
+
+**Tests + verification.** Vitest **12/12 GREEN** both runs; tsc 3178 (== baseline), 0 in touched wizard files; Vite
+build exit 0 (PWA 164 entries). `ClassificationPill` is manual-cert (JSX, no DOM test added). NO backend / doctype /
+migrate. Slice 2 unblocks 3a. (See frontend CLAUDE.md `**Status (... Slice 2 ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3a -- pricing grid skeleton + page + TenderingDialog (FRONTEND, READ-ONLY, feat pending, 2026-06-20)
+
+**Goal.** The FIRST on-screen pricing surface: a NEW hub-reached, READ-ONLY page (a 5th sibling wizard route) that opens
+a COMMITTED sheet, calls `get_priced_rows`, and renders the committed rows + current saved rates + a basic priced/
+un-priced marker, via a NEW `PricingGrid.tsx` that REUSES the Slice-2 `reviewRender` helpers (design v1.3 Sec.4 path b --
+it does NOT import/reuse/retune the ReviewTree component). NO editing (3b), NO Save/Export/Finalize (3c/5), NO backend,
+NO migrate.
+
+**Route.** `upload-boq/hub/:boqId/pricing/:sheetName` -> lazy `SheetPricingPage` (exports `{ SheetPricingPage as
+Component }`). 5th wizard sibling; sheetName `encodeURIComponent`'d on nav, RR v6 auto-decodes -> verbatim sheet_name.
+
+**`SheetPricingPage.tsx` (NEW) -- shell mirrors SheetReviewPage.** `useFrappeGetDoc("BOQs", ...)` header +
+`useFrappeGetCall("...get_priced_rows", {boq_name, sheet_name}, gate)`. Header = Back + title ONLY (`{boq_name} ·
+V{version} · Pricing · committed v{commit_version}`); NO Save/Export (nothing to save read-only); muted read-only note.
+`editable`/`lock_info` read from the payload + passed to PricingGrid as INERT reserved props (the future lock hook).
+
+**`PricingGrid.tsx` (NEW) -- the read-only grid.** Imports `computeDepths` / `resolveDescriptorValue` /
+`renderDescriptorCell` / `ClassificationPill` from `./reviewRender` + `ROLE_LABELS` from `./boqTypes`. **Does NOT import
+ReviewTree** (the locked path-b call) -- `FIXED_ROLE_DEDUPE` is defined LOCALLY (a 2-role `Set(["sl_no","description"])`,
+documented kept-in-sync mirror) and `INDENT_PX=20` mirrored locally. Fixed anchors **Excel Row / Sl.No / Parent**
+(parent's source_row_number, muted "↑ N", NO scroll-to) **/ Classification** (`<ClassificationPill>`, NO chevron) **/
+Description** (depth indent from computeDepths), then `displayDescriptors = columnDescriptors.filter(d =>
+!FIXED_ROLE_DEDUPE.has(d.role))`. Omitted (minimal): detail panel, inline edit, reclassify, AI columns, restructure,
+remarks, search/filter, subset selector, collapse, per-area header tint.
+
+**PRICED MARKER (Q4 -- basic, IN for 3a).** Each RATE cell with a saved price renders a subtle emerald tint + dot, driven
+SOLELY by the overlay's `priced_*` markers -- per-area `priced_by_area[area][kind] === true` or scalar
+`priced_rate_<kind> === true` -- **NEVER a zero-check** (a committed 0.0 rate can be a valid priced value). Two PURE
+exported helpers: `isRateDescriptor(d)` (rate cell iff `value_field === "rate_by_area"` or in
+`{rate_supply,rate_install,rate_combined}`) + `isCellPriced(row, d)`. Only RATE cells get a marker.
+
+**NEW types (boqTypes.ts, additive).** `PricedRow extends ReviewRow` (adds optional `priced_by_area` /
+`priced_rate_supply/install/combined`) + `GetPricedRowsResponse`. `extends ReviewRow` so the ReviewRow-typed
+reviewRender helpers accept it with no retyping.
+
+**Hub entry (CORRECTED by the 3a-fix).** A global **"Tendering"** button in the hub bottom action row (gated on
+`committedMap.size > 0`) opens `TenderingDialog.tsx` (NEW) -- a RADIO single-select picker (CommitDialog is multi-select
+checklist) of eligible committed sheets; Confirm -> `handleOpenPricing` navigates to the pricing route. The initial 3a
+per-card "Price" button + the `onOpenPricing` prop were REMOVED from `SheetCard` (clean revert).
+
+**Tests + verification.** Vitest **20/20 GREEN** (12 Slice-2 + 8 NEW marker tests incl. the ZERO-RATE-IS-PRICED proof);
+tsc 3178 (== baseline), 0 in touched; Vite build exit 0 (PWA 166, +2 lazy chunks). Slice 3a unblocks 3b. (See frontend
+CLAUDE.md `**Status (... Slice 3a ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3b -- inline rate editing + live amount compute (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** Makes the 3a read-only grid editable for RATES ONLY: each rate cell is a numeric `<Input>` that saves on
+blur/Enter via `save_cell_price`, the cell flips to priced after a `mutate()` refetch (markers re-derive
+authoritatively), and the paired amount shows **amount = qty x rate live (display-only, NEVER persisted** -- the pricing
+layer stores rates only; design v1.3 Sec.5). NO backend (save_cell_price + get_priced_rows already built), NO migrate.
+
+**Editable rate cell.** `isRateDescriptor(d)` cells render a numeric Input (right-aligned); qty/amount/non-rate +
+classification + structure stay READ-ONLY. **Save on BLUR or ENTER -- no Apply, no confirm** (Excel feel). Local
+optimistic `draftRates` keyed `${row_index}:${col}`. `commitRate` guards: UNCHANGED-vs-saved -> no-op; blur+Enter
+double-fire deduped via `committedAttemptRef`; blank/NaN -> 0 (endpoint coerces blank -> 0.0, still priced). On success
+the draft is dropped (falls back to the refetched saved rate); on failure the draft is kept. When `onSaveRate` is absent
+the grid is read-only (3a preserved).
+
+**Page-owned save.** The grid calls up `onSaveRate(cell: RateCellSaveArgs, rate)`; the page owns boq/sheet/commit_version
++ `mutate` -> POSTs `save_cell_price` -> `await mutate()` (markers re-derive AUTHORITATIVELY -- no client-side marker
+logic). On throw: inline `getFrappeError` strip AND re-throw so the grid keeps the draft. (Mirrors the
+SheetReviewPage-owns-onSaved / ReviewTree-calls-up idiom.)
+
+**descriptor -> save_cell_price args (pure `buildRateCell`, unit-tested).** excel_row = `row.source_row_number` (NOT
+row_index); col_letter = `d.col`; committed_version = the payload's `commit_version`; area = per-area `d.value_key`
+(scalar omitted); rate_kind = `d.rate_subkey` verbatim (per-area) / derived (scalar `rate_combined`->`combined_rate`) --
+a guard field NOT the identity key; description = `row.description` (the copy-forward MATCH GUARD, ALWAYS sent). NEW
+additive type `RateCellSaveArgs`.
+
+**Live amount (display-only).** An amount cell paired to a rate column (same area + corresponding kind via the pure
+`findPairedRateDescriptor` + the amount-kind<->rate-kind maps `total<->combined_rate` / `supply<->supply_rate` /
+`install<->install_rate`) shows `computeAmount(qty, rate)`. NON-REGRESSIVE: effective rate = typed draft else the SAVED
+rate IF priced; an un-priced not-editing amount cell keeps its committed value (no 3a regression). Multi-area
+independence falls out of per-(row,col) keying.
+
+**Deferred (NOT 3b):** subtotal roll-up; auto-save/force-save (3c); the single-editor lock (`editable`/`lock_info`
+INERT); un-price; remarks/flag layer (4a/4b); Excel write-back (5); finalize/revert (6).
+
+**Tests + verification.** `PricingGrid.test.ts` 8 -> **18** (+10 helper tests). Vitest **30/30 GREEN**; tsc 3178, 0 in
+touched; Vite build exit 0 (PWA 166). Slice 3b unblocks 3c. (See frontend CLAUDE.md `**Status (... Slice 3b ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3b.2 -- spreadsheet keyboard navigation (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** Makes the WHOLE pricing grid arrow/Tab/Enter navigable like Excel (design v1.3 Sec.11): every cell focusable,
+rate cells edit-on-focus, every other cell holds focus. PricingGrid.tsx ONLY -- reuses commitRate/onSaveRate, NO
+save-model change, NO SheetPricingPage/input.tsx touch, NO backend.
+
+**THE KEYBOARD-NAV MATRIX CONTRACT (load-bearing -- 4a.2 + later slices extend it, never reshape it).**
+- **Focus model = roving-tabindex + per-cell ref map.** `activeCell {rowIndex, colIndex} | null` state; `cellRefs:
+  useRef<Map<string, HTMLElement>>` keyed `${rowIndex}:${colIndex}`. **`rowIndex` is the ARRAY INDEX into `rows`**
+  (`rows.map((row, rowIdx) => …)`) -- contiguous +/-1 movement (NOT `row.row_index`). `colIndex`: 0-4 = the 5 fixed
+  anchors (`FIXED_ANCHOR_COUNT = 5`: Excel Row / Sl.No / Parent / Classification / Description), `5..(5+N-1)` =
+  `displayDescriptors` (`colIndex = FIXED_ANCHOR_COUNT + dIdx`). `colCount = 5 + displayDescriptors.length`. Focus target
+  per cell differs: a RATE cell's `<input>` gets the ref/tabIndex/onFocus (`inputFocusProps`); every other cell's `<td>`
+  does (`tdFocusProps`). Roving: the active cell (or (0,0) before any focus) is `tabIndex=0`, the rest `-1`.
+- **`nextCell(active, dir, rowCount, colCount)` (pure, exported, unit-tested).** Arrows move one cell + return null at
+  edges (NO wrap). Tab: right, else wrap to next row col 0, else null (last cell -> STOP). Shift-Tab: left, else wrap to
+  prev row last col, else null (first cell -> STOP). Enter maps to "down". Returns `{rowIndex,colIndex}` or null.
+- **One `<table onKeyDown={handleGridKeyDown}>` handler** (keydowns bubble up): maps key -> direction, **ALWAYS
+  `preventDefault`s a nav key while activeCell is set** (arrows never move the caret, Tab never escapes the grid), calls
+  `commitActiveRate(activeCell)` (explicit commit-on-move), then `focusCell(next)` (`.focus()` + `scrollIntoView`).
+- **Commit-on-move = explicit, dedupe-safe.** `commitActiveRate` calls the EXISTING `commitRate`; its
+  `committedAttemptRef` dedupe absorbs the trailing onBlur. Save behaviour byte-for-byte unchanged.
+- **`type="number"` -> `type="text" inputMode="decimal"`** so Arrow keys are free for nav; a `DECIMAL_IN_PROGRESS` regex
+  (`/^-?\d*\.?\d*$/`) rejects letters/multiple dots. Active cell = blue inset ring + `scroll-mt-9` to clear the sticky
+  header. Read-only cells (anchors/amount/qty) are focusable but not editable; when `onSaveRate` is absent the grid
+  degrades to read-only and nav still works.
+
+**Tests + verification.** `PricingGrid.test.ts` 18 -> **22** (+4 `nextCell` tests: arrow edge-stops/no-wrap; Tab
+right+wrap+last-cell-stop; Shift-Tab left+wrap+first-cell-stop; Enter-down+bottom-stop). Vitest **34/34 GREEN**; tsc
+3178, 0 in touched; Vite build exit 0 (PWA 166). (See frontend CLAUDE.md `**Status (... Slice 3b.2 ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3c -- auto-save + force-save + save-status (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** Adds a 1000ms `lodash`-debounced auto-save, a "Save now" force-save button, and a save-status chip -- all
+REUSING the existing save (`commitRate -> onSaveRate -> save_cell_price -> mutate`). The save MECHANISM is unchanged; 3c
+adds TRIGGERS + VISIBILITY. NO new endpoint, NO backend, NO lock.
+
+**Debounced auto-save (1000ms).** The rate input's onChange (after `setDraftRates`) calls `scheduleAutoSave(row, d)`,
+get-or-creating a per-cell debounced fn in `debouncersRef` (keyed by `cellKey`); ~1s after the last keystroke it commits
+that cell. **Latest-draft-at-fire:** the debounced fn calls `autoSaveCellRef.current(...)` (capturing only stable
+primitives); `autoSaveCellRef`/`draftRatesRef` re-synced every render in a no-deps effect, so the fire reads CURRENT
+state and routes through the EXISTING `commitRate`. `AUTOSAVE_MS = 1000`.
+
+**Cancel-debounce-on-gesture (same-cell race guard).** `commitRate` computes `key` FIRST and
+`debouncersRef.current.get(key)?.cancel()`s the pending debounce on EVERY commit -- a gesture cancels the timer so a
+later auto-save can't fire a stale value out of order. **Flush-on-unmount** -- a cleanup effect `.flush()`es all pending
+debouncers on grid unmount (a just-typed value persists on navigate-away). This flush-on-unmount is also the load-bearing
+mechanic that makes the Slice-3d keyed remount safe.
+
+**Force-save = imperative grid handle.** `PricingGrid` is now a `forwardRef<PricingGridHandle, PricingGridProps>`
+exposing `flush()` via `useImperativeHandle` (deps `[]`, reads current state through refs): flushes all debouncers then
+retries any remaining draft. The page holds `gridRef`; the header "Save now" button calls `gridRef.current?.flush()`.
+
+**Save-status chip.** Pure exported `deriveSaveStatus({inFlight, hasUnsaved, hasSaved, hasError})` -> idle/unsaved/
+saving/saved/failed, priority **error > saving > unsaved > saved > idle**. The page owns the inputs: an IN-FLIGHT count
+(`onSaveRate` +1 before await, -1 in finally), a client-clock `lastSavedAt` (save_cell_price returns no timestamp),
+`saveError`, and `hasUnsaved` from the grid's new `onDirtyChange` prop. `editable`/`lock_info` stay INERT.
+
+**Tests + verification.** `PricingGrid.test.ts` 22 -> **27** (+5 `deriveSaveStatus` priority tests). Vitest **39/39
+GREEN**; tsc 3178, 0 in touched; Vite build exit 0 (PWA 166). 3c is the last core-editor save slice. (See frontend
+CLAUDE.md `**Status (... Slice 3c ...)**`.)
+
+### Phase 5 Pricing Editor -- Summary panel -- top-down grid-aligned parent-tree amount rollups (+display revisions) (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** An Excel-pivot-style SUMMARY over the pricing editor: parent-tree amount rollups, computed PAGE-SIDE from data
+already fetched for the grid (rows + columnDescriptors from get_priced_rows) -- NO backend, NO migrate. ROWS = nodes in
+the committed parent tree (collapsible; expansion depth = aggregation level); COLUMNS = the sheet's own amount-column
+structure; VALUES = each amount column summed over the node's descendants.
+
+**`pricingRollup.ts` (NEW) -- the pure math (SIBLING module, NOT added to PricingGrid.tsx so the certified grid + its
+tests stay untouched; one-way import of the grid's helpers, no cycle).** `rollupByParent(rows, columnDescriptors) ->
+{columns, roots}` with co-located view types `RollupColumn`/`RollupNode`/`RollupResult` (boqTypes.ts NOT touched).
+
+**THE SUMMING RULE (locked).** Per-row amount = `computeAmount(qty, pairedRate)` REUSING the EXISTING PricingGrid helpers
+(`computeAmount` / `findPairedRateDescriptor` / the `PER_AREA_AMOUNT_TO_RATE_KIND` / `SCALAR_AMOUNT_TO_RATE_FIELD` maps)
++ the qty source. A row contributes its OWN amount **by AMOUNT-PRESENCE** (the paired rate yields a number); a missing
+pairing / missing rate yields null -> contributes nothing. **node_type is NOT on the delivered committed row, so the
+priceability gate is expressed as amount-presence, not a type check.** A priced PREAMBLE carries an amount for its OWN
+ROW only -- never a sum of children: `node.totals = own + sum(children rolled totals)` (own amount added exactly once, no
+double-count). Each amount descriptor rolls up INDEPENDENTLY column-by-column -- NO merging per-area + scalar surfaces,
+NO derived totals. **Cycle-safe:** parent tree inverts `effective_parent_index` (reusing `computeDepths`' memo+cycle
+guard) + an in-progress recursion guard + a DFS path-set guard; roots = parent null/negative/self/absent.
+
+**`SummaryPanel.tsx` (NEW) -- TOP-DOWN, not a side drawer.** A `<section>` opened ABOVE the grid by the header "Summary"
+toggle, full-width, `max-h-[40vh]` with internal scroll (never pushes the grid off-screen). Collapsible tree uses a flat
+`collapsed` Set + visibility flatten (the ReviewTree table-tree idiom), NOT the Collapsible primitive (invalid table
+markup). The discarded side-drawer / shadcn `Sheet` shell was removed.
+
+**Display revisions (2026-06-21, after owner live-test -- changes only what is SHOWN, not what is SUMMED; the math
+`rollupByParent` + its 7 tests UNCHANGED).** (1) Columns = Description + AMOUNT only (renders `rollup.columns` directly,
+no blank spacer columns; grid alignment dropped as a goal). (2) Rows = Preamble + Line Item only -- a render-time filter
+in `flatten` on `node.classification ∈ {"preamble","line_item"}` (DISPLAY-ONLY; totals unchanged; non-priceable types
+are structural leaves so the filter never disconnects the tree). (3) Expand/Collapse-all toggle + default = shallowest
+preamble tier via two NEW pure helpers `minPreambleDepth(roots)` + `defaultCollapsedSet(roots)`. (4) Description = fixed
+`w-[320px]` + wrap.
+
+**Tests + verification.** `pricingRollup.test.ts` (NEW) +7 (five real committed shapes + 2 negatives: per-area
+symmetric; asymmetric per-area not normalized; scalar single-total; VRF full per-area + scalar split 9 cols independent
+no double-count; priced-preamble own amount counted ONCE; cycle terminates; blank/un-priced contribute zero) -> later
+**46 -> 50** (+4 default-tier display tests). Vitest **39 -> 46 -> 50 GREEN**; tsc 3178, 0 in touched; Vite build exit 0
+(PWA 166). (See frontend CLAUDE.md `**Status (... Summary Panel ...)**` + the DISPLAY REVISIONS block.)
+
+### Phase 5 Pricing Editor -- Phase-2 prefill -- cross-area proposed rates (proposed-until-touched) (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** On a MULTI-AREA sheet, saving a PER-AREA rate in one area OFFERS the same value as a PROPOSED (display-only)
+rate in the CORRESPONDING rate column of the OTHER area(s) for that SAME ROW, ONLY into EMPTY cells. The proposal is
+VISIBLE but NEVER saved on its own -- the user touches it (promotes to a real edit on the existing save path) or ignores
+it (never committed). NO backend, NO boqTypes change, `SheetPricingPage.tsx` UNCHANGED.
+
+**THE INVARIANT (future slices MUST respect): proposals live in a SEPARATE `proposedRates` map, NEVER in `draftRates`.**
+`const [proposedRates, setProposedRates] = useState<Record<string,string>>({})`, keyed by the SAME `cellKey(row.row_index,
+d.col)`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate` (keyboard nav), `scheduleAutoSave`,
+the `flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates`
+is committable; a proposal must never be written there until the user touches the cell. Do NOT merge the two maps.
+
+**Correspondence helper (NEW, pure, exported, unit-tested).** `findCorrespondingRateDescriptors(sourceD, descriptors)`
+next to `findPairedRateDescriptor`, reusing `PER_AREA_RATE_FIELD`. Returns descriptors C where source AND C are both
+`value_field === "rate_by_area"`, SAME `rate_subkey` (non-null), DIFFERENT `value_key` (non-null). `[]` for
+scalar/non-rate_by_area/half-populated sources (FAIL-CLOSED -- scalar rate columns have no cross-area analog).
+
+**Trigger + render + cleanup.** Trigger in `commitRate`'s success `.then` (after saveCellPrice + mutate resolve), gated
+`d.value_field === PER_AREA_RATE_FIELD`; sets `proposedRates[ck]` only when the corresponding cell is EMPTY
+(`!isCellPriced(freshRow, C)` via a new `rowsRef` AND no `draftRatesRef.current[ck]`). Render precedence `draft ??
+proposed ?? savedRateStr`; `isProposed` -> the Input gets `text-muted-foreground italic`; the emerald tint stays gated on
+`isCellPriced` (false for a proposal). **Promotion:** the input onChange deletes the cell's `proposedRates` entry (a
+touched proposal becomes a normal draft). **Cleanup:** a `useEffect([rows])` drops any proposal whose cell is priced on
+refetch. Proposals are NOT wholesale-cleared on sheet change (matches draftRates).
+
+**Tests + verification.** `PricingGrid.test.ts` 27 -> **33** (+6 `findCorrespondingRateDescriptors`). Vitest **50 -> 56
+GREEN**; tsc 3178, 0 in touched; Vite build exit 0 (PWA 166). (See frontend CLAUDE.md `**Status (... Phase-2 PREFILL
+...)**`.)
+
+### Phase 5 Pricing Editor -- single-editor lock Slice A -- doctype + atomic acquire-on-first-edit (BACKEND, feat pending, 2026-06-21)
+
+**Goal.** The pricing editor's single-editor lock, backend half + the atomicity guarantee, certified ALONE (frontend
+gating / holder-name banner / takeover-reload UX = Slice B). NEW doctype **`BoQ Sheet Pricing Lock`** (istable:0,
+track_changes:0 -- volatile lock state) keyed by `(boq, sheet_name [VERBATIM #152], committed_version)` with fields
+`locked_by` (Link->User) + `last_edit_at` (Datetime).
+
+**ATOMICITY = a DETERMINISTIC PRIMARY KEY (exactly-one-winner) (the load-bearing architectural fact).** The controller's
+`autoname()` sets `name = _lock_identity(...)` = a **sha1 hex of `f"{boq}\x00{sheet_name}\x00{int(version)}"`**
+(NUL-joined, so "Elec "/"Elec" are DISTINCT #152; arbitrary chars/length never break the PK). Two concurrent first-edits
+both INSERT the SAME name -> the Postgres PK collision raises `frappe.exceptions.DuplicateEntryError`; exactly one insert
+wins, the loser re-reads + is rejected/takes-over. BENCH-PROVEN live (a duplicate insert raises `duplicate key value
+violates unique constraint "tabBoQ Sheet Pricing Lock_pkey"`, txn stays usable after `rollback(save_point=...)`).
+Deterministic-NAME chosen over a composite unique index (the PK is the strongest, most portable atomic guarantee + needs
+no separate index).
+
+**NEW module `api/boq/wizard/pricing_lock.py`.** `LOCK_STALE_SECONDS = 300` (5-min edit-driven expiry, **NO heartbeat,
+NO release endpoint, NO socket** -- expiry is edit-driven; release is implicit via staleness); `_lock_identity` /
+`_read_lock` / `_is_stale`; `acquire_or_refresh(boq, sheet, version, user, now)` -- the 4-branch core: (1) FREE ->
+savepoint + INSERT (atomic; on DuplicateEntryError `rollback(save_point=_ACQUIRE_SAVEPOINT)` + re-read + fall through);
+(2) MINE -> refresh `last_edit_at`; (3) OTHER + FRESH -> REJECT via `frappe.throw` prefixed with the stable marker
+**`_LOCK_HELD_MARKER = "BOQ_PRICING_LOCKED"`** + the holder's full name (**writes NOTHING -- a lock reject mutates
+nothing**); (4) OTHER + STALE -> TAKEOVER (locked_by=user, last_edit_at=now). `read_lock_info(...)` -> the structured
+dict (PURE READ). Holder name via `pr_editing_lock._get_user_full_name` (REUSED -- handles "Administrator" + Nirmaan
+Users fallback).
+
+**Gate in `save_cell_price`.** `acquire_or_refresh(... frappe.session.user, now_datetime())` slots AFTER
+`_resolve_committed_cell` and BEFORE the freeze `_current_pricing_names` -- **so a REJECTED save mutates NOTHING**; the
+lock write shares the request txn + the single trailing `frappe.db.commit()` (lock-touch + price atomic).
+
+**`get_priced_rows` lock_info.** Now returns structured `lock_info` (None when free, else
+`{locked_by_user, locked_by_name, is_locked_by_me, last_edit_at iso, is_stale}`) computed against
+`frappe.session.user` -- a PURE READ (never acquires); `editable` = True if FREE/MINE/STALE, False only when held FRESH
+by another (precomputes the Slice-B gate). `boqTypes.ts` (the only frontend touch this slice): `lock_info: unknown |
+null` -> a structured `LockInfo | null` interface; PricingGrid/SheetPricingPage UNTOUCHED.
+
+**Per-sheet isolation (test-certified).** The lock is per-(sheet, version), NOT per-workbook -- by construction, since
+the deterministic name `sha1(boq \x00 sheet_name \x00 version)` makes a different sheet_name a different PK. A
+`TestLockPerSheetIsolation` (2 committed sheets on ONE boq, one trailing-space #152) certifies two users on two DIFFERENT
+sheets acquire two INDEPENDENT locks with ZERO contention, at BOTH `acquire_or_refresh` AND `save_cell_price`, plus a
+same-sheet CONTRAST guard (other holds A fresh -> me's save on A is rejected with `_LOCK_HELD_MARKER`).
+
+**Tests.** `test_pricing` **22 -> 31 -> 36** (+9 `TestSingleEditorLock`: acquire-on-first-save; holder-refresh;
+reject-fresh-mutates-nothing [marker + holder name + no pricing row + holder untouched]; stale-takeover; THE ATOMICITY
+TEST [monkeypatch first `_read_lock`->None so user B attempts the INSERT against A's existing row -> collision RAISES + is
+handled -> exactly ONE row survives, holder stays A]; lock_info free/mine/other-fresh-blocks/other-stale-allows; +5
+`TestLockPerSheetIsolation`). `bench migrate` CLEAN (deterministic-PK collision proven). (See root CLAUDE.md `// prior:`
+"Single-Editor Lock -- Slice A".)
+
+### Phase 5 Pricing Editor -- single-editor lock Slice B -- frontend read-only gating + holder banner + takeover (FRONTEND, feat pending, 2026-06-21)
+
+**Goal.** The frontend half of the single-editor pricing lock -- consumes Slice A's `editable` + `lock_info` from
+get_priced_rows to make the grid HARD READ-ONLY when locked, show a holder-name banner, and flip the page to read-only on
+a mid-edit takeover. FRONTEND ONLY -- NO backend, NO boqTypes runtime change (the `LockInfo` interface already landed in
+Slice A). Slice A + Slice B together COMPLETE the single-editor lock.
+
+**HARD READ-ONLY = WITHHOLD onSaveRate (the load-bearing reuse).** The grid's editability is a SINGLE root gate --
+`onSaveRate` presence (every edit path guards on it). So the page passes `onSaveRate={locked ? undefined :
+handleSaveRate}` and ALL gates collapse to the existing read-only render with ZERO new per-gate checks. `locked =
+editable === false || takenOver`. **Do NOT add a per-cell `editable` check -- it duplicates the onSaveRate guard.**
+
+**`isTakeoverError(msg)` (NEW pure exported helper, unit-tested):** `msg.includes("BOQ_PRICING_LOCKED")` -- `.includes`
+NOT `.startsWith` because `getFrappeError` ", "-joins multiple `_server_messages` (the marker survives verbatim).
+
+**Page.** (1) `locked` -> withhold onSaveRate. (2) Load-time HOLDER banner (house amber strip, `Lock` icon) shown ONLY
+when `editable === false`, naming `lockInfo?.locked_by_name` + Reload + Go-to-hub. (3) `takenOver` state; in
+`handleSaveRate`'s catch, `if (isTakeoverError(getFrappeError(e))) setTakenOver(true)` (else generic `setSaveError`),
+still re-throws so the grid keeps the draft. (4) A distinct amber TAKEOVER banner (`AlertTriangle`) when `takenOver`,
+precedence over the holder banner. (5) Reload = `void mutate()` (re-reads lock state in place). **Takeover reset = a
+`useEffect` keyed on `pricedData`** (payload identity, fires on every refetch; an `[editable]` dep would miss a
+true->true): clears `takenOver` when the refetch is editable.
+
+**STALE = SILENT (NO banner).** A stale lock returns `editable === true`, so onSaveRate is NOT withheld and neither
+banner shows -- the user edits normally and their first save auto-takes-over server-side. The banner condition is
+`editable === false` (NOT lock_info presence). NO socket/poll/"take over" button.
+
+**Tests + verification.** Vitest **56 -> 60 GREEN** (+4 `isTakeoverError`); tsc 3178, 0 in touched; Vite build exit 0.
+**Single-editor lock COMPLETE (Slice A backend + Slice B frontend).** (See frontend CLAUDE.md `**Status (...
+Single-Editor Lock Slice B ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3d -- in-editor sheet tabs + keyed-remount switch safety (FULL-STACK, small additive backend, feat pending, 2026-06-21)
+
+**Goal.** A tab strip at the top of the pricing editor lists the SAME BoQ's COMMITTED sheets in WORKBOOK ORDER; clicking
+another tab opens it in the editor WITHOUT going out to the hub. The visible feature is tabs; the load-bearing part is
+the keyed-remount switch-safety fix. NO migrate. NO scope creep (no sheet close/reorder, no "new sheet", no cross-BoQ
+tabs, no keyboard tab-cycling -- §14 reserve).
+
+**THE KEY-REMOUNT INVARIANT (future slices MUST keep this).** A pricing->pricing tab switch does NOT remount the
+page/grid (same RR route element, no key), so `draftRates` + in-flight debounced saves would carry across while `rows`
+swap underneath -- a leftover draft keyed `${row_index}:${col}` could fire against the NEW sheet's same-indexed row. FIX:
+**`key={sheetName}` (the VERBATIM useParams value) on the `<PricingGrid>` mount** -> a tab switch UNMOUNTS+REMOUNTS the
+grid. The EXISTING flush-on-unmount commits the OLD sheet's pending drafts TO THE OLD SHEET (the old grid instance's
+`autoSaveCellRef`/`commitRate` closures captured the old `onSaveRate` = old boqId/sheetName/commitVersion), and the NEW
+sheet gets a CLEAN grid. **Do NOT remove the `key={sheetName}` -- it is the correctness fix, not cosmetics.**
+
+**Page per-sheet state reset.** A new `useEffect([sheetName])` resets `saveError`/`lastSavedAt`/`takenOver`/`summaryOpen`.
+**`inFlight` is DELIBERATELY NOT reset** -- a flush-on-unmount save increments then decrements in a pair against the SAME
+stable setter; a hard reset to 0 would underflow when that save's finally runs. `hasUnsaved` re-derives from the
+remounted grid's `onDirtyChange(false)`.
+
+**The tab strip.** shadcn `Tabs`; the committed-sheets list fetched in the page via `useFrappeGetCall` on the SAME
+`commit_gate.get_committed_state` endpoint the hub uses. Ordered by the NEW pure exported helper `orderCommittedSheets`
+(added to PricingGrid.tsx). `<Tabs value={decodedSheetName}>` (active = current :sheetName, VERBATIM #152), one
+`<TabsTrigger value={s.sheet_name}>` per sheet -- **value = VERBATIM sheet_name, label = `s.sheet_name.trim()` for
+DISPLAY only**; `onValueChange` navigates to the hub's exact target `/upload-boq/hub/${boqId}/pricing/${encodeURIComponent
+(val)}` (no-op guard on self).
+
+**Backend `get_committed_state` -- ADDITIVE `sheet_order` (workbook order).** `sheet_order` is NOT on the queried
+`BoQ Committed Sheet Grid` tier; it lives on the committed `BoQ Sheet` tier. Sourced via a SECOND lookup
+(`frappe.get_all("BoQ Sheet", {boq, is_current:1}, ["sheet_name","sheet_order"])` -> `{sheet_name: sheet_order}` dict,
+joined on the committed sheet identity, sheet_name VERBATIM), `None` if no match. Result `.sort`ed by `(sheet_order is
+None, sheet_order or 0, sheet_name)`. PURELY ADDITIVE -- the hub (maps committedMap by sheet_name + doesn't assume order)
+is UNCHANGED. `CommittedSheetState` gains `sheet_order: number | null`. NO migrate. **Stale-lock on switch = NO ACTION**
+(no release endpoint; the old sheet's lock expires 5 min after last edit).
+
+**Tests + verification.** backend `test_commit_gate` **18 -> 19** (+1 `TestGetCommittedStateOrdering`); Vitest **60 -> 64
+GREEN** (+4 `orderCommittedSheets`: ascending; null-order-last + name tiebreak; VERBATIM trailing-space #152; no-mutate);
+tsc 3178, 0 in touched; Vite build exit 0. (See root CLAUDE.md committed-state notes + frontend CLAUDE.md `**Status (...
+Slice 3d ...)**`.)
+
+### Phase 5 Pricing Editor -- general-specs faithful-grid read-only view (FULL-STACK, additive backend read + frontend render fork, feat pending, 2026-06-21)
+
+**Goal.** A GRID-ONLY (general-specs) committed sheet -- SOW, MEP Make List, Assumptions & Exclusions, etc. -- commits a
+FAITHFUL grid with ZERO nodes, so the node-based `get_priced_rows` renders it EMPTY in the pricing editor. When the
+active tab is a grid-only sheet, render its FAITHFUL committed grid as READ-ONLY reference. Data sheets keep the
+node-based pricing grid exactly as before. NO migrate (sheet_disposition already exists; the new endpoint is a pure
+read).
+
+**`get_committed_state` surfaces `sheet_disposition`.** Added to its grid-tier `fields=[...]` + the per-sheet return dict
+(purely additive). `CommittedSheetState` (boqTypes.ts) gains `sheet_disposition: "grid_only" | "grid_and_nodes"`.
+
+**NEW endpoint `get_committed_sheet_grid(boq_name, sheet_name, committed_version)` (pricing.py, bare whitelist,
+GET-capable, PURE READ).** Returns the faithful committed grid for ONE `(boq, sheet_name VERBATIM #152,
+committed_version)` = `{rows: [{row_number, cells}], column_role_map, column_headers, area_dimensions, header_row,
+header_row_count}`. Reads grid rows from `BoQ Committed Sheet Grid Row` (parent = the current grid for that
+boq+sheet+version, ORDER BY row_order asc) + the column-config snapshot from the committed `BoQ Sheet`. A NEW
+`_parse_json_field` guard handles BOTH a json.dumps STRING and an already-parsed dict/list (`get_value(as_dict)` returns
+JSON fields parsed). **THE EMPTY-CONFIG CASE (load-bearing):** the row return is NEVER gated on a non-empty config -- a
+general-specs sheet (SOW) has empty role/header maps, its grid ROWS are returned regardless (the render falls back to
+raw Excel letters). Guards mirror the other committed reads.
+
+**Frontend render fork (`SheetPricingPage.tsx`).** `isGridOnlySheet(committedSheets, sheetName)` (NEW pure exported
+helper in PricingGrid.tsx) returns true ONLY for `sheet_disposition === "grid_only"`, **FAILS-TO-FALSE in the
+indeterminate (committed-state loading) window** so a data sheet never briefly renders grid-only. When grid-only -> fetch
+`get_committed_sheet_grid` (disabled until boqId+sheetName+commit_version known -- commit_version comes from the
+already-running `get_priced_rows`, which carries it for BOTH dispositions) + render the EXISTING `SheetDataGrid`
+read-only (pagination stubbed), SUPPRESS the lock banners / save-status chip / Summary toggle+panel / "Save now" /
+`onSaveRate` / save-error, replace the editor note with a read-only reference note; the tab strip STAYS. SheetDataGrid
+was NOT touched (the spoke usage is unbroken). The key-remount discipline (3d) is unaffected. NEW types
+`CommittedSheetGridResponse` + `CommittedSheetState.sheet_disposition`.
+
+**Tests + verification.** backend `test_commit_gate` **19 -> 20** (+1 disposition surfacing); `test_pricing` **36 -> 41**
+(+5 `TestGetCommittedSheetGrid` incl. the empty-config case + guards); Vitest **64 -> 68** (+4 `isGridOnlySheet`). tsc
+3178, 0 in touched; Vite build exit 0. Live cert: `get_committed_sheet_grid("BOQ-26-00145","SOW",5)` -> 39 rows + empty
+config. (See root CLAUDE.md `// prior:` "GENERAL-SPECS FAITHFUL-GRID READ-ONLY VIEW" + frontend CLAUDE.md `**Status
+(...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 3e -- priceability gate + per-sheet override toggle (FULL-STACK, feat pending, 2026-06-21)
+
+**Goal.** A rate cell is editable ONLY on a committed row whose **node_type** is "Preamble" or "Line Item" (verbatim --
+the priceability axis); "Other" (note/spacer/subtotal/header_repeat) renders rate cells READ-ONLY, enforced BOTH in the
+grid AND server-side in `save_cell_price`, keyed on the SAME field both sides (no axis drift). PLUS a per-sheet,
+per-session OVERRIDE TOGGLE (default OFF) that unlocks non-priceable rate editing for that sheet this session + makes
+the server ACCEPT those writes (`allow_non_priceable`). **CLOSES the Slice 3 arc.** NO migrate.
+
+**THE §6 PRICEABILITY RULE (load-bearing architectural fact -- a DELIBERATE, RECORDED §6 loosening of the §0 "server
+always rejects" rule).** Editable only when `node_type in {"Preamble", "Line Item"}`. The server guard
+(`save_cell_price`) is placed AFTER the cell-resolve + BEFORE the lock acquire/freeze+insert (so a rejected
+non-priceable write mutates NOTHING): `node_type not in {Preamble, Line Item} AND not allow_non_priceable` ->
+`frappe.throw`; override asserted -> ACCEPT. This is **reject-by-default / accept-on-asserted-override**, NOT drift. The
+override-priced "needs review" anomaly is **DERIVABLE (no new schema; no marker field on BoQ Cell Pricing)** -- node_type
+rides the delivered committed row + the priced flag, so the anomaly = `priced && !isPriceableType(node_type)`.
+
+**node_type surfaced (no extra query).** `review_screen._committed_node_to_row` now emits `"node_type":
+node.get("node_type")` (already in `_COMMITTED_NODE_FIELDS`); flows through `get_priced_rows` untouched.
+`_resolve_committed_cell` resolves node_type at the SAME `get_value` (`["name","node_type"], as_dict`) and returns
+`{"name","node_type"}`. `save_cell_price` gains `allow_non_priceable=None` (HTTP-coerced via `_coerce_bool`).
+
+**Frontend gate + toggle.** NEW pure `isPriceableType(nodeType)` (VERBATIM Preamble/Line Item; false for Other/null/
+mis-cased -- no fuzzy match); the rate-cell branch extends to `(isPriceableType(row.node_type) || override)`; a priced
+non-priceable cell renders AMBER (bg-amber-50 + amber dot + "Priced on a non-priceable row -- flagged for review")
+instead of the EMERALD marker, composed identically in BOTH the editable branch + the read-only fall-through (so the
+anomaly stays visible when the override is OFF, e.g. on reload). The per-sheet per-session toggle (`useState(false)`,
+loud amber when ON, suppressed for grid-only, resets in `useEffect([sheetName])`) threads `allow_non_priceable` into the
+save. `PricedRow.node_type?: "Preamble"|"Line Item"|"Other"|null` (boqTypes.ts) -- DERIVE-NOT-STAMP.
+
+**Tests + verification.** backend `test_pricing` **41 -> 47** (+6 `TestPriceabilityGuard`: Other rejected w/o override [+
+a rejected write wrote no price row AND did not acquire the lock]; Other accepted w/ override; HTTP "true"; priceable
+saves w/ and w/o override; node_type on the row). `test_review_screen` **205 unchanged** (additive emit). Vitest **68 ->
+72** (+4 `isPriceableType`). tsc 3178, 0 in touched; Vite build exit 0. Live cert: get_priced_rows delivers node_type per
+row; `_resolve_committed_cell` returns `{name, node_type:'Other'}`. (See root CLAUDE.md `// prior:` "Phase 5 Slice 3e" +
+frontend CLAUDE.md `**Status (... Slice 3e ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 4a-BE -- annotation backend (BoQ Cell Remark + BoQ Cell Color) (BACKEND, MIGRATE, feat pending, 2026-06-22)
+
+**Goal.** Two USER-AUTHORED annotation layers on the pricing editor, stored ADDITIVELY on top of the committed tier
+exactly like `BoQ Cell Pricing` (anchored to the durable Excel address + committed version, own freeze-and-supersede
+triple) -- but carrying NO rate/priceability/lock-identity semantics, so TWO SEPARATE doctypes (NOT folded onto BoQ Cell
+Pricing). **DATA SHEETS ONLY** -- general-specs (grid-only) sheets are read-only reference and get no annotation;
+`get_committed_sheet_grid` / `SheetDataGrid` are UNTOUCHED. Committed tier NEVER mutated.
+
+**THE TWO ANNOTATION DOCTYPES (load-bearing keying).**
+- **`BoQ Cell Remark`** -- per-ROW; istable:0, track_changes:1, autoname **`BRMK-.YY.-.#####`**. IDENTITY = `(boq,
+  sheet_name [VERBATIM #152], excel_row, committed_version)` -- **NO `col_letter`** (per-row); `remark` (Small Text);
+  `description` (Small Text -- the copy-forward MATCH GUARD for the future Slice-7 copy-forward, NOT part of the key,
+  never branched on, exactly like BoQ Cell Pricing.description); lifecycle triple `remark_version` / `is_current` /
+  `remarked_at`.
+- **`BoQ Cell Color`** -- per-CELL; autoname **`BCLR-.YY.-.#####`**. IDENTITY = `(boq, sheet_name, excel_row, col_letter,
+  committed_version)`; `color` (Select, reqd, **EXACTLY 8 stable string tokens -- red/orange/yellow/green/blue/purple/
+  pink/grey -- NOT hex**; the frontend maps token->swatch); `description` match-guard; lifecycle triple `color_version` /
+  `is_current` / `colored_at`.
+
+Both controllers are bare stubs (`pass`); the **one-current invariant is ENDPOINT-enforced (pricing.py), NOT in the
+controller** (mirrors the pricing/committed convention).
+
+**Endpoints + the merge (pricing.py).** `save_row_remark(boq, sheet, excel_row, committed_version, remark,
+description=None)` + `save_cell_color(boq, sheet, excel_row, col_letter, committed_version, color, description=None)`
+(both `@frappe.whitelist(methods=["POST"])`): each RESOLVES the committed ROW via the SAME row-level
+`_resolve_committed_cell` save_cell_price uses (it keys on the node's `source_row_number`, NOT col_letter, and -- crucially
+-- does NOT gate on node_type, so reusing it imposes NO priceability gate; the 3e priceability guard lives INLINE in
+save_cell_price only). **So a COLOR (and a remark) is allowed on ANY committed cell -- non-priceable, zero-rate, anything
+-- where a PRICE would be rejected** (a test proves the contrast). Both then ACQUIRE/REFRESH the single-editor lock
+(`acquire_or_refresh`) AFTER the resolve + BEFORE any freeze/insert (a lock reject mutates NOTHING), then
+freeze-and-supersede upsert (freeze prior `is_current` via set_value, insert new at version max+1) + one
+`frappe.db.commit()`. Remark cap 250 (`_REMARK_MAX_LEN`) -> throw; color must be one of the 8 tokens -> throw. **CLEAR
+semantics:** a blank/whitespace remark OR color FREEZES the prior current and inserts NO new current (reads as "no
+remark"/"no color" -- will not appear in the review-list). `get_sheet_remarks` / `get_sheet_colors` (bare whitelist,
+GET-capable, mirror get_sheet_pricing) return the current set.
+
+**get_priced_rows MERGE shape (the per-row loop -- the contract Slice 4a-FE consumes).** Builds a remark index
+(excel_row->text) + a color index (excel_row->{col_letter:token}) ONCE before the loop (no per-row query), then stamps
+**`row["remark"]`** (None when absent) + **`row["color_by_cell"]`** (`{col_letter:token}`, only on rows that have a
+color). The "nothing to merge" early-return now also accounts for remarks/colors (not just prices) so an annotation-only
+sheet still merges.
+
+**Tests.** `test_pricing` 47 -> **63** (+16: `TestRowRemark` 7 -- save/v1, freeze-and-supersede/v2,
+clear-reads-as-none, 250-ok/251-throw, non-existent-row-throw, lock-held-by-other-rejects-mutates-nothing,
+get_priced_rows surfaces remark; `TestCellColor` 9 -- save/v1, freeze/v2, all-8-tokens-accepted, invalid-9th-throws,
+COLOR-ON-NON-PRICEABLE-CELL [the contrast: a price there is rejected, a color is accepted], clear-no-current,
+non-existent-row-throw, lock-reject, get_priced_rows surfaces color_by_cell). `bench migrate` CLEAN -- BoQ Cell Remark 20
+cols / BoQ Cell Color 21 cols, both istable 0, verified via information_schema. NO change to the committed tier /
+get_committed_sheet_grid / SheetDataGrid. NEXT = Slice 4a-FE. (See root CLAUDE.md current header block "Phase 5 Slice
+4a-BE".)
+
+### Phase 5 Pricing Editor -- Slice 4a-FE -- annotation frontend (remarks column + color picker + review-list seam) (FRONTEND, feat pending, 2026-06-22)
+
+**Goal.** The frontend half of Slice 4a -- the UI consuming the 4a-BE backend. Two annotation surfaces on the DATA-SHEET
+pricing grid. FRONTEND ONLY -- no backend / doctype / test_pricing change; SheetDataGrid + the general-specs path
+UNTOUCHED.
+
+**Consumed contract (live from 4a-BE).** `get_priced_rows` rows carry `row["remark"]` (string|null) + `row["color_by_cell"]`
+(`{col_letter: token}`). Endpoints (POST): `save_row_remark(boq, sheet, excel_row, committed_version, remark,
+description?)` + `save_cell_color(boq, sheet, excel_row, col_letter, committed_version, color, description?)` -- blank
+remark/color CLEARS; remark cap 250; a whole-ROW color apply = N save_cell_color calls (FE fans out). 8 tokens:
+red/orange/yellow/green/blue/purple/pink/grey. `boqTypes.ts` (additive): `PricedRow.remark?` + `.color_by_cell?`, NEW
+`COLOR_TOKENS`/`ColorToken`, `RemarkSaveArgs`/`ColorSaveArgs`.
+
+**Read-only gating reuse (the single root signal -- do NOT add a second).** The grid's editability is the PRESENCE of a
+save callback. The page passes `onSaveRemark`/`onSaveColor` ONLY when `!locked` (mirroring `onSaveRate={locked ?
+undefined : handleSaveRate}`). Withheld -> remarks/colors render READ-ONLY. General-specs never reaches PricingGrid (the
+isGridOnlySheet fork renders SheetDataGrid), so it is annotation-free by construction.
+
+**(1) Remarks column.** A trailing `<th>Remarks</th>` + per-row `<td>` rendered AFTER the `displayDescriptors.map()` (the
+established trailing-column pattern; the `RemarkCell` is NOT a descriptor + NOT in the keyboard matrix THIS slice).
+`RemarkCell`: editable -> a shadcn `Popover` with a `<Textarea>` (rows 3), a live `{len}/250` counter, Save (disabled
+over-cap / not dirty) + Clear; own draft/saving/error state; refresh is the page's mutate. READ-ONLY -> the stored remark
+as plain text. **KEYBOARD: CLICK-ONLY this slice -- NOT registered in `cellRefs`, `colCount`/`nextCell` UNCHANGED** (the
+nextCell tests stay green; 4a.2 changes this). The trigger `onKeyDown stopPropagation`s so the grid nav never hijacks it.
+
+**(2) Color fill -- a SEPARATE visual channel.** Each descriptor td is now `relative` and hosts a tiny corner
+`ColorPicker` trigger (editable only) opening an 8-swatch palette + "Apply to whole row" + "Clear color". **The applied
+color renders as a thick LEFT BORDER** (`colorClassForToken(token)` -> `border-l-4 border-l-<color>`), DELIBERATELY a
+border NOT a background: the system owns the cell BACKGROUND (emerald=priced / amber=priced-non-priceable) + the priced
+dot + the blue inset focus ring, so the four channels (left border, bg fill, dot, ring) never mask each other. (Note: the
+in-app channel is the left BORDER; the Excel export = fill is Slice 5, not built here.) Picking calls `onApply(token,
+wholeRow)`; the grid maps it to a `ColorSaveArgs[]` -- one cell (`[d.col]`) or `rowColorCells(displayDescriptors)` for
+apply-to-row -- and the PAGE owns the N POSTs + ONE mutate. Clear sends `color:""`.
+
+**(3) Page handlers.** `handleSaveRemark` + `handleSaveColor` mirror `handleSaveRate` (the useFrappePostCall idiom):
+inFlight count, POST(s) -> `await mutate()`, client-clock `lastSavedAt`, inline `saveError`, and the SAME
+`isTakeoverError(BOQ_PRICING_LOCKED)` detection -> a lock-rejected annotation flips `takenOver`. `handleSaveColor` loops
+the array sequentially then ONE mutate. **The rate save path is byte-for-byte UNCHANGED** -- annotations are a PARALLEL
+write.
+
+**(4) Minimal review-list (the 4b seam).** A "Review (N)" header toggle opens a collapsible strip ABOVE the grid listing
+rows with a remark; each entry click-jumps via a NEW `PricingGridHandle.scrollToRow(excelRow)` (resolves excel_row ->
+array index through `rowsRef`, focuses+centres the row's col-0 cell). Entries are a GENERIC `{kind:"remark", excelRow,
+description, text}` shape derived page-side (no new fetch), so 4b's computed flags push into the SAME list. `reviewOpen`
+resets per sheet.
+
+**NEW pure exported helpers (unit-tested):** `colorClassForToken` (token -> border class; "" fail-safe),
+`swatchClassForToken` (token -> bg swatch), `rowColorCells(displayDescriptors)` (apply-to-row target cols -- takes ONLY
+the descriptors since targets are row-independent; a reported deviation from the prompt's `(row, displayDescriptors)`
+sketch), `remarkPreview` (trim + ellipsis past the cap).
+
+**Tests + verification.** Vitest **72 -> 80** (+8: colorClassForToken [8 distinct + fail-safe], swatchClassForToken,
+rowColorCells, remarkPreview; the existing nextCell/nav + 3a-3e helper tests UNCHANGED). tsc 3178, 0 in touched; Vite
+build exit 0 (PWA 168). NEXT = 4b. (See frontend CLAUDE.md `**Status (... Slice 4a-FE ...)**`.)
+
+### Phase 5 Pricing Editor -- Slice 4a.2 -- remarks keyboard-nav + color row-apply fix (FRONTEND, fix pending, 2026-06-22)
+
+**Goal.** Two owner-found 4a-FE issues, both FRONTEND-ONLY (the 4a.2 recon DB-proved the backend is correct:
+save_cell_color freeze-and-supersedes a re-color cleanly + a whole-row apply writes all cols end-to-end).
+`SheetPricingPage.tsx` / `boqTypes.ts` / backend / SheetDataGrid UNTOUCHED.
+
+**FINDING 1 -- the trailing REMARKS cell now joins the keyboard matrix.** 4a-FE excluded it (a multi-line Textarea's
+Enter conflicts with grid Enter=down); the owner now wants arrow-reachability. (a) **colCount + 1**: `remarksColIndex =
+FIXED_ANCHOR_COUNT + displayDescriptors.length`, `colCount = remarksColIndex + 1`. The +1 ONLY widens nextCell's
+right/Tab boundary -- no other colIndex math reads colCount (descriptor cells use `FIXED_ANCHOR_COUNT + dIdx`; anchors
+0-4; `commitActiveRate` safely no-ops on the remarks cell). (b) the remarks `<td>` is the nav focus target
+(`tdFocusProps(rowIdx, remarksColIndex)` + the ring). (c) **Open-state LIFTED to the grid** (`openRemarkRowIdx:
+number|null`) -> `RemarkCell` is now CONTROLLED (`open` + `onOpenChange`; draft/saving/error stay LOCAL, seeded on the
+open transition via `useEffect([open])`). (d) **Enter opens the editor**: a new branch in `handleGridKeyDown` BEFORE the
+generic Enter->down (a READ-ONLY remarks cell -- no onSaveRemark -- skips it, falling through to Enter->down). (e) Esc
+closes. (f) **Enter INSIDE the editor = save-and-move-down**: the Textarea Enter (no Shift) -> commit -> save, close,
+then `onMoveDown` = `nextCell({rowIndex,colIndex:remarksColIndex}, "down", ...) + focusCell` -- REUSES the matrix path a
+rate cell's Enter uses (not a reimplementation); Shift+Enter = newline; on a save error the editor STAYS open.
+**The existing rate-cell nav is byte-for-byte UNCHANGED.**
+
+**FINDING 2 -- apply-whole-row color intermittently lost (a frontend state/timing RACE).** Root cause (recon,
+DB-proven): the row-apply was a fragile two-step where the SWATCH CLICK was the trigger reading a separate transient
+`wholeRow` checkbox -> a "whole row" pick sometimes wrote only the one cell. **FIX (locked): DECOUPLE selection from
+submission.** ColorPicker now -- a swatch click only ARMS a token (`armed` state, visibly ringed, NO save); the checkbox
+only toggles `wholeRow`; an explicit **Apply** button (disabled until `armed !== null`) is the ONLY thing that saves,
+reading `{armed, wholeRow}` TOGETHER at click time via `submit(armed)`; a **Clear** button sends `""`. **This kills the
+race by construction** -- no moment a half-set intent is sent. The grid's `onApply(token, wholeRow)` fan-out (`wholeRow ?
+rowColorCells(displayDescriptors) : [d.col]`) and the page's `handleSaveColor` (N POSTs + one mutate) are UNCHANGED.
+
+**Tests + verification.** Vitest **80 -> 81** (+1; PricingGrid.test.ts 57 -> 58: a new nextCell test for the +1 column --
+arrow-right lands on remarks, arrow-left returns, right-edge stop, Tab-wrap to next row, last-row Tab stop; the existing
+4 nextCell tests UNCHANGED + green, proving the rate-cell nav matrix is intact). tsc 3178 (== baseline), 0 in touched.
+Vite build exit 0 (PWA 168). The live race was NOT browser-reproduced (no browser tooling; the recon DB evidence proved
+the intermittency + exonerated the backend). NEXT = 4b (computed-flag layer into the review-list seam) + the F1-F4
+formula builder. (See frontend CLAUDE.md `**Status (... Slice 4a.2 ...)**`.)
