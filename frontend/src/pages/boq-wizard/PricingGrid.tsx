@@ -234,10 +234,15 @@ export type AmountCellResult =
 /**
  * Resolve one operand ref to its value for THIS row, mirroring resolveDescriptorValue's
  * absent-vs-zero contract (real 0 -> 0; a missing key -> undefined; NEVER 0-substituted). The
- * ref is already AREA-BOUND by F2. A RATE operand is DRAFT-AWARE: the optimistic draft if the
- * user is editing that rate cell, else the saved rate (when priced), else undefined (un-priced).
- * A qty / plain-amount operand reads its stored value. This is the one place F4 reads MULTIPLE
- * operands (the old path read a single paired rate). Exported for unit tests.
+ * ref is already AREA-BOUND by F2. A qty / plain-amount operand reads its stored value.
+ *
+ * A RATE operand is DRAFT-AWARE + COMMITTED-AWARE: the optimistic draft if the user is editing
+ * that rate cell -> else the saved rate when editor-priced (marker set; incl. a deliberate 0)
+ * -> else the PREPOPULATED committed rate when it is a NON-ZERO finite value (a real tender-doc
+ * rate, no marker -- the prepopulated-rate fix) -> else undefined (a 0.0/absent committed rate
+ * -> the formula blanks, "needs a rate"). The non-zero gate is RATE-ONLY; qty/amount are not
+ * marker-gated and are unchanged. This is the one place F4 reads MULTIPLE operands. Exported
+ * for unit tests.
  */
 export function lookupOperandValue(
   row: PricedRow,
@@ -261,9 +266,20 @@ export function lookupOperandValue(
     }
     if (isCellPriced(row, rd)) {
       const sv = resolveDescriptorValue(row, rd);
-      return typeof sv === "number" ? sv : undefined;
+      return typeof sv === "number" ? sv : undefined; // priced -> the saved value (incl. a deliberate 0)
     }
-    return undefined; // un-priced rate -> absent (the formula blanks: needs a rate)
+    // PREPOPULATED-RATE FIX: an UNMARKED committed rate is USABLE when its committed value is a
+    // NON-ZERO finite number (a real tender-doc rate, e.g. 1120 on Alorica/VRF) -> the formula
+    // computes from it instead of blanking. A 0.0 / absent committed rate stays undefined ->
+    // not_yet ("needs a rate"). There are no NULLs in the committed tier (an unfilled rate coerces
+    // to 0.0), so NON-ZERONESS is the distinguisher. Owner-accepted tradeoff: a genuinely-0 rate
+    // that was never editor-priced blanks rather than computes 0 (the safer error -- price it 0
+    // through the editor to set the marker -> usable). RATE branch ONLY; qty/amount unchanged.
+    const committed = resolveDescriptorValue(row, rd);
+    if (typeof committed === "number" && Number.isFinite(committed) && committed !== 0) {
+      return committed;
+    }
+    return undefined; // 0.0 / absent committed rate, no marker -> not_yet ("needs a rate")
   }
   // qty / plain amount -> the stored value (resolveDescriptorValue handles the *_by_area walk).
   const v = resolveDescriptorValue(row, rd ?? (ref as unknown as ColumnDescriptor));

@@ -537,11 +537,35 @@ describe("lookupOperandValue", () => {
     const row = prow({ row_index: 1, rate_supply: 12, priced_rate_supply: true });
     expect(lookupOperandValue(row, ref("rate_supply"), cols, {})).toBe(12);
   });
-  it("a RATE operand is undefined when un-priced + not editing (NOT 0)", () => {
-    const row = prow({ row_index: 1, rate_supply: 0 }); // committed 0 but NOT priced
+  // Prepopulated-rate fix: an UNMARKED committed rate is usable when its committed value is
+  // NON-ZERO (a real tender-doc rate, e.g. 1120 on Alorica/VRF); a committed 0 stays undefined.
+  it("a NON-ZERO committed rate (no marker, not editing) is USABLE -> its value (THE FIX)", () => {
+    const row = prow({ row_index: 1, rate_supply: 1120 }); // committed value present, NOT priced
+    expect(lookupOperandValue(row, ref("rate_supply"), cols, {})).toBe(1120);
+  });
+  it("a committed 0.0 rate (no marker) stays undefined -> not_yet (genuine-free-0 blanks)", () => {
+    const row = prow({ row_index: 1, rate_supply: 0 }); // committed 0, NOT priced
     expect(lookupOperandValue(row, ref("rate_supply"), cols, {})).toBeUndefined();
   });
-  it("a QTY operand reads its stored value; a real 0 stays 0 (not missing)", () => {
+  it("a DELIBERATELY-priced 0 (marker set) returns 0 -- distinct from a 0.0 unpriced rate", () => {
+    const priced0 = prow({ row_index: 1, rate_supply: 0, priced_rate_supply: true });
+    expect(lookupOperandValue(priced0, ref("rate_supply"), cols, {})).toBe(0);
+  });
+  it("a per-area NON-ZERO committed rate (no marker) is USABLE (the 166/VRF case)", () => {
+    const areaCols = [desc("rate_by_area", "L1", "combined_rate", "H")];
+    // value present in rate_by_area[L1].combined_rate, NO priced_by_area marker.
+    const row = prow({
+      row_index: 1,
+      rate_by_area: { L1: { combined_rate: 158400 } } as unknown as PricedRow["rate_by_area"],
+    });
+    expect(lookupOperandValue(row, ref("rate_by_area", "L1", "combined_rate"), areaCols, {})).toBe(158400);
+  });
+  it("a draft (editing) still wins over the committed value (unchanged)", () => {
+    const row = prow({ row_index: 1, rate_supply: 1120 });
+    expect(lookupOperandValue(row, ref("rate_supply"), cols, { "1:E": "999" })).toBe(999);
+  });
+  it("a QTY operand reads its stored value; a real 0 stays 0 (NOT marker-gated -- scope guard)", () => {
+    // The non-zero rate gate is RATE-ONLY: a committed qty of 0 still reads as 0, not undefined.
     expect(lookupOperandValue(prow({ qty_total: 9 }), ref("qty_total"), cols, {})).toBe(9);
     expect(lookupOperandValue(prow({ qty_total: 0 }), ref("qty_total"), cols, {})).toBe(0);
   });
@@ -614,6 +638,19 @@ describe("evaluateAmountCell -- formula wins", () => {
     const colsNoInstall = [qtyD, supD, amtD];
     const row = prow({ row_index: 1, qty_total: 10 });
     expect(evaluateAmountCell(amtD, row, colsNoInstall, [formula], { "1:E": "3" })).toEqual({ kind: "blank", reason: "broken" });
+  });
+
+  it("PREPOPULATED-RATE FIX e2e: non-zero committed rates (no marker, no draft) now COMPUTE", () => {
+    // The 150/166 bug: rates present from the tender doc (no priced marker, never edited).
+    // Previously every operand read undefined -> the cell blanked. Now it computes.
+    const row = prow({ row_index: 1, qty_total: 10, rate_supply: 880, rate_install: 240 });
+    expect(evaluateAmountCell(amtD, row, cols, [formula], {})).toEqual({ kind: "value", value: 11200 }); // 10*(880+240)
+  });
+
+  it("PREPOPULATED-RATE e2e: a 0.0 unpriced rate still BLANKS (needs a rate)", () => {
+    // qty + supply prepopulated, but install is a committed 0.0 (unfilled) -> not_yet.
+    const row = prow({ row_index: 1, qty_total: 10, rate_supply: 880, rate_install: 0 });
+    expect(evaluateAmountCell(amtD, row, cols, [formula], {})).toEqual({ kind: "blank", reason: "not_yet" });
   });
 });
 

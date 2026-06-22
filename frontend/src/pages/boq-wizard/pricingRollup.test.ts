@@ -360,15 +360,30 @@ describe("rollupByParent -- formula-aware (the zero-fix)", () => {
     expect(withFormula.totals["F"]).toBe(80); // the formula on J never touches F
   });
 
-  it("treat-as-0: a formula whose rate operand is saved-UNPRICED folds to 0 (not_yet)", () => {
-    const unpriced = prow({
+  it("treat-as-0: a formula whose rate operand is an UNFILLED 0.0 (no marker) folds to 0 (not_yet)", () => {
+    // Prepopulated-rate fix: a NON-ZERO committed rate (no marker) is now USABLE, so the
+    // genuine-unfilled case is a committed 0.0 -> not_yet -> 0 (the §0 "needs a rate" signal).
+    const unfilled = prow({
+      row_index: 1, effective_parent_index: null, effective_classification: "line_item",
+      qty_by_area: { "Phase 2": 5 } as Record<string, number>,
+      rate_by_area: { "Phase 2": { supply_rate: 0, install_rate: 0 } } as unknown as PricedRow["rate_by_area"],
+      // 0.0 committed rates, NO priced markers -> the saved-only lookup returns undefined -> not_yet.
+    });
+    const r = root(rollupByParent([unfilled], cds, [phase2Formula]), 1)!;
+    expect(r.totals["J"]).toBe(0);
+  });
+
+  it("PREPOPULATED-RATE FIX flows to the SUMMARY: non-zero committed rates (no marker) roll up", () => {
+    // The same shared lookupOperandValue (drafts={}) now reads a non-zero committed rate ->
+    // the summary totals it (previously it folded to 0 alongside the grid cell).
+    const prepopulated = prow({
       row_index: 1, effective_parent_index: null, effective_classification: "line_item",
       qty_by_area: { "Phase 2": 5 } as Record<string, number>,
       rate_by_area: { "Phase 2": { supply_rate: 3, install_rate: 4 } } as unknown as PricedRow["rate_by_area"],
-      // NO priced_by_area markers -> the saved-only lookup returns undefined -> not_yet.
+      // NON-ZERO committed rates, NO priced markers (the 150/166 case).
     });
-    const r = root(rollupByParent([unpriced], cds, [phase2Formula]), 1)!;
-    expect(r.totals["J"]).toBe(0);
+    const r = root(rollupByParent([prepopulated], cds, [phase2Formula]), 1)!;
+    expect(r.totals["J"]).toBe(35); // 5 * (3 + 4)
   });
 
   it("treat-as-0: a CYCLE/broken formula folds to 0", () => {
