@@ -432,6 +432,16 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             title: "Category",
             options: activeCategoriesInTracker.map(c => ({ label: c.category_name, value: c.category_name })),
         },
+        task_status: {
+            title: "Status",
+            options: [
+                { label: "Pending", value: "Pending" },
+                { label: "Pending Approval", value: "Pending Approval" },
+                { label: "Submitted", value: "Submitted" },
+                { label: "Rejected", value: "Rejected" },
+                { label: "Client Accepted", value: "Client Accepted" },
+            ],
+        },
         report_type: {
             title: "Report Type",
             options: [
@@ -760,6 +770,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                         { key: 'All', label: 'All', count: flattenedTasks.length },
                         { key: 'Pending', label: 'Pending', count: statusCounts['Pending'] || 0 },
                         { key: 'Submitted', label: 'Submitted', count: statusCounts['Submitted'] || 0 },
+                        { key: 'Rejected', label: 'Rejected', count: statusCounts['Rejected'] || 0 },
                         { key: 'Client Accepted', label: 'Client Accepted', count: statusCounts['Client Accepted'] || 0 },
                     ].map(tab => {
                         const isActive = activeStatusTab === tab.key;

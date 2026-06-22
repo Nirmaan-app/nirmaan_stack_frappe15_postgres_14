@@ -46,7 +46,7 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .cv-chk th, .cv-chk td { border: 1px solid #000; padding: 2px 4px; font-size: 9px; line-height: 1.1; vertical-align: top; word-wrap: break-word; }
 .cv-chk th { text-align: center; font-weight: 700; background: #fff; }
 .cv-chk .cv-num { width: 50px; text-align: center; }
-.cv-chk .cv-result { width: 56px; text-align: center; font-weight: 700; white-space: nowrap; }
+.cv-chk .cv-result { width: 60px; text-align: center; font-weight: 700; white-space: nowrap; }
 .cv-chk .cv-remarks { width: 130px; }
 
 .cv-tr-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
@@ -221,16 +221,19 @@ thead { display: table-header-group; }
 
         {% if tpl.templateId == "sprinkler-pressure-test" %}
 
-            {% if proc_section %}
-                <div class="cv-proc-section-title">{{ proc_section.title or "Sprinkler Pressure Test Operating Process" }}</div>
-                {% for block in (proc_section.blocks or []) %}
-                    {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
-                    {% for item in (block["items"] or []) %}<div class="cv-proc-item">{{ item }}</div>{% endfor %}
-                {% endfor %}
-            {% endif %}
-
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
+                    {# Sprinkler-only 3-page layout: p1 procedure, p2 header+checklist,
+                       p3 images+measured+signature. All inside this branch (scoped). #}
+                    {% if proc_section %}
+                        <div style="page-break-after: always;">
+                            <div class="cv-proc-section-title">{{ proc_section.title or "Sprinkler Pressure Test Operating Process" }}</div>
+                            {% for block in (proc_section.blocks or []) %}
+                                {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                {% for item in (block["items"] or []) %}<div class="cv-proc-item">{{ item }}</div>{% endfor %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                     <table class="cv-table">
                         <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - SPRINKLER SYSTEM" }}</td></tr>
@@ -268,7 +271,8 @@ thead { display: table-header-group; }
                             </tbody>
                         </table>
                     {% endif %}
-                    <div class="cv-spacer-md"></div>
+                    {# Page 3: images + measured pressure + signature together. #}
+                    <div style="page-break-before: always;">
                     {% if img_section %}
                         <div class="cv-section-head">{{ img_section.title or "Sprinkler Pressure Test Result:" }}</div>
                         {%- set cols = img_section.columns or 2 -%}
@@ -326,9 +330,11 @@ thead { display: table-header-group; }
                             {% endfor %}
                         </table>
                     {% endif %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {# 40px gap between the measured-pressure table and the signature.
+                       A spacer div renders reliably in wkhtmltopdf (table margin-top does not). #}
+                    <div style="height: 40px; font-size: 1px; line-height: 40px;">&nbsp;</div>
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="0px") }}
+                    </div>{# end page-3 (images + measured + signature) #}
                 </td></tr>
             </table>
 
@@ -341,8 +347,33 @@ thead { display: table-header-group; }
             {%- set rg_section = (tpl.sections | selectattr("type", "equalto", "repeating_groups") | list | first) -%}
             {%- set groups = (rd.responses or {}).get(rg_section.id, []) or [] if rg_section else [] -%}
 
+            {% if tpl.templateId == "db-commissioning-report" %}
+            <style>
+                /* DB: compress ONLY a single-equipment zone (the cv-db-solo wrapper) so its
+                   group + signature fit one page; multi-equipment zones stay full-size. */
+                .cv-db-solo .cv-mm-table th, .cv-db-solo .cv-mm-table td { padding: 4px 8px !important; font-size: 10px !important; }
+                .cv-db-solo .cv-chk th, .cv-db-solo .cv-chk td { padding: 4px 8px !important; font-size: 10px !important; line-height: 1.0 !important; }
+                .cv-db-solo .cv-sub-head { padding: 4px 0 !important; font-size: 10px !important; }
+                .cv-db-solo .cv-section-head { padding: 4px 8px !important; }
+                .cv-db-solo .cv-spacer-md { height: 8px !important; }
+            </style>
+            {% endif %}
+
+            {% if tpl.templateId == "duct-pressure/smoke/light-testing-report" %}
+            <style>
+                /* Duct: DB-style tight padding + smaller photos so each equipment
+                   (header + observations + photos) fits compactly, not sprawled. */
+                .cv-chk th, .cv-chk td { padding: 4px 8px !important; line-height: 1.05 !important; }
+                .cv-sub-head { padding: 10px 0 !important; }
+                .cv-section-head { padding: 4px 8px !important; }
+                .cv-spacer-md { height: 16px !important; }
+                .cv-img-grid td { min-height: 0 !important; }
+                .cv-img-grid img { max-height: 180px !important; }
+            </style>
+            {% endif %}
+
             <table class="cv-page-layout">
-                <tr><td class="cv-content-cell">
+                <tr><td class="cv-content-cell{% if tpl.templateId == "db-commissioning-report" and (groups | length) == 1 %} cv-db-solo{% endif %}">
                     <table class="cv-table">
                         <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         {%- set _gen_title = target.task_name if tpl.templateId == "duct-pressure/smoke/light-testing-report" else (hdr_section.title if hdr_section else tpl.title) -%}
@@ -366,8 +397,12 @@ thead { display: table-header-group; }
 
                                 {% if rg_section.groupFields %}
                                 <table class="cv-table">
+                                    {# Pack 3 fields per row (3 on the top row, the rest below) so a
+                                       5-field equipment header reads as 2 compact lines (3 + 2). #}
                                     {% for gf in rg_section.groupFields %}
-                                        <tr><td class="cv-label" style="width: 18%;">{{ gf.label }}</td><td>{%- set gv = group.get(gf.key) if group is mapping else none -%}{%- if gv is none or gv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ gv }}{%- endif -%}</td></tr>
+                                        {% if loop.index0 % 3 == 0 %}<tr>{% endif %}
+                                        <td class="cv-label">{{ gf.label }}</td><td>{%- set gv = group.get(gf.key) if group is mapping else none -%}{%- if gv is none or gv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ gv }}{%- endif -%}</td>
+                                        {% if loop.index % 3 == 0 %}</tr>{% elif loop.last %}{% for _p in range(3 - (loop.index % 3)) %}<td></td><td></td>{% endfor %}</tr>{% endif %}
                                     {% endfor %}
                                 </table>
                                 {% endif %}
@@ -576,8 +611,8 @@ thead { display: table-header-group; }
                             </table>
                         {% endif %}
                     {% endfor %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
+                    {# Signature inside the content cell so it flows with the equipment
+                       groups — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
@@ -710,6 +745,11 @@ thead { display: table-header-group; }
             </table>
 
         {% elif tpl.templateId == "lux-level-report" %}
+
+            <style>
+                /* Lux-only: compact rows so ~10 readings + signature fit one page. */
+                .cv-tr-table .cv-tr-row td { height: 18px !important; padding: 1px 5px !important; }
+            </style>
 
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
@@ -1572,6 +1612,11 @@ thead { display: table-header-group; }
 
         {% elif tpl.templateId == "fa-commission-report" %}
 
+            <style>
+                /* FA-only: 20px checklist rows so ~10 rows + signature fit one page. */
+                .cv-chk th, .cv-chk td { height: 20px !important; padding: 1px 5px !important; }
+            </style>
+
             {%- set insert_after = (rd.responses or {}).get('loop_meta', {}).get('insert_after', '') -%}
             {%- set loop_rows_raw = (rd.responses or {}).get('loops', []) or [] -%}
             {%- set loop_rows = namespace(list=[]) -%}
@@ -1679,14 +1724,24 @@ thead { display: table-header-group; }
                         </table>
                     {% endif %}
 
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
+                    {# Signature inside the content cell so it flows with the checklist
+                       — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
 
         {% else %}
+
+            {% if (target.task_name or '') == "VESDA Commissioning Report" %}
+            <style>
+                /* VESDA-only: compress the checklist so it + signature fit one page. */
+                .cv-chk th { padding: 3px 8px !important; font-size: 14px !important; line-height: 1.15 !important; }
+                .cv-chk td { padding: 3px 8px !important; font-size: 12px !important; line-height: 1.15 !important; }
+                .cv-section-head { padding: 3px 8px !important; }
+                .cv-spacer-md { height: 10px !important; }
+            </style>
+            {% endif %}
 
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
@@ -1769,10 +1824,17 @@ thead { display: table-header-group; }
                             </table>
                         {% endif %}
                     {% endif %}
+                    {# VESDA: signature inside the content cell (flows with the checklist) to
+                       beat the wkhtmltopdf bottom-row forced break; others keep the row. #}
+                    {% if (target.task_name or '') == "VESDA Commissioning Report" %}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {% endif %}
                 </td></tr>
+                {% if (target.task_name or '') != "VESDA Commissioning Report" %}
                 <tr><td class="cv-bottom-cell">
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
+                {% endif %}
             </table>
 
         {% endif %}
