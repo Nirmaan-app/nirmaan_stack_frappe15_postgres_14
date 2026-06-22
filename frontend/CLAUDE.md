@@ -363,10 +363,25 @@ the system-owned cell BACKGROUND (emerald = priced / amber = priced-non-priceabl
 ring -- the four channels coexist. The in-app channel is the border; the Excel-export = fill mapping is a later slice.
 Apply-to-row fans out to `rowColorCells(displayDescriptors)`; the page owns the N POSTs + one `mutate()`.
 
+**Amount-formula evaluator `amountFormula.ts` (Formula Builder F2 -- PURE module, NOT a component; full detail: plan
+§"Formula Builder F2"):** the headless engine F4 calls per amount cell to compute `qty x rate` (or any +/* amount
+formula) and fix the stale-amount bug `findPairedRateDescriptor` causes. **PURE** -- no React/DOM/Frappe, does NOT read a
+row, does NOT import `resolveDescriptorValue` (types only). Entry `evaluateAmountColumn(col, columnFormulas, lookup) ->
+EvalResult` (`{ok:true,value}` | `{ok:false, reason:"not_yet"|"broken"}`; not_yet="needs a rate", broken="check formula").
+The CALLER (F4) injects `OperandLookup = (ref) => number|null|undefined` (concrete ref -> the row's value; real-0 is a
+value, absent -> undefined, MIRROR `resolveDescriptorValue`). F2 itself does area-binding (a wildcard leaf value_key=null
+on a `*_by_area` field binds to the column's area; a scalar value_field stays scalar -- the area-bind signal is the
+value_field, no extra field), amount-refs-amount recursion (a leaf whose column has a formula recurses; else lookup),
+cycle detection (-> broken), and the §0 FAIL-SAFE (ANY missing operand blanks the WHOLE formula -- no partial sum, no
+zero-substitution; broken beats not_yet; NEVER throws). Wire types (`AmountFormulaNode`/`AmountFormulaRef`/`ColumnFormula`
++ `GetPricedRowsResponse.column_formulas`) live in `boqTypes.ts`. **F4 REPLACES `findPairedRateDescriptor`
+(PricingGrid.tsx:1277-1300) with `evaluateAmountColumn`; F2 does NOT touch PricingGrid.** `pricingRollup.ts`/`SummaryPanel`
+(the cross-row subtotal surface) is SEPARATE + untouched.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4a.2 -- remarks keyboard-nav + color row-apply
-fix (2026-06-22); Slice 4a-FE -- annotation frontend: remarks column + 8-color picker + review-list seam (2026-06-22).
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F2 -- pure amount-formula evaluator
+`amountFormula.ts` + Vitest (2026-06-22); Slice 4a.2 -- remarks keyboard-nav + color row-apply fix (2026-06-22).
 
 (Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
 `boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
