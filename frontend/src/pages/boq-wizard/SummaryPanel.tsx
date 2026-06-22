@@ -27,10 +27,10 @@
  * they may legitimately differ from the client BoQ's printed subtotals (intended).
  */
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rollupByParent, defaultCollapsedSet, type RollupNode } from "./pricingRollup";
-import type { ColumnDescriptor, PricedRow } from "./boqTypes";
+import type { ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
 
 // Indent step per depth level (mirrors the grid's INDENT_PX feel).
 const INDENT_PX = 16;
@@ -84,14 +84,18 @@ function allParentIndexes(roots: RollupNode[]): Set<number> {
 interface SummaryPanelProps {
   rows: PricedRow[];
   columnDescriptors: ColumnDescriptor[];
+  /** Per-column amount formulas (get_priced_rows.column_formulas) -- makes the rollup
+   *  formula-aware (the zero-fix), so formula-driven amount columns contribute instead of
+   *  rolling up 0. */
+  columnFormulas: ColumnFormula[];
   sheetName: string;
   onClose: () => void;
 }
 
-const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPanelProps) => {
-  const { columns, roots } = useMemo(
-    () => rollupByParent(rows, columnDescriptors),
-    [rows, columnDescriptors],
+const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, sheetName, onClose }: SummaryPanelProps) => {
+  const { columns, roots, grandTotals, integrityErrors } = useMemo(
+    () => rollupByParent(rows, columnDescriptors, columnFormulas),
+    [rows, columnDescriptors, columnFormulas],
   );
 
   // Default view = expanded down to the shallowest preamble tier (computed from data).
@@ -149,6 +153,25 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
           </button>
         </div>
       </div>
+
+      {/* Integrity banner: Option 1 (tree total) disagreed with Option 2 (flat line-item
+          sum) for one or more columns -> the parent tree may be corrupted. Diagnostic: the
+          grand-total row STILL shows the Option-1 value below. */}
+      {integrityErrors.length > 0 && (
+        <div className="flex items-start gap-2 px-3 py-2 border-b border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300 mt-0.5" />
+          <div className="text-amber-900 dark:text-amber-100">
+            <p className="font-medium">Summary integrity check failed -- the row structure may be corrupted.</p>
+            <ul className="mt-0.5 list-disc pl-4">
+              {integrityErrors.map((e) => (
+                <li key={e.col}>
+                  {e.label}: tree total {fmtAmount(e.option1)} vs line-item total {fmtAmount(e.option2)}.
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {!hasAmountCols ? (
         <p className="px-3 py-6 text-sm text-muted-foreground">
@@ -253,6 +276,27 @@ const SummaryPanel = ({ rows, columnDescriptors, sheetName, onClose }: SummaryPa
                 })
               )}
             </tbody>
+            {/* Grand-total row (Option 1: sum of the top-level rolled totals, root orphans
+                included; each line item counted once). Sticky to the panel's bottom edge,
+                bold + a strong top border so it reads as the project total. */}
+            <tfoot>
+              <tr className="border-t-2 border-foreground/30 font-semibold sticky bottom-0 z-20 bg-muted">
+                <td className={cn("px-2 py-2 text-left border-r border-border", ITEM_W)}>
+                  Grand total
+                </td>
+                {columns.map((c) => (
+                  <td
+                    key={c.col}
+                    className={cn(
+                      "px-2 py-2 text-right border-l border-border tabular-nums",
+                      COL_W,
+                    )}
+                  >
+                    {fmtAmount(grandTotals[c.col])}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

@@ -7,7 +7,13 @@
 // data. Totals are keyed by the amount descriptor's Excel col letter (RollupNode.totals).
 import { describe, it, expect } from "vitest";
 import { rollupByParent, minPreambleDepth, defaultCollapsedSet } from "./pricingRollup";
-import type { ColumnDescriptor, PricedRow } from "./boqTypes";
+import type {
+  AmountFormulaNode,
+  AmountFormulaRef,
+  ColumnDescriptor,
+  ColumnFormula,
+  PricedRow,
+} from "./boqTypes";
 
 function desc(
   col: string,
@@ -274,5 +280,147 @@ describe("minPreambleDepth + defaultCollapsedSet", () => {
     const { roots } = rollupByParent(rows, []);
     expect(minPreambleDepth(roots)).toBeNull();
     expect(defaultCollapsedSet(roots).size).toBe(0);
+  });
+});
+
+// ── Summary fix: formula-aware rollup + grand total + reconciliation ──────────────
+//
+// The zero-fix: a formula-only amount column (no paired rate) contributes its FORMULA value
+// to the rollup (previously it paired to null -> 0 while the grid cell showed the right
+// number). The grand-total row (Option 1) + the Option-1-vs-Option-2 reconciliation guard.
+function fref(value_field: string, value_key: string | null = null, rate_subkey: string | null = null): AmountFormulaRef {
+  return { value_field, value_key, rate_subkey };
+}
+function fleaf(r: AmountFormulaRef): AmountFormulaNode {
+  return { ref: r };
+}
+function fop(o: "+" | "*", ...operands: AmountFormulaNode[]): AmountFormulaNode {
+  return { op: o, operands };
+}
+function cf(
+  target_value_field: string,
+  target_value_key: string | null,
+  target_rate_subkey: string | null,
+  formula: AmountFormulaNode | null,
+): ColumnFormula {
+  return { target_value_field, target_value_key, target_rate_subkey, target_col: null, formula };
+}
+
+describe("rollupByParent -- formula-aware (the zero-fix)", () => {
+  // A 2-area sheet: Phase 1 has a COMBINED rate (the amount pairs, no formula needed); Phase 2
+  // is SPLIT supply+install with a single total -> the OLD pairing returns null (combined rate
+  // absent) -> 0. A per-area OVERRIDE formula on Phase 2's total fixes it. Phase 1 stays on the
+  // unchanged pairing path.
+  const cds = [
+    desc("D", "qty", "qty_by_area", "Phase 1"),
+    desc("E", "rate_combined_by_area", "rate_by_area", "Phase 1", "combined_rate"),
+    desc("F", "amount_total_by_area", "amount_by_area", "Phase 1", "total"),
+    desc("G", "qty", "qty_by_area", "Phase 2"),
+    desc("H", "rate_supply_by_area", "rate_by_area", "Phase 2", "supply_rate"),
+    desc("I", "rate_install_by_area", "rate_by_area", "Phase 2", "install_rate"),
+    desc("J", "amount_total_by_area", "amount_by_area", "Phase 2", "total"),
+  ];
+  // Phase 2 total = qty x (supply + install) -- a per-area override.
+  const phase2Formula = cf(
+    "amount_by_area", "Phase 2", "total",
+    fop("*", fleaf(fref("qty_by_area", "Phase 2")),
+      fop("+", fleaf(fref("rate_by_area", "Phase 2", "supply_rate")), fleaf(fref("rate_by_area", "Phase 2", "install_rate")))),
+  );
+  const li = prow({
+    row_index: 1,
+    effective_parent_index: null,
+    effective_classification: "line_item",
+    qty_by_area: { "Phase 1": 10, "Phase 2": 5 } as Record<string, number>,
+    rate_by_area: {
+      "Phase 1": { combined_rate: 8 },
+      "Phase 2": { supply_rate: 3, install_rate: 4 },
+    } as unknown as PricedRow["rate_by_area"],
+    priced_by_area: {
+      "Phase 1": { combined_rate: true },
+      "Phase 2": { supply_rate: true, install_rate: true },
+    } as unknown as PricedRow["priced_by_area"],
+  });
+
+  it("WITHOUT the formula, Phase 2's split-rate total rolls up ZERO (the bug)", () => {
+    const r = root(rollupByParent([li], cds, []), 1)!;
+    expect(r.totals["F"]).toBe(80); // Phase 1 pairs to combined: 10 x 8
+    expect(r.totals["J"]).toBe(0); // Phase 2 total has no paired combined rate -> 0
+  });
+
+  it("WITH the formula, Phase 2 contributes (10 x 8 = 80; 5 x (3+4) = 35); Phase 1 UNCHANGED", () => {
+    const r = root(rollupByParent([li], cds, [phase2Formula]), 1)!;
+    expect(r.totals["F"]).toBe(80); // Phase 1 unchanged (no formula -> pairing)
+    expect(r.totals["J"]).toBe(35); // Phase 2 now formula-driven: 5 x (3+4)
+  });
+
+  it("REGRESSION (D-2): Phase 1's no-formula number is identical with or without columnFormulas", () => {
+    const noArg = root(rollupByParent([li], cds), 1)!;
+    const withFormula = root(rollupByParent([li], cds, [phase2Formula]), 1)!;
+    expect(noArg.totals["F"]).toBe(80);
+    expect(withFormula.totals["F"]).toBe(80); // the formula on J never touches F
+  });
+
+  it("treat-as-0: a formula whose rate operand is saved-UNPRICED folds to 0 (not_yet)", () => {
+    const unpriced = prow({
+      row_index: 1, effective_parent_index: null, effective_classification: "line_item",
+      qty_by_area: { "Phase 2": 5 } as Record<string, number>,
+      rate_by_area: { "Phase 2": { supply_rate: 3, install_rate: 4 } } as unknown as PricedRow["rate_by_area"],
+      // NO priced_by_area markers -> the saved-only lookup returns undefined -> not_yet.
+    });
+    const r = root(rollupByParent([unpriced], cds, [phase2Formula]), 1)!;
+    expect(r.totals["J"]).toBe(0);
+  });
+
+  it("treat-as-0: a CYCLE/broken formula folds to 0", () => {
+    const scalarCds = [desc("C", "qty_total", "qty_total"), desc("G", "amount_total", "amount_total")];
+    const selfCycle = cf("amount_total", null, null, fleaf(fref("amount_total"))); // self-ref -> broken
+    const row = prow({ row_index: 1, effective_parent_index: null, effective_classification: "line_item", qty_total: 5 });
+    const r = root(rollupByParent([row], scalarCds, [selfCycle]), 1)!;
+    expect(r.totals["G"]).toBe(0);
+  });
+});
+
+describe("rollupByParent -- grand total (Option 1) + reconciliation", () => {
+  // Scalar amount sheet: pairing path (no formulas). amount_total pairs to rate_combined.
+  const cds = [
+    desc("C", "qty_total", "qty_total"),
+    desc("D", "rate_combined", "rate_combined"),
+    desc("G", "amount_total", "amount_total"),
+  ];
+  const li = (idx: number, parent: number | null, qty: number, rate: number, cls = "line_item") =>
+    prow({
+      row_index: idx, effective_parent_index: parent, effective_classification: cls,
+      qty_total: qty, rate_combined: rate,
+    });
+
+  it("grand total = sum of top-level rolled totals incl. a root orphan; each item counted once", () => {
+    // root preamble (own 0) -> child line item (50); a SEPARATE root orphan line item (30).
+    const rows = [
+      prow({ row_index: 0, effective_parent_index: null, effective_classification: "preamble" }),
+      li(1, 0, 10, 5), // child of the preamble -> 50, inside root 0's rolled total
+      li(2, null, 6, 5), // root-level ORPHAN line item -> 30
+    ];
+    const res = rollupByParent(rows, cds);
+    // Option 1: rolled(0)=0+50=50, rolled(2)=30 -> grand total 80 (each item once).
+    expect(res.grandTotals["G"]).toBe(80);
+    expect(res.integrityErrors).toEqual([]); // a well-formed tree reconciles
+  });
+
+  it("a well-formed tree with fractional amounts reconciles (epsilon does not false-fire)", () => {
+    const rows = [li(0, null, 1, 0.1), li(1, 0, 1, 0.2), li(2, 0, 1, 0.3)];
+    const res = rollupByParent(rows, cds);
+    expect(res.integrityErrors).toEqual([]);
+    expect(res.grandTotals["G"]).toBeCloseTo(0.6, 9);
+  });
+
+  it("a CORRUPTED tree (a 2-cycle with no root) -> the integrity check FIRES", () => {
+    // A.parent=B, B.parent=A -> neither is a root -> Option 1 = 0; Option 2 = 50 + 30 = 80.
+    const rows = [li(1, 2, 10, 5), li(2, 1, 6, 5)];
+    const res = rollupByParent(rows, cds);
+    expect(res.grandTotals["G"]).toBe(0); // no roots -> tree total 0
+    expect(res.integrityErrors.length).toBe(1);
+    expect(res.integrityErrors[0].col).toBe("G");
+    expect(res.integrityErrors[0].option1).toBe(0);
+    expect(res.integrityErrors[0].option2).toBe(80); // the flat line-item sum still finds it
   });
 });

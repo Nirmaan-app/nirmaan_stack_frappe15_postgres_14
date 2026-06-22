@@ -35,10 +35,22 @@
  * for the grid (rows + columnDescriptors from get_priced_rows). Unit-tested in
  * pricingRollup.test.ts.
  */
-import { computeAmount, findPairedRateDescriptor, isAmountDescriptor } from "./PricingGrid";
+import {
+  computeAmount,
+  findPairedRateDescriptor,
+  isAmountDescriptor,
+  lookupOperandValue,
+} from "./PricingGrid";
+import { evaluateAmountColumn, pickFormula } from "./amountFormula";
 import { computeDepths, resolveDescriptorValue } from "./reviewRender";
 import { ROLE_LABELS } from "./boqTypes";
-import type { ColumnDescriptor, PricedRow } from "./boqTypes";
+import type { AmountFormulaRef, ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
+
+// Reconciliation tolerance (Option 1 tree-total vs Option 2 flat-sum). A small ABSOLUTE
+// currency floor + a RELATIVE term so float-accumulation dust on a large sum never
+// false-fires, while a real structural divergence (whole rupees) does. Pure constants.
+const RECON_EPSILON_ABS = 0.01;
+const RECON_EPSILON_REL = 1e-9;
 
 /** One amount column in the rollup -- mirrors one amount-bearing descriptor on the sheet. */
 export interface RollupColumn {
@@ -68,10 +80,27 @@ export interface RollupNode {
   children: RollupNode[];
 }
 
-/** The full rollup: the mirrored amount columns + the forest of roots. */
+/**
+ * One per-column reconciliation failure: Option 1 (tree total = sum of top-level rolled
+ * totals) disagreed with Option 2 (flat sum of every row's own amount) beyond the epsilon --
+ * a sign the parent tree is structurally corrupted (e.g. a cycle truncating a subtree).
+ */
+export interface IntegrityError {
+  col: string;
+  label: string;
+  option1: number; // the tree total (the value still shown)
+  option2: number; // the flat line-item total (the cross-check)
+}
+
+/** The full rollup: the mirrored amount columns + the forest of roots + the project totals. */
 export interface RollupResult {
   columns: RollupColumn[];
   roots: RollupNode[];
+  /** Per-column project GRAND TOTAL (Option 1): the sum of the TOP-LEVEL nodes' rolled totals
+   *  (each line item counted once; root-level orphans included). The value the panel shows. */
+  grandTotals: Record<string, number>;
+  /** Per-column reconciliation failures (Option 1 vs Option 2). Empty = clean. */
+  integrityErrors: IntegrityError[];
 }
 
 /** Mirror the grid header label for an amount descriptor. */
@@ -80,9 +109,22 @@ function columnLabel(d: ColumnDescriptor): string {
 }
 
 /**
- * One row's OWN amount for one amount descriptor, computed FROM SOURCE (qty x paired
- * rate). Returns null when the amount column has no paired rate descriptor on this sheet,
- * or the row carries no rate/qty -> the row contributes nothing for that column.
+ * One row's OWN amount for one amount descriptor (SAVED values only -- the summary is
+ * save-time, Option A; no draftRates). Returns null when the row contributes nothing for that
+ * column (treat-as-0 in the fold).
+ *
+ * FORMULA-AWARE (the zero-fix): when an amount column has an APPLICABLE formula (F2
+ * pickFormula precedence: per-area override > area-wildcard default), the row's own amount is
+ * the FORMULA value -- evaluateAmountColumn with a SAVED-ONLY lookup (lookupOperandValue with
+ * EMPTY draftRates, so a rate operand reads its saved-when-priced value, never a draft). An
+ * un-resolvable formula (not_yet = a saved-unpriced rate; broken = cycle/dangling) -> null ->
+ * folds to 0. This is what F4 added to the GRID cell; without it a formula-only amount column
+ * (no paired rate) rolled up ZERO while the cell showed the right number.
+ *
+ * NO FORMULA: the EXISTING findPairedRateDescriptor -> computeAmount path, BYTE-FOR-BYTE
+ * unchanged (the D-2 regression guard -- a no-formula column's rolled numbers must be
+ * identical pre/post; this path is NOT routed through evaluateAmountCell, whose priced-gate
+ * differs from this committed-rate recompute).
  *
  * Per-area amount descriptors carry value_key (the area); scalar amount descriptors have
  * value_key === null. qty source mirrors PricingGrid: qty_by_area[area] / qty_total.
@@ -91,7 +133,25 @@ function rowOwnAmount(
   row: PricedRow,
   amountD: ColumnDescriptor,
   descriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
 ): number | null {
+  // FORMULA-WINS (only when one applies) -- reuses F2's precedence + evaluator.
+  const concreteCol: AmountFormulaRef = {
+    value_field: amountD.value_field,
+    value_key: amountD.value_key,
+    rate_subkey: amountD.rate_subkey,
+  };
+  const applicable = pickFormula(concreteCol, columnFormulas);
+  if (applicable && applicable.formula) {
+    // Saved-only lookup = lookupOperandValue with EMPTY draftRates (skips the draft branch ->
+    // a rate reads its saved-when-priced value; un-priced -> undefined -> not_yet -> null).
+    const res = evaluateAmountColumn(concreteCol, columnFormulas, (ref) =>
+      lookupOperandValue(row, ref, descriptors, {}),
+    );
+    return res.ok ? res.value : null; // not_yet / broken -> null (treat-as-0)
+  }
+
+  // NO FORMULA: the original single-paired-rate path, UNCHANGED (the D-2 guard).
   const rateD = findPairedRateDescriptor(amountD, descriptors);
   if (!rateD) return null; // no paired rate column on this sheet -> not recomputable
   const area = amountD.value_key; // non-null => per-area; null => scalar
@@ -114,6 +174,7 @@ function rowOwnAmount(
 export function rollupByParent(
   rows: PricedRow[],
   columnDescriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[] = [],
 ): RollupResult {
   const amountDescs = columnDescriptors.filter(isAmountDescriptor);
   const columns: RollupColumn[] = amountDescs.map((d) => ({
@@ -144,11 +205,11 @@ export function rollupByParent(
     }
   }
 
-  // Each row's own amount per column (computed once).
+  // Each row's own amount per column (computed once). FORMULA-AWARE via columnFormulas.
   const ownByIdx = new Map<number, Record<string, number | null>>();
   for (const r of rows) {
     const m: Record<string, number | null> = {};
-    for (const d of amountDescs) m[d.col] = rowOwnAmount(r, d, columnDescriptors);
+    for (const d of amountDescs) m[d.col] = rowOwnAmount(r, d, columnDescriptors, columnFormulas);
     ownByIdx.set(r.row_index, m);
   }
 
@@ -195,7 +256,34 @@ export function rollupByParent(
   };
 
   const roots = rootIdxs.map((idx) => build(idx, new Set<number>()));
-  return { columns, roots };
+
+  // ── Grand total (Option 1) + reconciliation cross-check (Option 2) ──────────────
+  // Option 1 = the sum of the TOP-LEVEL nodes' rolled totals (each node counted once; root
+  // orphans are roots, so nothing is missed). Option 2 = the flat sum of EVERY row's own
+  // amount (the same set rolled() sums, but without the tree walk). Both treat-as-0, both
+  // saved-only -> for a well-formed acyclic forest they are EQUAL by construction; they
+  // diverge only when the tree is structurally corrupted (e.g. a cycle truncates a subtree),
+  // which is exactly what the integrity check surfaces.
+  const grandTotals: Record<string, number> = {};
+  const option2: Record<string, number> = {};
+  for (const d of amountDescs) {
+    grandTotals[d.col] = roots.reduce((s, r) => s + (r.totals[d.col] ?? 0), 0);
+    let flat = 0;
+    for (const own of ownByIdx.values()) flat += own[d.col] ?? 0;
+    option2[d.col] = flat;
+  }
+
+  const integrityErrors: IntegrityError[] = [];
+  for (const c of columns) {
+    const o1 = grandTotals[c.col];
+    const o2 = option2[c.col];
+    const tol = Math.max(RECON_EPSILON_ABS, RECON_EPSILON_REL * Math.max(Math.abs(o1), Math.abs(o2)));
+    if (Math.abs(o1 - o2) > tol) {
+      integrityErrors.push({ col: c.col, label: c.label, option1: o1, option2: o2 });
+    }
+  }
+
+  return { columns, roots, grandTotals, integrityErrors };
 }
 
 // ── Summary-panel default-view helpers (display support; rollupByParent UNCHANGED) ──

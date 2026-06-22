@@ -624,6 +624,7 @@ const SheetPricingPage = () => {
         <SummaryPanel
           rows={rows}
           columnDescriptors={columnDescriptors}
+          columnFormulas={columnFormulas}
           sheetName={displaySheetName}
           onClose={() => setSummaryOpen(false)}
         />
