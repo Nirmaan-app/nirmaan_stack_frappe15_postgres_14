@@ -590,7 +590,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             {/* ═══════════════════════════════════════════════════════════════
                 HEADER / SUMMARY SECTION - Mobile Collapsible + Desktop Static
             ═══════════════════════════════════════════════════════════════ */}
-            <div className="bg-white border-b border-gray-200">
+            <div className="bg-gray-50 rounded-lg border border-gray-200 shadow-sm mx-4 md:mx-0">
 
                 {/* ─────────────────────────────────────────────────────────────
                     MOBILE VIEW: Collapsible (< sm breakpoint)
@@ -754,40 +754,42 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
             {/* ═══════════════════════════════════════════════════════════════
                 STATUS FILTER TABS (All / per-status filter the table; Pending Approval, approver-only + last, opens the approvals queue)
             ═══════════════════════════════════════════════════════════════ */}
-            <div className="bg-white border-b border-gray-200 px-4 py-2 md:px-6">
-                <div className="flex items-center gap-1 overflow-x-auto">
+            <div className="bg-white px-4 py-2 md:px-6">
+                <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 overflow-x-auto scrollbar-thin pb-1 sm:pb-0">
                     {[
                         { key: 'All', label: 'All', count: flattenedTasks.length },
-                        { key: 'Submitted', label: 'Submitted', count: statusCounts['Submitted'] || 0 },
                         { key: 'Pending', label: 'Pending', count: statusCounts['Pending'] || 0 },
+                        { key: 'Submitted', label: 'Submitted', count: statusCounts['Submitted'] || 0 },
                         { key: 'Client Accepted', label: 'Client Accepted', count: statusCounts['Client Accepted'] || 0 },
                     ].map(tab => {
                         const isActive = activeStatusTab === tab.key;
                         return (
                             <button
                                 key={tab.key}
+                                type="button"
                                 onClick={() => setActiveStatusTab(tab.key)}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${isActive ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap ${isActive ? 'bg-primary text-primary-foreground' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
                             >
-                                <span>{tab.label}</span>
-                                <span className={`text-xs tabular-nums ${isActive ? 'text-white/80' : 'text-gray-400'}`}>
-                                    {String(tab.count).padStart(2, '0')}
+                                {tab.label}
+                                <span className={`text-xs font-bold ${isActive ? 'opacity-90' : 'opacity-60'}`}>
+                                    {tab.count}
                                 </span>
                             </button>
                         );
                     })}
                     {isApprover && (
                         <>
-                            <div className="h-5 w-px bg-gray-300 mx-1 shrink-0" />
-                            <button
-                                onClick={() => setActiveStatusTab('Pending Approval')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${activeStatusTab === 'Pending Approval' ? 'bg-indigo-600 text-white' : 'text-indigo-600 hover:bg-indigo-50'}`}
-                            >
-                                <span>Pending Approval</span>
-                                <span className={`text-xs tabular-nums ${activeStatusTab === 'Pending Approval' ? 'text-white/80' : 'text-indigo-400'}`}>
-                                    {String(approvalTasks.length).padStart(2, '0')}
-                                </span>
-                            </button>
+                        <div className="h-5 w-px bg-gray-300 mx-1 shrink-0" />
+                        <button
+                            type="button"
+                            onClick={() => setActiveStatusTab('Pending Approval')}
+                            className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeStatusTab === 'Pending Approval' ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}
+                        >
+                            Pending Approval
+                            <span className={`text-xs font-bold ${activeStatusTab === 'Pending Approval' ? 'opacity-90' : 'opacity-70'}`}>
+                                {approvalTasks.length}
+                            </span>
+                        </button>
                         </>
                     )}
                 </div>

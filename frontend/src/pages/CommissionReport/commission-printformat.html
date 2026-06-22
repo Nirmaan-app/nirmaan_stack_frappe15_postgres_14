@@ -22,6 +22,9 @@
 {%- endfor -%}
 {%- set target = ns.target -%}
 
+{# Per-task signature top-margin (a CSS value). Tasks not listed fall back to the 30px CSS default. #}
+{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "500px", "RR Commissioning Report": "130px", "WLD Commissioning Report": "130px"} -%}
+
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
 * { box-sizing: border-box; }
@@ -116,7 +119,7 @@ thead { display: table-header-group; }
   - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], tight=False) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], margin=None) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
@@ -139,7 +142,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"{% if tight %} style="margin-top: 0 !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"{% if margin %} style="margin-top: {{ margin }} !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -325,7 +328,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -575,7 +578,7 @@ thead { display: table-header-group; }
                     {% endfor %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -621,7 +624,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -697,7 +700,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -756,7 +759,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -954,7 +957,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1068,7 +1071,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1174,7 +1177,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1296,7 +1299,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1409,7 +1412,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1469,7 +1472,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1538,7 +1541,7 @@ thead { display: table-header-group; }
                             </tr></thead>
                             <tbody>
                                 {% for row in ns_rows.list %}
-                                    <tr class="cv-tr-row">
+                                    <tr>
                                         <td style="text-align: center;">{{ loop.index }}</td>
                                         {% for c in (speakers_section.columns or []) %}
                                             {%- set v = row.get(c.key) if row is mapping else none -%}
@@ -1552,7 +1555,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1667,7 +1670,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1757,7 +1760,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, tight=((target.task_name or '') == "CCTV Commissioning Report")) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 

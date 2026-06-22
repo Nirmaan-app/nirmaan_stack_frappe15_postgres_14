@@ -1204,7 +1204,10 @@ export const CommissionReportWizard: React.FC = () => {
                                         (((form.getValues() as FormShape).zones?.[
                                             step.zoneSlice.zoneIndex
                                         ]?.responses as Record<string, unknown>) || {}),
-                                    attachments: {},
+                                    attachments:
+                                        (((form.getValues() as FormShape).zones?.[
+                                            step.zoneSlice.zoneIndex
+                                        ]?.attachments as Record<string, AttachmentSlotValue[]>) || {}),
                                 }}
                                 projectId={projectId}
                             />

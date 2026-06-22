@@ -28,11 +28,12 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
         case 'text':
         case 'textarea': {
             let s = z.string();
-            if (field.type === 'text' && (field as { maxLength?: number }).maxLength) {
-                s = s.max(
-                    (field as { maxLength?: number }).maxLength!,
-                    `${field.label} too long`,
-                );
+            // Checklist remarks are capped at 20 characters (keeps the printed report
+            // on one page); an explicit field.maxLength still wins when set.
+            const explicitMax = (field as { maxLength?: number }).maxLength;
+            const effectiveMax = explicitMax ?? (field.key === 'remarks' ? 20 : undefined);
+            if (effectiveMax) {
+                s = s.max(effectiveMax, `${field.label} must be ${effectiveMax} characters or fewer`);
             }
             return required ? s.min(1, `${field.label} is required`) : s.optional().default('');
         }

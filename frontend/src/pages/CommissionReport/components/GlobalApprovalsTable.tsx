@@ -19,6 +19,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
 
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
 import { CommissionReportTask } from "../types";
@@ -59,6 +60,9 @@ interface Props {
 export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }) => {
     const { categoryData, FacetProjectsOptions } = useCommissionMasters();
     const { map: masterMap } = useMasterTaskMap();
+    const { role, user_id } = useUserData();
+    // Approve / Reject actions are Admin-only; PMO sees the queue read-only.
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
     const [preview, setPreview] = useState<{ open: boolean; url: string; title: string }>({ open: false, url: "", title: "" });
     const openPreview = useCallback((url: string, title: string) => setPreview({ open: true, url, title }), []);
@@ -167,10 +171,10 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             size: 170,
             meta: { excludeFromExport: true },
         },
-        {
+        ...(isAdmin ? [{
             id: "actions",
             header: () => <div className="w-full text-center">Actions</div>,
-            cell: ({ row }) => {
+            cell: ({ row }: { row: any }) => {
                 const task = row.original;
                 return (
                     <div className="flex justify-center gap-2">
@@ -197,8 +201,8 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             },
             size: 100, minSize: 90, maxSize: 120,
             meta: { excludeFromExport: true },
-        },
-    ], [masterMap, trackerName, openPreview, openApproval]);
+        }] as ColumnDef<FlattenedTask>[] : []),
+    ], [masterMap, trackerName, openPreview, openApproval, isAdmin]);
 
     const facetFilterOptions = useMemo(() => ({
         ...(trackerName ? {} : { project: { title: "Project", options: FacetProjectsOptions || [] } }),
