@@ -523,11 +523,66 @@ export interface LockInfo {
   is_stale: boolean;
 }
 
+// ── Amount-formula types (Formula Builder F1 storage / F2 evaluator) ───────────
+//
+// The wire shape of a stored amount formula (BoQ Cell Amount Formula). The frontend
+// deserializes a saved formula record / a get_priced_rows column_formulas entry straight
+// into these types -- the FIELD NAMES MATCH the backend doctype + token-tree shape exactly
+// (value_field/value_key/rate_subkey, op/operands/ref). The pure evaluator (amountFormula.ts,
+// F2) consumes these; the grid wiring (F4) produces the operand lookup + maps the result.
+
+/**
+ * One leaf operand reference in a formula token tree. Addresses a qty / rate / amount column
+ * the way ColumnDescriptor / resolveDescriptorValue do (value_field -> value_key -> rate_subkey).
+ * For a DEFAULT (area-wildcard) formula, an area-bound operand carries value_key === null
+ * ("bind to the area being computed"); for an OVERRIDE / scalar, value_key is concrete / null.
+ */
+export interface AmountFormulaRef {
+  value_field: string;
+  value_key: string | null;
+  rate_subkey: string | null;
+}
+
+/** An operator node: a product (`*`) or sum (`+`) of its (non-empty) operands. */
+export interface AmountFormulaOperatorNode {
+  op: "+" | "*";
+  operands: AmountFormulaNode[];
+}
+
+/** A leaf node: a single operand reference. */
+export interface AmountFormulaLeafNode {
+  ref: AmountFormulaRef;
+}
+
+/**
+ * One node of an amount-formula token tree. EITHER an operator node OR a leaf ref -- never a
+ * numeric literal (literals are barred). Brackets are implicit in the nesting (the tree IS the
+ * precedence).
+ */
+export type AmountFormulaNode = AmountFormulaOperatorNode | AmountFormulaLeafNode;
+
+/**
+ * One per-COLUMN amount formula, as delivered by get_priced_rows.column_formulas (and the
+ * standalone get_sheet_amount_formulas read). Identity = (target_value_field, target_value_key,
+ * target_rate_subkey). target_value_key === null = the area-WILDCARD logical-column DEFAULT (or
+ * a scalar column); a concrete area string = a PER-AREA OVERRIDE (the discriminator is the
+ * nullability -- no extra field). target_col is a re-resolve guard, not identity. `formula` is
+ * the parsed token tree (null only defensively -- a current record always carries one).
+ */
+export interface ColumnFormula {
+  target_value_field: string;
+  target_value_key: string | null;
+  target_rate_subkey: string | null;
+  target_col: string | null;
+  formula: AmountFormulaNode | null;
+}
+
 /**
  * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
  * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the single-editor
  * lock fields (slice A): `editable` (precomputed gate -- false only when held fresh by
- * another user) + `lock_info` (the holder details, or null when free).
+ * another user) + `lock_info` (the holder details, or null when free); and the F1
+ * `column_formulas` (per-COLUMN amount formulas, never per-row).
  */
 export interface GetPricedRowsResponse {
   rows: PricedRow[];
@@ -538,6 +593,8 @@ export interface GetPricedRowsResponse {
   editable: boolean;
   /** The current lock holder details, or null when the sheet+version is free. */
   lock_info: LockInfo | null;
+  /** F1: per-COLUMN amount formulas for this committed version ([] when none / uncommitted). */
+  column_formulas: ColumnFormula[];
 }
 
 /**
