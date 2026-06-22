@@ -578,6 +578,23 @@ export interface ColumnFormula {
 }
 
 /**
+ * Per-COLUMN amount-formula save args the AmountFormulaBuilder (F3) hands up to the page's
+ * onSaveFormula (which POSTs save_amount_formula). The builder supplies the target column
+ * identity + the parsed tree; the page fills boq / sheet / committed_version. `targetValueKey`
+ * is the DEFAULT-vs-OVERRIDE discriminator: null = the area-wildcard default (or a scalar
+ * column); a concrete area = a per-area override. `formula` null = the CLEAR path (the F1
+ * blank-formula clear). targetCol / description are stored guards (not identity).
+ */
+export interface AmountFormulaSaveArgs {
+  targetValueField: string;
+  targetValueKey: string | null;
+  targetRateSubkey: string | null;
+  targetCol: string | null;
+  description?: string;
+  formula: AmountFormulaNode | null;
+}
+
+/**
  * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
  * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the single-editor
  * lock fields (slice A): `editable` (precomputed gate -- false only when held fresh by

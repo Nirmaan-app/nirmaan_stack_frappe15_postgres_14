@@ -28,6 +28,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type {
+  AmountFormulaSaveArgs,
   BOQsDoc,
   ColorSaveArgs,
   CommittedSheetGridResponse,
@@ -118,6 +119,12 @@ const SheetPricingPage = () => {
   );
   const { call: saveCellColor } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_color",
+  );
+  // Formula Builder F3: save one amount-column formula (save_amount_formula). A SEPARATE
+  // write path (parallel to rates/annotations); withheld when locked so headers render
+  // read-only. Does NOT touch the amount-cell compute path (that is F4).
+  const { call: saveAmountFormula } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_amount_formula",
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
@@ -217,6 +224,7 @@ const SheetPricingPage = () => {
   // Data derived from the priced-rows fetch.
   const rows = pricedData?.message?.rows ?? [];
   const columnDescriptors = pricedData?.message?.column_descriptors ?? [];
+  const columnFormulas = pricedData?.message?.column_formulas ?? []; // F3: per-column amount formulas
   const commitVersion = pricedData?.message?.commit_version ?? null;
   // RESERVED for the future single-editor-lock slice (3b) -- inert in 3a. Threaded into the
   // grid so 3b can gate inline edit on them without reshaping the contract.
@@ -330,6 +338,41 @@ const SheetPricingPage = () => {
       const msg = getFrappeError(e);
       if (isTakeoverError(msg)) setTakenOver(true);
       else setSaveError(msg || "Could not save the color. Please try again.");
+      throw e;
+    } finally {
+      setInFlight((n) => n - 1);
+    }
+  };
+
+  // Formula Builder F3: save one amount-column formula (save_amount_formula) then mutate so
+  // column_formulas refetches + the header label updates. Mirrors handleSaveColor (in-flight,
+  // takeover, mutate). The tree is sent as a JSON string; a null formula -> "" (the F1 clear
+  // path). Withheld when locked (the grid then renders the header label read-only).
+  const handleSaveFormula = async (args: AmountFormulaSaveArgs) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to add a formula to.");
+      throw new Error("no committed version");
+    }
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    try {
+      await saveAmountFormula({
+        boq_name: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM (#152)
+        committed_version: commitVersion,
+        target_value_field: args.targetValueField,
+        target_value_key: args.targetValueKey, // null = the area-wildcard default / scalar
+        target_rate_subkey: args.targetRateSubkey,
+        formula: args.formula === null ? "" : JSON.stringify(args.formula), // "" = clear
+        target_col: args.targetCol,
+        description: args.description,
+      });
+      await mutate();
+      setLastSavedAt(new Date());
+    } catch (e: unknown) {
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) setTakenOver(true);
+      else setSaveError(msg || "Could not save the formula. Please try again.");
       throw e;
     } finally {
       setInFlight((n) => n - 1);
@@ -676,6 +719,10 @@ const SheetPricingPage = () => {
             // withheld when locked/taken-over so the grid renders remarks/colors read-only.
             onSaveRemark={locked ? undefined : handleSaveRemark}
             onSaveColor={locked ? undefined : handleSaveColor}
+            // F3: the amount-column formula header label + builder. columnFormulas drives the
+            // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
+            columnFormulas={columnFormulas}
+            onSaveFormula={locked ? undefined : handleSaveFormula}
             onDirtyChange={setHasUnsaved}
             override={override}
             editable={editable}

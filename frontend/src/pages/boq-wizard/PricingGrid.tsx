@@ -64,9 +64,12 @@ import {
   resolveDescriptorValue,
 } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
+import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import type {
+  AmountFormulaSaveArgs,
   ColorSaveArgs,
   ColumnDescriptor,
+  ColumnFormula,
   LockInfo,
   PricedRow,
   RateCellSaveArgs,
@@ -707,6 +710,19 @@ interface PricingGridProps {
    */
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   /**
+   * Formula Builder F3: the per-COLUMN amount formulas (get_priced_rows.column_formulas) the
+   * amount-column header `f = ...` label reads + the builder hydrates from / cycle-checks
+   * against. ABSENT/empty -> headers show the "set formula" affordance.
+   */
+  columnFormulas?: ColumnFormula[];
+  /**
+   * Formula Builder F3: save one amount-column formula (save_amount_formula + mutate); null
+   * formula = clear. ABSENT => the header formula label renders READ-ONLY (the page withholds
+   * it when locked/taken-over, mirroring onSaveRate). F3 only AUTHORS the formula -- it does
+   * NOT change the amount-cell COMPUTE path (that is F4).
+   */
+  onSaveFormula?: (args: AmountFormulaSaveArgs) => Promise<void>;
+  /**
    * Single-editor lock (slice B). The grid does NOT read these for gating -- the PAGE owns
    * the lock UX: it WITHHOLDS onSaveRate when locked (so all edit gates collapse to the
    * read-only render) and renders the holder banner. These are kept on the props for the
@@ -726,7 +742,7 @@ export interface PricingGridHandle {
 }
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -1065,9 +1081,21 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               return (
                 <th
                   key={d.col}
-                  className="px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted"
+                  className="px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted align-top"
                 >
-                  {label}
+                  <span>{label}</span>
+                  {/* Formula Builder F3: the per-column `f = ...` label + click-to-edit builder,
+                      on AMOUNT columns only. Read-only when onSaveFormula is withheld (locked).
+                      The amount-cell VALUE render is UNCHANGED (F4 owns the compute swap). */}
+                  {isAmountDescriptor(d) && (
+                    <AmountFormulaBuilder
+                      target={d}
+                      columnLabel={label}
+                      descriptors={columnDescriptors}
+                      columnFormulas={columnFormulas}
+                      onSave={onSaveFormula}
+                    />
+                  )}
                 </th>
               );
             })}
