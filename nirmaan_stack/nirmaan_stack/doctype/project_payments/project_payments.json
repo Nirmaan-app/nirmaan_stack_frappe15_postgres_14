@@ -20,6 +20,7 @@
   "approval_date",
   "ceo_approval_date",
   "status",
+  "auto_approved",
   "voucher_attachment"
  ],
  "fields": [
@@ -86,6 +87,13 @@
    "fieldname": "status",
    "fieldtype": "Data",
    "label": "Status"
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_approved",
+   "fieldtype": "Check",
+   "label": "Auto Approved",
+   "read_only": 1
   },
   {
    "fieldname": "voucher_attachment",

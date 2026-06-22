@@ -12,9 +12,15 @@ from nirmaan_stack.api.projects._project_population import apply_full_project_de
 # top of every whitelisted endpoint in this module — UI gates are not enough,
 # because the endpoints can be called directly.
 
+# NOTE: these are ROLE names as returned by `frappe.get_roles()`, NOT Role
+# Profile names. The naming is inconsistent in this app: the Admin role is
+# literally named "Nirmaan Admin Profile" (carries the "Profile" suffix), but
+# the PMO role is "Nirmaan PMO Executive" (no suffix; "Nirmaan PMO Executive
+# Profile" is only a Role Profile bundle, which get_roles() never returns).
+# Using "Nirmaan PMO Executive Profile" here silently locked PMO users out.
 TENDERING_MANAGER_ROLES = {
     "Nirmaan Admin Profile",
-    "Nirmaan PMO Executive Profile",
+    "Nirmaan PMO Executive",
 }
 
 

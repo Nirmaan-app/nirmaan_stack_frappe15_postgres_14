@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { ColumnDef, Row } from "@tanstack/react-table";
 import {
@@ -927,16 +926,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   }
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "max-h-[calc(100vh-180px)]"
-          : totalCount > 0
-            ? "h-auto"
-            : ""
-      )}
-    >
+    <div className="flex-1 space-y-4">
       {isPageLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
