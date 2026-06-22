@@ -18,18 +18,14 @@ CONCURRENCY_ERROR = "CommissionReportConcurrencyError"
 EVIDENCE_DOCTYPE = "Commission Report Template Snapshot"
 CHILD_DOCTYPE = "Commission Report Task Child Table"
 
-# Roles that can edit any task regardless of assignment.
-# Project Manager edits by project role (not per-task assignment).
-_FULL_EDIT_ROLES = {
+# Roles that can fill any commission task. Per-task designer assignment was
+# removed, so Design Executives now edit any task like the other edit roles.
+_EDIT_ROLES = {
     "System Manager",
     "Nirmaan Admin",
     "Nirmaan PMO Executive",
     "Nirmaan Design Lead",
     "Nirmaan Project Manager",
-}
-
-# Roles restricted to tasks they're personally assigned to.
-_RESTRICTED_EDIT_ROLES = {
     "Nirmaan Design Executive",
 }
 
@@ -77,29 +73,11 @@ def _get_or_create_snapshot(snapshot_payload) -> str:
 
 
 def _user_can_edit_task(task_row) -> bool:
-    """Mirrors the frontend gating: full-edit roles bypass; restricted roles
-    must be in `assigned_designers`."""
+    """True if the user holds a commission edit role (no per-task gating)."""
     user = frappe.session.user
     if user == "Administrator":
         return True
-    user_roles = set(frappe.get_roles(user))
-    if user_roles & _FULL_EDIT_ROLES:
-        return True
-    if not (user_roles & _RESTRICTED_EDIT_ROLES):
-        # No commission edit role at all.
-        return False
-
-    raw = (task_row.assigned_designers or "").strip()
-    if not raw:
-        return False
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return False
-    members = data.get("list") if isinstance(data, dict) else None
-    if not isinstance(members, list):
-        return False
-    return any((m or {}).get("userId") == user for m in members)
+    return bool(set(frappe.get_roles(user)) & _EDIT_ROLES)
 
 
 def _find_task_row(parent_doc, task_row_name: str):

@@ -101,13 +101,6 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             size: 160, minSize: 130, maxSize: 200,
         }] as ColumnDef<FlattenedTask>[]),
         {
-            accessorKey: "task_zone",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Zone" />,
-            cell: ({ row }) => row.original.task_zone || "--",
-            enableColumnFilter: true,
-            size: 110, minSize: 90, maxSize: 140,
-        },
-        {
             accessorKey: "commission_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
             enableColumnFilter: true,
@@ -236,15 +229,14 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
         columns,
         fetchFields: [
             "name as prjname", "project_name", "project", "name", "task_name",
-            "commission_category", "deadline", "assigned_designers", "task_status",
+            "commission_category", "deadline", "task_status",
             "report_type", "file_link", "approval_proof", "response_data",
-            "comments", "modified", "task_zone", "last_submitted",
+            "comments", "modified", "last_submitted",
         ],
         searchableFields: [
             { value: "task_name", label: "Report Name", default: true },
             { value: "project_name", label: "Project Name" },
             { value: "commission_category", label: "Category" },
-            { value: "task_zone", label: "Zone" },
         ],
         defaultSort: "modified desc",
         urlSyncKey: trackerName ? "cr_proj_approvals" : "cr_approvals",
@@ -289,7 +281,6 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                     { value: "task_name", label: "Report Name", default: true },
                     { value: "project_name", label: "Project Name" },
                     { value: "commission_category", label: "Category" },
-                    { value: "task_zone", label: "Zone" },
                 ]}
                 selectedSearchField={serverDataTable.selectedSearchField}
                 onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}

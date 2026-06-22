@@ -14,8 +14,7 @@
   "hide_commission_report",
   "handover_generated",
   "commission_report_task",
-  "phase",
-  "zone"
+  "phase"
  ],
  "fields": [
   {
@@ -69,12 +68,6 @@
    "fieldname": "phase",
    "fieldtype": "Data",
    "label": "Phase"
-  },
-  {
-   "fieldname": "zone",
-   "fieldtype": "Table",
-   "label": "Zone",
-   "options": "Commission Report Zone"
   },
   {
    "fieldname": "start_date",

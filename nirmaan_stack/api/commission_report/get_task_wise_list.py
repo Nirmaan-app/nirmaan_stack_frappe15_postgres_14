@@ -47,7 +47,6 @@ def get_task_wise_list(
             ui_filters = filters
 
     term_lower = search_term.lower() if search_term else None
-    check_design_exec = (str(is_design_executive).lower() == 'true') and user_id
 
     for p in projects:
         try:
@@ -70,17 +69,11 @@ def get_task_wise_list(
                 row['name'] = t.name
                 row['start_date'] = doc.get('start_date')
                 
-                if check_design_exec:
-                    ad_str = str(row.get('assigned_designers') or "")
-                    if user_id not in ad_str:
-                        continue
-
                 if term_lower:
                     found = False
                     if row.get('task_name') and term_lower in str(row.get('task_name')).lower(): found = True
                     elif row.get('commission_category') and term_lower in str(row.get('commission_category')).lower(): found = True
                     elif row.get('project_name') and term_lower in str(row.get('project_name')).lower(): found = True
-                    elif row.get('task_zone') and term_lower in str(row.get('task_zone')).lower(): found = True
                     
                     if not found:
                         continue
