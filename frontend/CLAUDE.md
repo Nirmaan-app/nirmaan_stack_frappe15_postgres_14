@@ -408,11 +408,25 @@ number. This **fixes the supply+install->single-total stale-amount bug** (findPa
 Surfacing not_yet/broken into the review-list seam is a **4b** concern (F4 leaves the cell-marker hook). F2/F3/storage +
 rate-save/nav/color/remarks + `pricingRollup.ts`/`SummaryPanel` all UNTOUCHED. **The formula arc F1-F4 is COMPLETE.**
 
+**Summary formula-fix `pricingRollup.ts` + `SummaryPanel.tsx` (post-F4 fix; full detail: plan §"Summary fix"):** F4 swapped
+the GRID amount compute to formulas but the SUMMARY rollup still used the old `findPairedRateDescriptor` path, so
+formula-only amount columns rolled up ZERO (Alorica throughout; Electrical Phase 2). FIX: `rollupByParent(rows,
+columnDescriptors, columnFormulas=[])` + `rowOwnAmount` is now **formula-aware ONLY when a formula applies** -- `pickFormula`
+(REUSED) -> `evaluateAmountColumn` with a **saved-only** lookup (`lookupOperandValue(row, ref, descriptors, {})` -- empty
+draftRates skips the draft branch; un-priced -> not_yet -> null -> 0). **NO-formula columns are byte-for-byte unchanged**
+(the D-2 guard -- NOT routed through `evaluateAmountCell`). **SAVE-TIME** (Option A: saved values only, no `draftRates`
+threaded; the summary refreshes a beat after each auto-save's `mutate()`). Added: a **grand-total `<tfoot>` row** (Option 1
+= sum of top-level rolled totals, root orphans included, each item once) + a **reconciliation guard** (Option 1 vs Option 2
+= flat line-item sum; mismatch beyond `max(0.01, 1e-9*mag)` -> an amber integrity banner naming the column + both numbers,
+the Option-1 value still shown). New prop `columnFormulas` threaded `SheetPricingPage`->`SummaryPanel`->`rollupByParent`.
+not_yet/broken fold to 0 (the 4b incomplete-marker is deferred). No circular import (`pricingRollup`->`PricingGrid` already
+existed). The grid compute / rate-save / nav / color / remarks / backend untouched.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F4 -- evaluator wired into the grid amount
-compute (`PricingGrid.evaluateAmountCell`; ARC F1-F4 COMPLETE, 2026-06-23); Formula Builder F3 -- click-to-insert builder
-UI `AmountFormulaBuilder.tsx` + `formulaTokens.ts` (2026-06-23).
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Summary formula-fix -- formula-aware rollup + grand-total
+row + reconciliation guard (`pricingRollup`/`SummaryPanel`, 2026-06-23); Formula Builder F4 -- evaluator wired into the grid
+amount compute (`PricingGrid.evaluateAmountCell`; ARC F1-F4 COMPLETE, 2026-06-23).
 
 (Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
 `boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
