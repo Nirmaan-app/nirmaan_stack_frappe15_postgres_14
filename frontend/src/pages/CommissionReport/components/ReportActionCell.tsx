@@ -176,6 +176,11 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     if (canEdit && (status === 'Pending' || status === 'Pending Approval') && !isVendor && hasResponse) {
         moreItems.push({ icon: FileEdit, label: 'Edit submission', onClick: () => goWizard('edit') });
     }
+    // Pending draft: let the user view/generate the report from their filled
+    // answers before submitting for approval (canDownload is false until Submitted).
+    if (canEdit && status === 'Pending' && !isVendor && hasResponse && hasTemplate) {
+        moreItems.push({ icon: FileText, label: 'View / Generate Report', onClick: () => openPreview(genUrl, true, task.task_name) });
+    }
     if (canEdit && status === 'Submitted') {
         moreItems.push({ icon: Upload, label: 'Upload Signed Copy', onClick: triggerUpload });
     }

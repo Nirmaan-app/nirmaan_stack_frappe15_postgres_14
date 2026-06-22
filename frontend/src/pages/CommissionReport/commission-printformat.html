@@ -23,7 +23,7 @@
 {%- set target = ns.target -%}
 
 {# Per-task signature top-margin (a CSS value). Tasks not listed fall back to the 30px CSS default. #}
-{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "500px", "RR Commissioning Report": "130px", "WLD Commissioning Report": "130px"} -%}
+{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "500px", "RR Commissioning Report": "130px", "WLD Commissioning Report": "130px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px"} -%}
 
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
@@ -585,6 +585,11 @@ thead { display: table-header-group; }
 
         {% elif tpl.templateId == "socket-testing-report" %}
 
+            <style>
+                /* Socket-only: compact rows so ~10 tests + signature fit one page. */
+                .cv-tr-table .cv-tr-row td { height: 20px !important; padding: 1px 5px !important; }
+            </style>
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
@@ -1102,6 +1107,12 @@ thead { display: table-header-group; }
             {%- set physical_def = ns_defs.physical -%}
             {%- set timer_def = ns_defs.timer -%}
 
+            <style>
+                /* DX/VRF: when a zone has a single equipment, give that Physical Test
+                   table roomier 18px rows (matches the requested compact look). */
+                .cv-chk-solo th, .cv-chk-solo td { height: 18px !important; padding: 1px 5px !important; }
+            </style>
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
@@ -1137,7 +1148,7 @@ thead { display: table-header-group; }
                                 {% if physical_def %}
                                     {%- set pvals = (group.get(physical_def.id) if group is mapping else {}) or {} -%}
                                     <div class="cv-sub-head" style="margin-top: 4px;">{{ physical_def.title or "Physical Test" }}</div>
-                                    <table class="cv-chk">
+                                    <table class="cv-chk{% if (groups | length) == 1 %} cv-chk-solo{% endif %}">
                                         <thead><tr>
                                             {% for c in (physical_def.columns or []) %}
                                                 {% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>
@@ -1175,8 +1186,8 @@ thead { display: table-header-group; }
                     {% else %}
                         <div class="cv-error">No Equipment entered.</div>
                     {% endif %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
+                    {# Signature inside the content cell so it flows with the equipment
+                       cards — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
                     {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
