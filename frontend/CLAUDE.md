@@ -393,11 +393,26 @@ string, `""` clears); **withheld when locked** -> the header renders read-only (
 `AmountFormulaSaveArgs` in boqTypes.ts. **F3 only AUTHORS the formula -- the amount-cell COMPUTE path
 (`findPairedRateDescriptor`) is UNCHANGED; F4 owns that swap.**
 
+**Amount-cell formula compute `PricingGrid.evaluateAmountCell` (Formula Builder F4 -- the grid swap, ARC COMPLETE; full
+detail: plan §"Formula Builder F4"):** the amount-cell value now flows from the PURE exported `evaluateAmountCell(d, row,
+columnDescriptors, columnFormulas, draftRates) -> AmountCellResult` (`value` | `committed` | `blank{not_yet|broken}`);
+the render is a thin map. **Formula-wins-else-pairing:** an amount column WITH an applicable formula (F2 `pickFormula`
+precedence override>default, REUSED) computes via `evaluateAmountColumn` (F4 passes the CONCRETE column; F2 binds the
+wildcard default per-area -- F4 never pre-binds); NO formula -> the UNCHANGED `findPairedRateDescriptor`->`computeAmount`
+fallback (committed value when un-priced). The injected `lookupOperandValue` is DRAFT-AWARE per rate operand (live
+recompute as you type ANY rate the formula references -- the real change from the old single-paired read), mirroring
+`resolveDescriptorValue` (real-0 is a value; absent->undefined). `validateFormulaRefs` is the dangling-ref gate (a ref
+matching NO live descriptor -> broken, not a silent not_yet). **Fail-safe:** a formula that can't resolve renders BLANK
+(not_yet = "Needs a rate" title; broken = blank + an `AlertTriangle` marker + "Check formula") -- NEVER a stale/wrong
+number. This **fixes the supply+install->single-total stale-amount bug** (findPairedRateDescriptor couldn't pair it).
+Surfacing not_yet/broken into the review-list seam is a **4b** concern (F4 leaves the cell-marker hook). F2/F3/storage +
+rate-save/nav/color/remarks + `pricingRollup.ts`/`SummaryPanel` all UNTOUCHED. **The formula arc F1-F4 is COMPLETE.**
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F3 -- click-to-insert builder UI
-`AmountFormulaBuilder.tsx` + `formulaTokens.ts` (2026-06-23); Formula Builder F2 -- pure amount-formula evaluator
-`amountFormula.ts` + Vitest (2026-06-22).
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula Builder F4 -- evaluator wired into the grid amount
+compute (`PricingGrid.evaluateAmountCell`; ARC F1-F4 COMPLETE, 2026-06-23); Formula Builder F3 -- click-to-insert builder
+UI `AmountFormulaBuilder.tsx` + `formulaTokens.ts` (2026-06-23).
 
 (Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
 `boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
