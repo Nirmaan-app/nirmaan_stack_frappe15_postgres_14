@@ -15,7 +15,14 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
+from nirmaan_stack.api.boq.wizard.ai_assist import (
+    accept_ai_suggestion,
+    revert_ai_acceptance,
+)
+from nirmaan_stack.api.boq.wizard.gemini_assist import (
+    accept_gemini_suggestion,
+    revert_gemini_acceptance,
+)
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
@@ -3684,3 +3691,355 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
             row_index=1, field="qty_total", value=7,
         )
         self.assertTrue(res["ok"], "edit on a non-parsing sheet must succeed")
+
+
+# ===========================================================================
+# Group: DUAL-AI (ADR-0003) -- resolve_effective is UNCHANGED for ai_*-only rows
+# ===========================================================================
+
+class TestResolveEffectiveDualAIUnchanged(unittest.TestCase):
+    """resolve_effective must NOT read any gemini_* field. A row carrying gemini_*
+    suggestions (even Accepted) but no human override + only Claude ai_* state must
+    resolve byte-identically to the same row WITHOUT the gemini_* fields. This proves
+    the Option-A contract: the gemini layer reaches the effective value ONLY via the
+    human layer (the accept folds into human_*), never directly through resolve_effective."""
+
+    def _ai_only_row(self, **over):
+        base = {
+            "classification": "line_item",
+            "human_classification": None,
+            "parent_index": 5,
+            "human_parent": -1,
+            "human_is_root": 0,
+            "ai_suggestion_status": "Accepted",
+            "ai_suggested_classification": "preamble",
+            "ai_suggested_parent": 2,
+            "ai_suggested_is_root": 0,
+        }
+        base.update(over)
+        return base
+
+    def test_gemini_fields_do_not_alter_effective(self):
+        ai_only = self._ai_only_row()
+        with_gemini = dict(ai_only)
+        # A FULLY-populated, even "Accepted", gemini layer must be inert in resolve_effective.
+        with_gemini.update({
+            "gemini_suggestion_status": "Accepted",
+            "gemini_suggested_classification": "note",
+            "gemini_suggested_parent": 4,
+            "gemini_suggested_is_root": 1,
+        })
+        eff_ai = resolve_effective(ai_only)
+        eff_gemini = resolve_effective(with_gemini)
+        self.assertEqual(eff_ai, eff_gemini,
+                         "the gemini_* fields must NOT change resolve_effective's output")
+        # And the value itself is the Claude-accepted one (the AI layer between human/parser).
+        self.assertEqual(eff_gemini["effective_classification"], "preamble")
+        self.assertEqual(eff_gemini["effective_parent_index"], 2)
+
+    def test_returned_dict_carries_no_gemini_key(self):
+        eff = resolve_effective(self._ai_only_row(
+            gemini_suggestion_status="Accepted",
+            gemini_suggested_classification="spacer",
+        ))
+        gemini_keys = [k for k in eff if k.startswith("gemini_")]
+        self.assertEqual(gemini_keys, [],
+                         "resolve_effective must echo NO gemini_* key (Claude-only contract)")
+        self.assertNotIn("chosen_source", eff,
+                         "chosen_source is audit-only and must not be in resolve_effective")
+
+    def test_pending_gemini_is_inert_just_like_pending_ai(self):
+        # A Pending gemini suggestion (the read-only default) must leave the parser value.
+        row = {
+            "classification": "preamble", "human_classification": None,
+            "parent_index": 7, "human_parent": -1, "human_is_root": 0,
+            "ai_suggestion_status": None,
+            "gemini_suggestion_status": "Pending",
+            "gemini_suggested_classification": "line_item",
+            "gemini_suggested_parent": 3,
+        }
+        eff = resolve_effective(row)
+        self.assertEqual(eff["effective_classification"], "preamble")
+        self.assertEqual(eff["effective_parent_index"], 7)
+
+
+# ===========================================================================
+# Group: DUAL-AI (ADR-0003) -- the shared chokepoint's gemini behaviour
+#   (1) gemini snapshot-invalidation on a later human edit
+#   (2) override-clears-gemini-status (a manual class/parent edit on an Accepted row)
+#   (3) chosen_source reason-map (gemini accept / claude accept / revert / manual)
+# These are ADDITIVE: they test the new gemini_*/chosen_source code in
+# _apply_and_save_row_edit without touching any ai_* assertion.
+# ===========================================================================
+
+class TestChokepointGeminiInvalidation(FrappeTestCase):
+    """Fixture rows per test (reset by setUp):
+      Row 0 -- preamble, parent=None  (root, HAS child row 1)
+      Row 1 -- line_item, parent=0    (child of 0, childless)
+      Row 2 -- line_item, parent=None (root, childless)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Chokepoint Gemini Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "ChokeSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "ChokeSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        self.names = _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "line_item", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=None),
+        ])
+        # _insert_rows returns names in insertion order -> index by row_index.
+        self.name_by_idx = {0: self.names[0], 1: self.names[1], 2: self.names[2]}
+
+    def _name(self, ridx):
+        return self.name_by_idx[ridx]
+
+    def _val(self, ridx, *fields):
+        return frappe.db.get_value("BoQ Review Row", self._name(ridx), list(fields), as_dict=True)
+
+    def _seed(self, ridx, **fields):
+        frappe.db.set_value("BoQ Review Row", self._name(ridx), fields)
+        frappe.db.commit()
+
+    # -- (1) gemini snapshot-invalidation on a later human edit ------------
+
+    def test_later_human_edit_clears_gemini_snapshot(self):
+        # A gemini-accepted row carries a gemini_accept_snapshot; a LATER human edit on the
+        # SAME row (a human_classification edit) must clear the snapshot (rule c-ii, mirrored).
+        self._seed(2, gemini_suggestion_status="Accepted",
+                   human_classification="preamble",
+                   gemini_accept_snapshot=json.dumps({"row": {}, "children": []}))
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_classification", value="note")
+        snap = frappe.db.get_value("BoQ Review Row", self._name(2), "gemini_accept_snapshot")
+        self.assertIn(snap, (None, ""),
+                      "a later human_classification edit must clear the gemini_accept_snapshot")
+
+    def test_later_value_edit_does_not_clear_gemini_snapshot(self):
+        # A NON-class/parent edit (qty_total) must NOT enter the gemini-invalidation branch.
+        self._seed(2, gemini_suggestion_status="Accepted",
+                   human_classification="preamble",
+                   gemini_accept_snapshot=json.dumps({"row": {}, "children": []}))
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="qty_total", value=9)
+        snap = frappe.db.get_value("BoQ Review Row", self._name(2), "gemini_accept_snapshot")
+        self.assertTrue(snap, "a value edit must NOT clear the gemini snapshot")
+
+    def test_child_edit_clears_owner_gemini_snapshot(self):
+        # Row 0 is the gemini snapshot OWNER; row 1 is a moved gemini child (back-pointer set).
+        # A human_parent edit on the child must clear the OWNER's gemini snapshot + the
+        # child's gemini_snapshot_owner back-pointer (mirrors the ai_snapshot_owner logic).
+        self._seed(0, gemini_suggestion_status="Accepted",
+                   gemini_accept_snapshot=json.dumps({"row": {}, "children": [{"idx": 1}]}))
+        self._seed(1, gemini_snapshot_owner=0)
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="human_parent", value=2)
+        owner_snap = frappe.db.get_value("BoQ Review Row", self._name(0), "gemini_accept_snapshot")
+        child_owner = frappe.db.get_value("BoQ Review Row", self._name(1), "gemini_snapshot_owner")
+        self.assertIn(owner_snap, (None, ""),
+                      "editing a moved gemini child must clear the OWNER row's gemini snapshot")
+        self.assertEqual(child_owner, -1,
+                         "the child's gemini_snapshot_owner back-pointer must reset to -1")
+
+    # -- (2) override-clears-gemini-status --------------------------------
+
+    def test_manual_class_edit_clears_gemini_accepted_status(self):
+        # An Accepted gemini row that gets a manual human_classification edit is no longer a
+        # gemini acceptance -> gemini_suggestion_status clears to None (mirrors override-clears).
+        self._seed(2, gemini_suggestion_status="Accepted", human_classification="preamble")
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_classification", value="note")
+        self.assertIsNone(self._val(2, "gemini_suggestion_status")["gemini_suggestion_status"],
+                          "a manual class edit must clear an Accepted gemini status")
+
+    def test_manual_class_edit_leaves_pending_gemini_untouched(self):
+        # The clear is GATED on the CURRENT status being "Accepted": a Pending gemini
+        # suggestion must survive a manual edit (cancel-safety contract).
+        self._seed(2, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="line_item")
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_classification", value="note")
+        self.assertEqual(self._val(2, "gemini_suggestion_status")["gemini_suggestion_status"],
+                         "Pending", "a Pending gemini suggestion must survive a manual edit")
+
+    # -- (3) chosen_source reason-map -------------------------------------
+
+    def test_chosen_source_manual_on_plain_edit(self):
+        # A genuine manual save_review_edit (no AI/Gemini/revert reason) -> "manual".
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_classification", value="note")
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "manual")
+
+    def test_chosen_source_unchanged_on_value_edit(self):
+        # A value edit (qty_total) must NOT change chosen_source (it stays the parser default).
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="qty_total", value=5)
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "parser",
+                         "a value edit must leave chosen_source at the parser default")
+
+    def test_chosen_source_gemini_via_gemini_accept_reason(self):
+        # A row 2 gemini accept -> the chokepoint sees a "Gemini ... accepted" reason -> "gemini".
+        self._seed(2, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="preamble")
+        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=2, accept_classification=True)
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "gemini")
+
+    def test_chosen_source_claude_via_ai_accept_reason(self):
+        # A row 2 Claude accept -> the chokepoint sees an "AI ... accepted" reason -> "claude".
+        self._seed(2, ai_suggestion_status="Pending",
+                   ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                             row_index=2, accept_classification=True)
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "claude")
+
+    def test_chosen_source_parser_on_revert_to_no_human(self):
+        # gemini accept -> revert (no prior human) -> the "reverted" reason resolves to the
+        # parser baseline ("parser") because no human override remains.
+        self._seed(2, gemini_suggestion_status="Pending", gemini_suggested_parent=0)
+        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=2, accept_parent=True)
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "gemini")
+        revert_gemini_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2)
+        self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "parser",
+                         "a revert to a no-human baseline resolves chosen_source to 'parser'")
+
+    def test_chosen_source_manual_on_revert_with_remaining_human(self):
+        # A prior manual human_classification, then gemini accept of a parent, then revert:
+        # the human_classification override REMAINS after the parent revert -> "manual".
+        self._seed(2, human_classification="spacer",
+                   gemini_suggestion_status="Pending", gemini_suggested_parent=0)
+        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=2, accept_parent=True)
+        revert_gemini_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2)
+        r = self._val(2, "chosen_source", "human_classification")
+        self.assertEqual(r["human_classification"], "spacer",
+                         "the prior manual human_classification must survive the parent revert")
+        self.assertEqual(r["chosen_source"], "manual",
+                         "a remaining human override after revert -> chosen_source 'manual'")
+
+
+# ===========================================================================
+# Group: DUAL-AI (ADR-0003) -- the SWITCH (accept gemini on a Claude-accepted row)
+#   Accepting Gemini on a row whose Claude suggestion is Accepted must FIRST revert the
+#   Claude acceptance to baseline (ai status no longer Accepted, ai value out of the human
+#   layer), THEN apply gemini -> chosen_source=gemini, exactly one accepted Source.
+# ===========================================================================
+
+class TestDualAISwitch(FrappeTestCase):
+    """Row layout (rebuilt each test):
+      Row 0 -- preamble, parent=None  (root)
+      Row 1 -- line_item, parent=None (root, childless -- the switch subject)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Dual AI Switch Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "SwitchSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "SwitchSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        self.names = _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "line_item", parent_index=None),
+        ])
+        self.name_by_idx = {0: self.names[0], 1: self.names[1]}
+
+    def _val(self, ridx, *fields):
+        return frappe.db.get_value(
+            "BoQ Review Row", self.name_by_idx[ridx], list(fields), as_dict=True
+        )
+
+    def _seed(self, ridx, **fields):
+        frappe.db.set_value("BoQ Review Row", self.name_by_idx[ridx], fields)
+        frappe.db.commit()
+
+    def test_accept_gemini_on_claude_accepted_row_reverts_claude_to_baseline(self):
+        # Seed + accept a Claude classification on row 1 (its human layer = the Claude value).
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                             row_index=1, accept_classification=True)
+        before = self._val(1, "ai_suggestion_status", "human_classification")
+        self.assertEqual(before["ai_suggestion_status"], "Accepted")
+        self.assertEqual(before["human_classification"], "preamble")
+
+        # Now accept a DIFFERENT Gemini classification on the SAME row.
+        self._seed(1, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="note")
+        res = accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                       row_index=1, accept_classification=True)
+        self.assertTrue(res["claude_reverted"],
+                        "a standing Claude acceptance must be pre-reverted before the gemini accept")
+
+        after = self._val(1, "ai_suggestion_status", "gemini_suggestion_status",
+                          "human_classification", "chosen_source")
+        # Claude reverted to baseline: its accept no longer stands.
+        self.assertNotEqual(after["ai_suggestion_status"], "Accepted",
+                            "the Claude acceptance must be reverted (ai status not Accepted)")
+        # Gemini now owns the row.
+        self.assertEqual(after["gemini_suggestion_status"], "Accepted")
+        self.assertEqual(after["human_classification"], "note",
+                         "the gemini value (not the Claude value) is now the human layer")
+        self.assertEqual(after["chosen_source"], "gemini",
+                         "exactly one accepted Source -> chosen_source is gemini")
+
+    def test_switch_resolves_effective_to_gemini_value(self):
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="preamble")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                             row_index=1, accept_classification=True)
+        self._seed(1, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="note")
+        res = accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                       row_index=1, accept_classification=True)
+        self.assertEqual(res["effective_classification"], "note",
+                         "after the switch the effective class is the gemini value")
+        # And resolve_effective on the stored row agrees (the gemini value lives in human_*).
+        stored = frappe.db.get_value(
+            "BoQ Review Row", self.name_by_idx[1],
+            ["classification", "parent_index", "human_classification", "human_parent",
+             "human_is_root", "ai_suggestion_status", "ai_suggested_classification",
+             "ai_suggested_parent", "ai_suggested_is_root"],
+            as_dict=True,
+        )
+        self.assertEqual(resolve_effective(stored)["effective_classification"], "note")
