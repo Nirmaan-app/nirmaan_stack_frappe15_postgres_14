@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ProjectStatusDialog, HaltedOptions } from "./components/ProjectStatusDialog";
+import { ProjectActionItems } from "./components/ProjectActionItems";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { toast } from "@/components/ui/use-toast";
 import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
@@ -292,6 +293,36 @@ export const PROJECT_PAGE_TABS = {
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
 
 
+/**
+ * Single source of truth for each role's effective LANDING tab on the project page.
+ * MUST stay in lock-step with the "Redirect users to allowed tab" effect inside
+ * ProjectView — that effect routes its redirect targets through this function, and the
+ * Project Action Items section mounts only when activePage === getLandingTab(role).
+ */
+const getLandingTab = (role: string): ProjectPageTabValue => {
+  if (role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile") {
+    return PROJECT_PAGE_TABS.OVERVIEW;
+  }
+  if (role === "Nirmaan Procurement Executive Profile") {
+    return PROJECT_PAGE_TABS.CRITICAL_POS;
+  }
+  if (role === "Nirmaan Estimates Executive Profile") {
+    return PROJECT_PAGE_TABS.WORK_REPORT;
+  }
+  // Privileged users (Admin / PMO / Accountant / Accountant Lead) land on Overview;
+  // everyone else (PM / PL / Design / HR / ...) lands on Work Report.
+  if (
+    role === "Nirmaan Admin Profile" ||
+    role === "Nirmaan PMO Executive Profile" ||
+    role === "Nirmaan Accountant Profile" ||
+    role === "Nirmaan Accountant Lead Profile"
+  ) {
+    return PROJECT_PAGE_TABS.OVERVIEW;
+  }
+  return PROJECT_PAGE_TABS.WORK_REPORT;
+};
+
+
 const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item_data }: ProjectViewProps) => {
 
   const {
@@ -459,17 +490,17 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     if (isSales) {
       // Sales users can only see the Overview and Financials tabs.
       if (activePage !== PROJECT_PAGE_TABS.OVERVIEW && activePage !== PROJECT_PAGE_TABS.FINANCIALS) {
-        setActivePage(PROJECT_PAGE_TABS.OVERVIEW);
+        setActivePage(getLandingTab(role));
       }
     } else if (isProcurementExecutive && !procurementExecutiveAllowedTabs.has(activePage)) {
-      setActivePage(PROJECT_PAGE_TABS.CRITICAL_POS);
+      setActivePage(getLandingTab(role));
     } else if (isEstimatesExecutive && !estimatesExecutiveAllowedTabs.has(activePage)) {
-      setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
+      setActivePage(getLandingTab(role));
     } else if (!isPrivilegedUser && !isProcurementExecutive && !isEstimatesExecutive && !nonPrivilegedAllowedTabs.has(activePage)) {
       // Redirect non-privileged users (except Procurement Executive and Estimates Executive who have their own rules)
-      setActivePage(PROJECT_PAGE_TABS.WORK_REPORT);
+      setActivePage(getLandingTab(role));
     }
-  }, [isSales, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
+  }, [role, isSales, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
 
   const items: MenuItem[] = useMemo(() => {
     // Sales users (Executive / Lead) can only see the Overview and Financials tabs.
@@ -1709,6 +1740,14 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           })}
         </div>
       </div>
+
+      {/* Project Action Items (Action Center — Surface B): shows on each role's landing tab only */}
+      {role !== "Loading" && role !== "Error" && activePage === getLandingTab(role) && (
+        <ProjectActionItems
+          projectId={projectId}
+          onNavigateToDCMIR={() => setActivePage(PROJECT_PAGE_TABS.DC_MIR)}
+        />
+      )}
 
       {/* Content Area for the Active Tab */}
       <Suspense fallback={<LoadingFallback />}>
