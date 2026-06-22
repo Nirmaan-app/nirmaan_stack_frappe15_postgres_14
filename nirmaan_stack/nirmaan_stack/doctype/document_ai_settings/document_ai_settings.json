@@ -16,7 +16,10 @@
   "gemini_auth_mode",
   "gcp_project_id",
   "gcp_location",
-  "gemini_api_key"
+  "gemini_api_key",
+  "boq_ai_section",
+  "boq_ai_enabled",
+  "boq_gemini_model"
  ],
  "fields": [
   {
@@ -99,6 +102,24 @@
    "fieldname": "gemini_api_key",
    "fieldtype": "Password",
    "label": "Gemini API Key"
+  },
+  {
+   "description": "Opt-in Gemini second-opinion classifier for BoQ review rows. Reuses the Gemini auth + credentials configured above.",
+   "fieldname": "boq_ai_section",
+   "fieldtype": "Section Break",
+   "label": "BoQ Review AI Classifier"
+  },
+  {
+   "default": "0",
+   "fieldname": "boq_ai_enabled",
+   "fieldtype": "Check",
+   "label": "Enable BoQ Review AI Classifier"
+  },
+  {
+   "description": "Optional. Blank uses the Gemini Model configured above.",
+   "fieldname": "boq_gemini_model",
+   "fieldtype": "Data",
+   "label": "BoQ Gemini Model (optional override)"
   }
  ],
  "grid_page_length": 50,
