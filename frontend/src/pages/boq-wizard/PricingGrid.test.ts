@@ -23,8 +23,17 @@ import {
   swatchClassForToken,
   rowColorCells,
   remarkPreview,
+  evaluateAmountCell,
+  lookupOperandValue,
+  validateFormulaRefs,
 } from "./PricingGrid";
-import type { ColumnDescriptor, PricedRow } from "./boqTypes";
+import type {
+  AmountFormulaNode,
+  AmountFormulaRef,
+  ColumnDescriptor,
+  ColumnFormula,
+  PricedRow,
+} from "./boqTypes";
 
 function desc(
   value_field: string,
@@ -481,5 +490,171 @@ describe("remarkPreview", () => {
     const out = remarkPreview("abcdefghij", 5);
     expect(out).toBe("abcd…");
     expect(out.length).toBe(5);
+  });
+});
+
+// ── Formula Builder F4: the amount-cell compute swap (formula-wins-else-pairing) ──
+//
+// These pin the heart of F4: an amount column WITH a formula recomputes from the row's
+// draft/saved values via F2 (killing the supply+install->single-total stale bug that
+// findPairedRateDescriptor couldn't pair); a column with NO formula keeps the byte-for-byte
+// pairing fallback; a formula that can't resolve renders BLANK (not_yet) or BLANK+marker
+// (broken / cycle / dangling) -- NEVER a stale/wrong number. Plain value maps + cast rows
+// stand in for the live grid (these helpers are pure).
+function ref(value_field: string, value_key: string | null = null, rate_subkey: string | null = null): AmountFormulaRef {
+  return { value_field, value_key, rate_subkey };
+}
+function leaf(r: AmountFormulaRef): AmountFormulaNode {
+  return { ref: r };
+}
+function op(o: "+" | "*", ...operands: AmountFormulaNode[]): AmountFormulaNode {
+  return { op: o, operands };
+}
+function cf(
+  target_value_field: string,
+  target_value_key: string | null,
+  target_rate_subkey: string | null,
+  formula: AmountFormulaNode | null,
+): ColumnFormula {
+  return { target_value_field, target_value_key, target_rate_subkey, target_col: null, formula };
+}
+function prow(p: Partial<PricedRow>): PricedRow {
+  return { row_index: 1, source_row_number: 10, ...p } as unknown as PricedRow;
+}
+
+describe("lookupOperandValue", () => {
+  // descriptors: a scalar rate (col E) + a scalar qty.
+  const rateE = desc("rate_supply", null, null, "E");
+  const qtyD = desc("qty_total", null, null, "C");
+  const cols = [rateE, qtyD, desc("amount_total", null, null, "G")];
+
+  it("a RATE operand reads the optimistic DRAFT when editing", () => {
+    const row = prow({ row_index: 1 });
+    const v = lookupOperandValue(row, ref("rate_supply"), cols, { "1:E": "7.5" });
+    expect(v).toBe(7.5);
+  });
+  it("a RATE operand reads the SAVED rate when priced + not editing", () => {
+    const row = prow({ row_index: 1, rate_supply: 12, priced_rate_supply: true });
+    expect(lookupOperandValue(row, ref("rate_supply"), cols, {})).toBe(12);
+  });
+  it("a RATE operand is undefined when un-priced + not editing (NOT 0)", () => {
+    const row = prow({ row_index: 1, rate_supply: 0 }); // committed 0 but NOT priced
+    expect(lookupOperandValue(row, ref("rate_supply"), cols, {})).toBeUndefined();
+  });
+  it("a QTY operand reads its stored value; a real 0 stays 0 (not missing)", () => {
+    expect(lookupOperandValue(prow({ qty_total: 9 }), ref("qty_total"), cols, {})).toBe(9);
+    expect(lookupOperandValue(prow({ qty_total: 0 }), ref("qty_total"), cols, {})).toBe(0);
+  });
+  it("a missing key -> undefined (never 0-substituted)", () => {
+    expect(lookupOperandValue(prow({}), ref("qty_total"), cols, {})).toBeUndefined();
+  });
+});
+
+describe("validateFormulaRefs (dangling-ref gate)", () => {
+  const cols = [desc("qty_total", null, null, "C"), desc("rate_supply", null, null, "E"), desc("amount_total", null, null, "G")];
+  it("all refs match a descriptor -> valid", () => {
+    const tree = op("*", leaf(ref("qty_total")), leaf(ref("rate_supply")));
+    expect(validateFormulaRefs(tree, null, cols)).toBe(true);
+  });
+  it("a ref matching NO descriptor -> invalid (orphaned by a re-commit)", () => {
+    const tree = op("*", leaf(ref("qty_total")), leaf(ref("rate_install"))); // rate_install absent
+    expect(validateFormulaRefs(tree, null, cols)).toBe(false);
+  });
+  it("a wildcard ref binds to the area, then matches the per-area descriptor", () => {
+    const areaCols = [desc("rate_by_area", "Phase 1", "combined_rate", "H")];
+    const tree = leaf(ref("rate_by_area", null, "combined_rate")); // wildcard
+    expect(validateFormulaRefs(tree, "Phase 1", areaCols)).toBe(true);
+    expect(validateFormulaRefs(tree, "Phase 2", areaCols)).toBe(false); // no Phase 2 column
+  });
+});
+
+describe("evaluateAmountCell -- formula wins", () => {
+  // The BUG: separate supply + install rates, ONE total-amount column. findPairedRateDescriptor
+  // can't pair it (returns null -> stale). A formula amount_total = qty x (supply + install)
+  // fixes it -> recompute live from the DRAFT rates.
+  const qtyD = desc("qty_total", null, null, "C");
+  const supD = desc("rate_supply", null, null, "E");
+  const insD = desc("rate_install", null, null, "F");
+  const amtD = desc("amount_total", null, null, "G");
+  const cols = [qtyD, supD, insD, amtD];
+  const formula = cf("amount_total", null, null, op("*", leaf(ref("qty_total")), op("+", leaf(ref("rate_supply")), leaf(ref("rate_install")))));
+
+  it("THE BUG FIX: recomputes from draft rates (qty x (supply + install))", () => {
+    const row = prow({ row_index: 1, qty_total: 10 });
+    const drafts = { "1:E": "3", "1:F": "4" };
+    expect(evaluateAmountCell(amtD, row, cols, [formula], drafts)).toEqual({ kind: "value", value: 70 }); // 10*(3+4)
+  });
+
+  it("a single draft updates live; the other rate from its SAVED priced value", () => {
+    const row = prow({ row_index: 1, qty_total: 2, rate_install: 4, priced_rate_install: true });
+    const drafts = { "1:E": "3" }; // editing supply; install is saved+priced
+    expect(evaluateAmountCell(amtD, row, cols, [formula], drafts)).toEqual({ kind: "value", value: 14 }); // 2*(3+4)
+  });
+
+  it("a missing rate operand -> BLANK not_yet (never a partial / stale number)", () => {
+    const row = prow({ row_index: 1, qty_total: 10 });
+    const drafts = { "1:E": "3" }; // install absent + un-priced
+    expect(evaluateAmountCell(amtD, row, cols, [formula], drafts)).toEqual({ kind: "blank", reason: "not_yet" });
+  });
+
+  it("a real 0 operand computes (0), it is NOT blanked", () => {
+    const row = prow({ row_index: 1, qty_total: 0 });
+    const drafts = { "1:E": "3", "1:F": "4" };
+    expect(evaluateAmountCell(amtD, row, cols, [formula], drafts)).toEqual({ kind: "value", value: 0 }); // 0*(3+4)
+  });
+
+  it("a CYCLE (self-referential formula) -> BLANK broken", () => {
+    const cyc = cf("amount_total", null, null, leaf(ref("amount_total")));
+    const row = prow({ row_index: 1, qty_total: 5 });
+    expect(evaluateAmountCell(amtD, row, cols, [cyc], {})).toEqual({ kind: "blank", reason: "broken" });
+  });
+
+  it("a DANGLING ref (formula uses a column not on the sheet) -> BLANK broken", () => {
+    // rate_install is in the formula but NOT in cols (orphaned by a re-commit).
+    const colsNoInstall = [qtyD, supD, amtD];
+    const row = prow({ row_index: 1, qty_total: 10 });
+    expect(evaluateAmountCell(amtD, row, colsNoInstall, [formula], { "1:E": "3" })).toEqual({ kind: "blank", reason: "broken" });
+  });
+});
+
+describe("evaluateAmountCell -- no formula falls back to the pairing (UNCHANGED)", () => {
+  // amount_total pairs to rate_combined (the SCALAR_AMOUNT_TO_RATE_FIELD map).
+  const qtyD = desc("qty_total", null, null, "C");
+  const cmbD = desc("rate_combined", null, null, "D");
+  const amtD = desc("amount_total", null, null, "G");
+  const cols = [qtyD, cmbD, amtD];
+
+  it("computes qty x paired-rate from the draft (the old live path)", () => {
+    const row = prow({ row_index: 1, qty_total: 5 });
+    expect(evaluateAmountCell(amtD, row, cols, [], { "1:D": "10" })).toEqual({ kind: "value", value: 50 });
+  });
+
+  it("computes from the SAVED paired rate when priced + not editing", () => {
+    const row = prow({ row_index: 1, qty_total: 4, rate_combined: 25, priced_rate_combined: true });
+    expect(evaluateAmountCell(amtD, row, cols, [], {})).toEqual({ kind: "value", value: 100 });
+  });
+
+  it("un-priced + not editing -> the committed value (no stale recompute)", () => {
+    const row = prow({ row_index: 1, qty_total: 4, rate_combined: 0 }); // not priced
+    expect(evaluateAmountCell(amtD, row, cols, [], {})).toEqual({ kind: "committed" });
+  });
+
+  it("an amount column with no paired rate at all -> committed", () => {
+    const row = prow({ row_index: 1, qty_total: 4 });
+    expect(evaluateAmountCell(amtD, row, [qtyD, amtD], [], {})).toEqual({ kind: "committed" });
+  });
+
+  it("a per-area override wins over a default for its area", () => {
+    // default total = qty x supply; override Phase 1 total = qty x install. cols for Phase 1.
+    const qty1 = desc("qty_by_area", "Phase 1", null, "C");
+    const sup1 = desc("rate_by_area", "Phase 1", "supply_rate", "E");
+    const ins1 = desc("rate_by_area", "Phase 1", "install_rate", "F");
+    const amt1 = desc("amount_by_area", "Phase 1", "total", "G");
+    const cols = [qty1, sup1, ins1, amt1];
+    const def = cf("amount_by_area", null, "total", op("*", leaf(ref("qty_by_area")), leaf(ref("rate_by_area", null, "supply_rate"))));
+    const ovr = cf("amount_by_area", "Phase 1", "total", op("*", leaf(ref("qty_by_area", "Phase 1")), leaf(ref("rate_by_area", "Phase 1", "install_rate"))));
+    const row = prow({ row_index: 1, qty_by_area: { "Phase 1": 3 } as Record<string, number> });
+    // editing supply (E=5) + install (F=10); override uses install -> 3*10 = 30 (not the default's 3*5).
+    expect(evaluateAmountCell(amt1, row, cols, [def, ovr], { "1:E": "5", "1:F": "10" })).toEqual({ kind: "value", value: 30 });
   });
 });

@@ -51,7 +51,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -65,7 +65,10 @@ import {
 } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
+import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import type {
+  AmountFormulaNode,
+  AmountFormulaRef,
   AmountFormulaSaveArgs,
   ColorSaveArgs,
   ColumnDescriptor,
@@ -209,6 +212,150 @@ export function computeAmount(
 ): number | null {
   if (qty === null || qty === undefined || rate === null || rate === undefined) return null;
   return qty * rate;
+}
+
+// ── Formula Builder F4: the amount-cell value compute (formula-wins, else the pairing) ──
+// The RATE value_fields whose operand reads are DRAFT-AWARE (the user edits rates -> live
+// recompute). Mirrors the rate descriptor classes (PER_AREA_RATE_FIELD + SCALAR_RATE_FIELDS).
+const RATE_VALUE_FIELDS = new Set<string>([PER_AREA_RATE_FIELD, ...SCALAR_RATE_FIELDS]);
+
+/**
+ * The result of computing one amount cell's displayed value (F4). DISCRIMINATED so the cell
+ * render is a pure map: `value` -> the number; `committed` -> fall back to the stored committed
+ * amount (the no-formula / un-priced pairing case, byte-for-byte the pre-F4 behavior);
+ * `blank` -> a formula APPLIES but can't resolve (not_yet = needs a rate; broken = check
+ * formula / a cycle / a dangling ref) -> render BLANK, NEVER a stale/wrong number (the §0 core).
+ */
+export type AmountCellResult =
+  | { kind: "value"; value: number }
+  | { kind: "committed" }
+  | { kind: "blank"; reason: "not_yet" | "broken" };
+
+/**
+ * Resolve one operand ref to its value for THIS row, mirroring resolveDescriptorValue's
+ * absent-vs-zero contract (real 0 -> 0; a missing key -> undefined; NEVER 0-substituted). The
+ * ref is already AREA-BOUND by F2. A RATE operand is DRAFT-AWARE: the optimistic draft if the
+ * user is editing that rate cell, else the saved rate (when priced), else undefined (un-priced).
+ * A qty / plain-amount operand reads its stored value. This is the one place F4 reads MULTIPLE
+ * operands (the old path read a single paired rate). Exported for unit tests.
+ */
+export function lookupOperandValue(
+  row: PricedRow,
+  ref: AmountFormulaRef,
+  columnDescriptors: ColumnDescriptor[],
+  draftRates: Record<string, string>,
+): number | undefined {
+  const rd =
+    columnDescriptors.find(
+      (c) =>
+        c.value_field === ref.value_field &&
+        c.value_key === ref.value_key &&
+        c.rate_subkey === ref.rate_subkey,
+    ) ?? null;
+  if (RATE_VALUE_FIELDS.has(ref.value_field)) {
+    if (!rd) return undefined; // dangling -> caught by validateFormulaRefs; here it is absent
+    const draft = draftRates[`${row.row_index}:${rd.col}`];
+    if (draft !== undefined) {
+      const n = parseFloat(draft);
+      return Number.isFinite(n) ? n : 0; // editing -> live (blank/NaN -> 0, as the cell commits)
+    }
+    if (isCellPriced(row, rd)) {
+      const sv = resolveDescriptorValue(row, rd);
+      return typeof sv === "number" ? sv : undefined;
+    }
+    return undefined; // un-priced rate -> absent (the formula blanks: needs a rate)
+  }
+  // qty / plain amount -> the stored value (resolveDescriptorValue handles the *_by_area walk).
+  const v = resolveDescriptorValue(row, rd ?? (ref as unknown as ColumnDescriptor));
+  return typeof v === "number" ? v : undefined;
+}
+
+/**
+ * DANGLING-REF pre-validation (the upgrade F2 deferred to F4): every DIRECT leaf ref of a
+ * formula tree, once area-bound, must match a live descriptor. A ref matching NO descriptor
+ * (e.g. a formula orphaned by a re-commit that moved/removed columns) -> the cell is "broken"
+ * ("check formula"), NOT a silent not_yet (F2 can't tell "no such column" from "absent value").
+ * Pure -- unit-tested. Scope: the applicable formula's OWN direct operands (each amount column
+ * pre-validates its own formula at its own cell, so a transitive dangling ref surfaces broken
+ * at that column's cell).
+ */
+export function validateFormulaRefs(
+  tree: AmountFormulaNode,
+  bindArea: string | null,
+  columnDescriptors: ColumnDescriptor[],
+): boolean {
+  const leaves: AmountFormulaRef[] = [];
+  const walk = (n: AmountFormulaNode) => {
+    if ("ref" in n) leaves.push(n.ref);
+    else n.operands.forEach(walk);
+  };
+  walk(tree);
+  return leaves.every((ref) => {
+    const bound = bindRef(ref, bindArea);
+    return columnDescriptors.some(
+      (c) =>
+        c.value_field === bound.value_field &&
+        c.value_key === bound.value_key &&
+        c.rate_subkey === bound.rate_subkey,
+    );
+  });
+}
+
+/**
+ * Compute one amount cell's displayed value (F4 -- the swap). FORMULA-WINS-ELSE-PAIRING:
+ *   - HAS an applicable formula (F2 pickFormula precedence: per-area override > area-wildcard
+ *     default): pre-validate its operand refs (dangling -> broken), else
+ *     evaluateAmountColumn(concreteCol, columnFormulas, lookup) bound to THIS area (F2 binds
+ *     the wildcard default's operands itself -- F4 passes the concrete column, never pre-binds).
+ *     ok -> value; not_yet/broken -> blank.
+ *   - NO formula: the EXISTING findPairedRateDescriptor -> computeAmount path, byte-for-byte
+ *     unchanged (rate via draft / saved-when-priced; else the committed value).
+ * Pure (no React) -- unit-tested in PricingGrid.test.ts. This is the SINGLE source of truth for
+ * the amount-cell value; the render is a thin map over AmountCellResult.
+ */
+export function evaluateAmountCell(
+  d: ColumnDescriptor,
+  row: PricedRow,
+  columnDescriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
+  draftRates: Record<string, string>,
+): AmountCellResult {
+  const concreteCol: AmountFormulaRef = {
+    value_field: d.value_field,
+    value_key: d.value_key,
+    rate_subkey: d.rate_subkey,
+  };
+  const applicable = pickFormula(concreteCol, columnFormulas);
+  if (applicable && applicable.formula) {
+    // dangling-ref gate (broken beats a silent not_yet).
+    if (!validateFormulaRefs(applicable.formula, d.value_key, columnDescriptors)) {
+      return { kind: "blank", reason: "broken" };
+    }
+    const lookup: OperandLookup = (ref) =>
+      lookupOperandValue(row, ref, columnDescriptors, draftRates);
+    const res = evaluateAmountColumn(concreteCol, columnFormulas, lookup);
+    return res.ok ? { kind: "value", value: res.value } : { kind: "blank", reason: res.reason };
+  }
+
+  // ── FALLBACK: the existing single-paired-rate path, UNCHANGED (the no-formula case). ──
+  const displayDescs = columnDescriptors.filter((c) => !FIXED_ROLE_DEDUPE.has(c.role));
+  const rateD = findPairedRateDescriptor(d, displayDescs);
+  if (!rateD) return { kind: "committed" };
+  const area = d.value_field === PER_AREA_AMOUNT_FIELD ? d.value_key : null;
+  const qty =
+    area !== null && area !== undefined ? (row.qty_by_area?.[area] ?? null) : (row.qty_total ?? null);
+  const draft = draftRates[`${row.row_index}:${rateD.col}`];
+  let effRate: number | null = null;
+  if (draft !== undefined) {
+    const n = parseFloat(draft);
+    effRate = Number.isFinite(n) ? n : 0;
+  } else if (isCellPriced(row, rateD)) {
+    const sv = resolveDescriptorValue(row, rateD);
+    effRate = typeof sv === "number" ? sv : null;
+  }
+  if (effRate === null) return { kind: "committed" };
+  const amt = computeAmount(qty, effRate);
+  return amt !== null ? { kind: "value", value: amt } : { kind: "committed" };
 }
 
 /**
@@ -791,16 +938,6 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   const slNoLetter = columnDescriptors.find((d) => d.role === "sl_no")?.col ?? null;
   const descriptionLetter = columnDescriptors.find((d) => d.role === "description")?.col ?? null;
 
-  // Precompute each amount column's paired rate descriptor (column-level, row-independent),
-  // so a live amount can be derived from the paired rate's draft / saved value.
-  const pairedRateByAmountCol = new Map<string, ColumnDescriptor>();
-  for (const d of displayDescriptors) {
-    if (isAmountDescriptor(d)) {
-      const rateD = findPairedRateDescriptor(d, displayDescriptors);
-      if (rateD) pairedRateByAmountCol.set(d.col, rateD);
-    }
-  }
-
   const cellKey = (rowIndex: number, col: string) => `${rowIndex}:${col}`;
   const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
     const v = resolveDescriptorValue(row, d);
@@ -1302,34 +1439,20 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     );
                   }
 
-                  // ── AMOUNT cell: live qty x rate (display-only), else committed value ──
+                  // ── AMOUNT cell (F4): formula-wins-else-pairing. The VALUE flows from the
+                  //    pure evaluateAmountCell; the render is a thin map. A formula that can't
+                  //    resolve renders BLANK (never a stale/wrong number) -- not_yet = needs a
+                  //    rate, broken = check formula (a marker). The no-formula case is the
+                  //    UNCHANGED single-paired-rate fallback. ──
                   if (isAmountDescriptor(d)) {
-                    const rateD = pairedRateByAmountCol.get(d.col);
-                    let amountVal: number | null = null;
-                    if (rateD) {
-                      const area = d.value_field === PER_AREA_AMOUNT_FIELD ? d.value_key : null;
-                      const qty =
-                        area !== null && area !== undefined
-                          ? (row.qty_by_area?.[area] ?? null)
-                          : (row.qty_total ?? null);
-                      const draft = draftRates[cellKey(row.row_index, rateD.col)];
-                      let effRate: number | null = null;
-                      if (draft !== undefined) {
-                        // Editing now -> optimistic amount from the typed rate (blank -> 0).
-                        const n = parseFloat(draft);
-                        effRate = Number.isFinite(n) ? n : 0;
-                      } else if (isCellPriced(row, rateD)) {
-                        // Not editing but priced -> amount from the saved rate (no refetch flash).
-                        const sv = resolveDescriptorValue(row, rateD);
-                        effRate = typeof sv === "number" ? sv : null;
-                      }
-                      // else: un-priced + not editing -> leave amountVal null (committed value).
-                      if (effRate !== null) amountVal = computeAmount(qty, effRate);
-                    }
+                    const cell = evaluateAmountCell(d, row, columnDescriptors, columnFormulas, draftRates);
+                    const isBroken = cell.kind === "blank" && cell.reason === "broken";
+                    const needsRate = cell.kind === "blank" && cell.reason === "not_yet";
                     return (
                       <td
                         key={d.col}
                         {...tdFocusProps(rowIdx, colIndex)}
+                        title={isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined}
                         className={cn(
                           "relative px-2 py-1.5 text-right align-top tabular-nums",
                           colorBorderClass,
@@ -1337,9 +1460,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                         )}
                       >
                         {colorPicker}
-                        {amountVal !== null
-                          ? renderDescriptorCell(amountVal)
-                          : renderDescriptorCell(resolveDescriptorValue(row, d))}
+                        {cell.kind === "value" ? (
+                          renderDescriptorCell(cell.value)
+                        ) : cell.kind === "committed" ? (
+                          renderDescriptorCell(resolveDescriptorValue(row, d))
+                        ) : isBroken ? (
+                          // broken -> blank value + a small "check formula" marker (4b extends
+                          // this into the review-list seam; here the MUST-have is no wrong number).
+                          <AlertTriangle className="inline-block h-3 w-3 text-destructive" aria-label="Check formula" />
+                        ) : null /* not_yet -> blank (the cell is empty; title = "Needs a rate") */}
                       </td>
                     );
                   }
