@@ -422,11 +422,23 @@ the Option-1 value still shown). New prop `columnFormulas` threaded `SheetPricin
 not_yet/broken fold to 0 (the 4b incomplete-marker is deferred). No circular import (`pricingRollup`->`PricingGrid` already
 existed). The grid compute / rate-save / nav / color / remarks / backend untouched.
 
+**Prepopulated-rate fix `PricingGrid.lookupOperandValue` (RATE branch; full detail: plan §"Prepopulated-rate fix"):** a
+formula ignored a PREPOPULATED committed rate (a real non-zero tender value with no editor MARKER) because the rate read
+gated on `isCellPriced`, not value-presence -> the amount blanked until re-edited (confirmed on 150/166 by a DB peek). FIX:
+a RATE operand is usable when `isCellPriced(row, rd)` **OR the resolved committed value is a NON-ZERO finite number**.
+Three states: editor-priced (marker, any value incl. 0) -> value; committed NON-ZERO (no marker) -> value [THE FIX];
+committed 0.0 (no marker) -> undefined -> not_yet ("needs a rate"). Owner-accepted: a genuine-0 never-priced rate BLANKS
+(safer; price it 0 to set the marker). **RATE branch ONLY** -- the qty/plain-amount read is untouched (a committed qty 0
+still reads 0); `isCellPriced` itself is UNCHANGED (its 5 other consumers -- pairing fallback, prefill/cleanup, priced
+tint -- unaffected). No new storage/flag (non-zeroness is the distinguisher; the committed tier has no NULLs). The fix is
+in the SINGLE shared `lookupOperandValue`, so it flows to BOTH the grid cell AND the summary rollup (drafts={}) -- the
+rollup SOURCE was not edited.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Summary formula-fix -- formula-aware rollup + grand-total
-row + reconciliation guard (`pricingRollup`/`SummaryPanel`, 2026-06-23); Formula Builder F4 -- evaluator wired into the grid
-amount compute (`PricingGrid.evaluateAmountCell`; ARC F1-F4 COMPLETE, 2026-06-23).
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Prepopulated-rate fix -- formula reads committed rates by
+non-zero value, not just the priced marker (`PricingGrid.lookupOperandValue`, 2026-06-23); Summary formula-fix --
+formula-aware rollup + grand-total row + reconciliation guard (`pricingRollup`/`SummaryPanel`, 2026-06-23).
 
 (Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
 `boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
