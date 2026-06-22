@@ -35,6 +35,8 @@ interface FlattenedTask extends CommissionReportTask {
     project_name: string;
     project: string;
     prjname: string;
+    /** Tracker start_date — surfaced by get_task_wise_list for deadline recompute. */
+    start_date?: string;
 }
 
 interface TaskWiseTableProps {
@@ -141,6 +143,7 @@ const getTaskWiseColumns = (
                         canEdit={canEdit}
                         refresh={refresh}
                         onConfigure={(t) => handleEditClick(t as FlattenedTask)}
+                        startDate={row.original.start_date}
                     />
                 );
             },

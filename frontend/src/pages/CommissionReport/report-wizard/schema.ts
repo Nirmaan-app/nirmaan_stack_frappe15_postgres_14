@@ -72,9 +72,15 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
                 file_name: z.string(),
                 file_doc: z.string().optional(),
             });
+            // An empty/blank cell can arrive as "" (string), null, or undefined — all mean "no image".
+            const normalizeEmptyImage = (v: unknown) =>
+                v && typeof v === 'object' ? v : undefined;
             return required
-                ? record.refine((v) => !!v.file_url, `${field.label} is required`)
-                : record.nullable().optional();
+                ? z.preprocess(
+                      normalizeEmptyImage,
+                      record.refine((v) => !!v && !!v.file_url, `${field.label} is required`),
+                  )
+                : z.preprocess(normalizeEmptyImage, record.optional());
         }
         default:
             return optionalText();

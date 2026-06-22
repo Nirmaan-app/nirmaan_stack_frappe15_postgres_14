@@ -68,6 +68,7 @@ def get_task_wise_list(
                 row['project'] = doc.project
                 row['prjname'] = doc.name
                 row['name'] = t.name
+                row['start_date'] = doc.get('start_date')
                 
                 if check_design_exec:
                     ad_str = str(row.get('assigned_designers') or "")

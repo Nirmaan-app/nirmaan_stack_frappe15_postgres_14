@@ -25,7 +25,7 @@
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
 * { box-sizing: border-box; }
-html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.2; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.1; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
 .cv-page-layout { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cv-content-cell { vertical-align: top; padding: 0; }
@@ -33,55 +33,55 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .cv-spacer-md { height: 10px; }
 
 .cv-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; }
-.cv-table td { border: 1px solid #000; padding: 3px 6px; vertical-align: top; font-size: 10px; word-wrap: break-word; }
+.cv-table td { border: 1px solid #000; padding: 2px 4px; vertical-align: top; font-size: 10px; word-wrap: break-word; }
 
 .cv-title { text-align: center; font-weight: 700; font-size: 12px; padding: 7px !important; text-decoration: underline; }
 .cv-label { font-weight: 700; width: 120px; }
 .cv-blank { color: #aaa; }
 
 .cv-chk { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-chk th, .cv-chk td { border: 1px solid #000; padding: 3px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-chk th, .cv-chk td { border: 1px solid #000; padding: 2px 4px; font-size: 9px; line-height: 1.1; vertical-align: top; word-wrap: break-word; }
 .cv-chk th { text-align: center; font-weight: 700; background: #fff; }
 .cv-chk .cv-num { width: 50px; text-align: center; }
-.cv-chk .cv-result { width: 80px; text-align: center; font-weight: 700; }
+.cv-chk .cv-result { width: 56px; text-align: center; font-weight: 700; white-space: nowrap; }
 .cv-chk .cv-remarks { width: 130px; }
 
 .cv-tr-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-tr-table th, .cv-tr-table td { border: 1px solid #000; padding: 3px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-tr-table th, .cv-tr-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-tr-table th { text-align: center; font-weight: 700; background: #fff; }
 .cv-tr-table .cv-tr-row td { height: 26px; }
 .cv-tr-table .cv-tr-sig { width: 90px; }
 
 .cv-mm-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-mm-table th, .cv-mm-table td { border: 1px solid #000; padding: 3px 6px; font-size: 10px; vertical-align: middle; text-align: center; word-wrap: break-word; }
+.cv-mm-table th, .cv-mm-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: middle; text-align: center; word-wrap: break-word; }
 .cv-mm-table th { font-weight: 700; background: #fff; }
 .cv-mm-table .cv-mm-lbl { font-weight: 600; }
 .cv-mm-table .cv-mm-val { font-weight: 600; }
 
 .cv-cl-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-cl-table td { border: 1px solid #000; padding: 3px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-cl-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-cl-head { font-weight: 700; background: #fff; }
-.cv-cl-proc { line-height: 1.5; }
-.cv-cl-item { white-space: pre-wrap; line-height: 1.5; }
+.cv-cl-proc { line-height: 1.1; }
+.cv-cl-item { white-space: pre-wrap; line-height: 1.1; }
 
-.cv-notes-head { font-weight: 700; padding: 3px 6px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
+.cv-notes-head { font-weight: 700; padding: 2px 4px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
 .cv-notes-body { min-height: 60px; padding: 6px; border: 1px solid #000; font-size: 10px; }
 
-.cv-section-head { font-weight: 700; padding: 3px 6px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
+.cv-section-head { font-weight: 700; padding: 2px 4px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
 .cv-sub-head { font-weight: 700; padding: 6px 0; font-size: 11px; text-decoration: underline; }
 
 .cv-proc-section-title { text-align: center; font-weight: 700; font-size: 13px; margin: 4px 0 12px 0; text-decoration: underline; }
 .cv-proc-subtitle { font-weight: 700; font-size: 11px; margin: 10px 0 4px 0; }
-.cv-proc-item { font-size: 10px; line-height: 1.5; padding: 2px 0 2px 4px; white-space: pre-wrap; }
+.cv-proc-item { font-size: 10px; line-height: 1.1; padding: 2px 0 2px 4px; white-space: pre-wrap; }
 
 .cv-img-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-img-grid td { border: 1px solid #000; padding: 3px 6px; vertical-align: top; text-align: center; font-size: 10px; word-wrap: break-word; min-height: 90px; }
+.cv-img-grid td { border: 1px solid #000; padding: 2px 4px; vertical-align: top; text-align: center; font-size: 10px; word-wrap: break-word; min-height: 90px; }
 .cv-img-grid .cv-img-label { font-size: 9px; font-weight: 700; color: #555; text-transform: uppercase; margin-bottom: 4px; }
 .cv-img-grid img { max-width: 100%; max-height: 200px; object-fit: contain; }
 .cv-img-grid .cv-img-empty { color: #bbb; padding: 14px 0; }
 
 .cv-meas { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-meas td { border: 1px solid #000; padding: 3px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-meas td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-meas .cv-meas-lbl { font-weight: 700; width: 25%; }
 
 .cv-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 30px; page-break-inside: avoid; }
@@ -91,6 +91,9 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .cv-error { padding: 12px; border: 1px solid #f00; background: #fee; color: #900; }
 
 tr { page-break-inside: avoid; }
+/* The page-layout's OWN two rows (content + signature) must flow freely, so the signature
+   is never shoved to a new page when there's room. Nested data-table rows keep avoid above. */
+.cv-page-layout > tbody > tr, .cv-page-layout > tr { page-break-inside: auto; }
 thead { display: table-header-group; }
 </style>
 
@@ -113,7 +116,7 @@ thead { display: table-header-group; }
   - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[]) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], tight=False) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
@@ -136,7 +139,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"{% if tight %} style="margin-top: 0 !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -226,6 +229,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - SPRINKLER SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -337,6 +341,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         {%- set _gen_title = target.task_name if tpl.templateId == "duct-pressure/smoke/light-testing-report" else (hdr_section.title if hdr_section else tpl.title) -%}
                         <tr><td class="cv-title" colspan="2">{{ _gen_title }}</td></tr>
                         {% if hdr_section %}
@@ -580,6 +585,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - SOCKET TESTING" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -632,6 +638,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout" style="page-break-before: always;">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PANEL TESTING" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -699,6 +706,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "LUX LEVEL REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -759,6 +767,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
@@ -961,6 +970,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DUCT CFM REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1092,6 +1102,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title)}}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1193,6 +1204,7 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DUCT LEAK IDENTIFICATION TEST" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1298,6 +1310,7 @@ thead { display: table-header-group; }
 
                     {# Title + cover header #}
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "REFRIGERANT LINE PRESSURE TESTING REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1412,6 +1425,7 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PUBLIC ADDRESSING SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1464,6 +1478,7 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PUBLIC ADDRESSING SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1556,6 +1571,7 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT — FIRE ALARM SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1662,7 +1678,7 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
                     {% if tpl.templateId == "demo-training-certificate" %}
                         <table class="cv-table">
-                            <colgroup><col style="width:30%;"/><col style="width:70%;"/></colgroup>
+                            <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                             <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DEMO & TRAINING CERTIFICATE" }}</td></tr>
                             {% if hdr_section %}
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1703,6 +1719,7 @@ thead { display: table-header-group; }
                         {% endif %}
                     {% else %}
                         <table class="cv-table">
+                            <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                             <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT" }}</td></tr>
                             {% if hdr_section %}
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
@@ -1740,7 +1757,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, tight=((target.task_name or '') == "CCTV Commissioning Report")) }}
                 </td></tr>
             </table>
 

@@ -169,6 +169,8 @@ export const getTaskTableColumns = (
     parentName: string = '',
     /** Refresh the tracker doc after a Report-column status/file mutation. */
     refresh?: () => void,
+    /** Tracker start_date — base for recomputing a deadline on re-activation. */
+    startDate: string = '',
 ): ColumnDef<CommissionReportTask>[] => {
     return [
         {
@@ -290,6 +292,7 @@ export const getTaskTableColumns = (
                         canEdit={canEdit}
                         refresh={refresh}
                         onConfigure={handleEditClick}
+                        startDate={startDate}
                     />
                 );
             },

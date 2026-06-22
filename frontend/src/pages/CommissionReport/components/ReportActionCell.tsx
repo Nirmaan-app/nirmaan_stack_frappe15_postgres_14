@@ -57,9 +57,11 @@ interface Props {
     refresh?: () => void;
     /** Opens the task settings (Configure) modal. */
     onConfigure?: (task: CommissionReportTask) => void;
+    /** Tracker start_date — base for recomputing a deadline on re-activation. */
+    startDate?: string;
 }
 
-export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap, canEdit, refresh, onConfigure }) => {
+export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap, canEdit, refresh, onConfigure, startDate }) => {
     const navigate = useNavigate();
     const { upload } = useFrappeFileUpload();
     const { updateTaskChild } = useUpdateCommissionTaskChild();
@@ -107,6 +109,21 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     };
 
     const sendForApproval = () => setStatus('Pending Approval');
+
+    // Re-activating a "Not Applicable" task: its deadline was wiped when it was
+    // set Not Applicable, so recompute one (master deadline_offset from the
+    // tracker start_date; fallback today + 7 days) — mirrors task creation.
+    const recomputeDeadline = (): string => {
+        const offset = info?.deadlineOffset;
+        const fmt = (d: Date) => d.toISOString().split('T')[0];
+        if (offset !== undefined && offset !== null) {
+            const base = startDate ? new Date(startDate) : new Date();
+            const d = new Date(base);
+            d.setDate(base.getDate() + Number(offset));
+            return fmt(d);
+        }
+        return fmt(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    };
 
     const onFileChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -172,7 +189,7 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         moreItems.push({ icon: Ban, label: 'Mark as Not Applicable', onClick: () => setStatus('Not Applicable', { deadline: '' }), danger: true });
     }
     if (canEdit && status === 'Not Applicable') {
-        moreItems.push({ icon: RotateCcw, label: 'Re-activate (Pending)', onClick: () => setStatus('Pending') });
+        moreItems.push({ icon: RotateCcw, label: 'Re-activate (Pending)', onClick: () => setStatus('Pending', { deadline: recomputeDeadline() }) });
     }
     // Admin-only: reopen a submitted/approved/completed Field report back to Pending.
     if (isAdmin && !isVendor && (status === 'Pending Approval' || status === 'Submitted' || status === 'Client Accepted')) {

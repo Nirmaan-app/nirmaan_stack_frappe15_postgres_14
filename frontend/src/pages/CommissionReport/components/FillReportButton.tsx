@@ -48,6 +48,9 @@ export interface MasterTaskInfo {
     isActive: boolean;
     /** True when the template's source_format declares `printOrientation: "landscape"`. */
     isLandscape: boolean;
+    /** Master deadline offset in days (from the tracker's start_date). Used to
+     *  recompute a deadline when a "Not Applicable" task is re-activated. */
+    deadlineOffset: number | null;
 }
 
 interface Props {
