@@ -109,6 +109,14 @@ interface RestructureModalProps {
   /** AI-3b-2: when true, handleSave passes mark_ai_accepted to flip ai_suggestion_status
    *  ="Accepted" inside the SAME restructure commit (cancel-safe -- only Save sends it). */
   markAiAccepted?: boolean;
+  /**
+   * DUAL-AI (ADR-0003): the Gemini MIRROR of markAiAccepted. When true, handleSave passes
+   * mark_gemini_accepted to flip gemini_suggestion_status="Accepted" + capture the gemini
+   * snapshot inside the SAME restructure commit (cancel-safe -- only Save sends it). The two
+   * flags are INDEPENDENT: a with-children Gemini accept sets only this one (the gemini accept
+   * endpoint pre-reverts any standing Claude acceptance, so they never both fire on one call).
+   */
+  markGeminiAccepted?: boolean;
 }
 
 export function RestructureModal({
@@ -123,6 +131,7 @@ export function RestructureModal({
   presetRowParent,
   presetParentMessage,
   markAiAccepted,
+  markGeminiAccepted,
 }: RestructureModalProps) {
   // AI-3b-2: a preset parent means the row's parent is pre-applied (from an accepted AI
   // suggestion) -> the keep/move radio + picker are replaced by a read-only message line.
@@ -265,6 +274,9 @@ export function RestructureModal({
         // AI-3b-2: flip ai_suggestion_status -> "Accepted" in this same commit. Sent ONLY
         // here (the Save path), so a cancelled modal never flips it (cancel-safe).
         ...(markAiAccepted ? { mark_ai_accepted: true } : {}),
+        // DUAL-AI (ADR-0003): the Gemini mirror -- flip gemini_suggestion_status -> "Accepted"
+        // in this same commit. Sent ONLY here (Save path). Independent of mark_ai_accepted.
+        ...(markGeminiAccepted ? { mark_gemini_accepted: true } : {}),
       });
       onRestructured(res.message.edited_at);
     } catch (e: unknown) {
