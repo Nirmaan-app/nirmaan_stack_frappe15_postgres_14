@@ -4,7 +4,8 @@
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest backend slice:** Phase 5
-Slice 4a-BE -- annotation backend (BoQ Cell Remark + BoQ Cell Color, 2026-06-22; see plan §"Slice 4a-BE").
+Formula Builder F1 -- amount-formula storage (NEW doctype BoQ Cell Amount Formula + save_amount_formula /
+get_sheet_amount_formulas + get_priced_rows column_formulas merge, 2026-06-22; see plan §"Formula Builder F1").
 
 **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
@@ -203,6 +204,7 @@ SEPARATE from the lossy `BoQ General Specs Sheet` blob doctype, which is UNTOUCH
 **BoQ pricing-editor quick rules (full detail: plan "## Phase 5 Pricing Editor -- slice detail"):**
 - **Single-editor lock:** deterministic PK `sha1(boq \x00 sheet_name \x00 int(version))`; reject marker `BOQ_PRICING_LOCKED`; `LOCK_STALE_SECONDS = 300` (5-min edit-driven expiry, NO heartbeat / NO release endpoint / NO socket); acquire-on-first-edit; a lock REJECT mutates NOTHING (the acquire slots after the cell-resolve + before any freeze/insert). `api/boq/wizard/pricing_lock.py` `acquire_or_refresh`.
 - **Priceability gate (§6, a DELIBERATE recorded loosening of "server always rejects"):** a rate is editable ONLY on a committed row whose `node_type` ∈ {"Preamble", "Line Item"}; "Other" is non-priceable. REJECT-by-default / ACCEPT-on-asserted-override (`allow_non_priceable`), enforced BOTH frontend (`isPriceableType`) and server (`save_cell_price`) keyed on the SAME field (no axis drift). The override-priced "needs review" anomaly is DERIVABLE (`priced && !priceable`) -- NO marker field on BoQ Cell Pricing. Phased build (Phase 0 → 7) — don't implement Phase N+1 functionality while working in Phase N. Phase 2 sub-phase split: 2a → 2b.1a → 2b.1b → 2b.2 (A1, A2, A3, B) → 2c.
+- **Amount-formula builder F1 (BACKEND storage, plan §"Formula Builder F1"):** NEW doctype **`BoQ Cell Amount Formula`** (per-COLUMN, per-committed-version; autoname `BAMF-.YY.-.#####`; mirrors BoQ Cell Pricing's freeze-and-supersede triple `formula_version`/`is_current`/`defined_at` + `is_finalized`). Identity = (boq, sheet_name VERBATIM #152, committed_version, target_value_field, target_value_key, target_rate_subkey). **`target_value_key` NULL = the area-WILDCARD logical-column DEFAULT (or "scalar"); a concrete area = a PER-AREA OVERRIDE -- nullability IS the discriminator (no extra field).** `formula` = a token-tree JSON: operator `{op:"+"|"*",operands:[...]}` or leaf `{ref:{value_field,value_key,rate_subkey}}` -- **NO literal node** (literals barred); operand refs first-class (F2 builds the dep-graph without parsing). F1 STORES + SERVES only -- NO evaluation, NO cycle-check (both F2). Endpoints in `pricing.py`: `save_amount_formula` (AMOUNT-target gate via `_build_column_descriptors`; structural-validate; lock after target-resolve+validate, before freeze/insert; blank formula CLEARS) + `get_sheet_amount_formulas` + a `column_formulas` PER-COLUMN key merged into `get_priced_rows` (NOT per-row). The grid-display swap (F4) replaces `PricingGrid.findPairedRateDescriptor`; subtotal rollup (`pricingRollup.ts`) is a SEPARATE cross-row surface, untouched.
 
 ---
 
