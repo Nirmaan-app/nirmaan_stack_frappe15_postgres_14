@@ -10014,6 +10014,17 @@ two-layer review gate` is the CONFIG-PANEL gate, a DIFFERENT slice from the pric
 The composing `get_priced_rows` read already has its own dedicated section above (`## Phase 5 Pricing-overlay read --
 get_priced_rows`) and is NOT duplicated here -- the slices below cross-reference it.
 
+**Docs-hygiene stage 2 (2026-06-22, minimal-touch note):** Stage 2 relocated the remaining mis-homed CLAUDE content into
+its correct homes (no plan content added -- every fact was already captured, here or in the existing dedicated `### Slice
+...` / `### Module 3 Slice ...` sections). (a) Buried LIVE pricing-editor component contracts (keyboard-nav matrix,
+read-only callback-presence gating, cross-area proposedRates invariant, annotation render channels) were lifted UP into a
+new component-keyed "### BoQ Pricing Editor -- Frontend Conventions" block in `frontend/CLAUDE.md`. (b) Durable
+architectural facts (single-editor lock PK/marker/300s, priceability §6, the BoQ Cell Remark/Color/Pricing/Lock
+doctypes) were reduced in root `CLAUDE.md` to terse quick-rules + pointers to the slice sections here. (c) Granular
+slice-dated convention history in `frontend/CLAUDE.md` (review-screen B-blocks, the detail-panel CSS pass, Layout Part A,
+Slice A2, Slice A1 rename migration, Module-3 3c/3c-fix/3d-ii-read-back/3b-iii) was consolidated to its live rules in
+CLAUDE with the full per-slice detail left to THESE plan sections. CLAUDE status-block bulk stays until stage 3.
+
 ### Phase 5 Pricing Editor -- Slice 1a -- committed-read endpoint get_committed_rows (BACKEND, pure-read, feat pending, 2026-06-20)
 
 **Goal.** The first Phase-5 build: a NEW whitelisted read endpoint `get_committed_rows` in `review_screen.py` that adapts
