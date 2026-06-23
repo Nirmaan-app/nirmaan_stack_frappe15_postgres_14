@@ -1,0 +1,268 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BAMF-.YY.-.#####",
+ "creation": "2026-06-22 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "committed_version",
+  "target_value_field",
+  "target_value_key",
+  "target_rate_subkey",
+  "guard_section",
+  "target_col",
+  "description",
+  "value_section",
+  "formula",
+  "formula_version_section",
+  "formula_version",
+  "is_current",
+  "defined_at",
+  "is_finalized"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Formula Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this amount formula belongs to. Denormalized (mirrors BoQ Cell Pricing) so the layer is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable column identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version this formula belongs to (BoQ Sheet / BOQ Nodes / grid share one commit_version per (boq, sheet)). A formula is anchored to a committed version; identity component.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "description": "The TARGET amount column's value_field -- one of the amount fields: amount_by_area (per-area) / amount_total / amount_supply / amount_install (scalar). Identity component. Validated AMOUNT-only by the write path (a rate/qty target is rejected).",
+   "fieldname": "target_value_field",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Target Value Field",
+   "reqd": 1
+  },
+  {
+   "description": "The TARGET column's area slot -- and the DEFAULT-vs-OVERRIDE discriminator (no extra field). NULL = the logical-column DEFAULT (area-wildcard) for a per-area amount column, OR 'scalar' (no area dimension) for a scalar amount column. A CONCRETE area string = a PER-AREA OVERRIDE that wins for that one area. Identity component.",
+   "fieldname": "target_value_key",
+   "fieldtype": "Data",
+   "label": "Target Value Key (area / NULL=default-or-scalar)"
+  },
+  {
+   "description": "The TARGET amount column's inner kind for a per-area amount (total / supply / install); NULL for a scalar amount column. Identity component.",
+   "fieldname": "target_rate_subkey",
+   "fieldtype": "Data",
+   "label": "Target Rate Subkey (amount kind)"
+  },
+  {
+   "fieldname": "guard_section",
+   "fieldtype": "Section Break",
+   "label": "Guards (re-resolvable / copy-forward -- NOT identity)"
+  },
+  {
+   "description": "The TARGET amount column's Excel letter at definition time -- a convenience / re-resolve GUARD (letters can move on re-commit). NOT part of the unique key (mirrors BoQ Cell Pricing.node).",
+   "fieldname": "target_col",
+   "fieldtype": "Data",
+   "label": "Target Column Letter (guard)"
+  },
+  {
+   "description": "A copy of the target column's description / header at definition time -- a copy-forward MATCH GUARD. NOT part of the unique key.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "value_section",
+   "fieldtype": "Section Break",
+   "label": "Formula"
+  },
+  {
+   "description": "The token-tree formula JSON (stored verbatim; STRUCTURALLY validated at save, NOT evaluated here -- evaluation is F2). A node is EITHER an operator {op: '+'|'*', operands: [<node>, ...]} OR a leaf {ref: {value_field, value_key, rate_subkey}}. NO literal node (numeric literals are barred). Operand refs are first-class structured leaves so F2 can build the dependency graph without parsing. For a DEFAULT (area-wildcard) formula an area-bound operand leaf carries value_key=NULL ('bind to the current area').",
+   "fieldname": "formula",
+   "fieldtype": "Long Text",
+   "label": "Formula (token-tree JSON)"
+  },
+  {
+   "fieldname": "formula_version_section",
+   "fieldtype": "Section Break",
+   "label": "Formula Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-identity formula version. Incremented on re-save by the write path (freeze-and-supersede, mirroring the committed tier + BoQ Cell Pricing).",
+   "fieldname": "formula_version",
+   "fieldtype": "Int",
+   "label": "Formula Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current formula record per identity (boq, sheet_name, committed_version, target_value_field, target_value_key, target_rate_subkey). The one-current invariant is enforced by the write path (pricing.py), NOT in this controller.",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this formula record was written. Set by the write path.",
+   "fieldname": "defined_at",
+   "fieldtype": "Datetime",
+   "label": "Defined At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The finalize lock for this committed version. When set, the formula for this column is finalized (a later finalize slice enforces the lock semantics; this slice only declares the marker).",
+   "fieldname": "is_finalized",
+   "fieldtype": "Check",
+   "label": "Is Finalized"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Cell Amount Formula",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

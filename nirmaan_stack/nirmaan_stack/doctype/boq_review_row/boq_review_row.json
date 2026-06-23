@@ -63,7 +63,18 @@
   "remarks",
   "flags_dismissed",
   "flags_dismissed_by",
-  "flags_dismissed_at"
+  "flags_dismissed_at",
+  "ai_suggestions_section",
+  "ai_suggested_classification",
+  "ai_classification_confidence",
+  "ai_suggested_parent",
+  "ai_suggested_is_root",
+  "ai_parent_confidence",
+  "ai_suggested_level",
+  "ai_explanation",
+  "ai_suggestion_status",
+  "ai_accept_snapshot",
+  "ai_snapshot_owner"
  ],
  "fields": [
   {
@@ -368,6 +379,83 @@
    "fieldname": "flags_dismissed_at",
    "fieldtype": "Datetime",
    "label": "Flags Dismissed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_suggestions_section",
+   "fieldtype": "Section Break",
+   "label": "AI Suggestions"
+  },
+  {
+   "description": "AI-suggested row classification (Phase 4 AI pass). Written only by the AI service / accept-reject endpoint, never by the parser or human edit layer. Applied by resolve_effective only when ai_suggestion_status is Accepted and no human override exists.",
+   "fieldname": "ai_suggested_classification",
+   "fieldtype": "Data",
+   "label": "AI Suggested Classification",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_classification_confidence",
+   "fieldtype": "Select",
+   "label": "AI Classification Confidence",
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
+  },
+  {
+   "description": "AI-suggested parent row index (Phase 4 AI pass). Same sentinel convention as parent_index / human_parent: -1 = no suggestion / root, >= 0 = a real suggested parent row index.",
+   "fieldname": "ai_suggested_parent",
+   "fieldtype": "Int",
+   "label": "AI Suggested Parent Index",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "AI suggests this row become a top-level root (Phase 4 AI pass). Applied by resolve_effective below the human layer and above the parser, only when ai_suggestion_status is Accepted. Distinct from ai_suggested_parent = -1, which means 'no parent suggestion'.",
+   "fieldname": "ai_suggested_is_root",
+   "fieldtype": "Check",
+   "label": "AI Suggested Root",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_parent_confidence",
+   "fieldtype": "Select",
+   "label": "AI Parent Confidence",
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
+  },
+  {
+   "description": "AI-suggested level, derived for display from the ai_suggested_parent chain. Stored value; not used by resolve_effective.",
+   "fieldname": "ai_suggested_level",
+   "fieldtype": "Int",
+   "label": "AI Suggested Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ai_explanation",
+   "fieldtype": "Small Text",
+   "label": "AI Explanation",
+   "read_only": 1
+  },
+  {
+   "description": "Lifecycle of the AI suggestion. Blank / Pending / Rejected = AI layer ignored by resolve_effective; Accepted = AI suggestion applied (below the human layer, above the parser).",
+   "fieldname": "ai_suggestion_status",
+   "fieldtype": "Select",
+   "label": "AI Suggestion Status",
+   "options": "\nPending\nAccepted\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "Per-row snapshot of the pre-accept state (row + any children the accept moved), captured on an AI-accept Save. Read by revert_ai_acceptance to restore the row; cleared on a later human edit to the row or a moved child, or on finalize. Written only by the backend.",
+   "fieldname": "ai_accept_snapshot",
+   "fieldtype": "JSON",
+   "label": "AI Accept Snapshot",
+   "read_only": 1
+  },
+  {
+   "default": "-1",
+   "description": "Back-pointer: on a child moved by an AI-accept restructure, the row_index of the accepted (owner) row holding the snapshot. Lets a later edit to this child invalidate the owner's snapshot. -1 = not a snapshotted child (Frappe coerces an unset Int to 0, which collides with row_index 0, so -1 is the explicit sentinel).",
+   "fieldname": "ai_snapshot_owner",
+   "fieldtype": "Int",
+   "label": "AI Snapshot Owner Row",
    "read_only": 1
   }
  ],

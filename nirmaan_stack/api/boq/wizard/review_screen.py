@@ -251,26 +251,38 @@ def _chain_has_cycle(row_index: int, rows_by_idx: dict[int, dict]) -> bool:
 
 def resolve_effective(row: Any) -> dict:
     """
-    Compute effective field values using human > parser precedence.
+    Compute effective field values using the three-layer chain: human > AI-accepted > parser.
 
     Accepts a Frappe Document, frappe._dict, or a plain dict.
 
-    -1 sentinel convention (parent_index and human_parent):
-      -1 means "no parent / no override". Frappe coerces Int None -> 0 on insert
-      and 0 is a valid row index, so None cannot be used as a no-parent sentinel at
-      the DB boundary. The worker (flatten_resolved_row) writes -1 for root rows;
-      save_review_edit writes -1 when human_parent is cleared.
-      has_human_parent (Check field) is RETIRED -- the -1-vs-(>=0) distinction now
-      carries the "is there an override?" meaning unambiguously.
+    Layer precedence (Phase 4 P4-1): the AI layer slots BETWEEN human and parser.
+    It applies ONLY when ai_suggestion_status == "Accepted"; a None / "" / "Pending" /
+    "Rejected" status ignores the ai_suggested_* fields entirely. The human layer always
+    wins when present, so this never weakens any existing human-override behaviour.
 
-    Precedence rules:
-      effective_classification = human_classification (if non-empty string) else classification
-      effective_parent_index   = human_parent_norm (if non-None) else parent_index_norm
-        where *_norm = None for values in (None, -1), else the raw value.
-        human_parent >= 0 (incl. 0) is a real override of "parent is row N".
+      effective_classification:
+        1. human_classification (non-empty)                 -> human
+        2. ai_suggested_classification (status Accepted, set) -> AI
+        3. classification                                    -> parser
+      effective_parent_index (four-layer precedence, AI-2d):
+        1. human_is_root truthy                               -> None (human root)
+        2. human_parent >= 0                                  -> human row-override
+        3. ai_suggested_is_root (status Accepted)             -> None (AI root)
+        4. ai_suggested_parent >= 0 (status Accepted)         -> AI parent
+        5. parent_index_norm                                 -> parser
 
-    Returns both effective values and the raw stored values (parent_index, human_parent
-    may be -1 at the DB layer) so the frontend can render the original alongside effective.
+    -1 sentinel convention (parent_index, human_parent, ai_suggested_parent):
+      -1 means "no parent / no override / no suggestion". Frappe coerces Int None -> 0 on
+      insert and 0 is a valid row index, so None cannot be used as a sentinel at the DB
+      boundary. The worker (flatten_resolved_row) writes -1 for root rows; save_review_edit
+      writes -1 when human_parent is cleared; the AI service writes -1 for "no suggestion".
+      A value >= 0 (incl. 0) is a real value at every layer.
+      has_human_parent (Check field) is RETIRED -- the -1-vs-(>=0) distinction carries the
+      "is there an override?" meaning unambiguously.
+
+    Returns both effective values and the raw stored values (parent_index, human_parent,
+    and the three echoed ai_* fields may be -1/None at the DB layer) so the frontend can
+    render the original / suggested / effective values alongside each other.
     has_human_parent is NOT included in the returned dict (field retired).
     """
     classification = _get(row, "classification")
@@ -278,16 +290,27 @@ def resolve_effective(row: Any) -> dict:
     parent_index = _get(row, "parent_index")
     human_parent = _get(row, "human_parent")
     human_is_root = _get(row, "human_is_root")
+    # AI layer (Phase 4 P4-1): only consulted when ai_suggestion_status == "Accepted".
+    ai_suggestion_status = _get(row, "ai_suggestion_status")
+    ai_suggested_classification = _get(row, "ai_suggested_classification")
+    ai_suggested_parent = _get(row, "ai_suggested_parent")
+    ai_suggested_is_root = _get(row, "ai_suggested_is_root")
+    ai_accepted = ai_suggestion_status == "Accepted"
 
-    effective_classification = human_classification if human_classification else classification
+    # --- effective_classification: human > AI-accepted > parser ---
+    if human_classification:
+        effective_classification = human_classification
+    elif ai_accepted and ai_suggested_classification:
+        effective_classification = ai_suggested_classification
+    else:
+        effective_classification = classification
 
-    # Human-root override (Slice 1b-alpha, Option B): human_is_root is a SEPARATE
-    # Check field, orthogonal to human_parent -- it does NOT touch the -1 sentinel
-    # value space (agreement #54). When set, the row is effective-root regardless of
-    # parser parent_index; the human_parent_norm/parent_index_norm derivation is
-    # skipped entirely. The consistency invariant (human_is_root=1 => human_parent=-1)
-    # is enforced at the write chokepoint (_apply_and_save_row_edit), so this guard
-    # never has to reconcile a contradictory row.
+    # --- effective_parent_index: human-root > human-parent > AI-accepted > parser ---
+    # Human-root override (Slice 1b-alpha, Option B): human_is_root is a SEPARATE Check
+    # field, orthogonal to human_parent -- it does NOT touch the -1 sentinel value space
+    # (agreement #54). When set, the row is effective-root regardless of any AI suggestion
+    # or parser parent_index. The consistency invariant (human_is_root=1 => human_parent=-1)
+    # is enforced at the write chokepoint (_apply_and_save_row_edit).
     if human_is_root:
         effective_parent_index = None
     else:
@@ -295,8 +318,21 @@ def resolve_effective(row: Any) -> dict:
         # UNCHANGED -- the -1 sentinel doctrine is untouched.
         parent_index_norm = None if parent_index in (None, -1) else parent_index
         human_parent_norm = None if human_parent in (None, -1) else human_parent
+        ai_parent_norm = None if ai_suggested_parent in (None, -1) else ai_suggested_parent
         # human_parent_norm is not None covers the real-override case, including human_parent=0.
-        effective_parent_index = human_parent_norm if human_parent_norm is not None else parent_index_norm
+        # Precedence: human_parent > ai_suggested_is_root > ai_suggested_parent > parser.
+        # ai_suggested_is_root (AI-2d) is a SEPARATE Check (like human_is_root), orthogonal to
+        # the -1 sentinel: when an Accepted suggestion flags root, the row is effective-root
+        # regardless of ai_suggested_parent. This is what makes a root suggestion representable
+        # (ai_suggested_parent = -1 now means ONLY "no parent-index suggestion", never root).
+        if human_parent_norm is not None:
+            effective_parent_index = human_parent_norm
+        elif ai_accepted and ai_suggested_is_root:
+            effective_parent_index = None
+        elif ai_accepted and ai_parent_norm is not None:
+            effective_parent_index = ai_parent_norm
+        else:
+            effective_parent_index = parent_index_norm
 
     return {
         "classification": classification,
@@ -306,6 +342,11 @@ def resolve_effective(row: Any) -> dict:
         "human_is_root": 1 if human_is_root else 0,
         "effective_classification": effective_classification,
         "effective_parent_index": effective_parent_index,
+        # AI layer raw values echoed for the frontend (None when not set).
+        "ai_suggestion_status": ai_suggestion_status,
+        "ai_suggested_classification": ai_suggested_classification,
+        "ai_suggested_parent": ai_suggested_parent,
+        "ai_suggested_is_root": 1 if ai_suggested_is_root else 0,
     }
 
 
@@ -939,6 +980,40 @@ def _apply_and_save_row_edit(
     doc.flags_dismissed_by = None
     doc.flags_dismissed_at = None
 
+    # AI-3c-2a invalidation (rule c-ii): a later human_classification / human_parent edit
+    # discards any AI-accept revert snapshot. Clear THIS row's own snapshot; and if this row
+    # is a moved child (ai_snapshot_owner >= 0 -- -1 is the "not a child" sentinel; Frappe
+    # coerces an unset Int to 0, hence the explicit >= 0 guard, NOT truthiness), clear the
+    # OWNER row's snapshot and this child's back-pointer.
+    # ORDERING NOTE (load-bearing): this chokepoint ALSO runs during an AI-accept's own
+    # human writes -- but each accept path writes its snapshot LAST (after every helper call),
+    # so the clear here is harmless during the accept; the snapshot is (re)written afterward.
+    if field in ("human_classification", "human_parent"):
+        doc.ai_accept_snapshot = None
+        owner = getattr(doc, "ai_snapshot_owner", None)
+        if owner is not None and owner >= 0:
+            frappe.db.set_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": owner},
+                "ai_accept_snapshot", None,
+            )
+            doc.ai_snapshot_owner = -1
+        # AI-3c-2b (R6): a later classification/parent edit OVERRIDES the AI's structural
+        # decision (the AI only ever suggests class/parent), so an ACCEPTED row is now a HUMAN
+        # edit, not an AI acceptance -- clear ai_suggestion_status so the Status column stops
+        # reading "AI Accepted" (it checks == "Accepted" before isEdited, so a falsy status
+        # falls through to "Edited"). GATED on the CURRENT status being "Accepted": a Pending
+        # (or Rejected) suggestion has NOT been applied, so a manual class/parent edit must
+        # leave it untouched -- this preserves the restructure cancel-safety contract (a manual
+        # restructure on a Pending-suggestion row must not change ai_suggestion_status; R4).
+        # ORDERING (load-bearing, same self-clear territory as the snapshot clear above): both
+        # accept paths flip ai_suggestion_status = "Accepted" LAST, in their flip block AFTER
+        # every helper call, and revert flips to "Pending" LAST -- so this in-flight clear is
+        # harmless during an accept/revert (their final flip wins). value/text/per-area edits
+        # never enter this block, so they leave an AI-accepted row reading "AI Accepted".
+        if doc.ai_suggestion_status == "Accepted":
+            doc.ai_suggestion_status = None
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -1016,6 +1091,20 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # "Original"). Rides the row payload so the frontend can render the dismissed
         # marker + derive the "N total -- C cleared" summary; no new endpoint.
         "flags_dismissed", "flags_dismissed_by", "flags_dismissed_at",
+        # AI suggestion layer (AI-3a read path). ALL 8 ai_* fields must be fetched here.
+        # CORRECTION (AI-3a-fix): the four status/suggestion fields below are NOT echoed for
+        # free -- resolve_effective READS them from the fetched row (d) and only re-emits what
+        # it read, so omitting them from all_fields made d lack them -> the echo wrote None ->
+        # the frontend AI Rec badges never rendered. They must be in all_fields.
+        "ai_suggestion_status", "ai_suggested_classification",
+        "ai_suggested_parent", "ai_suggested_is_root",
+        # The remaining four (confidence x2, level, explanation) are display-only -- NOT read
+        # by resolve_effective, so they only ever arrived via all_fields.
+        "ai_classification_confidence", "ai_parent_confidence",
+        "ai_suggested_level", "ai_explanation",
+        # AI-3c-2a: fetched ONLY to derive the revert_available boolean below. The raw blob
+        # (pre-accept internal state) is DROPPED from the payload -- never shipped to the client.
+        "ai_accept_snapshot",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1030,6 +1119,8 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         d = dict(r)
         _parse_json_fields(d)
         d.update(resolve_effective(d))
+        # AI-3c-2a: ship a presence boolean; DROP the raw pre-accept snapshot blob.
+        d["revert_available"] = bool(d.pop("ai_accept_snapshot", None))
         rows.append(d)
 
     # Work-package join: reuse get_boq_work_packages and pick this sheet.
@@ -1060,6 +1151,252 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     breaks = check_structural_integrity(rows)
     flags = _compute_advisory_flags(rows, breaks)
     return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors, "flags": flags}
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 Slice 1a: committed-tier READ adapter (get_committed_rows)
+# ---------------------------------------------------------------------------
+# A pure-read endpoint that reads the CURRENT committed tier (BOQ Nodes + their
+# BOQ Node Qty By Area children + the committed BoQ Sheet's column config) and
+# emits the SAME descriptor + row shape get_review_rows produces from the DRAFT
+# tier, so the descriptor-driven frontend render can draw committed rows unchanged.
+#
+# The COLUMN half is a pure reuse: _build_column_descriptors runs UNCHANGED on the
+# committed BoQ Sheet.column_role_map (verified identical {letter:{role,area}} shape).
+# The ROW half is a bounded INVERSION of commit_pipeline.py's draft->committed map
+# (the authority): committed nodes use different field names than the draft-shaped
+# keys the descriptors read, so each node + its per-area children is re-keyed back.
+
+# Node fields the committed-read fetches (the structural + money + identity set the
+# inversion below maps to the draft-shaped row).
+_COMMITTED_NODE_FIELDS = [
+    "name", "sort_order", "source_row_number", "parent_node", "row_class", "node_type",
+    "level", "code", "description", "unit", "make_model", "qty",
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+    "notes", "append_notes_raw",
+]
+# Per-area child fields (BOQ Node Qty By Area) re-collapsed into the nested *_by_area dicts.
+_COMMITTED_CHILD_FIELDS = [
+    "parent", "area_name", "qty",
+    "supply_rate", "install_rate", "combined_rate",
+    "supply_amount", "install_amount", "total_amount",
+]
+# Inverse of commit_pipeline._explode_area_children's amount-kind rename: the committed
+# child columns total_amount/supply_amount/install_amount collapse back to the draft
+# amount_by_area kind keys total/supply/install.
+_AMOUNT_FIELD_TO_KIND = {
+    "supply_amount": "supply",
+    "install_amount": "install",
+    "total_amount": "total",
+}
+# Rate child columns keep their names (the draft rate_by_area kind keys are identical).
+_RATE_CHILD_FIELDS = ("supply_rate", "install_rate", "combined_rate")
+
+
+def _collapse_area_children(children: list) -> tuple[dict, dict, dict]:
+    """Re-collapse a node's BOQ Node Qty By Area child rows into the draft's nested
+    *_by_area dicts (the inverse of commit_pipeline._explode_area_children):
+      child.qty                                    -> qty_by_area[area]           (flat)
+      child.{supply,install,combined}_rate         -> rate_by_area[area]{same keys}
+      child.{supply,install,total}_amount          -> amount_by_area[area]{supply,install,total}
+    A kind is emitted only when its stored value is not None (committed Currency columns
+    coerce unset -> 0.0, so on a real committed sheet the 0.0 values ARE present -- which is
+    the truthful un-priced committed state the pricing editor fills)."""
+    qty_by_area: dict = {}
+    rate_by_area: dict = {}
+    amount_by_area: dict = {}
+    for c in children:
+        area = c.get("area_name")
+        if area is None:
+            continue
+        qty_by_area[area] = c.get("qty")
+        rate_kinds = {k: c.get(k) for k in _RATE_CHILD_FIELDS if c.get(k) is not None}
+        if rate_kinds:
+            rate_by_area[area] = rate_kinds
+        amount_kinds = {
+            kind: c.get(fld)
+            for fld, kind in _AMOUNT_FIELD_TO_KIND.items()
+            if c.get(fld) is not None
+        }
+        if amount_kinds:
+            amount_by_area[area] = amount_kinds
+    return qty_by_area, rate_by_area, amount_by_area
+
+
+def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) -> dict:
+    """Invert one committed BOQ Nodes row (+ its per-area children) into the draft-shaped
+    row object the column descriptors read. See commit_pipeline.py for the forward map.
+
+    HIERARCHY (A20): row_index = node.sort_order (the exact committed analog of draft
+    row_index -- commit_pipeline maps draft row_index -> node.sort_order; 0-based contiguous,
+    as computeDepths/byIdx expect). effective_parent_index = the parent node's sort_order
+    (resolved via parent_node -> sortorder_by_name); a root (parent_node NULL) -> None (the
+    null root computeDepths/resolve_effective use, NOT the raw -1 sentinel). source_row_number
+    (sparse 1-based Excel row) is carried separately for the Parent column's display.
+
+    CLASSIFICATION: node.row_class is the full taxonomy the ClassificationPill reads -> emitted
+    as both classification and effective_classification (node_type is the priceability axis,
+    not what the pill renders).
+
+    DRAFT-ONLY fields (ai_*, draft edit_log, flags, revert_available, human_*, advisory) are
+    deliberately OMITTED -- the committed render contract is AI-free and minimal.
+    """
+    qty_by_area, rate_by_area, amount_by_area = _collapse_area_children(children)
+
+    parent_name = node.get("parent_node")
+    eff_parent = sortorder_by_name.get(parent_name) if parent_name else None
+
+    apn = node.get("append_notes_raw")
+    if isinstance(apn, str) and apn:
+        try:
+            apn = json.loads(apn)
+        except (ValueError, TypeError):
+            apn = {}
+
+    row_class = node.get("row_class")
+    return {
+        "name": node.get("name"),
+        "row_index": node.get("sort_order"),
+        "source_row_number": node.get("source_row_number"),
+        "level": node.get("level"),
+        # classification: row_class is the full taxonomy the pill reads (effective == raw here;
+        # the committed tier has no human/AI override layer above it).
+        "classification": row_class,
+        "effective_classification": row_class,
+        # node_type is the PRICEABILITY axis (Preamble / Line Item = priceable; Other =
+        # non-priceable). Surfaced on the delivered row so the pricing editor's priceability
+        # gate (Slice 3e) keys on the SAME field the server guard uses, and so a price on a
+        # non-priceable row is DERIVABLE later (4b) -- node_type + the priced flag.
+        "node_type": node.get("node_type"),
+        "effective_parent_index": eff_parent,
+        # identity / text (commit_pipeline: sl_no_value->code, row_notes->notes)
+        "sl_no_value": node.get("code"),
+        "description": node.get("description"),
+        "unit": node.get("unit"),
+        "make_model": node.get("make_model"),
+        "row_notes": node.get("notes"),
+        "append_notes_raw": apn,
+        # money: word-order re-key back to the draft names (commit_pipeline reversed them)
+        "qty_total": node.get("qty"),
+        "rate_supply": node.get("supply_rate"),
+        "rate_install": node.get("install_rate"),
+        "rate_combined": node.get("combined_rate"),
+        "amount_supply": node.get("supply_amount"),
+        "amount_install": node.get("install_amount"),
+        "amount_total": node.get("total_amount"),
+        # per-area nested dicts re-collapsed from the children
+        "qty_by_area": qty_by_area,
+        "rate_by_area": rate_by_area,
+        "amount_by_area": amount_by_area,
+    }
+
+
+@frappe.whitelist()
+def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
+    """Read the CURRENT committed tier for (boq_name, sheet_name) and emit the same
+    {rows, column_descriptors} descriptor contract get_review_rows emits from the draft
+    tier -- so the descriptor-driven frontend render draws committed rows unchanged.
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_review_rows).
+
+    Rows are ordered by sort_order (the committed analog of the draft's 0-based row_index).
+    Per-area values are rebuilt into the nested *_by_area dicts; money fields are re-keyed to
+    the draft names; hierarchy (row_index / effective_parent_index) is synthesized from
+    sort_order + parent_node. Draft-only fields (ai_*, edit_log, flags, human_*) are OMITTED.
+
+    Returns:
+      {
+        "rows": [{<draft-shaped committed row>, ...}],   # ordered by sort_order
+        "column_descriptors": [{col, role, area, value_field, value_key, rate_subkey}, ...],
+        "commit_version": <int|None>,   # the current committed version of this sheet
+      }
+    `commit_version` (additive -- pricing-overlay slice) is the current committed BoQ Sheet's
+    commit_version, the single source of truth a pricing overlay passes to get_sheet_pricing
+    (None when nothing is committed). It adds ONE key; no existing key or row changes.
+    An uncommitted / grid-only sheet (no current BoQ Sheet, or no current nodes) returns
+    empty lists (graceful -- mirrors get_review_rows' empty-config -> []).
+
+    sheet_name is matched VERBATIM (the #152 trailing-space landmine -- never strip).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.get_committed_rows
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # The current committed BoQ Sheet carries the column config (same shape the descriptor
+    # builder consumes on the draft side) + is the Link target node.sheet points at.
+    sheet_doc = frappe.db.get_value(
+        "BoQ Sheet",
+        {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1},
+        ["name", "column_role_map", "column_headers", "commit_version"],
+        as_dict=True,
+    )
+    if not sheet_doc:
+        # No current committed sheet for this (boq, sheet) -> nothing committed yet.
+        return {"rows": [], "column_descriptors": [], "commit_version": None}
+
+    # Column descriptors: a PURE reuse of the draft-side builder on the committed config.
+    # JSON columns may come back parsed (dict) or raw (str) depending on the read path; normalize.
+    sheet_config = {
+        "column_role_map": _coerce_json_obj(sheet_doc.get("column_role_map")),
+        "column_headers": _coerce_json_obj(sheet_doc.get("column_headers")),
+    }
+    column_descriptors = _build_column_descriptors(sheet_config)
+
+    # Current nodes for this sheet (node.sheet is the BoQ Sheet Link), ordered like the draft.
+    nodes = frappe.db.get_all(
+        "BOQ Nodes",
+        filters={"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        fields=_COMMITTED_NODE_FIELDS,
+        order_by="sort_order asc",
+    )
+    if not nodes:
+        return {
+            "rows": [],
+            "column_descriptors": column_descriptors,
+            "commit_version": sheet_doc.get("commit_version"),
+        }
+
+    # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
+    sortorder_by_name = {n["name"]: n["sort_order"] for n in nodes}
+
+    # Per-area children for these nodes, grouped by parent node name (one query).
+    node_names = [n["name"] for n in nodes]
+    children_rows = frappe.db.get_all(
+        "BOQ Node Qty By Area",
+        filters={"parent": ["in", node_names], "parenttype": "BOQ Nodes"},
+        fields=_COMMITTED_CHILD_FIELDS,
+    )
+    children_by_parent: dict = {}
+    for c in children_rows:
+        children_by_parent.setdefault(c["parent"], []).append(c)
+
+    rows = [
+        _committed_node_to_row(n, children_by_parent.get(n["name"], []), sortorder_by_name)
+        for n in nodes
+    ]
+    return {
+        "rows": rows,
+        "column_descriptors": column_descriptors,
+        "commit_version": sheet_doc.get("commit_version"),
+    }
+
+
+def _coerce_json_obj(v):
+    """Return a JSON field's value as a Python object: parse a str, pass a dict/list through,
+    None/empty -> {}. (BoQ Sheet JSON columns may arrive parsed or raw depending on read path.)"""
+    if isinstance(v, str):
+        if not v:
+            return {}
+        try:
+            return json.loads(v)
+        except (ValueError, TypeError):
+            return {}
+    return v if isinstance(v, (dict, list)) else {}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1296,6 +1633,7 @@ def save_review_restructure(
     child_moves=None,
     reason: str = None,
     row_new_parent=None,
+    mark_ai_accepted=False,
 ) -> dict:
     """
     Atomically reclassify ONE row AND reparent a set of its children in a single
@@ -1318,6 +1656,12 @@ def save_review_restructure(
                              every existing caller). -1 = move the row itself to
                              top-level/root. An int row_index = move the row under that
                              row. Frappe passes strings -- int-coerced like the others.
+      mark_ai_accepted    -- OPTIONAL (Slice AI-3b-2). When truthy, flips this row's
+                             ai_suggestion_status -> "Accepted" inside the SAME commit as
+                             the human writes (set on target_doc before the first helper
+                             save). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
+                             ai_suggestion_status untouched. CANCEL-SAFE: only the modal's
+                             Save passes it, so a cancelled modal never flips the status.
 
     Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
     style; nothing is written until every check passes):
@@ -1372,6 +1716,12 @@ def save_review_restructure(
     # Normalize reason: blank/whitespace-only -> None (mirrors save_review_edit).
     if isinstance(reason, str):
         reason = reason.strip() or None
+
+    # AI-3b-2: coerce the HTTP form value ("1"/"true"/"yes") to a real bool.
+    if isinstance(mark_ai_accepted, str):
+        mark_ai_accepted = mark_ai_accepted.strip().lower() in ("1", "true", "yes")
+    else:
+        mark_ai_accepted = bool(mark_ai_accepted)
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
@@ -1526,6 +1876,30 @@ def save_review_restructure(
                 title="Cycle detected",
             )
 
+    # --- AI-3c-2a: capture the pre-accept state (row + each moved child) for a future
+    #     revert. ONLY on an AI accept (mark_ai_accepted) -- a manual restructure writes NO
+    #     snapshot. Built HERE from the pre-write rows_by_idx (resolve_effective echoes the
+    #     raw human_* values), but PERSISTED LAST (in the flip block below) so the chokepoint
+    #     invalidation that fires during the helper writes cannot wipe it (capture-last). ---
+    accept_snapshot = None
+    if mark_ai_accepted:
+        row_pre = rows_by_idx[row_index]
+        accept_snapshot = {
+            "row": {
+                "hc": row_pre.get("human_classification"),
+                "hp": row_pre.get("human_parent"),
+                "hr": 1 if row_pre.get("human_is_root") else 0,
+            },
+            "children": [
+                {
+                    "idx": ci,
+                    "hp": rows_by_idx[ci].get("human_parent"),
+                    "hr": 1 if rows_by_idx[ci].get("human_is_root") else 0,
+                }
+                for ci in sorted(moves)
+            ],
+        }
+
     # --- Write block (atomic; the shared helper saves each row, single commit at the
     #     end). All validation above passed, so every helper call is on validated input. ---
     user = frappe.session.user
@@ -1537,6 +1911,12 @@ def save_review_restructure(
         "name",
     )
     target_doc = frappe.get_doc("BoQ Review Row", target_name)
+    # AI-3b-2 / AI-3c-1: the mark_ai_accepted status flip is DEFERRED to after the human
+    # writes (capture-then-flip; see the flip block before the commit below). Flipping it
+    # here -- before the classification + parent helpers -- made resolve_effective (which the
+    # helper reads for the edit_log from-value) honor the AI layer and return the AI value the
+    # helper was about to write, logging a no-op (from == to). The flag stays opt-in + cancel-
+    # safe: this endpoint is reached ONLY via the modal's Save.
     _apply_and_save_row_edit(
         target_doc, boq_name, sheet_name,
         "human_classification", new_classification,
@@ -1595,6 +1975,37 @@ def save_review_restructure(
                 reason=child_reason, user=user,
             )
         children_moved.append(child_idx)
+
+    # AI-3b-2 / AI-3c-1 capture-then-flip: now that the classification + parent helpers above
+    # captured their from-values with the AI layer dormant, flip the status. set_value runs IN
+    # this request transaction, so the single commit below keeps human_* + the flip ATOMIC (no
+    # second independent commit). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
+    # ai_suggestion_status untouched.
+    if mark_ai_accepted:
+        target_doc.ai_suggestion_status = "Accepted"
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name, "ai_suggestion_status", "Accepted",
+            update_modified=False,
+        )
+        # AI-3c-2a: persist the revert snapshot LAST (after every helper write above, whose
+        # chokepoint cleared it on each human_classification/human_parent edit), and stamp
+        # each moved child's back-pointer to this (owner) row -- so a later edit to a moved
+        # child can find + invalidate this snapshot.
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            "ai_accept_snapshot", json.dumps(accept_snapshot),
+            update_modified=False,
+        )
+        for child_idx in children_moved:
+            child_name = frappe.db.get_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": child_idx},
+                "name",
+            )
+            frappe.db.set_value(
+                "BoQ Review Row", child_name, "ai_snapshot_owner", row_index,
+                update_modified=False,
+            )
 
     frappe.db.commit()
 
@@ -1917,6 +2328,14 @@ def mark_sheet_parsed_check_done(
 
     # Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)
+    # AI-3c-2a invalidation (rule c-ii, finalize): a finalized sheet is read-only, so every
+    # AI-accept revert snapshot + back-pointer on it is discarded (bulk, one filtered write).
+    # sheet_name VERBATIM (#152). Rides the existing commit below.
+    frappe.db.set_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name},
+        {"ai_accept_snapshot": None, "ai_snapshot_owner": -1},
+    )
     frappe.db.commit()
 
     return {

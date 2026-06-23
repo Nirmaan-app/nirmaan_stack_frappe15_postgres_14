@@ -523,6 +523,7 @@ export function SheetCard({
             This sheet is the general specifications sheet. Change it via the selector above.
           </p>
         )}
+
       </TooltipProvider>
 
       {/* ── Inline label editor (Skip cards) ─────────────────────────────── */}

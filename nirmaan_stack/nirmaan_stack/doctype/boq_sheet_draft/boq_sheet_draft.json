@@ -17,7 +17,8 @@
   "parse_failure_reason",
   "parse_failure_at",
   "commit_failure_reason",
-  "commit_failure_at"
+  "commit_failure_at",
+  "ai_in_progress"
  ],
  "fields": [
   {
@@ -107,6 +108,13 @@
    "fieldname": "commit_failure_at",
    "fieldtype": "Datetime",
    "label": "Commit Failure At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "ai_in_progress",
+   "fieldtype": "Check",
+   "label": "AI Pass In Progress",
    "read_only": 1
   }
  ],
