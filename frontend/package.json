@@ -7,6 +7,8 @@
     "dev": "vite --host",
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test-local": "cypress open --e2e --browser chrome",
     "copy-html-entry": "cp ../nirmaan_stack/public/frontend/index.html ../nirmaan_stack/www/frontend.html",
     "copy-sw": "cp ../nirmaan_stack/public/frontend/firebase-messaging-sw.js ../nirmaan_stack/www/firebase-messaging-sw.js"
@@ -83,6 +85,7 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.2.2",
-    "vite": "^5.1.4"
+    "vite": "^5.1.4",
+    "vitest": "^4.1.9"
   }
 }

@@ -13,10 +13,16 @@
  *   - No flag overlays, no row-detail panel (B2).
  *   - No editing affordances, no mark-as-done wiring (C/D).
  */
-import { useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowLeft, Check, Download, Loader2, ShieldCheck } from "lucide-react";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetCall,
+  useFrappeGetDoc,
+  useFrappePostCall,
+} from "frappe-react-sdk";
+import { ArrowLeft, Check, Download, Loader2, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -29,6 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type {
+  AiPassDonePayload,
   BOQsDoc,
   GetReviewRowsResponse,
   MarkParsedCheckDoneResponse,
@@ -45,6 +52,27 @@ const BREAK_TYPE_LABELS: Record<string, string> = {
   line_item_as_parent: "Line item used as a parent",
   cycle: "Parent cycle",
 };
+
+// AI-3a: readable messages for run_ai_pass's {ok:false, error} pre-flight rejections.
+const AI_REJECT_MSGS: Record<string, string> = {
+  not_parsed: "This sheet has no parsed rows yet. Parse it before running the AI pass.",
+  ai_disabled: "The AI pass is disabled. Enable it in BOQ Upload Review AI Settings.",
+  no_api_key: "No Anthropic API key is configured. Set one in BOQ Upload Review AI Settings.",
+  // AI-3c-2d: defense in depth -- the button is disabled on a finalized sheet, but a stale
+  // client could still call run_ai_pass and get one of these pre-flight rejects.
+  frozen: "This sheet is finalized and is read-only. Un-mark it to run the AI pass.",
+  parsing: "A parse is still running on this sheet. Wait for it to finish before running the AI pass.",
+};
+// AI-3a: readable messages for a terminal AI-pass FAILURE (boq:ai_pass_done error_code).
+const AI_FAIL_MSGS: Record<string, string> = {
+  ai_failed: "The AI pass failed — the model could not be reached or returned an unusable response. Try again.",
+  internal: "The AI pass hit an unexpected error. Try again.",
+};
+
+// AI-3a: get_ai_pass_status response -- the cached terminal payload OR the idle shape.
+type AiStatusResponse =
+  | AiPassDonePayload
+  | { status: "idle_or_unknown"; ai_in_progress: 0 | 1 };
 
 // C-v2: format the save-anchor timestamp. edited_at is the server-local naive
 // string from frappe.utils.now() ("YYYY-MM-DD HH:MM:SS.ffffff"); parse as local.
@@ -109,6 +137,139 @@ const SheetReviewPage = () => {
   // #164: the sheet is under active parse/re-parse -> the screen is transiently
   // read-only (the worker is rebuilding these rows). Same draft lookup, new flag.
   const isParsing = sheetDraft?.parse_in_progress === 1;
+
+  // ── AI-3a: AI-pass trigger + poll-safe completion ───────────────────────────
+  // aiInProgress rides the BOQs doc (sheet_drafts child) -- mirror of isParsing. An AI
+  // pass does NOT make the screen read-only (it only writes ai_* suggestion fields,
+  // never human/parser data), so it does NOT feed ReviewTree's readOnly.
+  const aiInProgress = sheetDraft?.ai_in_progress === 1;
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+
+  // Trigger + status-poll endpoints.
+  const { call: runAiCall, loading: aiRunLoading } = useFrappePostCall<{
+    message: { ok: boolean; error?: string; cached?: boolean; enqueued?: boolean; count?: number };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.run_ai_pass");
+  const { call: aiStatusCall } = useFrappePostCall<{ message: AiStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.ai_assist.get_ai_pass_status",
+  );
+
+  // Pre-flight message (the {ok:false} rejections + thrown errors). Result/error banner
+  // for a completed pass. count=null => "complete" with no number (cached-miss edge).
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<{ count: number | null; cached: boolean } | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Poll interval id held in a ref so cleanup is reliable (a leaked interval hammering
+  // the endpoint is its own bug). stopAiPoll is idempotent.
+  const aiPollRef = useRef<number | null>(null);
+  const stopAiPoll = useCallback(() => {
+    if (aiPollRef.current !== null) {
+      clearInterval(aiPollRef.current);
+      aiPollRef.current = null;
+    }
+  }, []);
+
+  // Resolve a terminal AI outcome (from EITHER the socket fast-path or the poll). Stops
+  // the poll, sets the result/error banner, and refreshes both the rows (get_review_rows,
+  // so badges appear) and the BOQs doc (so ai_in_progress clears). Idempotent: a
+  // socket+poll double-resolve just repeats harmless setState + mutate.
+  const resolveAiOutcome = useCallback(
+    (payload: AiPassDonePayload) => {
+      stopAiPoll();
+      if (payload.status === "success") {
+        setAiResult({ count: payload.count ?? null, cached: false });
+        setAiError(null);
+      } else {
+        setAiError(AI_FAIL_MSGS[payload.error_code ?? ""] ?? AI_FAIL_MSGS.internal);
+        setAiResult(null);
+      }
+      void mutate();
+      void boqMutate();
+    },
+    // mutate / boqMutate / stopAiPoll are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // LAYER 1 -- socket fast path. Mirror BoqHubPage's boq:parse_run_done listener:
+  // guard this (boq, sheet), resolve, plus a reconnect re-fetch self-heal.
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: AiPassDonePayload) => {
+      if (payload.boq_name !== boqId || payload.sheet_name !== (sheetName ?? "")) return;
+      resolveAiOutcome(payload);
+    };
+    const onReconnect = () => { void boqMutate(); };
+    socket.on("boq:ai_pass_done", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:ai_pass_done", handler);
+      socket.off("connect", onReconnect);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, boqId, sheetName, resolveAiOutcome]);
+
+  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever
+  // aiInProgress is true (we just enqueued, OR the sheet loaded mid-pass after navigating
+  // away), poll get_ai_pass_status every 3s. This resolves the screen within ~3s even if
+  // the socket event is missed entirely (the historical parse/upload missed-socket hang).
+  // When the pass ends, ai_in_progress clears -> aiInProgress flips false -> cleanup stops
+  // the interval. Terminal cached payload (success/error) resolves immediately via
+  // resolveAiOutcome; an idle+flag-0 edge (finished, no cached payload) refreshes + stops.
+  useEffect(() => {
+    if (!aiInProgress) { stopAiPoll(); return; }
+    if (aiPollRef.current !== null) return; // already polling -- no double-registration
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const res = await aiStatusCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
+          const m = res.message;
+          if (m.status === "success" || m.status === "error") {
+            resolveAiOutcome(m);
+          } else if (m.status === "idle_or_unknown" && m.ai_in_progress === 0) {
+            // Finished with no cached terminal payload -- refresh + stop; show generic done.
+            stopAiPoll();
+            void mutate();
+            void boqMutate();
+            setAiResult((prev) => prev ?? { count: null, cached: false });
+          }
+        } catch {
+          // transient (network/CSRF blip) -- keep polling; the next tick retries.
+        }
+      })();
+    }, 3000);
+    aiPollRef.current = id;
+    return () => stopAiPoll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiInProgress, boqId, sheetName, resolveAiOutcome]);
+
+  // Trigger handler. Three documented run_ai_pass shapes (verified vs ai_assist.py):
+  // {ok:false,error}; {ok:true,cached:true,count}; {ok:true,enqueued:true,job_id}.
+  const handleRunAiPass = async () => {
+    setAiMessage(null);
+    setAiResult(null);
+    setAiError(null);
+    try {
+      const res = await runAiCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
+      const m = res.message;
+      if (!m.ok) {
+        setAiMessage(AI_REJECT_MSGS[m.error ?? ""] ?? "Could not start the AI pass.");
+        return;
+      }
+      if (m.cached) {
+        // Applied synchronously -- NO socket will fire. Refresh rows so badges appear.
+        void mutate();
+        setAiResult({ count: m.count ?? 0, cached: true });
+        return;
+      }
+      // Enqueued -> the server set ai_in_progress=1 + committed. Re-fetch the BOQs doc so
+      // aiInProgress flips true and the poll (Layer 2) arms; the socket (Layer 1) may also
+      // fire. Either resolves; the poll is the guarantee.
+      void boqMutate();
+    } catch (e: unknown) {
+      setAiMessage(getFrappeError(e) || "Could not start the AI pass.");
+    }
+  };
 
   const { call: markCall, loading: markLoading } = useFrappePostCall<{
     message: MarkParsedCheckDoneResponse;
@@ -306,6 +467,28 @@ const SheetReviewPage = () => {
               Mark Finalized
             </Button>
           )}
+          {/* AI-3a: Run AI pass. Enabled only with parsed rows + not while an AI pass or a
+              parse is in flight. The pass writes ai_* suggestion fields only (read-only here;
+              accept/reject is AI-3b). AI-3c-2d: ALSO disabled on a finalized sheet -- a fresh
+              pass would stale-clear (wipe) Accepted rows' status on a read-only sheet (the
+              backend rejects it too, {ok:false,error:"frozen"}); stays VISIBLE, just greyed. */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => { void handleRunAiPass(); }}
+            disabled={reviewLoading || rows.length === 0 || aiInProgress || aiRunLoading || isParsing || isChecked}
+            title={isChecked ? "Sheet is finalized — un-mark to run the AI pass" : undefined}
+          >
+            <Sparkles className="h-4 w-4" />
+            Run AI pass
+          </Button>
+          {aiInProgress && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>AI pass running&hellip;</span>
+            </div>
+          )}
           {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
               Every confirmed edit already saved (one call = one commit); this is a
               status indicator, not a batch-save trigger. Shown once a save has landed. */}
@@ -356,6 +539,34 @@ const SheetReviewPage = () => {
               Go to hub
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* ── AI-3a: AI-pass feedback strips (pre-flight message / result / failure) ──
+          aiMessage = a {ok:false} rejection or a thrown trigger error (muted).
+          aiResult = a completed pass (indigo, accents the AI provenance).
+          aiError = a terminal failure (destructive). All dismiss on the next run. */}
+      {aiMessage && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span>{aiMessage}</span>
+        </div>
+      )}
+      {aiResult && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-100 flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
+          <span>
+            {aiResult.count === null
+              ? "AI pass complete."
+              : `AI pass complete — ${aiResult.count} suggestion${aiResult.count === 1 ? "" : "s"}${aiResult.cached ? " (cached)" : ""}.`}
+            {aiResult.count !== null && aiResult.count > 0 && " Review the AI Rec column."}
+          </span>
+        </div>
+      )}
+      {aiError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span>{aiError}</span>
         </div>
       )}
 

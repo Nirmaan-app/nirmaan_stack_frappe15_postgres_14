@@ -18,7 +18,22 @@ import type {
 } from '../types';
 import { ChecklistSection } from './ChecklistSection';
 import { FieldControl } from './FieldControl';
+import { ImageAttachmentSection } from './ImageAttachmentSection';
+import { MeasurementMatrixSection } from './MeasurementMatrixSection';
 import { ProcessSection } from './ProcessSection';
+
+/** Upload context threaded down to a nested `image_attachments` section so each
+ *  group's photos get their own flat attachment key (e.g. "equipments_0_"). */
+interface NestedCtx {
+    attachKeyPrefix: string;
+    /** Root of the attachments map (default "attachments"; zone-wise passes
+     *  "zones.<i>.attachments"). Threaded to a nested image_attachments. */
+    attachmentsRoot?: string;
+    parentName?: string;
+    childRowName?: string;
+    projectId?: string;
+    onAttachmentCreated?: (fileDoc: string) => void;
+}
 
 interface Props {
     section: RepeatingGroupsSectionT;
@@ -27,6 +42,19 @@ interface Props {
      *  the wizard when each group lives on its own synthetic step. Hides the
      *  Add Group button, the count-mismatch banner and the group counter. */
     groupIndexFilter?: number;
+    /** RHF path root for this section's group array + its count binding.
+     *  Defaults to "responses" (non-zone). Zone-wise passes
+     *  "zones.<i>.responses" so each zone's groups are isolated. */
+    pathRoot?: string;
+    /** Root of the attachments map for nested image_attachments. Defaults to
+     *  "attachments"; zone-wise passes "zones.<i>.attachments". */
+    attachmentsRoot?: string;
+    /** Upload context — only needed when a group has a nested image_attachments
+     *  section. Threaded through to per-group ImageAttachmentSection instances. */
+    parentName?: string;
+    childRowName?: string;
+    projectId?: string;
+    onAttachmentCreated?: (fileDoc: string) => void;
 }
 
 /** A group is considered "empty enough to silently trim" when **every
@@ -55,10 +83,16 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
     section,
     forceReadonly,
     groupIndexFilter,
+    pathRoot = 'responses',
+    attachmentsRoot,
+    parentName,
+    childRowName,
+    projectId,
+    onAttachmentCreated,
 }) => {
     const { control, getValues } = useFormContext();
     const { toast } = useToast();
-    const groupsName = `responses.${section.id}`;
+    const groupsName = `${pathRoot}.${section.id}`;
     const { fields: groups, append, remove } = useFieldArray({ control, name: groupsName });
 
     const maxGroups = section.maxGroups ?? 50;
@@ -121,6 +155,19 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
                         sub[item.id] = { result: resultDefault, remarks: remarksDefault };
                     }
                     g[nested.id] = sub;
+                } else if (nested.type === 'measurement_matrix') {
+                    // Fixed-row grid: seed one entry per declared row (keyed by id);
+                    // cells start empty. Mirrors resolveInitialValues' matrix seeding.
+                    g[nested.id] = nested.rows.map((r) => {
+                        const row: Record<string, unknown> = { id: r.id };
+                        for (const col of nested.columns) {
+                            row[col.key] =
+                                col.default !== undefined && col.default !== null && col.default !== ''
+                                    ? col.default
+                                    : '';
+                        }
+                        return row;
+                    });
                 }
                 // process / signatures / image_attachments have no per-group inputs
             }
@@ -129,10 +176,20 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
     }, [buildEmptyRow, section.groupFields, section.nestedSections, section.rowsTable]);
 
     // ─── Header-driven group seeding ───────────────────────────────────────
+    // `countBoundTo` is authored as an absolute "responses.<…>" path. When this
+    // section is rendered under a zone (pathRoot = "zones.<i>.responses"), the
+    // count binding must point at THAT zone's header field, not the flat root.
+    const boundName = useMemo(() => {
+        if (!section.countBoundTo) return '';
+        if (pathRoot === 'responses') return section.countBoundTo;
+        return section.countBoundTo.startsWith('responses.')
+            ? `${pathRoot}.${section.countBoundTo.slice('responses.'.length)}`
+            : section.countBoundTo;
+    }, [section.countBoundTo, pathRoot]);
     const declaredRaw = useWatch({
         control,
-        name: section.countBoundTo || '',
-        disabled: !section.countBoundTo,
+        name: boundName,
+        disabled: !boundName,
     }) as unknown;
     const declaredCount = useMemo(() => {
         if (!section.countBoundTo) return null;
@@ -292,6 +349,12 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
                             onRemove={() => remove(gIdx)}
                             buildEmptyRow={buildEmptyRow}
                             hideGroupHeader={singleGroupMode}
+                            pathRoot={pathRoot}
+                            attachmentsRoot={attachmentsRoot}
+                            parentName={parentName}
+                            childRowName={childRowName}
+                            projectId={projectId}
+                            onAttachmentCreated={onAttachmentCreated}
                         />
                     );
                 })}
@@ -320,14 +383,15 @@ export const RepeatingGroupsSection: React.FC<Props> = ({
 };
 
 /** Dispatch helper for rendering a nested section inside a repeating-groups
- *  group card. Today only `checklist` (form inputs) and `process` (read-only
- *  text) are supported, which covers the DX Commission Report. Add more
- *  cases here when other section types need per-group rendering — each
- *  must accept a `pathRoot` so its RHF paths nest under the group. */
+ *  group card. Supports `checklist`, `process`, `measurement_matrix` (RHF
+ *  paths nest under the group via `pathRoot`) and `image_attachments` (photos
+ *  per group via a group-scoped flat attachment key, from `ctx`). Add more
+ *  cases here when other section types need per-group rendering. */
 const renderNestedSection = (
     section: Section,
     pathRoot: string,
-    forceReadonly?: boolean,
+    forceReadonly: boolean | undefined,
+    ctx: NestedCtx,
 ): React.ReactNode => {
     switch (section.type) {
         case 'checklist':
@@ -348,6 +412,43 @@ const renderNestedSection = (
         case 'process':
             // Process has no inputs — pathRoot is irrelevant.
             return <ProcessSection key={section.id} section={section} />;
+        case 'measurement_matrix':
+            return (
+                <div key={section.id} className="space-y-2">
+                    {section.title && (
+                        <h5 className="text-xs font-semibold text-foreground">{section.title}</h5>
+                    )}
+                    <MeasurementMatrixSection
+                        section={section}
+                        forceReadonly={forceReadonly}
+                        pathRoot={pathRoot}
+                    />
+                </div>
+            );
+        case 'image_attachments':
+            // Photos live in the SEPARATE top-level `attachments` map, not in
+            // the group's responses — so we scope them with a group-unique flat
+            // key prefix (e.g. "equipments_0_") instead of a responses pathRoot.
+            if (!ctx.parentName || !ctx.childRowName || !ctx.projectId) {
+                return (
+                    <p key={section.id} className="text-xs text-destructive">
+                        Image section misconfigured: parent/child/project context missing.
+                    </p>
+                );
+            }
+            return (
+                <ImageAttachmentSection
+                    key={section.id}
+                    section={section}
+                    parentName={ctx.parentName}
+                    childRowName={ctx.childRowName}
+                    projectId={ctx.projectId}
+                    forceReadonly={forceReadonly}
+                    onAttachmentCreated={ctx.onAttachmentCreated}
+                    keyPrefix={ctx.attachKeyPrefix}
+                    attachmentsRoot={ctx.attachmentsRoot}
+                />
+            );
         default:
             return (
                 <p key={section.id} className="text-xs italic text-muted-foreground">
@@ -368,6 +469,15 @@ const GroupCard: React.FC<{
     /** When true, hides the in-card group header strip — used by the wizard
      *  in single-group mode since the step title already names the group. */
     hideGroupHeader?: boolean;
+    /** RHF path root (default "responses"; zone-wise "zones.<i>.responses"). */
+    pathRoot: string;
+    /** Attachments map root (default "attachments"; zone-wise "zones.<i>.attachments"). */
+    attachmentsRoot?: string;
+    /** Upload context for a nested image_attachments section (per group). */
+    parentName?: string;
+    childRowName?: string;
+    projectId?: string;
+    onAttachmentCreated?: (fileDoc: string) => void;
 }> = ({
     section,
     groupIdx,
@@ -377,9 +487,15 @@ const GroupCard: React.FC<{
     onRemove,
     buildEmptyRow,
     hideGroupHeader,
+    pathRoot,
+    attachmentsRoot,
+    parentName,
+    childRowName,
+    projectId,
+    onAttachmentCreated,
 }) => {
     const { control } = useFormContext();
-    const rowsName = `responses.${section.id}.${groupIdx}.rows`;
+    const rowsName = `${pathRoot}.${section.id}.${groupIdx}.rows`;
     const { fields: rows, append, remove } = useFieldArray({
         control,
         name: rowsName,
@@ -395,7 +511,21 @@ const GroupCard: React.FC<{
         : '';
     const canRemoveRow = hasRowsTable && !forceReadonly && rows.length > minRows;
     const canAddRow = hasRowsTable && !forceReadonly && rows.length < maxRows;
-    const groupPathRoot = `responses.${section.id}.${groupIdx}`;
+    const groupPathRoot = `${pathRoot}.${section.id}.${groupIdx}`;
+
+    // Per-group conditional nested sections: a nested section may carry a
+    // `visibleIf` ({ field, equals | in }) evaluated against THIS group's own
+    // field values (e.g. show the 1-Phase IR checklist only when db_type ==
+    // "1 Phase"). `field` is a group-relative key.
+    const groupVals = useWatch({ control, name: groupPathRoot }) as Record<string, unknown> | undefined;
+    const nestedVisible = (nested: Section): boolean => {
+        const vi = (nested as { visibleIf?: { field: string; equals?: unknown; in?: unknown[] } }).visibleIf;
+        if (!vi) return true;
+        const val = groupVals?.[vi.field];
+        if (Array.isArray(vi.in)) return vi.in.includes(val);
+        if (vi.equals !== undefined) return val === vi.equals;
+        return true;
+    };
 
     return (
         <div className="rounded-lg border bg-background">
@@ -424,7 +554,7 @@ const GroupCard: React.FC<{
                     {section.groupFields.map((f) => (
                         <FieldControl
                             key={f.key}
-                            name={`responses.${section.id}.${groupIdx}.${f.key}`}
+                            name={`${pathRoot}.${section.id}.${groupIdx}.${f.key}`}
                             field={f}
                             forceReadonly={forceReadonly}
                         />
@@ -525,8 +655,15 @@ const GroupCard: React.FC<{
                     — extend the dispatch below if more types are needed. */}
                 {section.nestedSections && section.nestedSections.length > 0 && (
                     <div className="space-y-4 pt-2">
-                        {section.nestedSections.map((nested) =>
-                            renderNestedSection(nested, groupPathRoot, forceReadonly),
+                        {section.nestedSections.filter(nestedVisible).map((nested) =>
+                            renderNestedSection(nested, groupPathRoot, forceReadonly, {
+                                attachKeyPrefix: `${section.id}_${groupIdx}_`,
+                                attachmentsRoot,
+                                parentName,
+                                childRowName,
+                                projectId,
+                                onAttachmentCreated,
+                            }),
                         )}
                     </div>
                 )}

@@ -15,6 +15,7 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
@@ -22,6 +23,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     append_edit_log_entry,
     check_structural_integrity,
     dismiss_row_flags,
+    get_committed_rows,
     get_review_rows,
     get_structural_breaks,
     mark_sheet_parsed_check_done,
@@ -96,12 +98,24 @@ def _minimal_row(
     human_classification=None,
     human_parent=None,
     source_row_number=None,
+    ai_suggested_classification=None,
+    ai_classification_confidence=None,
+    ai_suggested_parent=-1,
+    ai_parent_confidence=None,
+    ai_suggested_level=-1,
+    ai_explanation=None,
+    ai_suggestion_status=None,
 ):
     """Return a minimal BoQ Review Row field dict for _insert_rows.
 
     parent_index=None means root row -> stored as -1 (Frappe coerces Int None->0
     and 0 is a valid non-root index; -1 is the unambiguous "no parent" sentinel).
     human_parent=None means no override -> stored as -1 for the same reason.
+
+    The 7 ai_* fields (Phase 4 P4-1) default to "no AI suggestion": ai_suggested_parent
+    and ai_suggested_level default to the -1 sentinel; the rest to None; status None.
+    Existing callers are unaffected -- a row with these defaults resolves to the parser
+    layer exactly as before.
     """
     return {
         "sheet_name": sheet_name,
@@ -116,7 +130,113 @@ def _minimal_row(
         "classifier_warnings": [],
         "preamble_candidate_signals": [],
         "edit_log": [],
+        "ai_suggested_classification": ai_suggested_classification,
+        "ai_classification_confidence": ai_classification_confidence,
+        "ai_suggested_parent": ai_suggested_parent,
+        "ai_parent_confidence": ai_parent_confidence,
+        "ai_suggested_level": ai_suggested_level,
+        "ai_explanation": ai_explanation,
+        "ai_suggestion_status": ai_suggestion_status,
     }
+
+
+# ---------------------------------------------------------------------------
+# Hermetic COMMITTED-tier fixture (Phase 5): a minimal current committed sheet
+# (1 BoQ Sheet + a Preamble root + 2 Line Item children + per-area children),
+# satisfying the boq_nodes controller's rules. Shared by the get_committed_rows
+# positives (Slice 1a fixup) AND the pricing endpoints (Slice 1b, test_pricing.py
+# imports these). Shaped like the real multi-area 'Electrical ' sheet (Phase 1 /
+# Phase 2; rate columns E / H) so the multi-area paths are genuinely exercised.
+# ---------------------------------------------------------------------------
+
+# The committed BoQ Sheet column_role_map mirroring 'Electrical ' (D/E/F = Phase 1
+# qty/rate/amount; G/H/I = Phase 2). E + H are the per-area rate columns.
+COMMITTED_FIXTURE_ROLE_MAP = {
+    "A": {"role": "sl_no", "area": None},
+    "B": {"role": "description", "area": None},
+    "C": {"role": "unit", "area": None},
+    "D": {"role": "qty", "area": "Phase 1"},
+    "E": {"role": "rate_combined_by_area", "area": "Phase 1"},
+    "F": {"role": "amount_total_by_area", "area": "Phase 1"},
+    "G": {"role": "qty", "area": "Phase 2"},
+    "H": {"role": "rate_combined_by_area", "area": "Phase 2"},
+    "I": {"role": "amount_install_by_area", "area": "Phase 2"},
+}
+
+
+def build_committed_sheet_fixture(boq_name: str, sheet_name: str, commit_version: int = 1) -> dict:
+    """Insert a minimal VALID current committed sheet for (boq_name, sheet_name): 1 BoQ Sheet
+    (is_current=1, commit_version, the role map) + 1 Preamble root + 2 Line Item children
+    (each with Phase 1 / Phase 2 per-area children). sheet_name stored VERBATIM (#152).
+    Returns {bqsh, preamble, line_items:[...]}. Caller owns the BOQs + cleanup_committed_fixture."""
+    now = frappe.utils.now()
+
+    bs = frappe.new_doc("BoQ Sheet")
+    bs.boq = boq_name
+    bs.sheet_name = sheet_name  # VERBATIM (#152)
+    bs.sheet_order = 1
+    bs.treat_as = "data"
+    bs.header_row = 3
+    bs.header_row_count = 2
+    bs.column_role_map = COMMITTED_FIXTURE_ROLE_MAP   # dict JSON -- safe at insert
+    bs.column_headers = {}
+    bs.area_dimensions = json.dumps(["Phase 1", "Phase 2"])  # list-JSON -> json.dumps
+    bs.commit_version = commit_version
+    bs.is_current = 1
+    bs.committed_at = now
+    bs.insert(ignore_permissions=True)
+
+    pre = frappe.new_doc("BOQ Nodes")
+    pre.sheet = bs.name
+    pre.node_type = "Preamble"
+    pre.row_class = "preamble"
+    pre.level = 1
+    pre.description = "LT CABLES"
+    pre.code = "1.1.0"
+    pre.sort_order = 0
+    pre.source_row_number = 6
+    pre.commit_version = commit_version
+    pre.is_current = 1
+    pre.committed_at = now
+    pre.insert(ignore_permissions=True)
+
+    line_items = []
+    for sort_order, source_row, code, qty in [(1, 34, "1.1.2", 220.0), (2, 35, "1.1.3", 40.0)]:
+        li = frappe.new_doc("BOQ Nodes")
+        li.sheet = bs.name
+        li.node_type = "Line Item"
+        li.row_class = "line_item"
+        li.description = f"cable {code}"
+        li.code = code
+        li.parent_node = pre.name
+        li.qty = qty
+        li.unit = "Mtr"
+        li.source_row_number = source_row
+        li.sort_order = sort_order
+        li.commit_version = commit_version
+        li.is_current = 1
+        li.committed_at = now
+        # per-area children -- Phase 1 carries the qty; Phase 2 is a real zero-qty area.
+        li.append("qty_by_area", {"area_name": "Phase 1", "qty": qty})
+        li.append("qty_by_area", {"area_name": "Phase 2", "qty": 0.0})
+        li.insert(ignore_permissions=True)
+        line_items.append(li.name)
+
+    frappe.db.commit()
+    return {"bqsh": bs.name, "preamble": pre.name, "line_items": line_items}
+
+
+def cleanup_committed_fixture(boq_name: str) -> None:
+    """Raw-delete the committed-tier fixture rows for a boq (pricing + per-area children +
+    nodes + sheet). Raw delete bypasses on_trash (fast, no controller). Call before
+    _cleanup_project (which deletes the BOQs + project)."""
+    node_names = frappe.get_all("BOQ Nodes", filters={"boq": boq_name}, pluck="name")
+    if node_names:
+        frappe.db.delete("BOQ Node Qty By Area", {"parent": ["in", node_names]})
+    frappe.db.delete("BoQ Cell Pricing", {"boq": boq_name})
+    frappe.db.delete("BOQ Nodes", {"boq": boq_name})
+    frappe.db.delete("BoQ Sheet", {"boq": boq_name})
+    frappe.db.commit()
 
 
 # ===========================================================================
@@ -127,12 +247,17 @@ class TestResolveEffective(unittest.TestCase):
     """Verify human > parser precedence for classification and parent_index."""
 
     def _row(self, classification=None, human_classification=None,
-             parent_index=None, human_parent=None):
+             parent_index=None, human_parent=None,
+             ai_suggestion_status=None, ai_suggested_classification=None,
+             ai_suggested_parent=None):
         return {
             "classification": classification,
             "human_classification": human_classification,
             "parent_index": parent_index,
             "human_parent": human_parent,
+            "ai_suggestion_status": ai_suggestion_status,
+            "ai_suggested_classification": ai_suggested_classification,
+            "ai_suggested_parent": ai_suggested_parent,
         }
 
     def test_human_classification_overrides_parser(self):
@@ -200,6 +325,206 @@ class TestResolveEffective(unittest.TestCase):
         eff = resolve_effective(d)
         self.assertEqual(eff["effective_classification"], "spacer")
         self.assertIsNone(eff["effective_parent_index"])
+
+
+# ===========================================================================
+# Group 1b: resolve_effective AI layer -- pure Python (Phase 4 P4-1)
+# ===========================================================================
+
+class TestResolveEffectiveAILayer(unittest.TestCase):
+    """Verify the three-layer chain human > AI-accepted > parser.
+
+    The AI layer applies ONLY when ai_suggestion_status == "Accepted"; the human
+    layer always wins when present; ai_suggested_parent=-1 is the no-suggestion
+    sentinel (same convention as human_parent)."""
+
+    def _row(self, classification=None, human_classification=None,
+             parent_index=None, human_parent=None, human_is_root=None,
+             ai_suggestion_status=None, ai_suggested_classification=None,
+             ai_suggested_parent=None, ai_suggested_is_root=None):
+        return {
+            "classification": classification,
+            "human_classification": human_classification,
+            "parent_index": parent_index,
+            "human_parent": human_parent,
+            "human_is_root": human_is_root,
+            "ai_suggestion_status": ai_suggestion_status,
+            "ai_suggested_classification": ai_suggested_classification,
+            "ai_suggested_parent": ai_suggested_parent,
+            "ai_suggested_is_root": ai_suggested_is_root,
+        }
+
+    # -- classification layer --
+
+    def test_ai_accepted_classification_used_when_no_human_override(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Accepted", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "line_item")
+
+    def test_human_classification_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification="note",
+            ai_suggestion_status="Accepted", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "note",
+                         "human classification must beat an accepted AI suggestion")
+
+    def test_ai_pending_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Pending", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble",
+                         "a Pending AI suggestion must be ignored")
+
+    def test_ai_rejected_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            classification="preamble", human_classification=None,
+            ai_suggestion_status="Rejected", ai_suggested_classification="line_item",
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble",
+                         "a Rejected AI suggestion must be ignored")
+
+    # -- parent layer --
+
+    def test_ai_accepted_parent_used_when_no_human_override(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 3)
+
+    def test_human_parent_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=5, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 5,
+                         "human parent override must beat an accepted AI suggestion")
+
+    def test_human_is_root_beats_ai_accepted(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=1,
+            ai_suggestion_status="Accepted", ai_suggested_parent=3,
+        ))
+        self.assertIsNone(eff["effective_parent_index"],
+                          "human root must beat an accepted AI suggestion")
+
+    def test_ai_parent_pending_does_not_apply(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Pending", ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "a Pending AI parent suggestion must be ignored (parser used)")
+
+    def test_ai_parent_negative_sentinel_is_not_applied(self):
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted", ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "ai_suggested_parent=-1 is 'no suggestion', not a root suggestion")
+
+    # -- returned-dict shape + robustness --
+
+    def test_ai_fields_present_in_returned_dict(self):
+        eff = resolve_effective(self._row(
+            classification="line_item",
+            ai_suggestion_status="Accepted", ai_suggested_classification="preamble",
+            ai_suggested_parent=2,
+        ))
+        self.assertIn("ai_suggestion_status", eff)
+        self.assertIn("ai_suggested_classification", eff)
+        self.assertIn("ai_suggested_parent", eff)
+        self.assertEqual(eff["ai_suggestion_status"], "Accepted")
+        self.assertEqual(eff["ai_suggested_classification"], "preamble")
+        self.assertEqual(eff["ai_suggested_parent"], 2)
+
+    def test_no_ai_fields_on_row_still_works(self):
+        # No ai_* args -> all None; falls back to the parser layer cleanly.
+        eff = resolve_effective(self._row(classification="preamble", parent_index=4))
+        self.assertEqual(eff["effective_classification"], "preamble")
+        self.assertEqual(eff["effective_parent_index"], 4)
+        self.assertIsNone(eff["ai_suggestion_status"])
+        self.assertIsNone(eff["ai_suggested_classification"])
+        self.assertIsNone(eff["ai_suggested_parent"])
+
+    def test_ai_accepted_both_classification_and_parent(self):
+        eff = resolve_effective(self._row(
+            classification="line_item", parent_index=5,
+            human_classification=None, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_classification="preamble", ai_suggested_parent=2,
+        ))
+        self.assertEqual(eff["effective_classification"], "preamble")
+        self.assertEqual(eff["effective_parent_index"], 2)
+
+    # -- AI root suggestion (AI-2d) --
+
+    def test_ai_accepted_root_suggestion_sets_effective_root(self):
+        # AI_13: an accepted root suggestion forces effective_parent_index to None,
+        # regardless of the parser parent_index and the -1 no-suggestion sentinel.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertIsNone(eff["effective_parent_index"],
+                          "an accepted ai_suggested_is_root must make the row effective-root")
+
+    def test_human_parent_beats_ai_root(self):
+        # AI_14: a human row-override beats an accepted AI root suggestion.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=5, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 5,
+                         "human_parent must beat an accepted AI root suggestion")
+
+    def test_human_is_root_and_ai_root_both_root(self):
+        # AI_15: human root + AI root -> None (human wins; same result either way).
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=1,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertIsNone(eff["effective_parent_index"])
+
+    def test_ai_root_pending_not_applied(self):
+        # AI_16: a Pending root suggestion is ignored -> parser parent_index used.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Pending",
+            ai_suggested_is_root=1, ai_suggested_parent=-1,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 7,
+                         "a Pending AI root suggestion must be ignored (parser used)")
+
+    def test_ai_root_in_returned_dict(self):
+        # AI_17: the flag is echoed in the returned dict, coerced to 1/0.
+        eff = resolve_effective(self._row(
+            classification="preamble",
+            ai_suggestion_status="Accepted", ai_suggested_is_root=1,
+        ))
+        self.assertIn("ai_suggested_is_root", eff)
+        self.assertEqual(eff["ai_suggested_is_root"], 1)
+        eff0 = resolve_effective(self._row(classification="preamble"))
+        self.assertEqual(eff0["ai_suggested_is_root"], 0,
+                         "absent/None flag must coerce to 0 in the returned dict")
+
+    def test_ai_real_parent_still_works_with_root_flag_false(self):
+        # AI_18 (regression): the new branch must not break the real-parent path.
+        eff = resolve_effective(self._row(
+            parent_index=7, human_parent=-1, human_is_root=0,
+            ai_suggestion_status="Accepted",
+            ai_suggested_is_root=0, ai_suggested_parent=3,
+        ))
+        self.assertEqual(eff["effective_parent_index"], 3,
+                         "a real AI parent (root flag false) must still apply")
 
 
 # ===========================================================================
@@ -2725,6 +3050,396 @@ class TestSaveReviewRestructure(FrappeTestCase):
         self.assertEqual(r3.human_parent, -1, "the innocent child move must not persist")
         self.assertIsNone(r3.edited_at)
 
+    # -- AI-3b-2: mark_ai_accepted (the cancel-safe ai_suggestion_status flip) --
+
+    def _set_status(self, row_index, status):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        frappe.db.set_value("BoQ Review Row", name, "ai_suggestion_status", status)
+        frappe.db.commit()
+
+    def test_mark_ai_accepted_parent_with_children(self):
+        """R1: mark_ai_accepted=True on a with-children row (real parent change +
+        child_moves) -> human_parent set AND ai_suggestion_status == 'Accepted'."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",  # no-op class (row 1 is preamble)
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_parent, 4, "the AI parent must be applied")
+        self.assertEqual(r1.ai_suggestion_status, "Accepted", "the flip must land in the same commit")
+
+    def test_mark_ai_accepted_both_class_and_parent(self):
+        """R2: mark_ai_accepted=True with BOTH a new_classification AND row_new_parent ->
+        both human fields set AND status 'Accepted' (accept-both folds into one call)."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",  # real class change
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note")
+        self.assertEqual(r1.human_parent, 4)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+
+    def test_mark_ai_accepted_root(self):
+        """R3: mark_ai_accepted=True with row_new_parent=-1 (root accept) ->
+        human_is_root=1 + human_parent=-1 + status 'Accepted'."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=-1,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_is_root, 1)
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+
+    def test_mark_ai_accepted_omitted_leaves_status_pending(self):
+        """R4 (cancel-safety semantic): WITHOUT mark_ai_accepted, ai_suggestion_status is
+        UNCHANGED. The flip is opt-in and the flag is only ever sent on the modal's Save,
+        so any non-save path (which never calls this endpoint) leaves status Pending."""
+        self._set_status(1, "Pending")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            # mark_ai_accepted omitted
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note", "the reclassify still applies")
+        self.assertEqual(r1.ai_suggestion_status, "Pending",
+                         "without the flag the status must NOT flip (cancel-safety)")
+
+    def test_restructure_without_flag_leaves_status_unflipped(self):
+        """R5 (regression): the existing no-flag shape writes NOTHING to
+        ai_suggestion_status -- it stays at its prior falsy default (Frappe stores an
+        unset Select as ""), never flipped to "Accepted"."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+        )
+        self.assertTrue(result["ok"])
+        status = self._get_doc(1).ai_suggestion_status
+        self.assertFalse(status, "a plain restructure must leave ai_suggestion_status falsy")
+        self.assertNotEqual(status, "Accepted",
+                            "a plain restructure must NOT flip the status (opt-in flag only)")
+
+    # -- AI-3c-1: edit_log from-value must be the TRUE pre-accept effective value -----
+    # The live bug: mark_ai_accepted flipped the status BEFORE the helpers captured their
+    # from-values, so resolve_effective (which the helper reads for the from-value) returned
+    # the AI value the helper was about to write -> from == to (the user's "26 -> 26"). These
+    # seed ai_suggested_* == the values applied (the real flow: row_new_parent = presetRowParent
+    # = ai_suggested_parent), so they ONLY pass once the flip is deferred to after capture.
+
+    def _seed(self, row_index, **fields):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": row_index},
+            "name",
+        )
+        frappe.db.set_value("BoQ Review Row", name, fields)
+        frappe.db.commit()
+
+    def test_R_fix1_parent_from_is_pre_accept_root_not_ai_value(self):
+        """R-fix1: row 1 made a PARSER root (parent_index=-1) with children; AI suggests
+        parent=4. The human_parent entry must log from = None (root), to = 4 -- the user's
+        expected 'root -> 4', NOT '4 -> 4'."""
+        self._seed(1, parent_index=-1, ai_suggestion_status="Pending", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="preamble",  # no-op class (row 1 is preamble)
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_parent, 4, "the AI parent is applied (write is correct)")
+        entries = [e for e in self._as_list(r1.edit_log) if e["field"] == "human_parent"]
+        self.assertEqual(len(entries), 1, "exactly one human_parent entry")
+        self.assertIsNone(entries[0]["from"],
+                          "from must be the TRUE pre-accept effective parent (root), NOT the AI value")
+        self.assertEqual(entries[0]["to"], 4)
+
+    def test_R_fix2_class_from_is_prior_effective_not_ai_value(self):
+        """R-fix2 (accept-both): AI suggests class 'note' + parent 4. The
+        human_classification entry must log from = 'preamble' (row 1's prior effective
+        class), to = 'note' -- NOT 'note -> note'."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",  # real class change
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        entries = [e for e in self._as_list(r1.edit_log) if e["field"] == "human_classification"]
+        self.assertEqual(len(entries), 1, "exactly one human_classification entry")
+        self.assertEqual(entries[0]["from"], "preamble",
+                         "from must be the prior effective class, NOT the AI class")
+        self.assertEqual(entries[0]["to"], "note")
+
+    def test_R_fix3_flip_still_happens_after_capture(self):
+        """R-fix3: the flip is DEFERRED but MUST still happen -- status Accepted + the human
+        writes + effective values all correct (capture-then-flip preserves the outcome)."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note", ai_suggested_parent=4)
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note")
+        self.assertEqual(r1.human_parent, 4)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted",
+                         "the flip is persisted via set_value in the same commit")
+        eff = resolve_effective(r1)
+        self.assertEqual(eff["effective_classification"], "note")
+        self.assertEqual(eff["effective_parent_index"], 4)
+
+    def test_R_fix4_classification_only_with_children_keeps_own_parent(self):
+        """AI-3c-3: the path the frontend now routes a classification-ONLY accept on a
+        with-children row to -- mark_ai_accepted + new_classification + child_moves but NO
+        row_new_parent. The class is applied, the children are dispositioned, the status
+        flips to Accepted, and the row's OWN parent is left UNCHANGED (no override -> still
+        resolves to its parser parent). This is the manual reclassify-with-children case."""
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="note")
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            # NO row_new_parent -- the row keeps its own parent (child-disposition only).
+            mark_ai_accepted=True,
+        )
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["row_moved"], "no row_new_parent -> the row is not moved")
+        r1 = self._get_doc(1)
+        self.assertEqual(r1.human_classification, "note", "the AI class is applied")
+        self.assertEqual(r1.human_parent, -1,
+                         "the row's OWN parent is untouched (no override written)")
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertEqual(r1.ai_suggestion_status, "Accepted")
+        eff = resolve_effective(r1)
+        self.assertEqual(eff["effective_classification"], "note")
+        self.assertEqual(eff["effective_parent_index"], 0,
+                         "with no override the row still resolves to its parser parent (0)")
+        # the children were dispositioned to row 4 by child_moves
+        for ci in (2, 3):
+            self.assertEqual(self._get_doc(ci).human_parent, 4, f"child {ci} reparented to 4")
+
+    # -- AI-3c-2a: revert capture (with children) + back-pointer invalidation + finalize -----
+
+    def _snapshot(self, ri):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri},
+            "ai_accept_snapshot")
+
+    def _owner(self, ri):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri},
+            "ai_snapshot_owner")
+
+    def _revert_available(self, ri):
+        rows = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)["rows"]
+        m = [r for r in rows if r["row_index"] == ri]
+        self.assertEqual(len(m), 1)
+        self.assertNotIn("ai_accept_snapshot", m[0],
+                         "the raw snapshot blob must never reach the client")
+        return m[0]["revert_available"]
+
+    def _set_draft_status(self, status):
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": self.sheet_name},
+            "name")
+        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", status)
+        frappe.db.commit()
+
+    def _accept_with_children(self, new_class="preamble", row_new_parent=4):
+        """R1-shape AI accept on row 1 (which has children 2,3) -> capture a snapshot."""
+        self._set_status(1, "Pending")
+        return save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification=new_class,
+            child_moves={2: 4, 3: 4},
+            row_new_parent=row_new_parent,
+            mark_ai_accepted=True,
+        )
+
+    def test_W1_restructure_accept_captures_snapshot_and_backpointers(self):
+        self._accept_with_children()
+        snap = self._snapshot(1)
+        self.assertIsNotNone(snap,
+                             "the snapshot must SURVIVE the accept's own chokepoint clears")
+        blob = json.loads(snap) if isinstance(snap, str) else snap
+        # row pre-state: human layer empty (parser preamble, parent_index=0)
+        self.assertEqual(blob["row"]["hp"], -1)
+        self.assertEqual(blob["row"]["hr"], 0)
+        # each moved child's pre-move human_parent captured (was -1 -> parser parent 1)
+        self.assertEqual(sorted(c["idx"] for c in blob["children"]), [2, 3])
+        for c in blob["children"]:
+            self.assertEqual(c["hp"], -1)
+        # back-pointers stamped on each moved child
+        self.assertEqual(self._owner(2), 1)
+        self.assertEqual(self._owner(3), 1)
+        self.assertTrue(self._revert_available(1))
+
+    def test_W2_revert_restores_row_and_children(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).human_parent, 4, "sanity: accept applied")
+        res = revert_ai_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["ai_suggestion_status"], "Pending")
+        self.assertEqual(sorted(res["reverted_children"]), [2, 3])
+
+        r1 = self._get_doc(1)
+        # row restored: human layer cleared -> resolves back to parser parent 0 + parser class
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertIsNone(r1.human_classification)
+        self.assertEqual(r1.ai_suggestion_status, "Pending")
+        self.assertEqual(resolve_effective(r1)["effective_parent_index"], 0,
+                         "the row resolves back to its parser parent (0)")
+        # children restored to the pre-move parser parent (row 1)
+        for ci in (2, 3):
+            c = self._get_doc(ci)
+            self.assertEqual(c.human_parent, -1)
+            self.assertEqual(resolve_effective(c)["effective_parent_index"], 1,
+                             f"child {ci} resolves back to row 1")
+            self.assertEqual(self._owner(ci), -1, "child back-pointer cleared")
+        # snapshot cleared; "reverted" entries appended on the row + children
+        self.assertIsNone(self._snapshot(1))
+        row_log = self._as_list(r1.edit_log)
+        self.assertTrue(any(e.get("reason") == "AI acceptance reverted" for e in row_log),
+                        "a reverted entry is appended on the row")
+        for ci in (2, 3):
+            clog = self._as_list(self._get_doc(ci).edit_log)
+            self.assertTrue(
+                any(e.get("reason") == "AI acceptance reverted (parent restore)" for e in clog),
+                f"a reverted entry is appended on child {ci}")
+
+    def test_W3_child_edit_invalidates_owner_snapshot(self):
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        # edit a MOVED child's human_parent -> clears the OWNER (row 1) snapshot (c-ii)
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=2, field="human_parent", value=0)
+        self.assertIsNone(self._snapshot(1),
+                          "editing a moved child must clear the OWNER row's snapshot")
+        self.assertEqual(self._owner(2), -1, "the edited child's back-pointer is cleared")
+        self.assertFalse(self._revert_available(1))
+
+    def test_W4_sibling_edit_does_not_clear_snapshot(self):
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        # edit a NON-moved row (row 4, the destination parent; ai_snapshot_owner=-1)
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_parent", value=0)
+        self.assertIsNotNone(self._snapshot(1),
+                             "a non-moved-child edit must NOT clear the owner snapshot "
+                             "(back-pointer precision)")
+        self.assertTrue(self._revert_available(1))
+
+    def test_W5_manual_restructure_writes_no_snapshot(self):
+        # mark_ai_accepted omitted -> a MANUAL restructure must NOT snapshot.
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4},
+            row_new_parent=4,
+        )
+        self.assertIsNone(self._snapshot(1), "a manual restructure writes no snapshot")
+        self.assertEqual(self._owner(2), -1, "no back-pointer on a manual restructure")
+        self.assertFalse(self._revert_available(1))
+
+    def test_W6_finalize_bulk_clears_snapshots(self):
+        self.addCleanup(self._set_draft_status, "Parsed")  # restore for sibling tests
+        self._accept_with_children()
+        self.assertIsNotNone(self._snapshot(1))
+        mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, confirm=True)
+        self.assertIsNone(self._snapshot(1), "finalize must bulk-clear the snapshot")
+        self.assertEqual(self._owner(2), -1, "finalize must clear the back-pointers")
+        self.assertEqual(self._owner(3), -1)
+
+    def test_W7_post_revert_status_is_edited_with_pending_suggestion(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        revert_ai_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
+        r1 = self._get_doc(1)
+        log = self._as_list(r1.edit_log)
+        self.assertTrue(len(log) > 0,
+                        "edit_log non-empty (accept + reverted entries) -> renders 'Edited'")
+        self.assertEqual(r1.ai_suggestion_status, "Pending",
+                         "the suggestion is re-offered as Pending")
+
+    # -- AI-3c-2b (R6): a later class/parent edit clears the AI-Accepted status -----------
+
+    def test_X1_accept_still_ends_accepted_despite_chokepoint_clear(self):
+        # The chokepoint now clears ai_suggestion_status on a class/parent edit, and the
+        # accept WRITES human_* via that chokepoint -- but it flips status to "Accepted" LAST
+        # (in the flip block, after every helper call), so the accept's final flip wins.
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted",
+                         "the accept's last-flip must win over the chokepoint status-clear")
+
+    def test_X2_later_classparent_edit_clears_accepted_status(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted")
+        # a later human_parent edit OVERRIDES the AI's structural decision
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="human_parent", value=0)
+        r1 = self._get_doc(1)
+        self.assertFalse(r1.ai_suggestion_status,
+                         "a later class/parent edit clears the AI-accepted status")
+        self.assertNotEqual(r1.ai_suggestion_status, "Accepted")
+        self.assertTrue(len(self._as_list(r1.edit_log)) > 0,
+                        "edit_log non-empty -> the row now renders 'Edited' (not 'AI Accepted')")
+
+    def test_X3_later_value_edit_keeps_accepted_status(self):
+        self._accept_with_children(new_class="note", row_new_parent=4)
+        # a VALUE edit does NOT enter the class/parent chokepoint block
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="qty_total", value=5)
+        self.assertEqual(self._get_doc(1).ai_suggestion_status, "Accepted",
+                         "a value edit must NOT clear the status -> row stays 'AI Accepted'")
+
+    def test_X4_classparent_edit_on_unaccepted_row_is_status_noop(self):
+        # row 4 was never AI-accepted (status falsy). A class edit clears status (already
+        # falsy) -> no crash, stays falsy (the clear is a harmless no-op there).
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_classification", value="note")
+        self.assertFalse(self._get_doc(4).ai_suggestion_status,
+                         "the status-clear is a no-op on a row that was never accepted")
+
 
 # ===========================================================================
 # Group 12: Finalized read-only freeze (Slice D1)
@@ -3069,3 +3784,160 @@ class TestParseInProgressWriteGuard(FrappeTestCase):
             row_index=1, field="qty_total", value=7,
         )
         self.assertTrue(res["ok"], "edit on a non-parsing sheet must succeed")
+
+
+# ===========================================================================
+# Phase 5 Slice 1a: get_committed_rows (committed-tier read adapter)
+# ===========================================================================
+
+# Draft-only fields that MUST be absent from the AI-free/minimal committed contract.
+_CR_DRAFT_ONLY_KEYS = (
+    "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
+    "edit_log", "revert_available", "human_classification", "human_parent",
+    "human_is_root", "flags_dismissed", "needs_classification_review",
+    "validation_warnings",
+)
+
+
+class TestGetCommittedRows(FrappeTestCase):
+    """get_committed_rows -- the committed-tier read adapter (Phase 5 Slice 1a).
+
+    All cases now run on a HERMETIC committed-node fixture (build_committed_sheet_fixture)
+    -- a minimal multi-area current committed sheet (Phase 1 / Phase 2; rate cols E / H) --
+    so the 5 positives EXECUTE everywhere (the Slice-1b fixup; previously skip-if-absent
+    against live BOQ-26-00145). NEGATIVE / empty cases reuse the same BOQs with an
+    uncommitted sheet name.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Committed-Read Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.uncommitted_boq = boq.name  # same BOQs; an un-committed sheet name -> empty path
+        cls.sheet_name = "Electrical Fix "  # VERBATIM trailing space (#152)
+        cls.fixture = build_committed_sheet_fixture(cls.boq_name, cls.sheet_name, commit_version=1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq_name)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    # -- NEGATIVE: guards ---------------------------------------------------
+
+    def test_missing_boq_name_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(sheet_name=self.sheet_name)
+
+    def test_missing_sheet_name_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(boq_name=self.uncommitted_boq)
+
+    def test_nonexistent_boq_throws_same_guard_as_review_rows(self):
+        # Mirrors get_review_rows' "BOQs '...' not found." guard -- NOT a new error shape.
+        with self.assertRaises(frappe.ValidationError):
+            get_committed_rows(boq_name="NOPE-DOES-NOT-EXIST", sheet_name="X")
+
+    def test_uncommitted_sheet_returns_empty_contract(self):
+        # An existing BOQs with no current committed BoQ Sheet at that name -> graceful empty
+        # lists (NOT a throw) -- mirrors get_review_rows' empty-config -> [].
+        res = get_committed_rows(boq_name=self.uncommitted_boq, sheet_name="Uncommitted Sheet ZZ")
+        self.assertEqual(
+            res, {"rows": [], "column_descriptors": [], "commit_version": None}
+        )
+
+    # -- POSITIVE: hermetic committed fixture (always runs) -----------------
+
+    def test_column_descriptors_are_pure_reuse_of_builder(self):
+        # The COLUMN half is a pure reuse: the endpoint's descriptors must equal
+        # _build_column_descriptors run on the committed BoQ Sheet's own config.
+        sheet = frappe.db.get_value(
+            "BoQ Sheet", {"boq": self.boq_name, "sheet_name": self.sheet_name, "is_current": 1},
+            ["column_role_map", "column_headers"], as_dict=True,
+        )
+        crm = sheet["column_role_map"]
+        chd = sheet["column_headers"]
+        crm = crm if isinstance(crm, dict) else (json.loads(crm) if crm else {})
+        chd = chd if isinstance(chd, dict) else (json.loads(chd) if chd else {})
+        expected = _build_column_descriptors({"column_role_map": crm, "column_headers": chd})
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        self.assertEqual(res["column_descriptors"], expected,
+                         "committed-read descriptors must equal the builder's output verbatim")
+        # And the descriptor set is non-empty + multi-area (rate columns per area).
+        rate_descs = [d for d in res["column_descriptors"] if d["value_field"] == "rate_by_area"]
+        self.assertGreaterEqual(len(rate_descs), 2,
+                                "multi-area fixture -> >=2 per-area rate descriptors")
+
+    def test_rows_carry_redrafted_keys_and_per_area_nesting(self):
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        rows = res["rows"]
+        self.assertTrue(rows, "committed fixture must return rows")
+
+        # Money re-key: rows carry the DRAFT names, NOT the committed node names.
+        sample = rows[0]
+        for draft_key in ("rate_supply", "rate_combined", "amount_total", "qty_total", "sl_no_value"):
+            self.assertIn(draft_key, sample, f"row must carry draft key {draft_key}")
+        for node_key in ("supply_rate", "combined_rate", "total_amount", "qty", "code"):
+            self.assertNotIn(node_key, sample, f"row must NOT carry committed node key {node_key}")
+
+        # Per-area nesting rebuilt with the amount kind-rename (total/install/supply).
+        multi = next((r for r in rows if r.get("amount_by_area")), None)
+        self.assertIsNotNone(multi, "at least one row must have amount_by_area")
+        for area, kinds in multi["amount_by_area"].items():
+            self.assertIsInstance(kinds, dict, "amount_by_area[area] must be a nested kind dict")
+            self.assertTrue(set(kinds).issubset({"supply", "install", "total"}),
+                            "amount_by_area kinds must be renamed to supply/install/total")
+        # qty_by_area is flat {area: number}.
+        flatq = next((r for r in rows if r.get("qty_by_area")), None)
+        self.assertIsNotNone(flatq)
+        for area, val in flatq["qty_by_area"].items():
+            self.assertNotIsInstance(val, dict, "qty_by_area must be flat {area: number}")
+
+    def test_hierarchy_synthesized_root_and_child(self):
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        rows = res["rows"]
+        by_index = {r["row_index"]: r for r in rows}
+
+        # A root row (no parent) -> effective_parent_index is None (the null root sentinel,
+        # NOT a dangling index, NOT -1).
+        roots = [r for r in rows if r["effective_parent_index"] is None]
+        self.assertTrue(roots, "fixture has at least one committed root node (the preamble)")
+
+        # A child row -> its effective_parent_index resolves to a real row in the same set
+        # (parent_node was correctly mapped to the parent's row_index/sort_order).
+        children = [r for r in rows if r["effective_parent_index"] is not None]
+        self.assertTrue(children, "fixture has parented line-item nodes")
+        child = children[0]
+        self.assertIn(child["effective_parent_index"], by_index,
+                      "effective_parent_index must point at a real row_index in the set")
+        # row_index is the sort_order analog: 0-based, unique, ordered asc.
+        self.assertEqual([r["row_index"] for r in rows], sorted(r["row_index"] for r in rows),
+                         "rows are ordered by sort_order (the row_index analog)")
+
+    def test_classification_from_row_class(self):
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        valid = {"line_item", "preamble", "note", "spacer", "subtotal_marker", "header_repeat"}
+        for r in res["rows"]:
+            self.assertEqual(r["classification"], r["effective_classification"],
+                             "committed tier has no override layer -> raw == effective")
+            self.assertIn(r["classification"], valid,
+                          "classification comes from node.row_class (the taxonomy the pill reads)")
+
+    def test_draft_only_fields_omitted(self):
+        # The committed contract is AI-free + minimal -- no draft-only keys leak through.
+        res = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
+        for r in res["rows"]:
+            for k in _CR_DRAFT_ONLY_KEYS:
+                self.assertNotIn(k, r, f"draft-only field {k} must be omitted from committed rows")
+        # The response shape adds the additive commit_version key (pricing-overlay slice) --
+        # no draft flags/work_packages leak in. commit_version is the current committed version.
+        self.assertEqual(set(res.keys()), {"rows", "column_descriptors", "commit_version"})
+        self.assertEqual(res["commit_version"], 1,
+                         "get_committed_rows returns the current committed commit_version (fixture = 1)")

@@ -115,7 +115,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div
         className="flex h-8 items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 text-sm"
         title={`${count} payment${count !== 1 ? "s" : ""} selected · Total Req. Amount ${formatToRoundedIndianRupee(totalReqAmount)}`}

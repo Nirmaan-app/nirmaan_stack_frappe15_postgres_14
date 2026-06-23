@@ -36,6 +36,7 @@
  */
 import { useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
+import { Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { Button } from "@/components/ui/button";
@@ -94,6 +95,20 @@ interface RestructureModalProps {
   rows: ReviewRow[];
   /** Success callback with the returned edited_at (parent closes + refreshes the tree). */
   onRestructured: (editedAt: string) => void;
+  /**
+   * AI-3b-2 (children-only mode). When provided, the row's parent is PRE-APPLIED from an
+   * accepted AI suggestion: rowPosition is forced to "move" + rowParentIdx is seeded to
+   * this value (-1 = root, >=0 = an internal row_index), and the keep/move radio + the
+   * SheetSearchView picker are REPLACED by a read-only message line (presetParentMessage).
+   * The 5 child-placement options stay. Undefined => the modal behaves exactly as before
+   * (every existing opener passes nothing).
+   */
+  presetRowParent?: number | null;
+  /** AI-3b-2: the read-only line shown in place of the picker when presetRowParent is set. */
+  presetParentMessage?: string;
+  /** AI-3b-2: when true, handleSave passes mark_ai_accepted to flip ai_suggestion_status
+   *  ="Accepted" inside the SAME restructure commit (cancel-safe -- only Save sends it). */
+  markAiAccepted?: boolean;
 }
 
 export function RestructureModal({
@@ -105,7 +120,13 @@ export function RestructureModal({
   newClassification,
   rows,
   onRestructured,
+  presetRowParent,
+  presetParentMessage,
+  markAiAccepted,
 }: RestructureModalProps) {
+  // AI-3b-2: a preset parent means the row's parent is pre-applied (from an accepted AI
+  // suggestion) -> the keep/move radio + picker are replaced by a read-only message line.
+  const hasPresetParent = presetRowParent !== undefined;
   const { call, loading } = useFrappePostCall<{ message: SaveReviewRestructureResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.save_review_restructure",
   );
@@ -130,10 +151,16 @@ export function RestructureModal({
   // "Move this row under a new parent" route, so it opens with "move" already active
   // (the picker shows immediately). A WITH-children row opens "keep" (S6 unchanged).
   // Lazy init computes the child count inline -- the `children` memo isn't defined yet.
+  // AI-3b-2: a preset parent forces "move" with the parent already resolved (so canSave's
+  // "move && rowParentIdx===null" gate passes immediately and the picker is never shown).
   const [rowPosition, setRowPosition] = useState<"keep" | "move">(
-    () => (rows.filter((r) => r.effective_parent_index === row.row_index).length === 0 ? "move" : "keep"),
+    () => (presetRowParent !== undefined
+      ? "move"
+      : rows.filter((r) => r.effective_parent_index === row.row_index).length === 0 ? "move" : "keep"),
   );
-  const [rowParentIdx, setRowParentIdx] = useState<number | null>(null);
+  const [rowParentIdx, setRowParentIdx] = useState<number | null>(
+    presetRowParent !== undefined ? presetRowParent : null,
+  );
 
   const children = useMemo(
     () => rows.filter((r) => r.effective_parent_index === row.row_index),
@@ -235,6 +262,9 @@ export function RestructureModal({
         ...(rowPosition === "move" && rowParentIdx !== null
           ? { row_new_parent: rowParentIdx }
           : {}),
+        // AI-3b-2: flip ai_suggestion_status -> "Accepted" in this same commit. Sent ONLY
+        // here (the Save path), so a cancelled modal never flips it (cancel-safe).
+        ...(markAiAccepted ? { mark_ai_accepted: true } : {}),
       });
       onRestructured(res.message.edited_at);
     } catch (e: unknown) {
@@ -301,90 +331,105 @@ export function RestructureModal({
           <span className="font-medium">{row.description || "(no description)"}</span>
         </div>
 
-        {/* This row's OWN position (Slice 1b-beta2) -- keep (default) or move under a
-            new parent. Reuses the SAME SheetSearchView picker + hitRowIndex resolution
-            + no-match guard as the child pickers (no duplication). */}
-        <div className="rounded-md border border-border p-2 space-y-1.5">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            This row&rsquo;s position
-          </p>
-          <label className="flex items-start gap-2 text-xs cursor-pointer">
-            <input
-              type="radio"
-              name="row-position"
-              className="mt-0.5"
-              checked={rowPosition === "keep"}
-              onChange={() => selectRowPosition("keep")}
-            />
-            <span>Keep current position (under {oldParentLabel})</span>
-          </label>
-          <label className="flex items-start gap-2 text-xs cursor-pointer">
-            <input
-              type="radio"
-              name="row-position"
-              className="mt-0.5"
-              checked={rowPosition === "move"}
-              onChange={() => selectRowPosition("move")}
-            />
-            <span>Move this row under a new parent</span>
-          </label>
+        {/* AI-3b-2: when the parent is PRE-APPLIED from an accepted AI suggestion, the
+            keep/move radio + picker are replaced by a read-only message line. The 5
+            child-placement options below are UNCHANGED. */}
+        {hasPresetParent ? (
+          <div className="rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1 flex items-center gap-1">
+              <Sparkles className="h-3 w-3" /> This row&rsquo;s position
+            </p>
+            <p className="text-xs text-foreground">
+              {presetParentMessage ??
+                `Parent set to ${targetLabel(rowParentIdx ?? -1)} per AI suggestion — choose what happens to this row's children below.`}
+            </p>
+          </div>
+        ) : (
+          /* This row's OWN position (Slice 1b-beta2) -- keep (default) or move under a
+             new parent. Reuses the SAME SheetSearchView picker + hitRowIndex resolution
+             + no-match guard as the child pickers (no duplication). */
+          <div className="rounded-md border border-border p-2 space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              This row&rsquo;s position
+            </p>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="row-position"
+                className="mt-0.5"
+                checked={rowPosition === "keep"}
+                onChange={() => selectRowPosition("keep")}
+              />
+              <span>Keep current position (under {oldParentLabel})</span>
+            </label>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="radio"
+                name="row-position"
+                className="mt-0.5"
+                checked={rowPosition === "move"}
+                onChange={() => selectRowPosition("move")}
+              />
+              <span>Move this row under a new parent</span>
+            </label>
 
-          {rowPosition === "move" && (
-            <div className="rounded-md border border-border p-2 space-y-2">
-              {rowParentIdx !== null ? (
-                <p className="text-xs">
-                  New position for this row:{" "}
-                  <span className="font-medium">{targetLabel(rowParentIdx)}</span>{" "}
-                  <button
-                    type="button"
-                    className="text-blue-600 dark:text-blue-400 hover:underline"
-                    onClick={() => { setRowParentIdx(null); setCurrentHit(null); }}
-                  >
-                    change
-                  </button>
-                </p>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Search the sheet, land on the row you want as this row&rsquo;s new
-                    parent, then Set as parent &mdash; or send this row to the top level.
+            {rowPosition === "move" && (
+              <div className="rounded-md border border-border p-2 space-y-2">
+                {rowParentIdx !== null ? (
+                  <p className="text-xs">
+                    New position for this row:{" "}
+                    <span className="font-medium">{targetLabel(rowParentIdx)}</span>{" "}
+                    <button
+                      type="button"
+                      className="text-blue-600 dark:text-blue-400 hover:underline"
+                      onClick={() => { setRowParentIdx(null); setCurrentHit(null); }}
+                    >
+                      change
+                    </button>
                   </p>
-                  {/* Finding-7 (§9 #158, Path 1): pick-action row sits ABOVE the
-                      picker grid so it's reachable without scrolling past the tall
-                      wrapping sheet. Buttons + handlers moved verbatim. */}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      disabled={hitRowIndex === null}
-                      onClick={() => setRowParentIdx(hitRowIndex)}
-                    >
-                      Set as parent
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setRowParentIdx(-1)}
-                    >
-                      Top level
-                    </Button>
-                    {currentHit !== null && hitRowIndex === null && (
-                      <span className="text-xs text-muted-foreground">
-                        This row isn&rsquo;t a selectable parent
-                      </span>
-                    )}
-                  </div>
-                  <SheetSearchView
-                    boqName={boqName}
-                    sheetName={sheetName}
-                    onCurrentHitChange={setCurrentHit}
-                    onRowClick={setCurrentHit}
-                    selectedRowNumber={currentHit?.row_number ?? null}
-                  />
-                </>
-              )}
-            </div>
-          )}
-        </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Search the sheet, land on the row you want as this row&rsquo;s new
+                      parent, then Set as parent &mdash; or send this row to the top level.
+                    </p>
+                    {/* Finding-7 (§9 #158, Path 1): pick-action row sits ABOVE the
+                        picker grid so it's reachable without scrolling past the tall
+                        wrapping sheet. Buttons + handlers moved verbatim. */}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        disabled={hitRowIndex === null}
+                        onClick={() => setRowParentIdx(hitRowIndex)}
+                      >
+                        Set as parent
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRowParentIdx(-1)}
+                      >
+                        Top level
+                      </Button>
+                      {currentHit !== null && hitRowIndex === null && (
+                        <span className="text-xs text-muted-foreground">
+                          This row isn&rsquo;t a selectable parent
+                        </span>
+                      )}
+                    </div>
+                    <SheetSearchView
+                      boqName={boqName}
+                      sheetName={sheetName}
+                      onCurrentHitChange={setCurrentHit}
+                      onRowClick={setCurrentHit}
+                      selectedRowNumber={currentHit?.row_number ?? null}
+                    />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* The children that need placing -- 1b-beta2b: hidden when the row is childless
             (nothing to place); the childless modal carries only the row-position control. */}

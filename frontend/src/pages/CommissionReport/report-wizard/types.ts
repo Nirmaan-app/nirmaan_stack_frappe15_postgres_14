@@ -101,6 +101,11 @@ export interface ChecklistSection {
     title?: string;
     columns: ChecklistColumn[];
     items: ChecklistItem[];
+    /** Optional visibility gate when this checklist is a NESTED section inside a
+     *  `repeating_groups` group. `field` is a group-relative field key (e.g.
+     *  "db_type") — the section renders only when the group's value matches.
+     *  Reuses the WizardStepVisibleIf shape ({ field, equals | in }). */
+    visibleIf?: WizardStepVisibleIf;
 }
 
 export interface ImageSlot {
@@ -261,12 +266,24 @@ export interface WizardStepDef {
         sectionId: string;
         groupIndex: number;
     };
+    /** Synthetic per-zone step. Set by the wizard at runtime when a zone-wise
+     *  template (`zone_wise_enable === "YES"`) expands each zone into its own
+     *  Header/Checklist/Signatures/Review steps. Renderers scope to the zone via
+     *  `responsesRoot = "zones.<zoneIndex>.responses"`. */
+    zoneSlice?: {
+        zoneIndex: number;
+    };
 }
 
 export interface ReportTemplate {
     templateId: string;
     templateVersion: number;
     title: string;
+    /** When "YES", the wizard runs zone-wise: a zone tab bar, each zone holding
+     *  the full section set, and `response_data.zones[]` storage. "NO"/absent =
+     *  the ordinary single-report wizard (unchanged). Read from the master
+     *  `Commission Report Tasks.source_format`. */
+    zone_wise_enable?: 'YES' | 'NO';
     /** Optional. If omitted, one step per section + auto Review step is generated. */
     wizardSteps?: WizardStepDef[];
     sections: Section[];
@@ -308,6 +325,17 @@ export interface AttachmentRecord {
 
 export type AttachmentSlotValue = AttachmentRecord | string;
 
+/** One zone of a zone-wise report (`zone_wise_enable === "YES"`). Each zone is a
+ *  fully self-contained report: its own per-section `responses` (header,
+ *  checklist, signatures, …) and its own `attachments`. Keyed by a stable `id`
+ *  so rename / reorder / delete never disturbs another zone's data. */
+export interface ZoneEntry {
+    id: string;
+    label: string;
+    responses: Record<string, SectionResponses>;
+    attachments: Record<string, AttachmentSlotValue[]>;
+}
+
 export interface ResponseData {
     templateId: string;
     templateVersion: number;
@@ -316,6 +344,11 @@ export interface ResponseData {
     filledBy: string;
     lastEditedAt?: string;
     prefillSnapshot: PrefillSnapshot;
+    /** Zone-wise reports populate `zoneWise: true` + `zones[]`; the flat
+     *  `responses`/`attachments` are then left empty. Non-zone reports do the
+     *  reverse. Exactly one shape carries the data. */
+    zoneWise?: boolean;
+    zones?: ZoneEntry[];
     responses: Record<string, SectionResponses>;
     /** Map of slot_key → ordered list of attachments. Strings = legacy NA names. */
     attachments: Record<string, AttachmentSlotValue[]>;

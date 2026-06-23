@@ -1,0 +1,93 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "configuration_section",
+  "enabled",
+  "provider",
+  "model",
+  "max_tokens",
+  "request_timeout_seconds",
+  "credentials_section",
+  "anthropic_api_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "configuration_section",
+   "fieldtype": "Section Break",
+   "label": "AI Pass Configuration"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable AI Pass"
+  },
+  {
+   "default": "Anthropic",
+   "description": "AI provider for the BoQ review AI pass.",
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "label": "Provider",
+   "options": "Anthropic"
+  },
+  {
+   "default": "claude-sonnet-4-6",
+   "description": "Anthropic model id for the AI pass.",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "default": "8000",
+   "fieldname": "max_tokens",
+   "fieldtype": "Int",
+   "label": "Max Output Tokens"
+  },
+  {
+   "default": "120",
+   "fieldname": "request_timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Request Timeout (Seconds)"
+  },
+  {
+   "fieldname": "credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Credentials"
+  },
+  {
+   "description": "Anthropic API key for the BoQ review AI pass. Stored encrypted.",
+   "fieldname": "anthropic_api_key",
+   "fieldtype": "Password",
+   "label": "Anthropic API Key"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-06-19 00:00:01.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BOQ Upload Review AI Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

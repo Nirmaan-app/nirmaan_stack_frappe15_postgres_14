@@ -22,10 +22,13 @@
 {%- endfor -%}
 {%- set target = ns.target -%}
 
+{# Per-task signature top-margin (a CSS value). Tasks not listed fall back to the 30px CSS default. #}
+{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "500px", "RR Commissioning Report": "130px", "WLD Commissioning Report": "130px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px"} -%}
+
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
 * { box-sizing: border-box; }
-html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.1; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 
 .cv-page-layout { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cv-content-cell { vertical-align: top; padding: 0; }
@@ -33,66 +36,67 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 .cv-spacer-md { height: 10px; }
 
 .cv-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; }
-.cv-table td { border: 1px solid #000; padding: 5px 8px; vertical-align: top; font-size: 10px; word-wrap: break-word; }
+.cv-table td { border: 1px solid #000; padding: 2px 4px; vertical-align: top; font-size: 10px; word-wrap: break-word; }
 
 .cv-title { text-align: center; font-weight: 700; font-size: 12px; padding: 7px !important; text-decoration: underline; }
 .cv-label { font-weight: 700; width: 120px; }
 .cv-blank { color: #aaa; }
 
 .cv-chk { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-chk th, .cv-chk td { border: 1px solid #000; padding: 4px 6px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-chk th, .cv-chk td { border: 1px solid #000; padding: 2px 4px; font-size: 9px; line-height: 1.1; vertical-align: top; word-wrap: break-word; }
 .cv-chk th { text-align: center; font-weight: 700; background: #fff; }
 .cv-chk .cv-num { width: 50px; text-align: center; }
-.cv-chk .cv-result { width: 80px; text-align: center; font-weight: 700; }
+.cv-chk .cv-result { width: 60px; text-align: center; font-weight: 700; white-space: nowrap; }
 .cv-chk .cv-remarks { width: 130px; }
 
-.cv-tr-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: auto; margin-top: -1px; }
-.cv-tr-table th, .cv-tr-table td { border: 1px solid #000; padding: 5px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-tr-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
+.cv-tr-table th, .cv-tr-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-tr-table th { text-align: center; font-weight: 700; background: #fff; }
 .cv-tr-table .cv-tr-row td { height: 26px; }
-.cv-tr-table .cv-tr-sig { width: 140px; }
+.cv-tr-table .cv-tr-sig { width: 90px; }
 
 .cv-mm-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-mm-table th, .cv-mm-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: middle; text-align: center; word-wrap: break-word; }
+.cv-mm-table th, .cv-mm-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: middle; text-align: center; word-wrap: break-word; }
 .cv-mm-table th { font-weight: 700; background: #fff; }
 .cv-mm-table .cv-mm-lbl { font-weight: 600; }
 .cv-mm-table .cv-mm-val { font-weight: 600; }
 
 .cv-cl-table { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-cl-table td { border: 1px solid #000; padding: 6px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-cl-table td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-cl-head { font-weight: 700; background: #fff; }
-.cv-cl-proc { line-height: 1.5; }
-.cv-cl-item { white-space: pre-wrap; line-height: 1.5; }
+.cv-cl-proc { line-height: 1.1; }
+.cv-cl-item { white-space: pre-wrap; line-height: 1.1; }
 
-.cv-notes-head { font-weight: 700; padding: 5px 8px; border: 1px solid #000; border-bottom: none; }
-.cv-notes-body { min-height: 60px; padding: 8px; border: 1px solid #000; }
+.cv-notes-head { font-weight: 700; padding: 2px 4px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
+.cv-notes-body { min-height: 60px; padding: 6px; border: 1px solid #000; font-size: 10px; }
 
-.cv-section-head { font-weight: 700; padding: 5px 8px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
+.cv-section-head { font-weight: 700; padding: 2px 4px; border: 1px solid #000; border-bottom: none; font-size: 10px; }
 .cv-sub-head { font-weight: 700; padding: 6px 0; font-size: 11px; text-decoration: underline; }
 
 .cv-proc-section-title { text-align: center; font-weight: 700; font-size: 13px; margin: 4px 0 12px 0; text-decoration: underline; }
 .cv-proc-subtitle { font-weight: 700; font-size: 11px; margin: 10px 0 4px 0; }
-.cv-proc-item { font-size: 10px; line-height: 1.5; padding: 2px 0 2px 4px; white-space: pre-wrap; }
+.cv-proc-item { font-size: 10px; line-height: 1.1; padding: 2px 0 2px 4px; white-space: pre-wrap; }
 
 .cv-img-grid { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-img-grid td { border: 1px solid #000; padding: 6px; vertical-align: top; text-align: center; font-size: 10px; word-wrap: break-word; min-height: 90px; }
+.cv-img-grid td { border: 1px solid #000; padding: 2px 4px; vertical-align: top; text-align: center; font-size: 10px; word-wrap: break-word; min-height: 90px; }
 .cv-img-grid .cv-img-label { font-size: 9px; font-weight: 700; color: #555; text-transform: uppercase; margin-bottom: 4px; }
 .cv-img-grid img { max-width: 100%; max-height: 200px; object-fit: contain; }
 .cv-img-grid .cv-img-empty { color: #bbb; padding: 14px 0; }
 
 .cv-meas { width: 100%; border-collapse: collapse; border: 1px solid #000; table-layout: fixed; margin-top: -1px; }
-.cv-meas td { border: 1px solid #000; padding: 5px 8px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
+.cv-meas td { border: 1px solid #000; padding: 2px 4px; font-size: 10px; vertical-align: top; word-wrap: break-word; }
 .cv-meas .cv-meas-lbl { font-weight: 700; width: 25%; }
 
 .cv-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 30px; page-break-inside: avoid; }
-.cv-sigs td { padding: 4px 8px; text-align: center; font-weight: 700; font-size: 10px; border: 0; vertical-align: bottom; }
-.cv-sigs .sig-line { height: 46px; border-bottom: 1px solid #000; margin-bottom: 4px; }
-.cv-sigs .sig-role { font-weight: 700; font-size: 10px; }
-.cv-sigs .sig-cap { font-weight: 400; font-size: 9px; color: #555; }
+.cv-sigs .cv-sig-header td { border: 1px solid #000; text-align: center; padding: 5px; font-size: 11px; font-weight: 700; }
+.cv-sigs .cv-sig-box td { border: 1px solid #000; height: 60px; text-align: center; vertical-align: middle; }
 
 .cv-error { padding: 12px; border: 1px solid #f00; background: #fee; color: #900; }
 
 tr { page-break-inside: avoid; }
+/* The page-layout's OWN two rows (content + signature) must flow freely, so the signature
+   is never shoved to a new page when there's room. Nested data-table rows keep avoid above. */
+.cv-page-layout > tbody > tr, .cv-page-layout > tr { page-break-inside: auto; }
 thead { display: table-header-group; }
 </style>
 
@@ -115,7 +119,7 @@ thead { display: table-header-group; }
   - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[]) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], margin=None) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
@@ -126,6 +130,7 @@ thead { display: table-header-group; }
         {%- set ns_sigs = namespace(items=[]) -%}
         {%- if template_id == "demo-training-certificate" -%}
             {%- if (tds.enable_manager        or "manager"        in ek) and "manager"        not in dk -%}{%- set _ = ns_sigs.items.append("PROJECT MANAGER") -%}{%- endif -%}
+            {%- if (tds.enable_consultant     or "consultant"     in ek) and "consultant"     not in dk -%}{%- set _ = ns_sigs.items.append("CONSULTANT")      -%}{%- endif -%}
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("VENDOR")          -%}{%- endif -%}
             {%- if (tds.enable_client         or "client"         in ek) and "client"         not in dk -%}{%- set _ = ns_sigs.items.append("CLIENT")          -%}{%- endif -%}
             {%- if (tds.enable_gc_contractor  or "gc_contractor"  in ek) and "gc_contractor"  not in dk -%}{%- set _ = ns_sigs.items.append("GC CONTRACTOR")   -%}{%- endif -%}
@@ -137,7 +142,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div></td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"{% if margin %} style="margin-top: {{ margin }} !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -180,6 +185,16 @@ thead { display: table-header-group; }
     {%- else -%}
         {%- set tpl = json.loads(snapshot_doc.payload) -%}
         {%- set rd = json.loads(target.response_data) -%}
+        {# ZONE-WISE: per-zone data lives in rd.zones[] (the flat rd.responses is empty);
+           non-zone reports use the flat rd. Render the whole report body once per "unit":
+           the flat rd for non-zone, or one unit per zone. Inside the loop `rd` is REBOUND
+           to the current unit, so the entire existing per-templateId body renders that
+           unit's responses/attachments + its signatures unchanged. #}
+        {%- set _zone_wise = (rd.zoneWise and rd.zones) -%}
+        {%- set render_units = (rd.zones if _zone_wise else [rd]) -%}
+        {# Only label/separate zones when there's MORE than one — a single-zone
+           report prints like an ordinary report (no "ZONE:" banner, no page break). #}
+        {%- set _multi_zone = (_zone_wise and (render_units | length > 1)) -%}
 
         {%- set hdr_section   = (tpl.sections | selectattr("type", "equalto", "header") | list | first) -%}
         {%- set chk_section   = (tpl.sections | selectattr("type", "equalto", "checklist") | list | first) -%}
@@ -189,6 +204,14 @@ thead { display: table-header-group; }
         {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
         {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
         {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
+
+        {# ===== Per-unit loop: one pass per zone (zone-wise) or one pass for the whole report (non-zone). ===== #}
+        {% for Z in render_units %}
+        {%- set rd = Z -%}
+        {%- set _zlabel = (Z.get("label") if _multi_zone else none) -%}
+        {# Zone label now lives INSIDE the header table (after LOCATION); here we only
+           force each subsequent zone onto a new page. #}
+        {% if _zlabel and not loop.first %}<div style="page-break-before:always;"></div>{% endif %}
         {# Per-report signature overrides written by the wizard's Signatures step.
            `sig_disabled` = TDS-on roles the user unticked.
            `sig_enabled`  = TDS-off roles the user ticked (manual override). #}
@@ -198,22 +221,27 @@ thead { display: table-header-group; }
 
         {% if tpl.templateId == "sprinkler-pressure-test" %}
 
-            {% if proc_section %}
-                <div class="cv-proc-section-title">{{ proc_section.title or "Sprinkler Pressure Test Operating Process" }}</div>
-                {% for block in (proc_section.blocks or []) %}
-                    {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
-                    {% for item in (block["items"] or []) %}<div class="cv-proc-item">{{ item }}</div>{% endfor %}
-                {% endfor %}
-            {% endif %}
-
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
+                    {# Sprinkler-only 3-page layout: p1 procedure, p2 header+checklist,
+                       p3 images+measured+signature. All inside this branch (scoped). #}
+                    {% if proc_section %}
+                        <div style="page-break-after: always;">
+                            <div class="cv-proc-section-title">{{ proc_section.title or "Sprinkler Pressure Test Operating Process" }}</div>
+                            {% for block in (proc_section.blocks or []) %}
+                                {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                {% for item in (block["items"] or []) %}<div class="cv-proc-item">{{ item }}</div>{% endfor %}
+                            {% endfor %}
+                        </div>
+                    {% endif %}
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - SPRINKLER SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -243,7 +271,8 @@ thead { display: table-header-group; }
                             </tbody>
                         </table>
                     {% endif %}
-                    <div class="cv-spacer-md"></div>
+                    {# Page 3: images + measured pressure + signature together. #}
+                    <div style="page-break-before: always;">
                     {% if img_section %}
                         <div class="cv-section-head">{{ img_section.title or "Sprinkler Pressure Test Result:" }}</div>
                         {%- set cols = img_section.columns or 2 -%}
@@ -301,81 +330,311 @@ thead { display: table-header-group; }
                             {% endfor %}
                         </table>
                     {% endif %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {# 40px gap between the measured-pressure table and the signature.
+                       A spacer div renders reliably in wkhtmltopdf (table margin-top does not). #}
+                    <div style="height: 40px; font-size: 1px; line-height: 40px;">&nbsp;</div>
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="0px") }}
+                    </div>{# end page-3 (images + measured + signature) #}
                 </td></tr>
             </table>
 
-        {% elif tpl.templateId == "db-commissioning-report" %}
+        {% elif tpl.templateId in ["db-commissioning-report", "lt-panel-commission-report", "duct-pressure/smoke/light-testing-report"] %}
+
+            {# Generic count-wise renderer: header -> per-group (group fields +
+               optional rowsTable + nested checklist / process) -> top-level
+               `fields` sections (e.g. DB Procedure) -> signatures. Shared by
+               every repeating report (Floor / DB / Equipment / Panel). #}
+            {%- set rg_section = (tpl.sections | selectattr("type", "equalto", "repeating_groups") | list | first) -%}
+            {%- set groups = (rd.responses or {}).get(rg_section.id, []) or [] if rg_section else [] -%}
+
+            {% if tpl.templateId == "db-commissioning-report" %}
+            <style>
+                /* DB: compress ONLY a single-equipment zone (the cv-db-solo wrapper) so its
+                   group + signature fit one page; multi-equipment zones stay full-size. */
+                .cv-db-solo .cv-mm-table th, .cv-db-solo .cv-mm-table td { padding: 4px 8px !important; font-size: 10px !important; }
+                .cv-db-solo .cv-chk th, .cv-db-solo .cv-chk td { padding: 4px 8px !important; font-size: 10px !important; line-height: 1.0 !important; }
+                .cv-db-solo .cv-sub-head { padding: 4px 0 !important; font-size: 10px !important; }
+                .cv-db-solo .cv-section-head { padding: 4px 8px !important; }
+                .cv-db-solo .cv-spacer-md { height: 8px !important; }
+            </style>
+            {% endif %}
+
+            {% if tpl.templateId == "duct-pressure/smoke/light-testing-report" %}
+            <style>
+                /* Duct: DB-style tight padding + smaller photos so each equipment
+                   (header + observations + photos) fits compactly, not sprawled. */
+                .cv-chk th, .cv-chk td { padding: 4px 8px !important; line-height: 1.05 !important; }
+                .cv-sub-head { padding: 10px 0 !important; }
+                .cv-section-head { padding: 4px 8px !important; }
+                .cv-spacer-md { height: 16px !important; }
+                .cv-img-grid td { min-height: 0 !important; }
+                .cv-img-grid img { max-height: 180px !important; }
+            </style>
+            {% endif %}
 
             <table class="cv-page-layout">
-                <tr><td class="cv-content-cell">
+                <tr><td class="cv-content-cell{% if tpl.templateId == "db-commissioning-report" and (groups | length) == 1 %} cv-db-solo{% endif %}">
                     <table class="cv-table">
-                        <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - DB TESTING" }}</td></tr>
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
+                        {%- set _gen_title = target.task_name if tpl.templateId == "duct-pressure/smoke/light-testing-report" else (hdr_section.title if hdr_section else tpl.title) -%}
+                        <tr><td class="cv-title" colspan="2">{{ _gen_title }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
-                                <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
                     <div class="cv-spacer-md"></div>
-                    {% if mm_section %}
-                        {%- set mm_rows = (rd.responses or {}).get(mm_section.id, []) or [] -%}
-                        <div class="cv-section-head">{{ mm_section.title or "1. IR Test:" }}</div>
-                        <table class="cv-mm-table">
-                            <thead><tr>{% for c in (mm_section.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
-                            <tbody>
-                                {% for rowDef in (mm_section.rows or []) %}
-                                    {%- set ns_row = namespace(data=none) -%}
-                                    {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_row.data = r -%}{%- endif -%}{%- endfor -%}
+
+                    {% if rg_section %}
+                    {% if (groups | length > 0) %}
+                        {% for group in groups %}
+                            {%- set g_index0 = loop.index0 -%}
+                            <div style="page-break-inside: avoid; margin-bottom: 14px;">
+                                <div class="cv-sub-head" style="margin-bottom: 0;">{{ rg_section.groupTitlePrefix or 'Group' }} {{ loop.index }}</div>
+
+                                {% if rg_section.groupFields %}
+                                <table class="cv-table">
+                                    {# Pack 3 fields per row (3 on the top row, the rest below) so a
+                                       5-field equipment header reads as 2 compact lines (3 + 2). #}
+                                    {% for gf in rg_section.groupFields %}
+                                        {% if loop.index0 % 3 == 0 %}<tr>{% endif %}
+                                        <td class="cv-label">{{ gf.label }}</td><td>{%- set gv = group.get(gf.key) if group is mapping else none -%}{%- if gv is none or gv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ gv }}{%- endif -%}</td>
+                                        {% if loop.index % 3 == 0 %}</tr>{% elif loop.last %}{% for _p in range(3 - (loop.index % 3)) %}<td></td><td></td>{% endfor %}</tr>{% endif %}
+                                    {% endfor %}
+                                </table>
+                                {% endif %}
+
+                                {% if rg_section.rowsTable %}
+                                    {%- set rows_raw = (group.get('rows') if group is mapping else []) or [] -%}
+                                    {% if rg_section.rowsTable.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ rg_section.rowsTable.title }}</div>{% endif %}
+                                    <table class="cv-tr-table">
+                                        <thead><tr><th style="width: 40px;">Sl No</th>{% for c in (rg_section.rowsTable.columns or []) %}<th>{{ c.label }}</th>{% endfor %}</tr></thead>
+                                        <tbody>
+                                            {% for row in rows_raw %}
+                                                <tr class="cv-tr-row">
+                                                    <td style="text-align: center;">{{ loop.index }}</td>
+                                                    {% for c in (rg_section.rowsTable.columns or []) %}
+                                                        <td style="text-align: center;">{%- set cv = row.get(c.key) if row is mapping else none -%}{%- if cv is none or cv == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ cv }}{%- if c.unit %} {{ c.unit }}{% endif -%}{%- endif -%}</td>
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% endif %}
+
+                                {% for nsec in (rg_section.nestedSections or []) %}
+                                    {%- set ns_show = namespace(v=true) -%}
+                                    {%- if nsec.visibleIf -%}
+                                        {%- set _gv = group.get(nsec.visibleIf.field) if group is mapping else none -%}
+                                        {%- if nsec.visibleIf.get('in') -%}{%- set ns_show.v = (_gv in nsec.visibleIf['in']) -%}
+                                        {%- elif nsec.visibleIf.get('equals') is not none -%}{%- set ns_show.v = (_gv == nsec.visibleIf.equals) -%}{%- endif -%}
+                                    {%- endif -%}
+                                    {% if ns_show.v %}
+                                    {% if nsec.type == 'checklist' %}
+                                        {%- set nvals = (group.get(nsec.id) if group is mapping else {}) or {} -%}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        <table class="cv-chk">
+                                            <thead><tr>{% for c in (nsec.columns or []) %}{% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>{% elif c.key == "result" %}<th class="cv-result">{{ c.label }}</th>{% elif c.key == "remarks" %}<th class="cv-remarks">{{ c.label }}</th>{% else %}<th>{{ c.label }}</th>{% endif %}{% endfor %}</tr></thead>
+                                            <tbody>
+                                                {% for item in (nsec["items"] or []) %}
+                                                    {%- set ival = nvals.get(item.id, {}) -%}
+                                                    <tr>
+                                                        <td class="cv-num">{{ loop.index }}</td>
+                                                        <td>{{ item.particular }}</td>
+                                                        <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}&mdash;{%- else -%}{{ rv }}{%- endif -%}</td>
+                                                        <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    {% elif nsec.type == 'process' %}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ nsec.title }}</div>{% endif %}
+                                        {% for block in (nsec.blocks or []) %}
+                                            {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                            {% for line in (block["items"] or []) %}<div class="cv-proc-item">{{ line }}</div>{% endfor %}
+                                        {% endfor %}
+                                    {% elif nsec.type == 'measurement_matrix' %}
+                                        {%- set mm_rows = (group.get(nsec.id) if group is mapping else []) or [] -%}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        <table class="cv-mm-table">
+                                            <thead><tr>{% for c in (nsec.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
+                                            <tbody>
+                                                {% for rowDef in (nsec.rows or []) %}
+                                                    {%- set ns_mm = namespace(data=none) -%}
+                                                    {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_mm.data = r -%}{%- endif -%}{%- endfor -%}
+                                                    <tr>
+                                                        {% for c in (nsec.columns or []) %}
+                                                            <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
+                                                            <td class="cv-mm-val">{%- set v = ns_mm.data.get(c.key) if ns_mm.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                                        {% endfor %}
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    {% elif nsec.type == 'image_attachments' %}
+                                        {% if nsec.title %}<div class="cv-sub-head" style="margin-top: 4px;">{{ nsec.title }}</div>{% endif %}
+                                        {%- set cols = nsec.columns or 2 -%}
+                                        {%- set ns_imgs = namespace(list=[]) -%}
+                                        {%- for slot in (nsec.slots or []) -%}
+                                            {%- set _akey = rg_section.id ~ '_' ~ g_index0 ~ '_' ~ slot.key -%}
+                                            {%- set slot_items = (rd.attachments or {}).get(_akey) or [] -%}
+                                            {%- if slot_items -%}
+                                                {%- for item in slot_items -%}
+                                                    {%- if item is mapping -%}{%- set raw_url = item.file_url or "" -%}
+                                                    {%- else -%}{%- set raw_url = frappe.db.get_value("Nirmaan Attachments", item, "attachment") or "" -%}{%- endif -%}
+                                                    {%- if raw_url -%}{%- set _ = ns_imgs.list.append({"url": raw_url, "label": slot.label}) -%}{%- endif -%}
+                                                {%- endfor -%}
+                                            {%- else -%}{%- set _ = ns_imgs.list.append({"url": "", "label": slot.label}) -%}{%- endif -%}
+                                        {%- endfor -%}
+                                        {%- set total = ns_imgs.list | length -%}
+                                        {%- set rows_count = ((total + cols - 1) // cols) if total > 0 else 1 -%}
+                                        <table class="cv-img-grid">
+                                            {% for r in range(rows_count) %}
+                                                <tr>
+                                                    {% for c in range(cols) %}
+                                                        {%- set idx = r * cols + c -%}
+                                                        {% if idx < total %}
+                                                            {%- set img = ns_imgs.list[idx] -%}
+                                                            <td>
+                                                                <div class="cv-img-label">{{ img.label }}</div>
+                                                                {% if img.url %}
+                                                                    {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=img.url) -%}
+                                                                    {% if img_url %}<img src="{{ img_url }}" alt="{{ img.label }}" />{% endif %}
+                                                                {% else %}<div class="cv-img-empty">(no image)</div>{% endif %}
+                                                            </td>
+                                                        {% else %}<td>&nbsp;</td>{% endif %}
+                                                    {% endfor %}
+                                                </tr>
+                                            {% endfor %}
+                                        </table>
+                                    {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="cv-error">No entries recorded.</div>
+                    {% endif %}
+                    {% endif %}
+
+                    {# Top-level non-repeating sections AFTER the groups: fields (e.g. a notes block),
+                       process (the shared procedure), and -- for OLD pre-repeating snapshots --
+                       checklist / measurement_matrix. Header / repeating_groups / signatures render
+                       elsewhere, so they're skipped here. #}
+                    {% for sec in (tpl.sections or []) %}
+                        {% if sec.type == 'fields' %}
+                            {%- set fvals = (rd.responses or {}).get(sec.id, {}) -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-table">
+                                {% for f in (sec.fields or []) %}
+                                    <tr><td class="cv-label" style="width: 18%;">{{ f.label }}</td><td>{%- set v = fvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% endfor %}
+                            </table>
+                        {% elif sec.type == 'process' %}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            {% for block in (sec.blocks or []) %}
+                                {% if block.subtitle %}<div class="cv-proc-subtitle">{{ block.subtitle }}</div>{% endif %}
+                                {% for line in (block["items"] or []) %}<div class="cv-proc-item">{{ line }}</div>{% endfor %}
+                            {% endfor %}
+                        {% elif sec.type == 'checklist' %}
+                            {%- set cvals = (rd.responses or {}).get(sec.id, {}) -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-chk">
+                                <thead><tr>{% for c in (sec.columns or []) %}{% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>{% elif c.key == "result" %}<th class="cv-result">{{ c.label }}</th>{% elif c.key == "remarks" %}<th class="cv-remarks">{{ c.label }}</th>{% else %}<th>{{ c.label }}</th>{% endif %}{% endfor %}</tr></thead>
+                                <tbody>
+                                    {% for item in (sec["items"] or []) %}
+                                        {%- set ival = cvals.get(item.id, {}) -%}
+                                        <tr>
+                                            <td class="cv-num">{{ loop.index }}</td>
+                                            <td>{{ item.particular }}</td>
+                                            <td class="cv-result">{%- set rv = ival.get("result") -%}{%- if rv is none or rv == '' -%}&mdash;{%- else -%}{{ rv }}{%- endif -%}</td>
+                                            <td class="cv-remarks">{{ ival.get("remarks") or "" }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% elif sec.type == 'measurement_matrix' %}
+                            {%- set mm_rows = (rd.responses or {}).get(sec.id, []) or [] -%}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            <table class="cv-mm-table">
+                                <thead><tr>{% for c in (sec.columns or []) %}<th>{{ c.label }}</th><th class="cv-mm-val">{{ c.valueLabel or ('In ' ~ (c.unit or '')) }}</th>{% endfor %}</tr></thead>
+                                <tbody>
+                                    {% for rowDef in (sec.rows or []) %}
+                                        {%- set ns_mm = namespace(data=none) -%}
+                                        {%- for r in mm_rows -%}{%- if r is mapping and r.get('id') == rowDef.id -%}{%- set ns_mm.data = r -%}{%- endif -%}{%- endfor -%}
+                                        <tr>
+                                            {% for c in (sec.columns or []) %}
+                                                <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
+                                                <td class="cv-mm-val">{%- set v = ns_mm.data.get(c.key) if ns_mm.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                            {% endfor %}
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% elif sec.type == 'image_attachments' %}
+                            {% if sec.title %}<div class="cv-sub-head" style="margin-top: 6px;">{{ sec.title }}</div>{% endif %}
+                            {%- set cols = sec.columns or 2 -%}
+                            {%- set ns_imgs = namespace(list=[]) -%}
+                            {%- for slot in (sec.slots or []) -%}
+                                {%- set slot_items = (rd.attachments or {}).get(slot.key) or [] -%}
+                                {%- if slot_items -%}
+                                    {%- for item in slot_items -%}
+                                        {%- if item is mapping -%}{%- set raw_url = item.file_url or "" -%}
+                                        {%- else -%}{%- set raw_url = frappe.db.get_value("Nirmaan Attachments", item, "attachment") or "" -%}{%- endif -%}
+                                        {%- if raw_url -%}{%- set _ = ns_imgs.list.append({"url": raw_url, "label": slot.label}) -%}{%- endif -%}
+                                    {%- endfor -%}
+                                {%- else -%}{%- set _ = ns_imgs.list.append({"url": "", "label": slot.label}) -%}{%- endif -%}
+                            {%- endfor -%}
+                            {%- set total = ns_imgs.list | length -%}
+                            {%- set rows_count = ((total + cols - 1) // cols) if total > 0 else 1 -%}
+                            <table class="cv-img-grid">
+                                {% for r in range(rows_count) %}
                                     <tr>
-                                        {% for c in (mm_section.columns or []) %}
-                                            <td class="cv-mm-lbl">{{ rowDef.labels[c.key] or '' }}</td>
-                                            <td class="cv-mm-val">{%- set v = ns_row.data.get(c.key) if ns_row.data else none -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                                        {% for c in range(cols) %}
+                                            {%- set idx = r * cols + c -%}
+                                            {% if idx < total %}
+                                                {%- set img = ns_imgs.list[idx] -%}
+                                                <td>
+                                                    <div class="cv-img-label">{{ img.label }}</div>
+                                                    {% if img.url %}
+                                                        {%- set img_url = frappe.call("nirmaan_stack.api.frappe_s3_attachment.get_s3_temp_url", file_url=img.url) -%}
+                                                        {% if img_url %}<img src="{{ img_url }}" alt="{{ img.label }}" />{% endif %}
+                                                    {% else %}<div class="cv-img-empty">(no image)</div>{% endif %}
+                                                </td>
+                                            {% else %}<td>&nbsp;</td>{% endif %}
                                         {% endfor %}
                                     </tr>
                                 {% endfor %}
-                            </tbody>
-                        </table>
-                    {% endif %}
-                    <div class="cv-spacer-md"></div>
-                    {% if notes_section or chk_section %}
-                        <table class="cv-cl-table">
-                            <tr><td class="cv-cl-head">{{ (notes_section.title if notes_section else "") or "2. Check List" }}</td></tr>
-                            {% if notes_section %}
-                                {%- set nvals = (rd.responses or {}).get(notes_section.id, {}) -%}
-                                {%- for f in (notes_section.fields or []) -%}
-                                    {%- set v = nvals.get(f.key) -%}
-                                    {%- if v -%}<tr><td class="cv-cl-proc"><strong>{{ f.label }} :</strong> {{ v }}</td></tr>{%- endif -%}
-                                {%- endfor -%}
-                            {% endif %}
-                            {% if chk_section %}
-                                {%- set cvals = (rd.responses or {}).get(chk_section.id, {}) -%}
-                                {% for item in (chk_section["items"] or []) %}
-                                    {%- set ival = cvals.get(item.id, {}) -%}{%- set rv = ival.get("result") -%}{%- set rm = ival.get("remarks") -%}
-                                    <tr><td>{{ loop.index }}. {{ item.particular }}{%- if rv %} - <strong>{{ rv }}</strong>{%- endif -%}{%- if rm and (rm | trim) %} ({{ rm }}){%- endif -%}</td></tr>
-                                {% endfor %}
-                            {% endif %}
-                        </table>
-                    {% endif %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                            </table>
+                        {% endif %}
+                    {% endfor %}
+                    {# Signature inside the content cell so it flows with the equipment
+                       groups — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
+
         {% elif tpl.templateId == "socket-testing-report" %}
+
+            <style>
+                /* Socket-only: compact rows so ~10 tests + signature fit one page. */
+                .cv-tr-table .cv-tr-row td { height: 20px !important; padding: 1px 5px !important; }
+            </style>
 
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - SOCKET TESTING" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -405,7 +664,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -422,11 +681,13 @@ thead { display: table-header-group; }
             <table class="cv-page-layout" style="page-break-before: always;">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PANEL TESTING" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -479,20 +740,27 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
         {% elif tpl.templateId == "lux-level-report" %}
 
+            <style>
+                /* Lux-only: compact rows so ~10 readings + signature fit one page. */
+                .cv-tr-table .cv-tr-row td { height: 18px !important; padding: 1px 5px !important; }
+            </style>
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "LUX LEVEL REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -536,7 +804,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -547,10 +815,12 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -732,7 +1002,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -748,11 +1018,13 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DUCT CFM REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -840,11 +1112,11 @@ thead { display: table-header-group; }
                             </div>
                         {% endfor %}
                     {% else %}
-                        <div class="cv-error">No CFM Readings entered.</div>
+                        <div class="cv-error">No Equipment entered.</div>
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -875,14 +1147,22 @@ thead { display: table-header-group; }
             {%- set physical_def = ns_defs.physical -%}
             {%- set timer_def = ns_defs.timer -%}
 
+            <style>
+                /* DX/VRF: when a zone has a single equipment, give that Physical Test
+                   table roomier 18px rows (matches the requested compact look). */
+                .cv-chk-solo th, .cv-chk-solo td { height: 18px !important; padding: 1px 5px !important; }
+            </style>
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title)}}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -908,7 +1188,7 @@ thead { display: table-header-group; }
                                 {% if physical_def %}
                                     {%- set pvals = (group.get(physical_def.id) if group is mapping else {}) or {} -%}
                                     <div class="cv-sub-head" style="margin-top: 4px;">{{ physical_def.title or "Physical Test" }}</div>
-                                    <table class="cv-chk">
+                                    <table class="cv-chk{% if (groups | length) == 1 %} cv-chk-solo{% endif %}">
                                         <thead><tr>
                                             {% for c in (physical_def.columns or []) %}
                                                 {% if c.key == "slno" %}<th class="cv-num">{{ c.label }}</th>
@@ -944,11 +1224,11 @@ thead { display: table-header-group; }
                             </div>
                         {% endfor %}
                     {% else %}
-                        <div class="cv-error">No DX Units entered.</div>
+                        <div class="cv-error">No Equipment entered.</div>
                     {% endif %}
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {# Signature inside the content cell so it flows with the equipment
+                       cards — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -978,11 +1258,13 @@ thead { display: table-header-group; }
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DUCT LEAK IDENTIFICATION TEST" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1068,7 +1350,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1082,11 +1364,13 @@ thead { display: table-header-group; }
 
                     {# Title + cover header #}
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "REFRIGERANT LINE PRESSURE TESTING REPORT" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1179,7 +1463,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1195,11 +1479,13 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PUBLIC ADDRESSING SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1237,7 +1523,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1246,11 +1532,13 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT - PUBLIC ADDRESSING SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1304,7 +1592,7 @@ thead { display: table-header-group; }
                             </tr></thead>
                             <tbody>
                                 {% for row in ns_rows.list %}
-                                    <tr class="cv-tr-row">
+                                    <tr>
                                         <td style="text-align: center;">{{ loop.index }}</td>
                                         {% for c in (speakers_section.columns or []) %}
                                             {%- set v = row.get(c.key) if row is mapping else none -%}
@@ -1318,11 +1606,16 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
         {% elif tpl.templateId == "fa-commission-report" %}
+
+            <style>
+                /* FA-only: 20px checklist rows so ~10 rows + signature fit one page. */
+                .cv-chk th, .cv-chk td { height: 20px !important; padding: 1px 5px !important; }
+            </style>
 
             {%- set insert_after = (rd.responses or {}).get('loop_meta', {}).get('insert_after', '') -%}
             {%- set loop_rows_raw = (rd.responses or {}).get('loops', []) or [] -%}
@@ -1337,11 +1630,13 @@ thead { display: table-header-group; }
                 <tr><td class="cv-content-cell">
 
                     <table class="cv-table">
+                        <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                         <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT — FIRE ALARM SYSTEM" }}</td></tr>
                         {% if hdr_section %}
                             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                             {% for f in (hdr_section.fields or []) %}
                                 <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                             {% endfor %}
                         {% endif %}
                     </table>
@@ -1429,24 +1724,36 @@ thead { display: table-header-group; }
                         </table>
                     {% endif %}
 
-                </td></tr>
-                <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {# Signature inside the content cell so it flows with the checklist
+                       — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
 
         {% else %}
 
+            {% if (target.task_name or '') == "VESDA Commissioning Report" %}
+            <style>
+                /* VESDA-only: compress the checklist so it + signature fit one page. */
+                .cv-chk th { padding: 3px 8px !important; font-size: 14px !important; line-height: 1.15 !important; }
+                .cv-chk td { padding: 3px 8px !important; font-size: 12px !important; line-height: 1.15 !important; }
+                .cv-section-head { padding: 3px 8px !important; }
+                .cv-spacer-md { height: 10px !important; }
+            </style>
+            {% endif %}
+
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     {% if tpl.templateId == "demo-training-certificate" %}
                         <table class="cv-table">
+                            <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                             <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "DEMO & TRAINING CERTIFICATE" }}</td></tr>
                             {% if hdr_section %}
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                                 {% for f in (hdr_section.fields or []) %}
                                     <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                                 {% endfor %}
                             {% endif %}
                         </table>
@@ -1461,7 +1768,7 @@ thead { display: table-header-group; }
                                 {%- if ns_row.any -%}{%- set _ = ns_rows.list.append(row) -%}{%- endif -%}
                             {%- endfor -%}
                             <table class="cv-tr-table">
-                                <thead><tr><th style="width: 50px;">Sl No</th>{% for c in tr_cols %}<th>{{ c.label | upper }}</th>{% endfor %}<th class="cv-tr-sig">SIGNATURE</th></tr></thead>
+                                <thead><tr><th style="width: 54px; white-space: nowrap;">Sl No</th>{% for c in tr_cols %}<th>{{ c.label | upper }}</th>{% endfor %}<th class="cv-tr-sig">SIGNATURE</th></tr></thead>
                                 <tbody>
                                     {% for row in ns_rows.list %}
                                         <tr class="cv-tr-row">
@@ -1481,11 +1788,13 @@ thead { display: table-header-group; }
                         {% endif %}
                     {% else %}
                         <table class="cv-table">
+                            <colgroup><col style="width:20%;"/><col style="width:80%;"/></colgroup>
                             <tr><td class="cv-title" colspan="2">{{ (hdr_section.title if hdr_section else tpl.title) or "COMMISSIONING REPORT" }}</td></tr>
                             {% if hdr_section %}
                                 {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) -%}
                                 {% for f in (hdr_section.fields or []) %}
                                     <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- if f.unit %} {{ f.unit }}{% endif -%}{%- endif -%}</td></tr>
+                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                                 {% endfor %}
                             {% endif %}
                         </table>
@@ -1515,13 +1824,22 @@ thead { display: table-header-group; }
                             </table>
                         {% endif %}
                     {% endif %}
+                    {# VESDA: signature inside the content cell (flows with the checklist) to
+                       beat the wkhtmltopdf bottom-row forced break; others keep the row. #}
+                    {% if (target.task_name or '') == "VESDA Commissioning Report" %}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {% endif %}
                 </td></tr>
+                {% if (target.task_name or '') != "VESDA Commissioning Report" %}
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
+                {% endif %}
             </table>
 
         {% endif %}
+
+        {% endfor %}{# end per-unit (zone) loop #}
 
     {%- endif -%}
 {% endif %}

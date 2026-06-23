@@ -56,6 +56,11 @@ def get_payment_dashboard_stats():
         'total_ceo_approval_done_today_amount': 0.0,
         'total_ceo_approval_done_7_days': 0,
         'total_ceo_approval_done_7_days_amount': 0.0,
+        # Auto Approved (amount below threshold — skipped the L1 + CEO gates)
+        'total_auto_approval_today': 0,
+        'total_auto_approval_today_amount': 0.0,
+        'total_auto_approval_7_days': 0,
+        'total_auto_approval_7_days_amount': 0.0,
         # Paid
         'payment_done_today': 0,
         'payment_done_today_amount': 0.0,
@@ -78,7 +83,7 @@ def get_payment_dashboard_stats():
         # 1. Fetch ALL necessary documents
         all_payments = frappe.get_all(
             doctype,
-            fields=['name', 'status', 'amount', 'approval_date', 'ceo_approval_date', 'payment_date'],
+            fields=['name', 'status', 'amount', 'approval_date', 'ceo_approval_date', 'payment_date', 'auto_approved'],
             limit_page_length=None
         )
         
@@ -104,8 +109,10 @@ def get_payment_dashboard_stats():
                 stats['total_pending_payment_count'] += 1
                 stats['total_pending_payment_amount'] += amount
 
-            # --- 2b & 2c. APPROVED Check ---
-            if doc.approval_date:
+            # --- 2b & 2c. APPROVED Check (L1) ---
+            # Exclude auto-approved payments — they skipped the L1 gate and are
+            # reported under the dedicated Auto Approval metric instead.
+            if doc.approval_date and not doc.auto_approved:
                 approval_date = doc.approval_date
                 
                 # Compare as date objects
@@ -118,7 +125,8 @@ def get_payment_dashboard_stats():
                     stats['total_approval_done_7_days_amount'] += amount
 
             # --- 2c2. CEO APPROVED Check ---
-            if doc.ceo_approval_date:
+            # Exclude auto-approved payments — they skipped the CEO gate too.
+            if doc.ceo_approval_date and not doc.auto_approved:
                 ceo_approval_date = doc.ceo_approval_date
 
                 if ceo_approval_date == today_date:
@@ -128,6 +136,20 @@ def get_payment_dashboard_stats():
                 if ceo_approval_date >= seven_days_ago and ceo_approval_date <= today_date:
                     stats['total_ceo_approval_done_7_days'] += 1
                     stats['total_ceo_approval_done_7_days_amount'] += amount
+
+            # --- 2c3. AUTO APPROVED Check ---
+            # Small payments that auto-approved (skipped L1 + CEO). approval_date is
+            # stamped at creation for these, so it is the right window anchor.
+            if doc.auto_approved and doc.approval_date:
+                auto_approval_date = doc.approval_date
+
+                if auto_approval_date == today_date:
+                    stats['total_auto_approval_today'] += 1
+                    stats['total_auto_approval_today_amount'] += amount
+
+                if auto_approval_date >= seven_days_ago and auto_approval_date <= today_date:
+                    stats['total_auto_approval_7_days'] += 1
+                    stats['total_auto_approval_7_days_amount'] += amount
 
 
             # --- 2d & 2e. PAID Check ---

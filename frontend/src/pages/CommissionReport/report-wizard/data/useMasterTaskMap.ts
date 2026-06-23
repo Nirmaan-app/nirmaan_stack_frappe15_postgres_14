@@ -23,7 +23,7 @@ export const useMasterTaskMap = (): UseMasterTaskMapResult => {
     const { data, error, isLoading } = useFrappeGetDocList<CommissionTaskMaster>(
         COMMISSION_TASK_MASTER_DOCTYPE,
         {
-            fields: ['name', 'task_name', 'category_link', 'source_format', 'is_active'],
+            fields: ['name', 'task_name', 'category_link', 'source_format', 'is_active', 'deadline_offset'],
             limit: 0,
             orderBy: { field: 'creation', order: 'asc' },
         },
@@ -52,6 +52,10 @@ export const useMasterTaskMap = (): UseMasterTaskMapResult => {
                 hasTemplate,
                 isActive: m.is_active !== 0,
                 isLandscape,
+                deadlineOffset:
+                    m.deadline_offset === undefined || m.deadline_offset === null
+                        ? null
+                        : Number(m.deadline_offset),
             });
         }
         return { isLoading, map };

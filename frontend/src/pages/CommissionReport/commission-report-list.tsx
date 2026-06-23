@@ -105,14 +105,14 @@ export default function CommissionReportList() {
 
     // Task counts per status (across all trackers) for the Task Wise status tabs.
     const statusTaskCounts = useMemo(() => {
-        const acc: Record<string, number> = { All: 0, Pending: 0, "Pending Approval": 0, Approved: 0, Rejected: 0, Completed: 0 };
+        const acc: Record<string, number> = { All: 0, Pending: 0, "Pending Approval": 0, Submitted: 0, Rejected: 0, "Client Accepted": 0 };
         trackerDocsWithReport.forEach((doc: any) => {
             const sc = doc.status_counts || {};
             acc.Pending += sc.Pending || 0;
             acc["Pending Approval"] += sc["Pending Approval"] || 0;
-            acc.Approved += sc.Approved || 0;
+            acc.Submitted += sc.Submitted || 0;
             acc.Rejected += sc.Rejected || 0;
-            acc.Completed += sc.Completed || 0;
+            acc["Client Accepted"] += sc["Client Accepted"] || 0;
             acc.All += doc.total_tasks || 0;
         });
         return acc;
@@ -300,9 +300,9 @@ export default function CommissionReportList() {
                             { value: "All", label: "All Tasks", active: "bg-gray-800 text-white", inactive: "text-gray-700 border-gray-300 hover:bg-gray-100" },
                             { value: "Pending", label: "Pending", active: "bg-orange-500 text-white", inactive: "text-orange-700 border-orange-300 hover:bg-orange-50" },
                             { value: "Pending Approval", label: "Pending Approval", active: "bg-indigo-600 text-white", inactive: "text-indigo-700 border-indigo-300 hover:bg-indigo-50" },
-                            { value: "Approved", label: "Approved", active: "bg-teal-600 text-white", inactive: "text-teal-700 border-teal-300 hover:bg-teal-50" },
+                            { value: "Submitted", label: "Submitted", active: "bg-teal-600 text-white", inactive: "text-teal-700 border-teal-300 hover:bg-teal-50" },
                             { value: "Rejected", label: "Rejected", active: "bg-red-600 text-white", inactive: "text-red-700 border-red-300 hover:bg-red-50" },
-                            { value: "Completed", label: "Completed", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
+                            { value: "Client Accepted", label: "Client Accepted", active: "bg-green-600 text-white", inactive: "text-green-700 border-green-300 hover:bg-green-50" },
                         ] as const).map((tab) => (
                             <button
                                 key={tab.value}

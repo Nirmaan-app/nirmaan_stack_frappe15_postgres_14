@@ -4,5 +4,5 @@
 from frappe.model.document import Document
 
 
-class CommissionReportZone(Document):
-	pass
+class BOQUploadReviewAISettings(Document):
+    pass

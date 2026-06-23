@@ -110,6 +110,15 @@ export interface BoQSheetDraft {
    */
   parse_in_progress?: 0 | 1;
   /**
+   * AI-2c: 1 while this sheet is under an active AI pass (set at enqueue, cleared in the
+   * _publish_ai_event choke-point on completion). Mirror of parse_in_progress. The review
+   * screen reads this to disable "Run AI pass" + show the "AI pass running…" chip, and to
+   * recover an in-flight pass on mount. Flows automatically on useFrappeGetDoc("BOQs").
+   * NOTE: unlike parse_in_progress this does NOT make the screen read-only -- an AI pass
+   * only writes the ai_* suggestion fields, never human/parser data.
+   */
+  ai_in_progress?: 0 | 1;
+  /**
    * Per-sheet PARSE-failure stamp (Slice 1a, reactive #166). Ride the BOQs payload
    * (child-table fields on BoQ Sheet Draft) -- no separate fetch. category is one of the
    * three in-scope failures (matches the doctype Select); reason is the specific why;
@@ -186,6 +195,20 @@ export interface ParseRunDonePayload {
   failed_sheets?: string[];
   // error fields
   error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
+}
+
+/**
+ * Payload of the `boq:ai_pass_done` realtime event (AI-2c, ai_assist._publish_ai_event).
+ * User-targeted; room-targeted + not replayed -- a client that misses it recovers via
+ * get_ai_pass_status polling. Shape: {status, boq_name, sheet_name, **kwargs} where the
+ * success kwarg is `count` and the error kwarg is `error_code` ("ai_failed" | "internal").
+ */
+export interface AiPassDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  sheet_name: string;
+  count?: number;
+  error_code?: string;
 }
 
 export interface BOQsDoc {
@@ -341,6 +364,26 @@ export interface ReviewRow {
   // effective values (computed by resolve_effective on backend)
   effective_classification: string | null;
   effective_parent_index: number | null;
+  // AI suggestion layer (AI-1 / AI-2d). Written by the AI pass (run_ai_pass worker)
+  // + the accept/reject endpoint; never by the parser or human edit layer. Applied by
+  // resolve_effective ONLY when ai_suggestion_status === "Accepted" and no human override
+  // (the four-layer chain: human_is_root > human_parent > ai_suggested_is_root >
+  // ai_suggested_parent > parser). -1 sentinel on ai_suggested_parent = "no parent-index
+  // suggestion" (root is carried by ai_suggested_is_root, AI-2d). AI-3a surfaces these
+  // read-only (badges + status + tint); the accept/reject flow is AI-3b.
+  ai_suggested_classification?: string | null;
+  ai_classification_confidence?: "High" | "Medium" | "Low" | null;
+  ai_suggested_parent?: number | null;
+  ai_parent_confidence?: "High" | "Medium" | "Low" | null;
+  ai_suggested_is_root?: 0 | 1;
+  ai_suggested_level?: number | null;
+  ai_explanation?: string | null;
+  ai_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
+  // AI-3c-2b: true when an AI acceptance on this row can still be reverted (the backend
+  // captured a pre-accept snapshot on accept; cleared by a later classification/parent edit
+  // or by finalize). Computed by get_review_rows from ai_accept_snapshot; the raw blob is
+  // never shipped. Drives the Revert AI change button (enabled iff revert_available && !readOnly).
+  revert_available?: boolean;
 }
 
 /**
@@ -380,6 +423,213 @@ export interface GetReviewRowsResponse {
   work_packages: string[];
   column_descriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
+}
+
+/**
+ * A committed row as returned by get_priced_rows (Phase 5 pricing-overlay read) -- a
+ * ReviewRow with the overlay's PRICED MARKERS merged in. The overlay
+ * (pricing.py get_priced_rows) stamps the saved rate into rate_by_area[area][kind] / the
+ * scalar rate field IN PLACE (so the existing rate fields already carry the price), and
+ * ADDS these marker fields, driven by the pricing layer's is_filled flag -- NEVER a
+ * zero-check (a committed 0.0 rate can be a valid priced value). All optional: an absent
+ * marker => the cell is un-priced.
+ *
+ * Extends ReviewRow so the ReviewRow-typed reviewRender helpers (computeDepths,
+ * resolveDescriptorValue, ClassificationPill) accept a PricedRow without retyping.
+ */
+export interface PricedRow extends ReviewRow {
+  /** The PRICEABILITY axis (Slice 3e): "Preamble" / "Line Item" = priceable; "Other" =
+   *  non-priceable. Surfaced by get_priced_rows so the grid's per-row priceability gate
+   *  keys on the SAME field the server guard uses. Optional (an old/absent payload -> the
+   *  helper treats it as non-priceable). */
+  node_type?: "Preamble" | "Line Item" | "Other" | null;
+  /** Per-area priced markers: priced_by_area[areaName][rateKind] === true => that
+   *  per-area rate cell carries a saved price. (rateKind: supply_rate/install_rate/combined_rate.) */
+  priced_by_area?: Record<string, Record<string, boolean>> | null;
+  /** Scalar rate priced markers (one per scalar rate field). true => priced. */
+  priced_rate_supply?: boolean;
+  priced_rate_install?: boolean;
+  priced_rate_combined?: boolean;
+  /**
+   * Slice 4a: the current per-ROW remark merged by get_priced_rows (null/absent = none).
+   * A remark is annotation, NOT a price -- it never affects the priced markers.
+   */
+  remark?: string | null;
+  /**
+   * Slice 4a: the current per-CELL colors for this row, keyed by Excel col_letter
+   * (the value is a ColorToken). ABSENT (or missing key) => that cell has no color.
+   * A color is pure visual annotation rendered on a SEPARATE channel (a left border),
+   * never the emerald/amber priced background the system owns.
+   */
+  color_by_cell?: Record<string, string>;
+}
+
+/**
+ * The 8 stable color TOKENS for the per-cell highlight (Slice 4a). Stored as tokens
+ * (NOT hex) by BoQ Cell Color; the frontend maps token -> swatch / border class. MUST
+ * stay in sync with the Select options on the BoQ Cell Color doctype.
+ */
+export const COLOR_TOKENS = [
+  "red", "orange", "yellow", "green", "blue", "purple", "pink", "grey",
+] as const;
+export type ColorToken = (typeof COLOR_TOKENS)[number];
+
+/**
+ * Per-ROW remark save args the PricingGrid hands up to the page's onSaveRemark (Slice 4a).
+ * The grid supplies the row identity; the page fills boq_name / sheet_name /
+ * committed_version, then POSTs save_row_remark. A blank `remark` clears.
+ */
+export interface RemarkSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** the note text; "" clears the remark. */
+  remark: string;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
+/**
+ * Per-CELL color save args (Slice 4a). The grid hands up an ARRAY (one entry per cell --
+ * a single pick is one entry, an apply-to-row is N entries); the page POSTs each via
+ * save_cell_color then mutate()s once. A blank `color` clears that cell.
+ */
+export interface ColorSaveArgs {
+  /** row.source_row_number (the Excel row). */
+  excelRow: number;
+  /** the descriptor's col (Excel column letter). */
+  colLetter: string;
+  /** a ColorToken; "" clears the cell's color. */
+  color: string;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
+/**
+ * Single-editor pricing lock state (slice A backend: pricing_lock.read_lock_info).
+ * Present on get_priced_rows when the committed sheet+version is locked; `null` when free.
+ * A lock is acquired on the holder's FIRST save_cell_price and goes stale 5 min after the
+ * last edit. Slice B consumes this to gate the grid + show the holder's name.
+ */
+export interface LockInfo {
+  /** The holder's User id (email). */
+  locked_by_user: string;
+  /** The holder's display full name (server-resolved). */
+  locked_by_name: string;
+  /** True when the session user IS the holder. */
+  is_locked_by_me: boolean;
+  /** ISO datetime of the holder's last edit (drives staleness). */
+  last_edit_at: string | null;
+  /** True when now - last_edit_at > 5 min (the lock is acquirable by another user). */
+  is_stale: boolean;
+}
+
+// ── Amount-formula types (Formula Builder F1 storage / F2 evaluator) ───────────
+//
+// The wire shape of a stored amount formula (BoQ Cell Amount Formula). The frontend
+// deserializes a saved formula record / a get_priced_rows column_formulas entry straight
+// into these types -- the FIELD NAMES MATCH the backend doctype + token-tree shape exactly
+// (value_field/value_key/rate_subkey, op/operands/ref). The pure evaluator (amountFormula.ts,
+// F2) consumes these; the grid wiring (F4) produces the operand lookup + maps the result.
+
+/**
+ * One leaf operand reference in a formula token tree. Addresses a qty / rate / amount column
+ * the way ColumnDescriptor / resolveDescriptorValue do (value_field -> value_key -> rate_subkey).
+ * For a DEFAULT (area-wildcard) formula, an area-bound operand carries value_key === null
+ * ("bind to the area being computed"); for an OVERRIDE / scalar, value_key is concrete / null.
+ */
+export interface AmountFormulaRef {
+  value_field: string;
+  value_key: string | null;
+  rate_subkey: string | null;
+}
+
+/** An operator node: a product (`*`) or sum (`+`) of its (non-empty) operands. */
+export interface AmountFormulaOperatorNode {
+  op: "+" | "*";
+  operands: AmountFormulaNode[];
+}
+
+/** A leaf node: a single operand reference. */
+export interface AmountFormulaLeafNode {
+  ref: AmountFormulaRef;
+}
+
+/**
+ * One node of an amount-formula token tree. EITHER an operator node OR a leaf ref -- never a
+ * numeric literal (literals are barred). Brackets are implicit in the nesting (the tree IS the
+ * precedence).
+ */
+export type AmountFormulaNode = AmountFormulaOperatorNode | AmountFormulaLeafNode;
+
+/**
+ * One per-COLUMN amount formula, as delivered by get_priced_rows.column_formulas (and the
+ * standalone get_sheet_amount_formulas read). Identity = (target_value_field, target_value_key,
+ * target_rate_subkey). target_value_key === null = the area-WILDCARD logical-column DEFAULT (or
+ * a scalar column); a concrete area string = a PER-AREA OVERRIDE (the discriminator is the
+ * nullability -- no extra field). target_col is a re-resolve guard, not identity. `formula` is
+ * the parsed token tree (null only defensively -- a current record always carries one).
+ */
+export interface ColumnFormula {
+  target_value_field: string;
+  target_value_key: string | null;
+  target_rate_subkey: string | null;
+  target_col: string | null;
+  formula: AmountFormulaNode | null;
+}
+
+/**
+ * Per-COLUMN amount-formula save args the AmountFormulaBuilder (F3) hands up to the page's
+ * onSaveFormula (which POSTs save_amount_formula). The builder supplies the target column
+ * identity + the parsed tree; the page fills boq / sheet / committed_version. `targetValueKey`
+ * is the DEFAULT-vs-OVERRIDE discriminator: null = the area-wildcard default (or a scalar
+ * column); a concrete area = a per-area override. `formula` null = the CLEAR path (the F1
+ * blank-formula clear). targetCol / description are stored guards (not identity).
+ */
+export interface AmountFormulaSaveArgs {
+  targetValueField: string;
+  targetValueKey: string | null;
+  targetRateSubkey: string | null;
+  targetCol: string | null;
+  description?: string;
+  formula: AmountFormulaNode | null;
+}
+
+/**
+ * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
+ * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the single-editor
+ * lock fields (slice A): `editable` (precomputed gate -- false only when held fresh by
+ * another user) + `lock_info` (the holder details, or null when free); and the F1
+ * `column_formulas` (per-COLUMN amount formulas, never per-row).
+ */
+export interface GetPricedRowsResponse {
+  rows: PricedRow[];
+  column_descriptors: ColumnDescriptor[];
+  /** The committed commit_version these prices price (null when nothing is committed). */
+  commit_version: number | null;
+  /** Precomputed gate: true if FREE / locked-by-me / stale; false only when held fresh by another. */
+  editable: boolean;
+  /** The current lock holder details, or null when the sheet+version is free. */
+  lock_info: LockInfo | null;
+  /** F1: per-COLUMN amount formulas for this committed version ([] when none / uncommitted). */
+  column_formulas: ColumnFormula[];
+}
+
+/**
+ * Per-cell save args the PricingGrid hands up to the page's onSaveRate (Phase 5 Slice 3b).
+ * The grid supplies the cell IDENTITY (from the row + the rate descriptor); the page fills
+ * boq_name / sheet_name / committed_version + the typed rate, then POSTs save_cell_price.
+ */
+export interface RateCellSaveArgs {
+  /** row.source_row_number (the Excel row -- NOT row_index). */
+  excelRow: number;
+  /** the rate descriptor's col (Excel column letter). */
+  colLetter: string;
+  /** per-area: the descriptor's value_key (= area); scalar: omitted. */
+  area?: string;
+  /** descriptor rate_subkey verbatim (per-area) / derived token (scalar). Guard field, NOT key. */
+  rateKind: string;
+  /** row.description -- the copy-forward MATCH GUARD (always sent). */
+  description: string;
 }
 
 /**
@@ -485,11 +735,41 @@ export interface CommittedSheetState {
   sheet_name: string;
   committed_at: string | null;
   commit_version: number;
+  /**
+   * Workbook tab order (committed BoQ Sheet.sheet_order; Slice 3d). null when no
+   * current committed BoQ Sheet matches (defensive -- in practice every committed
+   * sheet carries one). Drives the in-editor sheet-tab strip order.
+   */
+  sheet_order: number | null;
+  /**
+   * The commit-time disposition discriminator (general-specs grid view): "grid_only"
+   * (a faithful grid, ZERO nodes -- general specs) or "grid_and_nodes" (a node-based
+   * priceable data sheet -- finalized). Drives the pricing editor's read-only
+   * faithful-grid fork for grid-only sheets.
+   */
+  sheet_disposition: "grid_only" | "grid_and_nodes";
 }
 
 /** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
 export interface GetCommittedStateResponse {
   committed_state: CommittedSheetState[];
+}
+
+/**
+ * Response shape of get_committed_sheet_grid (pricing.py) -- the FAITHFUL committed cell
+ * grid for one (boq, sheet, committed_version) + its column-config snapshot. Drives the
+ * pricing editor's READ-ONLY general-specs view via SheetDataGrid. Rows reuse
+ * SheetPreviewRow (the committed grid row shape). The config maps may be EMPTY ({} / [])
+ * for a general-specs sheet -- the grid rows are returned regardless (SheetDataGrid then
+ * falls back to raw Excel column letters).
+ */
+export interface CommittedSheetGridResponse {
+  rows: SheetPreviewRow[];
+  column_role_map: Record<string, ColumnRoleEntry>;
+  column_headers: Record<string, string>;
+  area_dimensions: string[];
+  header_row: number | null;
+  header_row_count: number;
 }
 
 // ── Stale-config signal (Slice 1b get_stale_sheets; consumed by F2) ────────────

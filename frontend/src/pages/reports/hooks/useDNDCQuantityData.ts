@@ -304,14 +304,22 @@ export function useDNDCQuantityData(projectId: string | null) {
 
       if (activeItems.length === 0) continue;
 
-      // 10. PO-level status
-      const matchedItems = activeItems.filter((i) => i.status === "matched").length;
-      const totalDNQty = activeItems.reduce((sum, i) => sum + i.dnQty, 0);
-      const totalDCQty = activeItems.reduce((sum, i) => sum + i.dcQty, 0);
+      // 10. PO-level rollup — Non-Billable items are out of scope for DN/DC
+      // reconciliation (a DC/MIR cannot be filed against them, and they show a
+      // disabled "Non-Billable" badge instead of a reconcile status). They stay
+      // visible as child rows but are EXCLUDED from the PO-level totals, item
+      // counts, and reconcile status — only billable items drive the rollup.
+      const billableItems = activeItems.filter(
+        (i) => i.billingStatus !== "Non-Billable"
+      );
 
-      const hasMismatch = activeItems.some((i) => i.status === "mismatch");
-      const hasNoDCUpdate = activeItems.some((i) => i.status === "no_dc_update");
-      const hasPendingDN = activeItems.some((i) => i.status === "pending_dn");
+      const matchedItems = billableItems.filter((i) => i.status === "matched").length;
+      const totalDNQty = billableItems.reduce((sum, i) => sum + i.dnQty, 0);
+      const totalDCQty = billableItems.reduce((sum, i) => sum + i.dcQty, 0);
+
+      const hasMismatch = billableItems.some((i) => i.status === "mismatch");
+      const hasNoDCUpdate = billableItems.some((i) => i.status === "no_dc_update");
+      const hasPendingDN = billableItems.some((i) => i.status === "pending_dn");
 
       let reconcileStatus: ReconcileStatus;
       if (hasMismatch) {
@@ -328,12 +336,12 @@ export function useDNDCQuantityData(projectId: string | null) {
         poNumber,
         vendorName: poEntry.vendorName,
         billingStatus: poBillingMap.get(poNumber) ?? "",
-        totalOrderedQty: activeItems.reduce((sum, i) => sum + i.orderedQty, 0),
+        totalOrderedQty: billableItems.reduce((sum, i) => sum + i.orderedQty, 0),
         totalDNQty,
         totalDCQty,
-        totalDifference: activeItems.reduce((sum, i) => sum + i.difference, 0),
+        totalDifference: billableItems.reduce((sum, i) => sum + i.difference, 0),
         itemsMatched: matchedItems,
-        itemsTotal: activeItems.length,
+        itemsTotal: billableItems.length,
         reconcileStatus,
         items: activeItems,
       });

@@ -23,7 +23,6 @@ import { CommissionReportTask } from "../types";
 import {
     formatDeadlineShort,
     getUnifiedStatusStyle,
-    parseDesignersFromField,
 } from "../utils";
 import { useUpdateCommissionTaskChild } from "../data/useCommissionMutations";
 
@@ -35,6 +34,8 @@ interface FlattenedTask extends CommissionReportTask {
     project_name: string;
     project: string;
     prjname: string;
+    /** Tracker start_date — surfaced by get_task_wise_list for deadline recompute. */
+    start_date?: string;
 }
 
 interface TaskWiseTableProps {
@@ -46,8 +47,6 @@ interface TaskWiseTableProps {
 
 const getTaskWiseColumns = (
     handleEditClick: (task: FlattenedTask) => void,
-    isDesignExecutive: boolean,
-    checkIfUserAssigned: (task: FlattenedTask) => boolean,
     masterMap: Map<string, MasterTaskInfo>,
     refresh: () => void
 ): ColumnDef<FlattenedTask>[] => {
@@ -65,13 +64,6 @@ const getTaskWiseColumns = (
             ),
             enableColumnFilter: true,
             meta: { exportHeaderName: "Project Name", exportValue: (row: FlattenedTask) => row.project_name || row.project || "" },
-        },
-        {
-            accessorKey: "task_zone",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Task Zone" />,
-            cell: ({ row }) => row.original.task_zone || "--",
-            enableColumnFilter: true,
-            meta: { exportHeaderName: "Task Zone" },
         },
         {
             accessorKey: "commission_category",
@@ -132,7 +124,7 @@ const getTaskWiseColumns = (
             id: "action",
             header: () => <div className="w-full text-center">Actions / Reports</div>,
             cell: ({ row }) => {
-                const canEdit = !isDesignExecutive || (isDesignExecutive && checkIfUserAssigned(row.original));
+                const canEdit = true;
                 return (
                     <ReportActionCell
                         parentName={row.original.prjname}
@@ -141,6 +133,7 @@ const getTaskWiseColumns = (
                         canEdit={canEdit}
                         refresh={refresh}
                         onConfigure={(t) => handleEditClick(t as FlattenedTask)}
+                        startDate={row.original.start_date}
                     />
                 );
             },
@@ -166,11 +159,6 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
     // update immediately after any status change (Fill/Submit/Upload/Resolve/N-A…).
     const refresh = useCallback(() => { refetchRef.current?.(); refetchList?.(); }, [refetchList]);
 
-    const checkIfUserAssigned = useCallback((task: FlattenedTask) => {
-        const designers = parseDesignersFromField(task.assigned_designers);
-        return designers.some((d) => d.userId === user_id);
-    }, [user_id]);
-
     const taskFacetFilterOptions = useMemo(() => ({
         project: {
             title: "Project",
@@ -188,9 +176,9 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
             options: [
                 { label: "Pending", value: "Pending" },
                 { label: "Pending Approval", value: "Pending Approval" },
-                { label: "Approved", value: "Approved" },
+                { label: "Submitted", value: "Submitted" },
                 { label: "Rejected", value: "Rejected" },
-                { label: "Completed", value: "Completed" },
+                { label: "Client Accepted", value: "Client Accepted" },
             ],
         },
         report_type: {
@@ -220,8 +208,8 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         apiEndpoint: "nirmaan_stack.api.commission_report.get_task_wise_list.get_task_wise_list",
         customParams: { user_id, is_design_executive: isDesignExecutive },
         columns: useMemo(
-            () => getTaskWiseColumns(setEditingTask, isDesignExecutive, checkIfUserAssigned, masterMap, refresh),
-            [isDesignExecutive, checkIfUserAssigned, masterMap, refresh]
+            () => getTaskWiseColumns(setEditingTask, masterMap, refresh),
+            [masterMap, refresh]
         ),
         fetchFields: [
             "name as prjname",
@@ -231,25 +219,20 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
             "name",
             "task_name",
             "commission_category",
-            "task_type",
             "deadline",
-            "assigned_designers",
             "task_status",
-            "task_sub_status",
             "report_type",
             "file_link",
             "approval_proof",
             "response_data",
             "comments",
             "modified",
-            "task_zone",
             "last_submitted",
         ],
         searchableFields: [
             { value: "task_name", label: "Task Name", default: true },
             { value: "project_name", label: "Project Name" },
             { value: "commission_category", label: "Category" },
-            { value: "task_zone", label: "Zone" },
         ],
         defaultSort: "deadline asc",
         urlSyncKey: "cr_task_wise",
@@ -282,12 +265,6 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         if (!editingTask) return;
 
         const fieldsToSend: { [key: string]: any } = { ...updatedFields };
-
-        if (Array.isArray(updatedFields.assigned_designers)) {
-            fieldsToSend.assigned_designers = JSON.stringify({
-                list: updatedFields.assigned_designers,
-            });
-        }
 
         try {
             await updateTaskChild(editingTask.name, fieldsToSend);
@@ -324,7 +301,6 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
                             { value: "task_name", label: "Task Name", default: true },
                             { value: "project_name", label: "Project Name" },
                             { value: "commission_category", label: "Category" },
-                            { value: "task_zone", label: "Zone" },
                         ]}
                         selectedSearchField={serverDataTable.selectedSearchField}
                         onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}

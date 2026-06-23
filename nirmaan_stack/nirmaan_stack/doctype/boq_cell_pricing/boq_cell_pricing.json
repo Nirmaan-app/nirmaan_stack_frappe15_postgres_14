@@ -1,0 +1,287 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BPRC-.YY.-.#####",
+ "creation": "2026-06-20 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "col_letter",
+  "committed_version",
+  "semantic_section",
+  "node",
+  "area",
+  "rate_kind",
+  "description",
+  "value_section",
+  "rate",
+  "is_filled",
+  "pricing_version_section",
+  "pricing_version",
+  "is_current",
+  "priced_at",
+  "is_finalized"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Cell Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this priced cell belongs to. Denormalized (mirrors BOQ Nodes / BoQ Committed Sheet Grid) so the layer is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable Excel-address identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number of the priced cell (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component.",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "The Excel column letter of the priced cell (e.g. 'E'). Derived from BoQ Sheet.column_role_map by (role, area) -> letter; NOT stored on the node, so persisted here. Durable identity component.",
+   "fieldname": "col_letter",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Column Letter",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet this price prices (BoQ Sheet / BOQ Nodes / grid share one commit_version per (boq, sheet)). Pricing is anchored to a committed version; identity component.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "semantic_section",
+   "fieldtype": "Section Break",
+   "label": "Semantic (re-resolvable / guards -- NOT identity)"
+  },
+  {
+   "description": "A SETTABLE per-version pointer to the committed BOQ Nodes row this cell prices (re-resolvable from the Excel address + committed version). A convenience reference, NOT part of the identity key (node names change on re-commit).",
+   "fieldname": "node",
+   "fieldtype": "Link",
+   "label": "Node",
+   "options": "BOQ Nodes"
+  },
+  {
+   "description": "The area name (BOQ Node Qty By Area.area_name) for a multi-area cell, else blank. Disambiguates which per-area rate column this cell is, alongside col_letter.",
+   "fieldname": "area",
+   "fieldtype": "Data",
+   "label": "Area"
+  },
+  {
+   "description": "The rate kind this cell carries: supply / install / combined (the column_role_map rate role's kind). Semantic, not part of the key (col_letter already pins the physical cell).",
+   "fieldname": "rate_kind",
+   "fieldtype": "Data",
+   "label": "Rate Kind"
+  },
+  {
+   "description": "A copy of the committed row's description at pricing time -- a copy-forward MATCH GUARD (later slices warn when the committed description changed under a price). NOT part of the unique key.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "value_section",
+   "fieldtype": "Section Break",
+   "label": "Value + Filled State"
+  },
+  {
+   "description": "The rate the user filled into this committed Excel cell.",
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate"
+  },
+  {
+   "default": "0",
+   "description": "The pricing layer's OWN filled-state. Committed node rates read 0.0 (Currency coerces unset -> 0.0), so the node cannot be null-checked for 'is this priced' -- this flag is the source of truth.",
+   "fieldname": "is_filled",
+   "fieldtype": "Check",
+   "label": "Is Filled"
+  },
+  {
+   "fieldname": "pricing_version_section",
+   "fieldtype": "Section Break",
+   "label": "Pricing Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name, excel_row, col_letter, committed_version) pricing version. Incremented on re-save by the pricing write path (freeze-and-supersede, mirroring the committed tier). Distinct from committed_version (the version of the data being priced).",
+   "fieldname": "pricing_version",
+   "fieldtype": "Int",
+   "label": "Pricing Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current pricing record per (boq, sheet_name, excel_row, col_letter, committed_version). The one-current invariant is enforced by the pricing write path (pricing.py), NOT in this controller (mirrors the committed-tier convention).",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this pricing record was written. Set by the pricing write path.",
+   "fieldname": "priced_at",
+   "fieldtype": "Datetime",
+   "label": "Priced At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The finalize-pricing lock for this committed version. When set, the pricing for this cell is finalized (a later finalize-pricing slice enforces the lock semantics; this slice only declares the marker).",
+   "fieldname": "is_finalized",
+   "fieldtype": "Check",
+   "label": "Is Finalized"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Cell Pricing",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

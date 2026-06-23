@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -105,84 +105,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RestructureModal } from "./RestructureModal";
+// Shared review-render helpers, extracted to ./reviewRender (Slice 2) for reuse by the
+// pricing grid. Byte-identical move -- behaviour unchanged. CLS_LABELS moved with the
+// pill (it depends on it) and is re-imported here for ReviewTree's own label usages.
+import {
+  computeDepths,
+  resolveDescriptorValue,
+  renderDescriptorCell,
+  ClassificationPill,
+  CLS_LABELS,
+} from "./reviewRender";
 
-// ── Depth computation (verbatim from B1) ──────────────────────────────────────
-//
-// Builds a Map<row_index, depth> for all rows. Root rows (effective_parent_index
-// null) get depth 0. Each child is one deeper than its parent.
-//
-// Algorithm: iterative chain-walk per row, memoized. For each row we walk up
-// through effective_parent_index until we hit null (root), a pre-computed depth,
-// or a cycle (visited set). Cycle members receive depth 0.
-//
-// Time: O(n) amortised -- each node is visited once via memoisation.
-
-// Exported for reuse by exportReviewCsv (Slice D2) -- single source of truth for
-// the effective depth shown in the tree. No behaviour change.
-export function computeDepths(rows: ReviewRow[]): Map<number, number> {
-  const byIdx = new Map<number, ReviewRow>(rows.map(r => [r.row_index, r]));
-  const depths = new Map<number, number>();
-
-  const depthOf = (startIdx: number): number => {
-    if (depths.has(startIdx)) return depths.get(startIdx)!;
-
-    // Build the upward chain from startIdx toward the root.
-    // chain[0] = startIdx, chain[1] = startIdx's parent, ..., chain[last] = root.
-    const chain: number[] = [];
-    const seen = new Set<number>();
-    let cur: number | null = startIdx;
-
-    while (cur !== null) {
-      if (depths.has(cur)) {
-        // We hit a node whose depth is already known.
-        // Fill the chain in reverse: chain is [startIdx, ..., childOfCur].
-        // childOfCur is depth(cur)+1, ..., startIdx is depth(cur)+chain.length.
-        let d = depths.get(cur)!;
-        for (let i = chain.length - 1; i >= 0; i--) {
-          d += 1;
-          depths.set(chain[i], d);
-        }
-        return depths.get(startIdx)!;
-      }
-      if (seen.has(cur)) {
-        // Cycle detected -- assign 0 to all chain members.
-        for (const c of chain) depths.set(c, 0);
-        return 0;
-      }
-      seen.add(cur);
-      chain.push(cur);
-      const row = byIdx.get(cur);
-      cur = row ? (row.effective_parent_index ?? null) : null;
-    }
-
-    // Reached root (cur === null).
-    // chain = [startIdx, ..., root]. root = chain[chain.length-1].
-    // root gets depth 0, startIdx gets depth chain.length-1.
-    for (let i = 0; i < chain.length; i++) {
-      depths.set(chain[i], chain.length - 1 - i);
-    }
-    return depths.get(startIdx)!;
-  };
-
-  for (const row of rows) depthOf(row.row_index);
-  return depths;
-}
-
-// ── Classification pill (B2b restyle) ────────────────────────────────────────
-// Soft per-type opaque fill -- rounded-full lozenge; left-border accent dropped.
-// Each entry: paired bg (light/dark) + text (light/dark) Tailwind classes.
-// Fully opaque (no /opacity suffix) so sticky-header and row backgrounds don't bleed.
-
-// Exported for reuse by exportReviewCsv (Slice D2) -- the CSV uses the same
-// human-readable classification labels the tree renders. No behaviour change.
-export const CLS_LABELS: Record<string, string> = {
-  preamble:        "Preamble",
-  line_item:       "Item",
-  note:            "Note",
-  spacer:          "Spacer",
-  subtotal_marker: "Subtotal",
-  header_repeat:   "Header",
-};
+// computeDepths + CLS_LABELS were extracted to ./reviewRender (Slice 2) and are
+// imported at the top. Behaviour unchanged.
 
 // A2 edit-log clarity (render-time): the stored edit_log `at` is a local
 // "YYYY-MM-DD HH:MM:SS.ffffff" string (review_screen.py frappe.utils.now()).
@@ -200,33 +135,9 @@ interface DescribedEditEntry {
   showField: boolean;
 }
 
-const CLS_PILL_CLASSES: Record<string, { bg: string; text: string }> = {
-  preamble:        { bg: "bg-gray-200 dark:bg-gray-700",       text: "text-gray-700 dark:text-gray-200" },
-  line_item:       { bg: "bg-blue-100 dark:bg-blue-900",       text: "text-blue-800 dark:text-blue-200" },
-  note:            { bg: "bg-amber-100 dark:bg-amber-900",     text: "text-amber-800 dark:text-amber-200" },
-  subtotal_marker: { bg: "bg-emerald-100 dark:bg-emerald-900", text: "text-emerald-800 dark:text-emerald-200" },
-  spacer:          { bg: "bg-gray-100 dark:bg-gray-800",       text: "text-gray-500 dark:text-gray-400" },
-  header_repeat:   { bg: "bg-slate-100 dark:bg-slate-800",     text: "text-slate-700 dark:text-slate-300" },
-};
-
-function ClassificationPill({ cls }: { cls: string | null }) {
-  if (!cls) return null;
-  const label = CLS_LABELS[cls] ?? cls;
-  const { bg, text } = CLS_PILL_CLASSES[cls] ?? { bg: "bg-slate-100 dark:bg-slate-800", text: "text-slate-700 dark:text-slate-300" };
-  return (
-    <span className={cn("rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap", bg, text)}>
-      {label}
-    </span>
-  );
-}
-
-// ── Number formatter (verbatim from B1) ───────────────────────────────────────
-
-function fmtNum(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "";
-  // Up to 2 decimal places, trailing zeros stripped.
-  return v % 1 === 0 ? String(v) : v.toFixed(2).replace(/\.?0+$/, "");
-}
+// ClassificationPill + CLS_PILL_CLASSES + fmtNum were extracted to ./reviewRender
+// (Slice 2). ClassificationPill is imported at the top; fmtNum is now module-private
+// to reviewRender (its only caller, renderDescriptorCell, moved too). Behaviour unchanged.
 
 // ── Area colour palette (local mirror of SheetDataGrid -- not exported there) ─
 
@@ -245,28 +156,8 @@ function buildAreaColorMap(areas: string[]): Record<string, string> {
   return map;
 }
 
-// ── Descriptor value resolution ───────────────────────────────────────────────
-
-// Exported for reuse by exportReviewCsv (Slice D2) -- the CSV resolves per-area /
-// singleton descriptor values via the exact same walk the tree uses. No behaviour change.
-export function resolveDescriptorValue(row: ReviewRow, d: ColumnDescriptor): unknown {
-  const top = (row as unknown as Record<string, unknown>)[d.value_field];
-  if (top === null || top === undefined) return undefined;
-  if (d.value_key === null) return top;
-  const dict = top as Record<string, unknown>;
-  if (!(d.value_key in dict)) return undefined;
-  const mid = dict[d.value_key];
-  if (mid === null || mid === undefined) return undefined;
-  if (d.rate_subkey === null) return mid;
-  return (mid as Record<string, unknown>)[d.rate_subkey];
-}
-
-// Absent-vs-zero rule: undefined/null -> blank; 0 -> "0"; numbers -> formatted.
-function renderDescriptorCell(val: unknown): string {
-  if (val === null || val === undefined) return "";
-  if (typeof val === "number") return fmtNum(val);
-  return String(val);
-}
+// resolveDescriptorValue + renderDescriptorCell were extracted to ./reviewRender
+// (Slice 2) and are imported at the top. Behaviour unchanged.
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -319,12 +210,79 @@ const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] a
 // targets). A filter reads all 6 existing states (incl. subtotal_marker / header_repeat).
 const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtotal_marker", "header_repeat"] as const;
 
-// §9 #159: Status filter option labels.
-const STATUS_FILTER_LABELS: Record<"all" | "edited" | "original", string> = {
+// §9 #159: Status filter option labels. AI-3a adds the third state "ai_accepted"
+// (an AI suggestion was Accepted -- distinct provenance from a plain human edit).
+type StatusFilter = "all" | "edited" | "original" | "ai_accepted";
+const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
   edited: "Edited",
   original: "Original",
+  ai_accepted: "AI Accepted",
 };
+
+// AI-3a: AI Rec column filter. "all" = no narrowing (show every row); "any" = rows with a
+// pending AI suggestion; "high"/"medium"/"low" = rows whose suggestion carries that
+// confidence in EITHER axis (a H+M row appears in both the High and Medium views).
+type AiFilter = "all" | "any" | "high" | "medium" | "low";
+const AI_FILTER_LABELS: Record<AiFilter, string> = {
+  all: "Show all rows",
+  any: "Any AI suggestion",
+  high: "Has High",
+  medium: "Has Medium",
+  low: "Has Low",
+};
+
+// AI-3a: a row's pending-suggestion shape, used by the AI Rec cell + the AI filter.
+// A suggestion only "counts" while ai_suggestion_status === "Pending" (Accepted/Rejected
+// are resolved -> no badge, no tint). Parent suggestion = a real parent index OR a root flag.
+interface AiSuggestionInfo {
+  pending: boolean;
+  hasClass: boolean;
+  hasParent: boolean;
+  classConf: "High" | "Medium" | "Low" | null;
+  parentConf: "High" | "Medium" | "Low" | null;
+}
+function aiSuggestionInfo(row: ReviewRow): AiSuggestionInfo {
+  const pending = row.ai_suggestion_status === "Pending";
+  const hasClass = pending && row.ai_suggested_classification != null;
+  const hasParent =
+    pending &&
+    ((row.ai_suggested_parent != null && row.ai_suggested_parent !== -1) ||
+      row.ai_suggested_is_root === 1);
+  return {
+    pending,
+    hasClass,
+    hasParent,
+    classConf: hasClass ? (row.ai_classification_confidence ?? null) : null,
+    parentConf: hasParent ? (row.ai_parent_confidence ?? null) : null,
+  };
+}
+// AI-3a: does a row carry a pending suggestion at the given confidence (either axis)?
+function aiHasConfidence(info: AiSuggestionInfo, level: "High" | "Medium" | "Low"): boolean {
+  return info.classConf === level || info.parentConf === level;
+}
+// AI-3a: confidence -> small-pill classes (mirror the Status/AI-Accepted pill idiom:
+// High=green, Medium=amber, Low=gray). Null confidence on a present suggestion -> gray dot.
+const AI_CONF_PILL: Record<"High" | "Medium" | "Low", string> = {
+  High: "bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200",
+  Medium: "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200",
+  Low: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300",
+};
+function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; title: string }) {
+  const label = conf ? conf[0] : "?"; // H / M / L (or ? when the model omitted confidence)
+  const cls = conf ? AI_CONF_PILL[conf] : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400";
+  return (
+    <span
+      title={title}
+      className={cn(
+        "rounded-full py-0.5 px-1.5 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+        cls,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
 
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
@@ -432,7 +390,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
 
   // Slice 1b-beta: restructure (reclassify + place children) surface.
   // restructureModal -> the heavy with-children modal; childlessConfirm -> the light path.
-  const [restructureModal, setRestructureModal] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
+  const [restructureModal, setRestructureModal] = useState<{
+    row: ReviewRow;
+    newClassification: string;
+    // AI-3b-2: when an accepted AI parent on a WITH-children row opens the modal, the
+    // parent is pre-applied (children-only mode) + the status flips on Save (cancel-safe).
+    presetRowParent?: number | null;
+    presetParentMessage?: string;
+    markAiAccepted?: boolean;
+  } | null>(null);
   const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
   // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
   const [restructureError, setRestructureError] = useState<string | null>(null);
@@ -475,6 +441,129 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       // getFrappeError decodes the real frappe.throw text from _server_messages
       // (the SDK's plain-object .message is a hardcoded generic). House pattern.
       setRestructureError(getFrappeError(e) || "Reclassify failed. Please try again.");
+    }
+  };
+
+  // AI-3b-1: per-field accept/reject of a PENDING AI suggestion (NON-MODAL scope --
+  // classification + CHILDLESS parent + reject). Checkbox state is seeded when the
+  // detail panel opens (see the seeding effect below); a parent change on a row WITH
+  // children is the AI-3b-2 (modal) path and is disabled here.
+  const [aiAcceptCls, setAiAcceptCls] = useState(false);
+  const [aiAcceptParent, setAiAcceptParent] = useState(false);
+  const [aiActionError, setAiActionError] = useState<string | null>(null);
+  const { call: acceptAiCall, loading: isAcceptingAi } = useFrappePostCall<{
+    message: { ok: boolean; edited_at: string | null };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.accept_ai_suggestion");
+  const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
+    message: { ok: boolean };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
+  // AI-3c-2b: revert an AI acceptance (restore the row + any children the accept moved to
+  // their pre-accept state, re-offer the suggestion as Pending). Returns no edited_at, so
+  // the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row re-renders
+  // Pending, the AI accept/reject block reappears, and the Revert button + AI Accepted tag go.
+  const { call: revertAiCall, loading: isRevertingAi } = useFrappePostCall<{
+    message: { ok: boolean; ai_suggestion_status: string; reverted_children: number[] };
+  }>("nirmaan_stack.api.boq.wizard.ai_assist.revert_ai_acceptance");
+
+  // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
+  // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
+  // AI-3b-2: a PARENT accept on a row WITH CHILDREN cannot apply directly (the children
+  // need disposition) -> open the children-only RestructureModal with the AI parent
+  // pre-applied + markAiAccepted (the status flips cancel-safely on the modal's Save).
+  // Otherwise (classification-only, or a CHILDLESS parent) the AI-3b-1 accept endpoint
+  // path runs unchanged.
+  const handleApplyAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    const ai = aiSuggestionInfo(row);
+    const clsIsChange = aiAcceptCls && ai.hasClass &&
+      row.ai_suggested_classification !== row.effective_classification;
+    const isRoot = row.ai_suggested_is_root === 1;
+    const parentIsChange = ai.hasParent && (
+      isRoot ? row.effective_parent_index !== null
+             : row.ai_suggested_parent !== row.effective_parent_index
+    );
+    const parentAccept = aiAcceptParent && parentIsChange;
+    // AI-3c-3: mirror the manual onPickClass rule -- ANY accepted change on a row WITH
+    // children opens the child-disposition RestructureModal (a classification change to a
+    // non-parent class, e.g. Preamble->note, would otherwise silently orphan the children
+    // under a now-non-parent row; check_structural_integrity does not catch note-as-parent).
+    // A classification-ONLY accept must NOT force a parent move: OMIT presetRowParent so the
+    // modal defaults to "keep" the row's own parent (exactly what manual reclassify does).
+    if (hasChildrenSet.has(row.row_index) && (clsIsChange || parentAccept)) {
+      const presetRowParent = parentAccept
+        ? (isRoot ? -1 : (row.ai_suggested_parent ?? -1))
+        : undefined;
+      const parentLabel = isRoot
+        ? "Top level (root)"
+        : (() => {
+            const src = presetRowParent !== undefined
+              ? byIdx.get(presetRowParent)?.source_row_number
+              : undefined;
+            return src !== undefined ? `row ${src}` : `#${presetRowParent}`;
+          })();
+      setRestructureModal({
+        row,
+        // Fold an accepted classification change into the SAME restructure call; else a
+        // no-op reclassify (current effective class) -- exactly the #162 door's pattern.
+        newClassification: clsIsChange
+          ? (row.ai_suggested_classification as string)
+          : (row.effective_classification as string),
+        // Parent move only when a parent change is being accepted; omitted otherwise
+        // (-> modal keeps the row's own parent, child-disposition only).
+        ...(presetRowParent !== undefined
+          ? {
+              presetRowParent,
+              presetParentMessage: `Parent set to ${parentLabel} per AI suggestion — choose what happens to this row's children below.`,
+            }
+          : {}),
+        markAiAccepted: true,
+      });
+      return;
+    }
+    try {
+      const res = await acceptAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+        accept_classification: aiAcceptCls,
+        accept_parent: aiAcceptParent,
+      });
+      onSaved?.(res.message.edited_at ?? "");
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not apply the AI suggestion.");
+    }
+  };
+
+  // Reject: status-only (not a data edit) -> mutate-only refresh via onRemarkSaved
+  // (no edited_at to thread; the row stays "Original", the badge + tint clear).
+  const handleRejectAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    try {
+      await rejectAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not reject the AI suggestion.");
+    }
+  };
+
+  // AI-3c-2b: revert a prior AI acceptance -> the backend restores the row + moved children
+  // to their pre-accept state and flips ai_suggestion_status back to Pending. mutate-only
+  // refresh (no edited_at; the re-fetch re-renders the row Pending so the button disappears).
+  const handleRevertAi = async (row: ReviewRow) => {
+    setAiActionError(null);
+    try {
+      await revertAiCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+      });
+      onRemarkSaved?.();
+    } catch (e: unknown) {
+      setAiActionError(getFrappeError(e) || "Could not revert the AI change.");
     }
   };
 
@@ -611,7 +700,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // classFilter: SHOW-set seeded with all 6 CLS_LABELS values; size === 6 => no narrowing,
   //   unchecking a type hides it (effective_classification membership). Empty set => show none.
   // searchQuery/searchCurrentIdx: description substring search + the cycling hit pointer.
-  const [statusFilter, setStatusFilter] = useState<"all" | "edited" | "original">("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  // AI-3a: AI Rec column filter (default "all" = no narrowing).
+  const [aiFilter, setAiFilter] = useState<AiFilter>("all");
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
@@ -818,6 +909,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
       setRemarkInput("");
       setSaveError(null);
       setRemarkError(null);
+      setAiAcceptCls(false);
+      setAiAcceptParent(false);
+      setAiActionError(null);
       return;
     }
     const r = byIdx.get(expandedDetailRow);
@@ -852,7 +946,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     setRemarkInput(r.remarks ?? "");
     setSaveError(null);
     setRemarkError(null);
-  }, [expandedDetailRow, byIdx, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
+    // AI-3b-1: seed the accept checkboxes -- default checked when the AI suggests a REAL
+    // change (different from the current effective value). A parent change on a row WITH
+    // children is the AI-3b-2 path -> not auto-checked here (the checkbox is disabled).
+    const ai = aiSuggestionInfo(r);
+    const clsIsChange = ai.hasClass && r.ai_suggested_classification !== r.effective_classification;
+    const parentIsChange = ai.hasParent && (
+      r.ai_suggested_is_root === 1
+        ? r.effective_parent_index !== null
+        : r.ai_suggested_parent !== r.effective_parent_index
+    );
+    setAiAcceptCls(clsIsChange);
+    // AI-3b-2: default-check a real parent change even on a with-children row (Apply then
+    // routes through the children-only modal). The seed comment below still notes the route.
+    setAiAcceptParent(parentIsChange);
+    setAiActionError(null);
+  }, [expandedDetailRow, byIdx, hasChildrenSet, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -919,10 +1028,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const allClassesShown = classFilter.size === CLASS_FILTER_VALUES.length;
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
+  const aiFilterActive = aiFilter !== "all";
   const passesFilter = (row: ReviewRow): boolean => {
-    // Status predicate -- the isEdited expression (mirrors the inline at the render row;
-    // a remark-only row is Original since save_review_remark never stamps edited_at/edit_log).
-    if (statusFilter !== "all") {
+    // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
+    // use the isEdited expression (mirrors the inline at the render row; a remark-only row
+    // is Original since save_review_remark never stamps edited_at/edit_log).
+    if (statusFilter === "ai_accepted") {
+      if (row.ai_suggestion_status !== "Accepted") return false;
+    } else if (statusFilter !== "all") {
       const edited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
       if (statusFilter === "edited" ? !edited : edited) return false;
     }
@@ -930,6 +1043,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     if (!allClassesShown) {
       const cls = row.effective_classification;
       if (cls === null || !classFilter.has(cls)) return false;
+    }
+    // AI-3a: AI Rec predicate. "any" = a pending suggestion exists; high/medium/low = a
+    // pending suggestion at that confidence in either axis. "all" = no narrowing.
+    if (aiFilter !== "all") {
+      const info = aiSuggestionInfo(row);
+      if (aiFilter === "any") {
+        if (!(info.hasClass || info.hasParent)) return false;
+      } else {
+        const level = aiFilter === "high" ? "High" : aiFilter === "medium" ? "Medium" : "Low";
+        if (!aiHasConfidence(info, level)) return false;
+      }
     }
     return true;
   };
@@ -950,7 +1074,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchQuery, statusFilter, classFilter, showSpacers, showNotes, showSubtotals]);
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, showSpacers, showNotes, showSubtotals]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -1183,7 +1307,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
                       <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
                       <div className="space-y-0.5">
-                        {(["all", "edited", "original"] as const).map(opt => (
+                        {(["all", "edited", "original", "ai_accepted"] as const).map(opt => (
                           <button
                             key={opt}
                             type="button"
@@ -1196,6 +1320,51 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             )}
                           >
                             {STATUS_FILTER_LABELS[opt]}
+                          </button>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </th>
+              {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
+                  Popover mirrors the Status/Classification filter pattern. */}
+              <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                <div className="flex items-center gap-1">
+                  <span>AI Rec</span>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={cn(
+                          "inline-flex items-center justify-center h-4 w-4 rounded transition-colors",
+                          aiFilterActive
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-muted-foreground/60 hover:text-foreground",
+                        )}
+                        aria-label="Filter by AI suggestion"
+                        title="Filter by AI suggestion"
+                      >
+                        <Filter className="h-3 w-3" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                      <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">AI suggestion</p>
+                      <div className="space-y-0.5">
+                        {(["all", "any", "high", "medium", "low"] as const).map(opt => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setAiFilter(opt)}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors",
+                              aiFilter === opt
+                                ? "bg-muted font-medium text-foreground"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                            )}
+                          >
+                            {AI_FILTER_LABELS[opt]}
                           </button>
                         ))}
                       </div>
@@ -1324,12 +1493,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
               const remarkMarkerShown = hasRemark;
-              // B2c: colSpan for flag-reasons + detail panel rows -- 7 fixed anchors (incl. expander, Status).
-              // append-to-notes-as-columns: +1 when the combined "Append Notes" column is shown.
+              // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
+              // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
+              // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 7 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              const totalCols = 8 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
+              // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
+              const aiInfo = aiSuggestionInfo(row);
+              const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
 
               // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
               const origParentLabel = (() => {
@@ -1369,6 +1542,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     className={cn(
                       "border-b border-border hover:bg-muted/30 transition-colors",
                       isPreamble && "bg-muted/20",
+                      // AI-3a: subtle indigo tint for a row carrying a PENDING AI suggestion.
+                      // Placed BEFORE the edited-green tint so an edited row stays green
+                      // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
+                      // so the scroll-highlight still wins on flash (existing tint ordering).
+                      hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
                       isEdited && "bg-green-50 dark:bg-green-950/30",
                       // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
@@ -1400,9 +1578,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                       {row.source_row_number}
                     </td>
 
-                    {/* Status (B2c): edit-provenance badge -- not frozen-left */}
+                    {/* Status (B2c): edit-provenance badge -- not frozen-left.
+                        AI-3a: "AI Accepted" (indigo) takes precedence over Edited -- an
+                        accepted suggestion writes to human_* (AI-3b) and would otherwise
+                        read "Edited", erasing the AI provenance. */}
                     <td className="px-2 py-1.5 align-top w-20 border-r border-border">
-                      {isEdited ? (
+                      {row.ai_suggestion_status === "Accepted" ? (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
+                          AI Accepted
+                        </span>
+                      ) : isEdited ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                           Edited
                         </span>
@@ -1411,6 +1596,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                           Original
                         </span>
                       )}
+                    </td>
+
+                    {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
+                        classification + parent each get one (H/M/L); both -> two side by
+                        side; none / resolved -> blank. */}
+                    <td className="px-2 py-1.5 align-top w-20 border-r border-border">
+                      {(aiInfo.hasClass || aiInfo.hasParent) ? (
+                        <div className="flex items-center gap-1">
+                          {aiInfo.hasClass && (
+                            <AiConfBadge
+                              conf={aiInfo.classConf}
+                              title={`AI suggests classification: ${row.ai_suggested_classification ?? "?"}${aiInfo.classConf ? ` (${aiInfo.classConf})` : ""}`}
+                            />
+                          )}
+                          {aiInfo.hasParent && (
+                            <AiConfBadge
+                              conf={aiInfo.parentConf}
+                              title={
+                                row.ai_suggested_is_root === 1
+                                  ? `AI suggests making this a top-level root${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                                  : `AI suggests a new parent${aiInfo.parentConf ? ` (${aiInfo.parentConf})` : ""}`
+                              }
+                            />
+                          )}
+                        </div>
+                      ) : null}
                     </td>
 
                     {/* Sl.No */}
@@ -1687,6 +1898,144 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               )}
                             </div>
                           </div>
+                          {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
+                              Shown only when the row carries a pending suggestion + not readOnly.
+                              Classification + parent each get a checkbox + confidence badge +
+                              suggested value; one explanation line; Apply + Reject. AI-3b-2: a
+                              parent accept on a row WITH children is allowed -- Apply opens the
+                              children-only RestructureModal (handleApplyAi) instead of the accept
+                              endpoint; the status flips cancel-safely on the modal's Save. */}
+                          {!readOnly && (() => {
+                            const ai = aiSuggestionInfo(row);
+                            if (!(ai.hasClass || ai.hasParent)) return null;
+                            const clsIsChange = ai.hasClass &&
+                              row.ai_suggested_classification !== row.effective_classification;
+                            const parentIsChange = ai.hasParent && (
+                              row.ai_suggested_is_root === 1
+                                ? row.effective_parent_index !== null
+                                : row.ai_suggested_parent !== row.effective_parent_index
+                            );
+                            // AI-3b-2: a parent accept on a with-children row routes through the
+                            // modal (child disposition) rather than applying directly.
+                            const parentOpensModal = parentIsChange && hasChildrenSet.has(row.row_index);
+                            const suggestedParentLabel = row.ai_suggested_is_root === 1
+                              ? "Top level (root)"
+                              : (() => {
+                                  const p = row.ai_suggested_parent;
+                                  if (p === null || p === undefined || p < 0) return "—";
+                                  const src = byIdx.get(p)?.source_row_number;
+                                  return src !== undefined ? `row ${src}` : `#${p}`;
+                                })();
+                            const canApply =
+                              (aiAcceptCls && ai.hasClass && clsIsChange) ||
+                              (aiAcceptParent && ai.hasParent && parentIsChange);
+                            return (
+                              <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                                <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
+                                  <Sparkles className="h-3 w-3" /> AI suggestion
+                                </p>
+                                {ai.hasClass && (
+                                  <label className={cn(
+                                    "flex items-center gap-2 text-xs mb-1",
+                                    clsIsChange ? "cursor-pointer" : "cursor-not-allowed",
+                                  )}>
+                                    <Checkbox
+                                      checked={aiAcceptCls}
+                                      disabled={!clsIsChange}
+                                      onCheckedChange={(c) => setAiAcceptCls(!!c)}
+                                    />
+                                    <AiConfBadge conf={row.ai_classification_confidence ?? null} title="AI classification confidence" />
+                                    <span>
+                                      Classification &rarr;{" "}
+                                      <span className="font-medium">{CLS_LABELS[row.ai_suggested_classification ?? ""] ?? row.ai_suggested_classification}</span>
+                                      {!clsIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                    </span>
+                                  </label>
+                                )}
+                                {ai.hasParent && (
+                                  <label
+                                    className={cn(
+                                      "flex items-center gap-2 text-xs mb-1",
+                                      parentIsChange ? "cursor-pointer" : "cursor-not-allowed",
+                                    )}
+                                    title={parentOpensModal
+                                      ? "This row has children — applying opens the restructure step to choose where the children go."
+                                      : undefined}
+                                  >
+                                    <Checkbox
+                                      checked={aiAcceptParent}
+                                      disabled={!parentIsChange}
+                                      onCheckedChange={(c) => setAiAcceptParent(!!c)}
+                                    />
+                                    <AiConfBadge conf={row.ai_parent_confidence ?? null} title="AI parent confidence" />
+                                    <span>
+                                      Parent &rarr; <span className="font-medium">{suggestedParentLabel}</span>
+                                      {!parentIsChange && <span className="text-muted-foreground italic"> (no change)</span>}
+                                      {parentOpensModal && (
+                                        <span className="text-muted-foreground italic"> (opens restructure)</span>
+                                      )}
+                                    </span>
+                                  </label>
+                                )}
+                                {row.ai_explanation && (
+                                  <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
+                                )}
+                                {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={!canApply || isAcceptingAi || isRejectingAi}
+                                    onClick={() => { void handleApplyAi(row); }}
+                                  >
+                                    {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={isAcceptingAi || isRejectingAi}
+                                    onClick={() => { void handleRejectAi(row); }}
+                                  >
+                                    {isRejectingAi ? "Rejecting…" : "Reject"}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {/* AI-3c-2b: Revert AI change. Shown for an Accepted row (the PENDING
+                              accept/reject block above is gone once Accepted). ENABLED iff the
+                              backend still holds a pre-accept snapshot (revert_available) AND the
+                              sheet is editable; greyed with a reason otherwise -- a later
+                              classification/parent edit cleared the snapshot (revert_available
+                              false), or the sheet is finalized (readOnly). handleRevertAi ->
+                              onRemarkSaved (mutate-only re-fetch -> the row re-renders Pending,
+                              the accept/reject block reappears, this button disappears). */}
+                          {row.ai_suggestion_status === "Accepted" && (
+                            <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={!row.revert_available || readOnly || isRevertingAi}
+                                  onClick={() => { void handleRevertAi(row); }}
+                                >
+                                  {isRevertingAi ? "Reverting…" : "Revert AI change"}
+                                </Button>
+                                {readOnly ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    Sheet is finalized — revert unavailable.
+                                  </span>
+                                ) : !row.revert_available ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    Revert no longer available — the row was edited after the AI change.
+                                  </span>
+                                ) : null}
+                              </div>
+                              {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
+                            </div>
+                          )}
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
                               commits via an explicit Apply button that opens the confirm dialog.
@@ -2111,6 +2460,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           row={restructureModal.row}
           newClassification={restructureModal.newClassification}
           rows={rows}
+          presetRowParent={restructureModal.presetRowParent}
+          presetParentMessage={restructureModal.presetParentMessage}
+          markAiAccepted={restructureModal.markAiAccepted}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}

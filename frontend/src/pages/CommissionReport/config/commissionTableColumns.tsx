@@ -161,14 +161,14 @@ const dateFilterFn = (row: any, columnId: string, filterValue: DateFilterValue) 
 // Column definitions factory
 export const getTaskTableColumns = (
     handleEditClick: (task: CommissionReportTask) => void,
-    isRestrictedUser: boolean,
-    checkIfUserAssigned: (task: CommissionReportTask) => boolean,
     /** Required for the "Report" column. Pass empty Map() to hide it. */
     masterMap: Map<string, MasterTaskInfo> = new Map(),
     /** Required for the "Report" column. */
     parentName: string = '',
     /** Refresh the tracker doc after a Report-column status/file mutation. */
     refresh?: () => void,
+    /** Tracker start_date — base for recomputing a deadline on re-activation. */
+    startDate: string = '',
 ): ColumnDef<CommissionReportTask>[] => {
     return [
         {
@@ -280,8 +280,7 @@ export const getTaskTableColumns = (
                 </div>
             ),
             cell: ({ row }: { row: any }) => {
-                const canEdit = !isRestrictedUser ||
-                    (isRestrictedUser && checkIfUserAssigned(row.original));
+                const canEdit = true;
                 return (
                     <ReportActionCell
                         parentName={parentName}
@@ -290,6 +289,7 @@ export const getTaskTableColumns = (
                         canEdit={canEdit}
                         refresh={refresh}
                         onConfigure={handleEditClick}
+                        startDate={startDate}
                     />
                 );
             },

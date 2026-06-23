@@ -36,6 +36,10 @@ interface Props {
     templateId?: string;
     forceReadonly?: boolean;
     onAttachmentCreated?: (fileDoc: string) => void;
+    /** RHF path root for this section's rows + its header-driven seeding watch.
+     *  Defaults to "responses" (non-zone). Zone-wise passes "zones.<i>.responses"
+     *  so each zone's trainee/data rows + per-row image cells are isolated. */
+    pathRoot?: string;
 }
 
 const EARTH_PIT_TEMPLATE_ID = 'earth-pit-resistance-report';
@@ -402,11 +406,18 @@ export const TraineesDataTableSection: React.FC<Props> = ({
     templateId,
     forceReadonly,
     onAttachmentCreated,
+    pathRoot = 'responses',
 }) => {
     void _parentName;
     const { control, getValues } = useFormContext();
-    const fieldName = `responses.${section.id}`;
+    const fieldName = `${pathRoot}.${section.id}`;
     const { fields, append, remove } = useFieldArray({ control, name: fieldName });
+    // The Earth Pit header watch is authored as an absolute "responses.hdr.*"
+    // path; re-root it onto this zone so per-zone seeding reads the right header.
+    const earthPitHeaderPath =
+        pathRoot === 'responses'
+            ? EARTH_PIT_HEADER_FIELD_PATH
+            : EARTH_PIT_HEADER_FIELD_PATH.replace(/^responses\./, `${pathRoot}.`);
 
     const minRows = Math.max(1, section.minRows ?? 1);
     const maxRows = section.maxRows ?? 100;
@@ -513,7 +524,7 @@ export const TraineesDataTableSection: React.FC<Props> = ({
         templateId === EARTH_PIT_TEMPLATE_ID && section.id === EARTH_PIT_PARAMETERS_SECTION_ID;
     const numEarthPitsRaw = useWatch({
         control,
-        name: EARTH_PIT_HEADER_FIELD_PATH,
+        name: earthPitHeaderPath,
     }) as unknown;
     const numEarthPits = useMemo(() => {
         if (!earthPitSeedEnabled) return null;

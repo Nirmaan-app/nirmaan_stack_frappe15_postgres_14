@@ -30,7 +30,12 @@ dependencies = [
     # removed X509Extension entirely, fixing the import. This floor overrides
     # Frappe's pin (pip emits a benign conflict warning). Remove once Frappe
     # relaxes its pyOpenSSL constraint to allow >=26.2.0.
-    "pyOpenSSL>=26.2.0"
+    "pyOpenSSL>=26.2.0",
+    # Anthropic Claude SDK -- the BoQ review AI pass (Phase 4, services/boq_ai_assist.py).
+    # Floor pinned to the resolved 0.111.0 (current 0.x) so an older client API can't be
+    # selected; capped below 1.0 until the 1.x API is reviewed. Pulls httpx/anyio/jiter;
+    # no conflict with Frappe's pins (anthropic does not depend on google-auth).
+    "anthropic>=0.111.0,<1.0"
 ]
 
 [build-system]
