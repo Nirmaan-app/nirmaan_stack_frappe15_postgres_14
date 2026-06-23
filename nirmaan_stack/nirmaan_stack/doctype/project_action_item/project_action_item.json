@@ -1,0 +1,241 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "PAI-.YYYY.-.#####",
+ "creation": "2026-06-22 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "project",
+  "action_type",
+  "reference_doctype",
+  "reference_name",
+  "status_section",
+  "status",
+  "assigned_role",
+  "dedup_key",
+  "display_section",
+  "title",
+  "action_url",
+  "lifecycle_section",
+  "first_opened_at",
+  "last_opened_at",
+  "resolved_at",
+  "source"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The project this action item belongs to.",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The obligation kind. Enum grows in later phases.",
+   "fieldname": "action_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action Type",
+   "options": "DN_PENDING\nDC_PENDING",
+   "reqd": 1
+  },
+  {
+   "description": "v1 always 'Procurement Orders' (future-proofs ITM).",
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Doctype",
+   "options": "DocType"
+  },
+  {
+   "description": "The source document name (e.g. the PO docname). May reference a since-deleted doc on a Resolved row; readers must tolerate that.",
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nResolved"
+  },
+  {
+   "description": "v1 = 'Nirmaan Project Manager Profile' (the role_profile field value, NOT the Frappe Role). Display label only in v1.",
+   "fieldname": "assigned_role",
+   "fieldtype": "Data",
+   "label": "Assigned Role"
+  },
+  {
+   "description": "Unique idempotency key: '{project}::{reference_name}::{action_type}'. Backs the unique index that makes the reconciler concurrency-safe.",
+   "fieldname": "dedup_key",
+   "fieldtype": "Data",
+   "label": "Dedup Key",
+   "unique": 1
+  },
+  {
+   "fieldname": "display_section",
+   "fieldtype": "Section Break",
+   "label": "Display"
+  },
+  {
+   "description": "Denormalized display string, e.g. 'Record Delivery Note -- PO/123'.",
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title"
+  },
+  {
+   "description": "Deep-link to the project page tab or source-doc detail.",
+   "fieldname": "action_url",
+   "fieldtype": "Data",
+   "label": "Action URL"
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "description": "Set on create; never overwritten.",
+   "fieldname": "first_opened_at",
+   "fieldtype": "Datetime",
+   "label": "First Opened At",
+   "read_only": 1
+  },
+  {
+   "description": "Set on each open/re-open (drives aging).",
+   "fieldname": "last_opened_at",
+   "fieldtype": "Datetime",
+   "label": "Last Opened At",
+   "read_only": 1
+  },
+  {
+   "description": "Set on resolve; cleared on re-open.",
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "default": "reconcile",
+   "description": "Audit origin of this row. v1 = 'reconcile'; future: 'manual'.",
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Action Item",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Admin Profile",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
