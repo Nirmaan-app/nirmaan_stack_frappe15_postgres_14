@@ -30,6 +30,7 @@ import formatToIndianRupee, {
 } from "@/utils/FormatPrice";
 import { HistoricalQuotesHoverCard } from "../../VendorQuotesSelection/components/HistoricalQuotesHoverCard";
 import { parseNumber } from "@/utils/parseNumber";
+import { isHighLoss } from "@/utils/lossPercent";
 import { VendorPaymentTerm } from "../../VendorQuotesSelection/types/paymentTerms";
 import { VendorAttachmentForPR } from "@/components/common/VendorAttachmentForPR";
 
@@ -330,6 +331,8 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                         const isItemSelected =
                           selection.get(vendorId)?.has(item.name!) ?? false;
                         const itemSavingLoss = item.savingLoss || 0;
+                        const lossPct = item.lossPercent || 0;
+                        const highLoss = isHighLoss(item.lossPercent);
                         const quote = parseNumber(item.quote);
                         const quantity = parseNumber(item.quantity);
                         const taxRate = parseNumber(item.tax) / 100;
@@ -357,6 +360,22 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                 <span className="ml-1 text-red-700 font-light text-xs">
                                   ({item.make})
                                 </span>
+                              )}
+                              {highLoss && (
+                                <div className="mt-1 text-xs font-normal">
+                                  <span className="text-red-600 font-medium">
+                                    Reason:
+                                  </span>{" "}
+                                  {(item.loss_justification || "").trim() ? (
+                                    <span className="text-gray-700">
+                                      {item.loss_justification}
+                                    </span>
+                                  ) : (
+                                    <span className="text-red-500 italic">
+                                      missing
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </TableCell>
                             <TableCell className="text-center">
@@ -416,6 +435,11 @@ export const VendorApprovalTable: React.FC<VendorApprovalTableProps> = ({
                                 : itemSavingLoss < 0
                                   ? " (L)"
                                   : ""}
+                              {highLoss && (
+                                <div className="text-xs font-normal text-red-600">
+                                  {lossPct.toFixed(1)}%
+                                </div>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               {formatToIndianRupee(itemTotalInclGst)}
