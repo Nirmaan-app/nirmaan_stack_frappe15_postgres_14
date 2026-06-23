@@ -19,7 +19,8 @@
   "comment",
   "vendor",
   "quote",
-  "billing_status"
+  "billing_status",
+  "loss_justification"
  ],
  "fields": [
   {
@@ -113,6 +114,11 @@
    "in_list_view": 1,
    "label": "Billing Status",
    "options": "Billable\nNon-Billable"
+  },
+  {
+   "fieldname": "loss_justification",
+   "fieldtype": "Small Text",
+   "label": "Loss Justification"
   }
  ],
  "grid_page_length": 50,

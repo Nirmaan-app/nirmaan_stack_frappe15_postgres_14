@@ -228,6 +228,17 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                             value={selectedCategory}
                             options={catOptions}
                             onChange={(selectedOption) => setSelectedCategory(selectedOption)}
+                            formatOptionLabel={(option: CategoryOption) => {
+                                const pkg = resolveWorkPackage(option.value);
+                                return (
+                                    <span>
+                                        {option.label}
+                                        {pkg && (
+                                            <span className="text-blue-600"> ({pkg})</span>
+                                        )}
+                                    </span>
+                                );
+                            }}
                             isClearable
                         />
                         {isNewItemsDisabled && (

@@ -18,6 +18,7 @@ import formatToIndianRupee, {
   formatToRoundedIndianRupee,
 } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
+import { computeLossPercent, isHighLoss } from "@/utils/lossPercent";
 import TextArea from "antd/es/input/TextArea";
 import {
   useFrappeDocumentEventListener,
@@ -69,12 +70,13 @@ import { useTargetRatesForItems, getTargetRateKey } from "./hooks/useTargetRates
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
 interface DisplayItem extends ProcurementRequestItemDetail {
-  amount?: number; 
+  amount?: number;
   vendor_name?: string;
-  lowestQuotedAmount?: number; 
-  targetRateValue?: number; 
-  targetAmount?: number;    
-  savingLoss?: number;      
+  lowestQuotedAmount?: number;
+  targetRateValue?: number;
+  targetAmount?: number;
+  savingLoss?: number;
+  lossPercent?: number;
 }
 
 interface VendorWiseApprovalItems {
@@ -101,6 +103,10 @@ export const VendorsSelectionSummary: React.FC = () => {
     approving: string;
     delaying: string;
   }>({ approving: "", delaying: "" });
+
+  // Per-item (keyed by order_list child-row name) loss justification, required
+  // when an item's loss > 10% before Send for Approval.
+  const [justifications, setJustifications] = useState<Record<string, string>>({});
 
   const { call: sendForApprCall, loading: sendForApprCallLoading } =
     useFrappePostCall(
@@ -182,6 +188,20 @@ export const VendorsSelectionSummary: React.FC = () => {
     }
   }, [procurement_request]);
 
+  // Seed justifications from any already-saved loss_justification on the items.
+  useEffect(() => {
+    if (!orderData?.order_list) return;
+    setJustifications((prev) => {
+      const next = { ...prev };
+      orderData.order_list.forEach((it) => {
+        if (it.name && next[it.name] === undefined && it.loss_justification) {
+          next[it.name] = it.loss_justification;
+        }
+      });
+      return next;
+    });
+  }, [orderData]);
+
   const getVendorName = useMemo(
     () => (vendorId: string | undefined): string =>
       vendor_list?.find((v) => v?.name === vendorId)?.vendor_name || "",
@@ -250,6 +270,7 @@ export const VendorsSelectionSummary: React.FC = () => {
       const response = await sendForApprCall({
         pr_id: orderData?.name,
         comments: comment,
+        loss_justifications: justifications,
       });
 
       if (response.message.status === 200) {
@@ -340,6 +361,7 @@ export const VendorsSelectionSummary: React.FC = () => {
         if (item.category !== "Additional Charges" && benchmarkAmount > 0) {
             savingLoss = benchmarkAmount - baseItemTotal;
         }
+        const lossPercent = computeLossPercent(savingLoss, benchmarkAmount);
 
         if (!vendorWiseApprovalItems[vendor]) {
           vendorWiseApprovalItems[vendor] = {
@@ -356,7 +378,8 @@ export const VendorsSelectionSummary: React.FC = () => {
           targetRateValue: pureTargetRate > 0 ? pureTargetRate : undefined,
           lowestQuotedAmount: lowestQuotedAmount > 0 ? lowestQuotedAmount : undefined,
           targetAmount: targetAmount > 0 ? targetAmount : undefined,
-          savingLoss: savingLoss
+          savingLoss: savingLoss,
+          lossPercent: lossPercent,
         };
 
         vendorWiseApprovalItems[vendor].items.push(displayItem);
@@ -397,6 +420,15 @@ export const VendorsSelectionSummary: React.FC = () => {
     if (approvalVendorIds.length === 0) return true;
     return approvalVendorIds.every((id) => !!paymentTerms[id]);
   }, [vendorWiseApprovalItems, paymentTerms]);
+
+  // Every item with loss > 10% must carry a justification before Send for Approval.
+  const allHighLossJustified = useMemo(() => {
+    return Object.values(vendorWiseApprovalItems).every(({ items }) =>
+      items.every(
+        (it) => !isHighLoss(it.lossPercent) || !!(justifications[it.name] || "").trim()
+      )
+    );
+  }, [vendorWiseApprovalItems, justifications]);
 
   if (procurement_request_loading || vendor_list_loading || usersListLoading)
     return <LoadingFallback />;
@@ -538,6 +570,8 @@ export const VendorsSelectionSummary: React.FC = () => {
                                 const taxRate = parseNumber(item.tax) / 100;
                                 const itemTotalInclGst = quantity * quote * (1 + taxRate);
                                 const savingLoss = item.savingLoss || 0;
+                                const lossPct = item.lossPercent || 0;
+                                const highLoss = isHighLoss(item.lossPercent);
 
                                 return (
                                   <TableRow key={item.item_id}>
@@ -547,6 +581,25 @@ export const VendorsSelectionSummary: React.FC = () => {
                                         <span className="ml-1 text-gray-500 italic text-xs">
                                           ({item.make})
                                         </span>
+                                      )}
+                                      {highLoss && (
+                                        <div className="mt-2 max-w-xs">
+                                          <p className="text-xs font-medium text-red-600 mb-1">
+                                            Reason <span className="font-normal">(required)</span>
+                                          </p>
+                                          <TextArea
+                                            className="bg-red-50 border-red-200 text-xs"
+                                            placeholder="Reason for high loss..."
+                                            autoSize={{ minRows: 2, maxRows: 4 }}
+                                            value={justifications[item.name] || ""}
+                                            onChange={(e) =>
+                                              setJustifications((prev) => ({
+                                                ...prev,
+                                                [item.name]: e.target.value,
+                                              }))
+                                            }
+                                          />
+                                        </div>
                                       )}
                                     </TableCell>
                                     <TableCell className="text-center">{item.unit}</TableCell>
@@ -574,6 +627,11 @@ export const VendorsSelectionSummary: React.FC = () => {
                                     >
                                       {savingLoss !== 0 ? formatToIndianRupee(savingLoss) : "-"}
                                       {savingLoss > 0 ? " (S)" : savingLoss < 0 ? " (L)" : ""}
+                                      {highLoss && (
+                                        <div className="text-xs font-normal text-red-600">
+                                          {lossPct.toFixed(1)}%
+                                        </div>
+                                      )}
                                     </TableCell>
 
                                     <TableCell className="text-right pr-4 font-medium">{formatToIndianRupee(itemTotalInclGst)}</TableCell>
@@ -705,12 +763,17 @@ export const VendorsSelectionSummary: React.FC = () => {
             * Please add payment terms for all vendors before proceeding.
           </p>
         )}
-        
+        {!allHighLossJustified && (
+          <p className="text-sm text-red-500 mb-2 font-medium">
+            * Please add a loss justification for all items with loss over 10%.
+          </p>
+        )}
+
         <Dialog>
           <DialogTrigger asChild>
             <Button
               className="flex items-center gap-1"
-              disabled={!allVendorsHaveTerms || sendForApprCallLoading}
+              disabled={!allVendorsHaveTerms || !allHighLossJustified || sendForApprCallLoading}
             >
               <ArrowBigUpDash className="" />
               Send for Approval
