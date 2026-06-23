@@ -8678,7 +8678,9 @@ direction toward PricingGrid leaves; no cycle).
   fires for Y; `needsRateAreas` carries the specific areas).
 - **qty_anomaly** -- a NON-priceable node_type carrying a non-zero qty anywhere (the inverse guardrail).
 - Plus F4's **broken** / **not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state, empty draftRates --
-  a consistent snapshot matching the rollup; the live grid keeps its own draft-aware broken `AlertTriangle`).
+  a consistent snapshot matching the rollup; the live grid keeps its own draft-aware broken `AlertTriangle`). **GATED behind
+  the priceability spine (cert fix -- see Amend 2):** the loop is skipped entirely on a non-priceable row, and within it a
+  no-qty area's amount cell is ignored (option-(i), reusing `isAreaQtyBearing`), symmetric with needs_rate.
 - **`wont_compute` was REMOVED before push** (the original 4b-A shipped it as "priceable + being-priced + amount column
   has no applicable `pickFormula`"). It is superseded by the forthcoming MANDATORY amount-formula-declaration gate, which
   makes the no-formula-at-pricing-time state impossible -- so the flag could never fire. Dropped from `ReviewFlagKind`,
@@ -8692,8 +8694,9 @@ The grid only READS the passed `rowFlags` (a tiny boolean->severity map inline; 
 existing amount-cell broken `AlertTriangle` is untouched.
 
 **Review strip + count + filter (`SheetPricingPage.tsx`).** The 4a remark feed is EXTENDED IN PLACE (one `ReviewEntry[]`,
-NO fork): remarks + `buildFlagEntries` + `incompleteSubtotalEntries`, sorted by Excel row; each entry click-jumps via the
-existing `gridRef.current?.scrollToRow(excelRow)`; per-kind badge/colour via a module-level `REVIEW_ENTRY_META`. The header
+NO fork): remarks + `buildFlagEntries`, sorted by Excel row; each entry click-jumps via the
+existing `gridRef.current?.scrollToRow(excelRow)`; per-kind badge/colour via a module-level `REVIEW_ENTRY_META`. (The
+incomplete-subtotal entries were part of the original 4b-A feed; they were removed as noise -- see Amend 2.) The header
 gains a live **N of M priceable lines priced** readout (`computePricedCount`; "ready to finalize" text when N===M -- NO
 finalize logic, that is slice 6) + a **"Show unpriced"** toggle filtering `displayRows` to priceable-but-not-fully-priced.
 The filter is PAGE-side (the grid's nav/byIdx stay consistent over the rendered set; `draftRates` keyed by `row_index`
@@ -8703,13 +8706,13 @@ save/toggle, never per keystroke).
 
 **Incomplete-subtotal + rollup alignment (`pricingRollup.ts`, STEP 7+8).** `RollupNode` gains `incomplete: boolean` = an OR
 over self + descendants of `priceability.isRowIncomplete` (a qty-bearing priceable row not fully priced / not_yet / broken).
-**Zero-qty / non-priceable descendants NEVER flag a parent** (owner: only qty-bearing rows count). `incompleteSubtotalEntries`
-surfaces every `isParent && incomplete` node to the strip. **ALIGNMENT:** the stale header comment ("node_type is NOT on the
-delivered row") is corrected -- node_type IS now on `PricedRow`, and the priceable-POPULATION decision (the incomplete
-signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`) is INTENTIONALLY **NOT regated** -- regating
-would change committed-amount totals (the HARD-GATE STOP), so only the new SIGNAL uses the helper and the existing rollup
-totals are byte-for-byte unchanged. The in-summary VISUAL marker is DEFERRED (`SummaryPanel.tsx` is out of this slice's
-scope; the signal is surfaced via the strip + `RollupNode.incomplete` -- a future SummaryPanel slice can render it).
+**Zero-qty / non-priceable descendants NEVER flag a parent** (owner: only qty-bearing rows count). Originally surfaced as
+per-subtotal review-strip entries via `incompleteSubtotalEntries`; **that fn was REMOVED (Amend 2) -- the signal now drives
+ONE quiet `SummaryPanel` message instead** (`RollupNode.incomplete` + its plumbing are KEPT). **ALIGNMENT (KEPT):** the
+stale header comment ("node_type is NOT on the delivered row") is corrected -- node_type IS now on `PricedRow`, and the
+priceable-POPULATION decision (the incomplete signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`)
+is INTENTIONALLY **NOT regated** -- regating would change committed-amount totals (the HARD-GATE STOP), so only the SIGNAL
+uses the helper and the existing rollup totals are byte-for-byte unchanged.
 
 **Tests + gates.** Vitest **170 -> 195** (+25) at ship: NEW `priceability.test.ts` (+22 -- the spine: zero-qty-everywhere
 excluded / single-area scalar / multi-area partial-qty fully-priced-ignores-no-qty-area / fully- vs half-priced /
@@ -8722,3 +8725,27 @@ Backend / rate-save / nav / color / remarks / `amountFormula` / `evaluateAmountC
 **Amend (`wont_compute` removal, before push):** its 2 dedicated unit tests dropped -> Vitest **195 -> 193**
 (`priceability.test.ts` 22 -> 20); one `wont_compute` assertion struck from the multi-flag `buildFlagEntries` strip-feed
 test (the rest intact); tsc **3178 == baseline**, build exit 0. `pricingRollup.ts`/`pricingRollup.test.ts` untouched.
+
+**Amend 2 (two cert-surfaced fixes, before push).** (1) **not_yet/broken gated behind the priceability spine.** The bug:
+not_yet/broken fired on NON-priceable rows (notes / headers) that happen to have amount columns and evaluate blank --
+noise. Root cause: `computeRowFlags`' not_yet/broken loop ran over amount descriptors with NO `isPriceableLine` gate and NO
+per-area qty-bearing check (unlike needs_rate). Fix (LOCKED, option-(i), symmetric with needs_rate): the loop is skipped
+entirely when `!isPriceableLine`, and within it each amount cell's area (`amount_by_area` -> value_key; scalar -> the SCALAR
+sentinel) must be `isAreaQtyBearing` -- a no-qty area's amount is ignored. The SAME gate was applied to `isRowIncomplete`'s
+loop so the Summary message agrees with the grid (a fully-priced row with a no-qty area whose formula evaluates not_yet would
+otherwise falsely read incomplete). needs_rate / qty_anomaly / the return shape are unchanged; `PricingGrid` is UNTOUCHED
+(the marker booleans' SHAPE is unchanged -- only WHEN they fire). (2) **incomplete-subtotal strip -> one Summary message.**
+The per-subtotal "Incomplete subtotal..." review-STRIP entries were noise: `incompleteSubtotalEntries` is DELETED from
+`pricingRollup.ts` (its `ReviewEntry` import too), the `incompleteEntries` call/concat dropped from `SheetPricingPage`, the
+`"incomplete_subtotal"` kind removed from `ReviewFlagKind` + `REVIEW_ENTRY_META`. `RollupNode.incomplete` +
+`ownIncompleteByIdx`/`rolledIncomplete`/`isRowIncomplete` are KEPT. `SummaryPanel` (a DELIBERATE scope addition -- the owner
+brought it in) shows ONE muted panel-level line "Some priceable lines aren't fully priced yet." when
+`roots.some(r => r.incomplete)` (a root's `incomplete` already ORs its subtree); NO per-subtotal markers (owner option (a));
+no new prop/fetch (SummaryPanel already rolls up internally). The §6 rollup ALIGNMENT is KEPT (owner-explicit), not reverted.
+**Tests:** Vitest **193 -> 197** (+4): `priceability.test.ts` 20 -> 24 (+4 FIX-1 gate tests -- the non-priceable bug repro;
+the option-(i) A1-fires/A2-ignored multi-area case; broken gated-out on non-priceable vs fires on priceable; a no-regression
+priceable-no-rate -> not_yet). `pricingRollup.test.ts` stays **23**: the 2 combined incomplete tests were TRIMMED in place
+(the `incompleteSubtotalEntries` assertions removed, their `node.incomplete` assertions KEPT) + the totals-unaffected test
+KEPT -- no whole node.incomplete test deleted. No SummaryPanel test harness exists (all boq-wizard tests are pure-function
+units) -> none scaffolded; covered by the `node.incomplete` units + live cert. tsc **3178 == baseline**, build exit 0.
+`PricingGrid.tsx` UNTOUCHED.
