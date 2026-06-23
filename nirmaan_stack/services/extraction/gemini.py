@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import INVOICE, Entity
+from .base import CUSTOMER_PO, INVOICE, Entity
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -35,9 +35,17 @@ _INVOICE_FIELDS = (
     "total_amount", "round_off", "other_charges", "tcs_amount",
 )
 _PAYMENT_FIELDS = ("utr", "payment_date", "transfer_amount")
+# Field names match the "Customer PO Child Table" doctype 1:1 (no rename layer).
+# `project_reference` is NOT a form field — it is used only to verify the PO
+# belongs to this project (soft project-mismatch warning).
+_CUSTOMER_PO_FIELDS = (
+    "customer_po_number", "customer_po_value_inctax", "customer_po_value_exctax",
+    "project_reference",
+)
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
     "other_charges", "tcs_amount", "transfer_amount",
+    "customer_po_value_inctax", "customer_po_value_exctax",
 }
 
 _MEDIA_RESOLUTION = {
@@ -66,6 +74,19 @@ _PAYMENT_PROMPT = (
     "- transfer_amount = the amount transferred.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess."
 )
+_CUSTOMER_PO_PROMPT = (
+    "Extract the listed fields from this customer Purchase Order (PO) document "
+    "and return JSON only.\n"
+    "- customer_po_number = the PO Number / Purchase Order No. issued by the customer.\n"
+    "- customer_po_value_inctax = the total PO value INCLUDING tax/GST (the grand total).\n"
+    "- customer_po_value_exctax = the PO value EXCLUDING tax (the subtotal before GST).\n"
+    "- project_reference = the project name, site name, or work/project description "
+    "this PO is for (used to confirm the PO belongs to the right project).\n"
+    "- payment_terms = the payment schedule as a list of milestones; for EACH milestone "
+    "give label (e.g. Advance, On Delivery, On Installation), percentage (a number, no % "
+    "sign), and a short description. Return an empty list if no payment terms are stated.\n"
+    "- If a field is not clearly present, return JSON null. Do NOT guess."
+)
 
 
 class _NonRetryable(Exception):
@@ -81,6 +102,29 @@ def _schema(fields):
         for f in fields
     }
     return {"type": "object", "properties": props}
+
+
+def _customer_po_schema():
+    """The customer-PO schema: the flat scalar fields PLUS a payment_terms array.
+
+    payment_terms is a list of {label, percentage, description} objects — the
+    only non-flat field in any extraction. _to_entities serializes it to a JSON
+    string so the (text, entities) contract stays flat for every consumer.
+    """
+    schema = _schema(_CUSTOMER_PO_FIELDS)
+    schema["properties"]["payment_terms"] = {
+        "type": "array",
+        "nullable": True,
+        "items": {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "nullable": True},
+                "percentage": {"type": "number", "nullable": True},
+                "description": {"type": "string", "nullable": True},
+            },
+        },
+    }
+    return schema
 
 
 @lru_cache(maxsize=4)
@@ -143,13 +187,19 @@ class GeminiExtractor:
             frappe.throw(f"Unsupported file type: .{file_ext}")
 
         client = self._build_client(settings)
-        is_invoice = doc_kind == INVOICE
-        fields = _INVOICE_FIELDS if is_invoice else _PAYMENT_FIELDS
-        prompt = _INVOICE_PROMPT if is_invoice else _PAYMENT_PROMPT
+        if doc_kind == CUSTOMER_PO:
+            fields = _CUSTOMER_PO_FIELDS + ("payment_terms",)
+            prompt = _CUSTOMER_PO_PROMPT
+            schema = _customer_po_schema()
+        else:
+            is_invoice = doc_kind == INVOICE
+            fields = _INVOICE_FIELDS if is_invoice else _PAYMENT_FIELDS
+            prompt = _INVOICE_PROMPT if is_invoice else _PAYMENT_PROMPT
+            schema = _schema(fields)
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=_schema(fields),
+            response_schema=schema,
             temperature=0,
             thinking_config=types.ThinkingConfig(thinking_level=_thinking_level(settings)),
             media_resolution=_MEDIA_RESOLUTION.get(
@@ -204,7 +254,12 @@ class GeminiExtractor:
             raw = data.get(f)
             if is_absent(raw):
                 continue  # absent / "null" / "" → no entity (manual entry)
-            value = _stringify(raw)
+            if isinstance(raw, list):
+                if not raw:
+                    continue  # empty list → nothing extracted
+                value = json.dumps(raw)  # e.g. payment_terms → JSON-string entity
+            else:
+                value = _stringify(raw)
             out.append(
                 {"type": f, "mention_text": value, "normalized_text": value, "confidence": 1.0}
             )

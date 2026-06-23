@@ -13,7 +13,17 @@
   "customer_po_link",
   "customer_po_attachment",
   "customer_po_payment_terms",
-  "customer_po_creation_date"
+  "customer_po_creation_date",
+  "autofill_section",
+  "autofill_used",
+  "autofill_processor_id",
+  "autofill_extracted_po_number",
+  "autofill_extracted_value_inctax",
+  "autofill_extracted_value_exctax",
+  "autofill_extracted_project_reference",
+  "autofill_project_match",
+  "autofill_confidence_json",
+  "autofill_all_entities_json"
  ],
  "fields": [
   {
@@ -55,6 +65,66 @@
    "fieldname": "customer_po_creation_date",
    "fieldtype": "Date",
    "label": "customer_po_creation_date"
+  },
+  {
+   "fieldname": "autofill_section",
+   "fieldtype": "Section Break",
+   "label": "AI Autofill (audit)"
+  },
+  {
+   "default": "0",
+   "fieldname": "autofill_used",
+   "fieldtype": "Check",
+   "label": "Autofill Used",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_processor_id",
+   "fieldtype": "Data",
+   "label": "Autofill Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_extracted_po_number",
+   "fieldtype": "Data",
+   "label": "AI Extracted PO Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_extracted_value_inctax",
+   "fieldtype": "Currency",
+   "label": "AI Extracted Value inc.Tax",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_extracted_value_exctax",
+   "fieldtype": "Currency",
+   "label": "AI Extracted Value exc.Tax",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_extracted_project_reference",
+   "fieldtype": "Data",
+   "label": "AI Extracted Project Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_project_match",
+   "fieldtype": "Data",
+   "label": "AI Project Match",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_confidence_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill Confidence JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "autofill_all_entities_json",
+   "fieldtype": "Long Text",
+   "label": "Autofill All Entities JSON",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
