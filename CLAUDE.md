@@ -1,11 +1,21 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-22. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-23. **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest backend slice:** Phase 5
 Formula Builder F1 -- amount-formula storage (NEW doctype BoQ Cell Amount Formula + save_amount_formula /
 get_sheet_amount_formulas + get_priced_rows column_formulas merge, 2026-06-22; see plan §"Formula Builder F1").
+**Latest frontend slice:** Phase 5 Slice 4b-A -- the computed review-flag layer (FRONTEND-only, NO backend/doctype/migrate):
+the shared `frontend/src/pages/boq-wizard/priceability.ts` "qty-bearing priceable line" spine (§6 one-shared-definition) +
+the computed flags (needs-rate / qty-anomaly + F4 broken/not_yet, with broken/not_yet GATED behind the priceability spine --
+option-(i), symmetric with needs_rate; and not_yet DE-DUPED per-area against needs_rate so one rate gap isn't reported twice
+-- cert fixes) + in-grid markers + a unified review strip + an N/M
+priced-count & "show unpriced" filter + the incomplete-subtotal signal (`pricingRollup.RollupNode.incomplete`) surfaced as
+ONE quiet `SummaryPanel` message (the per-subtotal review-STRIP entries were removed as noise) + rollup
+alignment; Cluster B (the reconciliation choice store) deferred to a later slice (2026-06-23; see plan §"Slice 4b-A").
+The `wont_compute` flag was REMOVED before push -- superseded by the forthcoming mandatory amount-formula-declaration gate,
+which makes the no-formula-at-pricing state impossible (so the flag could never fire).
 
 **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 

@@ -17,15 +17,20 @@
  *   - Per-row amount = computeAmount(qty, pairedRate) using the EXISTING PricingGrid
  *     helpers (computeAmount / findPairedRateDescriptor) + the qty source (per-area
  *     qty_by_area[area]; scalar qty_total). The pairing is REUSED, never reinvented.
- *   - A row contributes its OWN amount selected by AMOUNT-PRESENCE: if its paired rate
- *     yields a number, that amount counts; a missing pairing / missing rate (an
- *     un-priced or non-priceable row -- note/spacer/unpriced preamble) yields null ->
- *     contributes nothing. (node_type is NOT on the delivered committed row, so the
- *     priceability gate is expressed as amount-presence, not a type check.)
+ *   - A row contributes its OWN amount by AMOUNT-PRESENCE: a resolved amount counts; a
+ *     missing pairing / missing rate yields null -> contributes nothing. This SUMMATION
+ *     gate stays amount-presence by design -- you sum the amounts that resolve, regardless
+ *     of node_type (a non-priceable row simply has no amount to add).
  *   - A priced PREAMBLE carries an amount for ITS OWN ROW ONLY -- never a sum of its
  *     children. node.totals = node's own amount + the rolled totals of its children, so
  *     a preamble's own amount is added exactly once (no double-count). (design v1.3 Sec.6
  *     priceability; node shape Option A.)
+ *   - Slice 4b-A: node_type IS now on the delivered committed row (PricedRow.node_type).
+ *     The PRICEABLE-POPULATION decision (the incomplete-subtotal marker, node.incomplete)
+ *     routes through the SHARED priceability helper (isRowIncomplete) -- the §6
+ *     one-shared-definition rule -- so the summary and the grid agree on the SAME priceable
+ *     population. The amount SUMMATION above is intentionally NOT regated (regating it would
+ *     change committed-amount totals); only the new incompleteness SIGNAL uses the helper.
  *
  * Cycle safety: a malformed effective_parent_index cycle must not hang. computeDepths
  * (reused) has its own memo+cycle guard; the rolled-total recursion uses an in-progress
@@ -43,8 +48,14 @@ import {
 } from "./PricingGrid";
 import { evaluateAmountColumn, pickFormula } from "./amountFormula";
 import { computeDepths, resolveDescriptorValue } from "./reviewRender";
+import { isRowIncomplete } from "./priceability";
 import { ROLE_LABELS } from "./boqTypes";
-import type { AmountFormulaRef, ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
+import type {
+  AmountFormulaRef,
+  ColumnDescriptor,
+  ColumnFormula,
+  PricedRow,
+} from "./boqTypes";
 
 // Reconciliation tolerance (Option 1 tree-total vs Option 2 flat-sum). A small ABSOLUTE
 // currency floor + a RELATIVE term so float-accumulation dust on a large sum never
@@ -77,6 +88,13 @@ export interface RollupNode {
   totals: Record<string, number>;
   /** Whether this node has at least one child (an expandable parent). */
   isParent: boolean;
+  /**
+   * Slice 4b-A incomplete-subtotal signal: true iff this node has >=1 qty-bearing descendant
+   * (self included) that is NOT fully priced OR whose amount is not_yet/broken (via the shared
+   * priceability.isRowIncomplete). A node whose only unpriced descendants are zero-qty /
+   * non-priceable rows is COMPLETE (false). A read-derived SIGNAL -- it does not change totals.
+   */
+  incomplete: boolean;
   children: RollupNode[];
 }
 
@@ -213,6 +231,13 @@ export function rollupByParent(
     ownByIdx.set(r.row_index, m);
   }
 
+  // Slice 4b-A: each row's OWN incompleteness (via the SHARED priceability helper -- the §6
+  // alignment). Rolled up by an OR over self + descendants below (parallels the amount roll).
+  const ownIncompleteByIdx = new Map<number, boolean>();
+  for (const r of rows) {
+    ownIncompleteByIdx.set(r.row_index, isRowIncomplete(r, columnDescriptors, columnFormulas));
+  }
+
   // Rolled total per node = own + sum of children's rolled totals (null own -> 0).
   // Memoized; an in-progress guard breaks any (unreachable-but-defensive) cycle.
   const totalsMemo = new Map<number, Record<string, number>>();
@@ -234,6 +259,22 @@ export function rollupByParent(
     return m;
   };
 
+  // Slice 4b-A: rolled incompleteness = own OR any descendant's. Memoized; the same
+  // in-progress guard breaks any (defensive) cycle -> own-only on re-entry.
+  const incompleteMemo = new Map<number, boolean>();
+  const inProgressIncomplete = new Set<number>();
+  const rolledIncomplete = (idx: number): boolean => {
+    const cached = incompleteMemo.get(idx);
+    if (cached !== undefined) return cached;
+    let inc = ownIncompleteByIdx.get(idx) ?? false;
+    if (inProgressIncomplete.has(idx)) return inc; // cycle re-entry -> own-only
+    inProgressIncomplete.add(idx);
+    for (const c of childrenOf.get(idx) ?? []) inc = rolledIncomplete(c) || inc;
+    inProgressIncomplete.delete(idx);
+    incompleteMemo.set(idx, inc);
+    return inc;
+  };
+
   // Build the node tree from roots. A DFS path-set guard guarantees termination even if
   // a cycle were somehow reachable (a child already on the current path is skipped).
   const build = (idx: number, path: Set<number>): RollupNode => {
@@ -251,6 +292,7 @@ export function rollupByParent(
       ownAmounts: ownByIdx.get(idx) ?? {},
       totals: rolled(idx),
       isParent: (childrenOf.get(idx)?.length ?? 0) > 0,
+      incomplete: rolledIncomplete(idx),
       children,
     };
   };
@@ -322,3 +364,7 @@ export function defaultCollapsedSet(roots: RollupNode[]): Set<number> {
   for (const r of roots) walk(r);
   return set;
 }
+
+// (Slice 4b-A fix) `incompleteSubtotalEntries` was removed -- the per-subtotal review-STRIP
+// entries were noise. RollupNode.incomplete (+ ownIncompleteByIdx / rolledIncomplete /
+// isRowIncomplete) is KEPT: SummaryPanel reads it for ONE quiet panel-level message.
