@@ -614,6 +614,83 @@ export interface GetPricedRowsResponse {
   column_formulas: ColumnFormula[];
 }
 
+// ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
+// Pure DISPLAY-only types. The flag DERIVATION lives in priceability.ts (which imports
+// PricingGrid's leaf predicates -> these types must live HERE so PricingGrid can consume
+// RowReviewFlags as a prop WITHOUT importing priceability, which would be a cycle).
+
+/**
+ * A pricing AREA key: a concrete per-area name, or `null` -- the SCALAR sentinel for a
+ * scalar (value_key === null) rate/qty column. The one key space the shared qty-bearing /
+ * fully-priced predicates iterate over.
+ */
+export type AreaKey = string | null;
+
+/**
+ * The six computed review-flag kinds (Slice 4b-A). All DERIVED on the fly from the delivered
+ * row + descriptors + column_formulas -- never a stored field:
+ *   needs_rate          -- a priceable line with a qty-bearing area whose rate is not filled.
+ *   wont_compute        -- a priceable line being priced whose amount column has NO formula.
+ *   qty_anomaly         -- qty on a NON-priceable row type (the inverse guardrail).
+ *   broken              -- an amount cell's formula can't resolve (cycle / dangling ref).
+ *   not_yet             -- an amount cell's formula needs a not-yet-entered operand.
+ *   incomplete_subtotal -- a parent/subtotal node with a qty-bearing descendant not fully
+ *                          priced / not_yet / broken (rollup-side; zero-qty children excluded).
+ */
+export type ReviewFlagKind =
+  | "needs_rate"
+  | "wont_compute"
+  | "qty_anomaly"
+  | "broken"
+  | "not_yet"
+  | "incomplete_subtotal";
+
+/**
+ * The per-row computed flags (Slice 4b-A). Booleans drive the in-grid markers + the count;
+ * the detail arrays (areas / cols) drive the per-cell aim + the review-strip text. PURE --
+ * computed by priceability.computeRowFlags.
+ */
+export interface RowReviewFlags {
+  /** Priceable line with >=1 qty-bearing area not fully filled. */
+  needsRate: boolean;
+  /** The specific qty-bearing areas (AreaKey) on this row whose rate is not filled. */
+  needsRateAreas: AreaKey[];
+  /** Priceable line being priced whose amount column has no applicable formula. */
+  wontCompute: boolean;
+  /** The amount descriptor cols (Excel letters) lacking a formula on a being-priced row. */
+  wontComputeCols: string[];
+  /** Non-priceable row type carrying a non-zero qty (any area). */
+  qtyAnomaly: boolean;
+  /** An amount cell evaluates to {blank, broken} (saved-state). */
+  broken: boolean;
+  brokenCols: string[];
+  /** An amount cell evaluates to {blank, not_yet} (saved-state). */
+  notYet: boolean;
+  notYetCols: string[];
+}
+
+/**
+ * One entry in the unified review-list strip (Slice 4b-A extends the 4a remark feed in
+ * place -- a SINGLE list, no fork). `kind` is "remark" (4a) or any computed flag kind; each
+ * entry click-jumps to the row via the grid's scrollToRow handle.
+ */
+export interface ReviewEntry {
+  kind: "remark" | ReviewFlagKind;
+  /** the row's source_row_number (Excel row) -- the scrollToRow target. */
+  excelRow: number;
+  description: string;
+  /** the human-readable line shown in the strip. */
+  text: string;
+}
+
+/** The live priced-count readout (Slice 4b-A): N of M priceable lines fully priced. */
+export interface PricedLineCount {
+  /** N -- priceable lines that are FULLY priced (every qty-bearing area's rate filled). */
+  priced: number;
+  /** M -- priceable lines (priceable type AND qty-bearing in >=1 area). */
+  total: number;
+}
+
 /**
  * Per-cell save args the PricingGrid hands up to the page's onSaveRate (Phase 5 Slice 3b).
  * The grid supplies the cell IDENTITY (from the row + the rate descriptor); the page fills

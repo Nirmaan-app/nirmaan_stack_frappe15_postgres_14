@@ -6,7 +6,12 @@
 // structure; two negatives (cycle, blank/un-priced) prove it is safe + correct on edge
 // data. Totals are keyed by the amount descriptor's Excel col letter (RollupNode.totals).
 import { describe, it, expect } from "vitest";
-import { rollupByParent, minPreambleDepth, defaultCollapsedSet } from "./pricingRollup";
+import {
+  rollupByParent,
+  minPreambleDepth,
+  defaultCollapsedSet,
+  incompleteSubtotalEntries,
+} from "./pricingRollup";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -437,5 +442,72 @@ describe("rollupByParent -- grand total (Option 1) + reconciliation", () => {
     expect(res.integrityErrors[0].col).toBe("G");
     expect(res.integrityErrors[0].option1).toBe(0);
     expect(res.integrityErrors[0].option2).toBe(80); // the flat line-item sum still finds it
+  });
+});
+
+// ── Slice 4b-A: the incomplete-subtotal signal (node.incomplete + incompleteSubtotalEntries) ──
+//
+// node.incomplete is an OR over self + descendants of priceability.isRowIncomplete (a
+// qty-bearing priceable row not fully priced / not_yet / broken). The amount TOTALS are
+// UNCHANGED by this signal (verified alongside). A 2-area combined sheet so a child can be
+// half-priced (one area filled, the other qty-bearing area not).
+describe("rollupByParent -- incomplete-subtotal (Slice 4b-A)", () => {
+  const cds = [
+    desc("D", "qty", "qty_by_area", "A1"),
+    desc("E", "rate_combined_by_area", "rate_by_area", "A1", "combined_rate"),
+    desc("F", "amount_total_by_area", "amount_by_area", "A1", "total"),
+    desc("G", "qty", "qty_by_area", "A2"),
+    desc("H", "rate_combined_by_area", "rate_by_area", "A2", "combined_rate"),
+    desc("I", "amount_total_by_area", "amount_by_area", "A2", "total"),
+  ];
+
+  it("a parent with a HALF-priced qty-bearing child is incomplete (+ a strip entry)", () => {
+    const rows = [
+      prow({ row_index: 0, source_row_number: 10, effective_parent_index: null,
+        effective_classification: "preamble", node_type: "Preamble", description: "P" }),
+      prow({ row_index: 1, source_row_number: 11, effective_parent_index: 0,
+        effective_classification: "line_item", node_type: "Line Item", description: "i1",
+        qty_by_area: { A1: 10, A2: 4 },
+        rate_by_area: { A1: { combined_rate: 5 }, A2: { combined_rate: 0 } } as never }), // A2 unfilled
+    ];
+    const res = rollupByParent(rows, cds);
+    expect(root(res, 0)!.incomplete).toBe(true);
+    const entries = incompleteSubtotalEntries(res.roots);
+    expect(entries.map((e) => e.excelRow)).toContain(10);
+    expect(entries[0].kind).toBe("incomplete_subtotal");
+  });
+
+  it("a parent whose ONLY unpriced descendant is ZERO-QTY is COMPLETE (no flag)", () => {
+    const rows = [
+      prow({ row_index: 0, source_row_number: 10, effective_parent_index: null,
+        effective_classification: "preamble", node_type: "Preamble", description: "P" }),
+      // a fully-priced qty-bearing child
+      prow({ row_index: 1, source_row_number: 11, effective_parent_index: 0,
+        effective_classification: "line_item", node_type: "Line Item",
+        qty_by_area: { A1: 10 }, rate_by_area: { A1: { combined_rate: 5 } } as never }),
+      // a zero-qty child (a spacer-like line) -- must NOT make the parent incomplete
+      prow({ row_index: 2, source_row_number: 12, effective_parent_index: 0,
+        effective_classification: "line_item", node_type: "Line Item",
+        qty_by_area: { A1: 0, A2: 0 } }),
+    ];
+    const res = rollupByParent(rows, cds);
+    expect(root(res, 0)!.incomplete).toBe(false);
+    expect(incompleteSubtotalEntries(res.roots)).toEqual([]);
+  });
+
+  it("a FULLY-priced subtree is complete; the amount totals are unaffected by the signal", () => {
+    const rows = [
+      prow({ row_index: 0, source_row_number: 10, effective_parent_index: null,
+        effective_classification: "preamble", node_type: "Preamble" }),
+      prow({ row_index: 1, source_row_number: 11, effective_parent_index: 0,
+        effective_classification: "line_item", node_type: "Line Item",
+        qty_by_area: { A1: 10, A2: 4 },
+        rate_by_area: { A1: { combined_rate: 5 }, A2: { combined_rate: 7 } } as never }),
+    ];
+    const res = rollupByParent(rows, cds);
+    expect(root(res, 0)!.incomplete).toBe(false);
+    // totals unchanged by the 4b-A signal: A1 = 10*5 = 50, A2 = 4*7 = 28.
+    expect(root(res, 0)!.totals["F"]).toBe(50);
+    expect(root(res, 0)!.totals["I"]).toBe(28);
   });
 });

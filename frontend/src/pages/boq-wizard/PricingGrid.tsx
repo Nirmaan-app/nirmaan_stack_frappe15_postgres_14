@@ -51,7 +51,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,7 @@ import type {
   PricedRow,
   RateCellSaveArgs,
   RemarkSaveArgs,
+  RowReviewFlags,
 } from "./boqTypes";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
@@ -894,6 +895,15 @@ interface PricingGridProps {
    */
   editable?: boolean;
   lockInfo?: LockInfo | null;
+  /**
+   * Slice 4b-A: the computed review flags per row (keyed by row_index), built page-side by
+   * priceability.computeRowFlags. The grid READS them to render an in-grid marker (a left
+   * accent + icon in the Excel-Row gutter) -- it does NOT compute them (the page owns the
+   * single shared derivation, also feeding the strip + the count). ABSENT/empty -> no markers.
+   * Passed as a prop (NOT imported from priceability) so the grid never imports priceability,
+   * which imports the grid -- that would be a cycle.
+   */
+  rowFlags?: Map<number, RowReviewFlags>;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -905,7 +915,7 @@ export interface PricingGridHandle {
 }
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -1268,17 +1278,56 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             const parentExcelRow =
               pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
 
+            // Slice 4b-A: the in-grid review marker (a left accent + Flag icon in the
+            // Excel-Row gutter). The grid only READS the page-computed flags + maps the
+            // booleans to a severity colour (this is NOT a priceability re-derivation -- the
+            // single shared derivation lives in priceability.computeRowFlags). The gutter
+            // cell carries no priced tint / colour border, so a system flag here never
+            // collides with the emerald/amber priced background or the user colour border (§6).
+            const flags = rowFlags?.get(row.row_index);
+            const flagCritical = !!flags && (flags.broken || flags.qtyAnomaly);
+            const flagAttention =
+              !!flags && !flagCritical && (flags.needsRate || flags.wontCompute || flags.notYet);
+            const hasFlag = flagCritical || flagAttention;
+            const flagTitle = flags
+              ? [
+                  flags.needsRate && "Needs a rate",
+                  flags.wontCompute && "Amount has no formula",
+                  flags.qtyAnomaly && "Quantity on a non-priceable row",
+                  flags.broken && "Formula won't resolve -- check the formula",
+                  flags.notYet && "Amount not computed yet (a rate is missing)",
+                ]
+                  .filter(Boolean)
+                  .join("; ") || undefined
+              : undefined;
+
             return (
               <tr key={row.row_index} className="border-b border-border hover:bg-muted/30">
-                {/* Excel Row (col 0) */}
+                {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
                 <td
                   {...tdFocusProps(rowIdx, 0)}
+                  title={hasFlag ? flagTitle : undefined}
                   className={cn(
                     "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
+                    flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
+                    flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
                     cellNavClass(rowIdx, 0),
                   )}
                 >
-                  {row.source_row_number}
+                  <span className="inline-flex items-center gap-1">
+                    {hasFlag && (
+                      <Flag
+                        aria-hidden
+                        className={cn(
+                          "h-3 w-3 shrink-0",
+                          flagCritical
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-amber-600 dark:text-amber-400",
+                        )}
+                      />
+                    )}
+                    {row.source_row_number}
+                  </span>
                 </td>
                 {/* Sl.No (col 1) */}
                 <td

@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ClipboardList, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ClipboardList, Filter, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,8 @@ import type {
   GetPricedRowsResponse,
   RateCellSaveArgs,
   RemarkSaveArgs,
+  ReviewEntry,
+  RowReviewFlags,
 } from "./boqTypes";
 import {
   PricingGrid,
@@ -45,6 +47,14 @@ import {
   orderCommittedSheets,
   type PricingGridHandle,
 } from "./PricingGrid";
+import {
+  buildFlagEntries,
+  computePricedCount,
+  computeRowFlags,
+  isFullyPriced,
+  isPriceableLine,
+} from "./priceability";
+import { incompleteSubtotalEntries, rollupByParent } from "./pricingRollup";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -53,6 +63,51 @@ import { SummaryPanel } from "./SummaryPanel";
 function fmtSavedTime(d: Date): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+// Slice 4b-A: per-kind presentation for the unified review-list strip. `badge` is the small
+// type tag's classes; `text` is the entry-text colour. Critical kinds (broken / qty-anomaly)
+// read rose/destructive; the rest read amber; a remark reads neutral. Module-level (not
+// rebuilt per render). Keyed by ReviewEntry["kind"].
+const REVIEW_ENTRY_META: Record<
+  ReviewEntry["kind"],
+  { label: string; badge: string; text: string }
+> = {
+  remark: {
+    label: "Note",
+    badge: "bg-muted text-muted-foreground",
+    text: "text-muted-foreground",
+  },
+  needs_rate: {
+    label: "Needs rate",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  wont_compute: {
+    label: "No formula",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  not_yet: {
+    label: "Not computed",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  incomplete_subtotal: {
+    label: "Incomplete",
+    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
+    text: "text-amber-700 dark:text-amber-400",
+  },
+  qty_anomaly: {
+    label: "Qty anomaly",
+    badge: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200",
+    text: "text-rose-700 dark:text-rose-400",
+  },
+  broken: {
+    label: "Check formula",
+    badge: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200",
+    text: "text-rose-700 dark:text-rose-400",
+  },
+};
 
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
@@ -128,7 +183,11 @@ const SheetPricingPage = () => {
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
+  // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Slice 4b-A: "show only unpriced" -- collapse the grid to priceable-but-not-fully-priced
+  // rows. Per-sheet per-session (reset on a tab switch, like the override).
+  const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
 
   // Slice 3c: force-save handle (the grid's flush), in-flight count (drives "Saving..."),
   // last-saved time (client clock), and the grid's "has unsaved drafts" signal.
@@ -173,6 +232,7 @@ const SheetPricingPage = () => {
     setSummaryOpen(false);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
+    setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
   }, [sheetName]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
@@ -379,10 +439,30 @@ const SheetPricingPage = () => {
     }
   };
 
-  // Slice 4a: the review-list feed -- rows that carry a remark, derived page-side from the
-  // rows already in hand (no new fetch). A GENERIC review-entry shape ({kind, excelRow,
-  // description, text}) so the 4b flag layer can push computed flags into the SAME list.
-  const remarkEntries = rows
+  // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
+  // Everything routes through the ONE shared priceability helper -- the in-grid markers,
+  // the strip, AND the priced count. Computed page-side from the rows already in hand (no
+  // new fetch). Plain consts (not useMemo) because they sit AFTER the early-return guards
+  // (hooks-after-return is illegal); the page re-renders infrequently (saves / toggles),
+  // never per keystroke (rate drafts live in the grid), so the recompute is cheap.
+  const rowFlags = new Map<number, RowReviewFlags>();
+  for (const r of rows) {
+    rowFlags.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
+  }
+  // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
+  const pricedCount = computePricedCount(rows, columnDescriptors);
+  const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
+  // "Show only unpriced": priceable-but-not-fully-priced rows (the same shared predicates).
+  const displayRows = showOnlyUnpriced
+    ? rows.filter(
+        (r) => isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors),
+      )
+    : rows;
+
+  // The UNIFIED review-list feed (extends 4a's remark feed IN PLACE -- one list, no fork):
+  //   4a remarks + the computed per-row flags + the rollup incomplete-subtotal entries.
+  // A GENERIC ReviewEntry shape; each entry click-jumps to its row via scrollToRow.
+  const remarkEntries: ReviewEntry[] = rows
     .filter((r) => r.remark && r.remark.trim())
     .map((r) => ({
       kind: "remark" as const,
@@ -390,6 +470,16 @@ const SheetPricingPage = () => {
       description: r.description ?? "",
       text: (r.remark as string).trim(),
     }));
+  const flagEntries = buildFlagEntries(rows, columnDescriptors, columnFormulas);
+  // Incomplete-subtotal entries come from the rollup forest (a pure recompute -- SummaryPanel
+  // also rolls up internally; this duplicate is cheap and avoids reshaping SummaryPanel's
+  // contract, which is out of this slice's scope).
+  const incompleteEntries = incompleteSubtotalEntries(
+    rollupByParent(rows, columnDescriptors, columnFormulas).roots,
+  );
+  const reviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries, ...incompleteEntries].sort(
+    (a, b) => a.excelRow - b.excelRow,
+  );
 
   // Slice 3c: the save-status chip state (pure derive) + force-save flush.
   const saveStatus = deriveSaveStatus({
@@ -459,6 +549,46 @@ const SheetPricingPage = () => {
               <span className="text-muted-foreground">All changes saved</span>
             )}
           </div>
+          {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
+              When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
+              that is a later slice). Hidden when the sheet has no priceable lines. */}
+          {pricedCount.total > 0 && (
+            <span
+              className={cn(
+                "text-xs font-medium tabular-nums whitespace-nowrap",
+                allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+              )}
+              title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
+            >
+              {allPriced ? (
+                <span className="inline-flex items-center gap-1">
+                  <Check className="h-3.5 w-3.5" />
+                  {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
+                </span>
+              ) : (
+                <>
+                  {pricedCount.priced} of {pricedCount.total} priceable lines priced
+                </>
+              )}
+            </span>
+          )}
+          {/* Slice 4b-A: show-only-unpriced filter (priceable-but-not-fully-priced rows). */}
+          <Button
+            size="sm"
+            variant={showOnlyUnpriced ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={showOnlyUnpriced}
+            onClick={() => setShowOnlyUnpriced((o) => !o)}
+            disabled={pricedLoading || pricedError || pricedCount.total === 0}
+            title={
+              showOnlyUnpriced
+                ? "Showing only unpriced lines. Click to show all rows."
+                : "Show only priceable lines that aren't fully priced yet."
+            }
+          >
+            <Filter className="h-4 w-4" />
+            {showOnlyUnpriced ? "Unpriced only" : "Show unpriced"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -470,17 +600,17 @@ const SheetPricingPage = () => {
             <Sigma className="h-4 w-4" />
             Summary
           </Button>
-          {/* Slice 4a: the review-list toggle (rows with a remark). */}
+          {/* Slice 4a/4b-A: the review-list toggle (remarks + all computed flags). */}
           <Button
             size="sm"
             variant="outline"
             className="gap-1.5"
             onClick={() => setReviewOpen((o) => !o)}
             disabled={pricedLoading || pricedError}
-            title="Rows flagged for review (rows with a remark)"
+            title="Rows flagged for review (remarks + computed flags)"
           >
             <ClipboardList className="h-4 w-4" />
-            Review{remarkEntries.length > 0 ? ` (${remarkEntries.length})` : ""}
+            Review{reviewEntries.length > 0 ? ` (${reviewEntries.length})` : ""}
           </Button>
           {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
               gun -- its ON state is loudly amber so the user always sees it is on. Default
@@ -630,41 +760,55 @@ const SheetPricingPage = () => {
         />
       )}
 
-      {/* ── Slice 4a: review-list strip (rows with a remark) ─────────────────────
-          Opened ABOVE the grid (mirrors the Summary panel mount). A GENERIC review-entry
-          list -- 4a's feed is "rows with a remark"; 4b adds computed flags to the SAME
-          list. Each entry click-jumps to the row via the grid's scrollToRow handle. */}
+      {/* ── Slice 4a/4b-A: unified review-list strip ─────────────────────────────
+          Opened ABOVE the grid (mirrors the Summary panel mount). ONE feed: 4a remarks +
+          the 4b-A computed flags (needs-rate / won't-compute / qty-anomaly / broken /
+          not-yet) + the rollup incomplete-subtotal entries. Each entry click-jumps to its
+          row via the grid's scrollToRow handle. */}
       {!isGridOnly && reviewOpen && !pricedLoading && !pricedError && (
         <div className="rounded-md border border-border bg-muted/20">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <p className="text-sm font-medium text-foreground">
-              Review list &middot; rows with a remark ({remarkEntries.length})
+              Review list &middot; remarks &amp; flags ({reviewEntries.length})
             </p>
             <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setReviewOpen(false)}>
               Close
             </Button>
           </div>
-          {remarkEntries.length === 0 ? (
+          {reviewEntries.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted-foreground">
-              No remarks yet. Add a note on any row to flag it for review.
+              Nothing flagged. Priceable lines look fully priced; add a note on any row to flag it.
             </p>
           ) : (
             <ul className="max-h-[30vh] divide-y divide-border overflow-auto">
-              {remarkEntries.map((e) => (
-                <li key={`${e.kind}:${e.excelRow}`}>
-                  <button
-                    type="button"
-                    onClick={() => gridRef.current?.scrollToRow(e.excelRow)}
-                    className="w-full px-3 py-2 text-left hover:bg-muted/40"
-                  >
-                    <span className="mr-2 font-mono text-xs text-muted-foreground">Row {e.excelRow}</span>
-                    <span className="text-xs text-foreground">{e.description || "(no description)"}</span>
-                    <span className="mt-0.5 block truncate text-[11px] text-amber-700 dark:text-amber-400">
-                      {e.text}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {reviewEntries.map((e) => {
+                const meta = REVIEW_ENTRY_META[e.kind];
+                return (
+                  <li key={`${e.kind}:${e.excelRow}`}>
+                    <button
+                      type="button"
+                      onClick={() => gridRef.current?.scrollToRow(e.excelRow)}
+                      className="w-full px-3 py-2 text-left hover:bg-muted/40"
+                    >
+                      <span className="mr-2 font-mono text-xs text-muted-foreground">
+                        Row {e.excelRow}
+                      </span>
+                      <span
+                        className={cn(
+                          "mr-2 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                          meta.badge,
+                        )}
+                      >
+                        {meta.label}
+                      </span>
+                      <span className="text-xs text-foreground">
+                        {e.description || "(no description)"}
+                      </span>
+                      <span className={cn("mt-0.5 block truncate text-[11px]", meta.text)}>{e.text}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
@@ -711,8 +855,17 @@ const SheetPricingPage = () => {
             // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
             key={sheetName}
             ref={gridRef}
-            rows={rows}
+            // Slice 4b-A: "show only unpriced" filters the RENDERED rows to
+            // priceable-but-not-fully-priced. Filtering page-side keeps the grid's nav/byIdx
+            // consistent over the rendered set; depth degrades gracefully for an orphaned
+            // child in the filtered view. draftRates (keyed by row_index) persist across the
+            // toggle (the grid is keyed on sheetName only, so it does not remount).
+            rows={displayRows}
             columnDescriptors={columnDescriptors}
+            // Slice 4b-A: the page-computed review flags (keyed by row_index, over the FULL
+            // rows) drive the grid's in-grid markers. The grid reads them; it never computes
+            // priceability (the single shared derivation lives in priceability.ts).
+            rowFlags={rowFlags}
             // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
             // single onSaveRate root gate) collapses to the read-only render.
             onSaveRate={locked ? undefined : handleSaveRate}
