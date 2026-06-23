@@ -9,7 +9,8 @@ get_sheet_amount_formulas + get_priced_rows column_formulas merge, 2026-06-22; s
 **Latest frontend slice:** Phase 5 Slice 4b-A -- the computed review-flag layer (FRONTEND-only, NO backend/doctype/migrate):
 the shared `frontend/src/pages/boq-wizard/priceability.ts` "qty-bearing priceable line" spine (§6 one-shared-definition) +
 the computed flags (needs-rate / qty-anomaly + F4 broken/not_yet, with broken/not_yet GATED behind the priceability spine --
-option-(i), symmetric with needs_rate -- a cert fix) + in-grid markers + a unified review strip + an N/M
+option-(i), symmetric with needs_rate; and not_yet DE-DUPED per-area against needs_rate so one rate gap isn't reported twice
+-- cert fixes) + in-grid markers + a unified review strip + an N/M
 priced-count & "show unpriced" filter + the incomplete-subtotal signal (`pricingRollup.RollupNode.incomplete`) surfaced as
 ONE quiet `SummaryPanel` message (the per-subtotal review-STRIP entries were removed as noise) + rollup
 alignment; Cluster B (the reconciliation choice store) deferred to a later slice (2026-06-23; see plan §"Slice 4b-A").

@@ -8680,7 +8680,9 @@ direction toward PricingGrid leaves; no cycle).
 - Plus F4's **broken** / **not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state, empty draftRates --
   a consistent snapshot matching the rollup; the live grid keeps its own draft-aware broken `AlertTriangle`). **GATED behind
   the priceability spine (cert fix -- see Amend 2):** the loop is skipped entirely on a non-priceable row, and within it a
-  no-qty area's amount cell is ignored (option-(i), reusing `isAreaQtyBearing`), symmetric with needs_rate.
+  no-qty area's amount cell is ignored (option-(i), reusing `isAreaQtyBearing`), symmetric with needs_rate. **not_yet is also
+  DE-DUPED per-area against needs_rate (cert fix -- see Amend 3):** suppressed when its area is already in `needsRateAreas`
+  (same rate gap); broken is never suppressed; not_yet still fires for a non-rate cause.
 - **`wont_compute` was REMOVED before push** (the original 4b-A shipped it as "priceable + being-priced + amount column
   has no applicable `pickFormula`"). It is superseded by the forthcoming MANDATORY amount-formula-declaration gate, which
   makes the no-formula-at-pricing-time state impossible -- so the flag could never fire. Dropped from `ReviewFlagKind`,
@@ -8749,3 +8751,25 @@ priceable-no-rate -> not_yet). `pricingRollup.test.ts` stays **23**: the 2 combi
 KEPT -- no whole node.incomplete test deleted. No SummaryPanel test harness exists (all boq-wizard tests are pure-function
 units) -> none scaffolded; covered by the `node.incomplete` units + live cert. tsc **3178 == baseline**, build exit 0.
 `PricingGrid.tsx` UNTOUCHED.
+
+**Amend 3 (`not_yet` de-duped against `needs_rate`, before push).** The bug (live-cert): on a priceable qty-bearing row
+with no rate, TWO flags fired from ONE cause -- `needs_rate` (the rate is missing) AND `not_yet` (the amount couldn't compute
+BECAUSE that same rate operand is missing). The `not_yet` there just restates the rate gap -- noise. Fix (LOCKED, owner,
+PER-AREA, `computeRowFlags` only): an amount cell contributes to `notYetCols` ONLY IF its area is NOT in the row's
+`needsRateAreas` (already computed for `needs_rate`; the amount cell's area is resolved the SAME way the loop already does --
+`amount_by_area` -> `value_key`, scalar -> the SCALAR sentinel; SAME key space, since both per-area columns of an area share
+`value_key=area`). A membership test -- REUSES `needsRateAreas`, no recompute, no new rate check. **`broken` is NEVER
+suppressed** (a malformed/cyclic formula is a different, real problem). **`not_yet` STILL fires** for a non-`needs_rate`
+area whose formula blanks for a NON-rate cause (e.g. an uncomputed amount operand). **`isRowIncomplete` is UNCHANGED** and
+VERIFIED unaffected: a `needs_rate` row is already `!isFullyPriced` -> returns true BEFORE its amount loop, so the Summary
+message stays correct (no flip to "complete"). The flag SHAPE is unchanged (`notYet` boolean + `notYetCols` stay; only WHICH
+cols populate changes). **Tests:** Vitest **197 -> 200** (+3): `priceability.test.ts` 24 -> 27. THREE existing
+not_yet-on-a-needs_rate-row tests were updated to the new behavior (CALLED OUT): "not_yet fires when a formula needs a
+not-yet-entered rate" -> flipped to assert `needsRate` true + `notYet` FALSE (single-area de-dupe); the option-(i) test's
+A1 positive (`notYetCols.toContain("F")`) -> fixed to `needsRateAreas.toContain("A1")` + `notYetCols` has neither F nor I;
+the "no regression STILL flags not_yet" test (whose premise is exactly inverted by the de-dupe) -> REMOVED, replaced by the
+de-dupe block. FOUR new tests added (de-dupe block): per-area A1-rated-computes/A2-unrated-de-duped; non-rate not_yet
+SURVIVES (rate filled, an uncomputed `amount_supply` operand referenced); broken NOT suppressed on a needs_rate row;
+`isRowIncomplete` stays true for a needs_rate row. A non-needs_rate `not_yet`/`broken`/`qty_anomaly` test stays green
+unchanged. tsc **3178 == baseline**, build exit 0. Only `priceability.ts` (+ its test) touched -- `PricingGrid` /
+`SheetPricingPage` / `pricingRollup` / `boqTypes` / `SummaryPanel` UNTOUCHED.

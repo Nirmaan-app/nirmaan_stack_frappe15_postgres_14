@@ -456,7 +456,14 @@ priceability spine (cert fix):** they fire ONLY on (1) a PRICEABLE LINE (`isPric
 non-priceable row) and (2) an amount cell whose AREA is QTY-BEARING on that row (option-(i), reusing the SAME
 `isAreaQtyBearing` the `qtyBearingAreas` set is built from -- NO new qty check), SYMMETRIC with needs_rate -- so a
 notes/header/non-priceable row never flags, and a no-qty area's amount cell is ignored on a priceable row. (The same gate is
-applied to `isRowIncomplete` so the Summary message agrees with the grid.) (**`wont_compute` was removed before push** --
+applied to `isRowIncomplete` so the Summary message agrees with the grid.) **not_yet is also DE-DUPED against needs_rate
+(cert fix, PER-AREA):** an amount cell's not_yet is SUPPRESSED when its area is already in the row's `needsRateAreas` -- the
+amount-not-computed there is the SAME rate gap needs_rate reports (two messages for one problem = noise); the suppression is
+a membership test reusing `needsRateAreas` (no recompute, no new rate check). **broken is NEVER suppressed** (a malformed /
+cyclic formula is a different, real problem); and not_yet STILL fires for a non-needs_rate area whose formula blanks for a
+NON-rate cause (e.g. an uncomputed amount operand). `isRowIncomplete` is unaffected -- a needs_rate row is already
+`!isFullyPriced` -> incomplete before its amount loop, so the Summary stays correct. (**`wont_compute` was removed before
+push** --
 superseded by the forthcoming mandatory amount-formula-declaration gate, which makes the no-formula-at-pricing state
 impossible, so the flag could never fire.) **In-grid marker (`PricingGrid.tsx`):** a left accent + `Flag` icon
 in the Excel-Row GUTTER (col 0) -- DELIBERATELY in the gutter (which carries no priced tint / colour border) so a system flag
@@ -490,7 +497,8 @@ overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Di
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
 docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-A computed-flag layer -- the shared
 `priceability.ts` spine + the flags (needs_rate / qty_anomaly / broken / not_yet, broken/not_yet GATED behind the
-priceability spine [cert fix]; `wont_compute` removed before push) + in-grid markers + unified review strip + N/M
+priceability spine + not_yet DE-DUPED per-area against needs_rate [cert fixes]; `wont_compute` removed before push) +
+in-grid markers + unified review strip + N/M
 priced-count & unpriced filter + the incomplete-subtotal signal as ONE quiet `SummaryPanel` message (the per-subtotal STRIP
 entries removed as noise) + rollup alignment
 (`priceability.ts`/`PricingGrid`/`SheetPricingPage`/`pricingRollup`/`SummaryPanel`,
