@@ -628,23 +628,23 @@ export type AreaKey = string | null;
 
 /**
  * The computed review-flag kinds (Slice 4b-A). All DERIVED on the fly from the delivered
- * row + descriptors + column_formulas -- never a stored field:
- *   needs_rate          -- a priceable line with a qty-bearing area whose rate is not filled.
- *   qty_anomaly         -- qty on a NON-priceable row type (the inverse guardrail).
- *   broken              -- an amount cell's formula can't resolve (cycle / dangling ref).
- *   not_yet             -- an amount cell's formula needs a not-yet-entered operand.
- *   incomplete_subtotal -- a parent/subtotal node with a qty-bearing descendant not fully
- *                          priced / not_yet / broken (rollup-side; zero-qty children excluded).
+ * row + descriptors + column_formulas -- never a stored field. broken / not_yet fire ONLY on
+ * a PRICEABLE LINE and ONLY for a QTY-BEARING area's amount cell (option-(i), symmetric with
+ * needs_rate -- a cert fix):
+ *   needs_rate -- a priceable line with a qty-bearing area whose rate is not filled.
+ *   qty_anomaly -- qty on a NON-priceable row type (the inverse guardrail).
+ *   broken     -- a priceable qty-bearing amount cell's formula can't resolve (cycle / dangling).
+ *   not_yet    -- a priceable qty-bearing amount cell's formula needs a not-yet-entered operand.
  * (The 4b-A `wont_compute` kind was removed before push -- superseded by the forthcoming
- * mandatory amount-formula-declaration gate, which makes the no-formula-at-pricing state
- * impossible, so that flag could never fire.)
+ * mandatory amount-formula-declaration gate. The `incomplete_subtotal` kind was also removed:
+ * the per-subtotal review-STRIP entries were noise; the incomplete signal now surfaces as ONE
+ * quiet panel-level message in SummaryPanel, read from RollupNode.incomplete, NOT the strip.)
  */
 export type ReviewFlagKind =
   | "needs_rate"
   | "qty_anomaly"
   | "broken"
-  | "not_yet"
-  | "incomplete_subtotal";
+  | "not_yet";
 
 /**
  * The per-row computed flags (Slice 4b-A). Booleans drive the in-grid markers + the count;

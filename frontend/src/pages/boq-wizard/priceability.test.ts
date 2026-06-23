@@ -206,6 +206,79 @@ describe("priceability -- the three flags", () => {
   });
 });
 
+// FIX (cert): not_yet / broken are GATED behind the priceability spine (isPriceableLine +
+// per-area qty-bearing, option-(i)), symmetric with needs_rate -- so a notes/header/non-
+// priceable row never flags, and a no-qty area's amount cell is ignored on a priceable row.
+describe("priceability -- not_yet/broken priceability gate (FIX)", () => {
+  // The scalar amount = rate_combined formula (would evaluate not_yet when the rate is absent).
+  const notYetFormula: ColumnFormula = {
+    target_value_field: "amount_total", target_value_key: null, target_rate_subkey: null,
+    target_col: "F",
+    formula: { ref: { value_field: "rate_combined", value_key: null, rate_subkey: null } },
+  };
+  // A dangling-ref formula (would evaluate broken).
+  const danglingFormula: ColumnFormula = {
+    target_value_field: "amount_total", target_value_key: null, target_rate_subkey: null,
+    target_col: "F",
+    formula: { ref: { value_field: "rate_supply", value_key: null, rate_subkey: null } }, // no such col
+  };
+
+  it("the BUG REPRO: a NON-priceable row whose amount cell would evaluate blank does NOT flag", () => {
+    // "Other" (non-priceable) with qty + a not-yet formula -> would-be not_yet, but the whole
+    // loop is skipped (not a priceable line) -> notYet AND broken BOTH false.
+    const note = prow({
+      row_index: 1, source_row_number: 11, node_type: "Other", qty_total: 10,
+    });
+    const f = computeRowFlags(note, SCALAR_CDS, [notYetFormula]);
+    expect(f.notYet).toBe(false);
+    expect(f.broken).toBe(false);
+  });
+
+  it("broken does NOT fire on a NON-priceable row (gated out), but DOES on a priceable one", () => {
+    const note = prow({
+      row_index: 1, source_row_number: 11, node_type: "Other", qty_total: 10, rate_combined: 5,
+    });
+    const line = prow({
+      row_index: 2, source_row_number: 12, node_type: "Line Item", qty_total: 10, rate_combined: 5,
+    });
+    expect(computeRowFlags(note, SCALAR_CDS, [danglingFormula]).broken).toBe(false); // gated out
+    expect(computeRowFlags(line, SCALAR_CDS, [danglingFormula]).broken).toBe(true); // fires
+  });
+
+  it("option-(i): a priceable multi-area row flags A1's amount cell but IGNORES the no-qty A2", () => {
+    // Area-wildcard default amount = qty x combined_rate. A1 is qty-bearing but unpriced
+    // (rate absent) -> not_yet for A1's amount col F. A2 has NO qty -> its amount col I is
+    // skipped by the option-(i) gate (never flagged).
+    const perAreaFormula: ColumnFormula = {
+      target_value_field: "amount_by_area", target_value_key: null, target_rate_subkey: "total",
+      target_col: "F",
+      formula: {
+        op: "*",
+        operands: [
+          { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
+          { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
+        ],
+      },
+    };
+    const row = prow({
+      row_index: 1, source_row_number: 11, node_type: "Line Item",
+      qty_by_area: { A1: 10 }, // A2 absent -> not qty-bearing
+    });
+    const f = computeRowFlags(row, PER_AREA_CDS, [perAreaFormula]);
+    expect(f.notYetCols).toContain("F"); // A1's amount cell flags
+    expect(f.notYetCols).not.toContain("I"); // A2 (no qty) is ignored -- option-(i)
+  });
+
+  it("no regression: a priceable qty-bearing row with no rate STILL flags not_yet", () => {
+    const row = prow({
+      row_index: 1, source_row_number: 11, node_type: "Line Item", qty_total: 10,
+    });
+    const f = computeRowFlags(row, SCALAR_CDS, [notYetFormula]);
+    expect(f.notYet).toBe(true);
+    expect(f.notYetCols).toContain("F");
+  });
+});
+
 describe("priceability -- the priced N/M count", () => {
   it("M = priceable lines, N = fully priced (per-row, strict done-test)", () => {
     const rows = [

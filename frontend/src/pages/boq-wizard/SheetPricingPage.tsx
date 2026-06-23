@@ -54,7 +54,6 @@ import {
   isFullyPriced,
   isPriceableLine,
 } from "./priceability";
-import { incompleteSubtotalEntries, rollupByParent } from "./pricingRollup";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -84,11 +83,6 @@ const REVIEW_ENTRY_META: Record<
   },
   not_yet: {
     label: "Not computed",
-    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
-    text: "text-amber-700 dark:text-amber-400",
-  },
-  incomplete_subtotal: {
-    label: "Incomplete",
     badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
     text: "text-amber-700 dark:text-amber-400",
   },
@@ -455,8 +449,9 @@ const SheetPricingPage = () => {
     : rows;
 
   // The UNIFIED review-list feed (extends 4a's remark feed IN PLACE -- one list, no fork):
-  //   4a remarks + the computed per-row flags + the rollup incomplete-subtotal entries.
-  // A GENERIC ReviewEntry shape; each entry click-jumps to its row via scrollToRow.
+  //   4a remarks + the computed per-row flags. A GENERIC ReviewEntry shape; each entry
+  //   click-jumps to its row via scrollToRow. (The incomplete-subtotal entries were removed
+  //   as noise -- that signal now surfaces as ONE quiet message in the Summary tab.)
   const remarkEntries: ReviewEntry[] = rows
     .filter((r) => r.remark && r.remark.trim())
     .map((r) => ({
@@ -466,13 +461,7 @@ const SheetPricingPage = () => {
       text: (r.remark as string).trim(),
     }));
   const flagEntries = buildFlagEntries(rows, columnDescriptors, columnFormulas);
-  // Incomplete-subtotal entries come from the rollup forest (a pure recompute -- SummaryPanel
-  // also rolls up internally; this duplicate is cheap and avoids reshaping SummaryPanel's
-  // contract, which is out of this slice's scope).
-  const incompleteEntries = incompleteSubtotalEntries(
-    rollupByParent(rows, columnDescriptors, columnFormulas).roots,
-  );
-  const reviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries, ...incompleteEntries].sort(
+  const reviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries].sort(
     (a, b) => a.excelRow - b.excelRow,
   );
 

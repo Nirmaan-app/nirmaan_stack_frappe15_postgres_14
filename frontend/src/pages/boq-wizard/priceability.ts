@@ -47,6 +47,7 @@ import type {
 // The SCALAR sentinel area key (a scalar rate/qty column has no area -> value_key null).
 export const SCALAR_AREA: AreaKey = null;
 const PER_AREA_RATE_FIELD = "rate_by_area";
+const PER_AREA_AMOUNT_FIELD = "amount_by_area";
 
 /** A non-blank, non-zero finite number (the qty / committed test -- NEVER a bare zero-check
  *  that would also reject null). A real 0 is NOT qty-bearing; a negative qty IS. */
@@ -178,14 +179,25 @@ export function computeRowFlags(
   const qtyAnomaly = isQtyOnNonPriceable(row);
 
   // F4 not_yet / broken surfaced by READING evaluateAmountCell (no compute re-architecture).
+  // GATED behind the priceability spine, SYMMETRIC with needs_rate (cert fix): they fire ONLY
+  // on (1) a PRICEABLE LINE, and (2) an amount cell whose AREA is QTY-BEARING on this row
+  // (option-(i), reusing the SAME isAreaQtyBearing the qtyBearingAreas set is built from -- no
+  // new qty check). A note/header/non-priceable row never flags; a priceable multi-area row
+  // qty-bearing in A1 but not A2 may flag for A1's amount cell, A2's is ignored.
   const brokenCols: string[] = [];
   const notYetCols: string[] = [];
-  for (const d of descriptors) {
-    if (!isAmountDescriptor(d)) continue;
-    const res = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
-    if (res.kind === "blank") {
-      if (res.reason === "broken") brokenCols.push(d.col);
-      else notYetCols.push(d.col);
+  if (priceableLine) {
+    for (const d of descriptors) {
+      if (!isAmountDescriptor(d)) continue;
+      // The amount cell's area: the per-area value_key, or the SCALAR sentinel for a scalar
+      // amount column. A no-qty area is ignored (option-(i)).
+      const area: AreaKey = d.value_field === PER_AREA_AMOUNT_FIELD ? d.value_key : SCALAR_AREA;
+      if (!isAreaQtyBearing(row, area)) continue;
+      const res = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
+      if (res.kind === "blank") {
+        if (res.reason === "broken") brokenCols.push(d.col);
+        else notYetCols.push(d.col);
+      }
     }
   }
 
@@ -243,8 +255,14 @@ export function isRowIncomplete(
 ): boolean {
   if (!isPriceableLine(row, descriptors)) return false;
   if (!isFullyPriced(row, descriptors)) return true;
+  // Same option-(i) gate as computeRowFlags' not_yet/broken loop: only a QTY-BEARING area's
+  // amount cell can mark the row incomplete (a no-qty area's amount is ignored). Without this
+  // the summary message would disagree with the grid -- a fully-priced row with a no-qty area
+  // whose formula evaluates not_yet would falsely read incomplete.
   for (const d of descriptors) {
     if (!isAmountDescriptor(d)) continue;
+    const area: AreaKey = d.value_field === PER_AREA_AMOUNT_FIELD ? d.value_key : SCALAR_AREA;
+    if (!isAreaQtyBearing(row, area)) continue;
     if (evaluateAmountCell(d, row, descriptors, columnFormulas, {}).kind === "blank") return true;
   }
   return false;

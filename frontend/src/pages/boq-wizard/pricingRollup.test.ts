@@ -10,7 +10,6 @@ import {
   rollupByParent,
   minPreambleDepth,
   defaultCollapsedSet,
-  incompleteSubtotalEntries,
 } from "./pricingRollup";
 import type {
   AmountFormulaNode,
@@ -445,13 +444,15 @@ describe("rollupByParent -- grand total (Option 1) + reconciliation", () => {
   });
 });
 
-// ── Slice 4b-A: the incomplete-subtotal signal (node.incomplete + incompleteSubtotalEntries) ──
+// ── Slice 4b-A: the incomplete-subtotal SIGNAL (node.incomplete) ──
 //
 // node.incomplete is an OR over self + descendants of priceability.isRowIncomplete (a
 // qty-bearing priceable row not fully priced / not_yet / broken). The amount TOTALS are
 // UNCHANGED by this signal (verified alongside). A 2-area combined sheet so a child can be
-// half-priced (one area filled, the other qty-bearing area not).
-describe("rollupByParent -- incomplete-subtotal (Slice 4b-A)", () => {
+// half-priced (one area filled, the other qty-bearing area not). (The per-subtotal review-strip
+// entries `incompleteSubtotalEntries` were removed -- the signal now drives one SummaryPanel
+// message; only node.incomplete is tested here.)
+describe("rollupByParent -- incomplete-subtotal signal (Slice 4b-A)", () => {
   const cds = [
     desc("D", "qty", "qty_by_area", "A1"),
     desc("E", "rate_combined_by_area", "rate_by_area", "A1", "combined_rate"),
@@ -461,7 +462,7 @@ describe("rollupByParent -- incomplete-subtotal (Slice 4b-A)", () => {
     desc("I", "amount_total_by_area", "amount_by_area", "A2", "total"),
   ];
 
-  it("a parent with a HALF-priced qty-bearing child is incomplete (+ a strip entry)", () => {
+  it("a parent with a HALF-priced qty-bearing child is incomplete", () => {
     const rows = [
       prow({ row_index: 0, source_row_number: 10, effective_parent_index: null,
         effective_classification: "preamble", node_type: "Preamble", description: "P" }),
@@ -472,9 +473,6 @@ describe("rollupByParent -- incomplete-subtotal (Slice 4b-A)", () => {
     ];
     const res = rollupByParent(rows, cds);
     expect(root(res, 0)!.incomplete).toBe(true);
-    const entries = incompleteSubtotalEntries(res.roots);
-    expect(entries.map((e) => e.excelRow)).toContain(10);
-    expect(entries[0].kind).toBe("incomplete_subtotal");
   });
 
   it("a parent whose ONLY unpriced descendant is ZERO-QTY is COMPLETE (no flag)", () => {
@@ -492,7 +490,6 @@ describe("rollupByParent -- incomplete-subtotal (Slice 4b-A)", () => {
     ];
     const res = rollupByParent(rows, cds);
     expect(root(res, 0)!.incomplete).toBe(false);
-    expect(incompleteSubtotalEntries(res.roots)).toEqual([]);
   });
 
   it("a FULLY-priced subtree is complete; the amount totals are unaffected by the signal", () => {

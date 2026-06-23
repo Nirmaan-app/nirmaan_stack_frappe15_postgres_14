@@ -55,7 +55,6 @@ import type {
   ColumnDescriptor,
   ColumnFormula,
   PricedRow,
-  ReviewEntry,
 } from "./boqTypes";
 
 // Reconciliation tolerance (Option 1 tree-total vs Option 2 flat-sum). A small ABSOLUTE
@@ -366,25 +365,6 @@ export function defaultCollapsedSet(roots: RollupNode[]): Set<number> {
   return set;
 }
 
-/**
- * Slice 4b-A: the incomplete-subtotal review-strip entries -- every PARENT node flagged
- * `incomplete` (it has a qty-bearing descendant not fully priced / not_yet / broken). Each
- * entry click-jumps to that subtotal row. Pure (READS the forest). A node with no
- * source_row_number (defensive) is skipped (nothing to jump to).
- */
-export function incompleteSubtotalEntries(roots: RollupNode[]): ReviewEntry[] {
-  const out: ReviewEntry[] = [];
-  const walk = (n: RollupNode) => {
-    if (n.isParent && n.incomplete && n.sourceRowNumber !== null) {
-      out.push({
-        kind: "incomplete_subtotal",
-        excelRow: n.sourceRowNumber,
-        description: n.description ?? "",
-        text: "Incomplete subtotal -- a line under this row is not fully priced.",
-      });
-    }
-    for (const c of n.children) walk(c);
-  };
-  for (const r of roots) walk(r);
-  return out;
-}
+// (Slice 4b-A fix) `incompleteSubtotalEntries` was removed -- the per-subtotal review-STRIP
+// entries were noise. RollupNode.incomplete (+ ownIncompleteByIdx / rolledIncomplete /
+// isRowIncomplete) is KEPT: SummaryPanel reads it for ONE quiet panel-level message.
