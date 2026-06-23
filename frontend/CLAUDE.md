@@ -441,19 +441,20 @@ pricing area (a zero-qty-everywhere priceable row DROPS OUT of the population). 
 prepopulated-committed-non-zero rate -- expressed as `lookupOperandValue(row, ref, descriptors, {}) !== undefined`, so it
 REUSES the editor's single source of truth (never a bare zero-check; a deliberate editor-0 counts, an unfilled 0 does not).
 FULLY PRICED = option-(i): every QTY-BEARING area's rate cell(s) filled (no-qty areas IGNORED). Per-ROW count (owner-locked).
-Every consumer routes through this module: `computeRowFlags` (the three flags + F4 not_yet/broken), `computePricedCount`
+Every consumer routes through this module: `computeRowFlags` (the flags + F4 not_yet/broken), `computePricedCount`
 (N/M done-test), `isRowIncomplete` (the incomplete-subtotal atom), and the `pricingRollup` alignment. **No circular import:**
 `priceability` imports PricingGrid's leaf predicates (`isPriceableType`/`isCellPriced`/`isRateDescriptor`/`isAmountDescriptor`/
-`lookupOperandValue`/`evaluateAmountCell`) + `amountFormula.pickFormula`; PricingGrid NEVER imports `priceability` -- it
+`lookupOperandValue`/`evaluateAmountCell`); PricingGrid NEVER imports `priceability` -- it
 RECEIVES the flags as a `rowFlags?: Map<number, RowReviewFlags>` prop (the flag types `AreaKey`/`ReviewFlagKind`/
 `RowReviewFlags`/`ReviewEntry`/`PricedLineCount` live in `boqTypes.ts` so the grid consumes them without the cycle).
 
-The THREE flags (all DERIVED on the fly -- no stored field): **needs_rate** (priceable line, a qty-bearing area not filled --
-per-area aware: priced in X but not qty-bearing Y still fires for Y); **wont_compute** (priceable being-priced row whose
-amount column has NO applicable `pickFormula` -- DERIVED, NOT an F4 state, since `evaluateAmountCell` silently returns
-`{kind:"committed"}` when no formula applies); **qty_anomaly** (a NON-priceable node_type carrying qty -- the inverse
-guardrail). Plus F4's **broken**/**not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state; the live
-grid keeps its own draft-aware broken `AlertTriangle`). **In-grid marker (`PricingGrid.tsx`):** a left accent + `Flag` icon
+The flags (all DERIVED on the fly -- no stored field): **needs_rate** (priceable line, a qty-bearing area not filled --
+per-area aware: priced in X but not qty-bearing Y still fires for Y); **qty_anomaly** (a NON-priceable node_type carrying
+qty -- the inverse guardrail). Plus F4's **broken**/**not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})`
+(saved-state; the live
+grid keeps its own draft-aware broken `AlertTriangle`). (**`wont_compute` was removed before push** -- superseded by the
+forthcoming mandatory amount-formula-declaration gate, which makes the no-formula-at-pricing state impossible, so the flag
+could never fire.) **In-grid marker (`PricingGrid.tsx`):** a left accent + `Flag` icon
 in the Excel-Row GUTTER (col 0) -- DELIBERATELY in the gutter (which carries no priced tint / colour border) so a system flag
 never collides with the emerald/amber priced background or the user colour border (§6); rose accent = critical
 (broken/qty_anomaly), amber = attention. **Review strip (`SheetPricingPage.tsx`):** the 4a remark feed is EXTENDED IN PLACE
@@ -479,7 +480,8 @@ overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Di
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
 docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-A computed-flag layer -- the shared
-`priceability.ts` spine + three flags + in-grid markers + unified review strip + N/M priced-count & unpriced filter +
+`priceability.ts` spine + the flags (needs_rate / qty_anomaly / broken / not_yet; `wont_compute` removed before push) +
+in-grid markers + unified review strip + N/M priced-count & unpriced filter +
 incomplete-subtotal signal + rollup alignment (`priceability.ts`/`PricingGrid`/`SheetPricingPage`/`pricingRollup`,
 2026-06-23); Prepopulated-rate fix -- formula reads committed rates by
 non-zero value, not just the priced marker (`PricingGrid.lookupOperandValue`, 2026-06-23); Summary formula-fix --

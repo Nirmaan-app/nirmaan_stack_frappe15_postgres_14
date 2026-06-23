@@ -8,9 +8,11 @@ Formula Builder F1 -- amount-formula storage (NEW doctype BoQ Cell Amount Formul
 get_sheet_amount_formulas + get_priced_rows column_formulas merge, 2026-06-22; see plan §"Formula Builder F1").
 **Latest frontend slice:** Phase 5 Slice 4b-A -- the computed review-flag layer (FRONTEND-only, NO backend/doctype/migrate):
 the shared `frontend/src/pages/boq-wizard/priceability.ts` "qty-bearing priceable line" spine (§6 one-shared-definition) +
-three computed flags (needs-rate / won't-compute / qty-anomaly) + in-grid markers + a unified review strip + an N/M
+the computed flags (needs-rate / qty-anomaly + F4 broken/not_yet) + in-grid markers + a unified review strip + an N/M
 priced-count & "show unpriced" filter + the incomplete-subtotal signal (`pricingRollup.RollupNode.incomplete`) + rollup
 alignment; Cluster B (the reconciliation choice store) deferred to a later slice (2026-06-23; see plan §"Slice 4b-A").
+The `wont_compute` flag was REMOVED before push -- superseded by the forthcoming mandatory amount-formula-declaration gate,
+which makes the no-formula-at-pricing state impossible (so the flag could never fire).
 
 **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 

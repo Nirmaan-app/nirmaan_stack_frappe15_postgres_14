@@ -8673,15 +8673,17 @@ imports `priceability` -- it RECEIVES the flags as a `rowFlags?: Map<number, Row
 `RowReviewFlags` without importing `priceability` (which would be the cycle). `pricingRollup` imports `priceability` (one
 direction toward PricingGrid leaves; no cycle).
 
-**The three flags (DERIVED on the fly -- no stored field).** `computeRowFlags(row, descriptors, columnFormulas)`:
+**The flags (DERIVED on the fly -- no stored field).** `computeRowFlags(row, descriptors, columnFormulas)`:
 - **needs_rate** -- priceable line with a qty-bearing area not filled. PER-AREA aware (priced in X but not qty-bearing Y
   fires for Y; `needsRateAreas` carries the specific areas).
-- **wont_compute** -- priceable line BEING priced (>=1 rate filled) whose amount column has NO applicable `pickFormula`.
-  DERIVED, NOT an F4 state (recon Q4/Q15.2): `evaluateAmountCell` silently returns `{kind:"committed"}` when no formula
-  applies, so 4b derives it from priceable + priced + no-formula. `wontComputeCols` carries the amount cols.
 - **qty_anomaly** -- a NON-priceable node_type carrying a non-zero qty anywhere (the inverse guardrail).
 - Plus F4's **broken** / **not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state, empty draftRates --
   a consistent snapshot matching the rollup; the live grid keeps its own draft-aware broken `AlertTriangle`).
+- **`wont_compute` was REMOVED before push** (the original 4b-A shipped it as "priceable + being-priced + amount column
+  has no applicable `pickFormula`"). It is superseded by the forthcoming MANDATORY amount-formula-declaration gate, which
+  makes the no-formula-at-pricing-time state impossible -- so the flag could never fire. Dropped from `ReviewFlagKind`,
+  `RowReviewFlags`, `computeRowFlags`, `buildFlagEntries`, the in-grid marker, and `REVIEW_ENTRY_META`; its 2 dedicated
+  unit tests removed (priceability.test.ts 22 -> 20). `priceability` no longer imports `amountFormula.pickFormula`.
 
 **In-grid marker (`PricingGrid.tsx`).** A left accent (`border-l-4`) + a `Flag` icon in the Excel-Row GUTTER (col 0).
 DELIBERATELY in the gutter -- which carries no priced tint / colour border -- so a system flag never collides with the
@@ -8709,11 +8711,14 @@ would change committed-amount totals (the HARD-GATE STOP), so only the new SIGNA
 totals are byte-for-byte unchanged. The in-summary VISUAL marker is DEFERRED (`SummaryPanel.tsx` is out of this slice's
 scope; the signal is surfaced via the strip + `RollupNode.incomplete` -- a future SummaryPanel slice can render it).
 
-**Tests + gates.** Vitest **170 -> 195** (+25): NEW `priceability.test.ts` (+22 -- the spine: zero-qty-everywhere excluded /
-single-area scalar / multi-area partial-qty fully-priced-ignores-no-qty-area / fully- vs half-priced / filled-is-not-a-
-zero-check (editor-0 vs unfilled-0 vs prepopulated-non-zero); the three flags; F4 not_yet/broken surfaced; N/M count;
-`isRowIncomplete` incl. the zero-qty-don't-flag case; `buildFlagEntries`), `pricingRollup.test.ts` (+3 -- half-priced child
--> parent incomplete + strip entry / zero-qty-only-unpriced -> COMPLETE / fully-priced + totals unaffected by the signal).
-The existing **20** pricingRollup tests stayed GREEN before AND after the alignment (no existing total silently changed --
-the HARD GATE held). tsc **3178 == baseline** (0 new in touched files, test files included). Vite build exit 0. Backend /
-rate-save / nav / color / remarks / `amountFormula` / `evaluateAmountCell` internals / `SummaryPanel` UNTOUCHED.
+**Tests + gates.** Vitest **170 -> 195** (+25) at ship: NEW `priceability.test.ts` (+22 -- the spine: zero-qty-everywhere
+excluded / single-area scalar / multi-area partial-qty fully-priced-ignores-no-qty-area / fully- vs half-priced /
+filled-is-not-a-zero-check (editor-0 vs unfilled-0 vs prepopulated-non-zero); the flags; F4 not_yet/broken surfaced; N/M
+count; `isRowIncomplete` incl. the zero-qty-don't-flag case; `buildFlagEntries`), `pricingRollup.test.ts` (+3 -- half-priced
+child -> parent incomplete + strip entry / zero-qty-only-unpriced -> COMPLETE / fully-priced + totals unaffected by the
+signal). The existing **20** pricingRollup tests stayed GREEN before AND after the alignment (no existing total silently
+changed -- the HARD GATE held). tsc **3178 == baseline** (0 new in touched files, test files included). Vite build exit 0.
+Backend / rate-save / nav / color / remarks / `amountFormula` / `evaluateAmountCell` internals / `SummaryPanel` UNTOUCHED.
+**Amend (`wont_compute` removal, before push):** its 2 dedicated unit tests dropped -> Vitest **195 -> 193**
+(`priceability.test.ts` 22 -> 20); one `wont_compute` assertion struck from the multi-flag `buildFlagEntries` strip-feed
+test (the rest intact); tsc **3178 == baseline**, build exit 0. `pricingRollup.ts`/`pricingRollup.test.ts` untouched.
