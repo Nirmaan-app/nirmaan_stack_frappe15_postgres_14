@@ -191,6 +191,7 @@ doc_events = {
         "on_update": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_procurement_order",
+            "nirmaan_stack.services.action_items.doc_hooks.on_po_update",
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.procurement_orders.on_trash",
@@ -263,10 +264,18 @@ doc_events = {
     },
     "PO Delivery Documents": {
         "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
+        "after_insert": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_insert",
+        "on_trash": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_delete",
     },
     "Delivery Notes": {
-        "on_update": "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
-        "after_delete": "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
+        "on_update": [
+            "nirmaan_stack.integrations.controllers.delivery_notes.on_update",
+            "nirmaan_stack.services.action_items.doc_hooks.on_dn_update",
+        ],
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.delivery_notes.after_delete",
+            "nirmaan_stack.services.action_items.doc_hooks.on_dn_delete",
+        ],
     },
     "Internal Transfer Memo": {
         "validate": "nirmaan_stack.integrations.controllers.internal_transfer_memo.validate",
@@ -318,6 +327,9 @@ scheduler_events = {
 		],
 		"0 1 * * *": [
 			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
+		],
+		"0 2 * * *": [
+			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
 		]
 	}
 }
