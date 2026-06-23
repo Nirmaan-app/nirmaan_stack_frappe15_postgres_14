@@ -190,13 +190,22 @@ export function computeRowFlags(
     for (const d of descriptors) {
       if (!isAmountDescriptor(d)) continue;
       // The amount cell's area: the per-area value_key, or the SCALAR sentinel for a scalar
-      // amount column. A no-qty area is ignored (option-(i)).
+      // amount column. A no-qty area is ignored (option-(i)). SAME key space as needsRateAreas
+      // (both per-area columns of an area share value_key=area; scalar -> the SCALAR sentinel).
       const area: AreaKey = d.value_field === PER_AREA_AMOUNT_FIELD ? d.value_key : SCALAR_AREA;
       if (!isAreaQtyBearing(row, area)) continue;
       const res = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
       if (res.kind === "blank") {
-        if (res.reason === "broken") brokenCols.push(d.col);
-        else notYetCols.push(d.col);
+        if (res.reason === "broken") {
+          brokenCols.push(d.col); // broken is NEVER suppressed -- a different, real problem.
+        } else if (!needsRateAreas.includes(area)) {
+          // not_yet DE-DUPE (cert fix): suppress it when this cell's AREA is already a
+          // needs_rate area -- the amount-not-computed there is the SAME rate gap needs_rate
+          // already reports (two messages for one problem = noise). not_yet STILL fires for a
+          // non-needs_rate area whose formula blanks for a NON-rate cause (another uncomputed
+          // operand). PER-AREA: A2's not_yet is suppressed while A1 is judged on its own.
+          notYetCols.push(d.col);
+        }
       }
     }
   }

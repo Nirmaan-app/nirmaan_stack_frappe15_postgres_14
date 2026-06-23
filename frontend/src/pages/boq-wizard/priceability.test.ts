@@ -174,7 +174,11 @@ describe("priceability -- the three flags", () => {
     expect(computeRowFlags(clean, SCALAR_CDS, []).qtyAnomaly).toBe(false);
   });
 
-  it("not_yet fires when a formula needs a not-yet-entered rate (F4 surfaced)", () => {
+  // De-dupe (cert fix): a missing-rate gap reports needs_rate ONLY, not ALSO not_yet -- the
+  // amount couldn't compute BECAUSE that same rate is missing, so not_yet there is the rate gap
+  // restated. (UPDATED from "not_yet fires when a formula needs a not-yet-entered rate", which
+  // asserted not_yet on a needs_rate row -- exactly the duplication this fix removes.)
+  it("de-dupe: a missing-rate gap reports needs_rate ONLY, not also not_yet (single area)", () => {
     const formula: ColumnFormula = {
       target_value_field: "amount_total", target_value_key: null, target_rate_subkey: null,
       target_col: "F",
@@ -182,11 +186,11 @@ describe("priceability -- the three flags", () => {
     };
     const row = prow({
       row_index: 1, source_row_number: 11, node_type: "Line Item",
-      qty_total: 10, // unfilled rate (no rate_combined / no marker)
+      qty_total: 10, // unfilled rate (no rate_combined / no marker) -> needs_rate
     });
     const f = computeRowFlags(row, SCALAR_CDS, [formula]);
-    expect(f.notYet).toBe(true);
-    expect(f.notYetCols).toContain("F");
+    expect(f.needsRate).toBe(true);
+    expect(f.notYet).toBe(false); // SUPPRESSED (was asserted true before the de-dupe)
     expect(f.broken).toBe(false);
   });
 
@@ -245,10 +249,11 @@ describe("priceability -- not_yet/broken priceability gate (FIX)", () => {
     expect(computeRowFlags(line, SCALAR_CDS, [danglingFormula]).broken).toBe(true); // fires
   });
 
-  it("option-(i): a priceable multi-area row flags A1's amount cell but IGNORES the no-qty A2", () => {
-    // Area-wildcard default amount = qty x combined_rate. A1 is qty-bearing but unpriced
-    // (rate absent) -> not_yet for A1's amount col F. A2 has NO qty -> its amount col I is
-    // skipped by the option-(i) gate (never flagged).
+  it("option-(i) + de-dupe: A1's not_yet de-duped by needs_rate; no-qty A2 ignored", () => {
+    // Area-wildcard default amount = qty x combined_rate. A1 is qty-bearing but unpriced ->
+    // needs_rate(A1), so A1's amount not_yet is DE-DUPED (the gap rides needs_rate, not also
+    // not_yet). A2 has NO qty -> skipped by the option-(i) gate. So notYetCols is empty.
+    // (UPDATED: the A1 positive was `notYetCols.toContain("F")`; A1 is now a needs_rate area.)
     const perAreaFormula: ColumnFormula = {
       target_value_field: "amount_by_area", target_value_key: null, target_rate_subkey: "total",
       target_col: "F",
@@ -265,17 +270,95 @@ describe("priceability -- not_yet/broken priceability gate (FIX)", () => {
       qty_by_area: { A1: 10 }, // A2 absent -> not qty-bearing
     });
     const f = computeRowFlags(row, PER_AREA_CDS, [perAreaFormula]);
-    expect(f.notYetCols).toContain("F"); // A1's amount cell flags
-    expect(f.notYetCols).not.toContain("I"); // A2 (no qty) is ignored -- option-(i)
+    expect(f.needsRateAreas).toContain("A1"); // the A1 rate gap is reported -- via needs_rate
+    expect(f.notYetCols).not.toContain("F"); // A1's not_yet de-duped (needs_rate covers it)
+    expect(f.notYetCols).not.toContain("I"); // A2 (no qty) ignored -- option-(i) gate
+  });
+});
+
+// De-dupe (cert fix): an amount cell's not_yet is SUPPRESSED when its AREA is already a
+// needs_rate area (the amount-not-computed there is the SAME rate gap needs_rate reports).
+// PER-AREA. broken is NEVER suppressed. not_yet STILL fires for a NON-rate cause.
+describe("priceability -- not_yet de-dupe vs needs_rate (FIX)", () => {
+  it("PER-AREA: A1 (rated) computes, A2 (unrated) reports needs_rate -- neither in notYetCols", () => {
+    // A1: qty + rate -> amount computes (never flagged). A2: qty, NO rate -> needs_rate(A2);
+    // A2's amount not_yet is DE-DUPED. So notYetCols is empty; A2 is judged independently of A1.
+    const perAreaFormula: ColumnFormula = {
+      target_value_field: "amount_by_area", target_value_key: null, target_rate_subkey: "total",
+      target_col: "F",
+      formula: {
+        op: "*",
+        operands: [
+          { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
+          { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
+        ],
+      },
+    };
+    const row = prow({
+      row_index: 1, source_row_number: 11, node_type: "Line Item",
+      qty_by_area: { A1: 10, A2: 4 },
+      rate_by_area: { A1: { combined_rate: 5 } } as never, // A1 filled; A2 rate absent
+    });
+    const f = computeRowFlags(row, PER_AREA_CDS, [perAreaFormula]);
+    expect(f.needsRateAreas).toContain("A2"); // A2 rate gap (reported via needs_rate)
+    expect(f.needsRateAreas).not.toContain("A1"); // A1 is filled
+    expect(f.notYetCols).not.toContain("I"); // A2's amount not_yet de-duped by needs_rate
+    expect(f.notYetCols).not.toContain("F"); // A1 computed -> never flagged
   });
 
-  it("no regression: a priceable qty-bearing row with no rate STILL flags not_yet", () => {
+  it("non-rate not_yet SURVIVES: rate filled, but the formula refs an uncomputed amount operand", () => {
+    // amount_total (F) = amount_supply (G). The rate IS filled (so the area is NOT needs_rate),
+    // but amount_supply has no stored value / no formula -> F evaluates not_yet for a NON-rate
+    // cause -> NOT suppressed (the area isn't a needs_rate area). This is where not_yet earns it.
+    const cds = [
+      desc("B", "description", "description"),
+      desc("C", "qty_total", "qty_total"),
+      desc("E", "rate_combined", "rate_combined"),
+      desc("F", "amount_total", "amount_total"),
+      desc("G", "amount_supply", "amount_supply"), // the (uncomputed) operand F references
+    ];
+    const formula: ColumnFormula = {
+      target_value_field: "amount_total", target_value_key: null, target_rate_subkey: null,
+      target_col: "F",
+      formula: { ref: { value_field: "amount_supply", value_key: null, rate_subkey: null } },
+    };
     const row = prow({
-      row_index: 1, source_row_number: 11, node_type: "Line Item", qty_total: 10,
+      row_index: 1, source_row_number: 11, node_type: "Line Item",
+      qty_total: 10, rate_combined: 5, // rate FILLED -> scalar area is NOT needs_rate
+      // amount_supply absent -> the referenced operand is uncomputed
     });
-    const f = computeRowFlags(row, SCALAR_CDS, [notYetFormula]);
-    expect(f.notYet).toBe(true);
+    const f = computeRowFlags(row, cds, [formula]);
+    expect(f.needsRate).toBe(false); // rate filled -> no needs_rate, so no de-dupe applies
+    expect(f.notYet).toBe(true); // survives -- a non-rate cause
     expect(f.notYetCols).toContain("F");
+  });
+
+  it("broken is NOT suppressed even on a needs_rate row", () => {
+    // The row has a missing rate (needs_rate) AND a dangling amount formula -> broken still
+    // fires (broken is a different, real problem -- never de-duped, unlike not_yet).
+    const dangling: ColumnFormula = {
+      target_value_field: "amount_total", target_value_key: null, target_rate_subkey: null,
+      target_col: "F",
+      formula: { ref: { value_field: "rate_supply", value_key: null, rate_subkey: null } }, // no such col
+    };
+    const row = prow({
+      row_index: 1, source_row_number: 11, node_type: "Line Item", qty_total: 10, // no rate -> needs_rate
+    });
+    const f = computeRowFlags(row, SCALAR_CDS, [dangling]);
+    expect(f.needsRate).toBe(true);
+    expect(f.broken).toBe(true); // NOT suppressed
+    expect(f.brokenCols).toContain("F");
+  });
+
+  it("isRowIncomplete stays TRUE for a needs_rate row (summary unaffected by the suppression)", () => {
+    // A needs_rate row is not fully priced -> isRowIncomplete returns true via !isFullyPriced,
+    // BEFORE its amount loop -- so suppressing not_yet never flips a rate-gap row to "complete".
+    const row = prow({
+      row_index: 1, source_row_number: 11, node_type: "Line Item",
+      qty_by_area: { A1: 10 }, // A1 rate missing -> needs_rate
+    });
+    expect(computeRowFlags(row, PER_AREA_CDS, []).needsRate).toBe(true);
+    expect(isRowIncomplete(row, PER_AREA_CDS, [])).toBe(true);
   });
 });
 
