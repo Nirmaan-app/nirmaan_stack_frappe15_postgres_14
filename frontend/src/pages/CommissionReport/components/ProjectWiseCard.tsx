@@ -36,11 +36,11 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                 pending++;
             } else if (status === 'Pending Approval') {
                 pendingApproval++;
-            } else if (status === 'Approved') {
+            } else if (status === 'Submitted') {
                 approved++;
             } else if (status === 'Rejected') {
                 rejected++;
-            } else if (status === 'Completed') {
+            } else if (status === 'Client Accepted') {
                 completed++;
             } else {
                 // Catch all other non-finished tasks as pending
@@ -150,9 +150,9 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                     <span className="text-indigo-700">Pending Approval</span>
                                     <span className="font-semibold text-indigo-900">{statusCounts.pendingApproval}</span>
                                 </div>
-                                {/* Approved */}
+                                {/* Submitted */}
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-teal-50/80 rounded-md border border-teal-100">
-                                    <span className="text-teal-700">Approved</span>
+                                    <span className="text-teal-700">Submitted</span>
                                     <span className="font-semibold text-teal-900">{statusCounts.approved}</span>
                                 </div>
                                 {/* Rejected */}
@@ -160,9 +160,9 @@ export const ProjectWiseCard: React.FC<ProjectWiseCardProps> = ({ tracker, onCli
                                     <span className="text-red-700">Rejected</span>
                                     <span className="font-semibold text-red-900">{statusCounts.rejected}</span>
                                 </div>
-                                {/* Completed */}
+                                {/* Client Accepted */}
                                 <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-green-50/80 rounded-md border border-green-100">
-                                    <span className="text-green-700">Completed</span>
+                                    <span className="text-green-700">Client Accepted</span>
                                     <span className="font-semibold text-green-900">{statusCounts.completed}</span>
                                 </div>
                             </div>

@@ -1,5 +1,5 @@
 // Global approvals queue on the Commission Report list page (Admin / PMO).
-// Same DataTable UX as the Task Wise tab, filtered to "Pending Approval" + "Approved",
+// Same DataTable UX as the Task Wise tab, filtered to "Pending Approval" + "Submitted",
 // with Approve / Reject + the report actions per row. Reuses get_task_wise_list.
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
 
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
 import { CommissionReportTask } from "../types";
@@ -59,6 +60,9 @@ interface Props {
 export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }) => {
     const { categoryData, FacetProjectsOptions } = useCommissionMasters();
     const { map: masterMap } = useMasterTaskMap();
+    const { role, user_id } = useUserData();
+    // Approve / Reject actions are Admin-only; PMO sees the queue read-only.
+    const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
     const [preview, setPreview] = useState<{ open: boolean; url: string; title: string }>({ open: false, url: "", title: "" });
     const openPreview = useCallback((url: string, title: string) => setPreview({ open: true, url, title }), []);
@@ -100,13 +104,6 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             enableColumnFilter: true,
             size: 160, minSize: 130, maxSize: 200,
         }] as ColumnDef<FlattenedTask>[]),
-        {
-            accessorKey: "task_zone",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Zone" />,
-            cell: ({ row }) => row.original.task_zone || "--",
-            enableColumnFilter: true,
-            size: 110, minSize: 90, maxSize: 140,
-        },
         {
             accessorKey: "commission_category",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
@@ -174,10 +171,10 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             size: 170,
             meta: { excludeFromExport: true },
         },
-        {
+        ...(isAdmin ? [{
             id: "actions",
             header: () => <div className="w-full text-center">Actions</div>,
-            cell: ({ row }) => {
+            cell: ({ row }: { row: any }) => {
                 const task = row.original;
                 return (
                     <div className="flex justify-center gap-2">
@@ -185,7 +182,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                             size="icon"
                             variant="ghost"
                             className="h-8 w-8 text-green-600 hover:bg-green-50"
-                            title="Approve"
+                            title="Submit"
                             onClick={() => openApproval(task, 'approve')}
                         >
                             <Check className="h-4 w-4" />
@@ -204,8 +201,8 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             },
             size: 100, minSize: 90, maxSize: 120,
             meta: { excludeFromExport: true },
-        },
-    ], [masterMap, trackerName, openPreview, openApproval]);
+        }] as ColumnDef<FlattenedTask>[] : []),
+    ], [masterMap, trackerName, openPreview, openApproval, isAdmin]);
 
     const facetFilterOptions = useMemo(() => ({
         ...(trackerName ? {} : { project: { title: "Project", options: FacetProjectsOptions || [] } }),
@@ -236,15 +233,14 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
         columns,
         fetchFields: [
             "name as prjname", "project_name", "project", "name", "task_name",
-            "commission_category", "deadline", "assigned_designers", "task_status",
+            "commission_category", "deadline", "task_status",
             "report_type", "file_link", "approval_proof", "response_data",
-            "comments", "modified", "task_zone", "last_submitted",
+            "comments", "modified", "last_submitted",
         ],
         searchableFields: [
             { value: "task_name", label: "Report Name", default: true },
             { value: "project_name", label: "Project Name" },
             { value: "commission_category", label: "Category" },
-            { value: "task_zone", label: "Zone" },
         ],
         defaultSort: "modified desc",
         urlSyncKey: trackerName ? "cr_proj_approvals" : "cr_approvals",
@@ -289,7 +285,6 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                     { value: "task_name", label: "Report Name", default: true },
                     { value: "project_name", label: "Project Name" },
                     { value: "commission_category", label: "Category" },
-                    { value: "task_zone", label: "Zone" },
                 ]}
                 selectedSearchField={serverDataTable.selectedSearchField}
                 onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}

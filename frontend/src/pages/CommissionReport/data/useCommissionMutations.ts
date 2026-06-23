@@ -86,39 +86,6 @@ export const useToggleCommissionReportVisibility = () => {
 };
 
 /**
- * Hook for renaming a zone
- */
-export const useRenameZone = () => {
-    const { call, loading } = useFrappePostCall('nirmaan_stack.api.commission_report.rename_zone.rename_zone');
-    const { mutate } = useSWRConfig();
-    const { currentUser } = useFrappeAuth();
-
-    const renameZone = async (trackerId: string, oldZone: string, newZone: string) => {
-        try {
-            const result = await call({
-                tracker_id: trackerId,
-                old_zone_name: oldZone,
-                new_zone_name: newZone
-            });
-            await mutate(commissionKeys.trackerDoc(trackerId));
-            return result;
-        } catch (error) {
-            captureApiError({
-                hook: "useRenameZone",
-                api: "rename_zone",
-                feature: "commission-report",
-                entity_id: trackerId,
-                error,
-                user: currentUser ?? undefined,
-            });
-            throw error;
-        }
-    };
-
-    return { renameZone, loading };
-};
-
-/**
  * Master Data Mutations: Category
  */
 export const useCategoryMutations = () => {

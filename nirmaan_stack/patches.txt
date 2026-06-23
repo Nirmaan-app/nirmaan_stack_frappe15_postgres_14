@@ -128,3 +128,5 @@ nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_work_package_to_multi
 nirmaan_stack.patches.v3_0.migrate_general_specs_to_child_table
 
 nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_status_rename
+
+nirmaan_stack.patches.v3_0.remove_commission_report_zones

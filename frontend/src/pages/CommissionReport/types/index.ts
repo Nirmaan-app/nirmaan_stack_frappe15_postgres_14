@@ -7,13 +7,6 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 export type Project = Projects;
 export type User = NirmaanUsers;
 
-// --- NEW: Interface for Designer Object stored in the JSON field ---
-export interface AssignedDesignerDetail {
-    userId: string;
-    userName: string;
-    userEmail: string;
-}
-
 // --- Child Table: Commission Report Task (ALIGNED TO SERVER) ---
 export interface CommissionReportTask {
     name: string; // Child row DocName (e.g., 'sv2jh70g8v')
@@ -21,21 +14,15 @@ export interface CommissionReportTask {
     // Core Links/Data (Server Names)
     commission_category: string;
     task_name: string;
-    task_type?: string;
     task_phase?: string; // "Handover"
     deadline?: string;
-
-    // JSON/Multi-Select Field: Stores an array of AssignedDesignerDetail objects, 
-    // but the field type is JSON/string on the wire.
-    assigned_designers?: string;
 
     // Who fills the report: Field (internal, wizard) vs Vendor (external, PDF upload).
     // Missing/empty is treated as 'Field' for back-compat.
     report_type?: 'Field' | 'Vendor';
 
     // Status & Tracking (Server Names)
-    task_status: 'Not Applicable' | 'Pending' | 'Pending Approval' | 'Approved' | 'Rejected' | 'Completed';
-    task_sub_status?: string;
+    task_status: 'Not Applicable' | 'Pending' | 'Pending Approval' | 'Submitted' | 'Rejected' | 'Client Accepted';
     file_link?: string;
     approval_proof?: string;
     comments?: string;
@@ -54,12 +41,6 @@ export interface CommissionReportTask {
     [key: string]: any;
 }
 
-// --- Zone Child Table ---
-export interface TrackerZone {
-    tracker_zone: string;
-    name?: string;
-}
-
 // --- Parent DocType: Project Commission Report ---
 export interface ProjectCommissionReportType {
     name: string;
@@ -72,7 +53,6 @@ export interface ProjectCommissionReportType {
     modified: string;
     owner: string;
     commission_report_task: CommissionReportTask[];
-    zone?: TrackerZone[];
     hide_commission_report?: 0 | 1;
     handover_generated?: 0 | 1;
 }

@@ -27,6 +27,15 @@ export interface SectionRendererProps {
     /** When set, repeating_groups renders only this group index. Used when
      *  the wizard expands a repeating-groups step into N synthetic steps. */
     groupIndexFilter?: number;
+    /** RHF path root for the input-bearing sections. Defaults to "responses"
+     *  (unchanged for non-zone reports). Zone-wise reports pass
+     *  `zones.<i>.responses` so each zone's data is isolated. */
+    responsesRoot?: string;
+    /** Root of the attachments map. Defaults to "attachments" (top-level).
+     *  Zone-wise reports pass `zones.<i>.attachments` so each zone's images
+     *  (incl. per-equipment photos in a repeating_groups section) are stored
+     *  in that zone's own attachments map. */
+    attachmentsRoot?: string;
 }
 
 export const SectionRenderer: React.FC<SectionRendererProps> = ({
@@ -38,16 +47,18 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
     forceReadonly,
     onAttachmentCreated,
     groupIndexFilter,
+    responsesRoot,
+    attachmentsRoot,
 }) => {
     switch (section.type) {
         case 'process':
             return <ProcessSection section={section} />;
         case 'header':
-            return <HeaderSection section={section} forceReadonly={forceReadonly} />;
+            return <HeaderSection section={section} forceReadonly={forceReadonly} pathRoot={responsesRoot} />;
         case 'fields':
-            return <FieldsSection section={section} forceReadonly={forceReadonly} />;
+            return <FieldsSection section={section} forceReadonly={forceReadonly} pathRoot={responsesRoot} />;
         case 'checklist':
-            return <ChecklistSection section={section} forceReadonly={forceReadonly} />;
+            return <ChecklistSection section={section} forceReadonly={forceReadonly} pathRoot={responsesRoot} />;
         case 'image_attachments': {
             if (!parentName || !childRowName || !projectId) {
                 return (
@@ -64,6 +75,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                     projectId={projectId}
                     forceReadonly={forceReadonly}
                     onAttachmentCreated={onAttachmentCreated}
+                    attachmentsRoot={attachmentsRoot}
                 />
             );
         }
@@ -74,6 +86,7 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                     projectId={projectId}
                     templateId={templateId}
                     forceReadonly={forceReadonly}
+                    pathRoot={responsesRoot}
                 />
             );
         case 'trainees_data_table':
@@ -86,16 +99,29 @@ export const SectionRenderer: React.FC<SectionRendererProps> = ({
                     templateId={templateId}
                     forceReadonly={forceReadonly}
                     onAttachmentCreated={onAttachmentCreated}
+                    pathRoot={responsesRoot}
                 />
             );
         case 'measurement_matrix':
-            return <MeasurementMatrixSection section={section} forceReadonly={forceReadonly} />;
+            return (
+                <MeasurementMatrixSection
+                    section={section}
+                    forceReadonly={forceReadonly}
+                    pathRoot={responsesRoot}
+                />
+            );
         case 'repeating_groups':
             return (
                 <RepeatingGroupsSection
                     section={section}
                     forceReadonly={forceReadonly}
                     groupIndexFilter={groupIndexFilter}
+                    pathRoot={responsesRoot}
+                    attachmentsRoot={attachmentsRoot}
+                    parentName={parentName}
+                    childRowName={childRowName}
+                    projectId={projectId}
+                    onAttachmentCreated={onAttachmentCreated}
                 />
             );
         default: {

@@ -68,7 +68,7 @@ export const FieldControl: React.FC<Props> = ({
                                     type="text"
                                     value={(rhf.value as string) ?? ''}
                                     onChange={rhf.onChange}
-                                    maxLength={(field as { maxLength?: number }).maxLength}
+                                    maxLength={(field as { maxLength?: number }).maxLength ?? (field.key === 'remarks' ? 20 : undefined)}
                                     placeholder={(field as { placeholder?: string }).placeholder}
                                 />
                             );
@@ -79,6 +79,7 @@ export const FieldControl: React.FC<Props> = ({
                                     rows={(field as { rows?: number }).rows ?? 3}
                                     value={(rhf.value as string) ?? ''}
                                     onChange={rhf.onChange}
+                                    maxLength={(field as { maxLength?: number }).maxLength ?? (field.key === 'remarks' ? 20 : undefined)}
                                     placeholder={(field as { placeholder?: string }).placeholder}
                                 />
                             );

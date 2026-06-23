@@ -1,21 +1,20 @@
-import { ProjectCommissionReportType, CommissionReportTask, AssignedDesignerDetail } from './types';
-import { Badge } from "@/components/ui/badge";
+import { ProjectCommissionReportType } from './types';
 
 
 // Status color mapping for Commission Report
-// - Completed        -> Green
-// - Approved         -> Teal
+// - Client Accepted  -> Green
+// - Submitted        -> Teal
 // - Pending Approval -> Indigo
 // - Pending          -> Amber
 // - Not Applicable   -> Gray
 export const getUnifiedStatusStyle = (status: string) => {
     if (!status) return 'bg-gray-50 text-gray-700 border border-gray-200';
 
-    if (status === 'Completed') {
+    if (status === 'Client Accepted') {
         return 'bg-green-50 text-green-700 border border-green-200';
     }
 
-    if (status === 'Approved') {
+    if (status === 'Submitted') {
         return 'bg-teal-50 text-teal-700 border border-teal-200';
     }
 
@@ -56,56 +55,6 @@ export const formatDeadlineShort = (dateString: string) => {
         return dateString;
     }
 };
-
-
-export const parseDesignersFromField = (designerField: unknown): AssignedDesignerDetail[] => {
-    if (!designerField) return [];
-
-    // Already an object with list property (from useCommissionTrackerLogic state)
-    if (typeof designerField === 'object' && designerField !== null && 'list' in designerField) {
-        const obj = designerField as { list: AssignedDesignerDetail[] };
-        if (Array.isArray(obj.list)) return obj.list;
-    }
-
-    // Already an array
-    if (Array.isArray(designerField)) return designerField;
-
-    // JSON string
-    if (typeof designerField === 'string' && designerField.trim() !== '') {
-        try {
-            const parsed = JSON.parse(designerField);
-            if (parsed?.list && Array.isArray(parsed.list)) return parsed.list;
-            if (Array.isArray(parsed)) return parsed;
-        } catch { /* silent fail */ }
-    }
-
-    return [];
-};
-
-export const getAssignedNameForDisplay = (task: CommissionReportTask): React.ReactNode => {
-    const designers = parseDesignersFromField(task.assigned_designers);
-
-    if (designers.length > 0) {
-        return (
-            <div className="flex flex-wrap gap-1 justify-start">
-                {designers.map((d, index) => (
-                    <Badge
-                        key={index}
-                        variant="secondary"
-                        className="px-1.5 py-0 text-[9px] font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full whitespace-nowrap"
-                    >
-                        {d.userName || d.userId}
-                    </Badge>
-                ))}
-            </div>
-        );
-    } else {
-        return (
-            <span className="text-gray-400 text-xs">--</span>
-        );
-    }
-};
-
 
 
 export const getExistingTaskNames = (trackerDoc?: ProjectCommissionReportType): string[] => {

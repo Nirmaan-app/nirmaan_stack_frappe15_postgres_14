@@ -28,11 +28,12 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
         case 'text':
         case 'textarea': {
             let s = z.string();
-            if (field.type === 'text' && (field as { maxLength?: number }).maxLength) {
-                s = s.max(
-                    (field as { maxLength?: number }).maxLength!,
-                    `${field.label} too long`,
-                );
+            // Checklist remarks are capped at 20 characters (keeps the printed report
+            // on one page); an explicit field.maxLength still wins when set.
+            const explicitMax = (field as { maxLength?: number }).maxLength;
+            const effectiveMax = explicitMax ?? (field.key === 'remarks' ? 20 : undefined);
+            if (effectiveMax) {
+                s = s.max(effectiveMax, `${field.label} must be ${effectiveMax} characters or fewer`);
             }
             return required ? s.min(1, `${field.label} is required`) : s.optional().default('');
         }
@@ -72,9 +73,15 @@ export const buildFieldSchema = (field: Field): ZodTypeAny => {
                 file_name: z.string(),
                 file_doc: z.string().optional(),
             });
+            // An empty/blank cell can arrive as "" (string), null, or undefined — all mean "no image".
+            const normalizeEmptyImage = (v: unknown) =>
+                v && typeof v === 'object' ? v : undefined;
             return required
-                ? record.refine((v) => !!v.file_url, `${field.label} is required`)
-                : record.nullable().optional();
+                ? z.preprocess(
+                      normalizeEmptyImage,
+                      record.refine((v) => !!v && !!v.file_url, `${field.label} is required`),
+                  )
+                : z.preprocess(normalizeEmptyImage, record.optional());
         }
         default:
             return optionalText();

@@ -5,9 +5,8 @@
 // status is driven by the Report-column actions, and the PDF is uploaded/replaced
 // directly from the Report column. (Link source is deprecated.)
 
-import React, { useMemo, useState } from 'react';
-import { CommissionReportTask, User, AssignedDesignerDetail } from '../types';
-import { parseDesignersFromField } from '../utils';
+import React, { useState } from 'react';
+import { CommissionReportTask, User } from '../types';
 import { REPORT_TYPE_OPTIONS } from '../hooks/useCommissionMasters';
 import { toast } from '@/components/ui/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -16,15 +15,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import ReactSelect from 'react-select';
 import { Save, Loader2 } from 'lucide-react';
-
-interface DesignerOption {
-    value: string;
-    label: string;
-    userName: string;
-    email: string;
-    roleLabel: string;
-    searchableLabel: string;
-}
 
 interface StatusOption {
     label: string;
@@ -46,48 +36,17 @@ interface TaskEditModalProps {
 export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     task,
     onSave,
-    usersList,
     isOpen,
     onOpenChange,
     isRestrictedMode = false,
 }) => {
 
-    const [selectedDesigners, setSelectedDesigners] = useState<DesignerOption[]>([]);
     const [editState, setEditState] = useState<Partial<CommissionReportTask>>({});
     const [isSaving, setIsSaving] = useState(false);
-
-    const designerOptions: DesignerOption[] = useMemo(() =>
-        usersList.map(u => {
-            const userName = u.full_name || u.name;
-            const roleLabel = u.role_profile?.split(" ").slice(1, 3).join(" ") || "";
-            return {
-                label: userName,
-                userName,
-                value: u.name,
-                email: u.email || '',
-                roleLabel,
-                searchableLabel: roleLabel ? `${userName} (${roleLabel})` : userName
-            };
-        })
-    , [usersList]);
 
     // Initialize state when dialog opens
     React.useEffect(() => {
         if (isOpen) {
-            const designerDetails = parseDesignersFromField(task.assigned_designers);
-            const initialDesigners = designerDetails.map(stored =>
-                designerOptions.find(opt => opt.value === stored.userId) ||
-                {
-                    label: stored.userName,
-                    userName: stored.userName,
-                    value: stored.userId,
-                    email: stored.userEmail || '',
-                    roleLabel: "",
-                    searchableLabel: stored.userName
-                }
-            ).filter((d): d is DesignerOption => !!d);
-            setSelectedDesigners(initialDesigners);
-
             setEditState({
                 task_name: task.task_name,
                 deadline: task.deadline,
@@ -95,25 +54,17 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 report_type: task.report_type || 'Field',
             });
         }
-    }, [isOpen, task.name, designerOptions]);
+    }, [isOpen, task.name]);
 
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            // Preserve existing designer assignments (managed via Bulk Assign elsewhere).
-            const assignedDesignerDetails: AssignedDesignerDetail[] = selectedDesigners.map(d => ({
-                userId: d.value,
-                userName: d.userName,
-                userEmail: d.email,
-            }));
-
             // Only task meta — never touch task_status / file_link / approval_proof here.
             await onSave({
                 task_name: task.task_name,
                 deadline: editState.deadline || '',
                 comments: editState.comments || '',
                 report_type: editState.report_type || 'Field',
-                assigned_designers: assignedDesignerDetails,
             });
             onOpenChange(false);
         } catch (error) {
@@ -136,12 +87,6 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                     {/* Task Context Header */}
                     <div className="flex flex-col gap-1.5 pt-1 pb-2 border-b border-gray-200">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                            {task.task_zone && (
-                                <div className="flex items-center gap-1">
-                                    <span className="text-[10px] uppercase tracking-wider text-gray-400">Zone:</span>
-                                    <span className="font-medium text-gray-700">{task.task_zone}</span>
-                                </div>
-                            )}
                             <div className="flex items-center gap-1">
                                 <span className="text-[10px] uppercase tracking-wider text-gray-400">Category:</span>
                                 <span className="font-medium text-gray-700">{task.commission_category}</span>

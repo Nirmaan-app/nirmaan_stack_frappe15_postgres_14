@@ -12,7 +12,7 @@ strings (not a Link), so without this:
 These methods are auto-invoked by Frappe (no hooks.py registration needed):
   - on_update    -> cascade a rename (task_name / category_link) to all child rows.
   - after_insert -> back-fill the new task into every ACTIVE tracker (project not
-                    Completed), one row per zone, as `Not Applicable`.
+                    Completed), one row, as `Not Applicable`.
 """
 
 import frappe
@@ -65,14 +65,14 @@ class CommissionReportTasks(Document):
         frappe.db.commit()
 
     def after_insert(self):
-        """Back-fill the new master task into every active tracker, one row per zone, as N/A."""
+        """Back-fill the new master task into every active tracker, one row, as N/A."""
         _backfill_task(self.category_link, (self.task_name or "").strip(), self.report_type or "Field")
 
 
 def _backfill_task(category: str, task_name: str, report_type: str) -> int:
     """Append (category, task_name) as Not Applicable to active trackers.
 
-    Only added to zones that ALREADY contain that category — if a tracker/zone
+    Only added to trackers that ALREADY contain that category — if a tracker
     doesn't have the category at all, it's skipped, because the task will be
     included automatically when the user adds that category later.
     Returns the number of rows added.
@@ -91,33 +91,24 @@ def _backfill_task(category: str, task_name: str, report_type: str) -> int:
         parent_doc = frappe.get_doc(PARENT_DOCTYPE, t.name)
         rows = parent_doc.commission_report_task
 
-        # Zones that already contain this category (via some OTHER task).
-        zones_with_category = {
-            c.task_zone for c in rows
-            if c.commission_category == category and c.task_name != task_name
-        }
-        if not zones_with_category:
-            continue  # tracker doesn't have this category — skip (added on Add Category)
+        # Skip trackers that don't have this category yet — the task is added
+        # automatically when the user adds the category later.
+        if not any(c.commission_category == category for c in rows):
+            continue
 
-        existing = {(c.commission_category, c.task_name, c.task_zone) for c in rows}
+        existing = {(c.commission_category, c.task_name) for c in rows}
+        if (category, task_name) in existing:
+            continue  # already present
 
-        added = False
-        for zone in zones_with_category:
-            if (category, task_name, zone) in existing:
-                continue
-            parent_doc.append("commission_report_task", {
-                "commission_category": category,
-                "task_name": task_name,
-                "task_status": "Not Applicable",
-                "report_type": report_type,
-                "task_phase": "Handover",
-                "task_zone": zone,
-            })
-            added = True
-            added_total += 1
-
-        if added:
-            parent_doc.save(ignore_permissions=True)
+        parent_doc.append("commission_report_task", {
+            "commission_category": category,
+            "task_name": task_name,
+            "task_status": "Not Applicable",
+            "report_type": report_type,
+            "task_phase": "Handover",
+        })
+        parent_doc.save(ignore_permissions=True)
+        added_total += 1
 
     if added_total:
         frappe.db.commit()

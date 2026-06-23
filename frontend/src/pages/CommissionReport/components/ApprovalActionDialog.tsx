@@ -1,5 +1,5 @@
 // Approve / Reject confirmation dialog for the commission approval queue.
-//   Approve: confirm → status Approved (team handles download → sign → upload later).
+//   Approve: confirm → status Submitted (team handles download → sign → upload later).
 //   Reject:  confirm → status Rejected (team Resolves + resubmits).
 
 import React, { useEffect, useState } from 'react';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
 
 import { useUpdateCommissionTaskChild } from '../data/useCommissionMutations';
+import { useCommissionLockStatus } from '../data/useCommissionLock';
 
 export interface ApprovalTaskRef {
     name: string;          // child row name
@@ -31,6 +32,11 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
     const { updateTaskChild } = useUpdateCommissionTaskChild();
     const [busy, setBusy] = useState(false);
 
+    // Live "is someone editing this report right now?" status. Blocks the action
+    // while a team member has it open in the edit wizard; clears the moment they
+    // close it (via the broadcast socket event).
+    const { isLockedByOther, lockedByName } = useCommissionLockStatus(task?.name ?? '', open);
+
     useEffect(() => {
         if (open) setBusy(false);
     }, [open, mode, task?.name]);
@@ -42,12 +48,12 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
     const doApprove = async () => {
         setBusy(true);
         try {
-            await updateTaskChild(task.name, { task_status: 'Approved' });
-            toast({ title: 'Approved', variant: 'success' });
+            await updateTaskChild(task.name, { task_status: 'Submitted' });
+            toast({ title: 'Submitted', variant: 'success' });
             refresh?.();
             close();
         } catch {
-            toast({ title: 'Approval failed', variant: 'destructive' });
+            toast({ title: 'Submit failed', variant: 'destructive' });
         } finally {
             setBusy(false);
         }
@@ -82,13 +88,22 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
                             submission) and submit for approval again.
                         </DialogDescription>
                     </DialogHeader>
+                    {isLockedByOther && (
+                        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span>
+                                <strong>{lockedByName || 'Someone'}</strong> is editing this report right now.
+                                Rejecting is disabled until they finish.
+                            </span>
+                        </div>
+                    )}
                     <DialogFooter className="gap-2 sm:gap-2">
                         <Button variant="outline" size="sm" onClick={close} disabled={busy}>Cancel</Button>
                         <Button
                             size="sm"
                             className="bg-red-600 hover:bg-red-700 gap-1"
                             onClick={doReject}
-                            disabled={busy}
+                            disabled={busy || isLockedByOther}
                         >
                             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
                             Reject
@@ -105,23 +120,32 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-base">
-                        <Check className="h-4 w-4 text-green-600" /> Approve report?
+                        <Check className="h-4 w-4 text-green-600" /> Submit report?
                     </DialogTitle>
                     <DialogDescription className="text-sm">
-                        Approve <span className="font-medium text-gray-700">{task.task_name}</span>? The team can
-                        then download the report, get the client signature, and upload the signed copy to complete it.
+                        Submit <span className="font-medium text-gray-700">{task.task_name}</span>? The team can
+                        then download the report, get the client signature, and upload the signed copy to mark it Client Accepted.
                     </DialogDescription>
                 </DialogHeader>
+                {isLockedByOther && (
+                    <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                            <strong>{lockedByName || 'Someone'}</strong> is editing this report right now.
+                            Approving is disabled until they finish.
+                        </span>
+                    </div>
+                )}
                 <DialogFooter className="gap-2 sm:gap-2">
                     <Button variant="outline" size="sm" onClick={close} disabled={busy}>Cancel</Button>
                     <Button
                         size="sm"
                         className="bg-green-600 hover:bg-green-700 gap-1"
                         onClick={doApprove}
-                        disabled={busy}
+                        disabled={busy || isLockedByOther}
                     >
                         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                        Approve
+                        Submit
                     </Button>
                 </DialogFooter>
             </DialogContent>

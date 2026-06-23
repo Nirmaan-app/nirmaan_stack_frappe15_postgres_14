@@ -11,9 +11,9 @@
 
 import { useFrappeAuth, useFrappeGetDocList } from 'frappe-react-sdk';
 import { useUserData } from '@/hooks/useUserData';
-import { ArrowLeft, ArrowRight, Loader2, Printer, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2, Plus, Printer, Save } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FormProvider, useForm, useWatch } from 'react-hook-form';
+import { FormProvider, useFieldArray, useForm, useWatch } from 'react-hook-form';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSWRConfig } from 'swr';
 
@@ -26,6 +26,7 @@ import { WizardSteps, type WizardStep } from '@/components/ui/wizard-steps';
 import { formatDate } from '@/utils/FormatDate';
 
 import { commissionKeys } from '../commission.constants';
+import { useCommissionEditLock } from '../data/useCommissionLock';
 import { useCommissionTrackerDoc } from '../data/useCommissionQueries';
 import { useReportPrefill } from './data/useReportPrefill';
 import { useReportResponse } from './data/useReportResponse';
@@ -36,15 +37,19 @@ import { useReportSubmit } from './hooks/useReportSubmit';
 import { buildPrefillSnapshot, resolveInitialValues } from './prefill/resolve';
 import { SectionRenderer } from './renderer/SectionRenderer';
 import { getRhfKeysForStep, validateStep, validateTemplate } from './schema';
+import { AddZoneDialog, type AddZoneResult } from './AddZoneDialog';
+import { ZoneTabBar, type ZoneTab } from './ZoneTabBar';
 import type {
     AttachmentRecord,
     AttachmentSlotValue,
     Field,
     NumberField,
+    PrefillSnapshot,
     ReportTemplate,
     ResponseData,
     WizardMode,
     WizardStepDef,
+    ZoneEntry,
 } from './types';
 
 /** Resolve a dot-path inside an object — used to evaluate `visibleIf.field`. */
@@ -69,7 +74,104 @@ interface FormShape extends Record<string, unknown> {
     // Per-section responses: object for header/fields/checklist; array for trainees_data_table.
     responses: Record<string, unknown>;
     attachments: Record<string, AttachmentSlotValue[]>;
+    /** Populated only for zone-wise reports (`zone_wise_enable === "YES"`). Each
+     *  zone is a fully isolated report; the flat `responses`/`attachments` stay
+     *  empty in that mode. */
+    zones?: ZoneEntry[];
 }
+
+// ─── Zone helpers (zone-wise reports only) ───────────────────────────────────
+
+let zoneIdCounter = 0;
+/** Stable unique id for a zone — `crypto.randomUUID` when available, with a
+ *  monotonic counter fallback (avoids `Math.random`/`Date.now` collisions). */
+const makeZoneId = (): string => {
+    try {
+        const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+        if (c?.randomUUID) return `z_${c.randomUUID()}`;
+    } catch {
+        // ignore — fall through to counter
+    }
+    zoneIdCounter += 1;
+    return `z_${zoneIdCounter}_${performance.now().toString(36).replace('.', '')}`;
+};
+
+/** Heuristic "does this zone hold user-entered data" — drives the delete-confirm
+ *  prompt. A freshly-seeded zone has only prefill-bound header values + empty
+ *  checklist/signature shells; we report data when any checklist result, any
+ *  signature override, or any non-bound header value is set. Conservative: false
+ *  positives only make us confirm a delete (safe), never silently drop data. */
+const zoneHasData = (zone: ZoneEntry): boolean => {
+    const responses = zone.responses || {};
+    for (const sectionVal of Object.values(responses)) {
+        if (!sectionVal || typeof sectionVal !== 'object') continue;
+        // Checklist: { item: { result, remarks } }, Signatures: { disabled, enabled }.
+        for (const v of Object.values(sectionVal as Record<string, unknown>)) {
+            if (v === undefined || v === null || v === '') continue;
+            if (Array.isArray(v)) {
+                if (v.length > 0) return true;
+                continue;
+            }
+            if (typeof v === 'object') {
+                for (const inner of Object.values(v as Record<string, unknown>)) {
+                    if (inner !== undefined && inner !== null && inner !== '') {
+                        if (Array.isArray(inner) ? inner.length > 0 : true) return true;
+                    }
+                }
+                continue;
+            }
+            // Scalar header value present.
+            return true;
+        }
+    }
+    return false;
+};
+
+/** Template-specific auto-seeds that the FLAT (non-zone) init applies to
+ *  `initialResponses` but the zone path bypasses (each zone is seeded via
+ *  resolveInitialValues, which doesn't know the task name). Mirror that seeding
+ *  per zone so zone-wise reports get the same auto-detected values. Mutates the
+ *  passed `responses` in place; never overwrites an existing value.
+ *  Currently: Duct Pressure/Leak readonly header `test_type` (Smoke/Light/
+ *  Pressure) detected from the task name. */
+const applyZoneAutoSeed = (
+    responses: Record<string, Record<string, unknown>>,
+    template: ReportTemplate,
+    taskName: string | undefined,
+): void => {
+    if (template.templateId === 'duct-pressure/smoke/light-testing-report' && taskName) {
+        const lower = taskName.toLowerCase();
+        const detected = lower.includes('pressure')
+            ? 'Pressure'
+            : lower.includes('smoke')
+              ? 'Smoke'
+              : lower.includes('light')
+                ? 'Light'
+                : '';
+        if (detected) {
+            const hdr = (responses['hdr'] || {}) as Record<string, unknown>;
+            if (!hdr.test_type) hdr.test_type = detected;
+            responses['hdr'] = hdr;
+        }
+    }
+};
+
+/** Build a fresh, fully-seeded zone. Reuses `resolveInitialValues` so each
+ *  zone's header binds from prefill exactly like the non-zone path does, then
+ *  applies the same template auto-seeds the flat path does (e.g. Duct test_type). */
+const makeZone = (
+    label: string,
+    template: ReportTemplate,
+    prefillDict: PrefillSnapshot,
+    taskName?: string,
+): ZoneEntry => {
+    const responses = resolveInitialValues({ template, prefillDict, existingResponse: null }) as Record<
+        string,
+        Record<string, unknown>
+    >;
+    applyZoneAutoSeed(responses, template, taskName);
+    return { id: makeZoneId(), label, responses, attachments: {} };
+};
 
 const computeMode = (
     rawMode: string | null,
@@ -132,6 +234,11 @@ export const CommissionReportWizard: React.FC = () => {
 
     const mode = computeMode(rawMode, isFilled, canEdit);
 
+    // Hold a live "editing now" lock while the report is open for editing, so the
+    // approval queue can warn (and block) approvers that it is mid-edit. View
+    // mode takes no lock; lock-API failures never block editing.
+    useCommissionEditLock({ taskName: childRowName, enabled: mode === 'edit' || mode === 'fill' });
+
     // One-time edit-after-submit warning toast.
     const editWarnedRef = useRef(false);
     useEffect(() => {
@@ -147,6 +254,15 @@ export const CommissionReportWizard: React.FC = () => {
     // ─── Wizard step state ────────────────────────────────────────────────
     const [currentStep, setCurrentStep] = useState(0);
 
+    // ─── Zone-wise state (zone_wise_enable === "YES") ─────────────────────
+    const isZoneWise = template?.zone_wise_enable === 'YES';
+    // Which zone's inner steps are showing. `reviewActive` selects the combined
+    // All-Zones Review tab instead of a single zone. Both inert for non-zone.
+    const [activeZoneIndex, setActiveZoneIndex] = useState(0);
+    const [reviewActive, setReviewActive] = useState(false);
+    // Controls the "Add Another Zone" dialog (opened from the per-zone Review step).
+    const [addZoneOpen, setAddZoneOpen] = useState(false);
+
     // ─── Form ─────────────────────────────────────────────────────────────
     // Note: per-step Zod is built lazily inside handleNext via getRhfKeysForStep,
     // so we don't attach a static resolver here — it would be wrong as the user
@@ -159,6 +275,20 @@ export const CommissionReportWizard: React.FC = () => {
         },
     });
 
+    // Zone field array — structural zone mutations (add / reorder / delete) MUST
+    // go through these methods, never `setValue('zones', wholeArray)`. Replacing
+    // the whole array while a nested useFieldArray (the active zone's equipments)
+    // is mounted desyncs/wipes that zone's data. append/move/remove preserve
+    // every other zone's deeply-nested values.
+    // FormShape carries an index signature (`extends Record<string, unknown>`)
+    // which defeats RHF's FieldArrayPath inference (name resolves to `never`), so
+    // the name is cast and `append` is re-typed to ZoneEntry. `move`/`remove` are
+    // index-based and need no cast.
+    const zoneArray = useFieldArray({ control: form.control, name: 'zones' as never });
+    const appendZone = zoneArray.append as (z: ZoneEntry) => void;
+    const moveZoneField = zoneArray.move;
+    const removeZoneField = zoneArray.remove;
+
     // Reactive subscription to form values — used to filter wizard steps via visibleIf.
     const watched = useWatch({ control: form.control });
 
@@ -167,6 +297,79 @@ export const CommissionReportWizard: React.FC = () => {
         if (!template?.wizardSteps) return [];
         const visible = template.wizardSteps.filter((s) => isStepVisible(s, watched));
         if (!template.sections) return visible;
+
+        // ── Zone-wise inner steps ──────────────────────────────────────────
+        // The OUTER nav is the zone tab bar (active zone). The INNER step bar is
+        // the active zone's content steps + a per-zone Review step. Every zone
+        // carries the full section set (header → checklist → signatures → review).
+        if (isZoneWise) {
+            const zi = activeZoneIndex;
+            const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
+            const contentSteps = visible.filter((s) => s.sections.length > 0);
+            // The active zone's own responses — the count binding + group array
+            // for any repeating_groups section live here (NOT the flat root).
+            const zoneResponses = (
+                watched as { zones?: Array<{ responses?: Record<string, unknown> }> } | undefined
+            )?.zones?.[zi]?.responses;
+
+            const zoneSteps: WizardStepDef[] = [];
+            for (const step of contentSteps) {
+                // Expand a `repeating_groups` content step into N per-group
+                // sub-steps, scoped to THIS zone's responses (mirrors the
+                // non-zone expansion below). Count = max(declared, current
+                // groups) so user-added extras stay navigable.
+                if (step.sections.length === 1) {
+                    const sec = sectionsById.get(step.sections[0]);
+                    if (sec && sec.type === 'repeating_groups' && sec.countBoundTo) {
+                        const declaredRaw = sec.countBoundTo
+                            .replace(/^responses\./, '')
+                            .split('.')
+                            .reduce<unknown>((acc, k) => {
+                                if (acc && typeof acc === 'object') {
+                                    return (acc as Record<string, unknown>)[k];
+                                }
+                                return undefined;
+                            }, zoneResponses);
+                        const declared = Number(declaredRaw);
+                        const groupsArrRaw = (zoneResponses as Record<string, unknown> | undefined)?.[
+                            sec.id
+                        ];
+                        const actualLen = Array.isArray(groupsArrRaw) ? groupsArrRaw.length : 0;
+                        const n = Math.max(
+                            Number.isFinite(declared) && declared > 0 ? Math.floor(declared) : 0,
+                            actualLen,
+                        );
+                        if (n > 0) {
+                            const prefix = sec.groupTitlePrefix || step.title;
+                            for (let i = 0; i < n; i++) {
+                                zoneSteps.push({
+                                    key: `zone${zi}_${step.key}_${i + 1}`,
+                                    title: `${prefix} ${i + 1}`,
+                                    sections: step.sections,
+                                    zoneSlice: { zoneIndex: zi },
+                                    groupSlice: { sectionId: sec.id, groupIndex: i },
+                                });
+                            }
+                            continue;
+                        }
+                    }
+                }
+                zoneSteps.push({
+                    ...step,
+                    key: `zone${zi}_${step.key}`,
+                    zoneSlice: { zoneIndex: zi },
+                });
+            }
+            // Per-zone Review step (empty sections = Review).
+            zoneSteps.push({
+                key: `zone${zi}_review`,
+                title: 'Review',
+                sections: [],
+                zoneSlice: { zoneIndex: zi },
+            });
+            return zoneSteps;
+        }
+
         const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
         // Expand any step whose single section is a `repeating_groups` with a
         // `countBoundTo` header binding into N synthetic per-group steps.
@@ -210,7 +413,18 @@ export const CommissionReportWizard: React.FC = () => {
             expanded.push(step);
         }
         return expanded;
-    }, [template, watched]);
+    }, [template, watched, isZoneWise, activeZoneIndex]);
+
+    // Derive the zone tab list (label + hasData) for the zone tab bar.
+    const zoneTabs: ZoneTab[] = useMemo(() => {
+        if (!isZoneWise) return [];
+        const zones = (watched.zones as ZoneEntry[] | undefined) || [];
+        return zones.map((z) => ({
+            id: z.id,
+            label: z.label,
+            hasData: zoneHasData(z),
+        }));
+    }, [isZoneWise, watched.zones]);
 
     const wizardSteps: WizardStep[] = useMemo(
         () => visibleStepDefs.map((s) => ({ key: s.key, title: s.title })),
@@ -303,6 +517,50 @@ export const CommissionReportWizard: React.FC = () => {
                 if (Array.isArray(v)) seededAttachments[k] = v as AttachmentSlotValue[];
             }
         }
+
+        // Zone-wise: seed/reconstruct the zones array, leaving the flat
+        // responses/attachments empty. The non-zone path is byte-for-byte unchanged.
+        if (isZoneWise) {
+            const savedZones = existingResponse?.zoneWise && Array.isArray(existingResponse.zones)
+                ? existingResponse.zones
+                : null;
+            let zones: ZoneEntry[];
+            if (savedZones && savedZones.length > 0) {
+                // Edit/view: rebuild each saved zone, re-running resolveInitialValues
+                // per zone so newly-added template fields get sane defaults while
+                // saved values are preserved.
+                zones = savedZones.map((z, i) => {
+                    const responses = resolveInitialValues({
+                        template,
+                        prefillDict,
+                        existingResponse: {
+                            responses: (z.responses || {}) as Record<string, Record<string, unknown>>,
+                        } as ResponseData,
+                    }) as Record<string, Record<string, unknown>>;
+                    applyZoneAutoSeed(responses, template, childRow?.task_name);
+                    return {
+                        id: typeof z.id === 'string' && z.id ? z.id : makeZoneId(),
+                        label: typeof z.label === 'string' && z.label ? z.label : `Zone ${i + 1}`,
+                        responses,
+                        attachments:
+                            z.attachments && typeof z.attachments === 'object'
+                                ? (z.attachments as Record<string, AttachmentSlotValue[]>)
+                                : {},
+                    };
+                });
+            } else {
+                // Fresh fill: one default zone.
+                zones = [makeZone('Zone 1', template, prefillDict, childRow?.task_name)];
+            }
+            form.reset({
+                responses: {},
+                attachments: {},
+                zones,
+            });
+            initializedRef.current = true;
+            return;
+        }
+
         form.reset({
             responses: initialResponses,
             attachments: seededAttachments,
@@ -315,52 +573,71 @@ export const CommissionReportWizard: React.FC = () => {
         isParentLoading,
         isPrefillLoading,
         isTemplateLoading,
+        isZoneWise,
         prefillDict,
         template,
     ]);
+
+    // Duct Pressure/Leak `test_type` is READONLY and 100% derived from the task
+    // name (Smoke / Light / Pressure), so the user can't fill it — it must be
+    // auto-set. Enforce it on EVERY zone whenever empty (idempotent: skips zones
+    // that already have it). This covers fresh zones, added zones, resumed
+    // drafts, and zones created before per-zone seeding existed.
+    const detectedDuctTestType = useMemo(() => {
+        if (template?.templateId !== 'duct-pressure/smoke/light-testing-report') return '';
+        const lower = (childRow?.task_name || '').toLowerCase();
+        return lower.includes('pressure')
+            ? 'Pressure'
+            : lower.includes('smoke')
+              ? 'Smoke'
+              : lower.includes('light')
+                ? 'Light'
+                : '';
+    }, [template?.templateId, childRow?.task_name]);
+    const numZonesForSeed = (watched.zones as ZoneEntry[] | undefined)?.length ?? 0;
+    useEffect(() => {
+        if (!isZoneWise || !detectedDuctTestType) return;
+        const zones = (form.getValues() as FormShape).zones || [];
+        zones.forEach((z, i) => {
+            const cur = (z.responses?.hdr as Record<string, unknown> | undefined)?.test_type;
+            if (!cur) {
+                form.setValue(
+                    `zones.${i}.responses.hdr.test_type` as `zones.${number}.responses.hdr.test_type`,
+                    detectedDuctTestType,
+                    { shouldDirty: false },
+                );
+            }
+        });
+    }, [isZoneWise, detectedDuctTestType, numZonesForSeed, form]);
 
     // ─── Lifecycle hooks ──────────────────────────────────────────────────
     const [isCommitted, setIsCommitted] = useState(false);
     const keepNamesRef = useRef<string[]>([]);
 
-    const updateKeepNames = useCallback(
-        (
-            attachments: Record<string, AttachmentSlotValue[]>,
-            responses?: Record<string, unknown>,
-        ) => {
-            const all: string[] = [];
-            for (const arr of Object.values(attachments)) {
-                if (!Array.isArray(arr)) continue;
-                for (const v of arr) {
-                    if (v && typeof v === 'object' && (v as AttachmentRecord).file_doc) {
-                        all.push((v as AttachmentRecord).file_doc as string);
-                    }
-                }
+    // Collect every File docname currently referenced anywhere in the form so
+    // the orphan janitor keeps them. A single recursive walk over the whole
+    // form value covers the flat `attachments` map + inline per-row records in
+    // `responses` (e.g. trainees_data_table photos) AND, for zone-wise reports,
+    // every `zones[i].attachments` map + `zones[i].responses` (per-equipment
+    // photos in a repeating_groups section live in the zone's attachments map).
+    const updateKeepNames = useCallback((formValues: unknown) => {
+        const all: string[] = [];
+        const visit = (node: unknown): void => {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) {
+                for (const item of node) visit(item);
+                return;
             }
-            // Also walk `responses` for inline per-row AttachmentRecords (used by
-            // trainees_data_table image columns, e.g. Earth Pit per-row photos).
-            if (responses) {
-                const visit = (node: unknown): void => {
-                    if (!node) return;
-                    if (Array.isArray(node)) {
-                        for (const item of node) visit(item);
-                        return;
-                    }
-                    if (typeof node === 'object') {
-                        const obj = node as Record<string, unknown>;
-                        if (typeof obj.file_doc === 'string' && obj.file_doc) {
-                            all.push(obj.file_doc);
-                            return;
-                        }
-                        for (const v of Object.values(obj)) visit(v);
-                    }
-                };
-                visit(responses);
+            const obj = node as Record<string, unknown>;
+            if (typeof obj.file_doc === 'string' && obj.file_doc) {
+                all.push(obj.file_doc);
+                return;
             }
-            keepNamesRef.current = all;
-        },
-        [],
-    );
+            for (const v of Object.values(obj)) visit(v);
+        };
+        visit(formValues);
+        keepNamesRef.current = all;
+    }, []);
 
     const { track } = useReportAttachments({
         parent: parentName,
@@ -387,12 +664,36 @@ export const CommissionReportWizard: React.FC = () => {
         const step = visibleStepDefs[currentStep];
         if (!step) return;
 
+        // Zone steps validate the EXISTING validateStep against a per-zone VIEW
+        // ({ responses: zones[i].responses }) and re-root the result paths onto
+        // the real `zones.<i>.responses…` form keys. Non-zone uses form values
+        // directly (unchanged).
+        const zoneIdx = step.zoneSlice?.zoneIndex;
+        const reroot = (path: string, i: number): string =>
+            path.startsWith('responses') ? `zones.${i}.${path}` : path;
+
         // Clear any prior errors on this step's fields, then re-validate.
-        const stepKeys = getRhfKeysForStep(template, step);
+        const stepKeys = getRhfKeysForStep(template, step).map((k) =>
+            zoneIdx !== undefined ? reroot(k, zoneIdx) : k,
+        );
         for (const k of stepKeys) {
             form.clearErrors(k as Parameters<typeof form.clearErrors>[0]);
         }
-        const stepErrors = validateStep(template, step, form.getValues());
+        const valuesForStep =
+            zoneIdx !== undefined
+                ? {
+                      responses:
+                          ((form.getValues() as FormShape).zones?.[zoneIdx]?.responses as Record<
+                              string,
+                              unknown
+                          >) || {},
+                  }
+                : form.getValues();
+        const rawStepErrors = validateStep(template, step, valuesForStep);
+        const stepErrors =
+            zoneIdx !== undefined
+                ? rawStepErrors.map((e) => ({ ...e, path: reroot(e.path, zoneIdx) }))
+                : rawStepErrors;
         if (stepErrors.length > 0) {
             for (const err of stepErrors) {
                 form.setError(err.path as Parameters<typeof form.setError>[0], {
@@ -419,6 +720,7 @@ export const CommissionReportWizard: React.FC = () => {
             setCurrentStep((n) => n + 1);
         }
     }, [currentStep, form, template, toast, visibleStepDefs]);
+    // (isZoneWise/activeZoneIndex flow through `visibleStepDefs` + step.zoneSlice.)
 
     const handleBack = useCallback(() => {
         setCurrentStep((n) => Math.max(0, n - 1));
@@ -428,9 +730,30 @@ export const CommissionReportWizard: React.FC = () => {
     const handleSubmit = useCallback(async () => {
         if (!template || !parentDoc || !childRow) return;
 
-        // Final full-template validation.
+        // Final full-template validation. Zone-wise validates EVERY zone against
+        // the existing validateTemplate using a per-zone view, re-rooting each
+        // error path onto `zones.<i>.responses…`. Non-zone is unchanged.
         form.clearErrors();
-        const fullErrors = validateTemplate(template, form.getValues());
+        const allValues = form.getValues() as FormShape;
+        let fullErrors: { path: string; message: string }[];
+        if (isZoneWise) {
+            const zones = allValues.zones || [];
+            fullErrors = [];
+            zones.forEach((zone, i) => {
+                const zoneErrors = validateTemplate(template, {
+                    responses: (zone.responses as Record<string, unknown>) || {},
+                });
+                for (const e of zoneErrors) {
+                    fullErrors.push({
+                        ...e,
+                        path: e.path.startsWith('responses') ? `zones.${i}.${e.path}` : e.path,
+                        message: `${zone.label}: ${e.message}`,
+                    });
+                }
+            });
+        } else {
+            fullErrors = validateTemplate(template, allValues);
+        }
         if (fullErrors.length > 0) {
             for (const err of fullErrors) {
                 form.setError(err.path as Parameters<typeof form.setError>[0], {
@@ -451,7 +774,7 @@ export const CommissionReportWizard: React.FC = () => {
             return;
         }
 
-        const values = form.getValues();
+        const values = form.getValues() as FormShape;
         const prefillSnapshot = buildPrefillSnapshot(template, prefillDict);
         const responseData: ResponseData = {
             templateId: template.templateId,
@@ -461,8 +784,19 @@ export const CommissionReportWizard: React.FC = () => {
             filledBy: existingResponse?.filledBy || currentUser || '',
             lastEditedAt: new Date().toISOString(),
             prefillSnapshot,
-            responses: values.responses as ResponseData['responses'],
-            attachments: values.attachments,
+            // Zone-wise: data lives in `zones[]`; the flat shape stays empty.
+            // Non-zone: the reverse (unchanged).
+            ...(isZoneWise
+                ? {
+                      zoneWise: true as const,
+                      zones: (values.zones || []) as ZoneEntry[],
+                      responses: {},
+                      attachments: {},
+                  }
+                : {
+                      responses: values.responses as ResponseData['responses'],
+                      attachments: values.attachments,
+                  }),
         };
 
         try {
@@ -474,7 +808,7 @@ export const CommissionReportWizard: React.FC = () => {
                 expectedModified: parentDoc.modified || '',
             });
             // Refresh keep set so the cleanup-on-unmount knows what's committed.
-            updateKeepNames(values.attachments, values.responses);
+            updateKeepNames(values);
             setIsCommitted(true);
             draft.clearDraftAfterSubmit();
 
@@ -509,6 +843,7 @@ export const CommissionReportWizard: React.FC = () => {
         existingResponse?.filledBy,
         form,
         isConflict,
+        isZoneWise,
         mutate,
         navigate,
         parentDoc,
@@ -589,10 +924,90 @@ export const CommissionReportWizard: React.FC = () => {
     // ─── Render wizard ────────────────────────────────────────────────────
     const step = visibleStepDefs[currentStep];
     const isReviewStep = step && step.sections.length === 0;
+    // The combined All-Zones Review is its own final surface (only when >1 zone).
+    const showCombinedReview = isZoneWise && reviewActive;
     const isFinalStep = step && currentStep === visibleStepDefs.length - 1;
     // Project Managers get a locked single-page Review preview (no back/step nav).
     const lockNav = isProjectManager && mode === 'view';
     const sectionsById = new Map(template.sections.map((s) => [s.id, s]));
+
+    // Zone count (live) — drives "≥ 1 zone" guards + the All-Zones Review tab.
+    const zoneCount = zoneTabs.length;
+    // Submit lives on the final surface: the combined review when >1 zone, else
+    // the (single) zone's own per-zone review step.
+    const showSubmit = isZoneWise
+        ? showCombinedReview || (zoneCount <= 1 && isReviewStep)
+        : isFinalStep;
+
+    // Zone tab handlers — mutate the RHF `zones` field array directly.
+    const goToZone = (i: number) => {
+        setReviewActive(false);
+        setActiveZoneIndex(i);
+        setCurrentStep(0);
+    };
+    // Confirm from the Add-Another-Zone dialog: (a) optionally rename the current
+    // zone, (b) append one new zone per name via makeZone, (c) navigate to the
+    // FIRST newly created zone (Header step, no review).
+    const handleConfirmAddZone = (result: AddZoneResult) => {
+        const zones = (form.getValues() as FormShape).zones || [];
+        const firstNewIndex = zones.length;
+        // (a) Rename the current zone if requested + changed. Leaf-set the label
+        // ONLY — never rebuild the zone object (that would drop its nested data).
+        if (
+            result.renameCurrentTo &&
+            zones[activeZoneIndex] &&
+            zones[activeZoneIndex].label !== result.renameCurrentTo
+        ) {
+            form.setValue(
+                `zones.${activeZoneIndex}.label` as `zones.${number}.label`,
+                result.renameCurrentTo,
+                { shouldDirty: true },
+            );
+        }
+        // (b) Append one new zone per name (append preserves existing zones' data).
+        for (const name of result.newNames) {
+            appendZone(makeZone(name, template, prefillDict, childRow?.task_name));
+        }
+        setAddZoneOpen(false);
+        // (c) Navigate to the first new zone, full workflow from Header.
+        goToZone(firstNewIndex);
+    };
+    const handleRenameZone = (i: number, label: string) => {
+        const zones = (form.getValues() as FormShape).zones || [];
+        if (!zones[i]) return;
+        // Leaf-set the label only — the zone's nested data is untouched.
+        form.setValue(`zones.${i}.label` as `zones.${number}.label`, label, { shouldDirty: true });
+    };
+    const handleReorderZone = (from: number, to: number) => {
+        const zones = (form.getValues() as FormShape).zones || [];
+        if (from === to || from < 0 || to < 0 || from >= zones.length || to >= zones.length) return;
+        moveZoneField(from, to);
+        // Keep the same zone selected as it moves (its data travels inside the
+        // zone object, so we only re-anchor the active index).
+        if (!reviewActive) {
+            if (activeZoneIndex === from) setActiveZoneIndex(to);
+            else if (from < activeZoneIndex && activeZoneIndex <= to) setActiveZoneIndex(activeZoneIndex - 1);
+            else if (to <= activeZoneIndex && activeZoneIndex < from) setActiveZoneIndex(activeZoneIndex + 1);
+        }
+    };
+    const handleDeleteZone = (i: number) => {
+        const zones = (form.getValues() as FormShape).zones || [];
+        if (zones.length <= 1) return; // always ≥ 1 zone
+        removeZoneField(i);
+        // Re-anchor against the POST-removal length: a zone after the active one
+        // is gone → active unchanged; deleting before/at the active one shifts it
+        // down; clamp to the new last index.
+        const newLen = zones.length - 1;
+        let nextActive = activeZoneIndex > i ? activeZoneIndex - 1 : activeZoneIndex;
+        nextActive = Math.max(0, Math.min(nextActive, newLen - 1));
+        setActiveZoneIndex(nextActive);
+        if (reviewActive && newLen <= 1) {
+            setReviewActive(false);
+            setCurrentStep(0);
+        } else if (!reviewActive && activeZoneIndex >= i) {
+            setCurrentStep(0);
+        }
+    };
 
     return (
         <div className="mx-auto max-w-6xl space-y-4 p-4">
@@ -638,7 +1053,14 @@ export const CommissionReportWizard: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        <h1 className="text-lg font-semibold">{template.title}</h1>
+                        <h1 className="text-lg font-semibold">
+                            {/* The Duct template's `title` is the combined
+                                "Pressure / Smoke / Light" string shared by 3 tasks —
+                                show the specific task name instead. */}
+                            {template.templateId === 'duct-pressure/smoke/light-testing-report'
+                                ? childRow.task_name
+                                : template.title}
+                        </h1>
                         <span className="text-xs uppercase text-muted-foreground">
                             {mode === 'view' ? 'View only' : mode === 'edit' ? 'Editing existing' : 'Filling new'}
                         </span>
@@ -654,7 +1076,28 @@ export const CommissionReportWizard: React.FC = () => {
                     </p>
                 </header>
 
-                {wizardSteps.length > 1 && (
+                {/* Zone tab bar — the OUTER nav, shown only once there is MORE
+                    than one zone. A single-zone report looks like an ordinary
+                    report (no switcher, no add button); adding happens via the
+                    [Add Another Zone] dialog on the per-zone Review step. */}
+                {isZoneWise && zoneCount > 1 && (
+                    <ZoneTabBar
+                        zones={zoneTabs}
+                        activeZoneIndex={activeZoneIndex}
+                        reviewActive={reviewActive}
+                        readonly={mode === 'view' || lockNav}
+                        onSelectZone={goToZone}
+                        onSelectReview={() => {
+                            setReviewActive(true);
+                        }}
+                        onRenameZone={handleRenameZone}
+                        onReorderZone={handleReorderZone}
+                        onDeleteZone={handleDeleteZone}
+                    />
+                )}
+
+                {/* Inner step bar — hidden while the combined review is showing. */}
+                {!showCombinedReview && wizardSteps.length > 1 && (
                     <WizardSteps
                         steps={wizardSteps}
                         currentStep={currentStep}
@@ -669,7 +1112,35 @@ export const CommissionReportWizard: React.FC = () => {
                 )}
 
                 <main className="min-h-[300px] space-y-6">
-                    {step && !isReviewStep ? (
+                    {showCombinedReview ? (
+                        // ── All-Zones combined review (only when zones.length > 1) ──
+                        <div className="space-y-8">
+                            <div>
+                                <h2 className="text-base font-semibold">All-Zones Review</h2>
+                                <p className="text-xs text-muted-foreground">
+                                    Every zone's answers, one after another. Use a zone tab above to
+                                    make corrections, then submit.
+                                </p>
+                            </div>
+                            {((form.getValues() as FormShape).zones || []).map((zone) => (
+                                <div key={zone.id} className="space-y-4 rounded-md border p-4">
+                                    <h3 className="text-sm font-semibold text-primary">{zone.label}</h3>
+                                    <ReviewSummary
+                                        template={template}
+                                        formValues={{
+                                            responses: (zone.responses as Record<string, unknown>) || {},
+                                            attachments:
+                                                (zone.attachments as Record<
+                                                    string,
+                                                    AttachmentSlotValue[]
+                                                >) || {},
+                                        }}
+                                        projectId={projectId}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    ) : step && !isReviewStep ? (
                         step.sections.map((sid) => {
                             const section = sectionsById.get(sid);
                             if (!section) return null;
@@ -680,9 +1151,25 @@ export const CommissionReportWizard: React.FC = () => {
                                 step.groupSlice && step.groupSlice.sectionId === sid
                                     ? step.groupSlice.groupIndex
                                     : undefined;
+                            // Zone steps scope every input to this zone's own
+                            // responses + attachments maps.
+                            const responsesRoot =
+                                step.zoneSlice !== undefined
+                                    ? `zones.${step.zoneSlice.zoneIndex}.responses`
+                                    : undefined;
+                            const attachmentsRoot =
+                                step.zoneSlice !== undefined
+                                    ? `zones.${step.zoneSlice.zoneIndex}.attachments`
+                                    : undefined;
                             return (
                                 <SectionRenderer
-                                    key={sid}
+                                    // Zone steps MUST remount on zone switch: a
+                                    // bare `sid` key is identical across zones, so
+                                    // React reuses the (uncontrolled) inputs and
+                                    // they display the previous zone's typed text
+                                    // while each zone's RHF state stays separate.
+                                    // step.key is zone-qualified (zone0_header …).
+                                    key={step.zoneSlice !== undefined ? `${step.key}-${sid}` : sid}
                                     section={section}
                                     parentName={parentName}
                                     childRowName={childRowName}
@@ -691,15 +1178,40 @@ export const CommissionReportWizard: React.FC = () => {
                                     forceReadonly={mode === 'view'}
                                     onAttachmentCreated={(fileDoc) => {
                                         track(fileDoc);
-                                        updateKeepNames(
-                                            form.getValues('attachments'),
-                                            form.getValues('responses'),
-                                        );
+                                        updateKeepNames(form.getValues());
                                     }}
                                     groupIndexFilter={groupIndexFilter}
+                                    responsesRoot={responsesRoot}
+                                    attachmentsRoot={attachmentsRoot}
                                 />
                             );
                         })
+                    ) : step && step.zoneSlice !== undefined ? (
+                        // ── Per-zone review (each zone ends with its own review) ──
+                        <div className="space-y-4">
+                            <div>
+                                <h2 className="text-base font-semibold">
+                                    Review — {zoneTabs[step.zoneSlice.zoneIndex]?.label || 'Zone'}
+                                </h2>
+                                <p className="text-xs text-muted-foreground">
+                                    Check this zone's answers below. Use Back to make corrections.
+                                </p>
+                            </div>
+                            <ReviewSummary
+                                template={template}
+                                formValues={{
+                                    responses:
+                                        (((form.getValues() as FormShape).zones?.[
+                                            step.zoneSlice.zoneIndex
+                                        ]?.responses as Record<string, unknown>) || {}),
+                                    attachments:
+                                        (((form.getValues() as FormShape).zones?.[
+                                            step.zoneSlice.zoneIndex
+                                        ]?.attachments as Record<string, AttachmentSlotValue[]>) || {}),
+                                }}
+                                projectId={projectId}
+                            />
+                        </div>
                     ) : (
                         <ReviewSummary
                             template={template}
@@ -711,26 +1223,78 @@ export const CommissionReportWizard: React.FC = () => {
 
                 {!lockNav && (
                 <footer className="flex items-center justify-between gap-3 border-t pt-3">
-                    <Button variant="outline" onClick={handleBack} disabled={currentStep === 0}>
-                        <ArrowLeft className="mr-1 h-4 w-4" />
-                        Back
-                    </Button>
-                    {!isFinalStep ? (
+                    {showCombinedReview ? (
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                // Back from the combined review → the last zone's review step.
+                                setReviewActive(false);
+                                setActiveZoneIndex(zoneCount - 1);
+                                setCurrentStep(Math.max(0, visibleStepDefs.length - 1));
+                            }}
+                        >
+                            <ArrowLeft className="mr-1 h-4 w-4" />
+                            Back
+                        </Button>
+                    ) : (
+                        <Button variant="outline" onClick={handleBack} disabled={currentStep === 0}>
+                            <ArrowLeft className="mr-1 h-4 w-4" />
+                            Back
+                        </Button>
+                    )}
+                    {showSubmit ? (
+                        // Per-zone Review (or the combined review): Submit, plus an
+                        // [Add Another Zone] action on a per-zone Review step (not
+                        // on the combined All-Zones Review).
+                        mode !== 'view' && (
+                            <div className="flex items-center gap-2">
+                                {isZoneWise && !showCombinedReview && isReviewStep && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setAddZoneOpen(true)}
+                                        disabled={isSubmitting}
+                                    >
+                                        <Plus className="mr-1 h-4 w-4" />
+                                        Add Another Zone
+                                    </Button>
+                                )}
+                                <Button onClick={handleSubmit} disabled={isSubmitting}>
+                                    {isSubmitting ? (
+                                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Save className="mr-1 h-4 w-4" />
+                                    )}
+                                    {mode === 'edit' ? 'Save changes' : 'Submit report'}
+                                </Button>
+                            </div>
+                        )
+                    ) : isZoneWise && isReviewStep && !reviewActive && zoneCount > 1 ? (
+                        // End of a zone (>1 zone): advance to the All-Zones Review,
+                        // plus [Add Another Zone] from this zone's Review.
+                        <div className="flex items-center gap-2">
+                            {mode !== 'view' && (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setAddZoneOpen(true)}
+                                >
+                                    <Plus className="mr-1 h-4 w-4" />
+                                    Add Another Zone
+                                </Button>
+                            )}
+                            <Button
+                                onClick={() => {
+                                    setReviewActive(true);
+                                }}
+                            >
+                                Next: All-Zones Review
+                                <ArrowRight className="ml-1 h-4 w-4" />
+                            </Button>
+                        </div>
+                    ) : (
                         <Button onClick={handleNext}>
                             Next
                             <ArrowRight className="ml-1 h-4 w-4" />
                         </Button>
-                    ) : (
-                        mode !== 'view' && (
-                            <Button onClick={handleSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? (
-                                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Save className="mr-1 h-4 w-4" />
-                                )}
-                                {mode === 'edit' ? 'Save changes' : 'Submit report'}
-                            </Button>
-                        )
                     )}
                 </footer>
                 )}
@@ -744,6 +1308,16 @@ export const CommissionReportWizard: React.FC = () => {
                     />
                 )}
             </FormProvider>
+
+            {isZoneWise && (
+                <AddZoneDialog
+                    open={addZoneOpen}
+                    onOpenChange={setAddZoneOpen}
+                    currentLabel={zoneTabs[activeZoneIndex]?.label || `Zone ${activeZoneIndex + 1}`}
+                    existingLabels={zoneTabs.map((z) => z.label)}
+                    onConfirm={handleConfirmAddZone}
+                />
+            )}
 
             {draft.showResumeDialog && draft.hasDraft && (
                 <DraftResumeDialog
@@ -1477,6 +2051,14 @@ const ReviewSummary: React.FC<{
                                                                         (group?.[nested.id] as
                                                                             | Record<string, unknown>
                                                                             | undefined) || {};
+                                                                    // Per-group visibleIf: skip a nested section whose gate doesn't match this
+                                                                    // group's values (e.g. show only the IR matrix for the selected Phase).
+                                                                    const vIf = (nested as { visibleIf?: { field: string; equals?: unknown; in?: unknown[] } }).visibleIf;
+                                                                    if (vIf) {
+                                                                        const gvN = (group as Record<string, unknown> | undefined)?.[vIf.field];
+                                                                        const okN = Array.isArray(vIf.in) ? vIf.in.includes(gvN) : vIf.equals !== undefined ? gvN === vIf.equals : true;
+                                                                        if (!okN) return null;
+                                                                    }
                                                                     if (nested.type === 'checklist') {
                                                                         return (
                                                                             <div key={nested.id} className="rounded-md border bg-background">
@@ -1535,6 +2117,52 @@ const ReviewSummary: React.FC<{
                                                                                                     );
                                                                                                 },
                                                                                             )}
+                                                                                        </tbody>
+                                                                                    </table>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (nested.type === 'measurement_matrix') {
+                                                                        const mrows = (group?.[nested.id] as Array<Record<string, unknown>> | undefined) || [];
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="overflow-x-auto">
+                                                                                    <table className="w-full border-collapse text-sm">
+                                                                                        <thead>
+                                                                                            <tr className="border-b text-xs text-muted-foreground">
+                                                                                                {nested.columns.map((c) => (
+                                                                                                    <React.Fragment key={c.key}>
+                                                                                                        <th className="py-1.5 pl-3 pr-2 text-left font-medium">{c.label}</th>
+                                                                                                        <th className="py-1.5 pr-2 text-left font-medium">{c.valueLabel || (c.type === 'number' && (c as NumberField).unit ? `In ${(c as NumberField).unit}` : 'Value')}</th>
+                                                                                                    </React.Fragment>
+                                                                                                ))}
+                                                                                            </tr>
+                                                                                        </thead>
+                                                                                        <tbody>
+                                                                                            {nested.rows.map((rowDef, rIdx) => {
+                                                                                                const rr = mrows[rIdx] || {};
+                                                                                                return (
+                                                                                                    <tr key={rowDef.id} className="border-b last:border-0 align-top">
+                                                                                                        {nested.columns.map((c) => {
+                                                                                                            const cellLabel = rowDef.labels[c.key] || '';
+                                                                                                            const display = formatReviewValue({ ...c, bind: undefined } as Field, rr[c.key]);
+                                                                                                            const isEmpty = display === '—';
+                                                                                                            return (
+                                                                                                                <React.Fragment key={c.key}>
+                                                                                                                    <td className="py-2 pl-3 pr-2 font-medium">{cellLabel}</td>
+                                                                                                                    <td className={'py-2 pr-2 ' + (isEmpty ? 'italic text-muted-foreground' : '')}>{display}</td>
+                                                                                                                </React.Fragment>
+                                                                                                            );
+                                                                                                        })}
+                                                                                                    </tr>
+                                                                                                );
+                                                                                            })}
                                                                                         </tbody>
                                                                                     </table>
                                                                                 </div>
@@ -1615,6 +2243,61 @@ const ReviewSummary: React.FC<{
                                                                                         },
                                                                                     )}
                                                                                 </dl>
+                                                                            </div>
+                                                                        );
+                                                                    }
+                                                                    if (nested.type === 'image_attachments') {
+                                                                        return (
+                                                                            <div key={nested.id} className="rounded-md border bg-background">
+                                                                                {nested.title && (
+                                                                                    <div className="border-b bg-muted/20 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                                                                        {nested.title}
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="space-y-3 p-3">
+                                                                                    {nested.slots.map((slot) => {
+                                                                                        // Per-group photos use the group-scoped flat
+                                                                                        // key written by RepeatingGroupsSection
+                                                                                        // (`<sectionId>_<groupIdx>_<slot>`); for a
+                                                                                        // zone, formValues.attachments IS that zone's map.
+                                                                                        const items = (formValues.attachments?.[`${section.id}_${gIdx}_${slot.key}`] || []) as AttachmentSlotValue[];
+                                                                                        return (
+                                                                                            <div key={slot.key}>
+                                                                                                <div className="mb-1.5 flex items-center justify-between">
+                                                                                                    <span className="text-xs font-medium">{slot.label}</span>
+                                                                                                    <span className="text-xs text-muted-foreground">
+                                                                                                        {items.length} file{items.length === 1 ? '' : 's'}
+                                                                                                    </span>
+                                                                                                </div>
+                                                                                                {items.length === 0 ? (
+                                                                                                    <p className="text-xs italic text-muted-foreground">No file uploaded</p>
+                                                                                                ) : (
+                                                                                                    <div className="flex flex-wrap gap-2">
+                                                                                                        {items.map((it, i) => {
+                                                                                                            const isObj = it && typeof it === 'object';
+                                                                                                            const url = isObj ? (it as AttachmentRecord).file_url : '';
+                                                                                                            const name = isObj ? (it as AttachmentRecord).file_name : (it as string);
+                                                                                                            const isImage = url && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
+                                                                                                            if (url && isImage) {
+                                                                                                                return (
+                                                                                                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block h-16 w-16 overflow-hidden rounded border bg-muted/30" title={name}>
+                                                                                                                        <img src={url} alt={name} className="h-full w-full object-cover" />
+                                                                                                                    </a>
+                                                                                                                );
+                                                                                                            }
+                                                                                                            if (url) {
+                                                                                                                return (
+                                                                                                                    <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="rounded border bg-muted/30 px-2 py-1 text-xs hover:bg-muted/50">{name}</a>
+                                                                                                                );
+                                                                                                            }
+                                                                                                            return <span key={i} className="rounded border bg-muted/30 px-2 py-1 text-xs">{name}</span>;
+                                                                                                        })}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        );
+                                                                                    })}
+                                                                                </div>
                                                                             </div>
                                                                         );
                                                                     }

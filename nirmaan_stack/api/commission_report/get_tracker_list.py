@@ -79,7 +79,7 @@ def get_tracker_list():
                 total_tasks += 1
                 status_counts[status] += 1
                 
-                if status == "Completed":
+                if status == "Client Accepted":
                     completed_tasks += 1
                 
                 if isinstance(task.get("assigned_designers"), list):

@@ -198,6 +198,12 @@ tr { page-break-inside: avoid; }
         {%- set tpl = json.loads(snapshot_doc.payload) -%}
         {%- set rd = json.loads(target.response_data) -%}
 
+        {# ZONE-WISE: per-zone data lives in rd.zones[]; non-zone uses the flat rd.
+           Render the body once per unit (flat rd, or one unit per zone), rebinding rd. #}
+        {%- set _zone_wise = (rd.zoneWise and rd.zones) -%}
+        {%- set render_units = (rd.zones if _zone_wise else [rd]) -%}
+        {%- set _multi_zone = (_zone_wise and (render_units | length > 1)) -%}
+
         {%- set hdr_section   = (tpl.sections | selectattr("type", "equalto", "header") | list | first) -%}
         {%- set chk_section   = (tpl.sections | selectattr("type", "equalto", "checklist") | list | first) -%}
         {%- set tr_section    = (tpl.sections | selectattr("type", "equalto", "trainees_data_table") | list | first) -%}
@@ -206,9 +212,13 @@ tr { page-break-inside: avoid; }
         {%- set proc_section  = (tpl.sections | selectattr("type", "equalto", "process") | list | first) -%}
         {%- set img_section   = (tpl.sections | selectattr("type", "equalto", "image_attachments") | list | first) -%}
         {%- set sig_section   = (tpl.sections | selectattr("type", "equalto", "signatures") | list | first) -%}
-        {# Per-report signature overrides written by the wizard's Signatures step.
-           `sig_disabled` = TDS-on roles the user unticked.
-           `sig_enabled`  = TDS-off roles the user ticked (manual override). #}
+
+        {# ===== Per-unit loop: one pass per zone (zone-wise) or one pass for the whole report. ===== #}
+        {% for Z in render_units %}
+        {%- set rd = Z -%}
+        {%- set _zlabel = (Z.get("label") if _multi_zone else none) -%}
+        {% if _zlabel and not loop.first %}<div style="page-break-before:always;"></div>{% endif %}
+        {# Per-report signature overrides (per-zone). #}
         {%- set _sig_rd = ((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {} -%}
         {%- set sig_disabled = _sig_rd.get("disabled") or [] -%}
         {%- set sig_enabled  = _sig_rd.get("enabled")  or [] -%}
@@ -233,6 +243,7 @@ tr { page-break-inside: avoid; }
                             {% for f in (hdr_section.fields or []) %}
                                 {% if f.key in ['vendor', 'project', 'location', 'date'] %}
                                     <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
                                 {% endif %}
                             {% endfor %}
                         </table>
@@ -355,6 +366,7 @@ tr { page-break-inside: avoid; }
             </div>
 
         {% endif %}
+        {% endfor %}
 
     {%- endif -%}
 {% endif %}

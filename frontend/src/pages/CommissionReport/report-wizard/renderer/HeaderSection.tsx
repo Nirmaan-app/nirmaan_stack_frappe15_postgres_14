@@ -12,9 +12,13 @@ interface Props {
     section: HeaderSectionT;
     /** Render in read-only mode (mode=view). */
     forceReadonly?: boolean;
+    /** Override the RHF path root. Defaults to "responses". Used by zone-wise
+     *  reports so this section reads/writes `zones.<i>.responses.<id>.<field>`. */
+    pathRoot?: string;
 }
 
-export const HeaderSection: React.FC<Props> = ({ section, forceReadonly }) => {
+export const HeaderSection: React.FC<Props> = ({ section, forceReadonly, pathRoot }) => {
+    const root = pathRoot || 'responses';
     return (
         <section className="space-y-3">
             {section.title && (
@@ -24,7 +28,7 @@ export const HeaderSection: React.FC<Props> = ({ section, forceReadonly }) => {
                 {section.fields.map((f) => (
                     <FieldControl
                         key={f.key}
-                        name={`responses.${section.id}.${f.key}`}
+                        name={`${root}.${section.id}.${f.key}`}
                         field={f}
                         forceReadonly={forceReadonly}
                     />
