@@ -434,9 +434,54 @@ tint -- unaffected). No new storage/flag (non-zeroness is the distinguisher; the
 in the SINGLE shared `lookupOperandValue`, so it flows to BOTH the grid cell AND the summary rollup (drafts={}) -- the
 rollup SOURCE was not edited.
 
+**Computed review-flag layer `priceability.ts` (Slice 4b-A, Cluster A; full detail: plan §"Slice 4b-A"):** the NEW shared
+spine `priceability.ts` is the ONE place the "qty-bearing priceable line" rule lives -- the §6 one-shared-definition. LOCKED
+owner rule: a row is a PRICEABLE LINE iff `isPriceableType(node_type)` (Preamble/Line Item) AND it is QTY-BEARING in >=1
+pricing area (a zero-qty-everywhere priceable row DROPS OUT of the population). FILLED = `isCellPriced` OR a
+prepopulated-committed-non-zero rate -- expressed as `lookupOperandValue(row, ref, descriptors, {}) !== undefined`, so it
+REUSES the editor's single source of truth (never a bare zero-check; a deliberate editor-0 counts, an unfilled 0 does not).
+FULLY PRICED = option-(i): every QTY-BEARING area's rate cell(s) filled (no-qty areas IGNORED). Per-ROW count (owner-locked).
+Every consumer routes through this module: `computeRowFlags` (the three flags + F4 not_yet/broken), `computePricedCount`
+(N/M done-test), `isRowIncomplete` (the incomplete-subtotal atom), and the `pricingRollup` alignment. **No circular import:**
+`priceability` imports PricingGrid's leaf predicates (`isPriceableType`/`isCellPriced`/`isRateDescriptor`/`isAmountDescriptor`/
+`lookupOperandValue`/`evaluateAmountCell`) + `amountFormula.pickFormula`; PricingGrid NEVER imports `priceability` -- it
+RECEIVES the flags as a `rowFlags?: Map<number, RowReviewFlags>` prop (the flag types `AreaKey`/`ReviewFlagKind`/
+`RowReviewFlags`/`ReviewEntry`/`PricedLineCount` live in `boqTypes.ts` so the grid consumes them without the cycle).
+
+The THREE flags (all DERIVED on the fly -- no stored field): **needs_rate** (priceable line, a qty-bearing area not filled --
+per-area aware: priced in X but not qty-bearing Y still fires for Y); **wont_compute** (priceable being-priced row whose
+amount column has NO applicable `pickFormula` -- DERIVED, NOT an F4 state, since `evaluateAmountCell` silently returns
+`{kind:"committed"}` when no formula applies); **qty_anomaly** (a NON-priceable node_type carrying qty -- the inverse
+guardrail). Plus F4's **broken**/**not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state; the live
+grid keeps its own draft-aware broken `AlertTriangle`). **In-grid marker (`PricingGrid.tsx`):** a left accent + `Flag` icon
+in the Excel-Row GUTTER (col 0) -- DELIBERATELY in the gutter (which carries no priced tint / colour border) so a system flag
+never collides with the emerald/amber priced background or the user colour border (§6); rose accent = critical
+(broken/qty_anomaly), amber = attention. **Review strip (`SheetPricingPage.tsx`):** the 4a remark feed is EXTENDED IN PLACE
+(one `ReviewEntry[]` list, no fork) = remarks + `buildFlagEntries` + `incompleteSubtotalEntries`; each entry click-jumps via
+the existing `gridRef.current?.scrollToRow(excelRow)`; per-kind badge/colour via the module-level `REVIEW_ENTRY_META`.
+**Priced-count + filter (header):** a live "N of M priceable lines priced" readout (`computePricedCount`; "ready to finalize"
+text when N===M, NO finalize logic -- that is a later slice) + a "Show unpriced" toggle filtering `displayRows` to
+priceable-but-not-fully-priced (filtered PAGE-side; the grid's nav/byIdx stay consistent over the rendered set; `draftRates`
+keyed by `row_index` persist across the toggle -- the grid is keyed on `sheetName` only, no remount).
+
+**Incomplete-subtotal `pricingRollup.ts` (Slice 4b-A, STEP 7+8):** `RollupNode` gains `incomplete: boolean` = an OR over
+self + descendants of `priceability.isRowIncomplete` (a qty-bearing priceable row not fully priced / not_yet / broken).
+**Zero-qty / non-priceable descendants NEVER flag a parent** (owner: only qty-bearing rows count). `incompleteSubtotalEntries`
+surfaces every `isParent && incomplete` node into the strip. **Rollup ALIGNMENT:** the stale header comment (node_type "NOT
+on the delivered row") is corrected -- node_type IS now on `PricedRow`, and the priceable-POPULATION decision (the incomplete
+signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`) is INTENTIONALLY NOT regated (regating would
+change committed-amount totals); only the new incompleteness SIGNAL uses the helper, so the existing rollup totals are
+byte-for-byte unchanged (the formula-aware / grand-total / reconciliation tests stay green). The in-summary VISUAL marker is
+deferred -- `SummaryPanel.tsx` is out of this slice's scope; the signal is surfaced via the strip + `RollupNode.incomplete`.
+**Cluster B (the formula-vs-document reconciliation CHOICE store) is the NEXT slice -- deferred** (no choice store, no
+overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Display-only; no backend / fetch / doctype.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Prepopulated-rate fix -- formula reads committed rates by
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-A computed-flag layer -- the shared
+`priceability.ts` spine + three flags + in-grid markers + unified review strip + N/M priced-count & unpriced filter +
+incomplete-subtotal signal + rollup alignment (`priceability.ts`/`PricingGrid`/`SheetPricingPage`/`pricingRollup`,
+2026-06-23); Prepopulated-rate fix -- formula reads committed rates by
 non-zero value, not just the priced marker (`PricingGrid.lookupOperandValue`, 2026-06-23); Summary formula-fix --
 formula-aware rollup + grand-total row + reconciliation guard (`pricingRollup`/`SummaryPanel`, 2026-06-23).
 

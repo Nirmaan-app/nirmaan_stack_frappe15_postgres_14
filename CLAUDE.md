@@ -1,11 +1,16 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-22. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-23. **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest backend slice:** Phase 5
 Formula Builder F1 -- amount-formula storage (NEW doctype BoQ Cell Amount Formula + save_amount_formula /
 get_sheet_amount_formulas + get_priced_rows column_formulas merge, 2026-06-22; see plan §"Formula Builder F1").
+**Latest frontend slice:** Phase 5 Slice 4b-A -- the computed review-flag layer (FRONTEND-only, NO backend/doctype/migrate):
+the shared `frontend/src/pages/boq-wizard/priceability.ts` "qty-bearing priceable line" spine (§6 one-shared-definition) +
+three computed flags (needs-rate / won't-compute / qty-anomaly) + in-grid markers + a unified review strip + an N/M
+priced-count & "show unpriced" filter + the incomplete-subtotal signal (`pricingRollup.RollupNode.incomplete`) + rollup
+alignment; Cluster B (the reconciliation choice store) deferred to a later slice (2026-06-23; see plan §"Slice 4b-A").
 
 **Frontend conventions file: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
 
