@@ -163,40 +163,6 @@ describe("priceability -- the three flags", () => {
     expect(computeRowFlags(row, PER_AREA_CDS, []).needsRate).toBe(false);
   });
 
-  it("wont_compute fires on a priceable being-priced row whose amount col has no formula", () => {
-    const row = prow({
-      row_index: 1, source_row_number: 11, node_type: "Line Item",
-      qty_by_area: { A1: 10 },
-      rate_by_area: { A1: { combined_rate: 5 } } as never, // being priced
-    });
-    const f = computeRowFlags(row, PER_AREA_CDS, []); // NO formulas
-    expect(f.wontCompute).toBe(true);
-    expect(f.wontComputeCols).toContain("F"); // the A1 amount column
-  });
-
-  it("wont_compute does NOT fire when the amount column HAS a formula", () => {
-    const formula: ColumnFormula = {
-      target_value_field: "amount_by_area", target_value_key: null, target_rate_subkey: "total",
-      target_col: "F",
-      formula: {
-        op: "*",
-        operands: [
-          { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
-          { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
-        ],
-      },
-    };
-    const row = prow({
-      row_index: 1, source_row_number: 11, node_type: "Line Item",
-      qty_by_area: { A1: 10 },
-      rate_by_area: { A1: { combined_rate: 5 } } as never,
-    });
-    const f = computeRowFlags(row, PER_AREA_CDS, [formula]);
-    // F (A1) has the wildcard-default formula -> not wont_compute; I (A2) has no qty/rate -> the
-    // wildcard formula applies there too, so it is not wont_compute either.
-    expect(f.wontComputeCols).not.toContain("F");
-  });
-
   it("qty_anomaly fires on a NON-priceable row type carrying qty (and nowhere else)", () => {
     const anomaly = prow({
       row_index: 1, source_row_number: 11, node_type: "Other", qty_total: 5,
@@ -303,7 +269,6 @@ describe("priceability -- buildFlagEntries (the strip feed)", () => {
     const entries = buildFlagEntries(rows, PER_AREA_CDS, []);
     const kinds = entries.map((e) => e.kind);
     expect(kinds).toContain("needs_rate"); // row 11 (A2 unpriced)
-    expect(kinds).toContain("wont_compute"); // row 11 being priced, no formula on F
     expect(kinds).toContain("qty_anomaly"); // row 12 (Other + qty)
     expect(entries.find((e) => e.kind === "qty_anomaly")!.excelRow).toBe(12);
     expect(entries.find((e) => e.kind === "needs_rate")!.description).toBe("needs");

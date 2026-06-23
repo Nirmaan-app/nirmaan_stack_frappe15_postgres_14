@@ -82,11 +82,6 @@ const REVIEW_ENTRY_META: Record<
     badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
     text: "text-amber-700 dark:text-amber-400",
   },
-  wont_compute: {
-    label: "No formula",
-    badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
-    text: "text-amber-700 dark:text-amber-400",
-  },
   not_yet: {
     label: "Not computed",
     badge: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",

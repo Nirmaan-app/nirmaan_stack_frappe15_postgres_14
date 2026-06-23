@@ -24,8 +24,7 @@
  *   user-fillable rate cells are filled. A no-qty area is IGNORED.
  *
  * PURE -- no React/DOM/Frappe. Imports only the existing pure leaf helpers (PricingGrid's
- * exported predicates + evaluator, amountFormula.pickFormula). Unit-tested in
- * priceability.test.ts.
+ * exported predicates + evaluator). Unit-tested in priceability.test.ts.
  */
 import {
   evaluateAmountCell,
@@ -34,7 +33,6 @@ import {
   isRateDescriptor,
   lookupOperandValue,
 } from "./PricingGrid";
-import { pickFormula } from "./amountFormula";
 import type {
   AmountFormulaRef,
   AreaKey,
@@ -158,11 +156,6 @@ export function isQtyOnNonPriceable(row: PricedRow): boolean {
   return !isPriceableType(row.node_type) && hasAnyQty(row);
 }
 
-/** Is the row being priced at all? = at least one of its rate cells is filled. */
-function isBeingPriced(row: PricedRow, descriptors: ColumnDescriptor[]): boolean {
-  return rateDescriptors(descriptors).some((rd) => isRateFilled(row, rd, descriptors));
-}
-
 /**
  * Compute ALL of a row's review flags (Slice 4b-A). PURE -- saved-state only (the F4 amount
  * evaluation uses EMPTY draftRates so the strip/count are a consistent saved snapshot,
@@ -184,23 +177,11 @@ export function computeRowFlags(
   // qty on a non-priceable row type.
   const qtyAnomaly = isQtyOnNonPriceable(row);
 
-  // wont_compute (DERIVED, not an evaluator state -- recon Q4/Q15.2) + F4 not_yet/broken.
-  const beingPriced = priceableLine && isBeingPriced(row, descriptors);
-  const wontComputeCols: string[] = [];
+  // F4 not_yet / broken surfaced by READING evaluateAmountCell (no compute re-architecture).
   const brokenCols: string[] = [];
   const notYetCols: string[] = [];
   for (const d of descriptors) {
     if (!isAmountDescriptor(d)) continue;
-    if (beingPriced) {
-      const ref: AmountFormulaRef = {
-        value_field: d.value_field,
-        value_key: d.value_key,
-        rate_subkey: d.rate_subkey,
-      };
-      const applicable = pickFormula(ref, columnFormulas);
-      if (!applicable || !applicable.formula) wontComputeCols.push(d.col);
-    }
-    // Surface F4's not_yet / broken by READING evaluateAmountCell (no compute re-architecture).
     const res = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
     if (res.kind === "blank") {
       if (res.reason === "broken") brokenCols.push(d.col);
@@ -211,8 +192,6 @@ export function computeRowFlags(
   return {
     needsRate: needsRateAreas.length > 0,
     needsRateAreas,
-    wontCompute: wontComputeCols.length > 0,
-    wontComputeCols,
     qtyAnomaly,
     broken: brokenCols.length > 0,
     brokenCols,
@@ -223,14 +202,14 @@ export function computeRowFlags(
 
 /** True iff a row carries at least one computed flag (drives the in-grid row marker). */
 export function hasAnyFlag(f: RowReviewFlags): boolean {
-  return f.needsRate || f.wontCompute || f.qtyAnomaly || f.broken || f.notYet;
+  return f.needsRate || f.qtyAnomaly || f.broken || f.notYet;
 }
 
 /** Highest-severity flag class for the in-grid marker color: broken/qty_anomaly are
  *  "critical" (a structural / wrong-row problem); the rest are "attention". */
 export function flagSeverity(f: RowReviewFlags): "critical" | "attention" | null {
   if (f.broken || f.qtyAnomaly) return "critical";
-  if (f.needsRate || f.wontCompute || f.notYet) return "attention";
+  if (f.needsRate || f.notYet) return "attention";
   return null;
 }
 
@@ -291,13 +270,6 @@ export function buildFlagEntries(
         ...base,
         kind: "needs_rate",
         text: `Needs a rate -- ${f.needsRateAreas.map(AREA_LABEL).join(", ")} not yet priced.`,
-      });
-    }
-    if (f.wontCompute) {
-      out.push({
-        ...base,
-        kind: "wont_compute",
-        text: `Amount has no formula (cols ${f.wontComputeCols.join(", ")}) -- verify it computes.`,
       });
     }
     if (f.qtyAnomaly) {

@@ -627,19 +627,20 @@ export interface GetPricedRowsResponse {
 export type AreaKey = string | null;
 
 /**
- * The six computed review-flag kinds (Slice 4b-A). All DERIVED on the fly from the delivered
+ * The computed review-flag kinds (Slice 4b-A). All DERIVED on the fly from the delivered
  * row + descriptors + column_formulas -- never a stored field:
  *   needs_rate          -- a priceable line with a qty-bearing area whose rate is not filled.
- *   wont_compute        -- a priceable line being priced whose amount column has NO formula.
  *   qty_anomaly         -- qty on a NON-priceable row type (the inverse guardrail).
  *   broken              -- an amount cell's formula can't resolve (cycle / dangling ref).
  *   not_yet             -- an amount cell's formula needs a not-yet-entered operand.
  *   incomplete_subtotal -- a parent/subtotal node with a qty-bearing descendant not fully
  *                          priced / not_yet / broken (rollup-side; zero-qty children excluded).
+ * (The 4b-A `wont_compute` kind was removed before push -- superseded by the forthcoming
+ * mandatory amount-formula-declaration gate, which makes the no-formula-at-pricing state
+ * impossible, so that flag could never fire.)
  */
 export type ReviewFlagKind =
   | "needs_rate"
-  | "wont_compute"
   | "qty_anomaly"
   | "broken"
   | "not_yet"
@@ -655,10 +656,6 @@ export interface RowReviewFlags {
   needsRate: boolean;
   /** The specific qty-bearing areas (AreaKey) on this row whose rate is not filled. */
   needsRateAreas: AreaKey[];
-  /** Priceable line being priced whose amount column has no applicable formula. */
-  wontCompute: boolean;
-  /** The amount descriptor cols (Excel letters) lacking a formula on a being-priced row. */
-  wontComputeCols: string[];
   /** Non-priceable row type carrying a non-zero qty (any area). */
   qtyAnomaly: boolean;
   /** An amount cell evaluates to {blank, broken} (saved-state). */

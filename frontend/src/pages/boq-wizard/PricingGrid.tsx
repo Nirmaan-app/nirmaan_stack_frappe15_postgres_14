@@ -1287,12 +1287,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             const flags = rowFlags?.get(row.row_index);
             const flagCritical = !!flags && (flags.broken || flags.qtyAnomaly);
             const flagAttention =
-              !!flags && !flagCritical && (flags.needsRate || flags.wontCompute || flags.notYet);
+              !!flags && !flagCritical && (flags.needsRate || flags.notYet);
             const hasFlag = flagCritical || flagAttention;
             const flagTitle = flags
               ? [
                   flags.needsRate && "Needs a rate",
-                  flags.wontCompute && "Amount has no formula",
                   flags.qtyAnomaly && "Quantity on a non-priceable row",
                   flags.broken && "Formula won't resolve -- check the formula",
                   flags.notYet && "Amount not computed yet (a rate is missing)",
