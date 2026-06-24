@@ -672,9 +672,43 @@ wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `
 `GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
 +3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Toolbar Part 1 -- search + column-hide + 3 row-type filters (`SheetPricingPage.tsx` + `PricingGrid.tsx`; view-layer,
+owner-locked; full detail: plan §"Toolbar Part 1"):** the pricing-editor header now carries FIVE view-only controls
+(dropped into the existing `!isGridOnly` flex cluster; the toolbar LAYOUT rework is **Part 2, deferred until after Slice
+5** -- only the controls were added, the header was NOT restructured). All default to the current behaviour (nothing
+hidden, no search) so a no-touch user sees the exact prior grid. **(1) COLUMN-HIDE** -- a "Columns" Popover hides
+NON-AMOUNT descriptor columns; **AMOUNT COLUMNS ARE NEVER HIDEABLE** (owner-locked -- their formula-status `ƒ` badge must
+never be hidden). One source of truth: `hideableDescriptors(columnDescriptors)` (reuses `isAmountDescriptor`) lists the
+popover; the grid guard `isColumnVisible(d, hiddenCols)` always returns true for amount columns. State = a per-GRID
+`hiddenCols: Set<string>` tracked as HIDDEN (default EMPTY = nothing hidden, NO seeding -- a visible-set lazy-init would
+flash on every sheet open). The grid renders + navigates a `visibleDescriptors` set used UNIFORMLY (header `<th>` map, row
+`<td>` map, `remarksColIndex`/`colCount`, AND the `commitActiveRate` colIndex reverse-lookup) so the cursor can NEVER land
+on a hidden column; the FULL `displayDescriptors` is kept for the data-fanout (cross-area prefill, autosave) so
+`commitRate`'s identity stays stable across a hide. `hiddenCols` is per-GRID -- NEVER enters the row memo. **(2) SEARCH** --
+a thin case-insensitive substring matcher over `row.description` (NO review-tier filter compose); `buildSearchHits` over
+the rendered `displayRows` -> an N-of-M counter + prev/next `stepHit`-wrap that jumps via the grid's EXISTING
+`gridRef.scrollToRow` (NOT ReviewTree's `revealAndScrollToRow`). **The ONE row-memo touch:** the per-row `isCurrentHit`
+boolean is in `pricingRowPropsAreEqual` (like `reconChoiceMap`) so the highlight repaints on step; the current hit is a
+**yellow BACKGROUND, not a ring** (the table is `border-collapse` -> a `<tr>` ring-inset is unreliable, and a blue ring
+would collide with the active-cell ring). **(3/4/5) ROW-TYPE FILTERS** (spacers/notes/subtotals) -- three booleans keyed on
+`effective_classification` (NOT node_type, which can't tell them apart); `classificationVisible` AND-composed into the SAME
+page-side `displayRows` `.filter()` (the `=== rows` fast path preserved at default). **VIEW-ONLY (load-bearing):** the
+toggles narrow ONLY `displayRows`; `computePricedCount` / `SummaryPanel` / the flag feed all read the UNFILTERED `rows`, so
+hiding a row-type moves NO total/count, and nav-skip is free (the grid gets the already-filtered rows). Pure helpers
+(`searchMatches`/`buildSearchHits`/`stepHit`/`isCurrentHitRow`/`classificationVisible`/`hideableDescriptors`/
+`isColumnVisible`) live in `PricingGrid.tsx` + are unit-tested in the NEW `PricingToolbar.test.ts`. vitest 264->287, tsc
+3175 (0 new), in-container build exit 0, 2026-06-24.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula-vs-document reconciliation (Cluster B) -- a per-cell
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Toolbar Part 1 -- FIVE view-layer pricing-editor toolbar
+controls (description SEARCH with N-of-M + prev/next jumping via the grid's `scrollToRow` + a yellow current-hit-row
+highlight whose per-row `isCurrentHit` boolean is the ONE row-memo touch; COLUMN-HIDE via a "Columns" popover that EXCLUDES
+amount columns [locked] and re-indexes the nav over a `visibleDescriptors` set; and 3 ROW-TYPE filters [spacers/notes/
+subtotals] keyed on `effective_classification`, AND-composed into the page-side `displayRows` pass, VIEW-ONLY so no count/
+total moves); pure helpers in `PricingGrid.tsx` + the NEW `PricingToolbar.test.ts`; vitest 264->287, tsc 3175 (0 new),
+2026-06-24, see the Toolbar-Part-1 paragraph above + plan §"Toolbar Part 1" (Part 2 layout rework deferred until after
+Slice 5). Formula-vs-document reconciliation (Cluster B) -- a per-cell
 "keep document / use formula" choice on a divergent amount cell (NEW pure leaf `reconcile.ts` with the SHARED `amountsEqual`
 tolerance; document-DEFAULT [D1]; a STRONG violet `ReconcileBadge` cell cue + chooser, muted when resolved; a "divergence"
 review-strip kind; the chosen value resolved ONCE in `pricingRollup.rowOwnAmount` [D4]; divergence fires only on
