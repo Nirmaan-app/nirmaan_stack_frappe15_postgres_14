@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ClipboardList, Filter, Loader2, Lock, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,7 @@ import {
   isGridOnlySheet,
   isTakeoverError,
   orderCommittedSheets,
+  shouldExitFullscreenOnEsc,
   type PricingGridHandle,
 } from "./PricingGrid";
 import {
@@ -208,6 +209,15 @@ const SheetPricingPage = () => {
   // BOQ_PRICING_LOCKED marker -- another user acquired the lock) flips this true; the page
   // becomes read-only + shows the takeover banner until a fresh editable payload arrives.
   const [takenOver, setTakenOver] = useState(false);
+  // Slice 4c: full-screen / maximize mode (per-session). When true the page root becomes a
+  // fixed inset-0 full-viewport overlay (covering the app shell) so the dense grid gets the
+  // whole screen. Pure LAYOUT: it toggles ONLY the root wrapper's className (one JSX tree,
+  // same children + same PricingGrid key={sheetName}), so expand/collapse NEVER remounts the
+  // grid -- draftRates / activeCell / debouncers / the gridRef handle / the single-editor lock
+  // / all page state survive. NOT a Dialog / Sheet / portal (those remount), NOT the native
+  // Fullscreen API. NOT reset on a tab switch (a deliberate choice -- staying maximized across
+  // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
+  const [expanded, setExpanded] = useState(false);
 
   // Reset the takeover flag whenever a FRESH get_priced_rows payload reports the sheet
   // editable (a Reload re-read found it free / mine / stale). Keyed on the payload identity
@@ -237,6 +247,21 @@ const SheetPricingPage = () => {
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
   }, [sheetName]);
+
+  // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
+  // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
+  // collision cases: e.defaultPrevented (a Radix popover -- RemarkCell / AmountFormulaBuilder --
+  // closing on its OWN Esc preventDefaults, so a popover-Esc never exits) and an <input>/
+  // <textarea> being typed. NOT attached to the grid <table> (it would miss Escs fired while
+  // focus is in a portaled popover); the grid's own keydown handler is untouched.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldExitFullscreenOnEsc(e, document.activeElement)) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -537,7 +562,17 @@ const SheetPricingPage = () => {
   });
 
   return (
-    <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
+    <div
+      // Slice 4c: ONE JSX tree -- only THIS wrapper's className flips between embedded and the
+      // fixed inset-0 full-viewport overlay (covers the app shell, like the house Dialog/Sheet
+      // overlay). FULL is `flex flex-col` so the grid slot below can take flex-1 and fill the
+      // freed height. No remount -> all grid + page state survives expand/collapse.
+      className={cn(
+        expanded
+          ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
+          : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
+      )}
+    >
       {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
       <div className="flex items-start gap-3">
         <Button
@@ -562,11 +597,25 @@ const SheetPricingPage = () => {
           </h1>
         </div>
 
-        {/* ── Slice 3c: save-status chip + force-save ─────────────────────────
-            SUPPRESSED for a grid-only (general-specs) sheet -- it is read-only
-            reference, nothing to save, summarize, or flush. */}
-        {!isGridOnly && (
+        {/* ── Slice 4c: full-screen toggle (ALWAYS rendered) + Slice-3c save-status
+            chip / force-save (SUPPRESSED for a grid-only general-specs sheet -- it is
+            read-only reference, nothing to save). The right-cluster wrapper now renders
+            unconditionally so the maximize toggle is reachable on a read-only / grid-only
+            sheet too -- full-screen is orthogonal to editability. */}
         <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            aria-pressed={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Exit full screen (Esc)" : "Expand the editor to full screen"}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {expanded ? "Exit full screen" : "Full screen"}
+          </Button>
+          {!isGridOnly && (
+          <>
           <div className="flex items-center gap-1.5 text-xs">
             {saveStatus === "saving" && (
               <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -691,8 +740,9 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
+          </>
+          )}
         </div>
-        )}
       </div>
 
       {/* ── Single-editor lock banners (slice B) ──────────────────────────────
@@ -964,9 +1014,13 @@ const SheetPricingPage = () => {
 
       {/* ── Render fork: grid-only -> faithful read-only grid; else the pricing grid.
           We wait for pricedData (it carries commit_version, which the faithful-grid fetch
-          needs) before either render. */}
+          needs) before either render. Slice 4c: the grid SLOT takes flex-1 min-h-0 when
+          expanded (the root is flex-col) so the grid fills the freed full-screen height; the
+          grid's own container relaxes its rem-cap (its `expanded` prop). Embedded -> no class
+          (the grid keeps its own viewport-rem cap, byte-for-byte the prior behaviour). */}
       {!pricedLoading && !pricedError && (
-        isGridOnly ? (
+        <div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>
+        {isGridOnly ? (
           <SheetDataGrid
             // Faithful committed grid (general specs) -- READ-ONLY reference, all rows at
             // once (pagination stubbed). Reuses SheetDataGrid as-is; falls back to raw Excel
@@ -982,6 +1036,7 @@ const SheetPricingPage = () => {
             headerRow={gridData?.message?.header_row ?? null}
             headerRowCount={(gridData?.message?.header_row_count ?? 1) as 1 | 2}
             areaList={gridData?.message?.area_dimensions ?? []}
+            expanded={expanded} // Slice 4c: relax the height cap in full-screen
           />
         ) : (
           <PricingGrid
@@ -1021,8 +1076,12 @@ const SheetPricingPage = () => {
             formulasComplete={formulasComplete}
             editable={editable}
             lockInfo={lockInfo}
+            // Slice 4c: relax the grid's height cap to fill the full-screen slot. LAYOUT-ONLY --
+            // a per-grid prop, NOT a per-row prop, so the row memo is untouched.
+            expanded={expanded}
           />
-        )
+        )}
+        </div>
       )}
     </div>
   );

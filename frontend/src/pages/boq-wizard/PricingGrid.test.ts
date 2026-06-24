@@ -31,6 +31,7 @@ import {
   isNonZeroNum,
   isRowQtyBearing,
   isRateEditableRow,
+  shouldExitFullscreenOnEsc,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -948,5 +949,32 @@ describe("the mandatory formula gate composition (override cannot bypass)", () =
     expect(rateEditable(lineItem, false, true)).toBe(true); // Line Item always editable
     expect(rateEditable(zeroPreamble, false, true)).toBe(false); // zero-qty Preamble locked
     expect(rateEditable(zeroPreamble, true, true)).toBe(true); // override unlocks it (gate open)
+  });
+});
+
+// ── Slice 4c: full-screen Esc-to-exit predicate ────────────────────────────────
+describe("shouldExitFullscreenOnEsc", () => {
+  // A minimal stand-in for an active element (only tagName is read).
+  const el = (tag: string): Element => ({ tagName: tag }) as unknown as Element;
+
+  it("Escape + not-defaultPrevented + non-input focus => exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, null)).toBe(true);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("DIV"))).toBe(true);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("BUTTON"))).toBe(true);
+  });
+
+  it("defaultPrevented (a popover already handled the Esc) => no exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: true }, null)).toBe(false);
+  });
+
+  it("focus in an <input> / <textarea> (mid-edit) => no exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("INPUT"))).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("TEXTAREA"))).toBe(false);
+  });
+
+  it("a non-Escape key => no exit (the listener ignores everything else)", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Enter", defaultPrevented: false }, null)).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "ArrowDown", defaultPrevented: false }, null)).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape ", defaultPrevented: false }, null)).toBe(false);
   });
 });

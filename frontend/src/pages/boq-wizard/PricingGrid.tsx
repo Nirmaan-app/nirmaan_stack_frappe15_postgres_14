@@ -530,6 +530,30 @@ export function isTakeoverError(msg: string): boolean {
   return typeof msg === "string" && msg.includes(TAKEOVER_MARKER);
 }
 
+// ── Slice 4c: full-screen editor -- Esc-to-exit predicate ──────────────────────
+/**
+ * Should an Escape keypress EXIT the full-screen pricing editor? PURE -- unit-tested in
+ * PricingGrid.test.ts (the page wires it to a window keydown listener active only while
+ * expanded). The two guards keep full-screen Esc from colliding with the grid's other Esc
+ * consumers:
+ *   - `e.defaultPrevented`: the RemarkCell + AmountFormulaBuilder Radix popovers
+ *     preventDefault THEIR Escape-dismiss, so a popover-closing Esc never exits full-screen
+ *     ("Esc closed a popover" vs "Esc should exit" is exactly this bit).
+ *   - the active element being an <input>/<textarea>: a rate / remark being typed owns its
+ *     own Esc (do not yank the user out of full-screen mid-edit).
+ * Only a bare Escape on a non-input, not-already-handled, exits.
+ */
+export function shouldExitFullscreenOnEsc(
+  e: { key: string; defaultPrevented: boolean },
+  activeElement: Element | null,
+): boolean {
+  if (e.key !== "Escape") return false;
+  if (e.defaultPrevented) return false;
+  const tag = activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return false;
+  return true;
+}
+
 // ── Slice 3d: in-editor sheet tabs ─────────────────────────────────────────────
 /**
  * Committed sheets in WORKBOOK ORDER for the in-editor sheet-tab strip: sort by
@@ -962,6 +986,14 @@ interface PricingGridProps {
    * which imports the grid -- that would be a cycle.
    */
   rowFlags?: Map<number, RowReviewFlags>;
+  /**
+   * Slice 4c: full-screen editor. When TRUE, the grid's OUTER scroll container relaxes its
+   * `max-h-[calc(100vh-14rem)]` cap to `flex-1 min-h-0` so it fills the taller full-viewport
+   * layout (the page's expanded root is `flex flex-col`). Default false (embedded layout,
+   * back-compat). LAYOUT-ONLY: it touches ONLY the outer container class -- it is NOT a per-row
+   * prop, never enters PricingGridRowProps / pricingRowPropsAreEqual, so the row memo is intact.
+   */
+  expanded?: boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1493,7 +1525,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -1817,7 +1849,14 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   }
 
   return (
-    <div className="rounded-md border border-border overflow-auto max-h-[calc(100vh-14rem)]">
+    <div
+      className={cn(
+        "rounded-md border border-border overflow-auto",
+        // Slice 4c: full-screen relaxes the viewport-rem cap to fill the expanded flex-col
+        // root (the page gives this container's slot flex-1 min-h-0). Embedded keeps the cap.
+        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)]",
+      )}
+    >
       <table className="w-full text-xs border-collapse" onKeyDown={handleGridKeyDown}>
         <thead>
           <tr>
