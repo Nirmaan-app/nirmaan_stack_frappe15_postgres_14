@@ -77,11 +77,11 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, StructuralBreak, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -115,6 +115,17 @@ import {
   ClassificationPill,
   CLS_LABELS,
 } from "./reviewRender";
+// DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
+// clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
+// the gemini endpoints. Mounted ADDITIVELY beside the Claude pieces (Nitesh's stay untouched).
+import {
+  GeminiHeaderCell,
+  GeminiBodyCell,
+  geminiSuggestionInfo,
+  geminiHasConfidence,
+  type GeminiFilter,
+} from "./GeminiSuggestionColumn";
+import { GeminiAcceptBlock } from "./GeminiAcceptBlock";
 
 // computeDepths + CLS_LABELS were extracted to ./reviewRender (Slice 2) and are
 // imported at the top. Behaviour unchanged.
@@ -284,6 +295,23 @@ function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; 
   );
 }
 
+// R4: short per-category labels for the warnings panel (advisory flags). Mirrors the labels the
+// SheetReviewPage count strip used (FLAG_LABELS) -- moved here when the strip evolved into the
+// panel. FLAG_ORDER fixes the badge/rollup ordering.
+const WARN_FLAG_LABELS: Record<string, string> = {
+  zero_amount_line_item: "zero-amount",
+  orphan: "orphan",
+  parser: "needs-review",
+  priced_preamble_no_children: "priced-preamble",
+};
+const WARN_FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
+// R4: labels for the must-fix structural-break group (from check_structural_integrity).
+const WARN_BREAK_LABELS: Record<string, string> = {
+  orphan: "Orphan line item",
+  line_item_as_parent: "Line item used as a parent",
+  cycle: "Parent cycle",
+};
+
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
 interface SaveReviewRestructureResponse {
@@ -300,6 +328,10 @@ interface ReviewTreeProps {
   rows: ReviewRow[];
   columnDescriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
+  // R4: structural breaks (must-fix) for the warnings panel, fetched by SheetReviewPage via
+  // get_structural_breaks. Defaults to [] (so existing callers that omit it render no break
+  // group). The panel groups these distinctly above the softer advisory flags.
+  breaks?: StructuralBreak[];
   // C-v2: identifiers for the save_review_edit POST. sheetName MUST be the
   // verbatim, untrimmed DB string (the #152 trailing-space guard) -- never the
   // display-trimmed name.
@@ -322,9 +354,15 @@ interface ReviewTreeProps {
   // panel display, search, filters, column selector, scroll-to-parent) stays live. The
   // backend enforces the same freeze, so this is the UI line of defence, not the only one.
   readOnly?: boolean;
+  // DUAL-AI (ADR-0003 sec 8A): gates the second provider ("Gemini") column + detail-panel accept
+  // block. Sourced from get_review_rows.gemini_enabled (Document AI Settings.boq_ai_enabled). When
+  // false/undefined the Gemini column + block are NOT mounted -- the layout is byte-identical to
+  // the Claude-only tree (totalCols / colSpans stay 8-based). ADDITIVE: every existing caller that
+  // omits this prop renders exactly as before.
+  geminiEnabled?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -336,6 +374,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // B2a-fix OBS-1: master show-all toggle. When true, all flagged rows reveal reasons,
   // overriding the single-open model. Toggling off clears expandedFlagRow to null.
   const [showAllFlags, setShowAllFlags] = useState(false);
+  // R4: warnings-panel "Show dismissed" toggle. By default the panel hides rows whose flags
+  // were acknowledged ("Looks OK", flags_dismissed=1) -- parity with the pricing strip. Toggling
+  // on surfaces them again (dimmed). Structural BREAKS are NEVER hidden by this toggle (a break
+  // is a must-fix; dismissal only acknowledges the softer advisory flags).
+  const [showDismissedWarnings, setShowDismissedWarnings] = useState(false);
+  // R4: the warnings panel is collapsible (header always visible with the rollup; the entry
+  // list folds away). Defaults OPEN so the warnings are visible on load.
+  const [warningsPanelOpen, setWarningsPanelOpen] = useState(true);
   // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
   const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
@@ -398,6 +444,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     presetRowParent?: number | null;
     presetParentMessage?: string;
     markAiAccepted?: boolean;
+    // DUAL-AI (ADR-0003): the Gemini mirror of markAiAccepted. Set when a WITH-children Gemini
+    // accept routes here (GeminiAcceptBlock -> onOpenRestructureGemini). Independent flag.
+    markGeminiAccepted?: boolean;
   } | null>(null);
   const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
   // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
@@ -457,13 +506,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
     message: { ok: boolean };
   }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
-  // AI-3c-2b: revert an AI acceptance (restore the row + any children the accept moved to
-  // their pre-accept state, re-offer the suggestion as Pending). Returns no edited_at, so
-  // the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row re-renders
-  // Pending, the AI accept/reject block reappears, and the Revert button + AI Accepted tag go.
-  const { call: revertAiCall, loading: isRevertingAi } = useFrappePostCall<{
-    message: { ok: boolean; ai_suggestion_status: string; reverted_children: number[] };
-  }>("nirmaan_stack.api.boq.wizard.ai_assist.revert_ai_acceptance");
+  // R3a (ADR-0006): the UNIFIED "Revert to parser". One endpoint that restores the row + any
+  // children a restructure moved to the PARSER BASELINE, regardless of whether the standing change
+  // was an AI acceptance (either provider) or a manual human_* edit. Replaces the two former
+  // provider-specific reverts (revert_ai_acceptance / revert_gemini_acceptance). Returns no
+  // edited_at, so the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row
+  // re-renders clean (no override): badges/tint/accept blocks reset and AI Apply re-enables.
+  const { call: revertToParserCall, loading: isRevertingToParser } = useFrappePostCall<{
+    message: { ok: boolean; reverted_children: number[] };
+  }>("nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser");
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
@@ -550,21 +601,42 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
-  // AI-3c-2b: revert a prior AI acceptance -> the backend restores the row + moved children
-  // to their pre-accept state and flips ai_suggestion_status back to Pending. mutate-only
-  // refresh (no edited_at; the re-fetch re-renders the row Pending so the button disappears).
-  const handleRevertAi = async (row: ReviewRow) => {
+  // R3a (ADR-0006): the UNIFIED "Revert to parser" handler. Restores the row + any children a
+  // restructure moved to the parser baseline -- regardless of whether the standing change was an
+  // AI acceptance (either provider) or a manual edit. mutate-only refresh (no edited_at; the
+  // re-fetch re-renders the row clean so the Revert button disappears and AI Apply re-enables).
+  const handleRevertToParser = async (row: ReviewRow) => {
     setAiActionError(null);
     try {
-      await revertAiCall({
+      await revertToParserCall({
         boq_name: boqName,
         sheet_name: sheetName, // VERBATIM untrimmed -- #152
         row_index: row.row_index,
       });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      setAiActionError(getFrappeError(e) || "Could not revert the AI change.");
+      setAiActionError(getFrappeError(e) || "Could not revert this row to the parser baseline.");
     }
+  };
+
+  // DUAL-AI (ADR-0003): open the SHARED RestructureModal for a WITH-children Gemini accept.
+  // Mirror of handleApplyAi's setRestructureModal route, with markGeminiAccepted set (so the
+  // modal's Save flips gemini_suggestion_status="Accepted" cancel-safely). GeminiAcceptBlock owns
+  // the accept-axis math + the preset-parent decision and calls this with the resolved args.
+  const onOpenRestructureGemini = (args: {
+    row: ReviewRow;
+    newClassification: string;
+    presetRowParent?: number | null;
+    presetParentMessage?: string;
+  }) => {
+    setRestructureModal({
+      row: args.row,
+      newClassification: args.newClassification,
+      ...(args.presetRowParent !== undefined
+        ? { presetRowParent: args.presetRowParent, presetParentMessage: args.presetParentMessage }
+        : {}),
+      markGeminiAccepted: true,
+    });
   };
 
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
@@ -703,6 +775,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   // AI-3a: AI Rec column filter (default "all" = no narrowing).
   const [aiFilter, setAiFilter] = useState<AiFilter>("all");
+  // DUAL-AI (ADR-0003): Gemini column filter -- mirror of aiFilter (default "all" = no narrowing).
+  const [geminiFilter, setGeminiFilter] = useState<GeminiFilter>("all");
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
@@ -885,6 +959,77 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // Whether any flags exist at all -- used to conditionally render the master toggle.
   const hasFlagsAny = flags.length > 0;
 
+  // R4: warnings-panel model. ONE entry PER ROW that carries a structural break and/or advisory
+  // flag(s). Each entry tags whether the row is a must-fix (has a break) and whether it was
+  // dismissed ("Looks OK"). The panel renders break-rows distinctly (above) from advisory-only
+  // rows, and hides dismissed rows by default. Built off `breaks` + `flags` + rows.flags_dismissed.
+  const warningRows = useMemo(() => {
+    const dismissedIdx = new Set(rows.filter(r => !!r.flags_dismissed).map(r => r.row_index));
+    const byIdxLocal = new Map<number, ReviewRow>(rows.map(r => [r.row_index, r]));
+    const map = new Map<number, {
+      rowIndex: number;
+      excelRow: number | null;
+      breaks: StructuralBreak[];
+      flags: AdvisoryFlag[];
+      dismissed: boolean;
+    }>();
+    const ensure = (rowIndex: number, srn: number | null) => {
+      let e = map.get(rowIndex);
+      if (!e) {
+        e = {
+          rowIndex,
+          excelRow: srn ?? byIdxLocal.get(rowIndex)?.source_row_number ?? null,
+          breaks: [],
+          flags: [],
+          // A break is a must-fix and NEVER counts as dismissed (dismissal acknowledges advisory
+          // flags only); this flag drives the default hide of advisory-only dismissed rows.
+          dismissed: dismissedIdx.has(rowIndex),
+        };
+        map.set(rowIndex, e);
+      }
+      return e;
+    };
+    for (const b of breaks) ensure(b.row_index, b.source_row_number).breaks.push(b);
+    for (const f of flags) ensure(f.row_index, f.source_row_number).flags.push(f);
+    // Sort breaks-first, then by Excel row for stable, scannable order.
+    return Array.from(map.values()).sort((a, b) => {
+      const aBreak = a.breaks.length > 0 ? 0 : 1;
+      const bBreak = b.breaks.length > 0 ? 0 : 1;
+      if (aBreak !== bBreak) return aBreak - bBreak;
+      return (a.excelRow ?? 0) - (b.excelRow ?? 0);
+    });
+  }, [rows, breaks, flags]);
+
+  // R4: the must-fix (break) vs advisory split, and the dismissed-hide gate.
+  const breakWarnRows = warningRows.filter(w => w.breaks.length > 0);
+  // Advisory-only rows (no break). A break row is always shown (never dismissible); an
+  // advisory-only row is hidden by default once dismissed unless "Show dismissed" is on.
+  const advisoryWarnRows = warningRows.filter(w => w.breaks.length === 0);
+  const visibleAdvisoryWarnRows = showDismissedWarnings
+    ? advisoryWarnRows
+    : advisoryWarnRows.filter(w => !w.dismissed);
+  const dismissedAdvisoryCount = advisoryWarnRows.filter(w => w.dismissed).length;
+  const hasAnyWarning = warningRows.length > 0;
+
+  // R4: per-category advisory rollup for the panel header (evolved from the SheetReviewPage
+  // count strip). "N label – M cleared" where cleared = flags of that type on a dismissed row.
+  const warnSummaryParts = useMemo(() => {
+    const dismissedIdx = new Set(rows.filter(r => !!r.flags_dismissed).map(r => r.row_index));
+    const counts: Record<string, number> = {};
+    const cleared: Record<string, number> = {};
+    for (const f of flags) {
+      counts[f.type] = (counts[f.type] ?? 0) + 1;
+      if (dismissedIdx.has(f.row_index)) cleared[f.type] = (cleared[f.type] ?? 0) + 1;
+    }
+    return WARN_FLAG_ORDER
+      .filter(t => (counts[t] ?? 0) > 0)
+      .map(t => {
+        const c = cleared[t] ?? 0;
+        const base = `${counts[t]} ${WARN_FLAG_LABELS[t]}`;
+        return c > 0 ? `${base} – ${c} cleared` : base;
+      });
+  }, [rows, flags]);
+
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
     if (highlightedIdx === null) return;
@@ -1029,6 +1174,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
   const aiFilterActive = aiFilter !== "all";
+  // DUAL-AI (ADR-0003): the Gemini filter-active styling is derived inside GeminiHeaderCell
+  // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
   const passesFilter = (row: ReviewRow): boolean => {
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
@@ -1055,6 +1202,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
         if (!aiHasConfidence(info, level)) return false;
       }
     }
+    // DUAL-AI (ADR-0003): Gemini predicate -- mirror of the AI predicate, gated on geminiEnabled
+    // (the filter cannot narrow when the column is not mounted). "any" = a pending Gemini
+    // suggestion exists; high/medium/low = a pending suggestion at that confidence in either axis.
+    if (geminiEnabled && geminiFilter !== "all") {
+      const info = geminiSuggestionInfo(row);
+      if (geminiFilter === "any") {
+        if (!(info.hasClass || info.hasParent)) return false;
+      } else {
+        const level = geminiFilter === "high" ? "High" : geminiFilter === "medium" ? "Medium" : "Low";
+        if (!geminiHasConfidence(info, level)) return false;
+      }
+    }
     return true;
   };
 
@@ -1074,7 +1233,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, showSpacers, showNotes, showSubtotals]);
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -1106,7 +1265,147 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const hiddenColCount = displayDescriptors.filter(d => !visibleCols.has(d.col)).length;
 
   return (
-    <div className="rounded-md border border-border overflow-hidden">
+    <div className="space-y-3">
+      {/* ── R4: Warnings panel ───────────────────────────────────────────────────
+          A clickable list of rows needing attention, ONE entry per row. Structural BREAKS
+          (must-fix: line_item_as_parent, cycle, orphan) group distinctly ABOVE the softer
+          advisory flags. Clicking an entry reveals + scrolls to that row (revealAndScrollToRow:
+          expand collapsed ancestors, smooth scroll block:'nearest', 1.5s amber pulse -- no focus).
+          The count + "– N cleared" rollup (evolved from the SheetReviewPage strip) lives in the
+          header. Dismissed advisory rows hide by default behind a "Show dismissed" toggle. */}
+      {hasAnyWarning && (
+        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/15 overflow-hidden">
+          {/* Header: collapse toggle + counts rollup + "Show dismissed" toggle. */}
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setWarningsPanelOpen(o => !o)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+              aria-expanded={warningsPanelOpen}
+              aria-label={warningsPanelOpen ? "Collapse warnings" : "Expand warnings"}
+            >
+              {warningsPanelOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>
+                Warnings
+                {breakWarnRows.length > 0 && (
+                  <span className="ml-1 text-red-700 dark:text-red-300">
+                    · {breakWarnRows.length} must-fix
+                  </span>
+                )}
+              </span>
+            </button>
+            {warnSummaryParts.length > 0 && (
+              <span className="text-xs text-amber-700/90 dark:text-amber-300/90">
+                {warnSummaryParts.join(" · ")}
+              </span>
+            )}
+            {/* "Show dismissed" toggle -- only meaningful when there are dismissed advisory rows. */}
+            {dismissedAdvisoryCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDismissedWarnings(s => !s)}
+                className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                {showDismissedWarnings
+                  ? `Hide dismissed (${dismissedAdvisoryCount})`
+                  : `Show dismissed (${dismissedAdvisoryCount})`}
+              </button>
+            )}
+          </div>
+
+          {warningsPanelOpen && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2">
+              {/* Must-fix structural breaks -- grouped distinctly above the advisories. */}
+              {breakWarnRows.length > 0 && (
+                <div className="space-y-1">
+                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:text-red-300 flex items-center gap-1">
+                    <AlertOctagon className="h-3 w-3" /> Must fix
+                  </p>
+                  {breakWarnRows.map((w) => (
+                    <button
+                      key={`brk-${w.rowIndex}`}
+                      type="button"
+                      onClick={() => revealAndScrollToRow(w.rowIndex)}
+                      className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-red-50/70 dark:bg-red-950/25 border border-red-200/70 dark:border-red-900/40 hover:bg-red-100/70 dark:hover:bg-red-950/40 transition-colors"
+                    >
+                      <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                        {w.excelRow !== null ? `Row ${w.excelRow}` : `#${w.rowIndex}`}
+                      </span>
+                      <span className="flex flex-col gap-0.5 min-w-0">
+                        <span className="flex flex-wrap gap-1">
+                          {w.breaks.map((b, i) => (
+                            <span
+                              key={i}
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 whitespace-nowrap"
+                            >
+                              {WARN_BREAK_LABELS[b.type] ?? b.type}
+                            </span>
+                          ))}
+                        </span>
+                        <span className="text-[11px] text-red-700/90 dark:text-red-300/90 leading-snug">
+                          {w.breaks.map(b => b.reason).join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Advisory flags -- one clickable entry per row (dismissed rows hidden by default). */}
+              {visibleAdvisoryWarnRows.length > 0 && (
+                <div className="space-y-1">
+                  {breakWarnRows.length > 0 && (
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> Advisory
+                    </p>
+                  )}
+                  {visibleAdvisoryWarnRows.map((w) => (
+                    <button
+                      key={`flg-${w.rowIndex}`}
+                      type="button"
+                      onClick={() => revealAndScrollToRow(w.rowIndex)}
+                      className={cn(
+                        "w-full text-left flex items-start gap-2 rounded px-2 py-1.5 border transition-colors",
+                        w.dismissed
+                          ? "bg-muted/30 border-border opacity-60 hover:opacity-90"
+                          : "bg-amber-50/70 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35",
+                      )}
+                    >
+                      <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                        {w.excelRow !== null ? `Row ${w.excelRow}` : `#${w.rowIndex}`}
+                      </span>
+                      <span className="flex flex-col gap-0.5 min-w-0">
+                        <span className="flex flex-wrap items-center gap-1">
+                          {w.flags.map((f, i) => (
+                            <span
+                              key={i}
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 whitespace-nowrap"
+                            >
+                              {WARN_FLAG_LABELS[f.type] ?? f.type}
+                            </span>
+                          ))}
+                          {w.dismissed && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                              <CheckCircle2 className="h-3 w-3" /> Looks OK
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug">
+                          {w.flags.map(f => f.reason).join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-md border border-border overflow-hidden">
       {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
         {/* Feature 1: column-subset selector (only when descriptor columns exist) */}
@@ -1372,6 +1671,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                   </Popover>
                 </div>
               </th>
+              {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
+                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled. */}
+              {geminiEnabled && (
+                <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
+              )}
               {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
@@ -1496,13 +1800,27 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
               // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
               // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
+              // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
+              // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
+              // flag-reasons row + the inline detail-panel row both span totalCols).
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 8 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              const totalCols = 8 + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
               const aiInfo = aiSuggestionInfo(row);
               const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
+              // R1 (ADR-0006 sec 5): Gemini DIFFS-ONLY pending shape -- drives a VIOLET tint that
+              // mirrors the Claude indigo one. geminiSuggestionInfo is now diffs-only (vs parser),
+              // so this is true only when Gemini genuinely diverges. Gated on geminiEnabled so the
+              // tint never appears when the Gemini column is not mounted.
+              const geminiInfo = geminiEnabled ? geminiSuggestionInfo(row) : null;
+              const hasPendingGemini = !!geminiInfo && (geminiInfo.hasClass || geminiInfo.hasParent);
+              // Both-providers-disagree precedence: Claude keeps the full-row indigo tint; Gemini
+              // then shows only as a VIOLET LEFT-EDGE ACCENT (a left border), so both signals stay
+              // visible. Gemini gets the full-row violet tint only when Claude is NOT also pending.
+              const geminiFullTint = hasPendingGemini && !hasPendingAi;
+              const geminiEdgeAccent = hasPendingGemini && hasPendingAi;
 
               // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
               const origParentLabel = (() => {
@@ -1547,6 +1865,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                       // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
                       // so the scroll-highlight still wins on flash (existing tint ordering).
                       hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
+                      // R1: full-row VIOLET tint when ONLY Gemini diverges (Claude not pending).
+                      // Same ordering slot as the indigo tint (before green so an edited row stays
+                      // green). When BOTH disagree, Claude's indigo above wins the full-row tint and
+                      // Gemini falls back to the left-edge accent below.
+                      geminiFullTint && "bg-violet-50/50 dark:bg-violet-950/20",
+                      // R1 both-disagree: VIOLET left-edge accent so the Gemini signal stays visible
+                      // alongside Claude's full-row indigo. A left border (not a bg-*) so it composes
+                      // with the indigo tint instead of overwriting it.
+                      geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
                       isEdited && "bg-green-50 dark:bg-green-950/30",
                       // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
@@ -1579,13 +1906,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     </td>
 
                     {/* Status (B2c): edit-provenance badge -- not frozen-left.
-                        AI-3a: "AI Accepted" (indigo) takes precedence over Edited -- an
-                        accepted suggestion writes to human_* (AI-3b) and would otherwise
-                        read "Edited", erasing the AI provenance. */}
+                        AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
+                        -- an accepted suggestion writes to human_* and would otherwise read
+                        "Edited", erasing the provenance.
+                        DUAL-AI (ADR-0003): the badge is SOURCE-TAGGED. "Accepted · Claude" when the
+                        Claude suggestion is Accepted (indigo, unchanged hue); "Accepted · Gemini"
+                        when the Gemini suggestion is Accepted (violet). Only one can be Accepted at
+                        a time (the backend enforces exactly-one-Source). Claude is checked FIRST so
+                        its existing badge path is byte-identical to before for the Claude case. */}
                     <td className="px-2 py-1.5 align-top w-20 border-r border-border">
                       {row.ai_suggestion_status === "Accepted" ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
-                          AI Accepted
+                          Accepted · Claude
+                        </span>
+                      ) : row.gemini_suggestion_status === "Accepted" ? (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-200">
+                          Accepted · Gemini
                         </span>
                       ) : isEdited ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
@@ -1623,6 +1959,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                         </div>
                       ) : null}
                     </td>
+
+                    {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
+                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled. */}
+                    {geminiEnabled && <GeminiBodyCell row={row} />}
 
                     {/* Sl.No */}
                     <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
@@ -1929,6 +2269,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                             const canApply =
                               (aiAcceptCls && ai.hasClass && clsIsChange) ||
                               (aiAcceptParent && ai.hasParent && parentIsChange);
+                            // R3a (ADR-0006): an AI apply must never silently overwrite a standing
+                            // decision (the other provider's accepted suggestion OR a manual edit).
+                            // Disable Apply while the row carries any override; the user must first
+                            // "Revert to parser" (the unified affordance below).
+                            const blockedByOverride = !!row.has_override;
                             return (
                               <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
@@ -1981,15 +2326,24 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                                   <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
                                 )}
                                 {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
+                                {blockedByOverride && (
+                                  <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
+                                    Revert this row to parser before applying an AI suggestion.
+                                  </p>
+                                )}
                                 <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    disabled={!canApply || isAcceptingAi || isRejectingAi}
-                                    onClick={() => { void handleApplyAi(row); }}
-                                  >
-                                    {isAcceptingAi ? "Applying…" : "Apply selected changes"}
-                                  </Button>
+                                  <span title={blockedByOverride
+                                    ? "Revert this row to parser before applying an AI suggestion."
+                                    : undefined}>
+                                    <Button
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      disabled={!canApply || blockedByOverride || isAcceptingAi || isRejectingAi}
+                                      onClick={() => { void handleApplyAi(row); }}
+                                    >
+                                      {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                    </Button>
+                                  </span>
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -2003,38 +2357,66 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               </div>
                             );
                           })()}
-                          {/* AI-3c-2b: Revert AI change. Shown for an Accepted row (the PENDING
-                              accept/reject block above is gone once Accepted). ENABLED iff the
-                              backend still holds a pre-accept snapshot (revert_available) AND the
-                              sheet is editable; greyed with a reason otherwise -- a later
-                              classification/parent edit cleared the snapshot (revert_available
-                              false), or the sheet is finalized (readOnly). handleRevertAi ->
-                              onRemarkSaved (mutate-only re-fetch -> the row re-renders Pending,
-                              the accept/reject block reappears, this button disappears). */}
-                          {row.ai_suggestion_status === "Accepted" && (
+                          {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
+                              row carries any standing override (has_override) -- an accepted AI
+                              suggestion (either provider) OR a manual edit. It restores the row +
+                              any children a restructure moved to the parser baseline, regardless of
+                              the override kind, after which AI Apply re-enables. Replaces the two
+                              former provider-specific reverts ("Revert AI change" here + "Revert
+                              Gemini change" in GeminiAcceptBlock). Disabled under readOnly (a
+                              finalized sheet freezes the affordance). handleRevertToParser ->
+                              onRemarkSaved (mutate-only re-fetch -> the row re-renders clean, the
+                              accept blocks reappear Pending, this button disappears). */}
+                          {row.has_override && (
                             <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   className="h-7 px-2 text-xs"
-                                  disabled={!row.revert_available || readOnly || isRevertingAi}
-                                  onClick={() => { void handleRevertAi(row); }}
+                                  disabled={readOnly || isRevertingToParser}
+                                  onClick={() => { void handleRevertToParser(row); }}
                                 >
-                                  {isRevertingAi ? "Reverting…" : "Revert AI change"}
+                                  {isRevertingToParser ? "Reverting…" : "Revert to parser"}
                                 </Button>
                                 {readOnly ? (
                                   <span className="text-muted-foreground italic text-xs">
                                     Sheet is finalized — revert unavailable.
                                   </span>
-                                ) : !row.revert_available ? (
+                                ) : (
                                   <span className="text-muted-foreground italic text-xs">
-                                    Revert no longer available — the row was edited after the AI change.
+                                    Restores this row (and any moved children) to the parser baseline.
                                   </span>
-                                ) : null}
+                                )}
                               </div>
                               {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
                             </div>
+                          )}
+                          {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject block, mounted
+                              BENEATH the Claude block. Visual clone of the Claude block reading
+                              gemini_* + calling the gemini endpoints. R3a (ADR-0006): the block now
+                              owns ONLY the Pending accept/reject UI (gated on !readOnly) -- the
+                              former "Revert Gemini change" affordance is gone, folded into the ONE
+                              unified "Revert to parser" above (shown on any has_override row). With-
+                              children accepts route to the SHARED RestructureModal via
+                              onOpenRestructureGemini (markGeminiAccepted). Only mounted when
+                              geminiEnabled. */}
+                          {geminiEnabled && !readOnly && (
+                            <GeminiAcceptBlock
+                              row={row}
+                              boqName={boqName}
+                              sheetName={sheetName}
+                              hasChildren={hasChildrenSet.has(row.row_index)}
+                              parentLabel={(idx) => {
+                                if (idx < 0) return "Top level (root)";
+                                const src = byIdx.get(idx)?.source_row_number;
+                                return src !== undefined ? `row ${src}` : `#${idx}`;
+                              }}
+                              readOnly={readOnly}
+                              onOpenRestructure={onOpenRestructureGemini}
+                              onChanged={() => { onRemarkSaved?.(); }}
+                              onAccepted={(editedAt) => { onSaved?.(editedAt); }}
+                            />
                           )}
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
@@ -2349,6 +2731,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           </tbody>
         </table>
       </div>
+      </div>{/* R4: close the table-card div opened above; the dialogs/modal below are siblings
+              inside the outer space-y-3 wrapper. */}
 
       {/* C-v2: per-edit confirm dialog -- lightweight one-line summary + optional
           reason. Value edits have no structural fallout, so this is a single-line
@@ -2463,6 +2847,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           presetRowParent={restructureModal.presetRowParent}
           presetParentMessage={restructureModal.presetParentMessage}
           markAiAccepted={restructureModal.markAiAccepted}
+          markGeminiAccepted={restructureModal.markGeminiAccepted}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}

@@ -37,8 +37,12 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   AiPassDonePayload,
   BOQsDoc,
+  GeminiPassDonePayload,
+  GeminiStatusResponse,
   GetReviewRowsResponse,
+  GetStructuralBreaksResponse,
   MarkParsedCheckDoneResponse,
+  RunGeminiPassResponse,
   StructuralBreak,
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
@@ -67,6 +71,26 @@ const AI_REJECT_MSGS: Record<string, string> = {
 const AI_FAIL_MSGS: Record<string, string> = {
   ai_failed: "The AI pass failed — the model could not be reached or returned an unusable response. Try again.",
   internal: "The AI pass hit an unexpected error. Try again.",
+};
+
+// DUAL-AI (ADR-0003): readable messages for run_gemini_pass's {ok:false, error} pre-flight
+// rejections. Mirrors AI_REJECT_MSGS; codes verified against gemini_assist.run_gemini_pass:
+//   not_parsed | gemini_disabled | frozen | parsing | in_progress.
+const GEMINI_REJECT_MSGS: Record<string, string> = {
+  not_parsed: "This sheet has no parsed rows yet. Parse it before running Gemini.",
+  gemini_disabled: "Gemini is disabled. Enable it in Document AI Settings.",
+  // Mirrors the Claude freeze gate: the button is disabled on a finalized sheet, but a stale
+  // client could still call run_gemini_pass and get this pre-flight reject.
+  frozen: "This sheet is finalized and is read-only. Un-mark it to run Gemini.",
+  parsing: "A parse is still running on this sheet. Wait for it to finish before running Gemini.",
+  // mode="resume" hit a pass already in flight (start_over bypasses this guard).
+  in_progress: "A Gemini pass is already running on this sheet.",
+};
+// DUAL-AI: readable messages for a terminal Gemini-pass FAILURE (boq:gemini_pass_done
+// error_code). Codes verified against _run_gemini_pass_worker: gemini_failed | internal.
+const GEMINI_FAIL_MSGS: Record<string, string> = {
+  gemini_failed: "The Gemini pass failed — the model could not be reached or returned an unusable response. Try again.",
+  internal: "The Gemini pass hit an unexpected error. Try again.",
 };
 
 // AI-3a: get_ai_pass_status response -- the cached terminal payload OR the idle shape.
@@ -108,15 +132,28 @@ const SheetReviewPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
+  // R4: structural BREAKS for the warnings panel. Fetched alongside the advisory flags (which
+  // ride get_review_rows above). breaks are the "must-fix" group (line_item_as_parent, cycle,
+  // orphan); the panel inside ReviewTree groups them distinctly above the softer advisories.
+  // Read-only endpoint -- no write, no status change. Same disable-until-params guard.
+  const { data: breaksData, mutate: breaksMutate } = useFrappeGetCall<{ message: GetStructuralBreaksResponse }>(
+    "nirmaan_stack.api.boq.wizard.review_screen.get_structural_breaks",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
+    boqId && sheetName ? undefined : null,
+  );
+
   // C-v2: sheet-level save-status anchor. Set from each resolved save's returned
   // edited_at for an instant update (does not wait for the get_review_rows refetch).
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   // C-v2: after a value edit saves, advance the anchor + refresh the grid so the
   // row flips to "Edited" (green tint) and its edit history gains an entry.
+  // R4: also re-fetch structural breaks -- a value/restructure edit can resolve or introduce
+  // a break, so the warnings panel must stay in sync with the grid.
   const handleSaved = (editedAt: string) => {
     setLastSavedAt(editedAt);
     void mutate();
+    void breaksMutate();
   };
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
@@ -271,6 +308,135 @@ const SheetReviewPage = () => {
     }
   };
 
+  // ── DUAL-AI (ADR-0003): Gemini-pass trigger + poll-safe completion ──────────
+  // EXACT mirror of the Claude AI block above, swapping ai_->gemini_. Like the AI pass, a
+  // Gemini pass does NOT make the screen read-only (it only writes gemini_* suggestion
+  // fields, never human/parser data), so geminiInProgress does NOT feed ReviewTree's readOnly.
+  // It runs BESIDE the Claude cluster: a reviewer triggers Gemini independently of Nitesh's
+  // Claude trigger; both opt-in, each gated on its own enable flag + its own in-progress flag.
+  const geminiInProgress = sheetDraft?.gemini_in_progress === 1;
+
+  // Trigger + status-poll endpoints (gemini_assist; distinct from the ai_assist endpoints).
+  const { call: runGeminiCall, loading: geminiRunLoading } =
+    useFrappePostCall<{ message: RunGeminiPassResponse }>(
+      "nirmaan_stack.api.boq.wizard.gemini_assist.run_gemini_pass",
+    );
+  const { call: geminiStatusCall } = useFrappePostCall<{ message: GeminiStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.gemini_assist.get_gemini_pass_status",
+  );
+
+  // Pre-flight message (the {ok:false} rejections + thrown errors). Result/error banner for a
+  // completed pass. The Gemini SUCCESS payload carries rows_done (NOT count -- the AI pass's
+  // kwarg); the result banner reads rows_done. There is no cached-apply path (the Gemini
+  // module has no result cache), so a successful run is ALWAYS the enqueue->poll/socket path.
+  const [geminiMessage, setGeminiMessage] = useState<string | null>(null);
+  const [geminiResult, setGeminiResult] = useState<{ rowsDone: number | null } | null>(null);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+
+  // Poll interval id held in a SEPARATE ref from aiPollRef (the two passes can run
+  // concurrently). stopGeminiPoll is idempotent.
+  const geminiPollRef = useRef<number | null>(null);
+  const stopGeminiPoll = useCallback(() => {
+    if (geminiPollRef.current !== null) {
+      clearInterval(geminiPollRef.current);
+      geminiPollRef.current = null;
+    }
+  }, []);
+
+  // Resolve a terminal Gemini outcome (from EITHER the socket fast-path or the poll). Stops
+  // the gemini poll, sets the result/error banner, and refreshes both the rows (so gemini_*
+  // badges appear) and the BOQs doc (so gemini_in_progress clears). Idempotent. Mirror of
+  // resolveAiOutcome -- reads rows_done (the Gemini success kwarg), maps the gemini error codes.
+  const resolveGeminiOutcome = useCallback(
+    (payload: GeminiPassDonePayload) => {
+      stopGeminiPoll();
+      if (payload.status === "success") {
+        setGeminiResult({ rowsDone: payload.rows_done ?? null });
+        setGeminiError(null);
+      } else {
+        setGeminiError(GEMINI_FAIL_MSGS[payload.error_code ?? ""] ?? GEMINI_FAIL_MSGS.internal);
+        setGeminiResult(null);
+      }
+      void mutate();
+      void boqMutate();
+    },
+    // mutate / boqMutate / stopGeminiPoll are stable refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // LAYER 1 -- socket fast path. Mirror the boq:ai_pass_done listener, on "boq:gemini_pass_done":
+  // guard this (boq, sheet), resolve, plus a reconnect re-fetch self-heal.
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: GeminiPassDonePayload) => {
+      if (payload.boq_name !== boqId || payload.sheet_name !== (sheetName ?? "")) return;
+      resolveGeminiOutcome(payload);
+    };
+    const onReconnect = () => { void boqMutate(); };
+    socket.on("boq:gemini_pass_done", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:gemini_pass_done", handler);
+      socket.off("connect", onReconnect);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, boqId, sheetName, resolveGeminiOutcome]);
+
+  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever
+  // geminiInProgress is true (we just enqueued, OR the sheet loaded mid-pass), poll
+  // get_gemini_pass_status every 3s. Resolves within ~3s even if the socket is missed.
+  // The idle shape carries gemini_in_progress (NOT ai_in_progress).
+  useEffect(() => {
+    if (!geminiInProgress) { stopGeminiPoll(); return; }
+    if (geminiPollRef.current !== null) return; // already polling -- no double-registration
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const res = await geminiStatusCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
+          const m = res.message;
+          if (m.status === "success" || m.status === "error") {
+            resolveGeminiOutcome(m);
+          } else if (m.status === "idle_or_unknown" && m.gemini_in_progress === 0) {
+            // Finished with no cached terminal payload -- refresh + stop; show generic done.
+            stopGeminiPoll();
+            void mutate();
+            void boqMutate();
+            setGeminiResult((prev) => prev ?? { rowsDone: null });
+          }
+        } catch {
+          // transient (network/CSRF blip) -- keep polling; the next tick retries.
+        }
+      })();
+    }, 3000);
+    geminiPollRef.current = id;
+    return () => stopGeminiPoll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geminiInProgress, boqId, sheetName, resolveGeminiOutcome]);
+
+  // Trigger handler. run_gemini_pass shapes (verified vs gemini_assist.py):
+  // {ok:false,error}; {ok:true,enqueued:true,job_id}. NO cached-apply branch (no result cache).
+  // mode "resume" (default); "start_over" recovers a wedged flag (bypasses the in_progress guard).
+  const handleRunGeminiPass = async (mode: "resume" | "start_over" = "resume") => {
+    setGeminiMessage(null);
+    setGeminiResult(null);
+    setGeminiError(null);
+    try {
+      const res = await runGeminiCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "", mode });
+      const m = res.message;
+      if (!m.ok) {
+        setGeminiMessage(GEMINI_REJECT_MSGS[m.error ?? ""] ?? "Could not start the Gemini pass.");
+        return;
+      }
+      // Enqueued -> the server set gemini_in_progress=1 + committed. Re-fetch the BOQs doc so
+      // geminiInProgress flips true and the poll (Layer 2) arms; the socket (Layer 1) may also
+      // fire. Either resolves; the poll is the guarantee.
+      void boqMutate();
+    } catch (e: unknown) {
+      setGeminiMessage(getFrappeError(e) || "Could not start the Gemini pass.");
+    }
+  };
+
   const { call: markCall, loading: markLoading } = useFrappePostCall<{
     message: MarkParsedCheckDoneResponse;
   }>("nirmaan_stack.api.boq.wizard.review_screen.mark_sheet_parsed_check_done");
@@ -368,39 +534,20 @@ const SheetReviewPage = () => {
   const rows = reviewData?.message?.rows ?? [];
   const columnDescriptors = reviewData?.message?.column_descriptors ?? [];
   const flags = reviewData?.message?.flags ?? [];
+  // R4: structural breaks for the warnings panel (must-fix group). Defaults to [] until the
+  // get_structural_breaks fetch resolves; the panel renders breaks above the advisory flags.
+  const breaks = breaksData?.message?.breaks ?? [];
+  // DUAL-AI (ADR-0003): the Gemini enable flag, surfaced top-level by get_review_rows from
+  // Document AI Settings.boq_ai_enabled (fails closed to false). Gates ReviewTree's Gemini
+  // column + accept block. Defaults false when absent (older payload / disabled settings).
+  const geminiEnabled = reviewData?.message?.gemini_enabled ?? false;
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
-  // OBS-2: per-category flag counts for the summary strip.
-  const FLAG_LABELS: Record<string, string> = {
-    zero_amount_line_item: "zero-amount",
-    orphan: "orphan",
-    parser: "needs-review",
-    priced_preamble_no_children: "priced-preamble",
-  };
-  const FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
-  const flagCounts: Record<string, number> = {};
-  for (const f of flags) flagCounts[f.type] = (flagCounts[f.type] ?? 0) + 1;
-  // C-flag-dismissal: per-category "cleared" count = flags of this type whose row was
-  // dismissed ("Looks OK") AND whose flag STILL computes (it's in the live flags array,
-  // which already auto-excludes resolved conditions). Derived frontend-side from the row
-  // payload's flags_dismissed -- no new backend data.
-  const dismissedRowIdx = new Set(
-    rows.filter(r => !!r.flags_dismissed).map(r => r.row_index),
-  );
-  const clearedCounts: Record<string, number> = {};
-  for (const f of flags) {
-    if (dismissedRowIdx.has(f.row_index)) {
-      clearedCounts[f.type] = (clearedCounts[f.type] ?? 0) + 1;
-    }
-  }
-  const flagSummaryParts = FLAG_ORDER
-    .filter(t => (flagCounts[t] ?? 0) > 0)
-    .map(t => {
-      const cleared = clearedCounts[t] ?? 0;
-      const base = `${flagCounts[t]} ${FLAG_LABELS[t]}`;
-      return cleared > 0 ? `${base} – ${cleared} cleared` : base;
-    });
+  // R4: the OBS-2 advisory-flag count strip + its "– N cleared" rollup moved INTO ReviewTree's
+  // warnings panel header (ReviewTree owns revealAndScrollToRow + flags + rows.flags_dismissed,
+  // so the clickable panel and its rollup live together there). The FLAG_LABELS / FLAG_ORDER /
+  // cleared-count derivation that used to live here is now in ReviewTree.
 
   // C-v2c: sheet-level remarks count -- number of rows carrying a non-empty remark.
   // Single count (remarks have no sub-types); strip omitted when zero (mirrors flags).
@@ -489,6 +636,33 @@ const SheetReviewPage = () => {
               <span>AI pass running&hellip;</span>
             </div>
           )}
+          {/* DUAL-AI (ADR-0003): Run Gemini -- the reviewer's independent provider trigger,
+              BESIDE Nitesh's Claude "Run AI pass" above. Same disabled gates (parsed rows +
+              not while a Gemini/parse pass is in flight + not on a finalized sheet), gated on
+              its OWN geminiEnabled flag (mounted only when enabled). mode="resume". The pass
+              writes gemini_* suggestion fields only (read-only here; accept/reject lives in the
+              tree). Like the AI pass it is also disabled on a finalized sheet -- a fresh pass
+              would stale-clear Accepted rows on a read-only sheet (the backend rejects it too,
+              {ok:false,error:"frozen"}); stays VISIBLE, just greyed. */}
+          {geminiEnabled && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => { void handleRunGeminiPass("resume"); }}
+              disabled={reviewLoading || rows.length === 0 || geminiInProgress || geminiRunLoading || isParsing || isChecked}
+              title={isChecked ? "Sheet is finalized — un-mark to run Gemini" : undefined}
+            >
+              <Sparkles className="h-4 w-4" />
+              Run Gemini
+            </Button>
+          )}
+          {geminiInProgress && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Gemini pass running&hellip;</span>
+            </div>
+          )}
           {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
               Every confirmed edit already saved (one call = one commit); this is a
               status indicator, not a batch-save trigger. Shown once a save has landed. */}
@@ -570,6 +744,36 @@ const SheetReviewPage = () => {
         </div>
       )}
 
+      {/* ── DUAL-AI (ADR-0003): Gemini-pass feedback strips (pre-flight / result / failure) ──
+          Mirror of the AI strips above, swap ai_->gemini_. geminiResult reads rows_done (the
+          Gemini success kwarg, NOT count). geminiMessage = a {ok:false} rejection or a thrown
+          trigger error (muted). geminiError = a terminal failure (destructive). The result strip
+          reuses the indigo AI provenance accent (single shared "AI suggestion" visual family).
+          All dismiss on the next Gemini run. */}
+      {geminiMessage && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span>{geminiMessage}</span>
+        </div>
+      )}
+      {geminiResult && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-100 flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
+          <span>
+            {geminiResult.rowsDone === null
+              ? "Gemini pass complete."
+              : `Gemini pass complete — ${geminiResult.rowsDone} suggestion${geminiResult.rowsDone === 1 ? "" : "s"}.`}
+            {geminiResult.rowsDone !== null && geminiResult.rowsDone > 0 && " Review the Gemini Rec column."}
+          </span>
+        </div>
+      )}
+      {geminiError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span>{geminiError}</span>
+        </div>
+      )}
+
       {/* ── Staleness banner (always-on, no status gate) ──────────────────────
           Per-area edits + restructure do NOT recompute the row scalar totals; those
           are finalized post-commit by the tendering module. This static note sets that
@@ -580,13 +784,9 @@ const SheetReviewPage = () => {
         </span>
       </div>
 
-      {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
-      {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-          <span className="font-medium text-foreground">Flags:</span>
-          <span>{flagSummaryParts.join(" · ")}</span>
-        </div>
-      )}
+      {/* R4: the advisory-flag summary strip evolved into ReviewTree's clickable warnings panel
+          (rendered at the top of the tree). The count + "– N cleared" rollup now live in that
+          panel's header, alongside the per-row clickable entries + structural-break group. */}
 
       {/* ── C-v2c: Remarks count strip -- mirrors the flags strip; shown only when
           at least one row carries a remark (single count, no sub-types). ── */}
@@ -617,14 +817,19 @@ const SheetReviewPage = () => {
           flags={flags}
           boqName={boqId ?? ""}
           sheetName={sheetName}
+          breaks={breaks}
           onSaved={handleSaved}
-          onRemarkSaved={() => void mutate()}
+          // R4: a remark / dismissal / AI accept-reject routes through here and can change
+          // structural integrity (e.g. an accepted reparent) -> re-fetch breaks too.
+          onRemarkSaved={() => { void mutate(); void breaksMutate(); }}
           // Slice 1b-beta: a restructure IS a real edit -- reuse handleSaved (advances the
           // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
           onRestructured={handleSaved}
           // Slice D1: a checked sheet freezes ALL write affordances in the tree.
           // #164: a sheet under active parse is likewise read-only (transient).
           readOnly={isChecked || isParsing}
+          // DUAL-AI (ADR-0003): mount the Gemini provider column + accept block when enabled.
+          geminiEnabled={geminiEnabled}
         />
       )}
 
