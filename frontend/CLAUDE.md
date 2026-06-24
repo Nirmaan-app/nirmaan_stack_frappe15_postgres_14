@@ -447,6 +447,40 @@ validation / cycle-check UNCHANGED (only the trigger's look + position changed).
 `isAmountColumnCovered` incl. wildcard + cleared + the shared-predicate agreement; no RTL in this env so the badge RENDER
 is not unit-tested -- the underlying coverage boolean is), tsc 3175 (0 new), in-container build exit 0, 2026-06-21.
 
+**Full-screen / maximize editor (`SheetPricingPage` `expanded` state + `PricingGrid`/`SheetDataGrid` `expanded` prop +
+`shouldExitFullscreenOnEsc`; owner-locked Slice 4c):** a "Full screen" toggle grows the pricing editor to fill the
+viewport (the dense grid benefits from screen real estate); "Exit full screen" / **Esc** collapses back. **In-app
+maximize, NOT the native Fullscreen API, NOT a Dialog/Sheet/portal.** The page holds `const [expanded, setExpanded] =
+useState(false)`; the implementation toggles ONLY the **root wrapper's className** via `cn(expanded ? FULL : EMBEDDED)`
+where FULL = `fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4` (covers the app shell, exactly
+like the house Dialog/Sheet overlay) and EMBEDDED = the prior `flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4`. **THE
+LOAD-BEARING NO-REMOUNT RULE:** it is **ONE JSX tree** (same children, same positions, same `PricingGrid key={sheetName}`)
+-- only the wrapper class flips, so React reconciles the same element in place and expand/collapse **NEVER remounts the
+grid** -> `draftRates` (unsaved rates), `proposedRates`, `activeCell` (cursor), the per-cell debouncer timers, the
+imperative `gridRef` (the review-strip `scrollToRow`), the single-editor lock / `takenOver`, and ALL page state
+(override, `showOnlyUnpriced`, `reviewOpen`, `lastSavedAt`) survive untouched. Do NOT reach for `createPortal` / Dialog /
+Sheet / a second return-branch with a different child tree -- they remount the subtree and would DROP unsaved rates +
+re-fire the unmount-flush + lose the cursor. **Grid height in full-screen:** the FULL root is `flex flex-col`, the grid
+SLOT (a wrapper `<div className={cn(expanded && "flex min-h-0 flex-1 flex-col")}>` around the render fork) takes
+`flex-1 min-h-0`, and each grid's OUTER scroll container relaxes its `max-h-[calc(100vh-14rem)]` cap to `flex-1 min-h-0`
+when `expanded` (a new `expanded?: boolean` prop, default false, on BOTH `PricingGrid` and the grid-only `SheetDataGrid`).
+The grids' sticky header (`sticky top-0 z-20`) + horizontal `overflow-auto` are scroll-container-relative -- they carry in
+unchanged; NO grid scroll/sticky internals are touched. **`expanded` is a per-GRID prop, NOT a per-row prop** -- it never
+enters `PricingGridRowProps` / `pricingRowPropsAreEqual` / the row render, so the perf memo is intact (display-only).
+**Esc-to-exit:** a `window` keydown listener mounted ONLY while `expanded` (`useEffect([expanded])`, removed on
+collapse/unmount), calling the pure `shouldExitFullscreenOnEsc(e, document.activeElement)` (exported from `PricingGrid.tsx`
+alongside `deriveSaveStatus`/`isGridOnlySheet` -- the established home for page-level pure helpers, sdk-free so it is
+unit-tested in `PricingGrid.test.ts`). It returns true ONLY for a bare `Escape` that is **not `e.defaultPrevented`** (the
+RemarkCell + AmountFormulaBuilder Radix popovers `preventDefault` THEIR Escape-dismiss, so a popover-closing Esc never
+exits full-screen) and **not while an `<input>`/`<textarea>` is focused** (a rate/remark being typed owns its Esc). It is
+DELIBERATELY a window listener (not the grid `<table>` -- it would miss Escs fired inside a portaled popover) and does NOT
+touch the grid's own `handleGridKeyDown` / `nextCell`. **The toggle button renders OUTSIDE the `!isGridOnly` gate** (the
+right-cluster wrapper now renders unconditionally; only the Save/Summary/Review/override buttons stay `!isGridOnly`) so a
+read-only / grid-only / general-specs sheet can ALSO maximize -- full-screen is orthogonal to editability and composes
+with the lock (a locked sheet is read-only but still expandable). Layout-only: NO pricing/gate/badge/flag/lock/rollup
+logic, NO endpoint, NO migrate. vitest 241→245 (PricingGrid 109→113: `shouldExitFullscreenOnEsc`), tsc 3175 (0 new),
+in-container build exit 0, 2026-06-24.
+
 **Cross-area prefill save-path invariant (`PricingGrid.tsx`):** proposals live in a SEPARATE `proposedRates` map, NEVER
 in `draftRates`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the
 `flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates` is
@@ -612,7 +646,14 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Amount-column formula-status badge -- a leading amber
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Full-screen / maximize editor (Slice 4c) -- a "Full
+screen" toggle expands the pricing editor to a `fixed inset-0` full-viewport overlay (in-app maximize via a root
+className toggle, NOT native Fullscreen, NOT a Dialog/portal); the NO-REMOUNT rule (one JSX tree -> grid drafts / cursor /
+lock / all state survive expand/collapse), each grid's `expanded` prop relaxing its `max-h` cap to `flex-1 min-h-0`, Esc-
+to-exit via a `defaultPrevented`-guarded window listener (`shouldExitFullscreenOnEsc`, so a popover-Esc doesn't exit), the
+toggle rendered outside the `!isGridOnly` gate (works on read-only sheets too); display-only (perf memo intact); vitest
+241->245 (PricingGrid 109->113), tsc 3175 (0 new), 2026-06-24, see the full-screen paragraph above + plan §"Slice 4c
+full-screen editor". Amount-column formula-status badge -- a leading amber
 (pending) / green (covered) `ƒ` badge that IS the `AmountFormulaBuilder` trigger (status + action merged; far-right
 preview line removed -- the layout/visibility render-bug fix) + a pending amber `<th>` tint + the shared
 `priceability.isAmountColumnCovered` predicate (`areFormulasComplete` folds over it -> badge⇔gate by construction);
