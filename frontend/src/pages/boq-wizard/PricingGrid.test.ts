@@ -34,6 +34,9 @@ import {
   shouldExitFullscreenOnEsc,
   parentExcelRowOf,
   isJumpFlashRow,
+  seedWidthPx,
+  columnWidthKey,
+  clampColumnWidth,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -567,6 +570,52 @@ describe("isJumpFlashRow (parent-jump landing flash predicate)", () => {
 
   it("a non-matching row is not flashed (false)", () => {
     expect(isJumpFlashRow(30, 31)).toBe(false);
+  });
+});
+
+describe("column width model (frozen-left + resize bundle)", () => {
+  describe("columnWidthKey (stable width-state key resolver)", () => {
+    it("an anchor maps to its fixed-index key", () => {
+      expect(columnWidthKey("anchor", 2)).toBe("a2");
+      expect(columnWidthKey("anchor", 0)).toBe("a0");
+    });
+    it("a descriptor maps to a d:<col> key", () => {
+      expect(columnWidthKey("descriptor", "E")).toBe("d:E");
+    });
+    it("remarks maps to the literal remarks key", () => {
+      expect(columnWidthKey("remarks", "")).toBe("remarks");
+    });
+    it("NEG: two different descriptors do not collide", () => {
+      expect(columnWidthKey("descriptor", "E")).not.toBe(columnWidthKey("descriptor", "F"));
+    });
+  });
+
+  describe("seedWidthPx (Tailwind hint -> px seed)", () => {
+    it("maps the known hints", () => {
+      expect(seedWidthPx("w-16")).toBe(64);
+      expect(seedWidthPx("w-36")).toBe(144);
+      expect(seedWidthPx("w-28")).toBe(112);
+      expect(seedWidthPx("w-48")).toBe(192);
+      expect(seedWidthPx("description")).toBe(280);
+    });
+    it("NEG/edge: an unknown hint falls back to a sane default", () => {
+      expect(seedWidthPx("w-99")).toBe(112);
+      expect(seedWidthPx("")).toBe(112);
+    });
+  });
+
+  describe("clampColumnWidth (per-kind min-width floor)", () => {
+    it("a rate column clamps UP to the rate floor when dragged below", () => {
+      expect(clampColumnWidth(50, true)).toBe(96);
+    });
+    it("a non-rate column uses the small floor", () => {
+      expect(clampColumnWidth(30, false)).toBe(48);
+    });
+    it("NEG: a width above the floor passes through (rounded)", () => {
+      expect(clampColumnWidth(200, true)).toBe(200);
+      expect(clampColumnWidth(200, false)).toBe(200);
+      expect(clampColumnWidth(150.6, false)).toBe(151);
+    });
   });
 });
 

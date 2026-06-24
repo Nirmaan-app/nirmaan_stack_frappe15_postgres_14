@@ -51,8 +51,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
@@ -199,6 +201,62 @@ export function isJumpFlashRow(
   flashExcelRow: number | null | undefined,
 ): boolean {
   return flashExcelRow != null && rowExcelRow === flashExcelRow;
+}
+
+// ── Column width model (frozen-left + column-resize bundle) ────────────────────
+// The grid switches to `table-fixed` + a `<colgroup>` so column widths are AUTHORITATIVE
+// (auto-layout removed). Seeds mirror the pre-bundle Tailwind hints so day-one render is
+// near-identical. Width state is GRID-LEVEL (a useState keyed by these stable keys), reset
+// per sheet by the page's key={sheetName} remount (session-only, no persistence). The frozen
+// anchor LEFT offsets derive from the SAME live widths, so a frozen-column resize stays aligned.
+const COL_MIN_PX = 48; // small floor for any column
+const RATE_COL_MIN_PX = 96; // rate columns: the w-20 (80px) input + dot + padding -- a drag must not clip it
+const ANCHOR_WIDTH_KEYS = ["a0", "a1", "a2", "a3", "a4"] as const; // Excel Row / Sl.No / Parent / Classification / Description
+const REMARKS_WIDTH_KEY = "remarks";
+
+/** Tailwind width hint -> px (a column's seed under table-fixed). Unknown hint -> a sane default. */
+export function seedWidthPx(token: string): number {
+  switch (token) {
+    case "w-16":
+      return 64;
+    case "w-28":
+      return 112;
+    case "w-36":
+      return 144;
+    case "w-48":
+      return 192;
+    case "description":
+      return 280;
+    default:
+      return 112;
+  }
+}
+
+/** Stable width-state key for a column. Anchors key by FIXED index 0-4 (survives column-hide);
+ *  descriptors key by their Excel col letter (survives a hide+reshow); Remarks is the literal key. */
+export function columnWidthKey(
+  kind: "anchor" | "descriptor" | "remarks",
+  idOrCol: number | string,
+): string {
+  if (kind === "anchor") return `a${idOrCol}`;
+  if (kind === "descriptor") return `d:${idOrCol}`;
+  return REMARKS_WIDTH_KEY;
+}
+
+/** Seed px for a width-state key: a0/a1/a2 = w-16, a3 = w-36, a4 = Description (280), remarks =
+ *  w-48, any descriptor (d:<col>) = w-28. Mirrors the old per-cell Tailwind hints. */
+export function seedForWidthKey(key: string): number {
+  if (key === "a0" || key === "a1" || key === "a2") return seedWidthPx("w-16");
+  if (key === "a3") return seedWidthPx("w-36");
+  if (key === "a4") return seedWidthPx("description");
+  if (key === REMARKS_WIDTH_KEY) return seedWidthPx("w-48");
+  return seedWidthPx("w-28");
+}
+
+/** Clamp a dragged width up to the column's floor: rate columns can't go below the rate input's
+ *  width (D7); every other column gets a small floor. A width above the floor passes through. */
+export function clampColumnWidth(width: number, isRate: boolean): number {
+  return Math.max(isRate ? RATE_COL_MIN_PX : COL_MIN_PX, Math.round(width));
 }
 
 /** The three row-TYPE visibility toggles (default all true). */
@@ -1525,10 +1583,21 @@ const PricingGridRow = memo(function PricingGridRow({
         .join("; ") || undefined
     : undefined;
 
+  // Frozen-left: the sticky anchor <td>s MUST be opaque (a transparent sticky cell shows scrolled
+  // content bleeding through). Their bg mirrors the row-state the <tr> would paint -- jump-flash
+  // blue / search-hit yellow / hover -- so freezing never MASKS those cues (F5c). The <tr> is a
+  // `group` so the frozen cells can react to the row hover (the <tr>'s own hover colors the
+  // non-frozen cells). Anchors carry no priced emerald/amber tint, so this fully owns their bg.
+  const frozenBg = isJumpFlash
+    ? "bg-blue-100 dark:bg-blue-900/40"
+    : isCurrentHit
+      ? "bg-yellow-100 dark:bg-yellow-900/40"
+      : "bg-background group-hover:bg-muted/30";
+
   return (
     <tr
       className={cn(
-        "border-b border-border",
+        "group border-b border-border",
         // Toolbar Part 1 -- search: the CURRENT hit row gets a solid yellow wash (a BACKGROUND,
         // not a ring: the table is border-collapse, where ring-inset on a <tr> is unreliable
         // [ReviewTree's documented caveat], and a ring would also collide with the blue
@@ -1548,12 +1617,16 @@ const PricingGridRow = memo(function PricingGridRow({
             : "hover:bg-muted/30",
       )}
     >
-      {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
+      {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). FROZEN-LEFT:
+          sticky left:var(--fcol-0) z-10 + opaque frozenBg; data-colkey backs the autofit measure. */}
       <td
         {...tdFocusProps(0)}
+        data-colkey="a0"
         title={hasFlag ? flagTitle : undefined}
+        style={{ left: "var(--fcol-0)" }}
         className={cn(
-          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
+          "px-2 py-1.5 text-muted-foreground align-top border-r border-border tabular-nums sticky z-10",
+          frozenBg,
           flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
           flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
           cellNavClass(0),
@@ -1574,11 +1647,14 @@ const PricingGridRow = memo(function PricingGridRow({
           {row.source_row_number}
         </span>
       </td>
-      {/* Sl.No (col 1) */}
+      {/* Sl.No (col 1) -- FROZEN-LEFT. */}
       <td
         {...tdFocusProps(1)}
+        data-colkey="a1"
+        style={{ left: "var(--fcol-1)" }}
         className={cn(
-          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border",
+          "px-2 py-1.5 text-muted-foreground align-top border-r border-border sticky z-10",
+          frozenBg,
           cellNavClass(1),
         )}
       >
@@ -1592,8 +1668,11 @@ const PricingGridRow = memo(function PricingGridRow({
           nav target) -- backwards-compatible (the cell was a read-only span before). */}
       <td
         {...(parentExcelRow === null ? tdFocusProps(2) : {})}
+        data-colkey="a2"
+        style={{ left: "var(--fcol-2)" }}
         className={cn(
-          "px-2 py-1.5 align-top w-16 border-r border-border",
+          "px-2 py-1.5 align-top border-r border-border sticky z-10",
+          frozenBg,
           parentExcelRow === null && cellNavClass(2),
         )}
       >
@@ -1614,15 +1693,27 @@ const PricingGridRow = memo(function PricingGridRow({
           </button>
         ) : null}
       </td>
-      {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
+      {/* Classification pill (col 3) (read-only -- no chevron / reclassify). FROZEN-LEFT. */}
       <td
         {...tdFocusProps(3)}
-        className={cn("px-2 py-1.5 align-top w-36 border-r border-border", cellNavClass(3))}
+        data-colkey="a3"
+        style={{ left: "var(--fcol-3)" }}
+        className={cn(
+          "px-2 py-1.5 align-top border-r border-border sticky z-10",
+          frozenBg,
+          cellNavClass(3),
+        )}
       >
         <ClassificationPill cls={row.effective_classification} />
       </td>
-      {/* Description (col 4): depth indent + per-classification styling. */}
-      <td {...tdFocusProps(4)} className={cn("px-2 py-1.5 align-top", cellNavClass(4))}>
+      {/* Description (col 4): depth indent + per-classification styling. FROZEN-LEFT (the last
+          pinned anchor); still a normal resizable column (F3) -- dragging it re-wraps + re-grows. */}
+      <td
+        {...tdFocusProps(4)}
+        data-colkey="a4"
+        style={{ left: "var(--fcol-4)" }}
+        className={cn("px-2 py-1.5 align-top border-r border-border sticky z-10", frozenBg, cellNavClass(4))}
+      >
         <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
           <span
             className={cn(
@@ -1687,6 +1778,7 @@ const PricingGridRow = memo(function PricingGridRow({
           return (
             <td
               key={d.col}
+              data-colkey={columnWidthKey("descriptor", d.col)}
               title={
                 needsReview
                   ? "Priced on a non-priceable row -- flagged for review"
@@ -1773,6 +1865,7 @@ const PricingGridRow = memo(function PricingGridRow({
             <td
               key={d.col}
               {...tdFocusProps(colIndex)}
+              data-colkey={columnWidthKey("descriptor", d.col)}
               title={
                 divergeTitle ?? (isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined)
               }
@@ -1824,6 +1917,7 @@ const PricingGridRow = memo(function PricingGridRow({
           <td
             key={d.col}
             {...tdFocusProps(colIndex)}
+            data-colkey={columnWidthKey("descriptor", d.col)}
             title={
               needsReview
                 ? "Priced on a non-priceable row -- flagged for review"
@@ -1858,8 +1952,9 @@ const PricingGridRow = memo(function PricingGridRow({
       {/* Slice 4a.2: trailing Remarks cell (per-row) -- the matrix's LAST column. */}
       <td
         {...tdFocusProps(remarksColIndex)}
+        data-colkey="remarks"
         className={cn(
-          "px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]",
+          "px-2 py-1.5 align-top border-l border-border",
           cellNavClass(remarksColIndex),
         )}
       >
@@ -1937,6 +2032,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // sheet-switch (the page remounts the grid key={sheetName}); also cleared on unmount below.
   const [flashExcelRow, setFlashExcelRow] = useState<number | null>(null);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Frozen-left + column-resize: per-column width OVERRIDES (sparse -- absent => the seed). Width
+  // is GRID-LEVEL (the colgroup + the frozen-offset CSS vars live on the table, NOT on a per-row
+  // prop) so the row memo stays intact. Session-only: reset per sheet by the key={sheetName}
+  // remount. resizeRef holds the in-flight drag; tableRef backs the double-click autofit measure.
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizeRef = useRef<{ key: string; startX: number; startWidth: number; isRate: boolean } | null>(null);
+  const tableRef = useRef<HTMLTableElement | null>(null);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -2277,6 +2379,85 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
   }, []);
 
+  // ── Frozen-left + resize: live width derivations (recomputed each render from colWidths) ──
+  const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
+  const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
+  // Frozen-left cumulative LEFT offsets from the LIVE anchor widths (F4) -- so resizing a frozen
+  // anchor (incl. Description) keeps the frozen strip aligned. Exposed as CSS vars on the table:
+  // the body anchor <td>s reference them via a STATIC `left: var(--fcol-N)` (no per-row width prop,
+  // so a resize updates ONLY the table's vars -> the rows are memo-skipped).
+  const fcol0 = 0;
+  const fcol1 = fcol0 + widthOf("a0");
+  const fcol2 = fcol1 + widthOf("a1");
+  const fcol3 = fcol2 + widthOf("a2");
+  const fcol4 = fcol3 + widthOf("a3");
+  // table-fixed needs an explicit total width (NOT w-full -- w-full would let table-fixed
+  // redistribute slack and break the authoritative widths the frozen offsets depend on).
+  const totalWidth =
+    ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0) +
+    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
+    widthOf(REMARKS_WIDTH_KEY);
+  const tableStyle = {
+    width: `${totalWidth}px`,
+    "--fcol-0": `${fcol0}px`,
+    "--fcol-1": `${fcol1}px`,
+    "--fcol-2": `${fcol2}px`,
+    "--fcol-3": `${fcol3}px`,
+    "--fcol-4": `${fcol4}px`,
+  } as CSSProperties;
+
+  // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
+  // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
+  const startResize = (key: string, isRate: boolean) => (e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizeRef.current = { key, startX: e.clientX, startWidth: widthOf(key), isRate };
+  };
+  const moveResize = (e: ReactPointerEvent) => {
+    const st = resizeRef.current;
+    if (!st) return;
+    const next = clampColumnWidth(st.startWidth + (e.clientX - st.startX), st.isRate);
+    setColWidths((prev) => (prev[st.key] === next ? prev : { ...prev, [st.key]: next }));
+  };
+  const endResize = (e: ReactPointerEvent) => {
+    if (!resizeRef.current) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    resizeRef.current = null;
+  };
+  // Double-click autofit (D6): measure the column's natural content width. Under table-fixed the
+  // colgroup clamps a cell's CLIENT width, but scrollWidth still reports the full content extent
+  // once we force single-line; we set whiteSpace:nowrap, read scrollWidth, and restore -- all
+  // synchronously (no paint between), so there is no visible flash. data-colkey tags the cells.
+  const autofitColumn = (key: string, isRate: boolean) => {
+    const table = tableRef.current;
+    if (!table) return;
+    const cells = table.querySelectorAll<HTMLElement>(`[data-colkey="${CSS.escape(key)}"]`);
+    let max = 0;
+    cells.forEach((el) => {
+      const prevWS = el.style.whiteSpace;
+      el.style.whiteSpace = "nowrap";
+      if (el.scrollWidth > max) max = el.scrollWidth;
+      el.style.whiteSpace = prevWS;
+    });
+    if (max > 0) setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
+  };
+  // The right-edge drag affordance rendered inside each header <th> (headers carry no other
+  // handlers today). Edge-only (w-1.5, right-0) so on an amount <th> it never overlaps / steals
+  // the ƒ formula-badge popover trigger's click (C4). stopPropagation keeps it off cell focus.
+  const resizeHandle = (key: string, isRate: boolean) => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize; double-click to autofit"
+      onPointerDown={startResize(key, isRate)}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onDoubleClick={() => autofitColumn(key, isRate)}
+      className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-blue-400/50"
+    />
+  );
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -2294,23 +2475,77 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)]",
       )}
     >
-      <table className="w-full text-xs border-collapse" onKeyDown={handleGridKeyDown}>
+      {/* Frozen-left + resize: table-fixed makes the <colgroup> widths AUTHORITATIVE; the explicit
+          px total (not w-full) prevents table-fixed from redistributing slack (which would break the
+          frozen offsets). border-collapse is KEPT (the sticky-left cells carry border-r). The CSS
+          vars (--fcol-0..4) on the table feed the body anchor cells' static `left: var(...)`. */}
+      <table
+        ref={tableRef}
+        className="text-xs border-collapse table-fixed"
+        style={tableStyle}
+        onKeyDown={handleGridKeyDown}
+      >
+        <colgroup>
+          {ANCHOR_WIDTH_KEYS.map((k) => (
+            <col key={k} style={{ width: `${widthOf(k)}px` }} />
+          ))}
+          {visibleDescriptors.map((d) => (
+            <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
+          ))}
+          <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />
+        </colgroup>
         <thead>
+          {/* Frozen-left anchor headers: sticky on BOTH axes (top-0 + left:var(--fcol-N)) -> z-30
+              corner tier (above the z-20 descriptor headers AND the z-10 frozen body cells, the
+              SheetDataGrid stack). Width comes from the colgroup; the label truncates single-line
+              (D4) with a title tooltip; the right-edge handle drag-resizes (D1). */}
           <tr>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Excel Row
+            <th
+              data-colkey="a0"
+              title="Excel Row"
+              style={{ left: "var(--fcol-0)" }}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-30 bg-muted"
+            >
+              <span className="block truncate">Excel Row</span>
+              {resizeHandle("a0", false)}
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
+            <th
+              data-colkey="a1"
+              title="Sl.No"
+              style={{ left: "var(--fcol-1)" }}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-30 bg-muted"
+            >
+              <span className="block truncate">{slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}</span>
+              {resizeHandle("a1", false)}
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Parent
+            <th
+              data-colkey="a2"
+              title="Parent"
+              style={{ left: "var(--fcol-2)" }}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-30 bg-muted"
+            >
+              <span className="block truncate">Parent</span>
+              {resizeHandle("a2", false)}
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Classification
+            <th
+              data-colkey="a3"
+              title="Classification"
+              style={{ left: "var(--fcol-3)" }}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-30 bg-muted"
+            >
+              <span className="block truncate">Classification</span>
+              {resizeHandle("a3", false)}
             </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
-              {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+            <th
+              data-colkey="a4"
+              title="Description"
+              style={{ left: "var(--fcol-4)" }}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-30 bg-muted"
+            >
+              <span className="block truncate">
+                {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+              </span>
+              {resizeHandle("a4", false)}
             </th>
             {/* Column-hide: render only the VISIBLE descriptors (amount columns always present). */}
             {visibleDescriptors.map((d) => {
@@ -2333,12 +2568,16 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               return (
                 <th
                   key={d.col}
+                  data-colkey={columnWidthKey("descriptor", d.col)}
+                  title={label}
                   className={cn(
-                    "px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 align-top",
+                    "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border sticky top-0 z-20 align-top",
                     amountPending ? "bg-amber-50 dark:bg-amber-950/40" : "bg-muted",
                   )}
                 >
-                  <span className="inline-flex items-center justify-end gap-1">
+                  {/* min-w-0 lets the label truncate (D4); the ƒ badge stays shrink-0 so the resize
+                      handle never overlaps / steals its popover-trigger click (C4). */}
+                  <span className="flex min-w-0 items-center justify-end gap-1">
                     {/* Formula Builder: the LEADING amber/green ƒ status badge that IS the
                         click-to-edit trigger (status + action merged), on AMOUNT columns only.
                         Read-only (static glyph) when onSaveFormula is withheld (locked). The
@@ -2352,15 +2591,21 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                         onSave={onSaveFormula}
                       />
                     )}
-                    <span>{label}</span>
+                    <span className="truncate">{label}</span>
                   </span>
+                  {resizeHandle(columnWidthKey("descriptor", d.col), isRateDescriptor(d))}
                 </th>
               );
             })}
             {/* Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a
                 descriptor; Slice 4a.2 made it the matrix's last navigable column. */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[160px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Remarks
+            <th
+              data-colkey="remarks"
+              title="Remarks"
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
+            >
+              <span className="block truncate">Remarks</span>
+              {resizeHandle("remarks", false)}
             </th>
           </tr>
         </thead>
