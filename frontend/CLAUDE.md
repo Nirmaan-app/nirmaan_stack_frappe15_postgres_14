@@ -722,9 +722,44 @@ search current-hit yellow for its 3s then reverts; instant on/off (NO transition
 the hover/current-hit paint untouched); `jumpToRow` stays reference-stable (deps []), so it ALSO flashes on the shared
 imperative `scrollToRow` (review-strip + search jumps). vitest 291->294 (PricingGrid 117->120: `isJumpFlashRow`).
 
+**Frozen-left anchors + column resize (`PricingGrid.tsx`; ONE structural slice carrying TWO view-layer features; owner-
+locked):** the grid's `<table>` switches from auto-layout to **`table-fixed` + a `<colgroup>`** so column widths are
+AUTHORITATIVE -- the shared foundation BOTH features need (building them apart would lay it twice). **SUPERSEDES the prior
+"frozen-left and column-resize are INDEPENDENT" claim** (resize-spec §6/§2 + editor-design §14): Option B couples them, so
+they were built together. **Column resize (8 decisions):** ALL columns drag-resize (anchors + descriptors + Remarks) via a
+pointer-capture handle on each header's right edge; **session-only** (width overrides in a grid-level `colWidths` useState,
+reset per sheet by the page's `key={sheetName}` remount -- no store/schema/backend/localStorage); narrowing **wraps body +
+grows the row**, **headers truncate single-line + `title`** (protects the sticky header height); **double-click a handle =
+autofit** (measures max content via a temporary `whiteSpace:nowrap` + `scrollWidth` read over the column's `data-colkey`
+cells, restored synchronously -- no flash); **rate columns clamp** to the input width (`RATE_COL_MIN_PX=96`), others to a
+small floor (`COL_MIN_PX=48`); seeds mirror the old Tailwind hints (`w-16`=64 / `w-36`=144 / `w-28`=112 / `w-48`=192 /
+Description=280) so **day-one render is NEAR-identical** (the one acknowledged change: columns stop auto-sizing and take
+seeds; the table is now an explicit px total, NOT `w-full`, so it can't redistribute slack and break the offsets).
+**Frozen-left (Option B):** the **5 anchors through Description** pin sticky-LEFT; descriptor + Remarks scroll. Description
+seeds 280px but stays a **normal resizable column** (F3). **THE BUNDLING PAYOFF (F4):** the cumulative frozen LEFT offsets
+derive from the LIVE colgroup widths, exposed as **CSS vars (`--fcol-0..4`) on the `<table>`**, and the body anchor `<td>`s
+reference them with a STATIC `left: var(--fcol-N)` -- so a resize updates ONLY the table's vars and the colgroup, and the
+**memoized rows are skipped** (width is GRID-LEVEL, NEVER a per-row prop -> `pricingRowPropsAreEqual` UNCHANGED). The
+z-stack mirrors SheetDataGrid: **frozen header z-30 (corner) > descriptor/remarks header z-20 > frozen body z-10 > body**;
+frozen anchor `<td>`s get an **opaque `frozenBg`** that mirrors the row state (jump-flash blue / search-hit yellow /
+`group-hover`) so freezing never masks those cues; **border-collapse is KEPT** (frozen cells carry `border-r`). The
+`<colgroup>` derives from **`visibleDescriptors`** (rebuilds on column-hide; the 5 anchors are never hideable so the frozen
+block is always exactly those 5). The resize handle is edge-only so on an amount `<th>` it never steals the ƒ
+formula-badge popover click (C4). Holds in BOTH embedded + full-screen (one JSX tree). NAV/parent-jump/flash/auto-save
+untouched (resize changes width, not column count/order). New pure helpers `seedWidthPx` / `columnWidthKey` /
+`clampColumnWidth` (unit-tested); `reviewRender.tsx` UNTOUCHED (zero width coupling). Collapse/expand stays a separate
+later slice. vitest 294->303 (PricingGrid 120->129), tsc 3175 (0 new), in-container build exit 0, 2026-06-25.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Parent-jump landing flash -- a jump now flashes the WHOLE
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Frozen-left anchors + column resize -- ONE structural
+slice (`table-fixed` + `<colgroup>`) carrying TWO features: the 5 anchors through Description pin sticky-left (z-30/z-20/
+z-10 stack, opaque row-state bg, border-collapse kept) and every column drag-resizes session-only (header-edge handle,
+double-click autofit, rate min-width clamp, headers truncate / body wraps+grows); the frozen LEFT offsets derive from the
+LIVE colgroup widths via CSS vars on the table so a frozen resize stays aligned (the bundling payoff); colgroup derives
+from `visibleDescriptors`; width is GRID-LEVEL so the row memo is UNCHANGED; reviewRender untouched; SUPERSEDES the prior
+"frozen-left + resize are independent" claim (Option B couples them); vitest 294->303, tsc 3175 (0 new), 2026-06-25, see
+the frozen-left/resize paragraph above + plan §"Frozen-left + column-resize bundle". Parent-jump landing flash -- a jump now flashes the WHOLE
 landed row blue for 3s then clears (grid-level `flashExcelRow` + timeout ref, resets on a new jump; derived per-row
 `isJumpFlash` in `pricingRowPropsAreEqual` via the NEW pure `isJumpFlashRow`; blue wins over search-yellow for its 3s;
 instant on/off = reduced-motion-safe; also flashes on the shared `scrollToRow` so review-strip/search jumps flash too);
