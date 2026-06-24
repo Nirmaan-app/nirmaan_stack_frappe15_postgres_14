@@ -19,6 +19,14 @@ Anthropic API call is made anywhere in this suite.
   T11 cache miss after a re-parse (bumped last_parsed_at) enqueues fresh
   T12 classification-only suggestion leaves ai_suggested_parent at the -1 default
   T13 ROOT suggestion interim: parent dropped to -1, classification preserved (gap)
+
+R2 (ADR-0005) chunking, pure service tests + a FAKE Anthropic client (no live call):
+  TestClaudeChunkingPure  chunk_rows boundary placement (cut before a preamble,
+                          hard-max), update_spine carry (open section + last sl_no,
+                          level-pop), render_context first-vs-later.
+  TestRunAiPassChunking   run_ai_pass single-call path unchanged for a small sheet;
+                          multi-chunk accumulates suggestions + cross-chunk parent
+                          resolves; a forward-reference parent is dropped.
 """
 import json
 from unittest.mock import MagicMock, patch
@@ -803,3 +811,276 @@ class TestAcceptRejectAiSuggestion(FrappeTestCase):
                           "a later human_classification edit must clear the snapshot")
         self.assertFalse(self._revert_available(2),
                          "revert is no longer available after an invalidating edit")
+
+
+# ===========================================================================
+# R2 / ADR-0005: Claude classifier chunking + carried hierarchy spine.
+#
+# Pure service-level tests (no DB) -- chunk_rows boundary placement, update_spine
+# carry across a cut, render_context, and a multi-chunk run_ai_pass with a FAKE
+# Anthropic client (anthropic.Anthropic is patched; NO live API call). Asserts the
+# single-call path is unchanged for a small sheet and forward references are dropped.
+# ===========================================================================
+
+from nirmaan_stack.services import boq_ai_assist as _svc  # noqa: E402
+
+
+def _payload(excel, cls="line_item", level=None, parent=None, sl_no=None, desc=""):
+    """One model-input element matching _build_row_payload's shape."""
+    return {
+        "excel_row": excel,
+        "classification": cls,
+        "level": level,
+        "parent_excel_row": parent,
+        "sl_no": sl_no,
+        "description": desc,
+        "unit": None,
+    }
+
+
+class _FakeUsage:
+    def __init__(self, input_tokens=10, output_tokens=5):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+
+
+class _FakeTextBlock:
+    type = "text"
+
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeResp:
+    stop_reason = "end_turn"
+
+    def __init__(self, text):
+        self.content = [_FakeTextBlock(text)]
+        self.usage = _FakeUsage()
+
+
+class _FakeMessages:
+    """Records each create() call's prompt and returns a scripted JSON array per call."""
+
+    def __init__(self, scripted):
+        self._scripted = list(scripted)
+        self.calls: list[str] = []
+
+    def create(self, *, model, max_tokens, messages, timeout):
+        self.calls.append(messages[0]["content"])
+        body = self._scripted.pop(0) if self._scripted else "[]"
+        return _FakeResp(body)
+
+
+class _FakeAnthropic:
+    last_instance = None
+
+    def __init__(self, api_key=None):
+        self.messages = _FakeMessages(_FakeAnthropic.scripted)
+        _FakeAnthropic.last_instance = self
+
+
+def _settings():
+    return {"model": "claude-sonnet-4-6", "max_tokens": 8000, "request_timeout_seconds": 120}
+
+
+class TestClaudeChunkingPure(FrappeTestCase):
+    """chunk_rows / update_spine / render_context -- the pure chunking core."""
+
+    # --- chunk_rows --------------------------------------------------------
+
+    def test_small_sheet_is_one_chunk(self):
+        payloads = [_payload(i + 2) for i in range(_svc._CHUNK_THRESHOLD)]
+        chunks = _svc.chunk_rows(payloads)
+        self.assertEqual(len(chunks), 1, "<= threshold -> a single chunk (single-call path)")
+        self.assertEqual(len(chunks[0]), _svc._CHUNK_THRESHOLD)
+
+    def test_empty_sheet_no_chunks(self):
+        self.assertEqual(_svc.chunk_rows([]), [])
+
+    def test_chunk_cuts_just_before_a_preamble(self):
+        # 250 rows: a preamble at index 130 (past target=100) must be the cut point so
+        # chunk 0 ends right before it and chunk 1 STARTS with that preamble.
+        payloads = []
+        for i in range(250):
+            cls = "preamble" if i == 130 else "line_item"
+            payloads.append(_payload(i + 2, cls=cls, level=1 if cls == "preamble" else None))
+        chunks = _svc.chunk_rows(payloads)
+        self.assertGreaterEqual(len(chunks), 2)
+        # The first cut lands on the preamble: chunk 1 begins with excel_row 132 (i=130).
+        self.assertEqual(chunks[0][-1]["excel_row"], 131,
+                         "chunk 0 ends on the row JUST BEFORE the preamble")
+        self.assertEqual(chunks[1][0]["excel_row"], 132,
+                         "chunk 1 STARTS with the preamble (clean section boundary)")
+        self.assertEqual(chunks[1][0]["classification"], "preamble")
+
+    def test_chunk_respects_hard_max_without_a_boundary(self):
+        # No preamble anywhere -> the hard ceiling forces a cut at _CHUNK_HARD_MAX.
+        payloads = [_payload(i + 2) for i in range(_svc._CHUNK_HARD_MAX + 50)]
+        chunks = _svc.chunk_rows(payloads)
+        self.assertEqual(len(chunks[0]), _svc._CHUNK_HARD_MAX,
+                         "a section-less run still terminates at the hard max")
+        for c in chunks:
+            self.assertLessEqual(len(c), _svc._CHUNK_HARD_MAX)
+        # Order + completeness preserved.
+        flat = [p["excel_row"] for c in chunks for p in c]
+        self.assertEqual(flat, [p["excel_row"] for p in payloads])
+
+    # --- update_spine ------------------------------------------------------
+
+    def test_spine_carries_open_section_and_last_sl_no(self):
+        # Chunk 0 opens a level-1 section (excel 10) then advances sl_no to "7".
+        chunk0 = [
+            _payload(10, cls="preamble", level=1, desc="LT CABLES"),
+            _payload(11, sl_no="5"),
+            _payload(12, sl_no="6"),
+            _payload(13, sl_no="7"),
+        ]
+        spine = _svc.update_spine({"open_sections": [], "last_sl_no": None}, chunk0)
+        self.assertEqual(len(spine["open_sections"]), 1)
+        self.assertEqual(spine["open_sections"][0]["excel_row"], 10)
+        self.assertEqual(spine["open_sections"][0]["description"], "LT CABLES")
+        self.assertEqual(spine["last_sl_no"], "7",
+                         "the running sl_no carries the LAST seen value across the cut")
+
+    def test_spine_pops_section_at_equal_or_deeper_level(self):
+        # Open a level-1, then a level-2 under it, then a NEW level-1 sibling: the new
+        # level-1 must pop BOTH the previous level-1 and the level-2 (>= its level).
+        spine = {"open_sections": [], "last_sl_no": None}
+        spine = _svc.update_spine(spine, [_payload(10, cls="preamble", level=1, desc="A")])
+        spine = _svc.update_spine(spine, [_payload(20, cls="preamble", level=2, desc="A.1")])
+        self.assertEqual([s["excel_row"] for s in spine["open_sections"]], [10, 20])
+        spine = _svc.update_spine(spine, [_payload(30, cls="preamble", level=1, desc="B")])
+        self.assertEqual([s["excel_row"] for s in spine["open_sections"]], [30],
+                         "a new level-1 closes the prior level-1 + its level-2 child")
+
+    # --- render_context ----------------------------------------------------
+
+    def test_render_context_first_chunk_is_sentinel(self):
+        ctx = _svc.render_context({"open_sections": [], "last_sl_no": None}, is_first_chunk=True)
+        self.assertIn("first slice", ctx.lower())
+
+    def test_render_context_later_chunk_lists_sections_and_sl_no(self):
+        spine = {
+            "open_sections": [{"excel_row": 10, "level": 1, "description": "LT CABLES"}],
+            "last_sl_no": "7",
+        }
+        ctx = _svc.render_context(spine, is_first_chunk=False)
+        self.assertIn("excel_row 10", ctx)
+        self.assertIn("LT CABLES", ctx)
+        self.assertIn("7", ctx)
+        self.assertIn("OPEN SECTIONS", ctx)
+
+
+class TestRunAiPassChunking(FrappeTestCase):
+    """run_ai_pass with a FAKE Anthropic client (anthropic.Anthropic patched).
+
+    review_rows here are plain dicts carrying the fields _build_row_payload reads
+    (row_index, source_row_number, classification, level, parent_index, sl_no_value,
+    description, unit) -- the same shape the worker passes after resolve_effective.
+    """
+
+    def _rows(self, n, preamble_at=None):
+        rows = []
+        for i in range(n):
+            is_pre = (preamble_at is not None and i == preamble_at)
+            rows.append({
+                "row_index": i,
+                "source_row_number": i + 2,   # excel_row
+                "classification": "preamble" if is_pre else "line_item",
+                "level": 1 if is_pre else None,
+                "parent_index": -1,
+                "sl_no_value": str(i + 1),
+                "description": f"row {i}",
+                "unit": None,
+            })
+        return rows
+
+    def _run(self, rows, scripted):
+        _FakeAnthropic.scripted = scripted
+        with patch("anthropic.Anthropic", _FakeAnthropic):
+            out = _svc.run_ai_pass("Sheet1", rows, _settings(), "sk-test")
+        return out, _FakeAnthropic.last_instance.messages
+
+    def test_small_sheet_single_call_path_unchanged(self):
+        # <= threshold -> exactly ONE create() call, and its prompt carries the
+        # "first slice" sentinel (the single-call path still fills {CONTEXT}).
+        rows = self._rows(3)
+        scripted = ['[{"excel_row": 3, "suggested_classification": "preamble", '
+                    '"classification_confidence": "High", "suggested_parent": "NO_CHANGE", '
+                    '"explanation": "header"}]']
+        out, msgs = self._run(rows, scripted)
+        self.assertEqual(len(msgs.calls), 1, "a small sheet must be ONE API call")
+        ctx0 = msgs.calls[0].split("CARRIED CONTEXT:", 1)[1]
+        self.assertIn("first slice", ctx0.lower(),
+                      "the single-call path still fills {CONTEXT} with the first-slice sentinel")
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["row_index"], 1)             # excel 3 -> row_index 1
+        self.assertEqual(out[0]["ai_suggested_classification"], "preamble")
+
+    def test_multi_chunk_accumulates_suggestions(self):
+        # 250 rows with a preamble at index 130 -> 2 chunks. Each chunk returns one
+        # suggestion; run_ai_pass must MERGE both into the returned list.
+        rows = self._rows(250, preamble_at=130)
+        scripted = [
+            # chunk 0 flags excel 5 (row_index 3)
+            '[{"excel_row": 5, "suggested_classification": "note", '
+            '"classification_confidence": "Low", "suggested_parent": "NO_CHANGE", '
+            '"explanation": "a note"}]',
+            # chunk 1 flags excel 140 (row_index 138)
+            '[{"excel_row": 140, "suggested_classification": null, '
+            '"suggested_parent": 132, "parent_confidence": "High", '
+            '"explanation": "under the new section"}]',
+        ]
+        out, msgs = self._run(rows, scripted)
+        self.assertEqual(len(msgs.calls), 2, "250 rows with a mid preamble -> 2 chunks")
+        # The filled CARRIED CONTEXT block distinguishes a later chunk from the first.
+        # (The static instruction paragraph mentions "first slice" in BOTH prompts, so we
+        # assert on the dynamic block after the "CARRIED CONTEXT:" marker.)
+        ctx0 = msgs.calls[0].split("CARRIED CONTEXT:", 1)[1]
+        ctx1 = msgs.calls[1].split("CARRIED CONTEXT:", 1)[1]
+        self.assertIn("first slice", ctx0.lower(),
+                      "chunk 0's carried context is the first-slice sentinel")
+        self.assertIn("LAST sl_no", ctx1,
+                      "chunk 1's carried context carries the running sl_no (a later slice)")
+        self.assertNotIn("first slice", ctx1.lower(),
+                         "chunk 1 is NOT the first slice")
+        idxs = sorted(s["row_index"] for s in out)
+        self.assertEqual(idxs, [3, 138], "suggestions from BOTH chunks are accumulated")
+        # the cross-chunk parent (excel 132, the carried-section preamble) resolved
+        s140 = next(s for s in out if s["row_index"] == 138)
+        self.assertEqual(s140["ai_suggested_parent"], 130, "excel 132 -> row_index 130")
+
+    def test_forward_reference_parent_is_dropped(self):
+        # A chunk-0 row suggests a parent excel_row that lives in chunk 1 (unseen) ->
+        # the parent suggestion is dropped, the classification suggestion is kept.
+        rows = self._rows(250, preamble_at=130)
+        scripted = [
+            # chunk 0: row excel 5 points at excel 200 (a chunk-1 row) -- forward ref
+            '[{"excel_row": 5, "suggested_classification": "line_item", '
+            '"classification_confidence": "High", "suggested_parent": 200, '
+            '"parent_confidence": "High", "explanation": "forward ref"}]',
+            '[]',
+        ]
+        out, _ = self._run(rows, scripted)
+        s = next(x for x in out if x["row_index"] == 3)
+        self.assertIsNone(s["ai_suggested_parent"],
+                          "a forward-reference parent (unseen later chunk) is dropped")
+        self.assertFalse(s["ai_suggested_is_root"])
+        self.assertEqual(s["ai_suggested_classification"], "line_item",
+                         "the classification suggestion is KEPT when only the parent is dropped")
+
+    def test_cross_chunk_backward_parent_resolves(self):
+        # The complement of the forward-ref test: a chunk-1 row pointing at a chunk-0
+        # preamble (carried in OPEN SECTIONS) resolves normally.
+        rows = self._rows(250, preamble_at=130)
+        scripted = [
+            '[]',
+            '[{"excel_row": 145, "suggested_classification": null, '
+            '"suggested_parent": 132, "parent_confidence": "High", '
+            '"explanation": "backward to the carried section"}]',
+        ]
+        out, _ = self._run(rows, scripted)
+        s = next(x for x in out if x["row_index"] == 143)  # excel 145 -> row_index 143
+        self.assertEqual(s["ai_suggested_parent"], 130,
+                         "a backward parent to a carried section (excel 132) resolves")

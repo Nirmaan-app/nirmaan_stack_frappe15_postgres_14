@@ -34,6 +34,8 @@ from typing import Any
 import anthropic
 import frappe
 
+from nirmaan_stack.services.boq_parser.classifier import RowClassification
+
 # --- Retry / transience (mirror gemini.py) ---------------------------------
 _MAX_RETRIES = 2
 _BACKOFF_SECONDS = 1.5
@@ -42,6 +44,19 @@ _TRANSIENT_MARKERS = (
     "OVERLOADED", "RATE_LIMIT", "429", "500", "502", "503", "529",
     "TIMEOUT", "CONNECTION",
 )
+
+# --- Chunking (R2 / ADR-0005) ----------------------------------------------
+# DUPLICATED from boq_gemini_assist on purpose: ADR-0003 §8 keeps the Claude (ai_*)
+# and Gemini (gemini_*) services hard-separated with a ONE-DIRECTIONAL import
+# (Gemini imports from Claude, never the reverse). Do NOT import chunk_rows from
+# boq_gemini_assist -- that would invert the dependency. Sizes start at Gemini's
+# 120 / 100 / 200 and are tuned empirically against the reference sheets.
+_CHUNK_THRESHOLD = 120          # <= this -> a single call (best accuracy, no spine needed)
+_CHUNK_TARGET = 100             # aim for chunks of this size
+_CHUNK_HARD_MAX = 200           # never grow a chunk past this even with no preamble boundary
+# Defensive caps on the carried-spine text so the {CONTEXT} block stays compact.
+_SPINE_DESC_MAX = 120           # truncate a carried section header's description
+_SPINE_MAX_OPEN = 40            # never list more than this many open preambles
 
 # Assignable classification targets (mirror review_screen._ASSIGNABLE_CLASSIFICATIONS):
 # subtotal_marker / header_repeat are parser-only detections, never AI targets.
@@ -134,6 +149,16 @@ Rules for the output:
 - If you find no issues at all, return an empty array [].
 - CRITICAL: output the JSON array and NOTHING else. Do not write any explanation, reasoning, or text before or after the array. Your entire response must be the array itself, starting with [ and ending with ].
 
+## Carried context (rows above this slice)
+
+Large sheets are reviewed in ordered slices. The rows below are ONE slice; earlier slices have already been reviewed. The CARRIED CONTEXT block tells you what came immediately above this slice so the global signals (the sl_no sequence and the open section headers) survive the slice boundary:
+- OPEN SECTIONS lists the section headers (preambles) still open above this slice, with their excel_row and level — the rows in this slice most likely belong under the deepest of these unless a new header appears. You MAY suggest one of these excel_rows as a suggested_parent.
+- LAST sl_no is the serial number on the row immediately above this slice; use it to judge whether this slice's sl_no sequence is a continuation or a RESTART.
+When the CARRIED CONTEXT says "first slice", this is the top of the sheet and nothing precedes it. Only suggest a suggested_parent that is an excel_row present in THIS slice or listed under OPEN SECTIONS — never an excel_row from a later slice you have not seen.
+
+CARRIED CONTEXT:
+{CONTEXT}
+
 ## The sheet to review
 
 Sheet name: {SHEET_NAME}
@@ -177,6 +202,50 @@ def _effective_parent_internal(row: Any):
 # Input serialisation
 # ---------------------------------------------------------------------------
 
+def _build_excel_maps(review_rows: list) -> tuple[dict, dict]:
+    """Build (rowidx_to_excel, idx_map) for the WHOLE sheet.
+
+    rowidx_to_excel: internal row_index -> excel row (source_row_number).
+    idx_map:         excel row -> internal row_index (suggestion mapping, sheet-wide).
+
+    R2: idx_map is built from EVERY review row up front so a suggestion in a later
+    chunk can name a parent that lives in an earlier chunk (cross-chunk resolution).
+    """
+    rowidx_to_excel: dict = {}
+    idx_map: dict = {}
+    for row in review_rows:
+        ridx = _get(row, "row_index")
+        excel = _get(row, "source_row_number")
+        if ridx is not None and excel is not None:
+            rowidx_to_excel[ridx] = excel
+            idx_map[excel] = ridx
+    return rowidx_to_excel, idx_map
+
+
+def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
+    """Serialise ONE review row into the model's input element.
+
+    The element shape is UNCHANGED from the original build_rows_payload: excel_row
+    (= source_row_number), classification (effective), level, parent_excel_row (the
+    PARENT row's excel row, or None for a root row), sl_no, description, unit.
+    """
+    eff_parent = _effective_parent_internal(row)
+    if eff_parent is None:
+        parent_excel = None
+    else:
+        # Defensive: a parent internal index with no excel mapping -> None (root-ish).
+        parent_excel = rowidx_to_excel.get(eff_parent)
+    return {
+        "excel_row": _get(row, "source_row_number"),
+        "classification": _effective_classification(row),
+        "level": _get(row, "level"),
+        "parent_excel_row": parent_excel,
+        "sl_no": _get(row, "sl_no_value"),
+        "description": _get(row, "description"),
+        "unit": _get(row, "unit"),
+    }
+
+
 def build_rows_payload(review_rows: list) -> tuple[str, dict]:
     """Serialise review rows into the model's input array + an excel->internal map.
 
@@ -190,35 +259,123 @@ def build_rows_payload(review_rows: list) -> tuple[str, dict]:
 
     ALL rows are passed (no cap) -- spacers / notes / subtotals included -- so the
     model sees the full structural context.
+
+    R2 refactor: now a thin wrapper over the per-row builder + the sheet-wide map
+    helper, so run_ai_pass can reuse the SAME element shape per chunk.
     """
-    rowidx_to_excel: dict = {}
-    idx_map: dict = {}
-    for row in review_rows:
-        ridx = _get(row, "row_index")
-        excel = _get(row, "source_row_number")
-        if ridx is not None and excel is not None:
-            rowidx_to_excel[ridx] = excel
-            idx_map[excel] = ridx
-
-    payload: list = []
-    for row in review_rows:
-        eff_parent = _effective_parent_internal(row)
-        if eff_parent is None:
-            parent_excel = None
-        else:
-            # Defensive: a parent internal index with no excel mapping -> None (root-ish).
-            parent_excel = rowidx_to_excel.get(eff_parent)
-        payload.append({
-            "excel_row": _get(row, "source_row_number"),
-            "classification": _effective_classification(row),
-            "level": _get(row, "level"),
-            "parent_excel_row": parent_excel,
-            "sl_no": _get(row, "sl_no_value"),
-            "description": _get(row, "description"),
-            "unit": _get(row, "unit"),
-        })
-
+    rowidx_to_excel, idx_map = _build_excel_maps(review_rows)
+    payload = [_build_row_payload(row, rowidx_to_excel) for row in review_rows]
     return json.dumps(payload), idx_map
+
+
+# ---------------------------------------------------------------------------
+# Chunking + carried hierarchy spine (R2 / ADR-0005)
+# ---------------------------------------------------------------------------
+
+def _is_preamble_payload(p: dict) -> bool:
+    """A parser-identified section header in the model payload -- the chunk-cut
+    boundary. Uses the effective `classification` already on the payload element
+    (no new fetch field, per ADR-0005 decision 4)."""
+    return p.get("classification") == RowClassification.PREAMBLE.value
+
+
+def chunk_rows(payloads: list[dict]) -> list[list[dict]]:
+    """Order-preserving chunker (DUPLICATED from boq_gemini_assist; do NOT import).
+
+    <= threshold -> ONE chunk (single-call path, no spine). Above the threshold ->
+    boundary-aware chunks: once a chunk reaches the target size, cut JUST BEFORE the
+    next parser-identified `preamble` row (so a slice starts cleanly at a section
+    header), with a hard ceiling so a section-less run still terminates.
+    """
+    if not payloads:
+        return []
+    if len(payloads) <= _CHUNK_THRESHOLD:
+        return [list(payloads)]
+    chunks: list[list[dict]] = []
+    cur: list[dict] = []
+    for p in payloads:
+        at_target = len(cur) >= _CHUNK_TARGET
+        if cur and ((at_target and _is_preamble_payload(p)) or len(cur) >= _CHUNK_HARD_MAX):
+            chunks.append(cur)
+            cur = []
+        cur.append(p)
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _truncate(text: Any, limit: int) -> str:
+    s = ("" if text is None else str(text)).strip()
+    return s[:limit]
+
+
+def update_spine(spine: dict, chunk: list[dict]) -> dict:
+    """Advance the carried hierarchy spine over one processed chunk and return the
+    NEW spine (the corrector-specific carry, richer than Gemini's preamble-only list).
+
+    The spine carries, for the NEXT chunk's {CONTEXT} block:
+      - open_sections: the stack of preambles still open at the end of this chunk, as
+        {excel_row, level, description}. A preamble closes the open sections at its
+        level-or-deeper (a level-N header pops everything >= N), then pushes itself.
+        So a mid-section next chunk sees exactly which sections enclose it.
+      - last_sl_no: the sl_no on the LAST row of this chunk that carried one -- the
+        running serial number the next chunk uses to detect a restart.
+
+    Mirrors the parser's own section-stack reasoning; cycle-free (single forward pass)
+    and bounded (_SPINE_MAX_OPEN caps the stack)."""
+    open_sections: list[dict] = list(spine.get("open_sections") or [])
+    last_sl_no = spine.get("last_sl_no")
+
+    for p in chunk:
+        sl = p.get("sl_no")
+        if sl is not None and str(sl).strip():
+            last_sl_no = sl
+        if _is_preamble_payload(p):
+            level = p.get("level")
+            # Pop any open section at this level or deeper (a sibling/ancestor header
+            # closes them). Levels may be None -> treat as top-level (1) defensively.
+            lvl = level if isinstance(level, int) else 1
+            open_sections = [
+                s for s in open_sections
+                if isinstance(s.get("level"), int) and s["level"] < lvl
+            ]
+            open_sections.append({
+                "excel_row": p.get("excel_row"),
+                "level": lvl,
+                "description": _truncate(p.get("description"), _SPINE_DESC_MAX),
+            })
+            if len(open_sections) > _SPINE_MAX_OPEN:
+                open_sections = open_sections[-_SPINE_MAX_OPEN:]
+
+    return {"open_sections": open_sections, "last_sl_no": last_sl_no}
+
+
+def render_context(spine: dict, is_first_chunk: bool) -> str:
+    """Render the carried spine into the {CONTEXT} prompt block.
+
+    First chunk -> a "first slice" sentinel (nothing precedes it). Later chunks ->
+    the OPEN SECTIONS list (deepest last) + the LAST sl_no, so the corrector's
+    backward-jump + sl_no-restart heuristics have the above-slice context."""
+    if is_first_chunk:
+        return "(first slice -- this is the top of the sheet; nothing precedes it.)"
+    open_sections = spine.get("open_sections") or []
+    if open_sections:
+        lines = [
+            f"- excel_row {s.get('excel_row')} (level {s.get('level')}): "
+            f"{s.get('description') or ''}".rstrip()
+            for s in open_sections
+        ]
+        sections_block = "OPEN SECTIONS (innermost last -- the rows below most likely " \
+            "belong under the deepest, unless a new header appears):\n" + "\n".join(lines)
+    else:
+        sections_block = "OPEN SECTIONS: (none -- no section header is open above this slice.)"
+    last_sl_no = spine.get("last_sl_no")
+    sl_line = (
+        f"LAST sl_no (row immediately above this slice): {last_sl_no}"
+        if last_sl_no is not None and str(last_sl_no).strip()
+        else "LAST sl_no: (none seen above this slice.)"
+    )
+    return f"{sections_block}\n{sl_line}"
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +446,7 @@ def _extract_json_array(text: str) -> str:
     return stripped
 
 
-def parse_ai_response(text: str, idx_map: dict) -> list:
+def parse_ai_response(text: str, idx_map: dict, allowed_parent_excels: set | None = None) -> list:
     """Parse the model's JSON array into normalized suggestion dicts keyed by the
     INTERNAL row_index (looked up from idx_map via excel_row).
 
@@ -310,6 +467,14 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
       - suggested_classification not in {line_item, preamble, note, spacer} ->
         classification suggestion dropped (None) + warn, parent suggestion kept.
     ai_suggested_level is NOT computed here -- the caller derives it at write-back.
+
+    R2 / ADR-0005 decision 7 -- FORWARD-REFERENCE GUARD: when allowed_parent_excels is
+    given (the chunked path), a suggested parent excel_row that resolves via the
+    SHEET-WIDE idx_map but is NOT in this chunk's addressable set (this chunk's rows +
+    the carried OPEN SECTIONS) is a forward reference to a not-yet-seen later chunk ->
+    the parent suggestion is DROPPED (None) + logged; any classification is kept. When
+    allowed_parent_excels is None (the single-call path), every idx_map parent is
+    allowed -- behaviour is byte-identical to the pre-R2 contract.
     """
     # AI-2e: extract the array from surrounding prose (the real model often prefixes
     # an explanation). Genuine garbage (no array) falls through to the json.loads raise.
@@ -366,14 +531,23 @@ def parse_ai_response(text: str, idx_map: dict) -> list:
                 )
                 ai_parent = None
             else:
-                if pe in idx_map:
-                    ai_parent = idx_map[pe]
-                else:
+                if pe not in idx_map:
                     logger.warning(
                         "boq_ai: dropping parent for excel_row %r -- parent excel_row %r "
                         "not in this sheet", excel, pe,
                     )
                     ai_parent = None
+                elif allowed_parent_excels is not None and pe not in allowed_parent_excels:
+                    # Forward reference: pe is a real sheet row but in a not-yet-seen
+                    # later chunk -> drop + log (the model can only name an earlier
+                    # section, carried in OPEN SECTIONS, or a row in this chunk).
+                    logger.warning(
+                        "boq_ai: dropping forward-reference parent for excel_row %r -- "
+                        "parent excel_row %r is in a not-yet-seen later chunk", excel, pe,
+                    )
+                    ai_parent = None
+                else:
+                    ai_parent = idx_map[pe]
         # parent confidence only when there is a real parent suggestion (a row index)
         # OR a root suggestion -- a root opinion ("parent = nothing") keeps its confidence.
         parent_conf = element.get("parent_confidence")
@@ -428,16 +602,40 @@ def _is_transient(exc) -> bool:
     return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
-def _log_usage(resp, settings: dict, sheet_name: str) -> None:
-    """Informational token-usage log via the boq_ai logger (NOT the Error Log, so it
-    does not spam). Never logs the prompt content or the API key."""
+def _chunk_usage(resp) -> tuple[int, int]:
+    """(input_tokens, output_tokens) for one chunk's response, defaulting to 0."""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return 0, 0
+    return (
+        int(getattr(usage, "input_tokens", 0) or 0),
+        int(getattr(usage, "output_tokens", 0) or 0),
+    )
+
+
+def _log_chunk_usage(resp, settings: dict, sheet_name: str, chunk_idx: int, n_chunks: int) -> tuple[int, int]:
+    """Per-chunk token usage at .debug (R2: replaces the per-call info line). Returns
+    the (input, output) tokens so run_ai_pass can aggregate them into ONE info line per
+    pass. Never logs prompt content or the API key. Logging must never break the pass."""
     try:
-        usage = getattr(resp, "usage", None)
-        input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
-        output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
+        input_tokens, output_tokens = _chunk_usage(resp)
+        logger.debug(
+            "boq_ai chunk tokens: model=%s sheet=%r chunk=%s/%s input=%s output=%s",
+            settings.get("model"), sheet_name, chunk_idx, n_chunks, input_tokens, output_tokens,
+        )
+        return input_tokens, output_tokens
+    except Exception:
+        return 0, 0  # logging must never break the pass
+
+
+def _log_pass_usage(settings: dict, sheet_name: str, n_chunks: int,
+                    total_in: int, total_out: int) -> None:
+    """ONE aggregated info line per AI pass (R2 / ADR-0005 decision 7). The boq_ai
+    logger (NOT the Error Log, so it does not spam). Never logs prompt or key."""
+    try:
         logger.info(
-            "boq_ai pass tokens: model=%s sheet=%r input=%s output=%s",
-            settings.get("model"), sheet_name, input_tokens, output_tokens,
+            "boq_ai pass tokens: model=%s sheet=%r chunks=%s input=%s output=%s",
+            settings.get("model"), sheet_name, n_chunks, total_in, total_out,
         )
     except Exception:
         pass  # logging must never break the pass
@@ -447,24 +645,28 @@ def _log_usage(resp, settings: dict, sheet_name: str) -> None:
 # The API call
 # ---------------------------------------------------------------------------
 
-def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str) -> list:
-    """Run the AI structure-suggestion pass for one sheet and return normalized
-    suggestions keyed by internal row_index.
+def _classify_chunk(
+    client, sheet_name: str, chunk: list[dict], context: str, idx_map: dict,
+    allowed_parent_excels: set, settings: dict, chunk_idx: int, n_chunks: int,
+) -> tuple[list, int, int]:
+    """Classify ONE chunk: build the per-chunk prompt (chunk rows + carried {CONTEXT}),
+    run the retry loop, parse the response against the SHEET-WIDE idx_map, and return
+    (suggestions, input_tokens, output_tokens).
 
-    settings + api_key are INJECTED by the caller (AI-2c worker) -- this service
-    never reads get_boq_ai_settings / get_boq_ai_api_key itself (keeps it unit-
-    testable). settings keys used: model, max_tokens, request_timeout_seconds.
-
-    Retry mirrors gemini._generate: range(1, _MAX_RETRIES + 2); a transient error
-    sleeps _BACKOFF_SECONDS * attempt and retries; a terminal failure logs and
-    RAISES _NonRetryable (NOT frappe.throw -- this runs in a worker).
-    """
-    rows_json, idx_map = build_rows_payload(review_rows)
-    prompt = _AI_PASS_PROMPT_TEMPLATE.replace("{SHEET_NAME}", sheet_name or "").replace(
-        "{ROWS_JSON}", rows_json
+    The retry loop is IDENTICAL to the pre-R2 single-call loop -- it just runs PER
+    CHUNK now: range(1, _MAX_RETRIES + 2); a transient error sleeps and retries; a
+    terminal failure logs + RAISES _NonRetryable (NOT frappe.throw -- runs in a worker).
+    allowed_parent_excels = this chunk's excel_rows + the carried OPEN SECTIONS, so a
+    forward-reference parent (an excel_row in a not-yet-seen later chunk) is dropped +
+    logged by parse_ai_response -- the model can only name a parent it was shown (this
+    chunk) or one carried in OPEN SECTIONS (an earlier chunk)."""
+    rows_json = json.dumps(chunk)
+    prompt = (
+        _AI_PASS_PROMPT_TEMPLATE
+        .replace("{SHEET_NAME}", sheet_name or "")
+        .replace("{CONTEXT}", context)
+        .replace("{ROWS_JSON}", rows_json)
     )
-
-    client = anthropic.Anthropic(api_key=api_key)
 
     for attempt in range(1, _MAX_RETRIES + 2):
         try:
@@ -475,8 +677,9 @@ def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str
                 timeout=settings["request_timeout_seconds"],
             )
             text = _safe_text(resp)            # raises _NonRetryable on empty / bad stop
-            _log_usage(resp, settings, sheet_name)
-            return parse_ai_response(text, idx_map)  # raises _NonRetryable on malformed
+            tin, tout = _log_chunk_usage(resp, settings, sheet_name, chunk_idx, n_chunks)
+            suggestions = parse_ai_response(text, idx_map, allowed_parent_excels)
+            return suggestions, tin, tout
         except Exception as exc:
             if attempt <= _MAX_RETRIES and _is_transient(exc):
                 time.sleep(_BACKOFF_SECONDS * attempt)
@@ -485,3 +688,62 @@ def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str
             if isinstance(exc, _NonRetryable):
                 raise
             raise _NonRetryable(str(exc)) from exc
+
+
+def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str) -> list:
+    """Run the AI structure-suggestion pass for one sheet and return normalized
+    suggestions keyed by internal row_index.
+
+    settings + api_key are INJECTED by the caller (AI-2c worker) -- this service
+    never reads get_boq_ai_settings / get_boq_ai_api_key itself (keeps it unit-
+    testable). settings keys used: model, max_tokens, request_timeout_seconds.
+
+    R2 / ADR-0005 -- CHUNKING WITH A CARRIED HIERARCHY SPINE: large sheets used to
+    send the WHOLE sheet in one client.messages.create call and timed out. The sheet
+    is now split into ordered chunks (<= _CHUNK_THRESHOLD rows -> ONE chunk, the
+    single-call path is byte-identical to before). Each later chunk's prompt carries a
+    {CONTEXT} block built from the running spine (open section headers + last sl_no),
+    so the corrector's backward-jump + sl_no-restart heuristics survive a cut. Every
+    chunk parses against the SHEET-WIDE idx_map (built up front), so a parent in an
+    earlier chunk still resolves. Suggestions from all chunks are accumulated and the
+    MERGED list is returned -- the worker still applies + commits ONCE (all-or-nothing).
+    A terminal chunk failure re-raises and the whole pass is retried by the worker.
+
+    Token logging (decision 7): per-chunk usage at .debug; ONE aggregated info line
+    per pass (replacing the former per-call _log_usage line).
+    """
+    rowidx_to_excel, idx_map = _build_excel_maps(review_rows)
+    payloads = [_build_row_payload(row, rowidx_to_excel) for row in review_rows]
+    chunks = chunk_rows(payloads)
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    all_suggestions: list = []
+    spine: dict = {"open_sections": [], "last_sl_no": None}
+    total_in = 0
+    total_out = 0
+    n_chunks = len(chunks)
+    single_call = n_chunks <= 1  # one chunk -> NO forward-ref guard (every parent is in-scope)
+    for i, chunk in enumerate(chunks):
+        context = render_context(spine, is_first_chunk=(i == 0))
+        # Allowed parents = this chunk's rows + the carried open sections. None for the
+        # single-call path so its behaviour is byte-identical to the pre-R2 contract.
+        if single_call:
+            allowed_parent_excels: set | None = None
+        else:
+            allowed_parent_excels = {p.get("excel_row") for p in chunk}
+            allowed_parent_excels.update(
+                s.get("excel_row") for s in (spine.get("open_sections") or [])
+            )
+        suggestions, tin, tout = _classify_chunk(
+            client, sheet_name, chunk, context, idx_map, allowed_parent_excels,
+            settings, i + 1, n_chunks,
+        )
+        all_suggestions.extend(suggestions)
+        total_in += tin
+        total_out += tout
+        # Advance the spine over this chunk for the NEXT chunk's {CONTEXT}.
+        spine = update_spine(spine, chunk)
+
+    _log_pass_usage(settings, sheet_name, n_chunks, total_in, total_out)
+    return all_suggestions
