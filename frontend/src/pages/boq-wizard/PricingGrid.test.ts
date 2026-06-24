@@ -33,6 +33,7 @@ import {
   isRateEditableRow,
   shouldExitFullscreenOnEsc,
   parentExcelRowOf,
+  isJumpFlashRow,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -552,6 +553,20 @@ describe("parentExcelRowOf (parent click-to-jump resolver)", () => {
   it("a parent index absent from byIdx resolves to null safely (no throw)", () => {
     const orphan = { row_index: 5, source_row_number: 31, effective_parent_index: 99 } as unknown as PricedRow;
     expect(parentExcelRowOf(orphan, byIdx)).toBeNull();
+  });
+});
+
+describe("isJumpFlashRow (parent-jump landing flash predicate)", () => {
+  it("the matching row is flashed (true)", () => {
+    expect(isJumpFlashRow(30, 30)).toBe(true);
+  });
+
+  it("a null flash target -> no row flashed (false)", () => {
+    expect(isJumpFlashRow(30, null)).toBe(false);
+  });
+
+  it("a non-matching row is not flashed (false)", () => {
+    expect(isJumpFlashRow(30, 31)).toBe(false);
   });
 });
 

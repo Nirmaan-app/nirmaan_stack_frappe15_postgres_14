@@ -191,6 +191,16 @@ export function isCurrentHitRow(
   return currentHitExcelRow != null && rowExcelRow === currentHitExcelRow;
 }
 
+/** JUMP LANDING FLASH (per-row): true iff this row's Excel row is the current jump target.
+ *  Mirrors isCurrentHitRow -- a per-row signal added to pricingRowPropsAreEqual so the blue
+ *  landing flash paints/un-paints as flashExcelRow flips (set by jumpToRow, cleared after 3s). */
+export function isJumpFlashRow(
+  rowExcelRow: number,
+  flashExcelRow: number | null | undefined,
+): boolean {
+  return flashExcelRow != null && rowExcelRow === flashExcelRow;
+}
+
 /** The three row-TYPE visibility toggles (default all true). */
 export interface RowTypeToggles {
   showSpacers: boolean;
@@ -1350,6 +1360,10 @@ interface PricingGridRowProps {
    *  highlight). Per-row by nature -> it is in pricingRowPropsAreEqual so the highlight repaints
    *  as the user steps through hits (without it, memo'd rows would not re-render on step). */
   isCurrentHit: boolean;
+  /** Parent-jump landing flash: whether this row is the CURRENT jump target (drives the 3s blue
+   *  row tint). Per-row like isCurrentHit -> it is in pricingRowPropsAreEqual so the flash
+   *  paints/un-paints as the grid-level flashExcelRow flips (set by jumpToRow, cleared after 3s). */
+  isJumpFlash: boolean;
   // ── stable shared values/refs (reference-stable across a keystroke -> memo holds) ──
   displayDescriptors: ColumnDescriptor[];
   columnDescriptors: ColumnDescriptor[];
@@ -1404,6 +1418,7 @@ export function pricingRowPropsAreEqual(
     prev.anyCellActive === next.anyCellActive &&
     prev.openRemark === next.openRemark &&
     prev.isCurrentHit === next.isCurrentHit &&
+    prev.isJumpFlash === next.isJumpFlash &&
     prev.displayDescriptors === next.displayDescriptors &&
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
@@ -1448,6 +1463,7 @@ const PricingGridRow = memo(function PricingGridRow({
   anyCellActive,
   openRemark,
   isCurrentHit,
+  isJumpFlash,
   displayDescriptors,
   columnDescriptors,
   columnFormulas,
@@ -1519,7 +1535,17 @@ const PricingGridRow = memo(function PricingGridRow({
         // active-cell ring). It shows through the anchor cells incl. Description -- exactly where
         // the matched text is. Per-cell priced emerald/amber backgrounds on rate/amount <td>s
         // still win on those cells (a deliberate, harmless layering). Non-hit rows keep hover.
-        isCurrentHit ? "bg-yellow-100 dark:bg-yellow-900/40" : "hover:bg-muted/30",
+        // Parent-jump landing flash: a transient BLUE row wash (3s, self-clearing -- set by
+        // jumpToRow, mirrors the yellow). It WINS over search-yellow for its 3s (the jump just
+        // happened, so it's the more relevant cue); when it clears the row reverts to yellow if
+        // still the search hit. Instant on/off (NO transition) -- the calmest option, inherently
+        // reduced-motion-safe, and it leaves the hover/current-hit paint timing untouched (A2).
+        // Per-cell priced emerald/amber tints still win on their own <td>s (same as the yellow).
+        isJumpFlash
+          ? "bg-blue-100 dark:bg-blue-900/40"
+          : isCurrentHit
+            ? "bg-yellow-100 dark:bg-yellow-900/40"
+            : "hover:bg-muted/30",
       )}
     >
       {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
@@ -1905,6 +1931,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // a click. Holds the ARRAY index (rowIdx) of the open row, or null. RemarkCell's
   // draft/saving/error stay local; only open is controlled here.
   const [openRemarkRowIdx, setOpenRemarkRowIdx] = useState<number | null>(null);
+  // Parent-jump landing flash: the Excel row currently flashed blue (null = none). Set by
+  // jumpToRow, auto-cleared after 3s via flashTimeoutRef. Grid-level -- only the derived per-row
+  // boolean (isJumpFlashRow) enters the row + the memo comparator. Resets for free on a
+  // sheet-switch (the page remounts the grid key={sheetName}); also cleared on unmount below.
+  const [flashExcelRow, setFlashExcelRow] = useState<number | null>(null);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -2103,6 +2135,16 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       el.focus();
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
+    // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
+    // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
+    // latest jump's flash replaces the prior. setState updater + a timeout ref keep this
+    // useCallback reference-stable (deps []), so the onJumpToRow row prop stays memo-safe.
+    setFlashExcelRow(excelRow);
+    if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+    flashTimeoutRef.current = setTimeout(() => {
+      setFlashExcelRow(null);
+      flashTimeoutRef.current = null;
+    }, 3000);
   }, []);
 
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
@@ -2229,6 +2271,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     };
   }, []);
 
+  // Parent-jump landing flash: clear any pending 3s clear-timer on unmount (a sheet-switch
+  // remounts the grid key={sheetName}, so flash state resets for free; this guards a true unmount).
+  useEffect(() => () => {
+    if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+  }, []);
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -2340,6 +2388,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 anyCellActive={anyCellActive}
                 openRemark={openRemarkRowIdx === rowIdx}
                 isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
+                isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
                 displayDescriptors={visibleDescriptors}
                 columnDescriptors={columnDescriptors}
                 columnFormulas={columnFormulas}
