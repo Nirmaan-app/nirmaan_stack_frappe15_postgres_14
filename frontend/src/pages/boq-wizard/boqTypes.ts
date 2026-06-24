@@ -440,6 +440,13 @@ export interface ReviewRow {
   // or by finalize). Computed by get_review_rows from ai_accept_snapshot; the raw blob is
   // never shipped. Drives the Revert AI change button (enabled iff revert_available && !readOnly).
   revert_available?: boolean;
+  // R3a (ADR-0006): true when the row is NOT at the parser baseline -- it carries a standing
+  // change, i.e. an accepted AI suggestion (either provider's *_suggestion_status === "Accepted")
+  // OR a manual human_* override. Computed by get_review_rows. AI Apply (Claude or Gemini) is
+  // DISABLED while this is true (apply must never silently overwrite a standing decision); the
+  // unified "Revert to parser" affordance is shown whenever it is true and restores the row (and
+  // any children a restructure moved) to the parser baseline, after which AI Apply re-enables.
+  has_override?: boolean;
 
   // ── DUAL-AI (ADR-0003) -- GEMINI suggestion layer. ADDITIVE-ONLY. ───────────────
   // EXACT mirror of the ai_* block above for the second provider (Gemini), same optionality

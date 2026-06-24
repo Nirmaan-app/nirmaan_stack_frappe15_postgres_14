@@ -1,12 +1,18 @@
 /**
- * GeminiAcceptBlock -- DUAL-AI (ADR-0003 sec 8A). The detail-panel accept/reject/revert block
- * for a Gemini suggestion. A VISUAL CLONE of Nitesh's "AI suggestion" accept block + the
- * "Revert AI change" block in ReviewTree.tsx, only reading gemini_* and calling the gemini
- * endpoints (accept_gemini_suggestion / reject_gemini_suggestion / revert_gemini_acceptance).
+ * GeminiAcceptBlock -- DUAL-AI (ADR-0003 sec 8A). The detail-panel accept/reject block for a
+ * Gemini suggestion. A VISUAL CLONE of Nitesh's "AI suggestion" accept block in ReviewTree.tsx,
+ * only reading gemini_* and calling the gemini endpoints (accept_gemini_suggestion /
+ * reject_gemini_suggestion).
  *
  * Mounted by ReviewTree in the row-detail panel BENEATH the Claude block; Nitesh's block stays
- * byte-identical. This block owns its OWN useFrappePostCall hooks for the three gemini endpoints
+ * byte-identical. This block owns its OWN useFrappePostCall hooks for the two gemini endpoints
  * and its own action-error state (kept separate from the Claude block's aiActionError).
+ *
+ * R3a (ADR-0006): this block owns ONLY the Pending accept/reject UI. There is NO "Revert Gemini
+ * change" branch any more -- revert is the ONE unified "Revert to parser" affordance owned by
+ * ReviewTree (shown on any has_override row, calling review_screen.revert_to_parser). And per the
+ * block-then-revert rule, the Apply button is DISABLED whenever row.has_override is set (a standing
+ * AI acceptance or a manual edit) -- an AI apply must never silently overwrite a standing decision.
  *
  * Parity rules (mirror Claude, swap ai_ -> gemini_):
  *   - Per-axis checkboxes (classification / parent), each with a confidence pill + suggested
@@ -18,8 +24,6 @@
  *   - With-children accept (classification change OR parent change) routes to the SHARED
  *     RestructureModal via onOpenRestructure(...) with markGeminiAccepted=true -- ReviewTree owns
  *     the single modal mount (mirror of handleApplyAi's markAiAccepted route).
- *   - Revert: shown when gemini_suggestion_status === "Accepted"; ENABLED iff
- *     gemini_revert_available && !readOnly. Greyed with a reason otherwise.
  */
 import { useState, useEffect } from "react";
 import { Sparkles } from "lucide-react";
@@ -57,8 +61,10 @@ interface GeminiAcceptBlockProps {
   hasChildren: boolean;
   /** Resolve an internal row_index to its Excel-row display label ("row N" / "#idx"). */
   parentLabel: (idx: number) => string;
-  /** Slice D1: a finalized sheet freezes the revert affordance (block is not rendered while
-   *  Pending under readOnly because ReviewTree gates the whole accept surface on !readOnly). */
+  /** Accepted for call-site compat (ReviewTree passes it) but UNUSED here since R3a: the block
+   *  now renders ONLY the Pending accept/reject UI and is mounted only when !readOnly, and revert
+   *  moved to ReviewTree's unified "Revert to parser". Kept on the interface to avoid churning the
+   *  call site; not destructured (noUnusedLocals). */
   readOnly?: boolean;
   /**
    * Open the SHARED RestructureModal (owned by ReviewTree) with markGeminiAccepted=true. Mirrors
@@ -72,8 +78,8 @@ interface GeminiAcceptBlockProps {
     presetRowParent?: number | null;
     presetParentMessage?: string;
   }) => void;
-  /** mutate-only refresh after accept/reject/revert (no edited_at threaded). ReviewTree's
-   *  onRemarkSaved -- re-fetches rows so the row re-renders with the new gemini status. */
+  /** mutate-only refresh after reject (no edited_at threaded). ReviewTree's onRemarkSaved --
+   *  re-fetches rows so the row re-renders with the new gemini status. */
   onChanged: () => void;
   /** advance-the-anchor refresh after an accept that WROTE the human layer (carries edited_at).
    *  ReviewTree's onSaved -- mirrors the Claude accept's onSaved(edited_at) call. */
@@ -86,7 +92,6 @@ export function GeminiAcceptBlock({
   sheetName,
   hasChildren,
   parentLabel,
-  readOnly = false,
   onOpenRestructure,
   onChanged,
   onAccepted,
@@ -102,9 +107,6 @@ export function GeminiAcceptBlock({
   const { call: rejectCall, loading: isRejecting } = useFrappePostCall<{
     message: { ok: boolean };
   }>("nirmaan_stack.api.boq.wizard.gemini_assist.reject_gemini_suggestion");
-  const { call: revertCall, loading: isReverting } = useFrappePostCall<{
-    message: { ok: boolean; gemini_suggestion_status: string; reverted_children: number[] };
-  }>("nirmaan_stack.api.boq.wizard.gemini_assist.revert_gemini_acceptance");
 
   // Pending-suggestion shape (block-local; the per-axis "is change" gating compares vs the
   // row's EFFECTIVE value -- mirrors Nitesh's accept block exactly, not the column's vs-parser).
@@ -211,55 +213,19 @@ export function GeminiAcceptBlock({
     }
   };
 
-  const handleRevert = async () => {
-    setActionError(null);
-    try {
-      await revertCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152
-        row_index: row.row_index,
-      });
-      onChanged();
-    } catch (e: unknown) {
-      setActionError(getFrappeError(e) || "Could not revert the Gemini change.");
-    }
-  };
-
-  // ── Accepted: the Revert block (mirror of ReviewTree's "Revert AI change" block) ──
-  if (row.gemini_suggestion_status === "Accepted") {
-    return (
-      <div className="mb-2 rounded-md border border-violet-200 dark:border-violet-900 bg-violet-50/40 dark:bg-violet-950/20 p-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            disabled={!row.gemini_revert_available || readOnly || isReverting}
-            onClick={() => { void handleRevert(); }}
-          >
-            {isReverting ? "Reverting…" : "Revert Gemini change"}
-          </Button>
-          {readOnly ? (
-            <span className="text-muted-foreground italic text-xs">
-              Sheet is finalized — revert unavailable.
-            </span>
-          ) : !row.gemini_revert_available ? (
-            <span className="text-muted-foreground italic text-xs">
-              Revert no longer available — the row was edited after the Gemini change.
-            </span>
-          ) : null}
-        </div>
-        {actionError && <p className="text-xs text-destructive mt-1">{actionError}</p>}
-      </div>
-    );
-  }
-
   // ── Pending: the accept/reject block (mirror of ReviewTree's "AI suggestion" block) ──
+  // R3a (ADR-0006): the former Accepted "Revert Gemini change" branch is GONE -- revert is now
+  // the ONE unified "Revert to parser" affordance owned by ReviewTree (shown on any has_override
+  // row). This block renders ONLY the Pending accept/reject UI.
   // Render nothing when there is no pending suggestion to act on.
   if (!(hasClass || hasParent)) return null;
 
   const canApply =
     (acceptCls && hasClass && clsAcceptable) || (acceptParent && hasParent && parentIsChange);
+  // R3a (ADR-0006): an AI apply must never silently overwrite a standing decision (the other
+  // provider's accepted suggestion OR a manual edit). Disable Apply while the row carries any
+  // override; the user must first "Revert to parser" (the unified affordance in ReviewTree).
+  const blockedByOverride = !!row.has_override;
 
   return (
     <div className="mb-2 rounded-md border border-violet-200 dark:border-violet-900 bg-violet-50/40 dark:bg-violet-950/20 p-2">
@@ -331,15 +297,24 @@ export function GeminiAcceptBlock({
         </p>
       )}
       {actionError && <p className="text-xs text-destructive mb-1">{actionError}</p>}
+      {blockedByOverride && (
+        <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
+          Revert this row to parser before applying an AI suggestion.
+        </p>
+      )}
       <div className="flex items-center gap-2">
-        <Button
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={!canApply || isAccepting || isRejecting}
-          onClick={() => { void handleApply(); }}
-        >
-          {isAccepting ? "Applying…" : "Apply selected changes"}
-        </Button>
+        <span title={blockedByOverride
+          ? "Revert this row to parser before applying an AI suggestion."
+          : undefined}>
+          <Button
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={!canApply || blockedByOverride || isAccepting || isRejecting}
+            onClick={() => { void handleApply(); }}
+          >
+            {isAccepting ? "Applying…" : "Apply selected changes"}
+          </Button>
+        </span>
         <Button
           size="sm"
           variant="outline"

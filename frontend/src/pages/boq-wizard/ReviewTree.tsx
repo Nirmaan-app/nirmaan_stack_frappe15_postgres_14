@@ -506,13 +506,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const { call: rejectAiCall, loading: isRejectingAi } = useFrappePostCall<{
     message: { ok: boolean };
   }>("nirmaan_stack.api.boq.wizard.ai_assist.reject_ai_suggestion");
-  // AI-3c-2b: revert an AI acceptance (restore the row + any children the accept moved to
-  // their pre-accept state, re-offer the suggestion as Pending). Returns no edited_at, so
-  // the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row re-renders
-  // Pending, the AI accept/reject block reappears, and the Revert button + AI Accepted tag go.
-  const { call: revertAiCall, loading: isRevertingAi } = useFrappePostCall<{
-    message: { ok: boolean; ai_suggestion_status: string; reverted_children: number[] };
-  }>("nirmaan_stack.api.boq.wizard.ai_assist.revert_ai_acceptance");
+  // R3a (ADR-0006): the UNIFIED "Revert to parser". One endpoint that restores the row + any
+  // children a restructure moved to the PARSER BASELINE, regardless of whether the standing change
+  // was an AI acceptance (either provider) or a manual human_* edit. Replaces the two former
+  // provider-specific reverts (revert_ai_acceptance / revert_gemini_acceptance). Returns no
+  // edited_at, so the refresh runs through onRemarkSaved (mutate-only full re-fetch) -- the row
+  // re-renders clean (no override): badges/tint/accept blocks reset and AI Apply re-enables.
+  const { call: revertToParserCall, loading: isRevertingToParser } = useFrappePostCall<{
+    message: { ok: boolean; reverted_children: number[] };
+  }>("nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser");
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
@@ -599,20 +601,21 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     }
   };
 
-  // AI-3c-2b: revert a prior AI acceptance -> the backend restores the row + moved children
-  // to their pre-accept state and flips ai_suggestion_status back to Pending. mutate-only
-  // refresh (no edited_at; the re-fetch re-renders the row Pending so the button disappears).
-  const handleRevertAi = async (row: ReviewRow) => {
+  // R3a (ADR-0006): the UNIFIED "Revert to parser" handler. Restores the row + any children a
+  // restructure moved to the parser baseline -- regardless of whether the standing change was an
+  // AI acceptance (either provider) or a manual edit. mutate-only refresh (no edited_at; the
+  // re-fetch re-renders the row clean so the Revert button disappears and AI Apply re-enables).
+  const handleRevertToParser = async (row: ReviewRow) => {
     setAiActionError(null);
     try {
-      await revertAiCall({
+      await revertToParserCall({
         boq_name: boqName,
         sheet_name: sheetName, // VERBATIM untrimmed -- #152
         row_index: row.row_index,
       });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      setAiActionError(getFrappeError(e) || "Could not revert the AI change.");
+      setAiActionError(getFrappeError(e) || "Could not revert this row to the parser baseline.");
     }
   };
 
@@ -2266,6 +2269,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             const canApply =
                               (aiAcceptCls && ai.hasClass && clsIsChange) ||
                               (aiAcceptParent && ai.hasParent && parentIsChange);
+                            // R3a (ADR-0006): an AI apply must never silently overwrite a standing
+                            // decision (the other provider's accepted suggestion OR a manual edit).
+                            // Disable Apply while the row carries any override; the user must first
+                            // "Revert to parser" (the unified affordance below).
+                            const blockedByOverride = !!row.has_override;
                             return (
                               <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                                 <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1.5 flex items-center gap-1">
@@ -2318,15 +2326,24 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                   <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">{row.ai_explanation}</p>
                                 )}
                                 {aiActionError && <p className="text-xs text-destructive mb-1">{aiActionError}</p>}
+                                {blockedByOverride && (
+                                  <p className="text-[11px] text-muted-foreground italic mb-1.5 leading-snug">
+                                    Revert this row to parser before applying an AI suggestion.
+                                  </p>
+                                )}
                                 <div className="flex items-center gap-2">
-                                  <Button
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    disabled={!canApply || isAcceptingAi || isRejectingAi}
-                                    onClick={() => { void handleApplyAi(row); }}
-                                  >
-                                    {isAcceptingAi ? "Applying…" : "Apply selected changes"}
-                                  </Button>
+                                  <span title={blockedByOverride
+                                    ? "Revert this row to parser before applying an AI suggestion."
+                                    : undefined}>
+                                    <Button
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      disabled={!canApply || blockedByOverride || isAcceptingAi || isRejectingAi}
+                                      onClick={() => { void handleApplyAi(row); }}
+                                    >
+                                      {isAcceptingAi ? "Applying…" : "Apply selected changes"}
+                                    </Button>
+                                  </span>
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -2340,48 +2357,51 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               </div>
                             );
                           })()}
-                          {/* AI-3c-2b: Revert AI change. Shown for an Accepted row (the PENDING
-                              accept/reject block above is gone once Accepted). ENABLED iff the
-                              backend still holds a pre-accept snapshot (revert_available) AND the
-                              sheet is editable; greyed with a reason otherwise -- a later
-                              classification/parent edit cleared the snapshot (revert_available
-                              false), or the sheet is finalized (readOnly). handleRevertAi ->
-                              onRemarkSaved (mutate-only re-fetch -> the row re-renders Pending,
-                              the accept/reject block reappears, this button disappears). */}
-                          {row.ai_suggestion_status === "Accepted" && (
+                          {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
+                              row carries any standing override (has_override) -- an accepted AI
+                              suggestion (either provider) OR a manual edit. It restores the row +
+                              any children a restructure moved to the parser baseline, regardless of
+                              the override kind, after which AI Apply re-enables. Replaces the two
+                              former provider-specific reverts ("Revert AI change" here + "Revert
+                              Gemini change" in GeminiAcceptBlock). Disabled under readOnly (a
+                              finalized sheet freezes the affordance). handleRevertToParser ->
+                              onRemarkSaved (mutate-only re-fetch -> the row re-renders clean, the
+                              accept blocks reappear Pending, this button disappears). */}
+                          {row.has_override && (
                             <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   className="h-7 px-2 text-xs"
-                                  disabled={!row.revert_available || readOnly || isRevertingAi}
-                                  onClick={() => { void handleRevertAi(row); }}
+                                  disabled={readOnly || isRevertingToParser}
+                                  onClick={() => { void handleRevertToParser(row); }}
                                 >
-                                  {isRevertingAi ? "Reverting…" : "Revert AI change"}
+                                  {isRevertingToParser ? "Reverting…" : "Revert to parser"}
                                 </Button>
                                 {readOnly ? (
                                   <span className="text-muted-foreground italic text-xs">
                                     Sheet is finalized — revert unavailable.
                                   </span>
-                                ) : !row.revert_available ? (
+                                ) : (
                                   <span className="text-muted-foreground italic text-xs">
-                                    Revert no longer available — the row was edited after the AI change.
+                                    Restores this row (and any moved children) to the parser baseline.
                                   </span>
-                                ) : null}
+                                )}
                               </div>
                               {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
                             </div>
                           )}
-                          {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject/revert block,
-                              mounted BENEATH the Claude block. Visual clone of the Claude block
-                              reading gemini_* + calling the gemini endpoints. The Pending
-                              accept/reject UI is gated on !readOnly (a finalized sheet writes
-                              nothing); the Accepted Revert UI renders regardless (it disables
-                              itself under readOnly with a reason). With-children accepts route to
-                              the SHARED RestructureModal via onOpenRestructureGemini (markGemini-
-                              Accepted). Only mounted when geminiEnabled. */}
-                          {geminiEnabled && (row.gemini_suggestion_status === "Accepted" || !readOnly) && (
+                          {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject block, mounted
+                              BENEATH the Claude block. Visual clone of the Claude block reading
+                              gemini_* + calling the gemini endpoints. R3a (ADR-0006): the block now
+                              owns ONLY the Pending accept/reject UI (gated on !readOnly) -- the
+                              former "Revert Gemini change" affordance is gone, folded into the ONE
+                              unified "Revert to parser" above (shown on any has_override row). With-
+                              children accepts route to the SHARED RestructureModal via
+                              onOpenRestructureGemini (markGeminiAccepted). Only mounted when
+                              geminiEnabled. */}
+                          {geminiEnabled && !readOnly && (
                             <GeminiAcceptBlock
                               row={row}
                               boqName={boqName}
