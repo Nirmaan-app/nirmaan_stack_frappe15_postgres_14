@@ -493,9 +493,31 @@ rollup totals are byte-for-byte unchanged (the formula-aware / grand-total / rec
 **Cluster B (the formula-vs-document reconciliation CHOICE store) is the NEXT slice -- deferred** (no choice store, no
 overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Display-only; no backend / fetch / doctype.
 
+**Acknowledge dismiss layer `priceability.ts` + `SheetPricingPage.tsx` (Slice 4b-ACKNOWLEDGE; full detail: plan §"Phase 5
+Slice 4b-ACKNOWLEDGE"):** a per-entry "reviewed / looks OK" DISMISS on the review strip. A dismissal HIDES a strip entry (a
+computed flag OR a remark) from the ACTIVE view WITHOUT changing its condition (an ACKNOWLEDGMENT, not a fix -- the flag
+clears for real only when its condition clears). **The store key is (excel_row, flag_kind) -- the SAME identity a
+`ReviewEntry` carries, so `ReviewEntry` is UNCHANGED** (no shape edit). `priceability.ts` gains PURE helpers:
+`dismissalKey(excelRow, kind)` => `"<kind>:<excelRow>"` (EQUALS the strip's existing `<li>` key `${e.kind}:${e.excelRow}` --
+the membership composite is the strip key, locked by a test), `reviewEntryKey`, `buildDismissedKeySet` (from
+`get_priced_rows.dismissals`, the additive sheet-level flat list `[{excel_row, flag_kind}, ...]`), `isEntryDismissed`,
+`filterActiveReviewEntries` (ONE pass over the already-built `ReviewEntry[]` -- NO new page-level recompute). The new wire
+types `DismissalRef` / `DismissalSaveArgs` + the `dismissals` key on `GetPricedRowsResponse` live in `boqTypes.ts`.
+**`SheetPricingPage.tsx`:** `allReviewEntries` (the full sorted feed) -> `activeReviewEntries` (filtered) -> `reviewEntries`
+= `showDismissed ? all : active`; the toolbar Review-count reads the ACTIVE count; the strip header gains a "Show dismissed
+(N)" / "Hide dismissed" toggle (shown only when `dismissedCount > 0`, per-sheet, reset on tab switch); each strip row gains
+a per-entry "Looks OK" (dismiss) / "Restore" (un-dismiss) ghost button -- `stopPropagation` (the row click scroll-jumps),
+WITHHELD when `locked` (the read-only sheet has no dismiss action, mirroring the rate-save gate). `handleSaveDismiss`
+mirrors `handleSaveColor` (in-flight count, takeover detection, `mutate()`); wires `save_cell_dismissal`
+(`dismissed:false` un-dismisses). **RE-ARM is SERVER-side** (a successful `save_cell_price` freezes the row's computed
+dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; there is NO client re-arm logic.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-A computed-flag layer -- the shared
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
+review-strip DISMISS (pure `priceability.ts` filter helpers + `SheetPricingPage` active/show-all feed + "Show dismissed"
+toggle + per-entry Looks-OK/Restore action wired to `save_cell_dismissal`; `ReviewEntry` UNCHANGED; server-side re-arm,
+priceability 27->30, 2026-06-23); Slice 4b-A computed-flag layer -- the shared
 `priceability.ts` spine + the flags (needs_rate / qty_anomaly / broken / not_yet, broken/not_yet GATED behind the
 priceability spine + not_yet DE-DUPED per-area against needs_rate [cert fixes]; `wont_compute` removed before push) +
 in-grid markers + unified review strip + N/M

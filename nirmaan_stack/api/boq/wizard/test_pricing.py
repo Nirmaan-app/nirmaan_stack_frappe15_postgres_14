@@ -27,10 +27,12 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_priced_rows,
     get_sheet_amount_formulas,
     get_sheet_colors,
+    get_sheet_dismissals,
     get_sheet_pricing,
     get_sheet_remarks,
     save_amount_formula,
     save_cell_color,
+    save_cell_dismissal,
     save_cell_price,
     save_row_remark,
 )
@@ -55,6 +57,7 @@ _LOCK_DT = "BoQ Sheet Pricing Lock"
 _REMARK_DT = "BoQ Cell Remark"
 _COLOR_DT = "BoQ Cell Color"
 _FORMULA_DT = "BoQ Cell Amount Formula"
+_DISMISSAL_DT = "BoQ Cell Dismissal"
 
 
 class TestCellPricing(FrappeTestCase):
@@ -1881,3 +1884,264 @@ class TestAmountFormula(FrappeTestCase):
             )
         with self.assertRaises(frappe.ValidationError):
             get_sheet_amount_formulas(boq_name=self.boq, sheet_name=self.sheet)  # no version
+
+
+class TestCellDismissal(FrappeTestCase):
+    """Slice 4b-ACKNOWLEDGE: the per-(row, flag_kind) DISMISSAL layer (BoQ Cell Dismissal) --
+    save_cell_dismissal + get_sheet_dismissals + the get_priced_rows merge + the save_cell_price
+    RE-ARM. A dismissal HIDES a review-strip entry (a computed flag or a remark) from the active
+    view WITHOUT changing the underlying condition. Reuses the shared committed fixture (line
+    items 34/35, preamble row 6) and ADDS one 'Other' (non-priceable) node at source_row 50 to
+    drive the success-only re-arm proof via a priceability reject. sheet_name carries a trailing
+    space (#152). Each test starts with a clean dismissal + pricing + lock layer."""
+
+    OTHER_ROW = 50
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Cell-Dismissal Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Dismiss Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+        # An 'Other' (non-priceable) node -- a note row at source_row 50. A rate save on it is
+        # rejected by the priceability guard (no override), which is the T7 success-only proof.
+        other = frappe.new_doc("BOQ Nodes")
+        other.sheet = cls.fixture["bqsh"]
+        other.node_type = "Other"
+        other.row_class = "note"
+        other.description = "NOTE: rates exclusive of taxes"
+        other.sort_order = 3
+        other.source_row_number = cls.OTHER_ROW
+        other.commit_version = cls.cv
+        other.is_current = 1
+        other.committed_at = frappe.utils.now()
+        other.insert(ignore_permissions=True)
+        cls.other_node = other.name
+        frappe.db.commit()
+
+        cls.me = frappe.session.user
+        cls.other = frappe.db.get_value(
+            "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
+        )
+        assert cls.other, "need a second real User to play the competing lock holder"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_DISMISSAL_DT, {"boq": cls.boq})
+        frappe.db.delete(_PRICING, {"boq": cls.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_DISMISSAL_DT, {"boq": self.boq})
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current(self, excel_row, flag_kind):
+        return frappe.get_all(
+            _DISMISSAL_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "flag_kind": flag_kind, "committed_version": self.cv, "is_current": 1},
+            fields=["name", "flag_kind", "dismissal_version", "description", "dismissed_by"],
+        )
+
+    def _all_versions(self, excel_row, flag_kind):
+        return frappe.get_all(
+            _DISMISSAL_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "flag_kind": flag_kind, "committed_version": self.cv},
+            fields=["dismissal_version", "is_current"],
+            order_by="dismissal_version asc",
+        )
+
+    def _seed_lock(self, user):
+        acquire_or_refresh(self.boq, self.sheet, self.cv, user, frappe.utils.now_datetime())
+        frappe.db.commit()
+
+    # -- T1: dismiss -> one current at (row,kind); the read surfaces it ------
+
+    def test_dismiss_creates_current_v1(self):
+        res = save_cell_dismissal(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, flag_kind="needs_rate", dismissed=True,
+            description="cable 1.1.2",
+        )
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["dismissal_version"], 1)
+        self.assertEqual(res["froze_prior"], 0, "first dismiss freezes nothing")
+        self.assertTrue(res["dismissed"])
+        cur = self._current(34, "needs_rate")
+        self.assertEqual(len(cur), 1, "exactly one current dismissal record")
+        self.assertEqual(cur[0]["description"], "cable 1.1.2", "guard carried, not branched on")
+        self.assertEqual(cur[0]["dismissed_by"], self.me, "stamps the dismissing user")
+        got = get_sheet_dismissals(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )["dismissals"]
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["excel_row"], 34)
+        self.assertEqual(got[0]["flag_kind"], "needs_rate")
+
+    # -- T2: re-dismiss same (row,kind) -> freeze v1, insert v2, one current --
+
+    def test_redismiss_freezes_and_supersedes(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        res2 = save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                   committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        self.assertEqual(res2["dismissal_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1, "the re-dismiss froze the prior current")
+        cur = self._current(34, "needs_rate")
+        self.assertEqual(len(cur), 1, "exactly ONE current after re-dismiss (freeze-and-supersede)")
+        self.assertEqual(cur[0]["dismissal_version"], 2)
+
+    # -- T3: two kinds, same row -> two independent currents (the discriminator) --
+
+    def test_two_kinds_same_row_independent(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="qty_anomaly", dismissed=True)
+        self.assertEqual(len(self._current(34, "needs_rate")), 1)
+        self.assertEqual(len(self._current(34, "qty_anomaly")), 1)
+        got = get_sheet_dismissals(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )["dismissals"]
+        self.assertEqual(len(got), 2, "two independent dismissals on the same row")
+
+    # -- T4: un-dismiss (falsy) -> current frozen, none current, nothing inserted --
+
+    def test_undismiss_freezes_inserts_nothing(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        res = save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                  committed_version=self.cv, flag_kind="needs_rate", dismissed=False)
+        self.assertFalse(res["dismissed"])
+        self.assertEqual(res["froze_prior"], 1)
+        self.assertIsNone(res["name"], "un-dismiss inserts no new current")
+        self.assertIsNone(res["dismissal_version"])
+        self.assertEqual(self._current(34, "needs_rate"), [], "no current dismissal after un-dismiss")
+        allv = self._all_versions(34, "needs_rate")
+        self.assertEqual(len(allv), 1, "still only v1 -- the un-dismiss inserted nothing")
+        self.assertEqual(allv[0]["is_current"], 0, "v1 frozen")
+        got = get_sheet_dismissals(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )["dismissals"]
+        self.assertEqual(got, [], "an un-dismissed entry does not surface")
+
+    # -- T5: RE-ARM -- a rate write on the row freezes its computed dismissal --
+
+    def test_rate_edit_rearms_computed_dismissal(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1",
+        )
+        self.assertEqual(res["rearmed_dismissals"], 1, "the rate write re-armed the needs_rate dismissal")
+        self.assertEqual(self._current(34, "needs_rate"), [], "the dismissal is no longer current")
+
+    # -- T6: RE-ARM EXCLUDES REMARK (the load-bearing exclusion) -------------
+
+    def test_rate_edit_excludes_remark_dismissal(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="remark", dismissed=True)
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1",
+        )
+        self.assertEqual(res["rearmed_dismissals"], 1, "ONLY the computed kind re-armed")
+        self.assertEqual(self._current(34, "needs_rate"), [], "needs_rate frozen by the rate edit")
+        self.assertEqual(len(self._current(34, "remark")), 1, "the remark dismissal SURVIVES a rate edit")
+
+    # -- T7: RE-ARM only on SUCCESS -- a rejected rate write mutates nothing --
+
+    def test_rejected_rate_save_leaves_dismissals(self):
+        # Dismiss qty_anomaly on the non-priceable Other row, then attempt a rate save there
+        # WITHOUT the override -> the priceability guard throws BEFORE the re-arm runs.
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+                            committed_version=self.cv, flag_kind="qty_anomaly", dismissed=True)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_price(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=self.OTHER_ROW,
+                col_letter="E", committed_version=self.cv, rate=99.0,
+            )
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        self.assertEqual(len(self._current(self.OTHER_ROW, "qty_anomaly")), 1,
+                         "a rejected rate save left the dismissal untouched (re-arm never ran)")
+
+    # -- T8: NEG -- dismissal for a non-existent row throws, mutates nothing --
+
+    def test_nonexistent_row_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=9999,
+                                committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        self.assertEqual(self._current(9999, "needs_rate"), [], "no dismissal for a non-existent row")
+
+    # -- T9: NEG -- bad / missing flag_kind throws --------------------------
+
+    def test_bad_flag_kind_throws(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                committed_version=self.cv, flag_kind="bogus", dismissed=True)
+        self.assertIn("flag_kind", str(ctx.exception).lower())
+        self.assertEqual(self._current(34, "bogus"), [], "a bad-kind dismissal wrote nothing")
+
+    def test_missing_flag_kind_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                committed_version=self.cv, flag_kind=None, dismissed=True)
+
+    # -- the lock guard: a fresh lock by another user rejects + mutates nothing --
+
+    def test_lock_held_by_other_rejects_and_mutates_nothing(self):
+        self._seed_lock(self.other)  # other holds a FRESH lock
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                                committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception), "reject carries the lock marker")
+        self.assertEqual(self._current(34, "needs_rate"), [], "a lock-rejected dismissal wrote nothing")
+
+    # -- HTTP coercion: the wire sends `dismissed` as a string --------------
+
+    def test_dismissed_http_string_coercion(self):
+        # "true" reads truthy -> dismiss.
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed="true")
+        self.assertEqual(len(self._current(34, "needs_rate")), 1, '"true" dismisses')
+        # "false" reads falsy -> un-dismiss (freeze, insert nothing).
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed="false")
+        self.assertEqual(self._current(34, "needs_rate"), [], '"false" un-dismisses')
+
+    # -- T10: get_priced_rows surfaces the additive dismissals key ----------
+
+    def test_get_priced_rows_surfaces_dismissals(self):
+        save_cell_dismissal(boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                            committed_version=self.cv, flag_kind="needs_rate", dismissed=True)
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIn("dismissals", res, "the additive sheet-level key is present")
+        self.assertEqual(
+            res["dismissals"], [{"excel_row": 34, "flag_kind": "needs_rate"}],
+            "the current dismissal is delivered as a flat sheet-level list",
+        )
+
+    def test_get_priced_rows_dismissals_empty_when_none(self):
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIn("dismissals", res, "the key is always present (backwards-compat shape)")
+        self.assertEqual(res["dismissals"], [], "a no-dismissal sheet returns it empty")

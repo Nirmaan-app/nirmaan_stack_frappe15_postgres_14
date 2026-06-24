@@ -612,6 +612,13 @@ export interface GetPricedRowsResponse {
   lock_info: LockInfo | null;
   /** F1: per-COLUMN amount formulas for this committed version ([] when none / uncommitted). */
   column_formulas: ColumnFormula[];
+  /**
+   * Slice 4b-ACKNOWLEDGE: the current "reviewed / looks OK" dismissals for this committed
+   * version, delivered as a SHEET-LEVEL list (NOT merged per-row, like column_formulas). The
+   * strip filter turns it into an O(1) membership set keyed "<flag_kind>:<excel_row>" (the
+   * strip's own list key). [] when none / uncommitted.
+   */
+  dismissals: DismissalRef[];
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
@@ -678,6 +685,31 @@ export interface ReviewEntry {
   description: string;
   /** the human-readable line shown in the strip. */
   text: string;
+}
+
+/**
+ * Slice 4b-ACKNOWLEDGE: one current "reviewed / looks OK" dismissal, as delivered by
+ * get_priced_rows.dismissals. Identity = (excel_row, flag_kind). `flag_kind` is the SAME
+ * value space as ReviewEntry["kind"] (the four computed flags PLUS "remark"), so a dismissal
+ * matches an entry on the composite key "<flag_kind>:<excel_row>" (the strip's list key). NO
+ * per-area dimension (a ReviewEntry folds its per-area detail into ONE entry per row per kind).
+ */
+export interface DismissalRef {
+  excel_row: number;
+  flag_kind: ReviewEntry["kind"];
+}
+
+/**
+ * Slice 4b-ACKNOWLEDGE: the args the page sends to save_cell_dismissal. The strip hands up an
+ * entry's (excelRow, kind) + the desired state; the page fills boq_name / sheet_name /
+ * committed_version + description, then POSTs. `dismissed` false un-dismisses (re-shows).
+ */
+export interface DismissalSaveArgs {
+  excelRow: number;
+  flagKind: ReviewEntry["kind"];
+  dismissed: boolean;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
 }
 
 /** The live priced-count readout (Slice 4b-A): N of M priceable lines fully priced. */

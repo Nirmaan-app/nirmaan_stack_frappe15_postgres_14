@@ -32,6 +32,7 @@ import type {
   BOQsDoc,
   ColorSaveArgs,
   CommittedSheetGridResponse,
+  DismissalSaveArgs,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
   RateCellSaveArgs,
@@ -48,9 +49,12 @@ import {
   type PricingGridHandle,
 } from "./PricingGrid";
 import {
+  buildDismissedKeySet,
   buildFlagEntries,
   computePricedCount,
   computeRowFlags,
+  filterActiveReviewEntries,
+  isEntryDismissed,
   isFullyPriced,
   isPriceableLine,
 } from "./priceability";
@@ -164,6 +168,11 @@ const SheetPricingPage = () => {
   const { call: saveCellColor } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_color",
   );
+  // Slice 4b-ACKNOWLEDGE: dismiss / un-dismiss one review-strip entry (save_cell_dismissal).
+  // A SEPARATE write path (parallel to rates/annotations); an acknowledgment, not an edit.
+  const { call: saveCellDismissal } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_cell_dismissal",
+  );
   // Formula Builder F3: save one amount-column formula (save_amount_formula). A SEPARATE
   // write path (parallel to rates/annotations); withheld when locked so headers render
   // read-only. Does NOT touch the amount-cell compute path (that is F4).
@@ -174,6 +183,9 @@ const SheetPricingPage = () => {
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Slice 4b-ACKNOWLEDGE: the strip default shows ACTIVE (undismissed) entries only; this
+  // toggle reveals the dismissed ones too so nothing is ever lost. Per-sheet per-session.
+  const [showDismissed, setShowDismissed] = useState(false);
   // Slice 4b-A: "show only unpriced" -- collapse the grid to priceable-but-not-fully-priced
   // rows. Per-sheet per-session (reset on a tab switch, like the override).
   const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
@@ -221,6 +233,7 @@ const SheetPricingPage = () => {
     setSummaryOpen(false);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
+    setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
   }, [sheetName]);
 
@@ -274,6 +287,7 @@ const SheetPricingPage = () => {
   const rows = pricedData?.message?.rows ?? [];
   const columnDescriptors = pricedData?.message?.column_descriptors ?? [];
   const columnFormulas = pricedData?.message?.column_formulas ?? []; // F3: per-column amount formulas
+  const dismissals = pricedData?.message?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
   const commitVersion = pricedData?.message?.commit_version ?? null;
   // RESERVED for the future single-editor-lock slice (3b) -- inert in 3a. Threaded into the
   // grid so 3b can gate inline edit on them without reshaping the contract.
@@ -393,6 +407,39 @@ const SheetPricingPage = () => {
     }
   };
 
+  // Slice 4b-ACKNOWLEDGE: dismiss / un-dismiss one review-strip entry (save_cell_dismissal)
+  // then ONE mutate so the dismissals list refetches + the strip filter re-derives. Mirrors
+  // handleSaveColor (in-flight, takeover, mutate). An acknowledgment, NOT an edit -- it never
+  // touches a rate; the server's row-level re-arm clears it again on the next rate edit.
+  const handleSaveDismiss = async (args: DismissalSaveArgs) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to annotate.");
+      throw new Error("no committed version");
+    }
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    try {
+      await saveCellDismissal({
+        boq_name: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM (#152)
+        excel_row: args.excelRow,
+        committed_version: commitVersion,
+        flag_kind: args.flagKind,
+        dismissed: args.dismissed,
+        description: args.description,
+      });
+      await mutate();
+      setLastSavedAt(new Date());
+    } catch (e: unknown) {
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) setTakenOver(true);
+      else setSaveError(msg || "Could not update the review state. Please try again.");
+      throw e;
+    } finally {
+      setInFlight((n) => n - 1);
+    }
+  };
+
   // Formula Builder F3: save one amount-column formula (save_amount_formula) then mutate so
   // column_formulas refetches + the header label updates. Mirrors handleSaveColor (in-flight,
   // takeover, mutate). The tree is sent as a JSON string; a null formula -> "" (the F1 clear
@@ -461,9 +508,18 @@ const SheetPricingPage = () => {
       text: (r.remark as string).trim(),
     }));
   const flagEntries = buildFlagEntries(rows, columnDescriptors, columnFormulas);
-  const reviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries].sort(
+  // The FULL feed (every entry, dismissed or not) -- retained for the "show dismissed" view.
+  const allReviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries].sort(
     (a, b) => a.excelRow - b.excelRow,
   );
+  // Slice 4b-ACKNOWLEDGE: the dismissed-key membership set (O(1)) + the ACTIVE feed (one pass).
+  // The default strip view + the Review-count are ACTIVE-only; the toggle reveals the full list.
+  const dismissedSet = buildDismissedKeySet(dismissals);
+  const activeReviewEntries = filterActiveReviewEntries(allReviewEntries, dismissedSet);
+  // Dismissed = those in the full feed but not active (a dismissal whose entry no longer
+  // computes simply isn't in allReviewEntries -- so this counts only LIVE dismissed entries).
+  const dismissedCount = allReviewEntries.length - activeReviewEntries.length;
+  const reviewEntries = showDismissed ? allReviewEntries : activeReviewEntries;
 
   // Slice 3c: the save-status chip state (pure derive) + force-save flush.
   const saveStatus = deriveSaveStatus({
@@ -594,7 +650,7 @@ const SheetPricingPage = () => {
             title="Rows flagged for review (remarks + computed flags)"
           >
             <ClipboardList className="h-4 w-4" />
-            Review{reviewEntries.length > 0 ? ` (${reviewEntries.length})` : ""}
+            Review{activeReviewEntries.length > 0 ? ` (${activeReviewEntries.length})` : ""}
           </Button>
           {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
               gun -- its ON state is loudly amber so the user always sees it is on. Default
@@ -744,35 +800,61 @@ const SheetPricingPage = () => {
         />
       )}
 
-      {/* ── Slice 4a/4b-A: unified review-list strip ─────────────────────────────
+      {/* ── Slice 4a/4b-A/4b-ACKNOWLEDGE: unified review-list strip ──────────────
           Opened ABOVE the grid (mirrors the Summary panel mount). ONE feed: 4a remarks +
-          the 4b-A computed flags (needs-rate / won't-compute / qty-anomaly / broken /
-          not-yet) + the rollup incomplete-subtotal entries. Each entry click-jumps to its
-          row via the grid's scrollToRow handle. */}
+          the 4b-A computed flags (needs-rate / qty-anomaly / broken / not-yet). Each entry
+          click-jumps to its row via the grid's scrollToRow handle, and carries a per-entry
+          "Looks OK" dismiss (4b-ACKNOWLEDGE) that HIDES it from the active view (toggle
+          "Show dismissed" to reveal + restore). The default view is ACTIVE-only. */}
       {!isGridOnly && reviewOpen && !pricedLoading && !pricedError && (
         <div className="rounded-md border border-border bg-muted/20">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <p className="text-sm font-medium text-foreground">
               Review list &middot; remarks &amp; flags ({reviewEntries.length})
             </p>
-            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setReviewOpen(false)}>
-              Close
-            </Button>
+            <div className="flex items-center gap-1">
+              {/* Slice 4b-ACKNOWLEDGE: reveal dismissed entries so nothing is ever lost. */}
+              {dismissedCount > 0 && (
+                <Button
+                  variant={showDismissed ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 px-2"
+                  aria-pressed={showDismissed}
+                  onClick={() => setShowDismissed((s) => !s)}
+                  title={
+                    showDismissed
+                      ? "Hide dismissed entries (show active only)."
+                      : "Show dismissed (reviewed / looks OK) entries too."
+                  }
+                >
+                  {showDismissed ? "Hide dismissed" : `Show dismissed (${dismissedCount})`}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setReviewOpen(false)}>
+                Close
+              </Button>
+            </div>
           </div>
           {reviewEntries.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted-foreground">
-              Nothing flagged. Priceable lines look fully priced; add a note on any row to flag it.
+              {dismissedCount > 0
+                ? `Nothing active. ${dismissedCount} dismissed -- click "Show dismissed" to review them.`
+                : "Nothing flagged. Priceable lines look fully priced; add a note on any row to flag it."}
             </p>
           ) : (
             <ul className="max-h-[30vh] divide-y divide-border overflow-auto">
               {reviewEntries.map((e) => {
                 const meta = REVIEW_ENTRY_META[e.kind];
+                const entryDismissed = isEntryDismissed(e, dismissedSet);
                 return (
-                  <li key={`${e.kind}:${e.excelRow}`}>
+                  <li key={`${e.kind}:${e.excelRow}`} className="flex items-stretch">
                     <button
                       type="button"
                       onClick={() => gridRef.current?.scrollToRow(e.excelRow)}
-                      className="w-full px-3 py-2 text-left hover:bg-muted/40"
+                      className={cn(
+                        "flex-1 px-3 py-2 text-left hover:bg-muted/40",
+                        entryDismissed && "opacity-60",
+                      )}
                     >
                       <span className="mr-2 font-mono text-xs text-muted-foreground">
                         Row {e.excelRow}
@@ -785,11 +867,58 @@ const SheetPricingPage = () => {
                       >
                         {meta.label}
                       </span>
+                      {entryDismissed && (
+                        <span className="mr-2 inline-flex items-center gap-0.5 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          <Check className="h-3 w-3" /> Looks OK
+                        </span>
+                      )}
                       <span className="text-xs text-foreground">
                         {e.description || "(no description)"}
                       </span>
                       <span className={cn("mt-0.5 block truncate text-[11px]", meta.text)}>{e.text}</span>
                     </button>
+                    {/* Per-entry dismiss / restore. Withheld when locked (read-only sheet). */}
+                    {!locked && (
+                      <div className="flex shrink-0 items-center pr-2">
+                        {entryDismissed ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground"
+                            title="Show this entry again (un-dismiss)."
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void handleSaveDismiss({
+                                excelRow: e.excelRow,
+                                flagKind: e.kind,
+                                dismissed: false,
+                                description: e.description || undefined,
+                              });
+                            }}
+                          >
+                            Restore
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 px-2 text-xs"
+                            title="Reviewed -- looks OK. Hide this entry from the active list."
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void handleSaveDismiss({
+                                excelRow: e.excelRow,
+                                flagKind: e.kind,
+                                dismissed: true,
+                                description: e.description || undefined,
+                              });
+                            }}
+                          >
+                            <Check className="h-3.5 w-3.5" /> Looks OK
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 );
               })}

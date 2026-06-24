@@ -38,6 +38,7 @@ import type {
   AreaKey,
   ColumnDescriptor,
   ColumnFormula,
+  DismissalRef,
   PricedLineCount,
   PricedRow,
   ReviewEntry,
@@ -322,4 +323,41 @@ export function buildFlagEntries(
     }
   }
   return out;
+}
+
+// ── Acknowledge ("reviewed / looks OK") dismiss filter (Slice 4b-ACKNOWLEDGE) ─────
+// PURE membership helpers. A dismissal HIDES a review-strip entry from the active view. The
+// store key is (excel_row, flag_kind) -- the SAME identity a ReviewEntry carries -- so the
+// composite "<kind>:<excelRow>" matches the strip's own list key `${e.kind}:${e.excelRow}`.
+
+/** The dismissal membership key for an (excelRow, kind) pair. MUST equal the strip's list
+ *  key `${kind}:${excelRow}` so a dismissal matches its entry exactly. */
+export function dismissalKey(excelRow: number, kind: ReviewEntry["kind"]): string {
+  return `${kind}:${excelRow}`;
+}
+
+/** The same key for a whole ReviewEntry (reuses dismissalKey -- one identity definition). */
+export function reviewEntryKey(e: ReviewEntry): string {
+  return dismissalKey(e.excelRow, e.kind);
+}
+
+/** Build the O(1) membership set from get_priced_rows.dismissals (a flat sheet-level list). */
+export function buildDismissedKeySet(dismissals: DismissalRef[]): Set<string> {
+  const set = new Set<string>();
+  for (const d of dismissals) set.add(dismissalKey(d.excel_row, d.flag_kind));
+  return set;
+}
+
+/** Is this entry dismissed? (membership test on its composite key). */
+export function isEntryDismissed(e: ReviewEntry, dismissed: Set<string>): boolean {
+  return dismissed.has(reviewEntryKey(e));
+}
+
+/** The ACTIVE (undismissed) entries -- ONE pass over the already-built list. The unfiltered
+ *  list is retained by the caller for the "show all" toggle (nothing is ever lost). */
+export function filterActiveReviewEntries(
+  entries: ReviewEntry[],
+  dismissed: Set<string>,
+): ReviewEntry[] {
+  return entries.filter((e) => !isEntryDismissed(e, dismissed));
 }

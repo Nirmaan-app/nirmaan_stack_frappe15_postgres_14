@@ -1,0 +1,253 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BDSM-.YY.-.#####",
+ "creation": "2026-06-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "flag_kind",
+  "committed_version",
+  "semantic_section",
+  "description",
+  "dismissal_version_section",
+  "dismissal_version",
+  "is_current",
+  "dismissed_at",
+  "dismissed_by",
+  "is_finalized"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Row Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this dismissal belongs to. Denormalized (mirrors BoQ Cell Pricing) so the layer is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable Excel-address identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number this dismissal acknowledges (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component. A dismissal is PER-ROW (no col_letter).",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "Which review-strip entry kind this dismissal acknowledges: one of the four computed flags (needs_rate / qty_anomaly / broken / not_yet) or a remark. The discriminator that lets one row carry several independent dismissals. Identity component.",
+   "fieldname": "flag_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Flag Kind",
+   "options": "needs_rate\nqty_anomaly\nbroken\nnot_yet\nremark",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet this dismissal annotates. Annotation is anchored to a committed version; identity component.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "semantic_section",
+   "fieldtype": "Section Break",
+   "label": "Guard (NOT identity)"
+  },
+  {
+   "description": "A copy of the committed row's description at dismiss time -- a copy-forward MATCH GUARD (a future copy-forward slice warns when the committed description changed under a dismissal). NOT part of the unique key; never branched on.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "dismissal_version_section",
+   "fieldtype": "Section Break",
+   "label": "Dismissal Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name, excel_row, flag_kind, committed_version) dismissal version. Incremented on re-dismiss by the write path (freeze-and-supersede, mirroring the pricing tier).",
+   "fieldname": "dismissal_version",
+   "fieldtype": "Int",
+   "label": "Dismissal Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current dismissal record per (boq, sheet_name, excel_row, flag_kind, committed_version). The one-current invariant is enforced by the write path (pricing.py save_cell_dismissal), NOT in this controller (mirrors the pricing-tier convention). A rate edit RE-ARMS (freezes -> is_current=0) the four computed kinds via save_cell_price; the read path returns only is_current=1.",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this dismissal record was written. Set by the write path.",
+   "fieldname": "dismissed_at",
+   "fieldtype": "Datetime",
+   "label": "Dismissed At",
+   "read_only": 1
+  },
+  {
+   "description": "The user who dismissed this entry. Set by the write path.",
+   "fieldname": "dismissed_by",
+   "fieldtype": "Data",
+   "label": "Dismissed By",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The finalize-pricing lock for this committed version. When set, the dismissal for this row/kind is finalized (a later finalize-pricing slice enforces the lock semantics; this slice only declares the marker -- mirrors BoQ Cell Pricing.is_finalized).",
+   "fieldname": "is_finalized",
+   "fieldtype": "Check",
+   "label": "Is Finalized"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Cell Dismissal",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

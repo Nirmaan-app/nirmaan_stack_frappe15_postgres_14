@@ -98,6 +98,23 @@ _REMARK_MAX_LEN = 250
 # MUST stay in sync with the Select options in boq_cell_color.json.
 _COLOR_TOKENS = frozenset({"red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"})
 
+# ── Acknowledge layer (Slice 4b-ACKNOWLEDGE) -- per-ROW review-flag/remark DISMISSAL ──
+# A "reviewed / looks OK" acknowledgment that HIDES a review-strip entry (a computed flag or
+# a remark) from the active view WITHOUT changing the underlying condition. ADDITIVE, sits on
+# top of the committed tier like every other overlay (own freeze-and-supersede triple); the
+# committed tier is NEVER mutated. DATA SHEETS ONLY (grid-only general-specs sheets are
+# read-only and never reach the strip).
+_DISMISSAL = "BoQ Cell Dismissal"
+
+# The five dismissable entry kinds -- the four computed ReviewFlagKind tokens PLUS "remark"
+# (one store, one discriminator). MUST stay in sync with the Select options in
+# boq_cell_dismissal.json AND the frontend ReviewEntry["kind"] union.
+_DISMISSAL_KINDS = frozenset({"needs_rate", "qty_anomaly", "broken", "not_yet", "remark"})
+
+# The COMPUTED flag kinds a successful rate write RE-ARMS (freezes). "remark" is EXCLUDED --
+# a remark dismissal is annotation on its own track and SURVIVES a rate edit (D3).
+_DISMISSAL_REARM_KINDS = frozenset({"needs_rate", "qty_anomaly", "broken", "not_yet"})
+
 
 def _parse_json_field(value, default):
     """Return a stored JSON field's value as a Python object. The committed BoQ Sheet JSON
@@ -304,6 +321,15 @@ def save_cell_price(
     doc.priced_at = frappe.utils.now()
     doc.is_finalized = 0
     doc.insert(ignore_permissions=True)
+
+    # RE-ARM (Slice 4b-ACKNOWLEDGE): a successful rate write is a MATERIAL change, so freeze
+    # this row's current dismissals for the four COMPUTED kinds -- the user should re-see the
+    # row's computed review state. Placed AFTER the price insert + BEFORE the single trailing
+    # commit, so it fires ONLY on a successful write (every rejection path -- cell-resolve,
+    # priceability guard, lock reject -- threw earlier and mutated nothing) and lands atomically
+    # with the price under this request's single commit. EXCLUDES flag_kind="remark" (D3).
+    rearmed = _rearm_row_dismissals(boq_name, sheet_name, excel_row, committed_version)
+
     frappe.db.commit()
 
     return {
@@ -313,6 +339,7 @@ def save_cell_price(
         "is_current": 1,
         "is_filled": 1,
         "froze_prior": len(prior),
+        "rearmed_dismissals": rearmed,
     }
 
 
@@ -684,6 +711,222 @@ def get_sheet_colors(
         order_by="excel_row asc, col_letter asc",
     )
     return {"colors": colors}
+
+
+# ── Acknowledge write/read helpers + endpoints (Slice 4b-ACKNOWLEDGE) ─────────────
+# Freeze-and-supersede plumbing for the per-(row, flag_kind) dismissal layer, mirroring
+# _current_pricing_names / _next_pricing_version but keyed on flag_kind (no col_letter).
+
+def _dismissal_identity_filters(boq_name, sheet_name, excel_row, flag_kind, committed_version) -> dict:
+    """The per-(row, flag_kind) dismissal identity filter (sheet_name matched VERBATIM #152)."""
+    return {
+        "boq": boq_name,
+        "sheet_name": sheet_name,
+        "excel_row": excel_row,
+        "flag_kind": flag_kind,
+        "committed_version": committed_version,
+    }
+
+
+def _current_dismissal_names(boq_name, sheet_name, excel_row, flag_kind, committed_version) -> list:
+    """Names of the is_current=1 dismissal record(s) for one (row, flag_kind) identity (0 or 1
+    -- the invariant). Mirrors _current_pricing_names."""
+    filters = _dismissal_identity_filters(boq_name, sheet_name, excel_row, flag_kind, committed_version)
+    filters["is_current"] = 1
+    return frappe.get_all(_DISMISSAL, filters=filters, pluck="name")
+
+
+def _next_dismissal_version(boq_name, sheet_name, excel_row, flag_kind, committed_version) -> int:
+    """The next dismissal version for one (row, flag_kind) identity = max prior + 1 (first save
+    = 1). Mirrors _next_pricing_version."""
+    agg = frappe.get_all(
+        _DISMISSAL,
+        filters=_dismissal_identity_filters(boq_name, sheet_name, excel_row, flag_kind, committed_version),
+        fields=["max(dismissal_version) as mv"],
+    )
+    return ((agg[0].mv if agg else None) or 0) + 1
+
+
+def _rearm_row_dismissals(boq_name, sheet_name, excel_row, committed_version) -> int:
+    """RE-ARM: freeze (is_current=0) this row's current dismissals for the four COMPUTED kinds
+    (EXCLUDING "remark"). Freeze, NEVER delete (D4 -- a re-armed dismissal becomes a frozen
+    historical record; the read path returns only is_current=1, so it vanishes from BOTH the
+    active AND the show-all view). Returns the count re-armed. sheet_name VERBATIM (#152).
+    Called from save_cell_price's success path only (see the placement note there)."""
+    names = frappe.get_all(
+        _DISMISSAL,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "excel_row": excel_row,
+            "committed_version": committed_version,
+            "flag_kind": ["in", sorted(_DISMISSAL_REARM_KINDS)],
+            "is_current": 1,
+        },
+        pluck="name",
+    )
+    for name in names:
+        frappe.db.set_value(_DISMISSAL, name, "is_current", 0)
+    return len(names)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_cell_dismissal(
+    boq_name: str = None,
+    sheet_name: str = None,
+    excel_row=None,
+    committed_version=None,
+    flag_kind: str = None,
+    dismissed=None,
+    description: str = None,
+) -> dict:
+    """Dismiss ("reviewed / looks OK") or un-dismiss one review-strip entry on a committed row
+    -- upsert the CURRENT dismissal record for that (row, flag_kind) (freeze-and-supersede),
+    mirroring save_row_remark. A dismissal HIDES the entry from the active view WITHOUT
+    changing the underlying condition (an ACKNOWLEDGMENT, not a fix).
+
+    Identity = (boq, sheet_name [VERBATIM #152], excel_row, flag_kind, committed_version).
+    `flag_kind` is one of the five tokens (needs_rate / qty_anomaly / broken / not_yet /
+    remark) -- the discriminator that lets one row carry several independent dismissals. NO
+    per-area dimension (a ReviewEntry's identity is (excel_row, kind)). The committed tier is
+    NOT mutated.
+
+    The committed ROW at that address/version MUST exist (resolved + validated via the SAME
+    row-level _resolve_committed_cell save_row_remark uses -- node_type is IGNORED here, a
+    dismissal is allowed on ANY row, no priceability gate).
+
+    LOCK: acquires/refreshes the single-editor lock (acquire_or_refresh) exactly like
+    save_row_remark -- AFTER the row-resolve, BEFORE any freeze/insert, so a lock rejection
+    (held fresh by another user) mutates NOTHING.
+
+    `dismissed` truthy (HTTP "1"/"true"/"yes"/"on" coerced) -> freeze any prior current for
+    this exact (row, flag_kind) + insert a fresh current (is_current=1). `dismissed` falsy ->
+    freeze the current for that (row, flag_kind), insert NOTHING (the explicit un-dismiss / the
+    toggle's "show this again"); the row then has no current dismissal for that kind and the
+    entry reappears active.
+
+    `description` is stored as the copy-forward MATCH GUARD (a future-slice carry, like
+    BoQ Cell Pricing.description) -- NOT part of the key, never branched on.
+
+    Returns {ok, name, dismissal_version, is_current, froze_prior, dismissed}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_cell_dismissal
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if excel_row is None or excel_row == "":
+        frappe.throw("excel_row is required.", title="Missing field: excel_row")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not flag_kind:
+        frappe.throw("flag_kind is required.", title="Missing field: flag_kind")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    excel_row = _coerce_int(excel_row, "excel_row")
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    if flag_kind not in _DISMISSAL_KINDS:
+        frappe.throw(
+            f"Invalid flag_kind '{flag_kind}'. Must be one of: {', '.join(sorted(_DISMISSAL_KINDS))}.",
+            title="Invalid flag_kind",
+        )
+
+    is_dismissed = _coerce_bool(dismissed)
+
+    # The committed ROW must exist (row-level check; node_type ignored -- a dismissal is
+    # allowed on any row, no priceability gate).
+    _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected write
+    # mutates nothing). Holder = session user; shares this request's transaction.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
+
+    # Freeze any prior current for this exact (row, flag_kind) via set_value (NEVER doc.save).
+    prior = _current_dismissal_names(
+        boq_name, sheet_name, excel_row, flag_kind, committed_version
+    )
+    for name in prior:
+        frappe.db.set_value(_DISMISSAL, name, "is_current", 0)
+
+    # UN-DISMISS: freeze only, insert no new current -> the entry reappears active.
+    if not is_dismissed:
+        frappe.db.commit()
+        return {
+            "ok": True,
+            "name": None,
+            "dismissal_version": None,
+            "is_current": 0,
+            "froze_prior": len(prior),
+            "dismissed": False,
+        }
+
+    dismissal_version = _next_dismissal_version(
+        boq_name, sheet_name, excel_row, flag_kind, committed_version
+    )
+    doc = frappe.new_doc(_DISMISSAL)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.excel_row = excel_row
+    doc.flag_kind = flag_kind
+    doc.committed_version = committed_version
+    doc.description = description
+    doc.dismissal_version = dismissal_version
+    doc.is_current = 1
+    doc.dismissed_at = frappe.utils.now()
+    doc.dismissed_by = frappe.session.user
+    doc.is_finalized = 0
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "name": doc.name,
+        "dismissal_version": dismissal_version,
+        "is_current": 1,
+        "froze_prior": len(prior),
+        "dismissed": True,
+    }
+
+
+@frappe.whitelist()
+def get_sheet_dismissals(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Current per-(row, flag_kind) dismissals (is_current=1) for one committed (boq, sheet,
+    committed_version). @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_pricing).
+    Pure read. sheet_name VERBATIM (#152). Returns {"dismissals": [{...}]} (empty when none).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_sheet_dismissals
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    dismissals = frappe.get_all(
+        _DISMISSAL,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        fields=[
+            "name", "excel_row", "flag_kind", "description",
+            "dismissal_version", "dismissed_at", "dismissed_by",
+        ],
+        order_by="excel_row asc, flag_kind asc",
+    )
+    return {"dismissals": dismissals}
 
 
 # ── Amount-formula helpers + endpoints (Formula Builder F1) ──────────────────────
@@ -1122,6 +1365,12 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # when a version is committed. Empty for an uncommitted/grid-only sheet. The grid/F4
         # consumes this; F1 just delivers it.
         "column_formulas": [],
+        # Dismissals (Slice 4b-ACKNOWLEDGE) -- the current "reviewed / looks OK" acknowledgments
+        # for this committed version, delivered as a SHEET-LEVEL list (like column_formulas, NOT
+        # merged per-row): a flat [{excel_row, flag_kind}, ...] the strip filter turns into an
+        # O(1) membership set keyed "<flag_kind>:<excel_row>" (the strip's own list key). Empty
+        # for an uncommitted/grid-only sheet. Built ONCE below when a version is committed.
+        "dismissals": [],
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -1148,6 +1397,15 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
                 "formula": f["formula"],  # already parsed to an object by the reader
             }
             for f in _current_formula_records(boq_name, sheet_name, commit_version)
+        ]
+        # Dismissals (Slice 4b-ACKNOWLEDGE): the current (excel_row, flag_kind) acknowledgments
+        # for this committed version -- a flat sheet-level list (NOT stamped onto any row). The
+        # strip filter consumes it; one query, no per-row query.
+        base["dismissals"] = [
+            {"excel_row": d["excel_row"], "flag_kind": d["flag_kind"]}
+            for d in get_sheet_dismissals(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+            )["dismissals"]
         ]
 
     # Nothing committed (no rows or no current version) -> no-op merge, graceful passthrough.

@@ -5,16 +5,27 @@
 // the priced N/M count, and the incomplete-row predicate.
 import { describe, it, expect } from "vitest";
 import {
+  buildDismissedKeySet,
   buildFlagEntries,
   computePricedCount,
   computeRowFlags,
+  dismissalKey,
+  filterActiveReviewEntries,
+  isEntryDismissed,
   isFullyPriced,
   isPriceableLine,
   isRateFilled,
   isRowIncomplete,
   qtyBearingAreas,
+  reviewEntryKey,
 } from "./priceability";
-import type { ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
+import type {
+  ColumnDescriptor,
+  ColumnFormula,
+  DismissalRef,
+  PricedRow,
+  ReviewEntry,
+} from "./boqTypes";
 
 function desc(
   col: string,
@@ -428,5 +439,57 @@ describe("priceability -- buildFlagEntries (the strip feed)", () => {
     expect(kinds).toContain("qty_anomaly"); // row 12 (Other + qty)
     expect(entries.find((e) => e.kind === "qty_anomaly")!.excelRow).toBe(12);
     expect(entries.find((e) => e.kind === "needs_rate")!.description).toBe("needs");
+  });
+});
+
+// ── Slice 4b-ACKNOWLEDGE: the dismiss filter (active vs show-all) ──────────────────
+describe("priceability -- acknowledge dismiss filter", () => {
+  const entry = (excelRow: number, kind: ReviewEntry["kind"]): ReviewEntry => ({
+    kind,
+    excelRow,
+    description: `row ${excelRow}`,
+    text: "x",
+  });
+
+  // T11: the filter excludes dismissed (excelRow, kind) entries from the active view; the
+  // full (show-all) list still includes them.
+  it("excludes dismissed entries from active; show-all keeps them", () => {
+    const entries: ReviewEntry[] = [
+      entry(11, "needs_rate"),
+      entry(11, "qty_anomaly"),
+      entry(12, "remark"),
+    ];
+    const dismissals: DismissalRef[] = [{ excel_row: 11, flag_kind: "needs_rate" }];
+    const dismissed = buildDismissedKeySet(dismissals);
+
+    const active = filterActiveReviewEntries(entries, dismissed);
+    // active drops ONLY the dismissed (11, needs_rate); the other row-11 kind stays.
+    expect(active).toHaveLength(2);
+    expect(active.some((e) => e.excelRow === 11 && e.kind === "needs_rate")).toBe(false);
+    expect(active.some((e) => e.excelRow === 11 && e.kind === "qty_anomaly")).toBe(true);
+    expect(active.some((e) => e.excelRow === 12 && e.kind === "remark")).toBe(true);
+    // the show-all list is the unfiltered input -- nothing is lost.
+    expect(entries).toHaveLength(3);
+  });
+
+  it("re-arm semantics: an undismissed remark survives while its row's flag is dismissed", () => {
+    // Mirrors the backend D3 exclusion at the read layer: a row can have a dismissed flag AND
+    // a live remark; only the dismissed key is filtered.
+    const entries: ReviewEntry[] = [entry(20, "needs_rate"), entry(20, "remark")];
+    const dismissed = buildDismissedKeySet([{ excel_row: 20, flag_kind: "needs_rate" }]);
+    const active = filterActiveReviewEntries(entries, dismissed);
+    expect(active).toEqual([entry(20, "remark")]);
+  });
+
+  // T12: the membership composite matches the strip's `${kind}:${excelRow}` key exactly.
+  it("dismissalKey matches the strip list key composite and reviewEntryKey reuses it", () => {
+    expect(dismissalKey(34, "needs_rate")).toBe("needs_rate:34");
+    const e = entry(34, "needs_rate");
+    // the strip renders <li key={`${e.kind}:${e.excelRow}`}> -- the membership key MUST equal it.
+    expect(reviewEntryKey(e)).toBe(`${e.kind}:${e.excelRow}`);
+    // and a dismissal built from the backend's (excel_row, flag_kind) matches that exact entry.
+    const dismissed = buildDismissedKeySet([{ excel_row: 34, flag_kind: "needs_rate" }]);
+    expect(isEntryDismissed(e, dismissed)).toBe(true);
+    expect(isEntryDismissed(entry(34, "qty_anomaly"), dismissed)).toBe(false);
   });
 });
