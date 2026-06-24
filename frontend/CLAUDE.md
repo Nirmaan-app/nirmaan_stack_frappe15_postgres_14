@@ -418,6 +418,35 @@ asymmetric gate / `isPriceableLine` / flags / count / rollup / perf memo are UNT
 top. **Live re-gate:** removing a formula flips `formulasComplete` back to false (re-locking rates) as a natural consequence
 of the live `column_formulas` read -- no special handling.
 
+**Amount-column formula-status badge (`priceability.isAmountColumnCovered` + `AmountFormulaBuilder.tsx` trigger +
+`PricingGrid.tsx` `<th>` tint; owner-locked option (a) -- status + action MERGED):** after the mandatory gate the user
+had no per-column guidance (which amount cols still NEED a formula). The fix relocates + recolors the formula affordance:
+a LEADING `ƒ` STATUS BADGE at the START of each amount column `<th>` (before the label) -- **AMBER when the column has no
+covering formula (pending), GREEN when covered** -- and the badge **IS the click-to-edit trigger** for the
+`AmountFormulaBuilder` popover (status + action are one control). The old far-right secondary preview line (the
+`blue tokensToText` label under the column label) is **REMOVED** -- it was a tiny truncated 2nd line on far-right,
+often-scrolled-off, narrow columns, which is the recon-diagnosed **layout/visibility** root cause of the "sometimes
+doesn't render / easy to miss" complaint (NOT a data bug -- the control already resolved correctly via `pickFormula`).
+**Relocating the trigger to the prominent leading badge IS the render-bug fix.** A subtle full-`<th>` **amber tint**
+washes PENDING amount columns (covered/non-amount columns keep neutral `bg-muted`) so a wide sheet (VRF 9 cols) is
+scannable at a glance; amber tokens (`bg-amber-50 dark:bg-amber-950/40`) mirror the gate banner. **Badge⇔gate agreement
+(by construction):** the NEW pure `priceability.isAmountColumnCovered(d, columnFormulas)` =
+`!!(pickFormula({value_field,value_key,rate_subkey}, columnFormulas)?.formula)` is the SINGLE per-column predicate;
+`areFormulasComplete` now folds `.every()` over it -- so **every amount column GREEN ⇔ areFormulasComplete true ⇔ rate
+gate open + banner hidden**. The badge color reuses `AmountFormulaBuilder`'s already-computed `applicable = pickFormula(...)`
+(`covered = !!(applicable && applicable.formula)`, the SAME resolution -- no second path, no priceability import → **no
+cycle**). The `<th>` tint check is `pickFormula` **inline** in `PricingGrid` (already imported from `amountFormula.ts`),
+**NOT** `priceability.isAmountColumnCovered` -- importing priceability into PricingGrid would reverse the one-way
+dependency into a cycle (same reason `isNonZeroNum` is a self-contained copy); it is the SAME override>wildcard
+`pickFormula` resolution, so it can't drift. **Read-only branch preserved:** when `onSaveFormula` is withheld (locked /
+taken-over / general-specs) the badge renders as a STATIC amber/green glyph with NO popover -- status always visible,
+editing gated by `onSave` exactly as before. **Display-only:** the header is in `<thead>`, OUTSIDE the memoized
+`PricingGridRow`, so a badge/tint re-render is free -- the gate logic / rate path / `pricingRowPropsAreEqual` / flags /
+count / rollup / perf memo are UNTOUCHED. Non-amount columns get no badge + no tint. Builder popover / `onSave` /
+validation / cycle-check UNCHANGED (only the trigger's look + position changed). vitest 235→241 (priceability 36→42:
+`isAmountColumnCovered` incl. wildcard + cleared + the shared-predicate agreement; no RTL in this env so the badge RENDER
+is not unit-tested -- the underlying coverage boolean is), tsc 3175 (0 new), in-container build exit 0, 2026-06-21.
+
 **Cross-area prefill save-path invariant (`PricingGrid.tsx`):** proposals live in a SEPARATE `proposedRates` map, NEVER
 in `draftRates`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the
 `flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates` is
@@ -583,7 +612,12 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** MANDATORY amount-formula gate -- amount formulas required
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Amount-column formula-status badge -- a leading amber
+(pending) / green (covered) `ƒ` badge that IS the `AmountFormulaBuilder` trigger (status + action merged; far-right
+preview line removed -- the layout/visibility render-bug fix) + a pending amber `<th>` tint + the shared
+`priceability.isAmountColumnCovered` predicate (`areFormulasComplete` folds over it -> badge⇔gate by construction);
+display-only (header outside the row memo); read-only branch preserved; vitest 235->241, tsc 3175 (0 new), 2026-06-21;
+see the formula-status-badge paragraph above + plan §"Amount-column formula-status badge". MANDATORY amount-formula gate -- amount formulas required
 before any rate is editable (REVERSES "formula optional"); `priceability.areFormulasComplete` (per-COVERAGE via `pickFormula`,
 wildcard-default covers per-area cols) -> a per-sheet `formulasComplete` boolean ANDed into the grid rate gate OUTSIDE
 `isRateEditableRow` (override CANNOT bypass) + added to `pricingRowPropsAreEqual` (memo-safe) + a "Declare amount formulas to
