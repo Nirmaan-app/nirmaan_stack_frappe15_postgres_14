@@ -36,6 +36,7 @@ import type {
   GetCommittedStateResponse,
   GetPricedRowsResponse,
   RateCellSaveArgs,
+  ReconChoiceSaveArgs,
   RemarkSaveArgs,
   ReviewEntry,
   RowReviewFlags,
@@ -52,6 +53,7 @@ import {
 import {
   areFormulasComplete,
   buildDismissedKeySet,
+  buildDivergenceEntries,
   buildFlagEntries,
   computePricedCount,
   computeRowFlags,
@@ -101,6 +103,13 @@ const REVIEW_ENTRY_META: Record<
     label: "Check formula",
     badge: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200",
     text: "text-rose-700 dark:text-rose-400",
+  },
+  // Cluster B: an UNRESOLVED document-vs-formula divergence. Violet -- the SAME distinct family
+  // as the in-grid cue (not amber/rose, which carry other meanings on this strip).
+  divergence: {
+    label: "Reconcile",
+    badge: "bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200",
+    text: "text-violet-700 dark:text-violet-400",
   },
 };
 
@@ -180,6 +189,12 @@ const SheetPricingPage = () => {
   // read-only. Does NOT touch the amount-cell compute path (that is F4).
   const { call: saveAmountFormula } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_amount_formula",
+  );
+  // Cluster B: choose (keep_document/take_formula) or clear the per-cell reconciliation choice
+  // (save_cell_reconciliation_choice). A SEPARATE write path (parallel to rates/annotations);
+  // withheld when locked so the divergence cue renders a static read-only pill.
+  const { call: saveCellReconChoice } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.save_cell_reconciliation_choice",
   );
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
@@ -314,6 +329,7 @@ const SheetPricingPage = () => {
   const columnDescriptors = pricedData?.message?.column_descriptors ?? [];
   const columnFormulas = pricedData?.message?.column_formulas ?? []; // F3: per-column amount formulas
   const dismissals = pricedData?.message?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
+  const reconChoices = pricedData?.message?.reconciliation_choices ?? []; // Cluster B: per-cell choices
   const commitVersion = pricedData?.message?.commit_version ?? null;
   // RESERVED for the future single-editor-lock slice (3b) -- inert in 3a. Threaded into the
   // grid so 3b can gate inline edit on them without reshaping the contract.
@@ -466,6 +482,39 @@ const SheetPricingPage = () => {
     }
   };
 
+  // Cluster B: choose / clear the per-cell formula-vs-document reconciliation choice
+  // (save_cell_reconciliation_choice) then ONE mutate so reconciliation_choices refetches + the
+  // grid cue, the strip, and the Summary totals re-derive. Mirrors handleSaveDismiss (in-flight,
+  // takeover, mutate). `choice` null clears (revert to unset -> document default, D1).
+  const handleSaveReconChoice = async (args: ReconChoiceSaveArgs) => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to annotate.");
+      throw new Error("no committed version");
+    }
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    try {
+      await saveCellReconChoice({
+        boq_name: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM (#152)
+        excel_row: args.excelRow,
+        col_letter: args.colLetter,
+        committed_version: commitVersion,
+        choice: args.choice ?? "", // "" clears (revert to unset -> document default)
+        description: args.description,
+      });
+      await mutate();
+      setLastSavedAt(new Date());
+    } catch (e: unknown) {
+      const msg = getFrappeError(e);
+      if (isTakeoverError(msg)) setTakenOver(true);
+      else setSaveError(msg || "Could not save the choice. Please try again.");
+      throw e;
+    } finally {
+      setInFlight((n) => n - 1);
+    }
+  };
+
   // Formula Builder F3: save one amount-column formula (save_amount_formula) then mutate so
   // column_formulas refetches + the header label updates. Mirrors handleSaveColor (in-flight,
   // takeover, mutate). The tree is sent as a JSON string; a null formula -> "" (the F1 clear
@@ -540,8 +589,17 @@ const SheetPricingPage = () => {
       text: (r.remark as string).trim(),
     }));
   const flagEntries = buildFlagEntries(rows, columnDescriptors, columnFormulas);
+  // Cluster B (D2b): UNRESOLVED document-vs-formula divergence entries (resolved cells drop out).
+  // The choice IS the resolution -- a divergence entry is NOT a dismissal (its flag_kind is not a
+  // dismissal token), so the dismissal filter below leaves it untouched.
+  const divergenceEntries = buildDivergenceEntries(
+    rows,
+    columnDescriptors,
+    columnFormulas,
+    reconChoices,
+  );
   // The FULL feed (every entry, dismissed or not) -- retained for the "show dismissed" view.
-  const allReviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries].sort(
+  const allReviewEntries: ReviewEntry[] = [...remarkEntries, ...flagEntries, ...divergenceEntries].sort(
     (a, b) => a.excelRow - b.excelRow,
   );
   // Slice 4b-ACKNOWLEDGE: the dismissed-key membership set (O(1)) + the ACTIVE feed (one pass).
@@ -867,6 +925,7 @@ const SheetPricingPage = () => {
           rows={rows}
           columnDescriptors={columnDescriptors}
           columnFormulas={columnFormulas}
+          reconChoices={reconChoices}
           sheetName={displaySheetName}
           onClose={() => setSummaryOpen(false)}
         />
@@ -949,8 +1008,11 @@ const SheetPricingPage = () => {
                       </span>
                       <span className={cn("mt-0.5 block truncate text-[11px]", meta.text)}>{e.text}</span>
                     </button>
-                    {/* Per-entry dismiss / restore. Withheld when locked (read-only sheet). */}
-                    {!locked && (
+                    {/* Per-entry dismiss / restore. Withheld when locked (read-only sheet) AND
+                        for a "divergence" entry -- a divergence is resolved by the in-grid
+                        chooser (keep/take), NOT by an acknowledge dismiss (its kind is not a
+                        dismissal token; the backend would reject it). */}
+                    {!locked && e.kind !== "divergence" && (
                       <div className="flex shrink-0 items-center pr-2">
                         {entryDismissed ? (
                           <Button
@@ -1063,6 +1125,11 @@ const SheetPricingPage = () => {
             // withheld when locked/taken-over so the grid renders remarks/colors read-only.
             onSaveRemark={locked ? undefined : handleSaveRemark}
             onSaveColor={locked ? undefined : handleSaveColor}
+            // Cluster B: the per-cell reconciliation choices drive the divergence cue + the
+            // document-default; onSaveReconChoice is withheld when locked (cue renders a static
+            // read-only pill, mirroring onSaveColor/onSaveRate).
+            reconChoices={reconChoices}
+            onSaveReconChoice={locked ? undefined : handleSaveReconChoice}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}

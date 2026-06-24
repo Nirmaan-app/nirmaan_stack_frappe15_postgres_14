@@ -34,6 +34,8 @@ import {
   lookupOperandValue,
 } from "./PricingGrid";
 import { pickFormula } from "./amountFormula";
+import { resolveDescriptorValue } from "./reviewRender";
+import { buildReconChoiceMap, reconChoiceKey, resolveDivergence } from "./reconcile";
 import type {
   AmountFormulaRef,
   AreaKey,
@@ -42,6 +44,7 @@ import type {
   DismissalRef,
   PricedLineCount,
   PricedRow,
+  ReconciliationChoiceRef,
   ReviewEntry,
   RowReviewFlags,
 } from "./boqTypes";
@@ -359,6 +362,47 @@ export function buildFlagEntries(
         ...base,
         kind: "not_yet",
         text: `Amount not computed yet (cols ${f.notYetCols.join(", ")}) -- a rate is missing.`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the per-row DIVERGENCE entries for the review strip (Cluster B, D2b). A divergence
+ * fires for an amount cell when the committed (document) amount and the formula-computed amount
+ * DIFFER (and the formula yields a real number -- kind === "value") AND the user has NOT yet
+ * chosen (unset). A resolved cell (keep_document / take_formula) DROPS OUT (it is no longer
+ * unresolved). One entry per row (folding all of the row's unresolved diverging columns into one
+ * "divergence" entry), so the count = rows with >=1 unresolved divergence. Pure -- saved-state
+ * (empty draftRates), matching the rollup + the rest of the strip.
+ */
+export function buildDivergenceEntries(
+  rows: PricedRow[],
+  descriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
+  reconChoices: ReconciliationChoiceRef[],
+): ReviewEntry[] {
+  const choiceMap = buildReconChoiceMap(reconChoices);
+  const out: ReviewEntry[] = [];
+  for (const row of rows) {
+    const unresolvedCols: string[] = [];
+    for (const d of descriptors) {
+      if (!isAmountDescriptor(d)) continue;
+      const cell = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
+      if (cell.kind !== "value") continue; // no computed number -> never a divergence
+      const docRaw = resolveDescriptorValue(row, d);
+      const docVal = typeof docRaw === "number" ? docRaw : null;
+      const choice = choiceMap.get(reconChoiceKey(row.source_row_number, d.col));
+      const recon = resolveDivergence(docVal, cell.value, choice);
+      if (recon.diverges && recon.resolved === "unset") unresolvedCols.push(d.col);
+    }
+    if (unresolvedCols.length > 0) {
+      out.push({
+        kind: "divergence",
+        excelRow: row.source_row_number,
+        description: row.description ?? "",
+        text: `Document vs formula amount differ (cols ${unresolvedCols.join(", ")}) -- choose which value to use.`,
       });
     }
   }

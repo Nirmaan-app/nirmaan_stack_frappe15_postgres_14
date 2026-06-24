@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   areFormulasComplete,
   buildDismissedKeySet,
+  buildDivergenceEntries,
   buildFlagEntries,
   computePricedCount,
   computeRowFlags,
@@ -595,5 +596,64 @@ describe("isAmountColumnCovered (the per-column predicate shared with the gate +
     const partial = [cf("amount_by_area", "A1", "total")];
     expect(amountCols.every((d) => isAmountColumnCovered(d, partial))).toBe(false);
     expect(areFormulasComplete(PER_AREA_CDS, partial)).toBe(false);
+  });
+});
+
+// ── Cluster B: buildDivergenceEntries (D2b -- the review-strip divergence kind) ──
+describe("buildDivergenceEntries", () => {
+  // amount total = qty x rate(combined), a wildcard default covering both A1 (F) and A2 (I).
+  const TOTAL_FORMULA: ColumnFormula = {
+    target_value_field: "amount_by_area",
+    target_value_key: null,
+    target_rate_subkey: "total",
+    target_col: null,
+    formula: {
+      op: "*",
+      operands: [
+        { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
+      ],
+    },
+  };
+  // A1 is PRICED (formula computes 10*5 = 50) and DIVERGES from the document 80. A2 is NOT priced
+  // (formula -> not_yet -> NO computed number), so even though its document amount (999) differs
+  // from nothing, it must NOT flag -- divergence fires only on kind === "value".
+  const divergeRow = (): PricedRow =>
+    prow({
+      row_index: 1, source_row_number: 34, effective_parent_index: null,
+      effective_classification: "line_item", node_type: "Line Item", description: "i1",
+      qty_by_area: { A1: 10, A2: 2 },
+      rate_by_area: { A1: { combined_rate: 5 } } as never,
+      amount_by_area: { A1: { total: 80 }, A2: { total: 999 } } as never,
+      priced_by_area: { A1: { combined_rate: true } } as never,
+    });
+
+  it("flags an UNRESOLVED divergence ONLY for the cell with a computed number (kind === value)", () => {
+    const entries = buildDivergenceEntries([divergeRow()], PER_AREA_CDS, [TOTAL_FORMULA], []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].kind).toBe("divergence");
+    expect(entries[0].excelRow).toBe(34);
+    // names F (the diverging, computed cell) -- NOT I (A2 is not_yet -> no number -> no divergence).
+    expect(entries[0].text).toContain("F");
+    expect(entries[0].text).not.toContain("I");
+  });
+
+  it("drops the entry once the cell is RESOLVED (keep_document or take_formula)", () => {
+    const resolved = buildDivergenceEntries([divergeRow()], PER_AREA_CDS, [TOTAL_FORMULA], [
+      { excel_row: 34, col_letter: "F", choice: "take_formula" },
+    ]);
+    expect(resolved).toHaveLength(0);
+  });
+
+  it("emits nothing when document and formula agree (no divergence)", () => {
+    const agree = prow({
+      row_index: 1, source_row_number: 34, effective_parent_index: null,
+      effective_classification: "line_item", node_type: "Line Item", description: "i1",
+      qty_by_area: { A1: 10 },
+      rate_by_area: { A1: { combined_rate: 5 } } as never,
+      amount_by_area: { A1: { total: 50 } } as never, // 10*5 == 50 -> equal
+      priced_by_area: { A1: { combined_rate: true } } as never,
+    });
+    expect(buildDivergenceEntries([agree], PER_AREA_CDS, [TOTAL_FORMULA], [])).toHaveLength(0);
   });
 });

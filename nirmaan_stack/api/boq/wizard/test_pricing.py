@@ -30,11 +30,13 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_sheet_colors,
     get_sheet_dismissals,
     get_sheet_pricing,
+    get_sheet_reconciliation_choices,
     get_sheet_remarks,
     save_amount_formula,
     save_cell_color,
     save_cell_dismissal,
     save_cell_price,
+    save_cell_reconciliation_choice,
     save_row_remark,
 )
 from nirmaan_stack.api.boq.wizard import pricing_lock
@@ -59,6 +61,7 @@ _REMARK_DT = "BoQ Cell Remark"
 _COLOR_DT = "BoQ Cell Color"
 _FORMULA_DT = "BoQ Cell Amount Formula"
 _DISMISSAL_DT = "BoQ Cell Dismissal"
+_CHOICE_DT = "BoQ Cell Reconciliation Choice"
 
 
 # A minimal structurally-valid amount formula (a single leaf -- presence is what coverage needs;
@@ -2469,3 +2472,249 @@ class TestMandatoryFormulaGate(FrappeTestCase):
             boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
         )["formulas"]
         self.assertEqual(len(recs), 1, "the formula was declared despite the sheet being locked")
+
+
+# A qty x rate(combined) amount formula -- references a RATE operand (rate_by_area wildcard,
+# combined_rate), so its amount column DEPENDS on the per-area combined rate. Bound per-area, a
+# wildcard rate leaf resolves to that area's combined rate (col E for Phase 1, col H for Phase 2).
+_QTY_TIMES_RATE_FORMULA = json.dumps({
+    "op": "*",
+    "operands": [
+        {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}},
+        {"ref": {"value_field": "rate_by_area", "value_key": None, "rate_subkey": "combined_rate"}},
+    ],
+})
+
+
+class TestReconciliationChoice(FrappeTestCase):
+    """Cluster B: the per-CELL formula-vs-document reconciliation choice (BoQ Cell Reconciliation
+    Choice + save_cell_reconciliation_choice / get_sheet_reconciliation_choices + the surgical,
+    column-aware re-arm in save_cell_price / save_amount_formula).
+
+    Fixture columns (COMMITTED_FIXTURE_ROLE_MAP): E = rate Phase 1 combined; F = amount Phase 1
+    total; H = rate Phase 2 combined; I = amount Phase 2 install. Line items at rows 34 + 35.
+    Per-test formulas: total (col F) = qty x rate(combined) [references the Phase-1 combined rate
+    -> col E]; install (col I) = qty-only [references NO rate]. So a rate save on E re-arms a
+    choice on F at the SAME row only -- never col I (qty-only) nor F at a DIFFERENT row.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Recon Choice Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Recon Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Clean every overlay each test, then re-declare BOTH covering formulas (so the mandatory
+        # gate passes for the rate-save re-arm test) -- total references a rate, install does not.
+        for dt in (_CHOICE_DT, _PRICING, _FORMULA_DT, _LOCK_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        frappe.db.commit()
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_QTY_TIMES_RATE_FORMULA,
+        )
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="install", formula=_FIXTURE_FORMULA_LEAF,
+        )
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current_choice(self, excel_row, col_letter):
+        return frappe.get_all(
+            _CHOICE_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "col_letter": col_letter, "committed_version": self.cv, "is_current": 1},
+            fields=["name", "choice", "choice_version"],
+        )
+
+    def _all_choice_versions(self, excel_row, col_letter):
+        return frappe.get_all(
+            _CHOICE_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "col_letter": col_letter, "committed_version": self.cv},
+            fields=["choice_version", "is_current", "choice"],
+            order_by="choice_version asc",
+        )
+
+    def _save_choice(self, excel_row, col_letter, choice):
+        return save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=excel_row,
+            col_letter=col_letter, committed_version=self.cv, choice=choice,
+        )
+
+    # -- POSITIVE: CRUD + freeze-and-supersede ------------------------------
+
+    def test_save_creates_current_choice_v1(self):
+        res = self._save_choice(34, "F", "keep_document")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["choice_version"], 1)
+        self.assertEqual(res["froze_prior"], 0, "first choice freezes nothing")
+        self.assertEqual(res["choice"], "keep_document")
+        cur = self._current_choice(34, "F")
+        self.assertEqual(len(cur), 1, "exactly one current choice")
+        self.assertEqual(cur[0]["choice"], "keep_document")
+
+    def test_resave_freezes_prior_and_supersedes(self):
+        self._save_choice(34, "F", "keep_document")
+        res2 = self._save_choice(34, "F", "take_formula")
+        self.assertEqual(res2["choice_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1, "the prior current was frozen")
+        cur = self._current_choice(34, "F")
+        self.assertEqual(len(cur), 1, "still exactly ONE current after re-save (the invariant)")
+        self.assertEqual(cur[0]["choice"], "take_formula")
+        allv = self._all_choice_versions(34, "F")
+        self.assertEqual(len(allv), 2, "both versions retained (frozen, never deleted)")
+        self.assertEqual([v["is_current"] for v in allv], [0, 1])
+
+    def test_keep_vs_take_are_distinct_per_cell(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "take_formula")
+        f = self._current_choice(34, "F")
+        i = self._current_choice(34, "I")
+        self.assertEqual(f[0]["choice"], "keep_document")
+        self.assertEqual(i[0]["choice"], "take_formula")
+
+    def test_clear_freezes_only_no_current(self):
+        self._save_choice(34, "F", "keep_document")
+        res = save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+            committed_version=self.cv, choice="",  # blank -> CLEAR
+        )
+        self.assertEqual(res["froze_prior"], 1)
+        self.assertEqual(res["is_current"], 0)
+        self.assertIsNone(res["choice"])
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "cleared -> no current (unset)")
+        # but the frozen historical record is retained (never deleted)
+        self.assertEqual(len(self._all_choice_versions(34, "F")), 1)
+
+    # -- READ ---------------------------------------------------------------
+
+    def test_get_sheet_reconciliation_choices(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "take_formula")
+        out = get_sheet_reconciliation_choices(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+        )["choices"]
+        by_col = {c["col_letter"]: c["choice"] for c in out}
+        self.assertEqual(by_col, {"F": "keep_document", "I": "take_formula"})
+
+    def test_get_priced_rows_includes_reconciliation_choices(self):
+        self._save_choice(34, "F", "take_formula")
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIn("reconciliation_choices", res)
+        self.assertEqual(
+            res["reconciliation_choices"],
+            [{"excel_row": 34, "col_letter": "F", "choice": "take_formula"}],
+        )
+
+    # -- NEGATIVE -----------------------------------------------------------
+
+    def test_save_to_nonexistent_cell_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._save_choice(9999, "F", "keep_document")
+
+    def test_save_to_nonexistent_sheet_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name="No Such Sheet ", excel_row=34, col_letter="F",
+                committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_save_to_nonexistent_boq_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name="NOPE-DOES-NOT-EXIST", sheet_name=self.sheet, excel_row=34,
+                col_letter="F", committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_missing_col_letter_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_missing_committed_version_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+                choice="keep_document",
+            )
+
+    def test_invalid_choice_token_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._save_choice(34, "F", "bogus_choice")
+
+    # -- INVALIDATION (D3): surgical, per-cell, column-aware re-arm ----------
+
+    def test_rate_save_rearms_only_the_referencing_column_choice(self):
+        # Choices on F@34 (references E via qty x rate), I@34 (qty-only -> no rate), F@35 (refs E
+        # but a DIFFERENT row).
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "keep_document")
+        self._save_choice(35, "F", "keep_document")
+        # Save a rate on E (rate Phase 1 combined) at row 34.
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=125.0, area="Phase 1", rate_kind="combined_rate",
+        )
+        self.assertEqual(res["rearmed_choices"], 1, "exactly the one referencing cell re-armed")
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "F@34 references E -> re-armed")
+        self.assertEqual(len(self._current_choice(34, "I")), 1, "I@34 is qty-only -> NOT re-armed")
+        self.assertEqual(len(self._current_choice(35, "F")), 1, "F@35 is a different row -> NOT re-armed")
+
+    def test_rate_save_on_unreferenced_rate_rearms_nothing(self):
+        # H = rate Phase 2 combined. F's formula binds to Phase 1, so it references E (Phase 1),
+        # NOT H. A rate save on H@34 must re-arm NOTHING (F@34's choice survives).
+        self._save_choice(34, "F", "keep_document")
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="H",
+            committed_version=self.cv, rate=80.0, area="Phase 2", rate_kind="combined_rate",
+        )
+        self.assertEqual(res["rearmed_choices"], 0, "F binds Phase 1 -> H (Phase 2) feeds it nothing")
+        self.assertEqual(len(self._current_choice(34, "F")), 1, "F@34 choice survives")
+
+    def test_formula_remove_clears_column_choices_silently(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(35, "F", "take_formula")
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula="",  # CLEAR
+        )
+        self.assertTrue(res["cleared"])
+        self.assertEqual(res["rearmed_choices"], 2, "both F rows cleared on formula remove")
+        self.assertEqual(len(self._current_choice(34, "F")), 0)
+        self.assertEqual(len(self._current_choice(35, "F")), 0)
+
+    def test_formula_save_rearms_column_choices(self):
+        self._save_choice(34, "F", "keep_document")
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_FIXTURE_FORMULA_LEAF,  # a NEW formula
+        )
+        self.assertFalse(res["cleared"])
+        self.assertGreaterEqual(res["rearmed_choices"], 1)
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "the column's choice re-armed on save")

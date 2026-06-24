@@ -30,7 +30,12 @@ import { useMemo, useState } from "react";
 import { ChevronRight, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rollupByParent, defaultCollapsedSet, type RollupNode } from "./pricingRollup";
-import type { ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
+import type {
+  ColumnDescriptor,
+  ColumnFormula,
+  PricedRow,
+  ReconciliationChoiceRef,
+} from "./boqTypes";
 
 // Indent step per depth level (mirrors the grid's INDENT_PX feel).
 const INDENT_PX = 16;
@@ -88,14 +93,17 @@ interface SummaryPanelProps {
    *  formula-aware (the zero-fix), so formula-driven amount columns contribute instead of
    *  rolling up 0. */
   columnFormulas: ColumnFormula[];
+  /** Cluster B: per-cell reconciliation choices -- the rollup resolves the CHOSEN value
+   *  (document-default), so the Summary totals match what the grid cells show. */
+  reconChoices: ReconciliationChoiceRef[];
   sheetName: string;
   onClose: () => void;
 }
 
-const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, sheetName, onClose }: SummaryPanelProps) => {
+const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, reconChoices, sheetName, onClose }: SummaryPanelProps) => {
   const { columns, roots, grandTotals, integrityErrors } = useMemo(
-    () => rollupByParent(rows, columnDescriptors, columnFormulas),
-    [rows, columnDescriptors, columnFormulas],
+    () => rollupByParent(rows, columnDescriptors, columnFormulas, reconChoices),
+    [rows, columnDescriptors, columnFormulas, reconChoices],
   );
 
   // Default view = expanded down to the shallowest preamble tier (computed from data).

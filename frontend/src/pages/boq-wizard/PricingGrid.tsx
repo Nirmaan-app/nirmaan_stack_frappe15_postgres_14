@@ -56,7 +56,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,12 @@ import {
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
+import {
+  buildReconChoiceMap,
+  reconChoiceKey,
+  resolveDivergence,
+  type ReconResolution,
+} from "./reconcile";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -81,6 +87,9 @@ import type {
   LockInfo,
   PricedRow,
   RateCellSaveArgs,
+  ReconChoice,
+  ReconChoiceSaveArgs,
+  ReconciliationChoiceRef,
   RemarkSaveArgs,
   RowReviewFlags,
 } from "./boqTypes";
@@ -909,6 +918,116 @@ function ColorPicker({
   );
 }
 
+// ── Cluster B: the per-cell formula-vs-document reconciliation badge + chooser ───
+/** Locale-group an amount for the chooser labels (display only -- not the stored value). */
+const fmtReconAmount = (n: number): string =>
+  n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/**
+ * The STRONG divergence cue on a divergent amount cell (D2a) + its tiny chooser. The three
+ * existing cell channels are taken (background = priced tint; left-border = color annotation;
+ * gutter = review-flag marker), so this uses a DISTINCT channel: a solid VIOLET pill (high-
+ * contrast, not in the priced/color palette) when UNRESOLVED, a MUTED grey pill when resolved
+ * (still visible -- "was a divergence, now decided" -- without nagging). Read-only (onChoose
+ * absent) -> a static pill, no popover. Clicking opens a two-option chooser labelled with the
+ * document and formula numbers; a resolved cell also offers "Use default" (clear -> document).
+ */
+function ReconcileBadge({
+  documentVal,
+  formulaVal,
+  resolved,
+  onChoose,
+}: {
+  documentVal: number;
+  formulaVal: number;
+  resolved: ReconChoice | "unset";
+  onChoose?: (choice: ReconChoice | null) => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isResolved = resolved !== "unset";
+  const title = isResolved
+    ? resolved === "take_formula"
+      ? "Reconciled: using the formula amount"
+      : "Reconciled: keeping the document amount"
+    : "Document and formula amounts differ -- choose which value to use";
+
+  const pill = (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-1 py-0.5 leading-none",
+        isResolved
+          ? "bg-muted text-muted-foreground"
+          : "bg-violet-600 text-white dark:bg-violet-500",
+      )}
+    >
+      <Scale aria-hidden className="h-3 w-3" />
+    </span>
+  );
+
+  // Read-only: a static pill (status always visible; no chooser).
+  if (!onChoose) {
+    return (
+      <span className="absolute left-0.5 top-0.5 z-10" title={title} aria-label={title}>
+        {pill}
+      </span>
+    );
+  }
+
+  const choose = (choice: ReconChoice | null) => {
+    setOpen(false);
+    void onChoose(choice);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={title}
+          aria-label={title}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0.5 top-0.5 z-10 cursor-pointer"
+        >
+          {pill}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-60 p-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[11px] text-muted-foreground px-1">
+          Document and formula amounts differ. Choose which value to use for this cell.
+        </p>
+        <Button
+          type="button"
+          variant={resolved === "keep_document" || resolved === "unset" ? "default" : "outline"}
+          className="h-auto w-full justify-between py-1.5 text-xs"
+          onClick={() => choose("keep_document")}
+        >
+          <span>Keep document</span>
+          <span className="tabular-nums font-medium">{fmtReconAmount(documentVal)}</span>
+        </Button>
+        <Button
+          type="button"
+          variant={resolved === "take_formula" ? "default" : "outline"}
+          className="h-auto w-full justify-between py-1.5 text-xs"
+          onClick={() => choose("take_formula")}
+        >
+          <span>Use formula</span>
+          <span className="tabular-nums font-medium">{fmtReconAmount(formulaVal)}</span>
+        </Button>
+        {isResolved && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-auto w-full py-1 text-[11px] text-muted-foreground"
+            onClick={() => choose(null)}
+          >
+            Use default (document)
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -994,6 +1113,20 @@ interface PricingGridProps {
    * prop, never enters PricingGridRowProps / pricingRowPropsAreEqual, so the row memo is intact.
    */
   expanded?: boolean;
+  /**
+   * Cluster B: the current per-CELL formula-vs-document reconciliation choices
+   * (get_priced_rows.reconciliation_choices). The grid builds an O(1) map keyed
+   * "<excel_row>:<col_letter>" and reads it per amount cell to detect/resolve a divergence
+   * (D1 document-default). ABSENT/empty -> every cell is "unset" (document wins on divergence).
+   */
+  reconChoices?: ReconciliationChoiceRef[];
+  /**
+   * Cluster B: choose (keep_document/take_formula) or clear the reconciliation choice for one
+   * divergent amount cell (save_cell_reconciliation_choice + mutate). ABSENT => the divergence
+   * cue renders read-only (a static pill, no chooser) -- the page withholds it when
+   * locked/taken-over, mirroring onSaveRate/onSaveColor.
+   */
+  onSaveReconChoice?: (args: ReconChoiceSaveArgs) => Promise<void>;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1093,12 +1226,16 @@ interface PricingGridRowProps {
   displayDescriptors: ColumnDescriptor[];
   columnDescriptors: ColumnDescriptor[];
   columnFormulas: ColumnFormula[];
+  /** Cluster B: per-cell reconciliation choice map (per-SHEET, reference-stable across a
+   *  keystroke -- changes only on mutate, exactly like columnFormulas). */
+  reconChoiceMap: Map<string, ReconChoice>;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
+  onSaveReconChoice?: (args: ReconChoiceSaveArgs) => Promise<void>;
   colCount: number;
   rowCount: number;
   remarksColIndex: number;
@@ -1138,11 +1275,13 @@ export function pricingRowPropsAreEqual(
     prev.displayDescriptors === next.displayDescriptors &&
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
+    prev.reconChoiceMap === next.reconChoiceMap &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
     prev.onSaveRate === next.onSaveRate &&
     prev.onSaveColor === next.onSaveColor &&
     prev.onSaveRemark === next.onSaveRemark &&
+    prev.onSaveReconChoice === next.onSaveReconChoice &&
     prev.colCount === next.colCount &&
     prev.rowCount === next.rowCount &&
     prev.remarksColIndex === next.remarksColIndex &&
@@ -1178,11 +1317,13 @@ const PricingGridRow = memo(function PricingGridRow({
   displayDescriptors,
   columnDescriptors,
   columnFormulas,
+  reconChoiceMap,
   override,
   formulasComplete,
   onSaveRate,
   onSaveColor,
   onSaveRemark,
+  onSaveReconChoice,
   colCount,
   rowCount,
   remarksColIndex,
@@ -1418,11 +1559,32 @@ const PricingGridRow = memo(function PricingGridRow({
           const cell = evaluateAmountCell(d, row, columnDescriptors, columnFormulas, rowDraftRates);
           const isBroken = cell.kind === "blank" && cell.reason === "broken";
           const needsRate = cell.kind === "blank" && cell.reason === "not_yet";
+          // ── Cluster B: divergence detection + resolution (D1). Only a real computed number
+          //    (kind === "value") can diverge from the committed/document amount. The SHOWN value
+          //    defaults to the DOCUMENT amount while unset/keep_document; take_formula shows the
+          //    formula value. A non-diverging cell keeps today's behavior (the formula value).
+          //    resolveDivergence + reconChoiceKey are pure leaf helpers (no priceability import). ──
+          let recon: ReconResolution = { diverges: false };
+          let shownAmount: number | null = cell.kind === "value" ? cell.value : null;
+          if (cell.kind === "value") {
+            const docRaw = resolveDescriptorValue(row, d);
+            const docVal = typeof docRaw === "number" ? docRaw : null;
+            const choice = reconChoiceMap.get(reconChoiceKey(row.source_row_number, d.col));
+            recon = resolveDivergence(docVal, cell.value, choice);
+            if (recon.diverges) shownAmount = recon.value;
+          }
+          const divergeTitle = recon.diverges
+            ? recon.resolved === "unset"
+              ? "Document and formula amounts differ -- choose which value to use"
+              : `Reconciled (${recon.resolved === "take_formula" ? "formula" : "document"})`
+            : undefined;
           return (
             <td
               key={d.col}
               {...tdFocusProps(colIndex)}
-              title={isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined}
+              title={
+                divergeTitle ?? (isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined)
+              }
               className={cn(
                 "relative px-2 py-1.5 text-right align-top tabular-nums",
                 colorBorderClass,
@@ -1430,8 +1592,29 @@ const PricingGridRow = memo(function PricingGridRow({
               )}
             >
               {colorPicker}
+              {recon.diverges && cell.kind === "value" && (
+                <ReconcileBadge
+                  documentVal={(() => {
+                    const dv = resolveDescriptorValue(row, d);
+                    return typeof dv === "number" ? dv : 0;
+                  })()}
+                  formulaVal={cell.value}
+                  resolved={recon.resolved}
+                  onChoose={
+                    onSaveReconChoice
+                      ? (choice) =>
+                          onSaveReconChoice({
+                            excelRow: row.source_row_number,
+                            colLetter: d.col,
+                            choice,
+                            description: row.description ?? undefined,
+                          })
+                      : undefined
+                  }
+                />
+              )}
               {cell.kind === "value" ? (
-                renderDescriptorCell(cell.value)
+                renderDescriptorCell(shownAmount)
               ) : cell.kind === "committed" ? (
                 renderDescriptorCell(resolveDescriptorValue(row, d))
               ) : isBroken ? (
@@ -1525,9 +1708,13 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice },
   ref,
 ) {
+  // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
+  // -- it changes ONLY when reconChoices changes [on mutate], so the row memo holds, exactly like
+  // columnFormulas). Keyed "<excel_row>:<col_letter>".
+  const reconChoiceMap = useMemo(() => buildReconChoiceMap(reconChoices), [reconChoices]);
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
   // shows instantly (live amount) until the save's refetch lands, then it is dropped so the
   // cell falls back to the refetched saved rate.
@@ -1953,11 +2140,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 displayDescriptors={displayDescriptors}
                 columnDescriptors={columnDescriptors}
                 columnFormulas={columnFormulas}
+                reconChoiceMap={reconChoiceMap}
                 override={override}
                 formulasComplete={formulasComplete}
                 onSaveRate={onSaveRate}
                 onSaveColor={onSaveColor}
                 onSaveRemark={onSaveRemark}
+                onSaveReconChoice={onSaveReconChoice}
                 colCount={colCount}
                 rowCount={rows.length}
                 remarksColIndex={remarksColIndex}

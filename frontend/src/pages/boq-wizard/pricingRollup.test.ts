@@ -508,3 +508,88 @@ describe("rollupByParent -- incomplete-subtotal signal (Slice 4b-A)", () => {
     expect(root(res, 0)!.totals["I"]).toBe(28);
   });
 });
+
+// ── Cluster B: the per-cell reconciliation choice threads into rowOwnAmount (D1/D4) ──
+describe("rollupByParent reconciliation-choice resolution (Cluster B)", () => {
+  // Amount col F (Phase 1 total) has a formula qty x rate(combined). The row's committed
+  // (document) amount is 80 but the formula computes 10 * 5 = 50 -> a DIVERGENCE.
+  const CDS: ColumnDescriptor[] = [
+    desc("D", "qty", "qty_by_area", "Phase 1"),
+    desc("E", "rate_combined_by_area", "rate_by_area", "Phase 1", "combined_rate"),
+    desc("F", "amount_total_by_area", "amount_by_area", "Phase 1", "total"),
+  ];
+  const FORMULAS: ColumnFormula[] = [
+    {
+      target_value_field: "amount_by_area",
+      target_value_key: null,
+      target_rate_subkey: "total",
+      target_col: "F",
+      formula: {
+        op: "*",
+        operands: [
+          { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
+          { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
+        ],
+      } as AmountFormulaNode,
+    },
+  ];
+  const rows = (): PricedRow[] => [
+    prow({ row_index: 0, source_row_number: 6, effective_parent_index: null, effective_classification: "preamble", description: "P", node_type: "Preamble" }),
+    prow({
+      row_index: 1, source_row_number: 34, effective_parent_index: 0,
+      effective_classification: "line_item", description: "i1", node_type: "Line Item",
+      qty_by_area: { "Phase 1": 10 },
+      rate_by_area: { "Phase 1": { combined_rate: 5 } } as never,
+      amount_by_area: { "Phase 1": { total: 80 } } as never,
+      priced_by_area: { "Phase 1": { combined_rate: true } } as never,
+    }),
+  ];
+
+  it("DEFAULTS a divergent cell to the DOCUMENT value when unset (D1)", () => {
+    const res = rollupByParent(rows(), CDS, FORMULAS, []); // no choices
+    expect(root(res, 0)!.totals["F"]).toBe(80); // document, NOT the formula's 50
+  });
+
+  it("take_formula resolves the cell to the FORMULA value", () => {
+    const res = rollupByParent(rows(), CDS, FORMULAS, [
+      { excel_row: 34, col_letter: "F", choice: "take_formula" },
+    ]);
+    expect(root(res, 0)!.totals["F"]).toBe(50);
+  });
+
+  it("keep_document keeps the document value (same as unset)", () => {
+    const res = rollupByParent(rows(), CDS, FORMULAS, [
+      { excel_row: 34, col_letter: "F", choice: "keep_document" },
+    ]);
+    expect(root(res, 0)!.totals["F"]).toBe(80);
+  });
+
+  it("Option-1 == Option-2 stays balanced with a MIXED document/formula set (no integrity error)", () => {
+    // Two diverging line items; one keep_document, one take_formula -> a mixed set. Because the
+    // chosen value is resolved ONCE in rowOwnAmount (ownByIdx), both rollup routes agree.
+    const mixed: PricedRow[] = [
+      prow({ row_index: 0, source_row_number: 6, effective_parent_index: null, effective_classification: "preamble", description: "P", node_type: "Preamble" }),
+      prow({
+        row_index: 1, source_row_number: 34, effective_parent_index: 0,
+        effective_classification: "line_item", description: "i1", node_type: "Line Item",
+        qty_by_area: { "Phase 1": 10 }, rate_by_area: { "Phase 1": { combined_rate: 5 } } as never,
+        amount_by_area: { "Phase 1": { total: 80 } } as never,
+        priced_by_area: { "Phase 1": { combined_rate: true } } as never,
+      }),
+      prow({
+        row_index: 2, source_row_number: 35, effective_parent_index: 0,
+        effective_classification: "line_item", description: "i2", node_type: "Line Item",
+        qty_by_area: { "Phase 1": 4 }, rate_by_area: { "Phase 1": { combined_rate: 7 } } as never,
+        amount_by_area: { "Phase 1": { total: 99 } } as never,
+        priced_by_area: { "Phase 1": { combined_rate: true } } as never,
+      }),
+    ];
+    const res = rollupByParent(mixed, CDS, FORMULAS, [
+      { excel_row: 34, col_letter: "F", choice: "keep_document" }, // -> 80
+      { excel_row: 35, col_letter: "F", choice: "take_formula" }, // -> 4*7 = 28
+    ]);
+    expect(res.integrityErrors).toEqual([]);
+    expect(res.grandTotals["F"]).toBe(108); // 80 + 28
+    expect(root(res, 0)!.totals["F"]).toBe(108);
+  });
+});

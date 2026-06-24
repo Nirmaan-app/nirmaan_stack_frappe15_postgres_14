@@ -116,6 +116,26 @@ _DISMISSAL_KINDS = frozenset({"needs_rate", "qty_anomaly", "broken", "not_yet", 
 # a remark dismissal is annotation on its own track and SURVIVES a rate edit (D3).
 _DISMISSAL_REARM_KINDS = frozenset({"needs_rate", "qty_anomaly", "broken", "not_yet"})
 
+# ── Reconciliation-choice layer (Cluster B) -- per-CELL formula-vs-document CHOICE ──
+# When a committed (document) amount and the formula-computed amount DIVERGE for the same
+# amount cell, the user CHOOSES per cell which value wins. Stored stickily per committed
+# version. ADDITIVE, sits on top of the committed tier like every other overlay (own freeze-
+# and-supersede triple); the committed tier is NEVER mutated. PER-CELL (carries col_letter,
+# unlike the per-ROW dismissal). "Unset" = the ABSENCE of a current record -> the DOCUMENT
+# value wins by default (the locked design D1). DATA SHEETS ONLY (grid-only general-specs
+# sheets are read-only and never reach the grid).
+_CHOICE = "BoQ Cell Reconciliation Choice"
+
+# The two stored choice tokens. MUST stay in sync with the Select options in
+# boq_cell_reconciliation_choice.json AND the frontend ReconChoice union. "Unset" is NOT a
+# token (it is the absence of a current record); a falsy `choice` clears (freeze-only).
+_CHOICE_TOKENS = frozenset({"keep_document", "take_formula"})
+
+# The area-bound value_fields whose wildcard leaf ref (value_key None) binds to the amount
+# column's area during the surgical re-arm dependency walk (mirrors the frontend
+# amountFormula.bindRef / AREA_BOUND_VALUE_FIELDS -- kept in sync, not imported).
+_AREA_BOUND_VALUE_FIELDS = frozenset({"qty_by_area", "rate_by_area", "amount_by_area"})
+
 
 def _parse_json_field(value, default):
     """Return a stored JSON field's value as a Python object. The committed BoQ Sheet JSON
@@ -394,6 +414,16 @@ def save_cell_price(
     # with the price under this request's single commit. EXCLUDES flag_kind="remark" (D3).
     rearmed = _rearm_row_dismissals(boq_name, sheet_name, excel_row, committed_version)
 
+    # RE-ARM (Cluster B, D3 -- SURGICAL, PER-CELL, COLUMN-AWARE): a successful rate write moves
+    # the formula-computed amount of any amount cell whose formula references THIS rate operand,
+    # so clear the stored reconciliation choice for ONLY those cells on this row (NOT the whole
+    # row -- more surgical than the per-row dismissal re-arm). Same placement discipline: AFTER
+    # the price insert, BEFORE the single trailing commit, so it fires ONLY on success. A
+    # cleared choice reverts the cell to 'unset' -> the document value wins by default (D1).
+    rearmed_choices = _rearm_cell_recon_choices(
+        boq_name, sheet_name, excel_row, col_letter, committed_version
+    )
+
     frappe.db.commit()
 
     return {
@@ -404,6 +434,7 @@ def save_cell_price(
         "is_filled": 1,
         "froze_prior": len(prior),
         "rearmed_dismissals": rearmed,
+        "rearmed_choices": rearmed_choices,
     }
 
 
@@ -993,6 +1024,338 @@ def get_sheet_dismissals(
     return {"dismissals": dismissals}
 
 
+# ── Reconciliation-choice CRUD + the surgical re-arm machinery (Cluster B) ────────
+
+
+def _choice_identity_filters(boq_name, sheet_name, excel_row, col_letter, committed_version) -> dict:
+    """Per-CELL choice identity filter (sheet_name + col_letter matched VERBATIM #152)."""
+    return {
+        "boq": boq_name,
+        "sheet_name": sheet_name,
+        "excel_row": excel_row,
+        "col_letter": col_letter,
+        "committed_version": committed_version,
+    }
+
+
+def _current_choice_names(boq_name, sheet_name, excel_row, col_letter, committed_version) -> list:
+    """Names of the current (is_current=1) choice records for one cell identity."""
+    filters = _choice_identity_filters(boq_name, sheet_name, excel_row, col_letter, committed_version)
+    filters["is_current"] = 1
+    return frappe.get_all(_CHOICE, filters=filters, pluck="name")
+
+
+def _next_choice_version(boq_name, sheet_name, excel_row, col_letter, committed_version) -> int:
+    agg = frappe.get_all(
+        _CHOICE,
+        filters=_choice_identity_filters(boq_name, sheet_name, excel_row, col_letter, committed_version),
+        fields=["max(choice_version) as mv"],
+    )
+    return ((agg[0].mv if agg else None) or 0) + 1
+
+
+def _clear_current_choice_cell(boq_name, sheet_name, excel_row, col_letter, committed_version) -> int:
+    """Freeze (is_current=0, NEVER delete) the current choice for ONE cell. Returns the count
+    frozen. The re-arm building block: clearing a choice resets the cell to 'unset' -> the
+    document value wins by default (D1)."""
+    names = _current_choice_names(boq_name, sheet_name, excel_row, col_letter, committed_version)
+    for name in names:
+        frappe.db.set_value(_CHOICE, name, "is_current", 0)
+    return len(names)
+
+
+def _clear_current_choices_column(boq_name, sheet_name, col_letter, committed_version) -> int:
+    """Freeze the current choices for ALL rows of one amount column (the formula-save re-arm:
+    a formula change moves the computed number on every cell in its column)."""
+    names = frappe.get_all(
+        _CHOICE,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "col_letter": col_letter,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        pluck="name",
+    )
+    for name in names:
+        frappe.db.set_value(_CHOICE, name, "is_current", 0)
+    return len(names)
+
+
+def _bind_ref(ref: dict, bind_area):
+    """Bind a WILDCARD leaf ref (value_key None on an area-bound value_field) to bind_area;
+    every other ref passes through unchanged. Mirrors amountFormula.bindRef (frontend) -- kept
+    in sync, not imported."""
+    if (
+        ref.get("value_key") is None
+        and bind_area is not None
+        and ref.get("value_field") in _AREA_BOUND_VALUE_FIELDS
+    ):
+        return {
+            "value_field": ref.get("value_field"),
+            "value_key": bind_area,
+            "rate_subkey": ref.get("rate_subkey"),
+        }
+    return ref
+
+
+def _pick_formula_record(col: dict, records: list):
+    """The override > area-wildcard-default formula record for a concrete column, mirroring the
+    frontend amountFormula.pickFormula precedence. Returns the record or None."""
+    def same_axis(r):
+        return (
+            r.get("formula") is not None
+            and r.get("target_value_field") == col.get("value_field")
+            and r.get("target_rate_subkey") == col.get("rate_subkey")
+        )
+
+    if col.get("value_key") is not None:
+        override = next(
+            (r for r in records if same_axis(r) and r.get("target_value_key") == col.get("value_key")),
+            None,
+        )
+        if override:
+            return override
+    return next((r for r in records if same_axis(r) and r.get("target_value_key") is None), None)
+
+
+def _node_refs_rate(node, bind_area, rate_ref, records, visiting) -> bool:
+    """Does this token-tree node (transitively) reference the rate operand `rate_ref`? Walks
+    operators; binds + matches leaf refs; recurses into an amount-column leaf that has its own
+    formula (amount-refs-amount), cycle-guarded. Mirrors the F2 evaluator's resolution so the
+    surgical re-arm matches EXACTLY which amount cells a rate actually feeds."""
+    if not isinstance(node, dict):
+        return False
+    if "ref" in node:
+        bound = _bind_ref(node.get("ref") or {}, bind_area)
+        bkey = (bound.get("value_field"), bound.get("value_key"), bound.get("rate_subkey"))
+        if bkey == rate_ref:
+            return True
+        if bound.get("value_field") in _AMOUNT_VALUE_FIELDS:
+            return _amount_col_depends_on_rate(bound, rate_ref, records, visiting)
+        return False
+    if "op" in node:
+        return any(
+            _node_refs_rate(child, bind_area, rate_ref, records, visiting)
+            for child in (node.get("operands") or [])
+        )
+    return False
+
+
+def _amount_col_depends_on_rate(col: dict, rate_ref, records, visiting) -> bool:
+    """Does the amount column `col` (concrete value_field/value_key/rate_subkey) compute from the
+    rate operand `rate_ref`? Picks its formula (override>wildcard), walks the tree bound to the
+    column's area. Cycle-guarded. No formula -> a plain value, depends on no rate."""
+    key = (col.get("value_field"), col.get("value_key"), col.get("rate_subkey"))
+    if key in visiting:
+        return False
+    rec = _pick_formula_record(col, records)
+    if not rec or rec.get("formula") is None:
+        return False
+    return _node_refs_rate(rec["formula"], col.get("value_key"), rate_ref, records, visiting | {key})
+
+
+def _rearm_cell_recon_choices(boq_name, sheet_name, excel_row, col_letter, committed_version) -> int:
+    """SURGICAL, PER-CELL, COLUMN-AWARE re-arm (D3) on a successful rate save: clear the current
+    reconciliation choice for amount cells ON THIS ROW whose formula references the edited rate
+    operand -- NOT the whole row (more surgical than the per-row dismissal re-arm). The edited
+    rate's operand identity is resolved from its descriptor (by col_letter). A non-rate
+    col_letter -> 0 (no-op). Returns the count cleared."""
+    descs = _committed_descriptors(boq_name, sheet_name, committed_version)
+    rate_d = next((d for d in descs if d.get("col") == col_letter), None)
+    if rate_d is None:
+        return 0
+    if not (
+        rate_d.get("value_field") == _PER_AREA_RATE_FIELD
+        or rate_d.get("value_field") in _SCALAR_RATE_FIELDS
+    ):
+        return 0  # the saved cell is not a rate cell -> nothing depends on it as a rate
+    rate_ref = (rate_d.get("value_field"), rate_d.get("value_key"), rate_d.get("rate_subkey"))
+    records = _current_formula_records(boq_name, sheet_name, committed_version)
+    cleared = 0
+    for ad in descs:
+        if ad.get("value_field") not in _AMOUNT_VALUE_FIELDS:
+            continue
+        if _amount_col_depends_on_rate(ad, rate_ref, records, frozenset()):
+            cleared += _clear_current_choice_cell(
+                boq_name, sheet_name, excel_row, ad.get("col"), committed_version
+            )
+    return cleared
+
+
+def _rearm_column_recon_choices(
+    boq_name, sheet_name, committed_version, target_value_field, target_value_key, target_rate_subkey
+) -> int:
+    """Re-arm (D3) on a formula SAVE or REMOVE: clear current reconciliation choices for every
+    amount column the formula target covers (the override-or-wildcard match -- a wildcard default
+    covers all per-area columns of its value_field+rate_subkey). Returns the count cleared."""
+    amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
+    matched_cols = [
+        d.get("col")
+        for d in amount_descs
+        if _formula_target_matches_column(target_value_field, target_value_key, target_rate_subkey, d)
+    ]
+    cleared = 0
+    for col in matched_cols:
+        if col:
+            cleared += _clear_current_choices_column(boq_name, sheet_name, col, committed_version)
+    return cleared
+
+
+@frappe.whitelist(methods=["POST"])
+def save_cell_reconciliation_choice(
+    boq_name: str = None,
+    sheet_name: str = None,
+    excel_row=None,
+    col_letter: str = None,
+    committed_version=None,
+    choice: str = None,
+    description: str = None,
+) -> dict:
+    """Choose (keep_document / take_formula) or CLEAR the reconciliation choice for one divergent
+    committed amount cell -- upsert the CURRENT choice record for that cell (freeze-and-supersede),
+    mirroring save_cell_dismissal. The committed tier is NOT mutated (the document is client-owned;
+    we record the user's pick, we never auto-fix the tender).
+
+    Identity = (boq, sheet_name [VERBATIM #152], excel_row, col_letter, committed_version) -- PER-CELL
+    (carries col_letter, unlike the per-ROW dismissal). `choice` is one of the two tokens
+    (keep_document / take_formula); a blank/None/"unset" `choice` CLEARS (freeze prior current, insert
+    none -> the cell reverts to 'unset' -> the DOCUMENT value wins by default, D1).
+
+    The committed ROW at that address/version MUST exist (resolved + validated via the SAME
+    row-level _resolve_committed_cell save_cell_color uses -- node_type is IGNORED here; a choice
+    is about an amount cell, no priceability gate). col_letter is NOT re-checked against a node
+    (exactly like save_cell_color, which stores col_letter without a per-column node check).
+
+    LOCK: acquires/refreshes the single-editor lock (acquire_or_refresh) AFTER the row-resolve,
+    BEFORE any freeze/insert -- a lock rejection (held fresh by another user) mutates NOTHING.
+
+    `description` is stored as the copy-forward MATCH GUARD (NOT part of the key, never branched on).
+
+    Returns {ok, name, choice_version, is_current, froze_prior, choice}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.save_cell_reconciliation_choice
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if excel_row is None or excel_row == "":
+        frappe.throw("excel_row is required.", title="Missing field: excel_row")
+    if not col_letter:
+        frappe.throw("col_letter is required.", title="Missing field: col_letter")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    excel_row = _coerce_int(excel_row, "excel_row")
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # A blank/None/"unset" choice is the CLEAR signal (revert to document-default). Any other
+    # value MUST be a valid token.
+    choice = _normalize_optional(choice)
+    is_clear = choice is None or choice == "unset"
+    if not is_clear and choice not in _CHOICE_TOKENS:
+        frappe.throw(
+            f"Invalid choice '{choice}'. Must be one of: {', '.join(sorted(_CHOICE_TOKENS))} "
+            f"(or blank to clear).",
+            title="Invalid choice",
+        )
+
+    # The committed ROW must exist (row-level check; node_type ignored -- a choice is about an
+    # amount cell, no priceability gate). Mirrors save_cell_color.
+    _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected write
+    # mutates nothing). Holder = session user; shares this request's transaction.
+    acquire_or_refresh(
+        boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
+    )
+
+    # Freeze any prior current for this exact cell via set_value (NEVER doc.save).
+    prior = _current_choice_names(boq_name, sheet_name, excel_row, col_letter, committed_version)
+    for name in prior:
+        frappe.db.set_value(_CHOICE, name, "is_current", 0)
+
+    # CLEAR: freeze only, insert no new current -> the cell reverts to 'unset' (document wins).
+    if is_clear:
+        frappe.db.commit()
+        return {
+            "ok": True,
+            "name": None,
+            "choice_version": None,
+            "is_current": 0,
+            "froze_prior": len(prior),
+            "choice": None,
+        }
+
+    choice_version = _next_choice_version(
+        boq_name, sheet_name, excel_row, col_letter, committed_version
+    )
+    doc = frappe.new_doc(_CHOICE)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.excel_row = excel_row
+    doc.col_letter = col_letter
+    doc.committed_version = committed_version
+    doc.choice = choice
+    doc.description = description
+    doc.choice_version = choice_version
+    doc.is_current = 1
+    doc.chosen_at = frappe.utils.now()
+    doc.chosen_by = frappe.session.user
+    doc.is_finalized = 0
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+    return {
+        "ok": True,
+        "name": doc.name,
+        "choice_version": choice_version,
+        "is_current": 1,
+        "froze_prior": len(prior),
+        "choice": choice,
+    }
+
+
+@frappe.whitelist()
+def get_sheet_reconciliation_choices(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Current per-CELL reconciliation choices (is_current=1) for one committed (boq, sheet,
+    committed_version). @frappe.whitelist() bare -- GET-capable (mirrors get_sheet_dismissals).
+    Pure read. sheet_name VERBATIM (#152). Returns {"choices": [{...}]} (empty when none).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_sheet_reconciliation_choices
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    choices = frappe.get_all(
+        _CHOICE,
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "committed_version": committed_version,
+            "is_current": 1,
+        },
+        fields=[
+            "name", "excel_row", "col_letter", "choice",
+            "choice_version", "chosen_at", "chosen_by",
+        ],
+        order_by="excel_row asc, col_letter asc",
+    )
+    return {"choices": choices}
+
+
 # ── Amount-formula helpers + endpoints (Formula Builder F1) ──────────────────────
 
 
@@ -1128,12 +1491,12 @@ def _next_formula_version(boq_name, sheet_name, committed_version,
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
-def _committed_amount_descriptors(boq_name, sheet_name, committed_version) -> list:
-    """The AMOUNT column descriptors of the committed sheet at (boq, sheet_name VERBATIM,
-    committed_version) -- the source of truth for the amount-target gate. Reuses the
-    certified review_screen._build_column_descriptors on the committed config snapshot.
-    Throws if no committed sheet exists at that address/version (never define a formula on a
-    non-existent sheet)."""
+def _committed_descriptors(boq_name, sheet_name, committed_version) -> list:
+    """ALL column descriptors of the committed sheet at (boq, sheet_name VERBATIM,
+    committed_version) -- the source of truth for both the amount-target gate AND the surgical
+    rate/amount operand machinery (the Cluster-B re-arm). Reuses the certified
+    review_screen._build_column_descriptors on the committed config snapshot. Throws if no
+    committed sheet exists at that address/version."""
     sheet_cfg = frappe.db.get_value(
         _BOQ_SHEET,
         {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
@@ -1146,11 +1509,20 @@ def _committed_amount_descriptors(boq_name, sheet_name, committed_version) -> li
             f"for BoQ '{boq_name}'.",
             title="No committed sheet",
         )
-    descriptors = _build_column_descriptors({
+    return _build_column_descriptors({
         "column_role_map": _parse_json_field(sheet_cfg.get("column_role_map"), {}),
         "column_headers": _parse_json_field(sheet_cfg.get("column_headers"), {}),
     })
-    return [d for d in descriptors if d.get("value_field") in _AMOUNT_VALUE_FIELDS]
+
+
+def _committed_amount_descriptors(boq_name, sheet_name, committed_version) -> list:
+    """The AMOUNT column descriptors of the committed sheet -- the source of truth for the
+    amount-target gate. Filters _committed_descriptors to the amount value_fields."""
+    return [
+        d
+        for d in _committed_descriptors(boq_name, sheet_name, committed_version)
+        if d.get("value_field") in _AMOUNT_VALUE_FIELDS
+    ]
 
 
 def _current_formula_records(boq_name, sheet_name, committed_version) -> list:
@@ -1332,6 +1704,12 @@ def save_amount_formula(
 
     # CLEAR: freeze only, insert no new current -> the column has no formula.
     if is_clear:
+        # RE-ARM (Cluster B, D3): a formula REMOVE silently clears every choice on the affected
+        # amount column's cells -- there is no computed number left to choose between.
+        rearmed_choices = _rearm_column_recon_choices(
+            boq_name, sheet_name, committed_version,
+            target_value_field, target_value_key, target_rate_subkey,
+        )
         frappe.db.commit()
         return {
             "ok": True,
@@ -1340,6 +1718,7 @@ def save_amount_formula(
             "is_current": 0,
             "froze_prior": len(prior),
             "cleared": True,
+            "rearmed_choices": rearmed_choices,
         }
 
     formula_version = _next_formula_version(
@@ -1361,6 +1740,14 @@ def save_amount_formula(
     doc.defined_at = frappe.utils.now()
     doc.is_finalized = 0
     doc.insert(ignore_permissions=True)
+
+    # RE-ARM (Cluster B, D3): a formula SAVE moves the computed number on every cell in the
+    # affected amount column, so clear the stored reconciliation choices for those cells (they
+    # revert to 'unset' -> document wins by default until re-decided).
+    rearmed_choices = _rearm_column_recon_choices(
+        boq_name, sheet_name, committed_version,
+        target_value_field, target_value_key, target_rate_subkey,
+    )
     frappe.db.commit()
 
     return {
@@ -1370,6 +1757,7 @@ def save_amount_formula(
         "is_current": 1,
         "froze_prior": len(prior),
         "cleared": False,
+        "rearmed_choices": rearmed_choices,
     }
 
 
@@ -1479,6 +1867,11 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # O(1) membership set keyed "<flag_kind>:<excel_row>" (the strip's own list key). Empty
         # for an uncommitted/grid-only sheet. Built ONCE below when a version is committed.
         "dismissals": [],
+        # Reconciliation choices (Cluster B) -- the current per-CELL formula-vs-document choices
+        # for this committed version, a flat PER-CELL list [{excel_row, col_letter, choice}, ...]
+        # (carries col_letter, unlike dismissals). The grid + rollup build an O(1) map keyed
+        # "<excel_row>:<col_letter>". Empty for an uncommitted/grid-only sheet. Built ONCE below.
+        "reconciliation_choices": [],
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -1514,6 +1907,15 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             for d in get_sheet_dismissals(
                 boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
             )["dismissals"]
+        ]
+        # Reconciliation choices (Cluster B): the current per-CELL (excel_row, col_letter) choices
+        # for this committed version -- a flat sheet-level list (NOT stamped onto any row). The
+        # grid cue + the rollup consume it; one query, no per-row query.
+        base["reconciliation_choices"] = [
+            {"excel_row": c["excel_row"], "col_letter": c["col_letter"], "choice": c["choice"]}
+            for c in get_sheet_reconciliation_choices(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+            )["choices"]
         ]
 
     # Nothing committed (no rows or no current version) -> no-op merge, graceful passthrough.
