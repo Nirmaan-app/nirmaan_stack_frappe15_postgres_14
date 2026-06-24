@@ -12,6 +12,7 @@ import {
   computeRowFlags,
   dismissalKey,
   filterActiveReviewEntries,
+  isAmountColumnCovered,
   isEntryDismissed,
   isFullyPriced,
   isPriceableLine,
@@ -543,5 +544,56 @@ describe("areFormulasComplete (the mandatory amount-formula gate)", () => {
   it("a SCALAR amount column is covered by a scalar (null/null) formula", () => {
     expect(areFormulasComplete(SCALAR_CDS, [cf("amount_total", null, null)])).toBe(true);
     expect(areFormulasComplete(SCALAR_CDS, [])).toBe(false);
+  });
+});
+
+describe("isAmountColumnCovered (the per-column predicate shared with the gate + badge)", () => {
+  const LEAF = { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } } as never;
+  function cf(
+    target_value_field: string,
+    target_value_key: string | null,
+    target_rate_subkey: string | null,
+    formula: ColumnFormula["formula"] = LEAF,
+  ): ColumnFormula {
+    return { target_value_field, target_value_key, target_rate_subkey, target_col: null, formula };
+  }
+  const F = PER_AREA_CDS[4]; // amount_by_area · A1 · total
+  const I = PER_AREA_CDS[7]; // amount_by_area · A2 · total
+  const SCALAR_AMT = SCALAR_CDS[3]; // amount_total (scalar)
+
+  it("TRUE when covered by a per-area OVERRIDE (exact value_key)", () => {
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", "A1", "total")])).toBe(true);
+  });
+
+  it("TRUE when covered by a WILDCARD DEFAULT (null value_key) sharing the kind -- BOTH areas", () => {
+    const wildcard = [cf("amount_by_area", null, "total")];
+    expect(isAmountColumnCovered(F, wildcard)).toBe(true);
+    expect(isAmountColumnCovered(I, wildcard)).toBe(true);
+  });
+
+  it("FALSE when no formula resolves (none, or a different-kind wildcard)", () => {
+    expect(isAmountColumnCovered(F, [])).toBe(false);
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", null, "supply")])).toBe(false);
+  });
+
+  it("FALSE for a present-but-CLEARED record (null .formula)", () => {
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", null, "total", null)])).toBe(false);
+  });
+
+  it("a SCALAR amount column is covered by a scalar (null/null) formula", () => {
+    expect(isAmountColumnCovered(SCALAR_AMT, [cf("amount_total", null, null)])).toBe(true);
+    expect(isAmountColumnCovered(SCALAR_AMT, [])).toBe(false);
+  });
+
+  it("areFormulasComplete == every amount column isAmountColumnCovered (one shared predicate)", () => {
+    const amountCols = PER_AREA_CDS.filter((d) => d.value_field === "amount_by_area");
+    // all covered via one wildcard default -> every() true <=> gate complete.
+    const allCovered = [cf("amount_by_area", null, "total")];
+    expect(amountCols.every((d) => isAmountColumnCovered(d, allCovered))).toBe(true);
+    expect(areFormulasComplete(PER_AREA_CDS, allCovered)).toBe(true);
+    // only A1 overridden -> I (A2) uncovered -> every() false <=> gate incomplete.
+    const partial = [cf("amount_by_area", "A1", "total")];
+    expect(amountCols.every((d) => isAmountColumnCovered(d, partial))).toBe(false);
+    expect(areFormulasComplete(PER_AREA_CDS, partial)).toBe(false);
   });
 });

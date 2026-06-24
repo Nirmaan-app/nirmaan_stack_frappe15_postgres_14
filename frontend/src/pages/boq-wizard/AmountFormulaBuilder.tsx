@@ -17,7 +17,7 @@
  * annotations use.
  */
 import { useEffect, useState } from "react";
-import { FunctionSquare, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -218,36 +218,39 @@ export function AmountFormulaBuilder({
     }
   };
 
-  // ── the header label (trigger) ────────────────────────────────────────────
+  // ── the leading ƒ STATUS BADGE (the trigger) ──────────────────────────────
+  // Status + action merged into ONE compact control at the START of the amount column header:
+  // GREEN when a formula resolves for this column (covered), AMBER when none (pending). `covered`
+  // keys on the SAME `applicable = pickFormula(target, columnFormulas)` resolution this component
+  // already computed (:132) -- the SAME predicate the gate (priceability.areFormulasComplete via
+  // isAmountColumnCovered) and the amount-cell eval use -- so the badge can NEVER disagree with
+  // the gate. The badge IS the PopoverTrigger: clicking it opens the SAME builder popover (all
+  // builder logic / onSave / validation / cycle-check UNCHANGED). The old far-right preview line
+  // is REMOVED -- the popover shows the full formula; a tokensToText preview rides the badge title.
+  const covered = !!(applicable && applicable.formula);
   const applicablePreview = applicable?.formula
     ? tokensToText(treeToTokens(applicable.formula, labelFor))
     : null;
-  const sublabel = applicable
-    ? applicable.target_value_key === null
-      ? "default · all areas"
-      : "this area"
-    : null;
-
-  const labelInner = applicablePreview ? (
-    <span className="flex flex-col items-end leading-tight">
-      <span className="flex items-center gap-1 text-blue-700 dark:text-blue-300">
-        <FunctionSquare className="h-3 w-3 shrink-0" />
-        <span className="max-w-[180px] truncate" title={`${FN} = ${applicablePreview}`}>
-          {applicablePreview}
-        </span>
-      </span>
-      {sublabel && <span className="text-[9px] font-normal text-muted-foreground">{sublabel}</span>}
-    </span>
-  ) : (
-    <span className="flex items-center gap-1 text-muted-foreground/70 italic">
-      <FunctionSquare className="h-3 w-3 shrink-0" />
-      set formula
-    </span>
+  const badgeTitle = covered ? `${FN} = ${applicablePreview}` : "No amount formula yet";
+  const badgeClass = cn(
+    "inline-flex h-4 min-w-[1rem] items-center justify-center rounded border px-0.5 text-[10px] font-semibold leading-none shrink-0",
+    covered
+      ? "border-green-400 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-950/50 dark:text-green-300"
+      : "border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
   );
 
-  // READ-ONLY (locked): the label is static text -- no popover, no editor.
+  // READ-ONLY (locked / general-specs / taken-over): a STATIC status glyph -- no popover, no
+  // editor. Status stays visible (amber/green); editing is gated by onSave exactly as before.
   if (!onSave) {
-    return <div className="mt-1 text-[10px] font-normal text-right">{labelInner}</div>;
+    return (
+      <span
+        className={badgeClass}
+        title={badgeTitle}
+        aria-label={covered ? "Amount formula set" : "No amount formula"}
+      >
+        {FN}
+      </span>
+    );
   }
 
   return (
@@ -256,10 +259,11 @@ export function AmountFormulaBuilder({
         <button
           type="button"
           onClick={(e) => e.stopPropagation()}
-          className="mt-1 w-full rounded px-1 py-0.5 text-right text-[10px] font-normal hover:bg-black/5 dark:hover:bg-white/10"
-          title="Edit this column's amount formula"
+          className={cn(badgeClass, "hover:opacity-80 focus:outline-none focus:ring-1 focus:ring-ring")}
+          title={covered ? badgeTitle : "Declare this column's amount formula"}
+          aria-label={covered ? "Edit amount formula" : "Declare amount formula"}
         >
-          {labelInner}
+          {FN}
         </button>
       </PopoverTrigger>
       <PopoverContent

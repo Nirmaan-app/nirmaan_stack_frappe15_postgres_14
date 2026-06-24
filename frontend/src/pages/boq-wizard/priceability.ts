@@ -174,13 +174,28 @@ export function areFormulasComplete(
   columnDescriptors: ColumnDescriptor[],
   columnFormulas: ColumnFormula[],
 ): boolean {
-  return columnDescriptors.filter(isAmountDescriptor).every((d) => {
-    const f = pickFormula(
-      { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
-      columnFormulas,
-    );
-    return !!(f && f.formula);
-  });
+  return columnDescriptors
+    .filter(isAmountDescriptor)
+    .every((d) => isAmountColumnCovered(d, columnFormulas));
+}
+
+/**
+ * Is THIS amount column covered by a declared formula? = pickFormula's override>area-wildcard-
+ * default resolution resolves a formula with a non-null tree. The SINGLE per-column coverage
+ * predicate: `areFormulasComplete` folds `.every()` over it (so a green badge on EVERY amount
+ * column <=> the sheet is formula-complete <=> the rate gate is open, by construction), and the
+ * header status badge / pending tint color on the SAME pickFormula resolution. A present-but-
+ * cleared record (null .formula) is NOT covered. Pure -- unit-tested.
+ */
+export function isAmountColumnCovered(
+  d: ColumnDescriptor,
+  columnFormulas: ColumnFormula[],
+): boolean {
+  const f = pickFormula(
+    { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+    columnFormulas,
+  );
+  return !!(f && f.formula);
 }
 
 /**

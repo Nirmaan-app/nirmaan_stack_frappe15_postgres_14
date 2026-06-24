@@ -1838,24 +1838,45 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             </th>
             {displayDescriptors.map((d) => {
               const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+              const isAmount = isAmountDescriptor(d);
+              // PENDING TINT: a subtle amber wash on an amount column with NO covering formula, so
+              // a wide sheet (VRF 9 cols) is scannable at a glance; a covered amount column + every
+              // non-amount column keep the neutral bg-muted. The coverage check is pickFormula
+              // (already imported -- amountFormula.ts) inline, NOT priceability.isAmountColumnCovered:
+              // importing priceability here would reverse the one-way dependency (priceability
+              // imports PricingGrid) into a cycle -- same reason isNonZeroNum is a self-contained
+              // copy above. It is the SAME override>wildcard pickFormula resolution the gate +
+              // badge use, so the tint can never drift from them. (Amber tokens mirror the gate banner.)
+              const amountPending =
+                isAmount &&
+                !pickFormula(
+                  { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+                  columnFormulas,
+                )?.formula;
               return (
                 <th
                   key={d.col}
-                  className="px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted align-top"
-                >
-                  <span>{label}</span>
-                  {/* Formula Builder F3: the per-column `f = ...` label + click-to-edit builder,
-                      on AMOUNT columns only. Read-only when onSaveFormula is withheld (locked).
-                      The amount-cell VALUE render is UNCHANGED (F4 owns the compute swap). */}
-                  {isAmountDescriptor(d) && (
-                    <AmountFormulaBuilder
-                      target={d}
-                      columnLabel={label}
-                      descriptors={columnDescriptors}
-                      columnFormulas={columnFormulas}
-                      onSave={onSaveFormula}
-                    />
+                  className={cn(
+                    "px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 align-top",
+                    amountPending ? "bg-amber-50 dark:bg-amber-950/40" : "bg-muted",
                   )}
+                >
+                  <span className="inline-flex items-center justify-end gap-1">
+                    {/* Formula Builder: the LEADING amber/green ƒ status badge that IS the
+                        click-to-edit trigger (status + action merged), on AMOUNT columns only.
+                        Read-only (static glyph) when onSaveFormula is withheld (locked). The
+                        amount-cell VALUE render is UNCHANGED (F4 owns the compute swap). */}
+                    {isAmount && (
+                      <AmountFormulaBuilder
+                        target={d}
+                        columnLabel={label}
+                        descriptors={columnDescriptors}
+                        columnFormulas={columnFormulas}
+                        onSave={onSaveFormula}
+                      />
+                    )}
+                    <span>{label}</span>
+                  </span>
                 </th>
               );
             })}
