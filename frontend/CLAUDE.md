@@ -750,16 +750,48 @@ untouched (resize changes width, not column count/order). New pure helpers `seed
 `clampColumnWidth` (unit-tested); `reviewRender.tsx` UNTOUCHED (zero width coupling). Collapse/expand stays a separate
 later slice. vitest 294->303 (PricingGrid 120->129), tsc 3175 (0 new), in-container build exit 0, 2026-06-25.
 
+**Drop frozen-left, ship resize alone (`PricingGrid.tsx`; subtractive; SUPERSEDES the frozen-left HALF of the bundle
+above):** the frozen-left (sticky-left) mechanism is **REMOVED**; the column-resize half **STAYS** (certed, unchanged).
+**WHY (structural):** the red-box experiment confirmed cell-level **multi-column sticky-left does not track horizontal
+scroll** -- the frozen anchor cells paint in place but the scrolling columns clip BEHIND them and never reset on
+scroll-back (a structural failure of cumulative per-cell `sticky left:var(--fcol-N)` on `table-fixed`, NOT an opacity/border
+bug). The **`border-collapse` -> `border-separate` flip tried during debugging was WRONG-AXIS (the bug is h-scroll
+tracking, not border mode) and was reverted** (border-collapse is unchanged in shipped code). The only real fix is a
+**two-pane split table**, but the feasibility recon found a split **fights resize's wrap-and-grow** (Description, the
+tallest-wrapping column, would be in the frozen pane while Remarks, also growable, scrolls -> two-directional per-row
+height-sync over 120-194 rows) **and doubles the row memo** -- not worth it now. **REMOVED:** the opaque `frozenBg` const +
+the now-unused `group` class on the `<tr>` (its only consumer was `frozenBg`'s `group-hover:`); the 5 anchor body `<td>`s'
+`style={{left:"var(--fcol-N)"}}` + `sticky z-10` + `frozenBg` (-> normal scrolling cells; the col-0 flag accents, col-2
+parent-jump button, col-4 depth indent, padding/border/`cellNavClass` ALL stay); the `fcol0..4` derivations + the
+`--fcol-0..4` CSS vars on `tableStyle` (now `{ width }` only; the unused `type CSSProperties` import dropped); the 5 anchor
+`<th>`s downgraded from the **z-30 corner tier back to `sticky top-0 z-20 bg-muted`** (the VERTICAL sticky header STAYS --
+only the horizontal freeze + corner went). **KEPT UNCHANGED (resize):** `table-fixed` + `<colgroup>`; `width:
+${totalWidth}px`; `colWidths`; all resize handlers (`startResize`/`moveResize`/`endResize`/`autofitColumn`/`resizeHandle`);
+the rate clamp (`clampColumnWidth`/`RATE_COL_MIN_PX`); the seed helpers; headers-truncate (D4) / body-wrap-and-grow (D3);
+`data-colkey`; the **row memo `pricingRowPropsAreEqual`**; NAV / parent-jump / 3s flash / rate edit + auto-save.
+Frozen-left = **DEFERRED to a dedicated structural two-pane slice** (editor-design §14 frozen-left row stays SCHEDULED,
+not dropped). NO test changed (subtractive className/style removal -- no pure helper touched; the resize helpers + their
+tests stay green). **vitest 303 (PricingGrid 129, unchanged)**, tsc 3175 (0 new in PricingGrid), in-container build exit 0,
+2026-06-25; see plan §"Drop frozen-left, ship resize alone".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Frozen-left anchors + column resize -- ONE structural
-slice (`table-fixed` + `<colgroup>`) carrying TWO features: the 5 anchors through Description pin sticky-left (z-30/z-20/
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Drop frozen-left, ship resize alone -- the frozen-left
+(sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
+scroll: frozen cells paint in place, scrolling columns clip behind + don't reset on scroll-back; the border-separate flip
+was wrong-axis + reverted; a two-pane fix fights resize's wrap-grow + doubles the row memo -- not worth it now), so the
+sticky-left/`--fcol`/`frozenBg`/z-30-corner are REMOVED and the anchors are normal scrolling columns again; column resize
+(table-fixed + colgroup + drag/autofit/clamp + wrap/truncate) + the VERTICAL sticky header + the row memo all RETAINED +
+certed; frozen-left DEFERRED to a dedicated structural two-pane slice; vitest 303 (PricingGrid 129, unchanged), tsc 3175
+(0 new), 2026-06-25, see the drop-frozen-left paragraph above + plan §"Drop frozen-left, ship resize alone".
+Frozen-left anchors + column resize (the now-partly-superseded bundle) -- ONE structural
+slice (`table-fixed` + `<colgroup>`) carrying TWO features: the 5 anchors through Description pinned sticky-left (z-30/z-20/
 z-10 stack, opaque row-state bg, border-collapse kept) and every column drag-resizes session-only (header-edge handle,
-double-click autofit, rate min-width clamp, headers truncate / body wraps+grows); the frozen LEFT offsets derive from the
-LIVE colgroup widths via CSS vars on the table so a frozen resize stays aligned (the bundling payoff); colgroup derives
-from `visibleDescriptors`; width is GRID-LEVEL so the row memo is UNCHANGED; reviewRender untouched; SUPERSEDES the prior
-"frozen-left + resize are independent" claim (Option B couples them); vitest 294->303, tsc 3175 (0 new), 2026-06-25, see
-the frozen-left/resize paragraph above + plan §"Frozen-left + column-resize bundle". Parent-jump landing flash -- a jump now flashes the WHOLE
+double-click autofit, rate min-width clamp, headers truncate / body wraps+grows); the frozen LEFT offsets derived from the
+LIVE colgroup widths via CSS vars on the table so a frozen resize stayed aligned (the bundling payoff); colgroup derives
+from `visibleDescriptors`; width is GRID-LEVEL so the row memo is UNCHANGED; reviewRender untouched; SUPERSEDED the prior
+"frozen-left + resize are independent" claim (Option B couples them) -- frozen-left then DROPPED (above); vitest 294->303,
+tsc 3175 (0 new), 2026-06-25, see the frozen-left/resize paragraph above + plan §"Frozen-left + column-resize bundle". Parent-jump landing flash -- a jump now flashes the WHOLE
 landed row blue for 3s then clears (grid-level `flashExcelRow` + timeout ref, resets on a new jump; derived per-row
 `isJumpFlash` in `pricingRowPropsAreEqual` via the NEW pure `isJumpFlashRow`; blue wins over search-yellow for its 3s;
 instant on/off = reduced-motion-safe; also flashes on the shared `scrollToRow` so review-strip/search jumps flash too);
