@@ -17,8 +17,9 @@ Groups:
                                 in-progress lifecycle on success/error.
   TestAcceptRejectGemini     -- accept (clean) -> chosen_source=gemini + effective;
                                 accept-4 rule throws on subtotal_marker/header_repeat;
-                                reject; revert -> baseline + Pending; pre-revert of a
-                                standing Claude acceptance (the SWITCH, gemini direction).
+                                reject; revert -> baseline + Pending; the R3a / ADR-0006
+                                BLOCK on a standing Claude acceptance (the SWITCH, gemini
+                                direction; the prior pre-revert is retired).
 """
 import json
 from unittest.mock import MagicMock, patch
@@ -473,7 +474,8 @@ _GAR_SHEET = "GeminiARSheet"
 
 class TestAcceptRejectGemini(FrappeTestCase):
     """accept_gemini_suggestion / reject / revert -- the NON-MODAL childless paths,
-    PLUS the two dual-AI rules (accept-4, pre-revert of a standing Claude acceptance).
+    PLUS the dual-AI accept-4 rule and the R3a / ADR-0006 BLOCK on a standing override
+    (the prior cross-provider pre-revert is retired).
 
     Row layout (rebuilt each test): row 0 preamble root WITH a child (row 1); row 1
     line_item child of row 0 (childless); row 2 line_item root (childless)."""
@@ -558,7 +560,9 @@ class TestAcceptRejectGemini(FrappeTestCase):
         self.assertEqual(res["gemini_suggestion_status"], "Accepted")
         self.assertEqual(res["effective_classification"], "preamble",
                          "the accepted gemini class is now the effective class")
-        self.assertFalse(res["claude_reverted"], "no standing Claude acceptance to revert")
+        self.assertNotIn("claude_reverted", res,
+                         "R3a / ADR-0006: the cross-provider pre-revert (and its claude_reverted "
+                         "field) is retired")
 
         r = self._row(2)
         self.assertEqual(r["human_classification"], "preamble",
@@ -691,28 +695,27 @@ class TestAcceptRejectGemini(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             revert_gemini_acceptance(boq_name=self.boq_name, sheet_name=_GAR_SHEET, row_index=2)
 
-    def test_revert_to_prior_manual_baseline_is_manual(self):
-        # A pre-existing human override (manual) on the row before the gemini accept; the
-        # revert must restore it AND chosen_source resolves to "manual" (a human remains).
+    def test_accept_on_prior_manual_edit_BLOCKS(self):
+        # R3a / ADR-0006: a row with a pre-existing manual human override is a standing change,
+        # so a gemini accept on it is BLOCKED (the prior auto-stack-then-revert-to-manual model
+        # is retired). The manual edit is untouched; the user must revert_to_parser first.
         self._seed_gemini(2, human_classification="spacer",
                           gemini_suggestion_status="Pending",
                           gemini_suggested_classification="note")
-        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=_GAR_SHEET,
-                                 row_index=2, accept_classification=True)
-        self.assertEqual(self._row(2)["human_classification"], "note")
-        revert_gemini_acceptance(boq_name=self.boq_name, sheet_name=_GAR_SHEET, row_index=2)
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=_GAR_SHEET,
+                                     row_index=2, accept_classification=True)
         r = self._row(2)
         self.assertEqual(r["human_classification"], "spacer",
-                         "revert restores the prior manual human_classification baseline")
-        self.assertEqual(r["chosen_source"], "manual",
-                         "a human override remains after revert -> chosen_source 'manual'")
+                         "the prior manual edit must survive the blocked accept (no overwrite)")
+        self.assertNotEqual(r["gemini_suggestion_status"], "Accepted",
+                            "the gemini apply must not have landed")
 
     # -- the SWITCH (gemini direction): accept gemini on a Claude-accepted row -
 
-    def test_accept_gemini_pre_reverts_standing_claude_acceptance(self):
-        # row 2 has BOTH a Claude suggestion (Accepted) and a Gemini suggestion (Pending).
-        # Accepting the Gemini one must FIRST revert the Claude acceptance to baseline, then
-        # apply gemini -> exactly one accepted Source, chosen_source=gemini, ai NOT Accepted.
+    def test_accept_gemini_on_claude_accepted_row_BLOCKS(self):
+        # R3a / ADR-0006: row 2 has a standing Claude acceptance. Accepting the Gemini one must
+        # now BLOCK (the prior pre-revert is retired) -- the user reverts to parser first.
         frappe.db.set_value("BoQ Review Row", self.names[2], {
             "ai_suggested_classification": "preamble",
             "ai_suggestion_status": "Pending",
@@ -724,22 +727,20 @@ class TestAcceptRejectGemini(FrappeTestCase):
         self.assertEqual(self._row(2)["ai_suggestion_status"], "Accepted")
         self.assertEqual(self._row(2)["human_classification"], "preamble")
 
-        # Now accept a DIFFERENT Gemini classification on the same row.
+        # Now TRY to accept a DIFFERENT Gemini classification on the same row -> BLOCKED.
         self._seed_gemini(2, gemini_suggestion_status="Pending",
                           gemini_suggested_classification="note")
-        res = accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=_GAR_SHEET,
-                                       row_index=2, accept_classification=True)
-        self.assertTrue(res["claude_reverted"],
-                        "a standing Claude acceptance must be pre-reverted")
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=_GAR_SHEET,
+                                     row_index=2, accept_classification=True)
 
         r = self._row(2)
-        self.assertEqual(r["gemini_suggestion_status"], "Accepted")
-        self.assertNotEqual(r["ai_suggestion_status"], "Accepted",
-                            "the Claude acceptance must no longer stand (exactly one Source)")
-        self.assertEqual(r["human_classification"], "note",
-                         "the gemini value won the human layer")
-        self.assertEqual(r["chosen_source"], "gemini")
-        self.assertEqual(res["effective_classification"], "note")
+        self.assertEqual(r["ai_suggestion_status"], "Accepted",
+                         "the standing Claude acceptance must be untouched by the blocked gemini apply")
+        self.assertNotEqual(r["gemini_suggestion_status"], "Accepted",
+                            "the gemini apply must NOT have landed")
+        self.assertEqual(r["human_classification"], "preamble",
+                         "the Claude value must still own the human layer (no silent overwrite)")
 
     # -- revert_available surfaced on get_review_rows ----------------------
 

@@ -27,6 +27,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
     _has_price_signal,
+    _row_has_override,
     append_edit_log_entry,
     check_structural_integrity,
     dismiss_row_flags,
@@ -35,6 +36,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     get_structural_breaks,
     mark_sheet_parsed_check_done,
     resolve_effective,
+    revert_to_parser,
     save_review_edit,
     save_review_remark,
     save_review_restructure,
@@ -4182,26 +4184,28 @@ class TestChokepointGeminiInvalidation(FrappeTestCase):
         self.assertEqual(self._val(2, "chosen_source")["chosen_source"], "parser",
                          "a revert to a no-human baseline resolves chosen_source to 'parser'")
 
-    def test_chosen_source_manual_on_revert_with_remaining_human(self):
-        # A prior manual human_classification, then gemini accept of a parent, then revert:
-        # the human_classification override REMAINS after the parent revert -> "manual".
+    def test_accept_on_manually_edited_row_BLOCKS(self):
+        # R3a / ADR-0006: a row with a prior manual human_classification is a standing change,
+        # so a gemini accept on it is BLOCKED (the old auto-stack-then-revert is retired). The
+        # manual edit is untouched; the user must revert_to_parser first.
         self._seed(2, human_classification="spacer",
                    gemini_suggestion_status="Pending", gemini_suggested_parent=0)
-        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
-                                 row_index=2, accept_parent=True)
-        revert_gemini_acceptance(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2)
-        r = self._val(2, "chosen_source", "human_classification")
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                     row_index=2, accept_parent=True)
+        r = self._val(2, "human_classification", "gemini_suggestion_status", "human_parent")
         self.assertEqual(r["human_classification"], "spacer",
-                         "the prior manual human_classification must survive the parent revert")
-        self.assertEqual(r["chosen_source"], "manual",
-                         "a remaining human override after revert -> chosen_source 'manual'")
+                         "the prior manual edit must survive the blocked accept (no overwrite)")
+        self.assertNotEqual(r["gemini_suggestion_status"], "Accepted",
+                            "the gemini apply must not have landed")
+        self.assertEqual(r["human_parent"], -1, "no parent was written by the blocked accept")
 
 
 # ===========================================================================
-# Group: DUAL-AI (ADR-0003) -- the SWITCH (accept gemini on a Claude-accepted row)
-#   Accepting Gemini on a row whose Claude suggestion is Accepted must FIRST revert the
-#   Claude acceptance to baseline (ai status no longer Accepted, ai value out of the human
-#   layer), THEN apply gemini -> chosen_source=gemini, exactly one accepted Source.
+# Group: R3a / ADR-0006 -- BLOCK-THEN-REVERT (the SWITCH no longer auto-reverts)
+#   An AI apply is allowed ONLY on a row at the parser baseline. Accepting Gemini on a
+#   Claude-accepted row (or applying over a manual edit) now THROWS -- the user must call
+#   revert_to_parser first. The prior auto-revert-the-other-provider behaviour is retired.
 # ===========================================================================
 
 class TestDualAISwitch(FrappeTestCase):
@@ -4250,7 +4254,7 @@ class TestDualAISwitch(FrappeTestCase):
         frappe.db.set_value("BoQ Review Row", self.name_by_idx[ridx], fields)
         frappe.db.commit()
 
-    def test_accept_gemini_on_claude_accepted_row_reverts_claude_to_baseline(self):
+    def test_accept_gemini_on_claude_accepted_row_BLOCKS(self):
         # Seed + accept a Claude classification on row 1 (its human layer = the Claude value).
         self._seed(1, ai_suggestion_status="Pending",
                    ai_suggested_classification="preamble")
@@ -4260,43 +4264,314 @@ class TestDualAISwitch(FrappeTestCase):
         self.assertEqual(before["ai_suggestion_status"], "Accepted")
         self.assertEqual(before["human_classification"], "preamble")
 
-        # Now accept a DIFFERENT Gemini classification on the SAME row.
+        # Now TRY to accept a DIFFERENT Gemini classification on the SAME row -> BLOCKED.
         self._seed(1, gemini_suggestion_status="Pending",
                    gemini_suggested_classification="note")
-        res = accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
-                                       row_index=1, accept_classification=True)
-        self.assertTrue(res["claude_reverted"],
-                        "a standing Claude acceptance must be pre-reverted before the gemini accept")
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                     row_index=1, accept_classification=True)
 
+        # Nothing changed: the standing Claude acceptance is intact; gemini did NOT apply.
         after = self._val(1, "ai_suggestion_status", "gemini_suggestion_status",
                           "human_classification", "chosen_source")
-        # Claude reverted to baseline: its accept no longer stands.
-        self.assertNotEqual(after["ai_suggestion_status"], "Accepted",
-                            "the Claude acceptance must be reverted (ai status not Accepted)")
-        # Gemini now owns the row.
-        self.assertEqual(after["gemini_suggestion_status"], "Accepted")
-        self.assertEqual(after["human_classification"], "note",
-                         "the gemini value (not the Claude value) is now the human layer")
-        self.assertEqual(after["chosen_source"], "gemini",
-                         "exactly one accepted Source -> chosen_source is gemini")
+        self.assertEqual(after["ai_suggestion_status"], "Accepted",
+                         "the standing Claude acceptance must be untouched (no silent overwrite)")
+        self.assertNotEqual(after["gemini_suggestion_status"], "Accepted",
+                            "the gemini apply must NOT have landed")
+        self.assertEqual(after["human_classification"], "preamble",
+                         "the Claude value must still own the human layer (gemini did not overwrite)")
 
-    def test_switch_resolves_effective_to_gemini_value(self):
+    def test_accept_claude_on_gemini_accepted_row_BLOCKS(self):
+        # Symmetric direction: a standing Gemini acceptance blocks a Claude apply.
+        self._seed(1, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="note")
+        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=1, accept_classification=True)
+        self.assertEqual(self._val(1, "gemini_suggestion_status")["gemini_suggestion_status"],
+                         "Accepted")
+
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="preamble")
+        with self.assertRaises(frappe.ValidationError):
+            accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=1, accept_classification=True)
+        after = self._val(1, "ai_suggestion_status", "gemini_suggestion_status",
+                          "human_classification")
+        self.assertEqual(after["gemini_suggestion_status"], "Accepted",
+                         "the standing Gemini acceptance must survive the blocked Claude apply")
+        self.assertNotEqual(after["ai_suggestion_status"], "Accepted")
+        self.assertEqual(after["human_classification"], "note")
+
+    def test_apply_ai_over_manual_edit_BLOCKS(self):
+        # A purely MANUAL human edit is also a standing change -> blocks an AI apply.
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=1, field="human_classification", value="spacer")
+        self.assertTrue(self._val(1, "human_classification")["human_classification"] == "spacer")
+
+        self._seed(1, ai_suggestion_status="Pending",
+                   ai_suggested_classification="preamble")
+        with self.assertRaises(frappe.ValidationError):
+            accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=1, accept_classification=True)
+        # And the gemini direction over a manual edit also blocks.
+        self._seed(1, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="note")
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                     row_index=1, accept_classification=True)
+        # The manual edit is untouched.
+        self.assertEqual(self._val(1, "human_classification")["human_classification"], "spacer",
+                         "a blocked AI apply must not overwrite the manual edit")
+
+    def test_revert_then_apply_succeeds(self):
+        # The escape hatch: revert_to_parser clears the standing change, then the AI apply
+        # is allowed and lands (the user consciously cleared the row first).
         self._seed(1, ai_suggestion_status="Pending",
                    ai_suggested_classification="preamble")
         accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
                              row_index=1, accept_classification=True)
         self._seed(1, gemini_suggestion_status="Pending",
                    gemini_suggested_classification="note")
+        # blocked while Claude stands
+        with self.assertRaises(frappe.ValidationError):
+            accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                     row_index=1, accept_classification=True)
+        # revert to parser, then the gemini apply succeeds
+        revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
         res = accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
                                        row_index=1, accept_classification=True)
+        self.assertEqual(res["gemini_suggestion_status"], "Accepted")
         self.assertEqual(res["effective_classification"], "note",
-                         "after the switch the effective class is the gemini value")
-        # And resolve_effective on the stored row agrees (the gemini value lives in human_*).
-        stored = frappe.db.get_value(
-            "BoQ Review Row", self.name_by_idx[1],
-            ["classification", "parent_index", "human_classification", "human_parent",
-             "human_is_root", "ai_suggestion_status", "ai_suggested_classification",
-             "ai_suggested_parent", "ai_suggested_is_root"],
-            as_dict=True,
+                         "after revert+apply the effective class is the gemini value")
+        after = self._val(1, "ai_suggestion_status", "human_classification", "chosen_source")
+        self.assertNotEqual(after["ai_suggestion_status"], "Accepted",
+                            "the prior Claude acceptance was reverted, not still standing")
+        self.assertEqual(after["human_classification"], "note")
+        self.assertEqual(after["chosen_source"], "gemini")
+
+
+# ===========================================================================
+# Group: R3a / ADR-0006 -- has_override signal + the unified revert_to_parser
+# ===========================================================================
+
+class TestHasOverrideSignal(unittest.TestCase):
+    """Pure-Python: _row_has_override across every standing-override state (the single
+    boolean get_review_rows ships as has_override)."""
+
+    def _row(self, **over):
+        base = {
+            "classification": "line_item", "parent_index": 0,
+            "human_classification": None, "human_parent": -1, "human_is_root": 0,
+            "ai_suggestion_status": None, "gemini_suggestion_status": None,
+        }
+        base.update(over)
+        return base
+
+    def test_baseline_row_has_no_override(self):
+        self.assertFalse(_row_has_override(self._row()))
+
+    def test_claude_accepted_is_override(self):
+        self.assertTrue(_row_has_override(self._row(ai_suggestion_status="Accepted")))
+
+    def test_gemini_accepted_is_override(self):
+        self.assertTrue(_row_has_override(self._row(gemini_suggestion_status="Accepted")))
+
+    def test_pending_ai_is_not_override(self):
+        self.assertFalse(_row_has_override(self._row(ai_suggestion_status="Pending")))
+        self.assertFalse(_row_has_override(self._row(gemini_suggestion_status="Pending")))
+
+    def test_manual_classification_is_override(self):
+        self.assertTrue(_row_has_override(self._row(human_classification="note")))
+
+    def test_manual_parent_override_is_override(self):
+        self.assertTrue(_row_has_override(self._row(human_parent=3)))
+
+    def test_manual_parent_zero_is_override(self):
+        # human_parent=0 is a real override (row 0 is a valid parent); -1 is the sentinel.
+        self.assertTrue(_row_has_override(self._row(human_parent=0)))
+
+    def test_human_parent_sentinel_is_not_override(self):
+        self.assertFalse(_row_has_override(self._row(human_parent=-1)))
+
+    def test_human_is_root_is_override(self):
+        self.assertTrue(_row_has_override(self._row(human_is_root=1)))
+
+
+class TestRevertToParser(FrappeTestCase):
+    """revert_to_parser restores the parser baseline for all three override kinds, plus a
+    with-children accept (children restored). Reuses the restructure fixture shape.
+
+    Fixture rows per test (reset by setUp):
+      Row 0 -- preamble,  parent=None  (root)
+      Row 1 -- preamble,  parent=0     (the subject; parent of 2,3)
+      Row 2 -- line_item, parent=1
+      Row 3 -- line_item, parent=1
+      Row 4 -- preamble,  parent=0     (a candidate new parent)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Revert To Parser Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "RevertSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "RevertSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 3, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 4, "preamble", parent_index=0),
+        ])
+
+    def _doc(self, ri):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri}, "name")
+        return frappe.get_doc("BoQ Review Row", name)
+
+    def _seed(self, ri, **fields):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri}, "name")
+        frappe.db.set_value("BoQ Review Row", name, fields)
+        frappe.db.commit()
+
+    def _has_override(self, ri):
+        rows = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)["rows"]
+        m = [r for r in rows if r["row_index"] == ri]
+        self.assertEqual(len(m), 1)
+        return m[0]["has_override"]
+
+    # -- (i) Claude acceptance --------------------------------------------------------
+
+    def test_revert_claude_acceptance(self):
+        # Accept a Claude classification on childless row 4, then revert -> parser baseline.
+        self._seed(4, ai_suggestion_status="Pending", ai_suggested_classification="note")
+        accept_ai_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                             row_index=4, accept_classification=True)
+        self.assertTrue(self._has_override(4))
+        res = revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=4)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["reverted_children"], [])
+        r = self._doc(4)
+        self.assertIsNone(r.human_classification, "human layer cleared")
+        self.assertNotEqual(r.ai_suggestion_status, "Accepted")
+        self.assertEqual(r.ai_suggestion_status, "Pending", "the suggestion is re-offered")
+        self.assertEqual(r.chosen_source, "parser")
+        self.assertEqual(resolve_effective(r)["effective_classification"], "preamble",
+                         "resolves back to the parser classification")
+        self.assertFalse(self._has_override(4))
+
+    # -- (ii) Gemini acceptance -------------------------------------------------------
+
+    def test_revert_gemini_acceptance(self):
+        self._seed(4, gemini_suggestion_status="Pending",
+                   gemini_suggested_classification="note")
+        accept_gemini_suggestion(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                                 row_index=4, accept_classification=True)
+        self.assertTrue(self._has_override(4))
+        res = revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=4)
+        self.assertTrue(res["ok"])
+        r = self._doc(4)
+        self.assertIsNone(r.human_classification)
+        self.assertNotEqual(r.gemini_suggestion_status, "Accepted")
+        self.assertEqual(r.gemini_suggestion_status, "Pending")
+        self.assertEqual(r.chosen_source, "parser")
+        self.assertFalse(self._has_override(4))
+
+    # -- (iii) manual edit ------------------------------------------------------------
+
+    def test_revert_manual_edit(self):
+        # A purely manual classification + parent edit, no AI suggestion present.
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_classification", value="note")
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name,
+                         row_index=4, field="human_parent", value=1)
+        self.assertTrue(self._has_override(4))
+        res = revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=4)
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["reverted_children"], [])
+        r = self._doc(4)
+        self.assertIsNone(r.human_classification, "manual classification cleared")
+        self.assertEqual(r.human_parent, -1, "manual parent cleared to the sentinel")
+        self.assertEqual(r.human_is_root, 0)
+        self.assertEqual(r.chosen_source, "parser")
+        self.assertEqual(resolve_effective(r)["effective_classification"], "preamble")
+        self.assertEqual(resolve_effective(r)["effective_parent_index"], 0,
+                         "resolves back to the parser parent (0)")
+        self.assertFalse(self._has_override(4))
+
+    def test_revert_manual_root_edit(self):
+        # A manual human_is_root override is a standing change; revert clears it. Seed the
+        # root override directly (set_root isn't a save_review_edit kwarg).
+        self._seed(2, human_is_root=1, human_parent=-1)
+        self.assertTrue(self._has_override(2))
+        revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2)
+        r = self._doc(2)
+        self.assertEqual(r.human_is_root, 0, "manual root override cleared")
+        self.assertEqual(r.human_parent, -1)
+        self.assertEqual(r.chosen_source, "parser")
+        self.assertFalse(self._has_override(2))
+
+    # -- (iv) with-children accept (children restored) --------------------------------
+
+    def test_revert_with_children_accept(self):
+        # AI accept on row 1 (which has children 2,3), moving children to row 4 and the row
+        # itself to root -> revert restores row 1 AND children 2,3 to the parser baseline.
+        self._seed(1, ai_suggestion_status="Pending")
+        save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="note",
+            child_moves={2: 4, 3: 4}, row_new_parent=-1,
+            mark_ai_accepted=True,
         )
-        self.assertEqual(resolve_effective(stored)["effective_classification"], "note")
+        self.assertEqual(self._doc(1).ai_suggestion_status, "Accepted")
+        self.assertTrue(self._has_override(1))
+
+        res = revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=1)
+        self.assertTrue(res["ok"])
+        self.assertEqual(sorted(res["reverted_children"]), [2, 3])
+
+        r1 = self._doc(1)
+        self.assertIsNone(r1.human_classification)
+        self.assertEqual(r1.human_parent, -1)
+        self.assertEqual(r1.human_is_root, 0)
+        self.assertNotEqual(r1.ai_suggestion_status, "Accepted")
+        self.assertEqual(r1.chosen_source, "parser")
+        self.assertEqual(resolve_effective(r1)["effective_parent_index"], 0,
+                         "row 1 resolves back to its parser parent (0)")
+        for ci in (2, 3):
+            c = self._doc(ci)
+            self.assertEqual(c.human_parent, -1, f"child {ci} parent restored")
+            self.assertEqual(resolve_effective(c)["effective_parent_index"], 1,
+                             f"child {ci} resolves back to row 1")
+        self.assertFalse(self._has_override(1))
+
+    # -- guards / idempotence ---------------------------------------------------------
+
+    def test_revert_baseline_row_throws_nothing_to_revert(self):
+        with self.assertRaises(frappe.ValidationError):
+            revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=4)
+
+    def test_revert_missing_row_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=99)

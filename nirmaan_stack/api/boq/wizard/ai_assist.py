@@ -50,6 +50,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     _SHEET_FINALIZED,
     _apply_and_save_row_edit,
     _get_sheet_wizard_status,
+    _guard_row_at_parser_baseline,
     _guard_sheet_not_frozen,
     resolve_effective,
 )
@@ -476,6 +477,13 @@ def accept_ai_suggestion(
         row_index = int(row_index)
     except (ValueError, TypeError):
         frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # R3a / ADR-0006 block-then-revert: an AI apply is allowed ONLY on a row at the parser
+    # baseline. If the row carries a standing override (a Gemini acceptance OR a manual
+    # human edit), BLOCK -- the user must Revert to parser first. (A standing CLAUDE
+    # acceptance also blocks: re-accepting an already-accepted Claude suggestion is itself a
+    # no-op-or-overwrite, so the same gate applies.) This replaces the prior silent overwrite.
+    _guard_row_at_parser_baseline(boq_name, sheet_name, row_index)
 
     row_name = frappe.db.get_value(
         _REVIEW_ROW,

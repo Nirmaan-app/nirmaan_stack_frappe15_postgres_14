@@ -7,9 +7,9 @@ This is the GEMINI HALF of the dual-provider BoQ AI assist. It is a faithful CLO
 of Nitesh's Claude machinery (api/boq/wizard/ai_assist.py) with the ai_* namespace
 swapped for gemini_*, wired to the Gemini service (services/boq_gemini_assist.py).
 
-Nitesh's files are NEVER edited -- this module IMPORTS the reusable Claude helpers
-(_row_has_children, revert_ai_acceptance) and the shared review_screen guards +
-chokepoint, and provides its own gemini_* surface alongside them.
+Nitesh's files are NEVER edited -- this module IMPORTS the reusable Claude helper
+(_row_has_children) and the shared review_screen guards + chokepoint, and provides
+its own gemini_* surface alongside them.
 
 Public API (whitelisted endpoints):
   run_gemini_pass(boq_name, sheet_name, mode="resume") -> dict
@@ -24,15 +24,14 @@ Internal:
   _apply_gemini_suggestions(...)                        set_value scalar-bypass write-back
   _publish_gemini_event(...)                            boq:gemini_pass_done choke-point
 
-KEY DUAL-AI INVARIANTS (ADR-0003 secs 4, 5, 7):
-  - EXACTLY ONE accepted Source per row. accept_gemini_suggestion PRE-REVERTS any
-    standing Claude acceptance (via the imported ai_assist.revert_ai_acceptance) BEFORE
-    applying the Gemini accept, so the gemini snapshot captures the TRUE baseline. The
-    symmetric direction (a Claude accept / manual edit on a gemini-Accepted row) is
-    handled by the shared chokepoint (review_screen._apply_and_save_row_edit), which
-    clears gemini status + snapshot. ASYMMETRY (documented in the chokepoint): Claude's
-    revert is Nitesh's "immediate pre-state"; Gemini's is baseline-correct by this
-    pre-revert. We do NOT change Nitesh's revert semantic.
+KEY DUAL-AI INVARIANTS (ADR-0003 secs 4, 5, 7; REVISED by ADR-0006):
+  - EXACTLY ONE accepted Source per row, enforced by BLOCK-THEN-REVERT (ADR-0006). An AI
+    apply is allowed ONLY on a row at the parser baseline; accept_gemini_suggestion THROWS
+    a ValidationError on any standing override (a Claude acceptance OR a manual edit) -- the
+    user must Revert to parser first (the unified review_screen.revert_to_parser). The prior
+    cross-provider PRE-REVERT (silently folding a standing Claude acceptance into the gemini
+    accept) is RETIRED, along with the revert asymmetry: every accept is now captured against
+    a clean parser baseline, so every revert lands on parser.
   - DISPLAY SIX, ACCEPT FOUR. Gemini may SUGGEST all 6 parser classes, but accepting a
     classification is restricted to the 4 assignable classes (line_item/preamble/note/
     spacer). subtotal_marker / header_repeat are detection-only and rejected on accept.
@@ -56,16 +55,17 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     _SHEET_FINALIZED,
     _apply_and_save_row_edit,
     _get_sheet_wizard_status,
+    _guard_row_at_parser_baseline,
     _guard_sheet_not_frozen,
     resolve_effective,
 )
 # Reused Claude endpoint helpers -- IMPORTED, never edited (ADR-0003 sec 8):
-#   _row_has_children     -- effective-parent child detection (provider-agnostic).
-#   revert_ai_acceptance  -- pre-revert a standing Claude acceptance to baseline.
+#   _row_has_children -- effective-parent child detection (provider-agnostic).
+# (R3a / ADR-0006: revert_ai_acceptance is no longer imported here -- the cross-provider
+# pre-revert is retired; an apply onto a standing Claude acceptance is BLOCKED, not folded.)
 from nirmaan_stack.api.boq.wizard.ai_assist import (
     _coerce_bool,
     _row_has_children,
-    revert_ai_acceptance,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
 from nirmaan_stack.services import boq_gemini_assist
@@ -353,10 +353,10 @@ def accept_gemini_suggestion(
     accept_parent=False,
 ) -> dict:
     """Accept a Gemini suggestion (NON-MODAL scope: classification and/or a CHILDLESS-row
-    parent). CLONE of accept_ai_suggestion with the gemini_* namespace, PLUS two dual-AI
-    rules: ACCEPT-FOUR (classification accept restricted to the 4 assignable classes) and
-    PRE-REVERT (a standing Claude acceptance is reverted to baseline FIRST, so the gemini
-    snapshot captures the TRUE baseline -- ADR-0003 sec 4).
+    parent). CLONE of accept_ai_suggestion with the gemini_* namespace, PLUS the dual-AI
+    ACCEPT-FOUR rule (classification accept restricted to the 4 assignable classes) and the
+    R3a / ADR-0006 BLOCK guard (throws on any standing override -- the user reverts to parser
+    first via review_screen.revert_to_parser; the prior cross-provider pre-revert is retired).
 
     Writes the HUMAN layer to the gemini values (via the shared _apply_and_save_row_edit
     chokepoint -- which ALSO sets chosen_source="gemini" from the reason string) AND flips
@@ -366,7 +366,7 @@ def accept_gemini_suggestion(
     RestructureModal -> save_review_restructure(mark_gemini_accepted=True). Childless only here.
 
     Returns {ok, row_index, gemini_suggestion_status, edited_at, effective_classification,
-    effective_parent_index, claude_reverted}.
+    effective_parent_index}.
     URL: /api/method/nirmaan_stack.api.boq.wizard.gemini_assist.accept_gemini_suggestion
     """
     if not boq_name:
@@ -393,6 +393,13 @@ def accept_gemini_suggestion(
         row_index = int(row_index)
     except (ValueError, TypeError):
         frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # R3a / ADR-0006 block-then-revert: an AI apply is allowed ONLY on a row at the parser
+    # baseline. If the row carries a standing override (a Claude acceptance, an existing
+    # Gemini acceptance, OR a manual human edit), BLOCK -- the user must Revert to parser
+    # first. This REPLACES the prior cross-provider pre-revert (which silently folded a
+    # standing Claude acceptance into this gemini accept).
+    _guard_row_at_parser_baseline(boq_name, sheet_name, row_index)
 
     row_name = frappe.db.get_value(
         _REVIEW_ROW,
@@ -435,20 +442,11 @@ def accept_gemini_suggestion(
                 title="Cannot accept this class",
             )
 
-    # PRE-REVERT a standing Claude acceptance to baseline FIRST (ADR-0003 sec 4). This
-    # restores the row's baseline (clearing ai_suggestion_status + ai snapshot) so the
-    # gemini snapshot captured below is the TRUE baseline -- guaranteeing exactly one
-    # accepted Source per row. The imported function is Nitesh's, UNEDITED; it owns its
-    # own commit, which is fine -- it runs strictly before the gemini writes below.
-    claude_reverted = False
-    if doc.ai_suggestion_status == "Accepted":
-        revert_ai_acceptance(boq_name, sheet_name, row_index)
-        claude_reverted = True
-        # Re-load: the imported revert mutated + committed this row.
-        doc = frappe.get_doc(_REVIEW_ROW, row_name)
-
-    # Snapshot the row's pre-accept human layer (the TRUE baseline -- post pre-revert).
-    # Childless path -> children=[]. Captured BEFORE the helper writes; persisted LAST.
+    # R3a / ADR-0006: NO cross-provider pre-revert. The block guard above already rejected
+    # any standing override (incl. a standing Claude acceptance), so this row is at the parser
+    # baseline -- the snapshot captured below is the TRUE baseline by construction.
+    # Snapshot the row's pre-accept human layer. Childless path -> children=[]. Captured
+    # BEFORE the helper writes; persisted LAST.
     accept_snapshot = {
         "row": {
             "hc": doc.human_classification or None,
@@ -530,7 +528,6 @@ def accept_gemini_suggestion(
         "edited_at": edited_at,
         "effective_classification": eff["effective_classification"],
         "effective_parent_index": eff["effective_parent_index"],
-        "claude_reverted": claude_reverted,
     }
 
 
