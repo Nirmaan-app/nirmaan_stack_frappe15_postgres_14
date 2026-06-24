@@ -699,9 +699,32 @@ hiding a row-type moves NO total/count, and nav-skip is free (the grid gets the 
 `isColumnVisible`) live in `PricingGrid.tsx` + are unit-tested in the NEW `PricingToolbar.test.ts`. vitest 264->287, tsc
 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Parent click-to-jump (`PricingGrid.tsx`; view-layer; restores §13-3a which 3a shipped read-only):** the Parent anchor
+cell (col 2) is now a CLICKABLE jump to the parent row -- it scrolls + focuses the parent via the grid's EXISTING
+`scrollToRow` path (search / review-strip precedent), NOT a new mechanism. When a parent exists the **`<button>` is col 2's
+roving nav target** (it carries the focus props + active ring, exactly like a rate `<input>` owns its cell) so there is NO
+second tab stop; a **ROOT row renders no button** and the `<td>` keeps `tdFocusProps(2)` (col 2 always has a nav target) --
+backwards-compatible (the cell was a read-only muted span before). Activation: mouse-click + **Space** fire the button
+natively (Space is not a nav key -> `handleGridKeyDown` lets it fall through); **Enter** is a col-2 special-case in
+`handleGridKeyDown` (mirrors the remarks Enter case) so Enter jumps too (a root row falls through to the generic
+Enter->down). The jump is the NEW pure exported `parentExcelRowOf(row, byIdx)` (root / -1-sentinel / parent-absent-from-map
+-> null, safe no-op) -- it DE-DUPS the parent Excel-row resolution shared by the row render, the Enter handler, and (via
+delegation) the imperative `scrollToRow`, and is unit-tested in `PricingGrid.test.ts`. **Row-memo rule:** the jump arrives
+as a NEW per-row prop `onJumpToRow` (a grid-level `useCallback`, reference-STABLE -> memo-safe) added to BOTH
+`PricingGridRowProps` AND `pricingRowPropsAreEqual` (the exhaustive comparator). **Frozen-left columns + column-resize
+remain a SEPARATE later bundled slice** (recon recommendation (iii)) -- this slice touches NO table layout / widths /
+sticky-left / colgroup. vitest 287->291 (PricingGrid 113->117: `parentExcelRowOf`), tsc 3175 (0 new), in-container build
+exit 0, 2026-06-25.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Toolbar Part 1 -- FIVE view-layer pricing-editor toolbar
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Parent click-to-jump -- the pricing grid's Parent cell
+(col 2) is now a clickable jump to the parent row via the existing `scrollToRow` (restores §13-3a, which 3a shipped
+read-only); the button is col 2's roving nav target (no second tab stop), root rows keep the `<td>` nav target + render no
+button, Enter jumps via a col-2 `handleGridKeyDown` special-case (Space/click fire the button natively), the NEW pure
+`parentExcelRowOf` de-dups the resolution + the new `onJumpToRow` stable prop is in `pricingRowPropsAreEqual`; frozen-left +
+column-resize stay a SEPARATE later bundled slice; vitest 287->291, tsc 3175 (0 new), 2026-06-25, see the parent-click-to-
+jump paragraph above + plan §"Parent click-to-jump". Toolbar Part 1 -- FIVE view-layer pricing-editor toolbar
 controls (description SEARCH with N-of-M + prev/next jumping via the grid's `scrollToRow` + a yellow current-hit-row
 highlight whose per-row `isCurrentHit` boolean is the ONE row-memo touch; COLUMN-HIDE via a "Columns" popover that EXCLUDES
 amount columns [locked] and re-indexes the nav over a `visibleDescriptors` set; and 3 ROW-TYPE filters [spacers/notes/
