@@ -11,10 +11,13 @@
  * Parity rules (mirror Claude, swap ai_ -> gemini_):
  *   - Badges show ONLY while gemini_suggestion_status === "Pending" (Accepted/Rejected are
  *     resolved -> no badge). Classification + parent each get one H/M/L pill; both -> two.
- *   - DIVERGENCE marker (the column's job): a suggestion only "counts" as a class suggestion
- *     when it differs from the PARSER classification (row.classification), and as a parent
- *     suggestion when it is a real parent index or a root flag. Mirrors aiSuggestionInfo's
- *     pending-only gating; the divergence-vs-parser comparison is the column's display intent.
+ *   - DIVERGENCE marker (the column's job, R1 / ADR-0006 sec 5): DIFFS-ONLY vs the PARSER. A
+ *     class suggestion "counts" only when it differs from the parser classification AND is not a
+ *     detection-only class (subtotal_marker / header_repeat -- never accept targets). A parent
+ *     suggestion "counts" only when the gemini parent differs from the parser parent_index (a
+ *     real new parent, or a re-root of a previously-parented row); root-vs-root is no signal.
+ *     This vs-PARSER comparison is the column's display intent and is intentionally DISTINCT from
+ *     the accept block's vs-effective gating (what is applicable) -- the two must not be unified.
  */
 import { cn } from "@/lib/utils";
 import { Filter } from "lucide-react";
@@ -22,9 +25,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import type { ReviewRow } from "./boqTypes";
 
 // ── Gemini suggestion shape (mirror of ReviewTree's AiSuggestionInfo, gemini_* namespace) ──
-// A suggestion only "counts" while gemini_suggestion_status === "Pending". A class suggestion
-// additionally DIVERGES from the parser classification (row.classification) to be shown; a
-// parent suggestion is a real parent index OR a root flag.
+// A suggestion only "counts" while gemini_suggestion_status === "Pending". R1 (ADR-0006 sec 5):
+// DIFFS-ONLY vs the PARSER -- a class suggestion shows only when it diverges from the parser
+// classification (and is NOT a detection-only class); a parent suggestion shows only when the
+// gemini parent differs from the parser parent_index (root-vs-root carries no signal).
 export interface GeminiSuggestionInfo {
   pending: boolean;
   hasClass: boolean;
@@ -35,16 +39,36 @@ export interface GeminiSuggestionInfo {
 
 export function geminiSuggestionInfo(row: ReviewRow): GeminiSuggestionInfo {
   const pending = row.gemini_suggestion_status === "Pending";
-  // Divergence vs the PARSER classification (row.classification) -- a same-as-parser
-  // suggestion carries no signal and is not surfaced as a class badge.
+  // R1 (ADR-0006 sec 5): DIFFS-ONLY vs the PARSER. The column highlights a Gemini divergence
+  // only when it actually differs from the parser on classification or parent -- matching how
+  // Claude behaves (its corrector only writes ai_* on changed rows). NOTE: this vs-PARSER
+  // comparison is intentionally distinct from the ACCEPT BLOCK's vs-effective gating (which
+  // governs what can be applied); do not unify them.
+  //
+  // Classification divergence: gemini class differs from parser classification. R1 EXCLUDES a
+  // divergence TO a detection-only class (subtotal_marker / header_repeat) -- those are parser
+  // detections, never accept targets, so a suggestion to one carries no actionable signal.
+  const DETECTION_ONLY = row.gemini_suggested_classification === "subtotal_marker" ||
+    row.gemini_suggested_classification === "header_repeat";
   const hasClass =
     pending &&
     row.gemini_suggested_classification != null &&
-    row.gemini_suggested_classification !== row.classification;
+    row.gemini_suggested_classification !== row.classification &&
+    !DETECTION_ONLY;
+  // Parent divergence vs the PARSER parent_index (NOT effective_parent_index):
+  //   (a) gemini roots this row (gemini_suggested_is_root === 1) while the parser had a real
+  //       parent (parent_index != null && >= 0)  -- a real re-root signal; or
+  //   (b) a real gemini_suggested_parent (!= null && !== -1) that differs from parent_index.
+  // Root-vs-root (parser already root + gemini root) carries no signal -> false.
+  const geminiRoot = row.gemini_suggested_is_root === 1;
+  const parserHasParent = row.parent_index != null && row.parent_index >= 0;
   const hasParent =
     pending &&
-    ((row.gemini_suggested_parent != null && row.gemini_suggested_parent !== -1) ||
-      row.gemini_suggested_is_root === 1);
+    ((geminiRoot && parserHasParent) ||
+      (!geminiRoot &&
+        row.gemini_suggested_parent != null &&
+        row.gemini_suggested_parent !== -1 &&
+        row.gemini_suggested_parent !== row.parent_index));
   return {
     pending,
     hasClass,

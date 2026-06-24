@@ -40,6 +40,7 @@ import type {
   GeminiPassDonePayload,
   GeminiStatusResponse,
   GetReviewRowsResponse,
+  GetStructuralBreaksResponse,
   MarkParsedCheckDoneResponse,
   RunGeminiPassResponse,
   StructuralBreak,
@@ -131,15 +132,28 @@ const SheetReviewPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
+  // R4: structural BREAKS for the warnings panel. Fetched alongside the advisory flags (which
+  // ride get_review_rows above). breaks are the "must-fix" group (line_item_as_parent, cycle,
+  // orphan); the panel inside ReviewTree groups them distinctly above the softer advisories.
+  // Read-only endpoint -- no write, no status change. Same disable-until-params guard.
+  const { data: breaksData, mutate: breaksMutate } = useFrappeGetCall<{ message: GetStructuralBreaksResponse }>(
+    "nirmaan_stack.api.boq.wizard.review_screen.get_structural_breaks",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
+    boqId && sheetName ? undefined : null,
+  );
+
   // C-v2: sheet-level save-status anchor. Set from each resolved save's returned
   // edited_at for an instant update (does not wait for the get_review_rows refetch).
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
   // C-v2: after a value edit saves, advance the anchor + refresh the grid so the
   // row flips to "Edited" (green tint) and its edit history gains an entry.
+  // R4: also re-fetch structural breaks -- a value/restructure edit can resolve or introduce
+  // a break, so the warnings panel must stay in sync with the grid.
   const handleSaved = (editedAt: string) => {
     setLastSavedAt(editedAt);
     void mutate();
+    void breaksMutate();
   };
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
@@ -520,6 +534,9 @@ const SheetReviewPage = () => {
   const rows = reviewData?.message?.rows ?? [];
   const columnDescriptors = reviewData?.message?.column_descriptors ?? [];
   const flags = reviewData?.message?.flags ?? [];
+  // R4: structural breaks for the warnings panel (must-fix group). Defaults to [] until the
+  // get_structural_breaks fetch resolves; the panel renders breaks above the advisory flags.
+  const breaks = breaksData?.message?.breaks ?? [];
   // DUAL-AI (ADR-0003): the Gemini enable flag, surfaced top-level by get_review_rows from
   // Document AI Settings.boq_ai_enabled (fails closed to false). Gates ReviewTree's Gemini
   // column + accept block. Defaults false when absent (older payload / disabled settings).
@@ -527,36 +544,10 @@ const SheetReviewPage = () => {
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
-  // OBS-2: per-category flag counts for the summary strip.
-  const FLAG_LABELS: Record<string, string> = {
-    zero_amount_line_item: "zero-amount",
-    orphan: "orphan",
-    parser: "needs-review",
-    priced_preamble_no_children: "priced-preamble",
-  };
-  const FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
-  const flagCounts: Record<string, number> = {};
-  for (const f of flags) flagCounts[f.type] = (flagCounts[f.type] ?? 0) + 1;
-  // C-flag-dismissal: per-category "cleared" count = flags of this type whose row was
-  // dismissed ("Looks OK") AND whose flag STILL computes (it's in the live flags array,
-  // which already auto-excludes resolved conditions). Derived frontend-side from the row
-  // payload's flags_dismissed -- no new backend data.
-  const dismissedRowIdx = new Set(
-    rows.filter(r => !!r.flags_dismissed).map(r => r.row_index),
-  );
-  const clearedCounts: Record<string, number> = {};
-  for (const f of flags) {
-    if (dismissedRowIdx.has(f.row_index)) {
-      clearedCounts[f.type] = (clearedCounts[f.type] ?? 0) + 1;
-    }
-  }
-  const flagSummaryParts = FLAG_ORDER
-    .filter(t => (flagCounts[t] ?? 0) > 0)
-    .map(t => {
-      const cleared = clearedCounts[t] ?? 0;
-      const base = `${flagCounts[t]} ${FLAG_LABELS[t]}`;
-      return cleared > 0 ? `${base} – ${cleared} cleared` : base;
-    });
+  // R4: the OBS-2 advisory-flag count strip + its "– N cleared" rollup moved INTO ReviewTree's
+  // warnings panel header (ReviewTree owns revealAndScrollToRow + flags + rows.flags_dismissed,
+  // so the clickable panel and its rollup live together there). The FLAG_LABELS / FLAG_ORDER /
+  // cleared-count derivation that used to live here is now in ReviewTree.
 
   // C-v2c: sheet-level remarks count -- number of rows carrying a non-empty remark.
   // Single count (remarks have no sub-types); strip omitted when zero (mirrors flags).
@@ -793,13 +784,9 @@ const SheetReviewPage = () => {
         </span>
       </div>
 
-      {/* ── OBS-2: Advisory flag summary strip -- shown only when flags exist ── */}
-      {!reviewLoading && !reviewError && flagSummaryParts.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-          <span className="font-medium text-foreground">Flags:</span>
-          <span>{flagSummaryParts.join(" · ")}</span>
-        </div>
-      )}
+      {/* R4: the advisory-flag summary strip evolved into ReviewTree's clickable warnings panel
+          (rendered at the top of the tree). The count + "– N cleared" rollup now live in that
+          panel's header, alongside the per-row clickable entries + structural-break group. */}
 
       {/* ── C-v2c: Remarks count strip -- mirrors the flags strip; shown only when
           at least one row carries a remark (single count, no sub-types). ── */}
@@ -830,8 +817,11 @@ const SheetReviewPage = () => {
           flags={flags}
           boqName={boqId ?? ""}
           sheetName={sheetName}
+          breaks={breaks}
           onSaved={handleSaved}
-          onRemarkSaved={() => void mutate()}
+          // R4: a remark / dismissal / AI accept-reject routes through here and can change
+          // structural integrity (e.g. an accepted reparent) -> re-fetch breaks too.
+          onRemarkSaved={() => { void mutate(); void breaksMutate(); }}
           // Slice 1b-beta: a restructure IS a real edit -- reuse handleSaved (advances the
           // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
           onRestructured={handleSaved}

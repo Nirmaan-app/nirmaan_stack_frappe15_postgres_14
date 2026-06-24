@@ -77,11 +77,11 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
+import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, StructuralBreak, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -295,6 +295,23 @@ function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; 
   );
 }
 
+// R4: short per-category labels for the warnings panel (advisory flags). Mirrors the labels the
+// SheetReviewPage count strip used (FLAG_LABELS) -- moved here when the strip evolved into the
+// panel. FLAG_ORDER fixes the badge/rollup ordering.
+const WARN_FLAG_LABELS: Record<string, string> = {
+  zero_amount_line_item: "zero-amount",
+  orphan: "orphan",
+  parser: "needs-review",
+  priced_preamble_no_children: "priced-preamble",
+};
+const WARN_FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
+// R4: labels for the must-fix structural-break group (from check_structural_integrity).
+const WARN_BREAK_LABELS: Record<string, string> = {
+  orphan: "Orphan line item",
+  line_item_as_parent: "Line item used as a parent",
+  cycle: "Parent cycle",
+};
+
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
 interface SaveReviewRestructureResponse {
@@ -311,6 +328,10 @@ interface ReviewTreeProps {
   rows: ReviewRow[];
   columnDescriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
+  // R4: structural breaks (must-fix) for the warnings panel, fetched by SheetReviewPage via
+  // get_structural_breaks. Defaults to [] (so existing callers that omit it render no break
+  // group). The panel groups these distinctly above the softer advisory flags.
+  breaks?: StructuralBreak[];
   // C-v2: identifiers for the save_review_edit POST. sheetName MUST be the
   // verbatim, untrimmed DB string (the #152 trailing-space guard) -- never the
   // display-trimmed name.
@@ -341,7 +362,7 @@ interface ReviewTreeProps {
   geminiEnabled?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -353,6 +374,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // B2a-fix OBS-1: master show-all toggle. When true, all flagged rows reveal reasons,
   // overriding the single-open model. Toggling off clears expandedFlagRow to null.
   const [showAllFlags, setShowAllFlags] = useState(false);
+  // R4: warnings-panel "Show dismissed" toggle. By default the panel hides rows whose flags
+  // were acknowledged ("Looks OK", flags_dismissed=1) -- parity with the pricing strip. Toggling
+  // on surfaces them again (dimmed). Structural BREAKS are NEVER hidden by this toggle (a break
+  // is a must-fix; dismissal only acknowledges the softer advisory flags).
+  const [showDismissedWarnings, setShowDismissedWarnings] = useState(false);
+  // R4: the warnings panel is collapsible (header always visible with the rollup; the entry
+  // list folds away). Defaults OPEN so the warnings are visible on load.
+  const [warningsPanelOpen, setWarningsPanelOpen] = useState(true);
   // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
   const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
@@ -927,6 +956,77 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   // Whether any flags exist at all -- used to conditionally render the master toggle.
   const hasFlagsAny = flags.length > 0;
 
+  // R4: warnings-panel model. ONE entry PER ROW that carries a structural break and/or advisory
+  // flag(s). Each entry tags whether the row is a must-fix (has a break) and whether it was
+  // dismissed ("Looks OK"). The panel renders break-rows distinctly (above) from advisory-only
+  // rows, and hides dismissed rows by default. Built off `breaks` + `flags` + rows.flags_dismissed.
+  const warningRows = useMemo(() => {
+    const dismissedIdx = new Set(rows.filter(r => !!r.flags_dismissed).map(r => r.row_index));
+    const byIdxLocal = new Map<number, ReviewRow>(rows.map(r => [r.row_index, r]));
+    const map = new Map<number, {
+      rowIndex: number;
+      excelRow: number | null;
+      breaks: StructuralBreak[];
+      flags: AdvisoryFlag[];
+      dismissed: boolean;
+    }>();
+    const ensure = (rowIndex: number, srn: number | null) => {
+      let e = map.get(rowIndex);
+      if (!e) {
+        e = {
+          rowIndex,
+          excelRow: srn ?? byIdxLocal.get(rowIndex)?.source_row_number ?? null,
+          breaks: [],
+          flags: [],
+          // A break is a must-fix and NEVER counts as dismissed (dismissal acknowledges advisory
+          // flags only); this flag drives the default hide of advisory-only dismissed rows.
+          dismissed: dismissedIdx.has(rowIndex),
+        };
+        map.set(rowIndex, e);
+      }
+      return e;
+    };
+    for (const b of breaks) ensure(b.row_index, b.source_row_number).breaks.push(b);
+    for (const f of flags) ensure(f.row_index, f.source_row_number).flags.push(f);
+    // Sort breaks-first, then by Excel row for stable, scannable order.
+    return Array.from(map.values()).sort((a, b) => {
+      const aBreak = a.breaks.length > 0 ? 0 : 1;
+      const bBreak = b.breaks.length > 0 ? 0 : 1;
+      if (aBreak !== bBreak) return aBreak - bBreak;
+      return (a.excelRow ?? 0) - (b.excelRow ?? 0);
+    });
+  }, [rows, breaks, flags]);
+
+  // R4: the must-fix (break) vs advisory split, and the dismissed-hide gate.
+  const breakWarnRows = warningRows.filter(w => w.breaks.length > 0);
+  // Advisory-only rows (no break). A break row is always shown (never dismissible); an
+  // advisory-only row is hidden by default once dismissed unless "Show dismissed" is on.
+  const advisoryWarnRows = warningRows.filter(w => w.breaks.length === 0);
+  const visibleAdvisoryWarnRows = showDismissedWarnings
+    ? advisoryWarnRows
+    : advisoryWarnRows.filter(w => !w.dismissed);
+  const dismissedAdvisoryCount = advisoryWarnRows.filter(w => w.dismissed).length;
+  const hasAnyWarning = warningRows.length > 0;
+
+  // R4: per-category advisory rollup for the panel header (evolved from the SheetReviewPage
+  // count strip). "N label – M cleared" where cleared = flags of that type on a dismissed row.
+  const warnSummaryParts = useMemo(() => {
+    const dismissedIdx = new Set(rows.filter(r => !!r.flags_dismissed).map(r => r.row_index));
+    const counts: Record<string, number> = {};
+    const cleared: Record<string, number> = {};
+    for (const f of flags) {
+      counts[f.type] = (counts[f.type] ?? 0) + 1;
+      if (dismissedIdx.has(f.row_index)) cleared[f.type] = (cleared[f.type] ?? 0) + 1;
+    }
+    return WARN_FLAG_ORDER
+      .filter(t => (counts[t] ?? 0) > 0)
+      .map(t => {
+        const c = cleared[t] ?? 0;
+        const base = `${counts[t]} ${WARN_FLAG_LABELS[t]}`;
+        return c > 0 ? `${base} – ${c} cleared` : base;
+      });
+  }, [rows, flags]);
+
   // FIX 1: clear highlight after 1.5s
   useEffect(() => {
     if (highlightedIdx === null) return;
@@ -1162,7 +1262,147 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const hiddenColCount = displayDescriptors.filter(d => !visibleCols.has(d.col)).length;
 
   return (
-    <div className="rounded-md border border-border overflow-hidden">
+    <div className="space-y-3">
+      {/* ── R4: Warnings panel ───────────────────────────────────────────────────
+          A clickable list of rows needing attention, ONE entry per row. Structural BREAKS
+          (must-fix: line_item_as_parent, cycle, orphan) group distinctly ABOVE the softer
+          advisory flags. Clicking an entry reveals + scrolls to that row (revealAndScrollToRow:
+          expand collapsed ancestors, smooth scroll block:'nearest', 1.5s amber pulse -- no focus).
+          The count + "– N cleared" rollup (evolved from the SheetReviewPage strip) lives in the
+          header. Dismissed advisory rows hide by default behind a "Show dismissed" toggle. */}
+      {hasAnyWarning && (
+        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/15 overflow-hidden">
+          {/* Header: collapse toggle + counts rollup + "Show dismissed" toggle. */}
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setWarningsPanelOpen(o => !o)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+              aria-expanded={warningsPanelOpen}
+              aria-label={warningsPanelOpen ? "Collapse warnings" : "Expand warnings"}
+            >
+              {warningsPanelOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>
+                Warnings
+                {breakWarnRows.length > 0 && (
+                  <span className="ml-1 text-red-700 dark:text-red-300">
+                    · {breakWarnRows.length} must-fix
+                  </span>
+                )}
+              </span>
+            </button>
+            {warnSummaryParts.length > 0 && (
+              <span className="text-xs text-amber-700/90 dark:text-amber-300/90">
+                {warnSummaryParts.join(" · ")}
+              </span>
+            )}
+            {/* "Show dismissed" toggle -- only meaningful when there are dismissed advisory rows. */}
+            {dismissedAdvisoryCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDismissedWarnings(s => !s)}
+                className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                {showDismissedWarnings
+                  ? `Hide dismissed (${dismissedAdvisoryCount})`
+                  : `Show dismissed (${dismissedAdvisoryCount})`}
+              </button>
+            )}
+          </div>
+
+          {warningsPanelOpen && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2">
+              {/* Must-fix structural breaks -- grouped distinctly above the advisories. */}
+              {breakWarnRows.length > 0 && (
+                <div className="space-y-1">
+                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:text-red-300 flex items-center gap-1">
+                    <AlertOctagon className="h-3 w-3" /> Must fix
+                  </p>
+                  {breakWarnRows.map((w) => (
+                    <button
+                      key={`brk-${w.rowIndex}`}
+                      type="button"
+                      onClick={() => revealAndScrollToRow(w.rowIndex)}
+                      className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-red-50/70 dark:bg-red-950/25 border border-red-200/70 dark:border-red-900/40 hover:bg-red-100/70 dark:hover:bg-red-950/40 transition-colors"
+                    >
+                      <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                        {w.excelRow !== null ? `Row ${w.excelRow}` : `#${w.rowIndex}`}
+                      </span>
+                      <span className="flex flex-col gap-0.5 min-w-0">
+                        <span className="flex flex-wrap gap-1">
+                          {w.breaks.map((b, i) => (
+                            <span
+                              key={i}
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 whitespace-nowrap"
+                            >
+                              {WARN_BREAK_LABELS[b.type] ?? b.type}
+                            </span>
+                          ))}
+                        </span>
+                        <span className="text-[11px] text-red-700/90 dark:text-red-300/90 leading-snug">
+                          {w.breaks.map(b => b.reason).join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Advisory flags -- one clickable entry per row (dismissed rows hidden by default). */}
+              {visibleAdvisoryWarnRows.length > 0 && (
+                <div className="space-y-1">
+                  {breakWarnRows.length > 0 && (
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> Advisory
+                    </p>
+                  )}
+                  {visibleAdvisoryWarnRows.map((w) => (
+                    <button
+                      key={`flg-${w.rowIndex}`}
+                      type="button"
+                      onClick={() => revealAndScrollToRow(w.rowIndex)}
+                      className={cn(
+                        "w-full text-left flex items-start gap-2 rounded px-2 py-1.5 border transition-colors",
+                        w.dismissed
+                          ? "bg-muted/30 border-border opacity-60 hover:opacity-90"
+                          : "bg-amber-50/70 dark:bg-amber-950/20 border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35",
+                      )}
+                    >
+                      <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                        {w.excelRow !== null ? `Row ${w.excelRow}` : `#${w.rowIndex}`}
+                      </span>
+                      <span className="flex flex-col gap-0.5 min-w-0">
+                        <span className="flex flex-wrap items-center gap-1">
+                          {w.flags.map((f, i) => (
+                            <span
+                              key={i}
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 whitespace-nowrap"
+                            >
+                              {WARN_FLAG_LABELS[f.type] ?? f.type}
+                            </span>
+                          ))}
+                          {w.dismissed && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                              <CheckCircle2 className="h-3 w-3" /> Looks OK
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug">
+                          {w.flags.map(f => f.reason).join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-md border border-border overflow-hidden">
       {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
         {/* Feature 1: column-subset selector (only when descriptor columns exist) */}
@@ -1567,6 +1807,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
               const aiInfo = aiSuggestionInfo(row);
               const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
+              // R1 (ADR-0006 sec 5): Gemini DIFFS-ONLY pending shape -- drives a VIOLET tint that
+              // mirrors the Claude indigo one. geminiSuggestionInfo is now diffs-only (vs parser),
+              // so this is true only when Gemini genuinely diverges. Gated on geminiEnabled so the
+              // tint never appears when the Gemini column is not mounted.
+              const geminiInfo = geminiEnabled ? geminiSuggestionInfo(row) : null;
+              const hasPendingGemini = !!geminiInfo && (geminiInfo.hasClass || geminiInfo.hasParent);
+              // Both-providers-disagree precedence: Claude keeps the full-row indigo tint; Gemini
+              // then shows only as a VIOLET LEFT-EDGE ACCENT (a left border), so both signals stay
+              // visible. Gemini gets the full-row violet tint only when Claude is NOT also pending.
+              const geminiFullTint = hasPendingGemini && !hasPendingAi;
+              const geminiEdgeAccent = hasPendingGemini && hasPendingAi;
 
               // B2b: parent label resolution for detail panel (Excel row numbers where resolvable).
               const origParentLabel = (() => {
@@ -1611,6 +1862,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                       // (twMerge keeps the last conflicting bg-*), and BEFORE the amber flash
                       // so the scroll-highlight still wins on flash (existing tint ordering).
                       hasPendingAi && "bg-indigo-50/50 dark:bg-indigo-950/20",
+                      // R1: full-row VIOLET tint when ONLY Gemini diverges (Claude not pending).
+                      // Same ordering slot as the indigo tint (before green so an edited row stays
+                      // green). When BOTH disagree, Claude's indigo above wins the full-row tint and
+                      // Gemini falls back to the left-edge accent below.
+                      geminiFullTint && "bg-violet-50/50 dark:bg-violet-950/20",
+                      // R1 both-disagree: VIOLET left-edge accent so the Gemini signal stays visible
+                      // alongside Claude's full-row indigo. A left border (not a bg-*) so it composes
+                      // with the indigo tint instead of overwriting it.
+                      geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
                       isEdited && "bg-green-50 dark:bg-green-950/30",
                       // FIX 1: transient amber flash wins over green tint (placed after in cn())
                       highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
@@ -2451,6 +2711,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           </tbody>
         </table>
       </div>
+      </div>{/* R4: close the table-card div opened above; the dialogs/modal below are siblings
+              inside the outer space-y-3 wrapper. */}
 
       {/* C-v2: per-edit confirm dialog -- lightweight one-line summary + optional
           reason. Value edits have no structural fallout, so this is a single-line

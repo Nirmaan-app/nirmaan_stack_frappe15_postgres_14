@@ -882,6 +882,11 @@ export type StructuralBreak =
 /** Response shape of get_structural_breaks. */
 export interface GetStructuralBreaksResponse {
   breaks: StructuralBreak[];
+  // Slice B2a addition: the endpoint also returns advisory flags alongside breaks (the same
+  // shape get_review_rows surfaces). R4's warnings panel reads `breaks` from this endpoint;
+  // advisory flags come from get_review_rows on the page, but the field is declared here for
+  // completeness with the backend contract.
+  flags?: AdvisoryFlag[];
 }
 
 // ── Finalized marking (Slice D1; renamed A1) ──────────────────────────────────
