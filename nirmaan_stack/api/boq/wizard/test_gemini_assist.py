@@ -311,6 +311,42 @@ class TestRunGeminiPass(_GeminiDBBase):
         self.assertEqual(self._gemini_in_progress(_G_SHEET), 1,
                          "gemini_in_progress must be set to 1 after a successful enqueue")
 
+    def test_enqueue_clears_stale_status_payload(self):
+        # Regression: a re-run after a failure must NOT re-show the previous run's error banner.
+        # The enqueue invalidates the cached terminal payload so the frontend's Layer-2 poll
+        # (get_gemini_pass_status) resolves THIS pass, not the last one's outcome. Repro: seed a
+        # stale "error" payload (as _publish_gemini_event records after a failure), then re-enqueue.
+        key = gemini_assist._gemini_status_key(self.boq_name, _G_SHEET)
+        frappe.cache().set_value(
+            key,
+            {"status": "error", "boq_name": self.boq_name,
+             "sheet_name": _G_SHEET, "error_code": "gemini_failed"},
+        )
+        self.addCleanup(frappe.cache().delete_value, key)
+        self.addCleanup(self._restore_draft, _G_SHEET, {"gemini_in_progress": 0})
+
+        # Sanity: before the re-run the stale payload is readable (this is what re-showed the error).
+        self.assertEqual(
+            get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)["status"],
+            "error",
+        )
+
+        fake_job = MagicMock()
+        fake_job.id = "job-gemini-rerun"
+        with patch(_SETTINGS, return_value=_ENABLED_SETTINGS), \
+             patch("frappe.enqueue", return_value=fake_job):
+            result = run_gemini_pass(boq_name=self.boq_name, sheet_name=_G_SHEET)
+
+        self.assertTrue(result["ok"])
+        self.assertIsNone(
+            frappe.cache().get_value(key),
+            "enqueue must invalidate the prior run's cached status payload",
+        )
+        # The poll now sees an in-progress idle shape, NOT the stale error.
+        status = get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)
+        self.assertEqual(status["status"], "idle_or_unknown")
+        self.assertEqual(status["gemini_in_progress"], 1)
+
     def test_status_returns_idle_shape_when_no_fallback(self):
         frappe.cache().delete_value(gemini_assist._gemini_status_key(self.boq_name, _G_SHEET))
         status = get_gemini_pass_status(boq_name=self.boq_name, sheet_name=_G_SHEET)

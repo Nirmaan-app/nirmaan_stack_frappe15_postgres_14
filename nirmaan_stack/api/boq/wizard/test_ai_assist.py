@@ -197,6 +197,43 @@ class TestAIAssist(FrappeTestCase):
         self.assertEqual(self._ai_in_progress(_AI_SHEET), 1,
                          "ai_in_progress must be set to 1 after a successful enqueue")
 
+    def test_enqueue_clears_stale_status_payload(self):
+        # Regression (parity with run_gemini_pass): a re-run after a failure must NOT re-show the
+        # previous run's error banner. The enqueue invalidates the cached terminal payload so the
+        # frontend poll (get_ai_pass_status) resolves THIS pass, not the last one's outcome. Repro:
+        # seed a stale "error" payload (as _publish_ai_event records after a failure), re-enqueue.
+        key = ai_assist._ai_status_key(self.boq_name, _AI_SHEET)
+        frappe.cache().set_value(
+            key,
+            {"status": "error", "boq_name": self.boq_name,
+             "sheet_name": _AI_SHEET, "error_code": "internal"},
+        )
+        self.addCleanup(frappe.cache().delete_value, key)
+        self.addCleanup(self._restore_draft, _AI_SHEET, {"ai_in_progress": 0})
+
+        # Sanity: before the re-run the stale payload is readable (this is what re-showed the error).
+        self.assertEqual(
+            get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)["status"],
+            "error",
+        )
+
+        fake_job = MagicMock()
+        fake_job.id = "job-rerun"
+        with patch(_SETTINGS, return_value=_enabled_settings()), \
+             patch(_API_KEY, return_value="sk-test"), \
+             patch("frappe.enqueue", return_value=fake_job):
+            result = run_ai_pass(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+
+        self.assertTrue(result["ok"])
+        self.assertIsNone(
+            frappe.cache().get_value(key),
+            "enqueue must invalidate the prior run's cached status payload",
+        )
+        # The poll now sees an in-progress idle shape, NOT the stale error.
+        status = get_ai_pass_status(boq_name=self.boq_name, sheet_name=_AI_SHEET)
+        self.assertEqual(status["status"], "idle_or_unknown")
+        self.assertEqual(status["ai_in_progress"], 1)
+
     # --- T5/T6/T12/T13: write-back ----------------------------------------
 
     def _run_worker_with(self, suggestions):

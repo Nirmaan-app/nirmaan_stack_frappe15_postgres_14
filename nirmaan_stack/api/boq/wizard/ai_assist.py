@@ -361,6 +361,18 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     # SET only after a successful enqueue so a failed enqueue doesn't leave state stuck.
     _set_ai_in_progress(boq_name, sheet_name, 1)
     frappe.db.commit()
+
+    # Invalidate any PRIOR run's terminal status payload (the Redis missed-socket fallback set
+    # by _publish_ai_event) so the frontend's poll resolves THIS pass, not the last one's outcome.
+    # Without this, re-running after a failure re-shows the old error banner: the poll reads
+    # get_ai_pass_status -> stale cached {status:"error"} while the new run is still in flight.
+    # Best-effort (Redis, outside the DB txn) -- must never fail the enqueue. (Parity with
+    # run_gemini_pass; the cache-hit path above returns early and records no status payload.)
+    try:
+        frappe.cache().delete_value(_ai_status_key(boq_name, sheet_name))
+    except Exception:
+        pass
+
     return {"ok": True, "enqueued": True, "job_id": job.id if job else None}
 
 
