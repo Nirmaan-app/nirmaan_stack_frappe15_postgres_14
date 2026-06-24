@@ -23,6 +23,7 @@ import { AssignPMODialog } from "./components/AssignPMODialog";
 import TaskHistoryDrawer from "./components/TaskHistoryDrawer";
 import { parseAssignedFromField, type AssignedPMODetail } from "./utils";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { ProjectStatusBadge } from "@/components/common/ProjectStatusBadge";
 
 interface TaskItem {
@@ -87,6 +88,9 @@ const PMOProjectDetail: React.FC = () => {
     "Projects",
     projectId || ""
   );
+
+  // Active CEO-Hold reason rows (the live "why") for the banner.
+  const { holdReasons: ceoHoldReasons } = useCEOHoldGuard(projectId);
 
   // Task data
   const [tasks, setTasks] = useState<Record<string, TaskItem[]>>({});
@@ -508,7 +512,7 @@ const PMOProjectDetail: React.FC = () => {
 
       {/* CEO Hold guard banner */}
       {project?.status === "CEO Hold" && (
-        <CEOHoldBanner className="mb-6" heldBy={project?.ceo_hold_by} />
+        <CEOHoldBanner className="mb-6" heldBy={project?.ceo_hold_by} reasons={ceoHoldReasons} />
       )}
 
       {/* Project Info Card */}

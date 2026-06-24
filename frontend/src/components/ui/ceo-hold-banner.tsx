@@ -7,9 +7,10 @@ interface CEOHoldBannerProps {
   compact?: boolean;  // For inline usage in cards/tables
   heldBy?: string;    // Value of Projects.ceo_hold_by — shown verbatim so users see
   // who/what placed the hold.
+  reasons?: { source: string; reason_text?: string }[];  // active system hold reasons (live "why")
 }
 
-export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBannerProps) {
+export function CEOHoldBanner({ className, compact = false, heldBy, reasons }: CEOHoldBannerProps) {
   if (compact) {
     return (
       <div className={cn(
@@ -87,6 +88,16 @@ export function CEOHoldBanner({ className, compact = false, heldBy }: CEOHoldBan
               </span>
             ) : null}
           </p>
+          {reasons && reasons.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-amber-800">
+                  <span className="mt-1 h-1 w-1 flex-shrink-0 rounded-full bg-amber-600" />
+                  <span>{r.reason_text || r.source}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>

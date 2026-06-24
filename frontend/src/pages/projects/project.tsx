@@ -23,6 +23,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ProjectStatusDialog, HaltedOptions } from "./components/ProjectStatusDialog";
 import { ProjectActionItems } from "./components/ProjectActionItems";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { toast } from "@/components/ui/use-toast";
 import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { useUserData } from "@/hooks/useUserData";
@@ -331,7 +332,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     commissionMasterDataResponse,
   } = useProjectViewMeta(projectId);
 
-
+  // Active CEO-Hold reason rows (the live "why") for the banner below.
+  const { holdReasons: ceoHoldReasons } = useCEOHoldGuard(projectId);
 
   const designTrackerId = designTrackerResponse.data?.[0]?.name;
   const commissionReportId = commissionReportResponse.data?.[0]?.name;
@@ -1717,7 +1719,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         </div>
       </div>
 
-      {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" heldBy={data?.ceo_hold_by} />}
+      {data?.status === "CEO Hold" && <CEOHoldBanner className="mb-4" heldBy={data?.ceo_hold_by} reasons={ceoHoldReasons} />}
 
       <div className="w-full">
         <div className="flex flex-wrap gap-2">
