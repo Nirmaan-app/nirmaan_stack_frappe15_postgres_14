@@ -32,6 +32,7 @@ import {
   isRowQtyBearing,
   isRateEditableRow,
   shouldExitFullscreenOnEsc,
+  parentExcelRowOf,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -527,6 +528,32 @@ function cf(
 function prow(p: Partial<PricedRow>): PricedRow {
   return { row_index: 1, source_row_number: 10, ...p } as unknown as PricedRow;
 }
+
+describe("parentExcelRowOf (parent click-to-jump resolver)", () => {
+  // byIdx mirrors PricingGrid's row_index -> PricedRow map. Parent row_index 2 lives at Excel 30.
+  const parent = { row_index: 2, source_row_number: 30 } as unknown as PricedRow;
+  const byIdx = new Map<number, PricedRow>([[2, parent]]);
+
+  it("a row with a valid parent resolves to the parent's source_row_number", () => {
+    const child = { row_index: 5, source_row_number: 31, effective_parent_index: 2 } as unknown as PricedRow;
+    expect(parentExcelRowOf(child, byIdx)).toBe(30);
+  });
+
+  it("a root row (effective_parent_index null) resolves to null (no jump target)", () => {
+    const root = { row_index: 5, source_row_number: 31, effective_parent_index: null } as unknown as PricedRow;
+    expect(parentExcelRowOf(root, byIdx)).toBeNull();
+  });
+
+  it("the -1 root sentinel also resolves to null", () => {
+    const root = { row_index: 5, source_row_number: 31, effective_parent_index: -1 } as unknown as PricedRow;
+    expect(parentExcelRowOf(root, byIdx)).toBeNull();
+  });
+
+  it("a parent index absent from byIdx resolves to null safely (no throw)", () => {
+    const orphan = { row_index: 5, source_row_number: 31, effective_parent_index: 99 } as unknown as PricedRow;
+    expect(parentExcelRowOf(orphan, byIdx)).toBeNull();
+  });
+});
 
 describe("lookupOperandValue", () => {
   // descriptors: a scalar rate (col E) + a scalar qty.

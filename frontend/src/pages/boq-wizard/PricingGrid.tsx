@@ -1263,6 +1263,19 @@ const cellKey = (rowIndex: number, col: string) => `${rowIndex}:${col}`;
 // `${rowIndex}:${colIndex}` -- the cellRefs / nav-matrix key (ARRAY index + colIndex). A
 // SEPARATE key space from cellKey (which uses the DATA row_index). Do not conflate them.
 const navKey = (r: number, c: number) => `${r}:${c}`;
+// Parent click-to-jump: resolve a row's PARENT Excel row number from the row's
+// effective_parent_index + the row_index->row map (byIdx). A root row (effective_parent_index
+// null or the -1 sentinel) -> null (no jump target); a parent not present in the rendered set's
+// map -> null too (safe -- the click then no-ops). Pure -> module-level + unit-tested. Mirrors
+// the inline resolution the row render and the imperative scrollToRow already use (one source).
+export function parentExcelRowOf(
+  row: PricedRow,
+  byIdx: Map<number, PricedRow>,
+): number | null {
+  const pIdx = row.effective_parent_index ?? -1;
+  if (pIdx < 0) return null;
+  return byIdx.get(pIdx)?.source_row_number ?? null;
+}
 // A row's saved (committed/merged) rate as a string for the input value. Pure (only reads
 // the row via resolveDescriptorValue) -> module-level so it is reference-stable.
 const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
@@ -1362,6 +1375,9 @@ interface PricingGridRowProps {
   setDraftRates: Dispatch<SetStateAction<Record<string, string>>>;
   setProposedRates: Dispatch<SetStateAction<Record<string, string>>>;
   setOpenRemark: (rowIndex: number, open: boolean) => void;
+  /** Parent click-to-jump: scroll the grid to a row by its Excel row number. Reference-stable
+   *  (a grid-level useCallback) -> memo-safe; still listed in pricingRowPropsAreEqual below. */
+  onJumpToRow: (excelRow: number) => void;
 }
 
 /**
@@ -1408,7 +1424,8 @@ export function pricingRowPropsAreEqual(
     prev.focusCell === next.focusCell &&
     prev.setDraftRates === next.setDraftRates &&
     prev.setProposedRates === next.setProposedRates &&
-    prev.setOpenRemark === next.setOpenRemark
+    prev.setOpenRemark === next.setOpenRemark &&
+    prev.onJumpToRow === next.onJumpToRow
   );
 }
 
@@ -1452,6 +1469,7 @@ const PricingGridRow = memo(function PricingGridRow({
   setDraftRates,
   setProposedRates,
   setOpenRemark,
+  onJumpToRow,
 }: PricingGridRowProps) {
   const isPreamble = row.effective_classification === "preamble";
   const isLineItem = row.effective_classification === "line_item";
@@ -1540,15 +1558,34 @@ const PricingGridRow = memo(function PricingGridRow({
       >
         {row.sl_no_value ?? ""}
       </td>
-      {/* Parent (col 2): parent's Excel row number (muted; read-only -- focus only). */}
+      {/* Parent (col 2): a CLICKABLE jump to the parent row (scrolls + focuses it). When a
+          parent exists the BUTTON is col 2's roving nav target (carries the focus props +
+          active ring, exactly like a rate <input> owns its cell) so there is no second tab
+          stop; mouse-click + Space activate natively, Enter is handled in handleGridKeyDown.
+          A ROOT row renders no button, so the <td> keeps the focus props (col 2 always has a
+          nav target) -- backwards-compatible (the cell was a read-only span before). */}
       <td
-        {...tdFocusProps(2)}
-        className={cn("px-2 py-1.5 align-top w-16 border-r border-border", cellNavClass(2))}
+        {...(parentExcelRow === null ? tdFocusProps(2) : {})}
+        className={cn(
+          "px-2 py-1.5 align-top w-16 border-r border-border",
+          parentExcelRow === null && cellNavClass(2),
+        )}
       >
         {parentExcelRow !== null ? (
-          <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
+          <button
+            type="button"
+            tabIndex={isTabStop(2) ? 0 : -1}
+            onFocus={() => onCellFocus(rowIndex, 2)}
+            ref={(el) => registerCell(rowIndex, 2, el)}
+            onClick={() => onJumpToRow(parentExcelRow)}
+            aria-label={`Jump to parent row ${parentExcelRow}`}
+            className={cn(
+              "text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap outline-none rounded scroll-mt-9",
+              isActiveCol(2) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+            )}
+          >
             ↑ {parentExcelRow}
-          </span>
+          </button>
         ) : null}
       </td>
       {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
@@ -2053,6 +2090,21 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     }
   }, []);
 
+  // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
+  // excelRow -> array index (rowsRef is synced each render), then focuses + centers that row's
+  // col-0 cell (registered in cellRefs, a stable ref); a target not in the rendered set is a
+  // safe no-op. Reference-stable (deps []: only refs are read) -> memo-safe as a row prop. The
+  // imperative scrollToRow (search / review-strip) delegates here so there is ONE jump path.
+  const jumpToRow = useCallback((excelRow: number) => {
+    const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
+    if (idx < 0) return;
+    const el = cellRefs.current.get(navKey(idx, 0));
+    if (el) {
+      el.focus();
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, []);
+
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
   // passes its own array index; open=true makes it the single open editor, false closes it.
   const setOpenRemark = useCallback((rowIndexArg: number, open: boolean) => {
@@ -2087,6 +2139,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       e.preventDefault();
       setOpenRemarkRowIdx(activeCell.rowIndex);
       return;
+    }
+    // Parent click-to-jump: Enter on the focused PARENT cell (col 2) jumps to the parent row
+    // (mirrors the remarks Enter case; mouse-click + Space already activate the button). A ROOT
+    // row has no parent -> fall through to the generic Enter->down so nav is unchanged there.
+    if (activeCell.colIndex === 2 && e.key === "Enter") {
+      const r = rows[activeCell.rowIndex];
+      const parentExcel = r ? parentExcelRowOf(r, byIdx) : null;
+      if (parentExcel !== null) {
+        e.preventDefault();
+        jumpToRow(parentExcel);
+        return;
+      }
     }
     let dir: NavDirection | null = null;
     if (e.key === "ArrowUp") dir = "up";
@@ -2149,20 +2213,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           autoSaveCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1));
         });
       },
-      // Slice 4a: the review-list jump. Resolve the Excel row -> array index (rowsRef is
-      // synced each render), then focus + center the row's first cell (col 0 is registered
-      // in cellRefs, a stable ref) -- onFocus sets activeCell, giving a visible landing.
-      scrollToRow: (excelRow) => {
-        const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
-        if (idx < 0) return;
-        const el = cellRefs.current.get(`${idx}:0`);
-        if (el) {
-          el.focus();
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      },
+      // Slice 4a: the review-list jump. Delegates to the shared jumpToRow (parent click-to-jump
+      // uses the same path) -- resolve Excel row -> array index, focus + center the row's col-0
+      // cell; onFocus sets activeCell, giving a visible landing. Safe no-op if not rendered.
+      scrollToRow: (excelRow) => jumpToRow(excelRow),
     }),
-    [],
+    [jumpToRow],
   );
 
   // Flush-on-unmount: a typed-but-uncommitted value persists on navigate-away (not dropped).
@@ -2269,8 +2325,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             // the row and is SKIPPED by React.memo for every row whose props are unchanged -- so
             // a cursor move re-renders only the 2 rows whose active-state flipped, and a keystroke
             // only the 1 edited row (its slice reference changed; everyone else's is reused).
-            const pIdx = row.effective_parent_index ?? -1;
-            const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
+            const parentExcelRow = parentExcelRowOf(row, byIdx);
             return (
               <PricingGridRow
                 key={row.row_index}
@@ -2306,6 +2361,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 setDraftRates={setDraftRates}
                 setProposedRates={setProposedRates}
                 setOpenRemark={setOpenRemark}
+                onJumpToRow={jumpToRow}
               />
             );
           })}
