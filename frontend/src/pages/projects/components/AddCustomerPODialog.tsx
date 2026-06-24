@@ -372,10 +372,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { toast } from "@/components/ui/use-toast";
-import { CirclePlus, Loader2, Trash2, Plus, Pencil } from "lucide-react";
+import { CirclePlus, Loader2, Trash2, Plus, Pencil, Sparkles, AlertTriangle } from "lucide-react";
 import React, { useCallback, useState, ChangeEvent, useMemo, useEffect } from "react";
 import { formatDate } from "@/utils/FormatDate";
 import { useCustomerPOActions } from "@/pages/projects/data/tab/financials/useCustomerPOApi";
+import { useFrappePostCall } from "frappe-react-sdk";
 
 // Structured payment term type
 export interface PaymentTerm {
@@ -410,7 +411,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     const [open, setOpen] = useState(false);
     
     // State for Link/Attachment choice - Default to 'link' for initial form state
-    const [linkOrAttachmentChoice, setLinkOrAttachmentChoice] = useState<LinkAttachmentChoice>('link');
+    const [linkOrAttachmentChoice, setLinkOrAttachmentChoice] = useState<LinkAttachmentChoice>('attachment');
 
     // Payment terms dynamic rows state
     const [paymentTerms, setPaymentTerms] = useState<PaymentTerm[]>([]);
@@ -435,6 +436,132 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     
     const updateLoading = callLoading || uploadLoading;
     
+    // --- AI autofill from the PO attachment (mirrors the Fulfil Payment dialog) ---
+    const { call: extractCustomerPOFields } = useFrappePostCall(
+        "nirmaan_stack.api.customer_po_autofill.extract_customer_po_fields"
+    );
+    // file_url uploaded during autofill — reused on submit so we don't upload twice.
+    const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+    const [isAutofilling, setIsAutofilling] = useState(false);
+    const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
+    // Soft project-mismatch: the PO appears to be for a different project (non-blocking).
+    const [projectMismatch, setProjectMismatch] = useState<{ expected: string; extracted: string } | null>(null);
+    // Full invoice-style AI provenance, persisted on the PO row for audit (set on autofill).
+    const [autofillMeta, setAutofillMeta] = useState<Record<string, any> | null>(null);
+
+    const clearAutofillFlag = (field: string) => {
+        setAutofilledFields(prev => {
+            if (!prev.has(field)) return prev;
+            const next = new Set(prev);
+            next.delete(field);
+            return next;
+        });
+    };
+
+    const handleAttachmentSelect = async (file: File | null) => {
+        setFormData(prev => ({ ...prev, file }));
+        setUploadedFileUrl(null);
+        setAutofilledFields(new Set());
+        setProjectMismatch(null);
+        setAutofillMeta(null);
+        if (!file || !projectName) return;
+
+        setIsAutofilling(true);
+        try {
+            // Upload first (autofill needs a File record to read), then extract.
+            const uploaded = await uploadCustomerPOAttachment(projectName, file);
+            setUploadedFileUrl(uploaded.file_url);
+
+            const res: any = await extractCustomerPOFields({
+                file_url: uploaded.file_url,
+                project_name: projectName, // backend resolves Projects.project_name to match against
+            });
+            const data = res?.message ?? res;
+
+            const filled = new Set<string>();
+            setFormData(prev => {
+                const next = { ...prev };
+                if (data?.customer_po_number) {
+                    next.customer_po_number = data.customer_po_number;
+                    filled.add("customer_po_number");
+                }
+                const inc = parseFloat(data?.customer_po_value_inctax);
+                if (!isNaN(inc) && inc > 0) {
+                    next.customer_po_value_inctax = inc;
+                    filled.add("customer_po_value_inctax");
+                }
+                const exc = parseFloat(data?.customer_po_value_exctax);
+                if (!isNaN(exc) && exc > 0) {
+                    next.customer_po_value_exctax = exc;
+                    filled.add("customer_po_value_exctax");
+                }
+                return next;
+            });
+
+            // AI-extracted payment schedule → fill the Payment Terms rows.
+            // The existing submit serializes `paymentTerms` into customer_po_payment_terms (JSON).
+            if (Array.isArray(data?.payment_terms) && data.payment_terms.length > 0) {
+                setPaymentTerms(
+                    data.payment_terms.map((t: any) => ({
+                        label: String(t?.label ?? "").trim(),
+                        percentage: Number(t?.percentage) || 0,
+                        description: String(t?.description ?? "").trim(),
+                        expected_date: "",
+                    }))
+                );
+                filled.add("payment_terms");
+            }
+
+            setAutofilledFields(filled);
+
+            // Soft project-mismatch check (non-blocking): only when the backend
+            // is confident the PO names a different project (match === false).
+            const pm = data?.validation?.project_match;
+            setProjectMismatch(
+                pm && pm.match === false
+                    ? { expected: pm.expected || "", extracted: pm.extracted || "" }
+                    : null
+            );
+
+            // Capture full invoice-style provenance to persist on the PO row at save time.
+            const matchVal = pm?.match;
+            setAutofillMeta({
+                autofill_used: 1,
+                autofill_processor_id: data?.processor_id || "",
+                autofill_extracted_po_number: data?.customer_po_number || "",
+                autofill_extracted_value_inctax: parseFloat(data?.customer_po_value_inctax) || 0,
+                autofill_extracted_value_exctax: parseFloat(data?.customer_po_value_exctax) || 0,
+                autofill_extracted_project_reference: pm?.extracted || "",
+                autofill_project_match:
+                    matchVal === true ? "matched" : matchVal === false ? "mismatch" : "unverified",
+                autofill_confidence_json: JSON.stringify(data?.confidence || {}),
+                autofill_all_entities_json: JSON.stringify(data?.entities || []),
+            });
+
+            if (filled.size > 0) {
+                toast({
+                    title: "Auto-filled from PO",
+                    description: `Filled ${filled.size} field${filled.size > 1 ? "s" : ""}. Please verify before saving.`,
+                    variant: "success",
+                });
+            } else {
+                toast({
+                    title: "Couldn't auto-fill",
+                    description: "Please enter the PO details manually.",
+                    variant: "default",
+                });
+            }
+        } catch (e: any) {
+            toast({
+                title: "Auto-fill failed",
+                description: e?.message || "Please enter details manually.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsAutofilling(false);
+        }
+    };
+
     // EFFECT: Reset form when dialog is opened
     useEffect(() => {
         if (open) {
@@ -444,6 +571,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
     const handleInputChange = useCallback((e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const { id, value } = e.target;
+        clearAutofillFlag(id); // user edited an autofilled field — drop the amber tint
         setFormData(prev => ({
             ...prev,
             [id]: (id === 'customer_po_value_inctax' || id === 'customer_po_value_exctax')
@@ -460,9 +588,16 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             ...prev,
             // Clear the field that is NOT selected
             customer_po_link: choice === 'link' ? prev.customer_po_link : '',
-            customer_po_attachment: choice === 'attachment' ? prev.customer_po_attachment : '', 
-            file: choice === 'attachment' ? prev.file : null, 
+            customer_po_attachment: choice === 'attachment' ? prev.customer_po_attachment : '',
+            file: choice === 'attachment' ? prev.file : null,
         }));
+        // Leaving the attachment path drops any autofill state/sparkle.
+        if (choice !== 'attachment') {
+            setUploadedFileUrl(null);
+            setAutofilledFields(new Set());
+            setProjectMismatch(null);
+            setAutofillMeta(null);
+        }
     }, []);
 
     // Payment term: new term input state (always visible at bottom)
@@ -494,6 +629,11 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         setNewTerm({ label: '', percentage: 0, description: '', expected_date: '' });
         setIsEditingTerm(false);
         setLinkOrAttachmentChoice('link');
+        setUploadedFileUrl(null);
+        setIsAutofilling(false);
+        setAutofilledFields(new Set());
+        setProjectMismatch(null);
+        setAutofillMeta(null);
     }, []);
 
     const isLinkAttachmentValid = useMemo(() => {
@@ -528,16 +668,21 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
         // 1. Handle File Upload if an attachment is selected
         if (linkOrAttachmentChoice === 'attachment' && formData.file) {
-            try {
-                const fileResponse = await uploadCustomerPOAttachment(projectName, formData.file);
+            if (uploadedFileUrl) {
+                // Already uploaded during autofill — reuse the same File record.
+                finalAttachmentName = uploadedFileUrl;
+            } else {
+                try {
+                    const fileResponse = await uploadCustomerPOAttachment(projectName, formData.file);
 
-                // Frappe file upload returns the file URL or file name in 'file_url'
-                finalAttachmentName = fileResponse.file_url;
-            } catch (error: any) {
-                console.error("Failed to upload file:", error);
-                const errorMessage = error?.messages?.[0]?.message || error?.message || "An unknown error occurred during file upload.";
-                toast({ title: "Error", description: `File upload failed: ${errorMessage}`, variant: "destructive" });
-                return;
+                    // Frappe file upload returns the file URL or file name in 'file_url'
+                    finalAttachmentName = fileResponse.file_url;
+                } catch (error: any) {
+                    console.error("Failed to upload file:", error);
+                    const errorMessage = error?.messages?.[0]?.message || error?.message || "An unknown error occurred during file upload.";
+                    toast({ title: "Error", description: `File upload failed: ${errorMessage}`, variant: "destructive" });
+                    return;
+                }
             }
         }
         
@@ -545,16 +690,20 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         // Stringify payment terms array to JSON for storage in Long Text field
         const paymentTermsJson = paymentTerms.length > 0 ? JSON.stringify(paymentTerms) : '';
 
-        const newPODetail: Omit<CustomerPODetail, 'name' | 'idx'> = {
+        const newPODetail: Omit<CustomerPODetail, 'name' | 'idx'> & Record<string, any> = {
             customer_po_number: formData.customer_po_number,
             customer_po_value_inctax: formData.customer_po_value_inctax,
             customer_po_value_exctax: formData.customer_po_value_exctax,
             customer_po_payment_terms: paymentTermsJson,
             customer_po_creation_date: formData.customer_po_creation_date,
-            
+
             // Conditionally set link or attachment
             customer_po_link: linkOrAttachmentChoice === 'link' ? formData.customer_po_link : '',
             customer_po_attachment: linkOrAttachmentChoice === 'attachment' ? finalAttachmentName : '',
+
+            // AI autofill provenance (audit-only) — persisted when the PO was AI-filled from the attachment.
+            // The backend appends this dict straight to the child row, so these keys land on the new fields.
+            ...(linkOrAttachmentChoice === 'attachment' && autofillMeta ? autofillMeta : {}),
         };
 
         // 3. Call Custom Frappe API for saving
@@ -600,52 +749,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     </DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-6 py-4">
-                    {/* Basic Fields */}
-                    <div className="grid grid-cols-1 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="customer_po_number">PO Number <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                            <Input
-                                id="customer_po_number"
-                                value={formData.customer_po_number}
-                                onChange={handleInputChange}
-                            />
-                        </div>
-                    </div>
-                    <div className="space-y-2">
-                            <Label htmlFor="customer_po_creation_date">PO Date <span className="text-red-500">*</span></Label>
-                            <Input
-                                id="customer_po_creation_date"
-                                type="date"
-                                value={formData.customer_po_creation_date}
-                                onChange={handleInputChange}
-                                required
-                            />
-                        </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="customer_po_value_inctax">PO Value (Incl. Tax) <span className="text-red-500">*</span></Label>
-                            <Input
-                                id="customer_po_value_inctax"
-                                type="number"
-                                step="any"
-                                value={formData.customer_po_value_inctax || ''}
-                                onChange={handleInputChange}
-                                required
-                            />
-                        </div>
-                         
-                        <div className="space-y-2">
-                            <Label htmlFor="customer_po_value_exctax">PO Value (Excl. Tax)</Label>
-                            <Input
-                                id="customer_po_value_exctax"
-                                type="number"
-                                step="any"
-                                value={formData.customer_po_value_exctax || ''}
-                                onChange={handleInputChange}
-                            />
-                        </div>
-                    </div>
-
+                    {/* PO Source FIRST (attachment-first): uploading the PO auto-fills the fields below */}
                     {/* Radio Button Choice for Link or Attachment */}
                     <div className="space-y-2 border p-4 rounded-md">
                         <Label className="font-medium">PO Source (Link or Attachment)</Label>
@@ -693,14 +797,90 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                     {linkOrAttachmentChoice === 'attachment' && (
                         <div className="space-y-2">
                             <Label>PO Attachment (PDF/Image)</Label>
+                            <p className="text-xs text-muted-foreground">
+                                We'll read the PO and fill in the PO Number and values for you.
+                            </p>
                             <CustomAttachment
                                 selectedFile={formData.file}
-                                onFileSelect={(file) => setFormData(prev => ({ ...prev, file }))}
+                                onFileSelect={handleAttachmentSelect}
                                 acceptedTypes={["application/pdf", "image/*"]}
                                 label="Upload PO Attachment"
                             />
+                            {isAutofilling && (
+                                <div className="flex items-center gap-2 text-xs text-amber-700">
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Reading your PO… extracting details.
+                                </div>
+                            )}
+                            {!isAutofilling && autofilledFields.size > 0 && (
+                                <div className="flex items-center gap-2 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded px-2 py-1.5">
+                                    <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
+                                    <span>Auto-filled from the PO — please review and edit if anything is wrong.</span>
+                                </div>
+                            )}
+                            {projectMismatch && (
+                                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2 py-1.5">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
+                                    <div className="text-xs text-amber-900 leading-snug">
+                                        <p className="font-medium">This PO may be for a different project.</p>
+                                        <p className="mt-0.5">
+                                            The PO mentions "{projectMismatch.extracted}" but this project is "{projectMismatch.expected}". Double-check you uploaded the right file.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
+
+                    {/* Basic Fields */}
+                    <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="customer_po_number">PO Number <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                            <Input
+                                id="customer_po_number"
+                                value={formData.customer_po_number}
+                                onChange={handleInputChange}
+                                className={autofilledFields.has("customer_po_number") ? "bg-amber-50 border-amber-300 focus-visible:ring-amber-400" : ""}
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                            <Label htmlFor="customer_po_creation_date">PO Date <span className="text-red-500">*</span></Label>
+                            <Input
+                                id="customer_po_creation_date"
+                                type="date"
+                                value={formData.customer_po_creation_date}
+                                onChange={handleInputChange}
+                                required
+                            />
+                        </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="customer_po_value_inctax">PO Value (Incl. Tax) <span className="text-red-500">*</span></Label>
+                            <Input
+                                id="customer_po_value_inctax"
+                                type="number"
+                                step="any"
+                                value={formData.customer_po_value_inctax || ''}
+                                onChange={handleInputChange}
+                                required
+                                className={autofilledFields.has("customer_po_value_inctax") ? "bg-amber-50 border-amber-300 focus-visible:ring-amber-400" : ""}
+                            />
+                        </div>
+                         
+                        <div className="space-y-2">
+                            <Label htmlFor="customer_po_value_exctax">PO Value (Excl. Tax)</Label>
+                            <Input
+                                id="customer_po_value_exctax"
+                                type="number"
+                                step="any"
+                                value={formData.customer_po_value_exctax || ''}
+                                onChange={handleInputChange}
+                                className={autofilledFields.has("customer_po_value_exctax") ? "bg-amber-50 border-amber-300 focus-visible:ring-amber-400" : ""}
+                            />
+                        </div>
+                    </div>
+
 
                     {/* Payment Terms — Display + Add Flow */}
                     <div className="space-y-3 border p-4 rounded-md">

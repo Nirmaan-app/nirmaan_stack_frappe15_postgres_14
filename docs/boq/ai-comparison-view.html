@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Classifier Comparison — BoQ Review · first draft</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,400..700&family=Hanken+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --paper:#F4EFE6; --paper-2:#FBF8F1; --card:#FCFAF5;
+    --ink:#1B1713; --ink-2:#544C42; --ink-3:#8A8073;
+    --line:#E4DBCB; --line-2:#D6CBB6;
+    --parser:#6B7480; --parser-soft:#EAEDF0;
+    --claude:#BE5A36; --claude-soft:#F6E4DB;   /* terracotta / Anthropic-adjacent */
+    --gemini:#2B66D9; --gemini-soft:#DEE8FB;    /* refined blue / Gemini-adjacent  */
+    --manual:#B0822F; --manual-soft:#F1E6CE;    /* muted gold                       */
+    --win:#1F7A4D;
+    --shadow: 0 1px 0 rgba(27,23,19,.04), 0 14px 34px -22px rgba(27,23,19,.35);
+  }
+  *{box-sizing:border-box}
+  html{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Hanken Grotesk", system-ui, sans-serif;
+    background-image:
+      radial-gradient(120% 70% at 85% -10%, rgba(43,102,217,.05), transparent 60%),
+      radial-gradient(120% 70% at -10% 0%, rgba(190,90,54,.05), transparent 55%);
+    background-attachment:fixed;
+  }
+  /* fine grain overlay */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:1; opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.025'/%3E%3C/svg%3E");
+  }
+  .wrap{ max-width:1180px; margin:0 auto; padding:34px 30px 80px; position:relative; z-index:2 }
+  .mono{ font-family:"IBM Plex Mono", monospace; font-variant-numeric:tabular-nums }
+  .serif{ font-family:"Fraunces", serif }
+  .eyebrow{ font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3) }
+  .hair{ height:1px; background:var(--line); border:0 }
+
+  /* ---- top bar ---- */
+  .top{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap }
+  h1{ font-family:"Fraunces",serif; font-weight:600; font-size:40px; line-height:.98; letter-spacing:-.018em; margin:.28em 0 0 }
+  h1 em{ font-style:italic; font-weight:500 }
+  .sheetsel{ display:flex; gap:6px; padding:4px; background:var(--paper-2); border:1px solid var(--line); border-radius:999px }
+  .sheetsel button{
+    font-family:"Hanken Grotesk",sans-serif; font-weight:600; font-size:12.5px; cursor:pointer;
+    padding:7px 14px; border-radius:999px; border:0; background:transparent; color:var(--ink-2); transition:.18s;
+  }
+  .sheetsel button[data-active="true"]{ background:var(--ink); color:var(--paper-2); box-shadow:var(--shadow) }
+  .meta{ display:flex; gap:18px; align-items:center; margin-top:10px }
+  .meta .mono{ font-size:12px; color:var(--ink-2) }
+  .legend{ display:flex; gap:14px; flex-wrap:wrap; margin-top:4px }
+  .lg{ display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--ink-2); font-weight:600 }
+  .dot{ width:9px; height:9px; border-radius:3px; display:inline-block }
+
+  /* ---- verdict ---- */
+  .verdict{
+    margin-top:26px; padding:26px 30px; border-radius:18px; position:relative; overflow:hidden;
+    background:linear-gradient(180deg,var(--card),var(--paper-2)); border:1px solid var(--line-2); box-shadow:var(--shadow);
+  }
+  .verdict .tag{ display:inline-flex; align-items:center; gap:8px; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3) }
+  .verdict .lead{ font-family:"Fraunces",serif; font-size:26px; line-height:1.18; letter-spacing:-.01em; margin:12px 0 0; max-width:78ch; font-weight:430 }
+  .verdict .lead b{ font-weight:680 }
+  .winflag{ position:absolute; top:0; right:0; padding:8px 18px 9px; border-bottom-left-radius:14px; font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:#fff; font-weight:600 }
+
+  /* ---- grid + cards ---- */
+  .grid{ display:grid; gap:18px; margin-top:18px }
+  .cards{ grid-template-columns:repeat(3,1fr) }
+  @media (max-width:880px){ .cards{ grid-template-columns:1fr } }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px 20px 18px; box-shadow:var(--shadow); position:relative; overflow:hidden }
+  .card .spine{ position:absolute; left:0; top:0; bottom:0; width:4px }
+  .card h3{ margin:0; font-family:"Fraunces",serif; font-weight:600; font-size:21px; letter-spacing:-.01em; display:flex; align-items:center; gap:10px }
+  .pill{ font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:999px; font-weight:600 }
+  .stat-row{ display:flex; justify-content:space-between; align-items:baseline; padding:11px 0; border-bottom:1px dashed var(--line) }
+  .stat-row:last-child{ border-bottom:0 }
+  .stat-row .k{ font-size:12.5px; color:var(--ink-2); font-weight:600 }
+  .stat-row .v{ font-family:"IBM Plex Mono",monospace; font-size:21px; font-weight:600; letter-spacing:-.01em }
+  .stat-row .v small{ font-size:12px; color:var(--ink-3); font-weight:500; margin-left:3px }
+  .bigstat{ display:flex; align-items:baseline; gap:10px; margin:6px 0 14px }
+  .bigstat .num{ font-family:"IBM Plex Mono",monospace; font-size:46px; font-weight:600; line-height:.9; letter-spacing:-.03em }
+  .bigstat .lab{ font-size:12px; color:var(--ink-3); font-weight:600; text-transform:uppercase; letter-spacing:.06em }
+  .bar-mini{ height:6px; border-radius:999px; background:var(--line); overflow:hidden; margin-top:3px }
+  .bar-mini > span{ display:block; height:100%; border-radius:999px }
+
+  /* ---- section ---- */
+  .section-head{ display:flex; align-items:baseline; gap:14px; margin:40px 0 4px }
+  .section-head h2{ font-family:"Fraunces",serif; font-weight:600; font-size:24px; letter-spacing:-.012em; margin:0 }
+  .section-head .note{ font-size:12.5px; color:var(--ink-3) }
+
+  /* ---- head to head ---- */
+  .h2h{ background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); padding:24px 26px; margin-top:14px; display:grid; grid-template-columns:1.1fr 1px 1.4fr; gap:26px }
+  @media (max-width:880px){ .h2h{ grid-template-columns:1fr; } .h2h .vsep{ display:none } }
+  .vsep{ background:var(--line) }
+  .vs{ display:flex; align-items:center; justify-content:center; gap:18px; margin:6px 0 16px }
+  .vs .side{ text-align:center; flex:1 }
+  .vs .side .who{ font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase; font-weight:600 }
+  .vs .side .score{ font-family:"Fraunces",serif; font-size:62px; font-weight:600; line-height:.85; letter-spacing:-.03em; margin-top:4px }
+  .vs .x{ font-family:"Fraunces",serif; font-style:italic; font-size:24px; color:var(--ink-3) }
+  .h2h-bar{ display:flex; height:30px; border-radius:8px; overflow:hidden; border:1px solid var(--line); margin-top:4px }
+  .h2h-bar > div{ display:flex; align-items:center; justify-content:center; color:#fff; font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600 }
+  .h2h-cap{ font-size:12.5px; color:var(--ink-2); line-height:1.55; margin-top:14px }
+  .h2h-cap b{ color:var(--ink) }
+
+  /* ---- chosen-source distribution ---- */
+  .dist{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:22px 24px; margin-top:14px }
+  .dist-bar{ display:flex; height:46px; border-radius:10px; overflow:hidden; border:1px solid var(--line) }
+  .dist-bar > div{ position:relative; display:flex; flex-direction:column; justify-content:center; padding-left:13px; color:#fff; transition:flex-grow .5s cubic-bezier(.2,.7,.2,1) }
+  .dist-bar .dn{ font-family:"IBM Plex Mono",monospace; font-size:18px; font-weight:600; line-height:1 }
+  .dist-bar .dl{ font-size:10.5px; font-weight:600; opacity:.92; letter-spacing:.04em; text-transform:uppercase }
+  .dist-foot{ display:flex; justify-content:space-between; margin-top:12px; font-size:12px; color:var(--ink-2) }
+
+  /* ---- class matrix ---- */
+  .matrix{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:8px 8px 12px; margin-top:14px; overflow:hidden }
+  table{ width:100%; border-collapse:collapse }
+  .matrix th{ font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); font-weight:600; padding:14px 12px 10px; text-align:center }
+  .matrix th:first-child{ text-align:left }
+  .matrix td{ padding:7px 8px; text-align:center }
+  .matrix td:first-child{ text-align:left; font-size:12.5px; font-weight:600; color:var(--ink-2); font-family:"Hanken Grotesk",sans-serif; padding-left:14px; white-space:nowrap }
+  .cls-ico{ display:inline-block; width:7px; height:7px; border-radius:2px; margin-right:8px; vertical-align:middle; background:var(--ink-3) }
+  .heat{ display:inline-flex; align-items:center; justify-content:center; min-width:58px; height:34px; border-radius:8px; font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600 }
+  .heat.na{ color:var(--ink-3); background:repeating-linear-gradient(135deg,var(--paper-2),var(--paper-2) 5px,var(--line) 5px,var(--line) 6px); font-weight:400 }
+
+  /* ---- contested table ---- */
+  .tablecard{ background:var(--card); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); margin-top:14px; overflow:hidden }
+  .ctab{ width:100% }
+  .ctab thead th{ font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); font-weight:600; padding:15px 14px 11px; text-align:left; border-bottom:1px solid var(--line-2); background:var(--paper-2) }
+  .ctab tbody td{ padding:13px 14px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:middle }
+  .ctab tbody tr:last-child td{ border-bottom:0 }
+  .ctab tbody tr{ transition:background .15s }
+  .ctab tbody tr:hover{ background:var(--paper-2) }
+  .rownum{ font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-3) }
+  .desc{ font-weight:600; color:var(--ink); max-width:230px }
+  .clschip{ display:inline-flex; align-items:center; gap:6px; font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:500; padding:4px 9px; border-radius:7px; white-space:nowrap }
+  .conf{ font-size:9.5px; font-weight:700; padding:1px 5px; border-radius:4px; letter-spacing:.03em; margin-left:5px }
+  .conf.High{ background:rgba(31,122,77,.14); color:#1F7A4D }
+  .conf.Medium{ background:rgba(176,130,47,.16); color:#8a6420 }
+  .conf.Low{ background:rgba(107,116,128,.16); color:#5a626d }
+  .neq{ color:var(--ink-3); font-family:"Fraunces",serif; font-style:italic; margin-left:2px }
+  .won{ font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; padding:4px 10px; border-radius:999px; display:inline-flex; align-items:center; gap:6px }
+  .won .tick{ width:6px; height:6px; border-radius:999px; display:inline-block }
+
+  footer{ margin-top:46px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px }
+  footer .mono{ font-size:11px; color:var(--ink-3) }
+
+  /* entrance motion */
+  .rise{ opacity:0; transform:translateY(14px); animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards }
+  @keyframes rise{ to{ opacity:1; transform:none } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ===== TOP ===== -->
+  <header class="top rise" style="animation-delay:.02s">
+    <div>
+      <div class="eyebrow">BoQ Phase 4 · Review · Classifier scorecard</div>
+      <h1>AI Classifier <em>Comparison</em></h1>
+      <div class="meta">
+        <span class="mono" id="m-rows">85 rows · parsed</span>
+        <span class="mono" id="m-sheet">Civil Works — Block A</span>
+      </div>
+      <div class="legend">
+        <span class="lg"><i class="dot" style="background:var(--parser)"></i>Parser <span class="mono" style="color:var(--ink-3)">local</span></span>
+        <span class="lg"><i class="dot" style="background:var(--claude)"></i>Claude <span class="mono" style="color:var(--ink-3)">corrector</span></span>
+        <span class="lg"><i class="dot" style="background:var(--gemini)"></i>Gemini <span class="mono" style="color:var(--ink-3)">2nd opinion</span></span>
+        <span class="lg"><i class="dot" style="background:var(--manual)"></i>Manual <span class="mono" style="color:var(--ink-3)">reviewer</span></span>
+      </div>
+    </div>
+    <div class="sheetsel" role="tablist" aria-label="Select sheet">
+      <button data-sheet="blockA" data-active="true">Civil — Block A</button>
+      <button data-sheet="mep" data-active="false">MEP — Services</button>
+    </div>
+  </header>
+
+  <!-- ===== VERDICT ===== -->
+  <section class="verdict rise" style="animation-delay:.08s">
+    <span class="winflag" id="v-flag">Gemini led</span>
+    <span class="tag" id="v-tag">▲ Verdict · this sheet</span>
+    <p class="lead" id="v-lead"></p>
+  </section>
+
+  <!-- ===== SCORECARDS ===== -->
+  <div class="grid cards rise" style="animation-delay:.14s" id="cards"></div>
+
+  <!-- ===== HEAD TO HEAD ===== -->
+  <div class="section-head rise" style="animation-delay:.20s">
+    <h2>When they disagreed</h2>
+    <span class="note">contested rows — Claude and Gemini proposed <em>different</em> answers; who did the reviewer side with?</span>
+  </div>
+  <section class="h2h rise" style="animation-delay:.22s">
+    <div>
+      <div class="eyebrow" style="margin-bottom:4px">Head-to-head record</div>
+      <div class="vs">
+        <div class="side"><div class="who" style="color:var(--claude)">Claude</div><div class="score serif" id="h-claude" style="color:var(--claude)">1</div></div>
+        <div class="x">vs</div>
+        <div class="side"><div class="who" style="color:var(--gemini)">Gemini</div><div class="score serif" id="h-gemini" style="color:var(--gemini)">3</div></div>
+      </div>
+      <div class="h2h-bar" id="h-bar"></div>
+    </div>
+    <div class="vsep"></div>
+    <div>
+      <div class="eyebrow" style="margin-bottom:8px">Reading</div>
+      <p class="h2h-cap" id="h-cap"></p>
+    </div>
+  </section>
+
+  <!-- ===== CHOSEN SOURCE DISTRIBUTION ===== -->
+  <div class="section-head rise" style="animation-delay:.26s">
+    <h2>What the reviewer kept</h2>
+    <span class="note">final source of each row's structural decision (<span class="mono">chosen_source</span>)</span>
+  </div>
+  <section class="dist rise" style="animation-delay:.28s">
+    <div class="dist-bar" id="dist-bar"></div>
+    <div class="dist-foot">
+      <span id="dist-l"></span>
+      <span class="mono" id="dist-r"></span>
+    </div>
+  </section>
+
+  <!-- ===== CLASS MATRIX ===== -->
+  <div class="section-head rise" style="animation-delay:.32s">
+    <h2>Accuracy by class</h2>
+    <span class="note">how often each source's call matched the <em>final</em> decision · darker = better · <span class="mono">—</span> = not assignable</span>
+  </div>
+  <section class="matrix rise" style="animation-delay:.34s">
+    <table>
+      <thead><tr><th>Classification</th><th>Parser</th><th>Claude</th><th>Gemini</th><th>Rows</th></tr></thead>
+      <tbody id="matrix-body"></tbody>
+    </table>
+  </section>
+
+  <!-- ===== CONTESTED TABLE ===== -->
+  <div class="section-head rise" style="animation-delay:.38s">
+    <h2>Contested rows</h2>
+    <span class="note">drill-down on the disagreements behind the head-to-head</span>
+  </div>
+  <section class="tablecard rise" style="animation-delay:.40s">
+    <table class="ctab">
+      <thead><tr>
+        <th style="width:42px">Row</th><th>Description</th>
+        <th>Parser</th><th>Claude</th><th>Gemini</th><th>Final</th><th>Kept</th>
+      </tr></thead>
+      <tbody id="ctab-body"></tbody>
+    </table>
+  </section>
+
+  <footer class="rise" style="animation-delay:.46s">
+    <hr class="hair" style="flex:1; margin-right:18px" />
+    <span class="mono">first draft · dual-AI comparison · ai_* = Claude · gemini_* = Gemini</span>
+  </footer>
+
+</div>
+
+<script>
+const C = { parser:'var(--parser)', claude:'var(--claude)', gemini:'var(--gemini)', manual:'var(--manual)' };
+const CLS = {
+  line_item:'line item', preamble:'preamble', note:'note',
+  spacer:'spacer', subtotal_marker:'subtotal', header_repeat:'hdr repeat'
+};
+const CLS_HUE = {
+  line_item:'#2B66D9', preamble:'#BE5A36', note:'#B0822F',
+  spacer:'#6B7480', subtotal_marker:'#7a5bbf', header_repeat:'#3f8f7a'
+};
+
+const SHEETS = {
+  blockA:{
+    name:'Civil Works — Block A', rows:85, winner:'Gemini led', winnerColor:C.gemini,
+    verdict:`<b>Gemini led on Block&nbsp;A</b> — the reviewer kept its call on <b>11</b> rows to Claude's <b>6</b>, and it won <b>3 of 5</b> head-to-head contests. But Claude was the <b>more precise</b> instrument: 67% of its suggestions stuck versus Gemini's 65%, raising far fewer flags (9 vs 17) — fewer false alarms, less to review.`,
+    cards:{
+      parser:{ role:'baseline', big:[61,'rows kept as-is'], rows:[['Suggestions','—'],['Adopted (kept)','61'],['Agreed w/ final','80%'],['Avg confidence','—']], hit:.80 },
+      claude:{ role:'corrector', big:[9,'rows flagged'], rows:[['Suggestions','9'],['Adopted (kept)','6'],['Hit-rate','67%'],['Avg confidence','High']], hit:.67 },
+      gemini:{ role:'2nd opinion', big:[17,'rows flagged'], rows:[['Suggestions','17'],['Adopted (kept)','11'],['Hit-rate','65%'],['Avg confidence','Med']], hit:.65 },
+    },
+    h2h:{ claude:1, gemini:3, other:1,
+      cap:`Of <b>5</b> rows where the two models openly disagreed, the reviewer sided with <b>Gemini 3×</b>, <b>Claude 1×</b>, and overrode both <b>1×</b> with a manual call. Gemini's edge here was section structure — it re-parented two stray line-items under a preamble Claude left untouched.` },
+    chosen:[['parser',61],['gemini',11],['manual',7],['claude',6]],
+    matrix:{
+      line_item:{parser:.86,claude:.70,gemini:.66,rows:52},
+      preamble:{parser:.64,claude:.80,gemini:.83,rows:14},
+      note:{parser:.70,claude:.75,gemini:.60,rows:9},
+      spacer:{parser:.95,claude:1.0,gemini:.90,rows:6},
+      subtotal_marker:{parser:.80,claude:null,gemini:.50,rows:3},
+      header_repeat:{parser:.90,claude:null,gemini:.40,rows:1},
+    },
+    contested:[
+      {row:14,desc:'Excavation in foundation',parser:'line_item',claude:['preamble','Medium'],gemini:['line_item','High'],final:'line_item',kept:'gemini'},
+      {row:22,desc:'Providing & laying PCC 1:4:8',parser:'line_item',claude:['line_item','High'],gemini:['preamble','High'],final:'preamble',kept:'gemini'},
+      {row:37,desc:'Note: rates incl. all lifts/leads',parser:'line_item',claude:['note','High'],gemini:['spacer','Low'],final:'note',kept:'claude'},
+      {row:51,desc:'Sub-total carried forward',parser:'subtotal_marker',claude:['line_item','Low'],gemini:['subtotal_marker','High'],final:'subtotal_marker',kept:'gemini'},
+      {row:63,desc:'Reinforcement steel Fe-500',parser:'preamble',claude:['line_item','Medium'],gemini:['line_item','Medium'],final:'note',kept:'manual'},
+    ],
+  },
+  mep:{
+    name:'MEP — Services', rows:64, winner:'Claude led', winnerColor:C.claude,
+    verdict:`<b>Claude led on MEP</b> — a sheet thick with preamble headers and repeated section titles, where its corrector framing paid off: <b>8</b> kept calls to Gemini's <b>5</b>, and it took <b>4 of 6</b> head-to-heads. Gemini over-flagged (21 suggestions) and mislabelled three repeated headers as line-items — a class it can't have accepted anyway.`,
+    cards:{
+      parser:{ role:'baseline', big:[44,'rows kept as-is'], rows:[['Suggestions','—'],['Adopted (kept)','44'],['Agreed w/ final','73%'],['Avg confidence','—']], hit:.73 },
+      claude:{ role:'corrector', big:[11,'rows flagged'], rows:[['Suggestions','11'],['Adopted (kept)','8'],['Hit-rate','73%'],['Avg confidence','High']], hit:.73 },
+      gemini:{ role:'2nd opinion', big:[21,'rows flagged'], rows:[['Suggestions','21'],['Adopted (kept)','5'],['Hit-rate','24%'],['Avg confidence','Med']], hit:.24 },
+    },
+    h2h:{ claude:4, gemini:2, other:0,
+      cap:`Of <b>6</b> disagreements the reviewer took <b>Claude 4×</b> and <b>Gemini 2×</b>. MEP sheets are header-heavy; Claude's "only change what's wrong" stance avoided Gemini's tendency to re-classify clean preambles, which cost Gemini three rows here.` },
+    chosen:[['parser',44],['claude',8],['gemini',5],['manual',7]],
+    matrix:{
+      line_item:{parser:.78,claude:.82,gemini:.40,rows:30},
+      preamble:{parser:.71,claude:.88,gemini:.55,rows:16},
+      note:{parser:.66,claude:.70,gemini:.50,rows:7},
+      spacer:{parser:.90,claude:1.0,gemini:.80,rows:5},
+      subtotal_marker:{parser:.85,claude:null,gemini:.33,rows:4},
+      header_repeat:{parser:.80,claude:null,gemini:.0,rows:2},
+    },
+    contested:[
+      {row:8,desc:'SECTION 2 — HVAC (header)',parser:'header_repeat',claude:['header_repeat','High'],gemini:['line_item','Low'],final:'header_repeat',kept:'claude'},
+      {row:19,desc:'Supply of VRF outdoor unit',parser:'line_item',claude:['line_item','High'],gemini:['preamble','Medium'],final:'line_item',kept:'claude'},
+      {row:27,desc:'Cabling — general preamble',parser:'line_item',claude:['preamble','High'],gemini:['preamble','High'],final:'preamble',kept:'gemini'},
+      {row:40,desc:'Testing & commissioning note',parser:'spacer',claude:['note','Medium'],gemini:['line_item','Low'],final:'note',kept:'claude'},
+    ],
+  },
+};
+
+let active = 'blockA';
+const $ = s => document.querySelector(s);
+
+function clsChip(cls){
+  const hue = CLS_HUE[cls] || 'var(--ink-3)';
+  return `<span class="clschip" style="background:${hue}1a;color:${hue}"><i style="width:6px;height:6px;border-radius:2px;background:${hue};display:inline-block"></i>${CLS[cls]||cls}</span>`;
+}
+function heatCell(v){
+  if(v===null) return `<span class="heat na">—</span>`;
+  const pct = Math.round(v*100);
+  // intensity ramp on a green-ink scale
+  const a = 0.10 + v*0.62;
+  return `<span class="heat" style="background:rgba(31,122,77,${a.toFixed(2)});color:${v>0.55?'#fff':'#1F7A4D'}">${pct}%</span>`;
+}
+
+function render(){
+  const d = SHEETS[active];
+  $('#m-rows').textContent = `${d.rows} rows · parsed`;
+  $('#m-sheet').textContent = d.name;
+  $('#v-flag').textContent = d.winner;
+  $('#v-flag').style.background = d.winnerColor;
+  $('#v-lead').innerHTML = d.verdict;
+
+  // cards
+  const order = ['parser','claude','gemini'];
+  $('#cards').innerHTML = order.map(p=>{
+    const c = d.cards[p]; const col = C[p];
+    return `<div class="card">
+      <div class="spine" style="background:${col}"></div>
+      <h3>${p[0].toUpperCase()+p.slice(1)}
+        <span class="pill" style="background:${col}1f;color:${col}">${c.role}</span></h3>
+      <div class="bigstat"><span class="num" style="color:${col}">${c.big[0]}</span><span class="lab">${c.big[1]}</span></div>
+      <div class="bar-mini"><span style="width:${Math.round(c.hit*100)}%;background:${col}"></span></div>
+      <div style="margin-top:14px">
+        ${c.rows.map(r=>`<div class="stat-row"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  // head to head
+  $('#h-claude').textContent = d.h2h.claude;
+  $('#h-gemini').textContent = d.h2h.gemini;
+  const tot = d.h2h.claude + d.h2h.gemini + d.h2h.other || 1;
+  const seg = (n,col,lab)=> n>0 ? `<div style="flex:${n};background:${col}">${n} ${lab}</div>` : '';
+  $('#h-bar').innerHTML =
+    seg(d.h2h.claude,C.claude,'Claude') + seg(d.h2h.gemini,C.gemini,'Gemini') + seg(d.h2h.other,C.manual,'Manual');
+  $('#h-cap').innerHTML = d.h2h.cap;
+
+  // chosen distribution
+  const total = d.chosen.reduce((a,b)=>a+b[1],0);
+  $('#dist-bar').innerHTML = d.chosen.map(([k,n])=>{
+    const pct = (n/total*100);
+    return `<div style="flex-grow:${n};background:${C[k]}" title="${k}: ${n}">
+      <span class="dn">${n}</span><span class="dl">${k}</span></div>`;
+  }).join('');
+  const ai = (d.chosen.find(x=>x[0]==='claude')?.[1]||0)+(d.chosen.find(x=>x[0]==='gemini')?.[1]||0);
+  $('#dist-l').innerHTML = `<b>${ai}</b> of ${total} rows took an AI suggestion · <b>${total-ai}</b> stayed parser or manual`;
+  $('#dist-r').textContent = `${Math.round(ai/total*100)}% AI-assisted`;
+
+  // matrix
+  $('#matrix-body').innerHTML = Object.entries(d.matrix).map(([cls,m])=>`
+    <tr>
+      <td><span class="cls-ico" style="background:${CLS_HUE[cls]}"></span>${CLS[cls]}</td>
+      <td>${heatCell(m.parser)}</td>
+      <td>${heatCell(m.claude)}</td>
+      <td>${heatCell(m.gemini)}</td>
+      <td class="mono" style="color:var(--ink-3);font-size:12px">${m.rows}</td>
+    </tr>`).join('');
+
+  // contested table
+  $('#ctab-body').innerHTML = d.contested.map(r=>{
+    const cell = (val, base)=>{
+      if(Array.isArray(val)){
+        const diff = val[0]!==r.final;
+        return `${clsChip(val[0])}<span class="conf ${val[1]}">${val[1][0]}</span>${diff?'<span class="neq">≠</span>':''}`;
+      }
+      const diff = val!==r.final;
+      return `${clsChip(val)}${diff?'<span class="neq">≠</span>':''}`;
+    };
+    const wonCol = C[r.kept];
+    return `<tr>
+      <td class="rownum">${r.row}</td>
+      <td class="desc">${r.desc}</td>
+      <td>${cell(r.parser)}</td>
+      <td>${cell(r.claude)}</td>
+      <td>${cell(r.gemini)}</td>
+      <td>${clsChip(r.final)}</td>
+      <td><span class="won" style="background:${wonCol}1a;color:${wonCol}"><i class="tick" style="background:${wonCol}"></i>${r.kept}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('.sheetsel button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.sheetsel button').forEach(x=>x.dataset.active='false');
+    b.dataset.active='true';
+    active = b.dataset.sheet;
+    render();
+    // gentle re-rise on the data sections
+    document.querySelectorAll('#cards,.h2h,.dist,.matrix,.tablecard').forEach(el=>{
+      el.style.animation='none'; void el.offsetWidth; el.style.animation='rise .5s cubic-bezier(.2,.7,.2,1)';
+    });
+  });
+});
+
+render();
+</script>
+</body>
+</html>

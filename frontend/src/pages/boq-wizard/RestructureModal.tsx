@@ -96,19 +96,30 @@ interface RestructureModalProps {
   /** Success callback with the returned edited_at (parent closes + refreshes the tree). */
   onRestructured: (editedAt: string) => void;
   /**
-   * AI-3b-2 (children-only mode). When provided, the row's parent is PRE-APPLIED from an
-   * accepted AI suggestion: rowPosition is forced to "move" + rowParentIdx is seeded to
+   * AI-3b-2 / R3b (children-only mode). When provided, the row's parent is PRE-APPLIED from
+   * an accepted AI suggestion: rowPosition is forced to "move" + rowParentIdx is seeded to
    * this value (-1 = root, >=0 = an internal row_index), and the keep/move radio + the
-   * SheetSearchView picker are REPLACED by a read-only message line (presetParentMessage).
-   * The 5 child-placement options stay. Undefined => the modal behaves exactly as before
-   * (every existing opener passes nothing).
+   * SheetSearchView picker are REPLACED by a DISABLED-BUT-VISIBLE control (the "move" radio
+   * selected + disabled, a read-only target chip showing the AI-chosen parent) plus an
+   * AI-lock modal title -- the row's own position is locked and cannot be changed here.
+   * The 5 child-placement options stay fully active. Undefined => the modal behaves exactly
+   * as before (every existing opener passes nothing).
    */
   presetRowParent?: number | null;
-  /** AI-3b-2: the read-only line shown in place of the picker when presetRowParent is set. */
+  /** AI-3b-2 / R3b: optional helper subtitle shown under the locked control (the primary
+   *  lock signal is the disabled control + AI title, not this line). */
   presetParentMessage?: string;
   /** AI-3b-2: when true, handleSave passes mark_ai_accepted to flip ai_suggestion_status
    *  ="Accepted" inside the SAME restructure commit (cancel-safe -- only Save sends it). */
   markAiAccepted?: boolean;
+  /**
+   * DUAL-AI (ADR-0003): the Gemini MIRROR of markAiAccepted. When true, handleSave passes
+   * mark_gemini_accepted to flip gemini_suggestion_status="Accepted" + capture the gemini
+   * snapshot inside the SAME restructure commit (cancel-safe -- only Save sends it). The two
+   * flags are INDEPENDENT: a with-children Gemini accept sets only this one (the gemini accept
+   * endpoint pre-reverts any standing Claude acceptance, so they never both fire on one call).
+   */
+  markGeminiAccepted?: boolean;
 }
 
 export function RestructureModal({
@@ -123,6 +134,7 @@ export function RestructureModal({
   presetRowParent,
   presetParentMessage,
   markAiAccepted,
+  markGeminiAccepted,
 }: RestructureModalProps) {
   // AI-3b-2: a preset parent means the row's parent is pre-applied (from an accepted AI
   // suggestion) -> the keep/move radio + picker are replaced by a read-only message line.
@@ -265,6 +277,9 @@ export function RestructureModal({
         // AI-3b-2: flip ai_suggestion_status -> "Accepted" in this same commit. Sent ONLY
         // here (the Save path), so a cancelled modal never flips it (cancel-safe).
         ...(markAiAccepted ? { mark_ai_accepted: true } : {}),
+        // DUAL-AI (ADR-0003): the Gemini mirror -- flip gemini_suggestion_status -> "Accepted"
+        // in this same commit. Sent ONLY here (Save path). Independent of mark_ai_accepted.
+        ...(markGeminiAccepted ? { mark_gemini_accepted: true } : {}),
       });
       onRestructured(res.message.edited_at);
     } catch (e: unknown) {
@@ -306,12 +321,28 @@ export function RestructureModal({
       >
         <DialogHeader>
           <DialogTitle>
-            {children.length === 0
-              ? `Reclassify and position row ${row.source_row_number}`
-              : "Reclassify row and place its children"}
+            {/* AI-3b-2 / R3b: when the row's parent is PRE-APPLIED from an accepted AI
+                suggestion, the title signals the lock -- the AI already decided this
+                row's position; the user only places its children below. */}
+            {hasPresetParent ? (
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                AI set this row&rsquo;s position &mdash; place its children
+              </span>
+            ) : children.length === 0 ? (
+              `Reclassify and position row ${row.source_row_number}`
+            ) : (
+              "Reclassify row and place its children"
+            )}
           </DialogTitle>
           <DialogDescription>
-            {children.length === 0 ? (
+            {hasPresetParent ? (
+              <>
+                Row {row.source_row_number}: {fromLabel} &rarr; {toLabel}. The AI fixed where this
+                row goes (shown below, locked). Choose where its {children.length}{" "}
+                {children.length === 1 ? "child" : "children"} should go.
+              </>
+            ) : children.length === 0 ? (
               <>
                 Row {row.source_row_number}: {fromLabel} &rarr; {toLabel}. Choose where this
                 row should go.
@@ -331,18 +362,51 @@ export function RestructureModal({
           <span className="font-medium">{row.description || "(no description)"}</span>
         </div>
 
-        {/* AI-3b-2: when the parent is PRE-APPLIED from an accepted AI suggestion, the
-            keep/move radio + picker are replaced by a read-only message line. The 5
-            child-placement options below are UNCHANGED. */}
+        {/* AI-3b-2 / R3b: when the parent is PRE-APPLIED from an accepted AI suggestion, the
+            row's own position is LOCKED. Render the keep/move radio + parent target as a
+            DISABLED-BUT-VISIBLE control (the "move" radio selected + disabled, the parent
+            picker replaced by a disabled read-only target chip showing the AI-chosen parent)
+            so the lock is an obvious control, not just a message. The user cannot change the
+            row's own position here; the 5 child-placement options below are UNCHANGED. */}
         {hasPresetParent ? (
-          <div className="rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 mb-1 flex items-center gap-1">
+          <div className="rounded-md border border-indigo-200 dark:border-indigo-900 bg-indigo-50/40 dark:bg-indigo-950/20 p-2 space-y-1.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
               <Sparkles className="h-3 w-3" /> This row&rsquo;s position
+              <span className="ml-1 rounded bg-indigo-100 dark:bg-indigo-900/50 px-1 py-px text-[9px] font-semibold normal-case tracking-normal text-indigo-700 dark:text-indigo-300">
+                Set by AI &middot; locked
+              </span>
             </p>
-            <p className="text-xs text-foreground">
-              {presetParentMessage ??
-                `Parent set to ${targetLabel(rowParentIdx ?? -1)} per AI suggestion — choose what happens to this row's children below.`}
-            </p>
+            <label className="flex items-start gap-2 text-xs opacity-60 cursor-not-allowed">
+              <input
+                type="radio"
+                name="row-position"
+                className="mt-0.5"
+                checked={false}
+                disabled
+                readOnly
+              />
+              <span>Keep current position (under {oldParentLabel})</span>
+            </label>
+            <label className="flex items-start gap-2 text-xs cursor-not-allowed">
+              <input
+                type="radio"
+                name="row-position"
+                className="mt-0.5"
+                checked
+                disabled
+                readOnly
+              />
+              <span>Move this row under a new parent</span>
+            </label>
+            <div className="rounded-md border border-indigo-200 dark:border-indigo-900 p-2">
+              <p className="text-xs">
+                New position for this row:{" "}
+                <span className="font-medium">{targetLabel(rowParentIdx ?? -1)}</span>
+              </p>
+            </div>
+            {presetParentMessage && (
+              <p className="text-[11px] text-muted-foreground">{presetParentMessage}</p>
+            )}
           </div>
         ) : (
           /* This row's OWN position (Slice 1b-beta2) -- keep (default) or move under a

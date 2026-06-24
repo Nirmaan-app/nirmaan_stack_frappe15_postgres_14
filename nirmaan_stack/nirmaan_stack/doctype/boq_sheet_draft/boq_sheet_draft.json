@@ -18,7 +18,8 @@
   "parse_failure_at",
   "commit_failure_reason",
   "commit_failure_at",
-  "ai_in_progress"
+  "ai_in_progress",
+  "gemini_in_progress"
  ],
  "fields": [
   {
@@ -115,6 +116,13 @@
    "fieldname": "ai_in_progress",
    "fieldtype": "Check",
    "label": "AI Pass In Progress",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "gemini_in_progress",
+   "fieldtype": "Check",
+   "label": "Gemini AI Pass In Progress",
    "read_only": 1
   }
  ],

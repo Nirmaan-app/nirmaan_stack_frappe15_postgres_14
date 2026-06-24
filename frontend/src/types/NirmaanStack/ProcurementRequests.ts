@@ -71,6 +71,7 @@ export interface ProcurementRequestItemDetail {
 	vendor?: string;
 	quote?: number;
 	billing_status?: "Billable" | "Non-Billable";
+	loss_justification?: string;
 	parent?: string;
 	parentfield?: string;
 	parenttype?: string;

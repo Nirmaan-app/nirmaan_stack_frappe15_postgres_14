@@ -25,6 +25,7 @@ import {
 } from '@/pages/ProcurementRequests/ApproveVendorQuotes/types'; // Import from PR approval types
 import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
+import { computeLossPercent, isHighLoss } from '@/utils/lossPercent';
 
 // If SentBackCategoryItem is not explicitly defined, you might use a generic or adapt ProcurementRequestItemDetail
 // For this example, assuming SentBackCategoryItem has fields compatible with ProcurementRequestItemDetail for display purposes
@@ -224,6 +225,7 @@ export const useApproveSBSLogic = ({
                 comment: sbItem.comment,
                 vendor: sbItem.vendor, // The selected vendor for this SB item
                 quote: sbItem.quote,   // The selected quote for this SB item
+                loss_justification: sbItem.loss_justification, // carried from capture for read-only display
 
                 // Fields from parent/doctype context if needed by VendorItemDetailsToDisplay, though sbItem might not have all of these.
                 // Ensure VendorItemDetailsToDisplay's non-optional fields are covered.
@@ -260,6 +262,12 @@ export const useApproveSBSLogic = ({
 
             if (benchmarkAmount !== undefined && !isNaN(currentAmount)) {
                 displayItem.savingLoss = benchmarkAmount - currentAmount;
+                // Loss % uses the Target-prioritized benchmark (matches the Send-for-Approval
+                // capture screen) so the >10% gate is identical across capture and approval.
+                const lossBenchmark = (displayItem.targetAmount && displayItem.targetAmount > 0)
+                    ? displayItem.targetAmount
+                    : (displayItem.lowestQuotedAmountForItem || 0);
+                displayItem.lossPercent = computeLossPercent(lossBenchmark - currentAmount, lossBenchmark);
             }
 
             vendorWiseData[vendorId].items.push(displayItem);
@@ -307,6 +315,23 @@ export const useApproveSBSLogic = ({
             return;
         }
 
+        // Backstop: every selected item with loss > 10% must carry a justification.
+        const unjustifiedHighLoss = vendorDataSource.some(group => {
+            const sel = selectionMap.get(group.vendorId);
+            if (!sel) return false;
+            return group.items.some(it =>
+                sel.has(it.name!) && isHighLoss(it.lossPercent) && !(it.loss_justification || "").trim()
+            );
+        });
+        if (unjustifiedHighLoss) {
+            toast({
+                title: "Loss justification required",
+                description: "One or more selected items have a loss over 10% without a justification. Send the item back to procurement to add one.",
+                variant: "destructive",
+            });
+            return;
+        }
+
         try {
             const payload: ApproveSBPayload = {
                 project_id: sentBackData.project, // Project from SB document
@@ -331,7 +356,7 @@ export const useApproveSBSLogic = ({
             console.error("Error approving SB selection:", error);
             toast({ title: "SB Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
-    }, [sentBackData, selectionMap, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]);
+    }, [sentBackData, selectionMap, vendorDataSource, approveSBSelection, sbMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]);
 
     const handleSendBackConfirm = useCallback(async () => {
         if (isCEOHold) {

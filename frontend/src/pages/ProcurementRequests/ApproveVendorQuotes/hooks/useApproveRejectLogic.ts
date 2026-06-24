@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 import { useFrappeGetCall } from 'frappe-react-sdk';
 import { parseNumber } from '@/utils/parseNumber';
 import getLowestQuoteFilled from '@/utils/getLowestQuoteFilled';
+import { computeLossPercent, isHighLoss } from '@/utils/lossPercent';
 import { LetterText } from 'lucide-react';
 
 interface UseApproveRejectLogicProps {
@@ -233,6 +234,12 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             
             if (!isNaN(currentAmount)) {
                 displayItem.savingLoss = benchmarkAmount - currentAmount;
+                // Loss % uses the Target-prioritized benchmark (matches the Send-for-Approval
+                // capture screen) so the >10% gate is identical across capture and approval.
+                const lossBenchmark = (displayItem.targetAmount && displayItem.targetAmount > 0)
+                    ? displayItem.targetAmount
+                    : (displayItem.lowestQuotedAmountForItem || 0);
+                displayItem.lossPercent = computeLossPercent(lossBenchmark - currentAmount, lossBenchmark);
             }
         }
         // If conditions are false, savingLoss remains undefined.
@@ -317,6 +324,23 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             return;
         }
 
+        // Backstop: every selected item with loss > 10% must carry a justification.
+        const unjustifiedHighLoss = vendorDataSource.some(group => {
+            const sel = selectionMap.get(group.vendorId);
+            if (!sel) return false;
+            return group.items.some(it =>
+                sel.has(it.name!) && isHighLoss(it.lossPercent) && !(it.loss_justification || "").trim()
+            );
+        });
+        if (unjustifiedHighLoss) {
+            toast({
+                title: "Loss justification required",
+                description: "One or more selected items have a loss over 10% without a justification. Send the item back to procurement to add one.",
+                variant: "destructive",
+            });
+            return;
+        }
+
         try {
             const payload: ApprovePayload = {
                 project_id: orderData.project,
@@ -343,7 +367,7 @@ export const useApproveRejectLogic = ({ prId, initialPrData, vendorList = [], us
             toast({ title: "Approval Failed!", description: error?.message || "An error occurred.", variant: "destructive" });
         }
         
-    }, [orderData, selectionMap, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]); // ✨ ADD dependency
+    }, [orderData, selectionMap, vendorDataSource, approveSelection, prMutate, navigate, toggleApproveDialog, toast, dynamicPaymentTerms, isCEOHold, showBlockedToast]); // ✨ ADD dependency
 
     // ... (handleSendBackConfirm and isPrEditable are unchanged) ...
     const handleSendBackConfirm = useCallback(async () => {
