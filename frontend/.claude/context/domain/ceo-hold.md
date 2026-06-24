@@ -182,12 +182,21 @@ function MyListPage() {
 
 ---
 
+## Automatic CEO Hold (multi-source — ADR-0004)
+
+Beyond the manual hold below, the system **auto-holds** projects for one or more automatic conditions. Each is a row in the **`CEO Hold Reason`** doctype (`source` = `cashflow` or `dn_pending`, plus a live `reason_text`); a project is on CEO Hold while it has any reason row **or** a manual hold, and leaves only when **none** remain. `status` / `ceo_hold_by` are derived mirrors maintained by `services/ceo_hold/core.recompute_ceo_hold` (the single serialized owner).
+
+- **Cashflow gap** — auto-held when the cashflow gap exceeds the project's limit. See `docs/ceo_hold_auto_management.md`.
+- **Delivery-Pending** — auto-held when the project has **more than 4 POs awaiting delivery** (the `DN_PENDING` action-item count); auto-releases at ≤ 4.
+
+`ceo_hold_by = "System (Cashflow Cron)"` marks *any* system hold (generic); the per-source *why* is in the reason rows. **The frontend surfaces the reasons** via `<CEOHoldBanner reasons={...} />` on the Project Detail + PMO banners and the `useCEOHoldGuard` blocked-action toast (`holdReasons`). The ~22 generic banner mounts and the `useCEOHoldProjects` list tint are unchanged (FORK 6 scope).
+
 ## Who Can Set CEO Hold
 
-CEO Hold can **only** be set/unset by **`nitesh@nirmaan.app`** (not any Admin or role-based check).
+A **manual** CEO Hold can **only** be set/unset by **`nitesh@nirmaan.app`** (not any Admin or role-based check). Automatic holds are placed by the system (see above). **A manual move OFF CEO Hold is rejected while any automatic reason row is still active** (ADR-0004) — resolve the condition (or it self-clears) to release.
 
-- **Backend validation:** `projects.py` (`validate` method) enforces this — rejects CEO Hold changes from any other user
-- **`ceo_hold_by` field:** Added to Projects doctype to track who set the hold
+- **Backend validation:** `projects.py` (`validate` method) enforces the manual-only set + the no-release-while-reasons-active guard
+- **`ceo_hold_by` field:** tracks who/what set the current hold (a real email = manual; `System (Cashflow Cron)` = system)
 - **Frontend constant:** `CEO_HOLD_AUTHORIZED_USER` in `src/constants/ceoHold.ts` — used for UI gating (dropdown filter, disabled state, locked hint, heldBy banner)
 
 **File:** `src/constants/ceoHold.ts` - Authorized user constant
