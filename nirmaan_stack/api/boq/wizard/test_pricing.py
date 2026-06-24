@@ -1166,6 +1166,157 @@ class TestPriceabilityGuard(FrappeTestCase):
         self.assertEqual(p_by_row[self.OTHER_ROW]["node_type"], "Other")
 
 
+class TestPreambleQtyBearingGuard(FrappeTestCase):
+    """The ASYMMETRIC rate-edit gate (owner-locked): on save_cell_price,
+      - a ZERO-QTY PREAMBLE is rejected (read-only) unless override;
+      - a QTY-BEARING PREAMBLE (scalar qty OR any per-area qty non-zero) is accepted;
+      - a LINE ITEM is ALWAYS accepted (a zero-qty Line Item is a valid rate-only line);
+      - a non-priceable type ("Other") is rejected unless override (unchanged);
+      - allow_non_priceable unlocks BOTH a zero-qty Preamble AND a non-priceable type.
+
+    Reuses the shared committed fixture (Preamble row 6 is ZERO-QTY; Line Items 34/35 are
+    qty-bearing) and ADDS, in THIS class's setup: a qty-bearing Preamble (scalar qty, row 7),
+    a qty-bearing-via-area Preamble (scalar qty 0 + a non-zero BOQ Node Qty By Area child,
+    row 8), a ZERO-QTY Line Item (row 51), and an 'Other' node (row 52). The shared builder is
+    untouched. sheet_name carries a trailing space (#152)."""
+
+    QTY_PREAMBLE_ROW = 7      # Preamble, scalar qty non-zero -> editable
+    AREA_PREAMBLE_ROW = 8     # Preamble, scalar qty 0 but a non-zero per-area child -> editable
+    ZERO_LINE_ITEM_ROW = 51   # Line Item, zero qty -> STILL editable (rate-only)
+    OTHER_ROW = 52            # Other -> non-priceable, rejected unless override
+    ZERO_PREAMBLE_ROW = 6     # the shared fixture's Preamble (zero-qty) -> read-only
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Preamble Qty Gate Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Qty Gate "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        bqsh = cls.fixture["bqsh"]
+        now = frappe.utils.now()
+
+        def _node(node_type, row_class, source_row, sort_order, qty=None, area_qty=None, level=None):
+            n = frappe.new_doc("BOQ Nodes")
+            n.sheet = bqsh
+            n.node_type = node_type
+            n.row_class = row_class
+            n.description = f"{node_type} @ {source_row}"
+            n.sort_order = sort_order
+            n.source_row_number = source_row
+            if qty is not None:
+                n.qty = qty
+            if level is not None:
+                n.level = level
+            n.commit_version = cls.cv
+            n.is_current = 1
+            n.committed_at = now
+            if area_qty is not None:
+                for area_name, q in area_qty.items():
+                    n.append("qty_by_area", {"area_name": area_name, "qty": q})
+            n.insert(ignore_permissions=True)
+            return n.name
+
+        # Preamble WITH a scalar qty -> editable.
+        cls.qty_preamble = _node("Preamble", "preamble", cls.QTY_PREAMBLE_ROW, 4, qty=10.0, level=1)
+        # Preamble with scalar qty 0 but a NON-ZERO per-area child -> editable (the child read).
+        cls.area_preamble = _node(
+            "Preamble", "preamble", cls.AREA_PREAMBLE_ROW, 5, qty=0.0, level=1,
+            area_qty={"Phase 1": 0.0, "Phase 2": 7.0},
+        )
+        # Line Item with ZERO qty (and a zero per-area child) -> STILL editable (rate-only).
+        cls.zero_line_item = _node(
+            "Line Item", "line_item", cls.ZERO_LINE_ITEM_ROW, 6, qty=0.0,
+            area_qty={"Phase 1": 0.0, "Phase 2": 0.0},
+        )
+        # A non-priceable 'Other' node -> rejected unless override.
+        cls.other_node = _node("Other", "note", cls.OTHER_ROW, 7)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    def _price_count(self, excel_row):
+        return frappe.db.count(
+            _PRICING, {"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row}
+        )
+
+    def _lock_count(self):
+        return frappe.db.count(_LOCK_DT, {"boq": self.boq})
+
+    def _save(self, excel_row, **kw):
+        return save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=excel_row,
+            col_letter="E", committed_version=self.cv, rate=99.0, **kw,
+        )
+
+    # -- Preamble: zero-qty rejected, qty-bearing accepted ---------------------
+
+    def test_zero_qty_preamble_rejected_without_override(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(self.ZERO_PREAMBLE_ROW)
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        # A rejected write mutated NOTHING (the guard sits BEFORE acquire_or_refresh).
+        self.assertEqual(self._price_count(self.ZERO_PREAMBLE_ROW), 0, "no price row written")
+        self.assertEqual(self._lock_count(), 0, "the lock was not acquired on a rejected write")
+
+    def test_qty_bearing_preamble_accepted_scalar_qty(self):
+        res = self._save(self.QTY_PREAMBLE_ROW)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.QTY_PREAMBLE_ROW), 1)
+
+    def test_qty_bearing_preamble_accepted_via_area_child(self):
+        # scalar qty is 0 but a per-area child qty is non-zero -> the child read makes it editable.
+        res = self._save(self.AREA_PREAMBLE_ROW)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.AREA_PREAMBLE_ROW), 1)
+
+    def test_zero_qty_preamble_accepted_with_override(self):
+        res = self._save(self.ZERO_PREAMBLE_ROW, allow_non_priceable=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.ZERO_PREAMBLE_ROW), 1)
+
+    # -- Line Item: always editable, even at zero qty (rate-only) --------------
+
+    def test_zero_qty_line_item_accepted_without_override(self):
+        res = self._save(self.ZERO_LINE_ITEM_ROW)
+        self.assertTrue(res["ok"], "a zero-qty Line Item is a valid rate-only line -> editable")
+        self.assertEqual(self._price_count(self.ZERO_LINE_ITEM_ROW), 1)
+
+    def test_qty_bearing_line_item_accepted(self):
+        # the shared fixture's Line Item 34 (qty-bearing) -- unchanged behaviour.
+        res = self._save(34, area="Phase 1")
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(34), 1)
+
+    # -- non-priceable type: unchanged (rejected unless override) --------------
+
+    def test_other_type_rejected_without_override(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(self.OTHER_ROW)
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        self.assertEqual(self._price_count(self.OTHER_ROW), 0)
+
+    def test_other_type_accepted_with_override(self):
+        res = self._save(self.OTHER_ROW, allow_non_priceable=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.OTHER_ROW), 1)
+
+
 class TestRowRemark(FrappeTestCase):
     """Slice 4a: the per-ROW remark layer (BoQ Cell Remark) -- save_row_remark + the
     get_priced_rows merge. Reuses the shared per-area committed fixture (line items at

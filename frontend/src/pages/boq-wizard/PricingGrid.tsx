@@ -145,6 +145,49 @@ export function isPriceableType(nodeType: string | null | undefined): boolean {
 }
 
 /**
+ * A finite, non-zero number. SELF-CONTAINED copy of priceability.isNonZeroNum (semantics
+ * IDENTICAL) so the rate-edit gate needs NOTHING from priceability -- preserving the one-way
+ * dependency (priceability imports from PricingGrid, never the reverse; importing back would
+ * be a cycle). 0 / null / undefined / non-number / a "0" STRING -> false; a finite non-zero
+ * number, INCLUDING a negative qty -> true. Pure -- unit-tested.
+ */
+export function isNonZeroNum(v: unknown): boolean {
+  return typeof v === "number" && Number.isFinite(v) && v !== 0;
+}
+
+/**
+ * "qty anywhere" (owner-locked "Definition A") -- the row carries a non-zero, finite quantity
+ * in ANY qty column: the scalar qty_total OR any per-area qty. DELIBERATELY SIMPLER + LOOSER
+ * than priceability.isPriceableLine, which restricts qty-bearing to a RATE-COLUMN area. THIS
+ * IS AN INTENTIONAL DIVERGENCE, NOT drift: this predicate answers "can I edit this ROW at
+ * all?" (the edit gate), while isPriceableLine answers "does THIS AREA need a rate?" (the
+ * flags / priced-count / rollup). They use different definitions ON PURPOSE -- do NOT align
+ * them. Used ONLY for the Preamble branch of the gate. Pure -- unit-tested.
+ */
+export function isRowQtyBearing(row: PricedRow): boolean {
+  if (isNonZeroNum(row.qty_total)) return true;
+  const ba = row.qty_by_area;
+  return ba != null && Object.values(ba).some(isNonZeroNum);
+}
+
+/**
+ * The ASYMMETRIC rate-edit gate (owner-locked, row-level axis): a rate cell is editable iff
+ *   override  OR  node_type === "Line Item"  OR  (node_type === "Preamble" AND isRowQtyBearing).
+ * A LINE ITEM is ALWAYS editable (a zero-qty Line Item is a valid "rate-only" line -- do NOT
+ * lock it). A PREAMBLE is editable only when qty-bearing (a zero-qty Preamble -- nearly all
+ * Preambles -- is read-only). The "Price any row" override unlocks BOTH a zero-qty Preamble
+ * AND any non-priceable type. Every other case (non-priceable type, or a zero-qty Preamble
+ * without override) -> read-only. The Preamble/Line-Item asymmetry is a DELIBERATE owner-
+ * locked rule -- do NOT "fix" it into uniformity. The descriptor's is-rate-cell test is
+ * applied SEPARATELY at the call site (this is the ROW axis only). Pure -- unit-tested.
+ */
+export function isRateEditableRow(row: PricedRow, override: boolean): boolean {
+  if (override) return true;
+  if (row.node_type === "Line Item") return true;
+  return row.node_type === "Preamble" && isRowQtyBearing(row);
+}
+
+/**
  * True iff this (row, descriptor) RATE cell carries a saved price -- driven SOLELY by the
  * overlay's priced_* markers (which the backend sets from the pricing layer's is_filled),
  * NEVER by a zero-check on the value (a committed 0.0 rate can be a valid priced value).
@@ -1244,10 +1287,13 @@ const PricingGridRow = memo(function PricingGridRow({
           />
         ) : null;
         // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
+        // Asymmetric gate (isRateEditableRow): Line Item always editable; Preamble editable
+        // only when qty-bearing; override unlocks both. A non-editable rate cell falls through
+        // to the read-only render below (its priced/anomaly marker still shows).
         if (
           onSaveRate &&
           isRateDescriptor(d) &&
-          (isPriceableType(row.node_type) || override)
+          isRateEditableRow(row, override)
         ) {
           const key = cellKey(row.row_index, d.col);
           const priced = isCellPriced(row, d);

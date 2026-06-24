@@ -27,6 +27,7 @@ Public API:
 from __future__ import annotations
 
 import json
+import math
 
 import frappe
 from frappe.utils import now_datetime
@@ -177,13 +178,43 @@ def _next_pricing_version(boq_name, sheet_name, excel_row, col_letter, committed
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
+def _is_nonzero_qty(v) -> bool:
+    """A finite, non-zero numeric quantity -- mirrors the frontend isNonZeroNum
+    (typeof number && Number.isFinite && !== 0). None / 0 / 0.0 / a bool / a non-numeric ->
+    False; a finite non-zero number, INCLUDING a negative qty -> True. Committed qty coerces
+    unset -> 0.0 (never NULL), but None is guarded defensively."""
+    return (
+        isinstance(v, (int, float))
+        and not isinstance(v, bool)
+        and math.isfinite(v)
+        and v != 0
+    )
+
+
+def _node_is_qty_bearing(node_name: str, node_qty) -> bool:
+    """"qty anywhere" (owner-locked "Definition A") -- the node's scalar qty OR ANY of its
+    BOQ Node Qty By Area child rows' qty is finite non-zero. The committed analog of the
+    frontend isRowQtyBearing. DELIBERATELY LOOSER than the per-area / rate-column qty-bearing
+    of isPriceableLine (the flags/count axis) -- this answers "can this row be priced at all?".
+    Used ONLY for the Preamble branch of the rate-edit guard, so the (cheap) child read fires
+    only when a Preamble is being priced without the override."""
+    if _is_nonzero_qty(node_qty):
+        return True
+    child_qtys = frappe.get_all(
+        "BOQ Node Qty By Area",
+        filters={"parent": node_name, "parenttype": _NODE, "parentfield": "qty_by_area"},
+        pluck="qty",
+    )
+    return any(_is_nonzero_qty(q) for q in child_qtys)
+
+
 def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version) -> dict:
     """Resolve + VALIDATE that a committed cell exists at (boq, sheet_name, excel_row) for
-    the given committed_version. Returns {"name": <BOQ Nodes name>, "node_type": <str>} -- the
-    node ref to store + its PRICEABILITY axis (resolved at the SAME get_value, no extra query,
-    for the Slice-3e priceability guard). Throws if the committed sheet or node at that
-    address/version does not exist -- never create a price for a non-existent cell. sheet_name
-    matched VERBATIM (#152)."""
+    the given committed_version. Returns {"name": <BOQ Nodes name>, "node_type": <str>,
+    "qty": <float|None>} -- the node ref to store + its PRICEABILITY axis + its scalar qty
+    (all resolved at the SAME get_value, no extra query, for the rate-edit guard's Preamble
+    qty-bearing check). Throws if the committed sheet or node at that address/version does not
+    exist -- never create a price for a non-existent cell. sheet_name matched VERBATIM (#152)."""
     bqsh = frappe.db.get_value(
         _BOQ_SHEET,
         {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
@@ -203,7 +234,7 @@ def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version) 
             "source_row_number": excel_row,
             "commit_version": committed_version,
         },
-        ["name", "node_type"],
+        ["name", "node_type", "qty"],
         as_dict=True,
     )
     if not node:
@@ -273,17 +304,35 @@ def save_cell_price(
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
 
-    # PRICEABILITY GUARD (Slice 3e). Placed AFTER the committed-cell check (a non-cell still
-    # throws first) and BEFORE the lock acquire / the freeze+insert below, so a REJECTED
-    # non-priceable write mutates NOTHING (mirrors the lock reject-mutates-nothing discipline).
-    # DELIBERATE, RECORDED §6 loosening: reject a non-priceable row by default, accept it ONLY
-    # when the human asserts the per-sheet override (allow_non_priceable, HTTP-coerced).
-    if node.get("node_type") not in _PRICEABLE_NODE_TYPES and not _coerce_bool(allow_non_priceable):
-        frappe.throw(
-            f"This row is not priceable (node type: {node.get('node_type') or 'unknown'}). "
-            f"Enable the override to price it.",
-            title="Not priceable",
-        )
+    # PRICEABILITY GUARD (Slice 3e + the Preamble qty-bearing gate -- ASYMMETRIC, owner-locked).
+    # Placed AFTER the committed-cell check (a non-cell still throws first) and BEFORE the lock
+    # acquire / the freeze+insert below, so a REJECTED write mutates NOTHING (mirrors the lock
+    # reject-mutates-nothing discipline). The rule:
+    #   - Line Item -> ALWAYS editable (a zero-qty Line Item is a valid rate-only line).
+    #   - Preamble  -> editable ONLY when qty-bearing ("qty anywhere": scalar qty OR any per-area
+    #                  qty non-zero); a zero-qty Preamble (nearly all Preambles) is read-only.
+    #   - any other type ("Other") -> non-priceable.
+    # The override (allow_non_priceable, HTTP-coerced) unlocks BOTH a zero-qty Preamble AND a
+    # non-priceable type -- "price ANY row, ignore the gate". The Preamble/Line-Item asymmetry is
+    # DELIBERATE (do not collapse it to uniformity). The frontend isRateEditableRow mirrors this
+    # EXACTLY so the client UX and this server boundary never drift.
+    if not _coerce_bool(allow_non_priceable):
+        nt = node.get("node_type")
+        if nt == "Line Item":
+            pass  # always priceable
+        elif nt == "Preamble":
+            if not _node_is_qty_bearing(node_name, node.get("qty")):
+                frappe.throw(
+                    "This Preamble row has no quantity, so it is not priceable. "
+                    "Enable the override to price it.",
+                    title="Not priceable",
+                )
+        else:
+            frappe.throw(
+                f"This row is not priceable (node type: {nt or 'unknown'}). "
+                f"Enable the override to price it.",
+                title="Not priceable",
+            )
 
     # Single-editor lock (acquire-on-first-edit). Placed AFTER the committed-cell check (a
     # non-cell still throws first) and BEFORE the freeze/insert below, so a REJECTED save

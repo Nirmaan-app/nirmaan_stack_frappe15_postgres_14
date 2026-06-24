@@ -28,6 +28,9 @@ import {
   validateFormulaRefs,
   groupDraftsByRow,
   pricingRowPropsAreEqual,
+  isNonZeroNum,
+  isRowQtyBearing,
+  isRateEditableRow,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -832,5 +835,80 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
     expect(pricingRowPropsAreEqual(prev, { ...prev, commitRate: () => {} })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, displayDescriptors: [] })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, columnFormulas: [] })).toBe(false);
+  });
+});
+
+// ── Preamble-only qty-bearing rate-edit gate (the asymmetric, owner-locked rule) ──
+//
+// A rate cell is editable iff: override OR Line Item (always) OR a qty-bearing Preamble. A
+// zero-qty Preamble is read-only; a zero-qty Line Item stays editable (rate-only). The
+// qty-bearing predicate is "qty ANYWHERE" (Definition A) -- scalar qty_total OR any per-area
+// qty -- DELIBERATELY looser than priceability.isPriceableLine (which restricts to a
+// rate-column area); the two answer different questions and are NOT to be aligned.
+
+describe("isNonZeroNum (the qty-bearing leaf -- self-contained in PricingGrid)", () => {
+  it("is true ONLY for a finite non-zero number (a negative qty counts)", () => {
+    expect(isNonZeroNum(5)).toBe(true);
+    expect(isNonZeroNum(-3)).toBe(true);
+    expect(isNonZeroNum(0.0001)).toBe(true);
+  });
+  it("is false for 0, null, undefined, '', a '0' string, NaN, Infinity", () => {
+    expect(isNonZeroNum(0)).toBe(false);
+    expect(isNonZeroNum(null)).toBe(false);
+    expect(isNonZeroNum(undefined)).toBe(false);
+    expect(isNonZeroNum("")).toBe(false);
+    expect(isNonZeroNum("0")).toBe(false); // a numeric string is NOT a number -> not qty-bearing
+    expect(isNonZeroNum("5")).toBe(false);
+    expect(isNonZeroNum(NaN)).toBe(false);
+    expect(isNonZeroNum(Infinity)).toBe(false);
+  });
+});
+
+describe("isRowQtyBearing (qty ANYWHERE: qty_total OR any qty_by_area)", () => {
+  it("true when the scalar qty_total is non-zero (even with no area qty)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 220, qty_by_area: null }))).toBe(true);
+  });
+  it("true when ANY per-area qty is non-zero (even if qty_total is 0/null)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: { "Phase 1": 0, "Phase 2": 4 } }))).toBe(true);
+    expect(isRowQtyBearing(prow({ qty_total: null, qty_by_area: { L1: 158400 } }))).toBe(true);
+  });
+  it("true for a NEGATIVE qty (a real, non-zero quantity)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: -2, qty_by_area: null }))).toBe(true);
+  });
+  it("FALSE when qty_total is 0/null AND every area qty is 0", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: { "Phase 1": 0, "Phase 2": 0 } }))).toBe(false);
+    expect(isRowQtyBearing(prow({ qty_total: null, qty_by_area: {} }))).toBe(false);
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: null }))).toBe(false);
+  });
+});
+
+describe("isRateEditableRow (the asymmetric Preamble/Line-Item gate)", () => {
+  it("PREAMBLE zero-qty -> NOT editable (the new lock)", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null }), false)).toBe(false);
+    expect(
+      isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: { A: 0 } }), false),
+    ).toBe(false);
+  });
+  it("PREAMBLE with qty -> editable", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 5, qty_by_area: null }), false)).toBe(true);
+    expect(
+      isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: { A: 3 } }), false),
+    ).toBe(true);
+  });
+  it("LINE ITEM is ALWAYS editable -- a zero-qty Line Item is a valid rate-only line", () => {
+    expect(isRateEditableRow(prow({ node_type: "Line Item", qty_total: 0, qty_by_area: null }), false)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: "Line Item", qty_total: 220, qty_by_area: { "Phase 1": 220 } }), false)).toBe(true);
+  });
+  it("a NON-priceable type (Other) -> NOT editable", () => {
+    expect(isRateEditableRow(prow({ node_type: "Other", qty_total: 99, qty_by_area: null }), false)).toBe(false);
+  });
+  it("a null/undefined node_type -> NOT editable (old/absent payload)", () => {
+    expect(isRateEditableRow(prow({ node_type: null, qty_total: 5, qty_by_area: null }), false)).toBe(false);
+    expect(isRateEditableRow(prow({ qty_total: 5 }), false)).toBe(false); // node_type undefined
+  });
+  it("OVERRIDE unlocks EVERYTHING (zero-qty Preamble, Other, null type)", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null }), true)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: "Other", qty_total: 0, qty_by_area: null }), true)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: null, qty_total: 0, qty_by_area: null }), true)).toBe(true);
   });
 });
