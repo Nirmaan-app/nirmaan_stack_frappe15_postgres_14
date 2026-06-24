@@ -714,11 +714,22 @@ as a NEW per-row prop `onJumpToRow` (a grid-level `useCallback`, reference-STABL
 `PricingGridRowProps` AND `pricingRowPropsAreEqual` (the exhaustive comparator). **Frozen-left columns + column-resize
 remain a SEPARATE later bundled slice** (recon recommendation (iii)) -- this slice touches NO table layout / widths /
 sticky-left / colgroup. vitest 287->291 (PricingGrid 113->117: `parentExcelRowOf`), tsc 3175 (0 new), in-container build
-exit 0, 2026-06-25.
+exit 0, 2026-06-25. **Landing flash (follow-up):** a jump now also flashes the WHOLE landed row blue for 3s then clears
+(focus alone cued only col 0) -- grid-level `flashExcelRow` state + a timeout ref (a new jump RESETS the timer, no stacking;
+cleared on unmount; resets for free on the per-sheet remount), the derived per-row `isJumpFlash` boolean in
+`pricingRowPropsAreEqual` (like `isCurrentHit`, via the NEW pure `isJumpFlashRow`); the blue `<tr>` wash WINS over the
+search current-hit yellow for its 3s then reverts; instant on/off (NO transition -> calmest + reduced-motion-safe + leaves
+the hover/current-hit paint untouched); `jumpToRow` stays reference-stable (deps []), so it ALSO flashes on the shared
+imperative `scrollToRow` (review-strip + search jumps). vitest 291->294 (PricingGrid 117->120: `isJumpFlashRow`).
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Parent click-to-jump -- the pricing grid's Parent cell
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Parent-jump landing flash -- a jump now flashes the WHOLE
+landed row blue for 3s then clears (grid-level `flashExcelRow` + timeout ref, resets on a new jump; derived per-row
+`isJumpFlash` in `pricingRowPropsAreEqual` via the NEW pure `isJumpFlashRow`; blue wins over search-yellow for its 3s;
+instant on/off = reduced-motion-safe; also flashes on the shared `scrollToRow` so review-strip/search jumps flash too);
+vitest 291->294, tsc 3175 (0 new), 2026-06-25, see the parent-click-to-jump paragraph above + plan §"Parent click-to-jump".
+Parent click-to-jump -- the pricing grid's Parent cell
 (col 2) is now a clickable jump to the parent row via the existing `scrollToRow` (restores §13-3a, which 3a shipped
 read-only); the button is col 2's roving nav target (no second tab stop), root rows keep the `<td>` nav target + render no
 button, Enter jumps via a col-2 `handleGridKeyDown` special-case (Space/click fire the button natively), the NEW pure

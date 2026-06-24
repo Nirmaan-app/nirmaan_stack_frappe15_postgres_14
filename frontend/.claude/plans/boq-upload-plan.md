@@ -9375,3 +9375,35 @@ grid's own imperative handle).
   parent row; LC2 a root row shows no clickable parent / no dead click; LC3 click a parent currently filtered out
   (show-unpriced on, or a row-type hidden) -> safe no-op, no crash; LC4 keyboard: the parent control is focusable +
   activates on Enter/Space; LC5 repeat on 145/150/166.
+
+**Landing flash (follow-up, base tip 2d046dc0, 2026-06-25).** A jump now also FLASHES THE WHOLE landed row blue for 3s
+then clears -- focus alone cued only the col-0 cell, leaving the rest of the row without a "you landed here" signal. Same
+`PricingGrid.tsx`-only scope (frontend, view-layer, NO backend/doctype/migrate, NO table-layout). `SheetPricingPage.tsx`
+untouched.
+
+- **Grid-level state, per-row signal.** A new `flashExcelRow: number | null` `useState` + a `flashTimeoutRef`. In
+  `jumpToRow`, AFTER the existing focus + `scrollIntoView`: `setFlashExcelRow(excelRow)`, clear any prior timeout, start a
+  **3000ms** timeout that clears it back to null. A new jump RESETS the timer (rapid jumps don't stack -- the latest
+  replaces the prior). `jumpToRow` STAYS reference-stable (deps `[]`: only the stable `setFlashExcelRow` setter + the
+  timeout ref are added), so the `onJumpToRow` row prop stays memo-safe. Cleared on unmount via a small effect; resets for
+  free on a sheet-switch (the page remounts the grid `key={sheetName}`).
+- **Row paint + memo.** The derived per-row boolean `isJumpFlashRow(row.source_row_number, flashExcelRow)` (NEW pure
+  exported predicate, mirrors `isCurrentHitRow`) is passed as `isJumpFlash` and added to BOTH `PricingGridRowProps` AND
+  `pricingRowPropsAreEqual` -- so the flash paints/un-paints as `flashExcelRow` flips (a memo'd row would not otherwise
+  re-render). The `<tr>` wash is `isJumpFlash ? blue-100/blue-900-40 : isCurrentHit ? yellow : hover`.
+- **Layering + precedence (LOCKED).** Blue is a WHOLE-ROW background (like the search current-hit yellow); per-cell priced
+  emerald/amber tints still win on their own `<td>`s (same harmless layering the yellow already accepts). When a row is
+  BOTH the search current-hit (yellow) AND the jump target (blue), **the blue jump flash WINS for its 3s** (the jump just
+  happened -> the more relevant cue), then reverts to yellow if still the hit. The active-cell ring is unchanged.
+- **Reduced-motion.** Implemented as **instant on / held 3s / instant off, NO CSS transition** -- the calmer of the two
+  sanctioned options, inherently reduced-motion-safe, and it deliberately leaves the existing hover/current-hit paint
+  timing UNTOUCHED (adding a `transition` to the shared `<tr>` would have altered the protected search-hit behaviour).
+- **Also flashes on the shared `scrollToRow`.** Since parent-jump delegates to the one `jumpToRow`, the imperative
+  `scrollToRow` (review-strip + search "jump to row") now flashes the landed row too -- consistent + desirable.
+- **Tests + gates.** NEW pure `isJumpFlashRow` unit-tested in `PricingGrid.test.ts` (+3: matching-row true, null-flash
+  false, non-matching false). The 3s timeout/timing itself is manual-cert (not a hollow timer unit test). **Vitest 291 ->
+  294** (PricingGrid 117 -> 120), tsc 3175 (0 new in touched files), in-container Vite build exit 0, 2026-06-25.
+- **Live-cert (pending Nitesh, 145/150/166):** LC1 click a parent ref -> the WHOLE row flashes blue ~3s then fades to
+  normal (not just col 0); LC2 self-clears after 3s, active-cell ring remains; LC3 rapid A-then-B jump -> A's flash stops,
+  B flashes (no stuck/stacked flashes); LC4 a row that is both search-hit (yellow) and just-jumped -> blue wins 3s then
+  reverts to yellow; LC5 review-strip / search jump also flashes (shared path), not jarring; LC6 repeat on 145/150/166.
