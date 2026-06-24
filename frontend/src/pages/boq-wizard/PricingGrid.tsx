@@ -142,6 +142,102 @@ export function isAmountDescriptor(d: ColumnDescriptor): boolean {
   return d.value_field === PER_AREA_AMOUNT_FIELD || SCALAR_AMOUNT_FIELDS.has(d.value_field);
 }
 
+// ── Toolbar Part 1: pure helpers (search / row-type filter / column-hide) ────────
+// SDK-free leaf logic so it is unit-tested in PricingToolbar.test.ts without rendering.
+// The PAGE owns the controls + state; the grid consumes the derived signals (a per-GRID
+// hiddenCols set + a per-row current-hit boolean). NONE of this enters the row memo except
+// the single per-row current-hit boolean (added to pricingRowPropsAreEqual).
+
+/**
+ * SEARCH MATCHER: case-insensitive substring of the query in a row's description. An empty
+ * (or whitespace-only) query matches NOTHING (no filtering/highlight at rest). A null/undefined
+ * description never matches and never throws (negative path).
+ */
+export function searchMatches(description: string | null | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === "") return false;
+  if (!description) return false;
+  return description.toLowerCase().includes(q);
+}
+
+/**
+ * SEARCH HIT-LIST: the ordered Excel row numbers (source_row_number) of rows whose description
+ * matches the query. Built over the ALREADY-RENDERED set (displayRows) so a hit is always a
+ * visible, scroll-to-able row. Empty query -> [] (no hits).
+ */
+export function buildSearchHits(rows: PricedRow[], query: string): number[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return [];
+  const out: number[] = [];
+  for (const r of rows) {
+    if (searchMatches(r.description, q)) out.push(r.source_row_number);
+  }
+  return out;
+}
+
+/** STEPPER: modulo-wrap the hit pointer in either direction (prev at 0 -> last; next at last
+ *  -> 0). Returns 0 for an empty hit list. Pure. */
+export function stepHit(idx: number, len: number, dir: "prev" | "next"): number {
+  if (len <= 0) return 0;
+  return dir === "next" ? (idx + 1) % len : (idx - 1 + len) % len;
+}
+
+/** CURRENT-HIT (per-row): true iff this row's Excel row IS the current hit. The ONE per-row
+ *  search signal -- it is added to pricingRowPropsAreEqual so the highlight repaints on step. */
+export function isCurrentHitRow(
+  rowExcelRow: number,
+  currentHitExcelRow: number | null | undefined,
+): boolean {
+  return currentHitExcelRow != null && rowExcelRow === currentHitExcelRow;
+}
+
+/** The three row-TYPE visibility toggles (default all true). */
+export interface RowTypeToggles {
+  showSpacers: boolean;
+  showNotes: boolean;
+  showSubtotals: boolean;
+}
+
+/**
+ * ROW-TYPE VISIBILITY: keys on `effective_classification` (NOT node_type, which collapses all
+ * three of these into "Other" and cannot tell them apart). The three literal tokens mirror
+ * ReviewTree.classificationVisible: "spacer" / "note" / "subtotal_marker". Any OTHER
+ * classification (line_item / preamble / header_repeat / null) is NEVER hidden by these toggles.
+ */
+export function classificationVisible(
+  cls: string | null | undefined,
+  t: RowTypeToggles,
+): boolean {
+  if (cls === "spacer" && !t.showSpacers) return false;
+  if (cls === "note" && !t.showNotes) return false;
+  if (cls === "subtotal_marker" && !t.showSubtotals) return false;
+  return true;
+}
+
+/**
+ * HIDEABLE COLUMNS: the descriptor columns the "Columns" popover may offer -- the descriptor-
+ * driven set (non fixed-anchor) MINUS amount columns. LOCKED DECISION: amount columns are NEVER
+ * hideable, so their formula-status f badge can never be hidden (hiding it would hide the only
+ * remedy for a gate-locked rate state). Reuses isAmountDescriptor -- one source of truth with
+ * the badge / amber-pending-tint render path.
+ */
+export function hideableDescriptors(columnDescriptors: ColumnDescriptor[]): ColumnDescriptor[] {
+  return columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role) && !isAmountDescriptor(d));
+}
+
+/**
+ * COLUMN VISIBILITY guard. An AMOUNT column is ALWAYS visible (the locked exclusion above), even
+ * if somehow present in hiddenCols. A non-amount column is visible unless it is in hiddenCols.
+ * An absent/undefined hiddenCols (the default) => everything visible (back-compat).
+ */
+export function isColumnVisible(
+  d: ColumnDescriptor,
+  hiddenCols: Set<string> | undefined,
+): boolean {
+  if (isAmountDescriptor(d)) return true;
+  return !hiddenCols || !hiddenCols.has(d.col);
+}
+
 /**
  * PRICEABILITY axis (Slice 3e): a rate cell is editable (and the server accepts a save
  * without the override) ONLY on a committed row whose node_type is "Preamble" or "Line Item"
@@ -1127,6 +1223,21 @@ interface PricingGridProps {
    * locked/taken-over, mirroring onSaveRate/onSaveColor.
    */
   onSaveReconChoice?: (args: ReconChoiceSaveArgs) => Promise<void>;
+  /**
+   * Toolbar Part 1 -- column-hide. The set of NON-AMOUNT descriptor `col` letters the user has
+   * hidden (page-owned, per-session). The grid filters its render/nav descriptor set by it;
+   * amount columns are NEVER hidden (isColumnVisible). ABSENT/empty => all columns visible
+   * (default, back-compat). A per-GRID prop -- it changes displayDescriptors' reference for the
+   * row, so a hide re-renders all rows ONCE (like formulasComplete); it is NOT a per-row prop.
+   */
+  hiddenCols?: Set<string>;
+  /**
+   * Toolbar Part 1 -- description search. The Excel row number (source_row_number) of the
+   * CURRENT search hit, or null when there is no active search/hit. The grid derives a per-row
+   * `isCurrentHit` boolean from it (the ONE search signal that enters the row memo). The page
+   * owns the query + hit-stepper + scrollToRow jump; the grid only paints the highlight.
+   */
+  currentHitExcelRow?: number | null;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1222,6 +1333,10 @@ interface PricingGridRowProps {
   anyCellActive: boolean;
   /** Whether this row's remarks editor is open. */
   openRemark: boolean;
+  /** Toolbar Part 1 -- search: whether this row is the CURRENT search hit (drives the row
+   *  highlight). Per-row by nature -> it is in pricingRowPropsAreEqual so the highlight repaints
+   *  as the user steps through hits (without it, memo'd rows would not re-render on step). */
+  isCurrentHit: boolean;
   // ── stable shared values/refs (reference-stable across a keystroke -> memo holds) ──
   displayDescriptors: ColumnDescriptor[];
   columnDescriptors: ColumnDescriptor[];
@@ -1272,6 +1387,7 @@ export function pricingRowPropsAreEqual(
     prev.activeColIndex === next.activeColIndex &&
     prev.anyCellActive === next.anyCellActive &&
     prev.openRemark === next.openRemark &&
+    prev.isCurrentHit === next.isCurrentHit &&
     prev.displayDescriptors === next.displayDescriptors &&
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
@@ -1314,6 +1430,7 @@ const PricingGridRow = memo(function PricingGridRow({
   activeColIndex,
   anyCellActive,
   openRemark,
+  isCurrentHit,
   displayDescriptors,
   columnDescriptors,
   columnFormulas,
@@ -1375,7 +1492,18 @@ const PricingGridRow = memo(function PricingGridRow({
     : undefined;
 
   return (
-    <tr className="border-b border-border hover:bg-muted/30">
+    <tr
+      className={cn(
+        "border-b border-border",
+        // Toolbar Part 1 -- search: the CURRENT hit row gets a solid yellow wash (a BACKGROUND,
+        // not a ring: the table is border-collapse, where ring-inset on a <tr> is unreliable
+        // [ReviewTree's documented caveat], and a ring would also collide with the blue
+        // active-cell ring). It shows through the anchor cells incl. Description -- exactly where
+        // the matched text is. Per-cell priced emerald/amber backgrounds on rate/amount <td>s
+        // still win on those cells (a deliberate, harmless layering). Non-hit rows keep hover.
+        isCurrentHit ? "bg-yellow-100 dark:bg-yellow-900/40" : "hover:bg-muted/30",
+      )}
+    >
       {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
       <td
         {...tdFocusProps(0)}
@@ -1708,7 +1836,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -1760,10 +1888,24 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Effective depth per row (reused helper -- single source of truth with the review tree).
   const depths = useMemo(() => computeDepths(rows), [rows]);
 
-  // Descriptor-driven columns: everything except the sl_no / description anchors.
+  // Descriptor-driven columns: everything except the sl_no / description anchors. This is the
+  // FULL set -- kept for the data-fanout concerns (commitRate's cross-area prefill, autoSave
+  // lookup) so they operate over ALL columns regardless of what is hidden, AND so commitRate's
+  // useCallback dep stays stable across a column-hide (a hide must not churn commitRate's
+  // identity, which the row memo compares).
   const displayDescriptors = useMemo(
     () => columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role)),
     [columnDescriptors],
+  );
+  // Toolbar Part 1 -- column-hide: the RENDERED + NAV descriptor set = the full set MINUS the
+  // user-hidden non-amount columns (amount columns are NEVER hidden -- isColumnVisible). Used for
+  // the header <th> map, the per-row <td> map, and ALL nav dims (remarksColIndex / colCount), so
+  // the colIndex matrix re-indexes uniformly over the visible set -- the cursor can never land on
+  // a hidden column (the column analog of the displayRows row nav-skip). At default (nothing
+  // hidden) this === displayDescriptors content, so behaviour is byte-identical.
+  const visibleDescriptors = useMemo(
+    () => displayDescriptors.filter((d) => isColumnVisible(d, hiddenCols)),
+    [displayDescriptors, hiddenCols],
   );
   const slNoLetter = useMemo(
     () => columnDescriptors.find((d) => d.role === "sl_no")?.col ?? null,
@@ -1883,7 +2025,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // includes it (+1). The +1 only widens nextCell's right/Tab boundary so arrows/Tab reach
   // the remarks cell; no other colIndex math reads colCount (descriptor cells use
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
-  const remarksColIndex = FIXED_ANCHOR_COUNT + displayDescriptors.length;
+  // Nav dims over the VISIBLE descriptor set (column-hide aware) so the matrix stays consistent
+  // with what is rendered -- a hidden column is absent from the matrix + the ref map.
+  const remarksColIndex = FIXED_ANCHOR_COUNT + visibleDescriptors.length;
   const colCount = remarksColIndex + 1;
   const anyCellActive = activeCell !== null;
 
@@ -1919,7 +2063,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
     if (!onSaveRate || cell.colIndex < FIXED_ANCHOR_COUNT) return;
-    const d = displayDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
+    // colIndex is over the VISIBLE descriptor set (column-hide aware) -- reverse-map through the
+    // SAME visibleDescriptors the cells render from, else a hidden column would shift the lookup.
+    const d = visibleDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
     if (!d || !isRateDescriptor(d)) return;
     const row = rows[cell.rowIndex];
     if (!row) return;
@@ -2062,7 +2208,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
               {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
             </th>
-            {displayDescriptors.map((d) => {
+            {/* Column-hide: render only the VISIBLE descriptors (amount columns always present). */}
+            {visibleDescriptors.map((d) => {
               const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
               const isAmount = isAmountDescriptor(d);
               // PENDING TINT: a subtle amber wash on an amount column with NO covering formula, so
@@ -2137,7 +2284,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
                 anyCellActive={anyCellActive}
                 openRemark={openRemarkRowIdx === rowIdx}
-                displayDescriptors={displayDescriptors}
+                isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
+                displayDescriptors={visibleDescriptors}
                 columnDescriptors={columnDescriptors}
                 columnFormulas={columnFormulas}
                 reconChoiceMap={reconChoiceMap}

@@ -22,8 +22,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Sigma, Unlock } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -41,13 +44,18 @@ import type {
   ReviewEntry,
   RowReviewFlags,
 } from "./boqTypes";
+import { ROLE_LABELS } from "./boqTypes";
 import {
   PricingGrid,
+  buildSearchHits,
+  classificationVisible,
   deriveSaveStatus,
+  hideableDescriptors,
   isGridOnlySheet,
   isTakeoverError,
   orderCommittedSheets,
   shouldExitFullscreenOnEsc,
+  stepHit,
   type PricingGridHandle,
 } from "./PricingGrid";
 import {
@@ -207,6 +215,20 @@ const SheetPricingPage = () => {
   // rows. Per-sheet per-session (reset on a tab switch, like the override).
   const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
 
+  // ── Toolbar Part 1 (per-sheet per-session; reset on a tab switch below) ──────────
+  // Column-hide: the set of HIDDEN non-amount descriptor `col` letters. DEFAULT EMPTY = nothing
+  // hidden (byte-identical to the prior grid). Stored as "hidden" (not "visible") so the default
+  // needs no seeding from columnDescriptors -- which the page does not have until the fetch lands
+  // (a visible-set lazy-init would flash all columns hidden for one paint on every sheet open).
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
+  // Description search: the query + the cycling hit pointer. Empty query = no filtering/highlight.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
+  // Row-TYPE filters (default all true = nothing hidden). Key on effective_classification.
+  const [showSpacers, setShowSpacers] = useState(true);
+  const [showNotes, setShowNotes] = useState(true);
+  const [showSubtotals, setShowSubtotals] = useState(true);
+
   // Slice 3c: force-save handle (the grid's flush), in-flight count (drives "Saving..."),
   // last-saved time (client clock), and the grid's "has unsaved drafts" signal.
   const gridRef = useRef<PricingGridHandle>(null);
@@ -261,7 +283,20 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
+    // Toolbar Part 1: column-hide, search, and the three row-type filters are all per-sheet.
+    setHiddenCols(new Set());
+    setSearchQuery("");
+    setSearchCurrentIdx(0);
+    setShowSpacers(true);
+    setShowNotes(true);
+    setShowSubtotals(true);
   }, [sheetName]);
+
+  // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
+  // (a fresh search starts at hit 1). The pointer is also clamped at render (safeSearchIdx).
+  useEffect(() => {
+    setSearchCurrentIdx(0);
+  }, [searchQuery]);
 
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
@@ -570,11 +605,47 @@ const SheetPricingPage = () => {
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
   // "Show only unpriced": priceable-but-not-fully-priced rows (the same shared predicates).
-  const displayRows = showOnlyUnpriced
-    ? rows.filter(
-        (r) => isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors),
-      )
-    : rows;
+  // Toolbar Part 1: AND-compose the row-TYPE filters (spacers/notes/subtotals) into the SAME
+  // single displayRows pass -- VIEW-ONLY. The count (computePricedCount over `rows`), the Summary
+  // (rows={rows}), and the review-flag/strip feed (built from `rows`) all read the UNFILTERED
+  // `rows`, so hiding a row-type cannot move any total or the N-of-M priceable count. The
+  // `=== rows` fast path (stable reference -> the grid's byIdx/depths memos hold) is preserved at
+  // default (nothing hidden), byte-identical to the prior showOnlyUnpriced-only behaviour.
+  const rowTypeToggles = { showSpacers, showNotes, showSubtotals };
+  const noRowTypeHidden = showSpacers && showNotes && showSubtotals;
+  const displayRows =
+    !showOnlyUnpriced && noRowTypeHidden
+      ? rows
+      : rows.filter(
+          (r) =>
+            (!showOnlyUnpriced ||
+              (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
+            classificationVisible(r.effective_classification, rowTypeToggles),
+        );
+
+  // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows over the
+  // RENDERED set (displayRows) so a hit is always a visible, scroll-to-able row. The current hit's
+  // Excel row is handed to the grid (the per-row highlight) + drives the prev/next scroll jump.
+  const searchHits = buildSearchHits(displayRows, searchQuery);
+  const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
+  const currentHitExcelRow = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
+  const stepSearch = (dir: "prev" | "next") => {
+    if (searchHits.length === 0) return;
+    const ni = stepHit(safeSearchIdx, searchHits.length, dir);
+    setSearchCurrentIdx(ni);
+    gridRef.current?.scrollToRow(searchHits[ni]);
+  };
+
+  // Toolbar Part 1 -- column-hide: the hideable (non-amount) descriptor columns for the "Columns"
+  // popover. Amount columns are excluded (their formula-status badge must never be hidden).
+  const hideableCols = hideableDescriptors(columnDescriptors);
+  const toggleColHidden = (col: string) =>
+    setHiddenCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(col)) next.delete(col);
+      else next.add(col);
+      return next;
+    });
 
   // The UNIFIED review-list feed (extends 4a's remark feed IN PLACE -- one list, no fork):
   //   4a remarks + the computed per-row flags. A GENERIC ReviewEntry shape; each entry
@@ -743,6 +814,151 @@ const SheetPricingPage = () => {
             <Filter className="h-4 w-4" />
             {showOnlyUnpriced ? "Unpriced only" : "Show unpriced"}
           </Button>
+
+          {/* ── Toolbar Part 1: description search (input + N-of-M + prev/next cycle). Stepping
+              jumps via the grid's existing scrollToRow; the current hit row is highlighted. ── */}
+          <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search description…"
+                className="h-8 w-48 pl-7 pr-7 text-xs"
+                aria-label="Search descriptions"
+                disabled={pricedLoading || pricedError}
+              />
+              {searchQuery !== "" && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <span className="min-w-[48px] text-xs tabular-nums text-muted-foreground">
+              {searchQuery.trim() === ""
+                ? ""
+                : searchHits.length === 0
+                ? "0 of 0"
+                : `${safeSearchIdx + 1} of ${searchHits.length}`}
+            </span>
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-8 w-8"
+              disabled={searchHits.length === 0}
+              onClick={() => stepSearch("prev")}
+              aria-label="Previous match"
+              title="Previous match"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              className="h-8 w-8"
+              disabled={searchHits.length === 0}
+              onClick={() => stepSearch("next")}
+              aria-label="Next match"
+              title="Next match"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* ── Toolbar Part 1: column-hide. Lists ONLY non-amount descriptors (amount columns
+              always stay visible so their formula-status badge can never be hidden). ── */}
+          {hideableCols.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={pricedLoading || pricedError}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  Columns
+                  {hiddenCols.size > 0 && (
+                    <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                      ({hiddenCols.size} hidden)
+                    </span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto min-w-[220px] p-2">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                  Data columns
+                </p>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Amount columns always stay visible.
+                </p>
+                <div className="space-y-1">
+                  {hideableCols.map((d) => {
+                    const colLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                    return (
+                      <label
+                        key={d.col}
+                        htmlFor={`pricing-vis-col-${d.col}`}
+                        className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Checkbox
+                          id={`pricing-vis-col-${d.col}`}
+                          checked={!hiddenCols.has(d.col)}
+                          onCheckedChange={() => toggleColHidden(d.col)}
+                        />
+                        {colLabel}
+                      </label>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          {/* ── Toolbar Part 1: row-type filters (view-only -- only the rendered displayRows is
+              narrowed; counts/Summary/flags read the unfiltered rows). ── */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">Show:</span>
+            <label
+              htmlFor="pricing-show-spacers"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="pricing-show-spacers"
+                checked={showSpacers}
+                onCheckedChange={(c) => setShowSpacers(c === true)}
+              />
+              Spacers
+            </label>
+            <label
+              htmlFor="pricing-show-notes"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="pricing-show-notes"
+                checked={showNotes}
+                onCheckedChange={(c) => setShowNotes(c === true)}
+              />
+              Notes
+            </label>
+            <label
+              htmlFor="pricing-show-subtotals"
+              className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Checkbox
+                id="pricing-show-subtotals"
+                checked={showSubtotals}
+                onCheckedChange={(c) => setShowSubtotals(c === true)}
+              />
+              Subtotals
+            </label>
+          </div>
+
           <Button
             size="sm"
             variant="outline"
@@ -1146,6 +1362,11 @@ const SheetPricingPage = () => {
             // Slice 4c: relax the grid's height cap to fill the full-screen slot. LAYOUT-ONLY --
             // a per-grid prop, NOT a per-row prop, so the row memo is untouched.
             expanded={expanded}
+            // Toolbar Part 1: column-hide (per-GRID; never enters the row memo -- it changes the
+            // visible descriptor reference, re-rendering all rows once like formulasComplete) +
+            // the current search hit (the grid derives the per-row highlight boolean from it).
+            hiddenCols={hiddenCols}
+            currentHitExcelRow={currentHitExcelRow}
           />
         )}
         </div>
