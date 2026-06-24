@@ -33,6 +33,7 @@ import {
   isRateDescriptor,
   lookupOperandValue,
 } from "./PricingGrid";
+import { pickFormula } from "./amountFormula";
 import type {
   AmountFormulaRef,
   AreaKey,
@@ -156,6 +157,30 @@ export function hasAnyQty(row: PricedRow): boolean {
 /** A NON-priceable row type carrying a non-zero qty (the inverse guardrail). */
 export function isQtyOnNonPriceable(row: PricedRow): boolean {
   return !isPriceableType(row.node_type) && hasAnyQty(row);
+}
+
+/**
+ * The MANDATORY amount-formula gate (Phase 5) -- per-SHEET. A sheet's formulas are COMPLETE iff
+ * EVERY amount column descriptor (isAmountDescriptor) is COVERED by a declared formula, where
+ * "covered" is pickFormula's override>area-wildcard-default resolution -- so ONE wildcard
+ * default (target_value_key null) covers ALL per-area amount columns sharing its (value_field,
+ * rate_subkey). A sheet with ZERO amount columns is TRIVIALLY complete (rate editing NOT
+ * blocked). REUSES the EXACT pickFormula resolution evaluateAmountCell uses, so completeness can
+ * never drift from how amounts actually compute. A present-but-cleared record (null .formula)
+ * does NOT count as covered. Pure -- unit-tested. The server (_sheet_formulas_complete) enforces
+ * the SAME rule -- client = UX, server = the real boundary.
+ */
+export function areFormulasComplete(
+  columnDescriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
+): boolean {
+  return columnDescriptors.filter(isAmountDescriptor).every((d) => {
+    const f = pickFormula(
+      { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+      columnFormulas,
+    );
+    return !!(f && f.formula);
+  });
 }
 
 /**

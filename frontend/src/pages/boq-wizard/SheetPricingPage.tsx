@@ -49,6 +49,7 @@ import {
   type PricingGridHandle,
 } from "./PricingGrid";
 import {
+  areFormulasComplete,
   buildDismissedKeySet,
   buildFlagEntries,
   computePricedCount,
@@ -485,6 +486,12 @@ const SheetPricingPage = () => {
   for (const r of rows) {
     rowFlags.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
   }
+  // MANDATORY amount-formula gate (Phase 5): per-SHEET completeness -- every amount column must
+  // have a declared formula before ANY rate is editable. Plain derive from the data already in
+  // hand (columnDescriptors + columnFormulas -- no new fetch). TRUE for a sheet with zero amount
+  // columns (trivially complete). Passed to the grid as one boolean prop (ANDed OUTSIDE the
+  // override) + drives the "declare formulas" banner.
+  const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -780,6 +787,21 @@ const SheetPricingPage = () => {
         </div>
       )}
 
+      {/* ── MANDATORY amount-formula gate banner (Phase 5) ──────────────────────
+          Shown when the sheet has amount columns that aren't all covered by a declared
+          formula (areFormulasComplete false) AND the sheet is otherwise editable (not
+          grid-only, not lock-blocked, loaded OK). Rate cells are read-only until every amount
+          column has a formula; the formula builder on each amount column header stays usable
+          (declaration works under the gate). A trivially-complete sheet (zero amount columns)
+          never shows it (areFormulasComplete is true). Amber-note styling (mirrors the
+          override / unmapped-column notes). */}
+      {!isGridOnly && !locked && !pricedLoading && !pricedError && !formulasComplete && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span>Declare amount formulas to enable rate entry.</span>
+        </div>
+      )}
+
       {/* ── Inline save error (a save throw surfaces here; the cell keeps your input). */}
       {!isGridOnly && saveError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -992,6 +1014,11 @@ const SheetPricingPage = () => {
             onSaveFormula={locked ? undefined : handleSaveFormula}
             onDirtyChange={setHasUnsaved}
             override={override}
+            // MANDATORY amount-formula gate (per-sheet): when false the grid renders ALL rate
+            // cells read-only (ANDed OUTSIDE the override -- override can't bypass it). Default
+            // TRUE for a trivially-complete sheet. onSaveFormula stays live so the holder can
+            // declare formulas while rates are locked.
+            formulasComplete={formulasComplete}
             editable={editable}
             lockInfo={lockInfo}
           />

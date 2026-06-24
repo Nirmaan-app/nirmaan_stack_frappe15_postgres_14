@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.pricing import (
+    _sheet_formulas_complete,
     get_committed_sheet_grid,
     get_priced_rows,
     get_sheet_amount_formulas,
@@ -60,6 +61,33 @@ _FORMULA_DT = "BoQ Cell Amount Formula"
 _DISMISSAL_DT = "BoQ Cell Dismissal"
 
 
+# A minimal structurally-valid amount formula (a single leaf -- presence is what coverage needs;
+# F1 validates structure only, never the ref against descriptors).
+_FIXTURE_FORMULA_LEAF = json.dumps(
+    {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}}
+)
+
+
+def _declare_fixture_amount_formulas(boq_name, sheet_name, commit_version):
+    """Make the SHARED per-area committed fixture (build_committed_sheet_fixture: amount cols
+    F [Phase 1, rate_subkey "total"] + I [Phase 2, rate_subkey "install"]) formula-COMPLETE for
+    the MANDATORY amount-formula gate (save_cell_price -> _sheet_formulas_complete rejects ANY
+    rate write until every amount column has a declared formula).
+
+    The two amount columns carry DIFFERENT rate_subkeys (total + install), so a wildcard-DEFAULT
+    formula is declared for EACH (one (amount_by_area, value_key=None, "total") + one
+    (..., "install")); together they cover both columns via pickFormula's area-wildcard
+    resolution. This is exactly the spec's "declare formulas in-test to flip completeness", kept
+    LOCAL to test_pricing.py so neither the shared fixture nor any other test file is touched.
+    sheet_name VERBATIM (#152). save_amount_formula commits internally."""
+    for kind in ("total", "install"):
+        save_amount_formula(
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey=kind, formula=_FIXTURE_FORMULA_LEAF,
+        )
+
+
 class TestCellPricing(FrappeTestCase):
 
     @classmethod
@@ -78,6 +106,9 @@ class TestCellPricing(FrappeTestCase):
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
         # fixture line items: source_row 34 (li[0]) + 35 (li[1]); rate cols E (Phase 1) / H (Phase 2)
         cls.li_34 = cls.fixture["line_items"][0]
+        # MANDATORY amount-formula gate: the fixture has amount cols F/I -> declare covering
+        # formulas so save_cell_price is not rejected (see _declare_fixture_amount_formulas).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -311,6 +342,10 @@ class TestGetPricedRows(FrappeTestCase):
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
         cls.scalar_sheet = "Scalar Fix "  # VERBATIM trailing space (#152)
         cls.scalar_node = _build_scalar_rate_committed_sheet(cls.boq, cls.scalar_sheet, cls.cv)
+        # MANDATORY amount-formula gate: the per-area fixture has amount cols F/I -> declare
+        # covering formulas so save_cell_price succeeds. The scalar sheet has zero amount cols
+        # (trivially complete), so it needs none.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -473,6 +508,9 @@ class TestSingleEditorLock(FrappeTestCase):
         cls.sheet = "Lock Fix "  # VERBATIM trailing space (#152)
         cls.cv = 1
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        # MANDATORY amount-formula gate: declare covering formulas so save_cell_price reaches the
+        # lock logic (the gate fires BEFORE the lock acquire). setUp clears the lock this leaves.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -718,6 +756,10 @@ class TestLockPerSheetIsolation(FrappeTestCase):
         # distinct names build two distinct committed sheets + node sets on the one BOQs.
         cls.fixture_a = build_committed_sheet_fixture(cls.boq, cls.sheet_a, commit_version=cls.cv)
         cls.fixture_b = build_committed_sheet_fixture(cls.boq, cls.sheet_b, commit_version=cls.cv)
+        # MANDATORY amount-formula gate: BOTH committed sheets carry amount cols F/I -> declare
+        # covering formulas on EACH so save_cell_price reaches the lock logic on either sheet.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet_a, cls.cv)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet_b, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -1069,6 +1111,11 @@ class TestPriceabilityGuard(FrappeTestCase):
         other.insert(ignore_permissions=True)
         cls.other_node = other.name
         frappe.db.commit()
+        # MANDATORY amount-formula gate: declare covering formulas so the sheet is formula-COMPLETE
+        # -- the formula gate fires BEFORE the priceability block, so without this the formula
+        # throw would PRE-EMPT the priceability throw and these tests would assert the wrong
+        # message. With the sheet complete, save_cell_price reaches the priceability check.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -1238,6 +1285,11 @@ class TestPreambleQtyBearingGuard(FrappeTestCase):
         # A non-priceable 'Other' node -> rejected unless override.
         cls.other_node = _node("Other", "note", cls.OTHER_ROW, 7)
         frappe.db.commit()
+        # MANDATORY amount-formula gate: declare covering formulas so the sheet is formula-COMPLETE
+        # -- the formula gate fires BEFORE the qty/priceability block, so without this it would
+        # PRE-EMPT the qty-gate throws these tests assert. With the sheet complete, save_cell_price
+        # reaches the asymmetric qty gate.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -2084,9 +2136,14 @@ class TestCellDismissal(FrappeTestCase):
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
         )
         assert cls.other, "need a second real User to play the competing lock holder"
+        # MANDATORY amount-formula gate: declare covering formulas so the SUCCESS-path rate save
+        # (the re-arm proof on a Line Item) is not rejected by the gate. setUp clears the lock
+        # this leaves; the formula records persist (cleared in tearDownClass).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
         frappe.db.delete(_DISMISSAL_DT, {"boq": cls.boq})
         frappe.db.delete(_PRICING, {"boq": cls.boq})
         frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
@@ -2296,3 +2353,119 @@ class TestCellDismissal(FrappeTestCase):
         res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
         self.assertIn("dismissals", res, "the key is always present (backwards-compat shape)")
         self.assertEqual(res["dismissals"], [], "a no-dismissal sheet returns it empty")
+
+
+class TestMandatoryFormulaGate(FrappeTestCase):
+    """The MANDATORY amount-formula gate (Phase 5): save_cell_price rejects ANY rate write until
+    every amount column on the sheet has a declared formula. The gate is ABSOLUTE -- the
+    allow_non_priceable override does NOT bypass it (it loosens ONLY the type/qty axis). The
+    predicate is _sheet_formulas_complete (per-COVERAGE: an area-wildcard default covers all its
+    per-area columns; zero amount columns -> trivially complete). Declaration (save_amount_formula)
+    stays usable while rates are locked.
+
+    Uses the SHARED per-area committed fixture (amount cols F [Phase 1, total] + I [Phase 2,
+    install]) -- INCOMPLETE by default (no formulas) -- plus a SCALAR-RATE committed sheet (zero
+    amount columns -> trivially complete). sheet_name carries a trailing space (#152)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Formula-Gate Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.cv = 1
+        cls.sheet = "Gate Fix "  # amount-bearing per-area fixture -> INCOMPLETE by default (#152)
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.noamt_sheet = "Gate NoAmt "  # scalar rate, ZERO amount cols -> trivially complete
+        cls.noamt_node = _build_scalar_rate_committed_sheet(cls.boq, cls.noamt_sheet, cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        frappe.db.delete(_PRICING, {"boq": cls.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Each test starts INCOMPLETE: clean formula layer + pricing + lock (fixture persists).
+        frappe.db.delete(_FORMULA_DT, {"boq": self.boq})
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _declare(self, rate_subkey):
+        """Declare ONE wildcard-default amount formula for the per-area fixture sheet."""
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey=rate_subkey, formula=_FIXTURE_FORMULA_LEAF,
+        )
+
+    def _price(self, **kw):
+        return save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=100.0, area="Phase 1", rate_kind="combined_rate",
+            description="cable", **kw,
+        )
+
+    # -- _sheet_formulas_complete (the predicate) ---------------------------
+
+    def test_predicate_zero_amount_cols_is_trivially_complete(self):
+        # The scalar-rate sheet has NO amount columns -> trivially complete (nothing to declare).
+        self.assertTrue(_sheet_formulas_complete(self.boq, self.noamt_sheet, self.cv))
+
+    def test_predicate_false_when_uncovered_or_partial(self):
+        # No formulas -> INCOMPLETE (two amount cols F[total] + I[install] uncovered).
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+        # Only ONE of the two distinct rate_subkeys covered -> still INCOMPLETE.
+        self._declare("total")
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+
+    def test_predicate_true_when_all_covered(self):
+        self._declare("total")
+        self._declare("install")
+        self.assertTrue(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+
+    # -- save_cell_price gate (override can NOT bypass) ----------------------
+
+    def test_save_cell_price_rejected_when_incomplete_even_with_override(self):
+        # Row 34/col E is a qty-bearing Line Item (priceable) -> the ONLY possible reject here is
+        # the formula gate. allow_non_priceable=True must NOT bypass it.
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._price(allow_non_priceable=True)
+        self.assertIn("declared formula", str(ctx.exception),
+                      "the FORMULA gate rejected it (not priceability) -- override can't bypass")
+        # Reject mutated NOTHING: no pricing row, no lock acquired (the gate is before both).
+        self.assertEqual(frappe.db.count(_PRICING, {"boq": self.boq}), 0, "no price row written")
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0, "no lock acquired")
+
+    def test_save_cell_price_succeeds_once_complete(self):
+        self._declare("total")
+        self._declare("install")
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})  # clear the lock declaration left
+        frappe.db.commit()
+        res = self._price()
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["is_filled"], 1)
+        self.assertEqual(frappe.db.count(_PRICING, {"boq": self.boq, "is_current": 1}), 1)
+
+    # -- declaration under the gate (the usability seam) --------------------
+
+    def test_declaration_works_while_sheet_is_rate_locked(self):
+        # The sheet is INCOMPLETE (rates locked). Declaring a formula MUST still succeed --
+        # save_amount_formula carries no rate-editability precondition.
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+        self._declare("total")  # must not raise
+        recs = get_sheet_amount_formulas(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )["formulas"]
+        self.assertEqual(len(recs), 1, "the formula was declared despite the sheet being locked")

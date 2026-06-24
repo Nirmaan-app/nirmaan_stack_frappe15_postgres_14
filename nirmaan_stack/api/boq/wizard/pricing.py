@@ -304,6 +304,21 @@ def save_cell_price(
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
 
+    # MANDATORY AMOUNT-FORMULA GATE -- ABSOLUTE, override does NOT bypass it. Placed AFTER the
+    # committed-cell check (a non-cell still throws first) and OUTSIDE / BEFORE the
+    # allow_non_priceable block below, so the override (which loosens ONLY the type/qty axis)
+    # can NEVER skip it. It sits BEFORE the lock acquire / freeze / insert, so a rejected write
+    # mutates NOTHING (same reject-mutates-nothing discipline as the priceability + lock guards).
+    # Every amount column on this sheet must have a declared formula before ANY rate is editable
+    # -- this REVERSES the F1-F4 'formula optional' property (a zero-amount-column sheet is
+    # trivially complete). Mirrors the frontend priceability.areFormulasComplete.
+    if not _sheet_formulas_complete(boq_name, sheet_name, committed_version):
+        frappe.throw(
+            "Every amount column on this sheet needs a declared formula before any rate can "
+            "be entered. Define the missing amount formulas first.",
+            title="Formulas incomplete",
+        )
+
     # PRICEABILITY GUARD (Slice 3e + the Preamble qty-bearing gate -- ASYMMETRIC, owner-locked).
     # Placed AFTER the committed-cell check (a non-cell still throws first) and BEFORE the lock
     # acquire / the freeze+insert below, so a REJECTED write mutates NOTHING (mirrors the lock
@@ -1158,6 +1173,59 @@ def _current_formula_records(boq_name, sheet_name, committed_version) -> list:
     return records
 
 
+def _formula_target_matches_column(
+    target_value_field, target_value_key, target_rate_subkey, column: dict
+) -> bool:
+    """The override-or-wildcard match -- the SINGLE source of truth shared by
+    save_amount_formula's target-gate (does an amount COLUMN exist for this formula TARGET?)
+    and _formula_covers / _sheet_formulas_complete (does a formula RECORD cover this column?).
+
+    A formula target matches a concrete amount column descriptor iff: same value_field, same
+    rate_subkey, AND the target's value_key is NULL (the area-WILDCARD default, or 'scalar')
+    OR equals the column's value_key (a per-area OVERRIDE). Mirrors the frontend
+    amountFormula.pickFormula resolution (override > area-wildcard default), so completeness can
+    never drift from how amounts actually compute."""
+    if target_value_field != column.get("value_field"):
+        return False
+    if target_rate_subkey != column.get("rate_subkey"):
+        return False
+    return target_value_key is None or target_value_key == column.get("value_key")
+
+
+def _formula_covers(column: dict, current_records: list) -> bool:
+    """Is this amount COLUMN descriptor covered by at least one CURRENT formula record? A record
+    covers the column when it matches via the override-or-wildcard rule above AND carries a
+    non-null formula (a cleared formula leaves no current record, but the non-null guard is
+    defensive)."""
+    return any(
+        r.get("formula") is not None
+        and _formula_target_matches_column(
+            r.get("target_value_field"),
+            r.get("target_value_key"),
+            r.get("target_rate_subkey"),
+            column,
+        )
+        for r in current_records
+    )
+
+
+def _sheet_formulas_complete(boq_name, sheet_name, committed_version) -> bool:
+    """The MANDATORY amount-formula gate (the per-COVERAGE completeness predicate): EVERY amount
+    column on the committed sheet must be covered by a current declared formula -- a per-area
+    OVERRIDE or an area-WILDCARD / scalar DEFAULT (see _formula_target_matches_column). A sheet
+    with ZERO amount columns is trivially complete (nothing to declare -> rate editing is not
+    blocked). This REVERSES the F1-F4 'formula optional' property. sheet_name VERBATIM (#152).
+
+    Mirrors the frontend priceability.areFormulasComplete -- client = UX, server = the real
+    boundary, no axis drift. Called by save_cell_price (the gate), never by save_amount_formula
+    (declaration must stay possible while rates are locked)."""
+    amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
+    if not amount_descs:
+        return True
+    records = _current_formula_records(boq_name, sheet_name, committed_version)
+    return all(_formula_covers(d, records) for d in amount_descs)
+
+
 @frappe.whitelist(methods=["POST"])
 def save_amount_formula(
     boq_name: str = None,
@@ -1224,25 +1292,16 @@ def save_amount_formula(
             title="Not an amount target",
         )
     amount_descs = _committed_amount_descriptors(boq_name, sheet_name, committed_version)
-    if target_value_field == "amount_by_area":
-        if target_value_key is None:
-            # Wildcard DEFAULT: >=1 area's amount column of this value_field + rate_subkey.
-            matched = any(
-                d["value_field"] == "amount_by_area"
-                and d["rate_subkey"] == target_rate_subkey
-                for d in amount_descs
-            )
-        else:
-            # Per-area OVERRIDE: the concrete (area, kind) amount column must exist.
-            matched = any(
-                d["value_field"] == "amount_by_area"
-                and d["value_key"] == target_value_key
-                and d["rate_subkey"] == target_rate_subkey
-                for d in amount_descs
-            )
-    else:
-        # Scalar amount column (value_key None == scalar): the scalar amount col must exist.
-        matched = any(d["value_field"] == target_value_field for d in amount_descs)
+    # The override-or-wildcard match is the SHARED _formula_target_matches_column primitive
+    # (the same rule the completeness gate uses) -- a wildcard DEFAULT (target_value_key None)
+    # matches >=1 area's column of this value_field+rate_subkey; a per-area OVERRIDE matches the
+    # concrete (area, kind); a scalar target (value_key + rate_subkey None) matches the scalar col.
+    matched = any(
+        _formula_target_matches_column(
+            target_value_field, target_value_key, target_rate_subkey, d
+        )
+        for d in amount_descs
+    )
     if not matched:
         frappe.throw(
             "No matching committed amount column for the requested formula target "

@@ -911,6 +911,16 @@ interface PricingGridProps {
    */
   override?: boolean;
   /**
+   * MANDATORY amount-formula gate (Phase 5, per-SHEET). When FALSE, NO rate cell is editable --
+   * ANDed OUTSIDE isRateEditableRow, so the `override` (which lives INSIDE isRateEditableRow)
+   * can NEVER reach past it: no declared formulas => nothing rate-editable, override or not.
+   * Default TRUE (back-compat: a sheet with zero amount columns is trivially complete, and
+   * existing callers/tests are unaffected). Computed page-side via priceability.areFormulasComplete
+   * from columnDescriptors + columnFormulas (already in hand -- no new fetch). onSaveFormula is
+   * DELIBERATELY NOT withheld by this gate (declaration must work while rates are locked).
+   */
+  formulasComplete?: boolean;
+  /**
    * Slice 4a: save one row's remark (save_row_remark + mutate). ABSENT => remarks render
    * read-only (the page withholds it when locked/taken-over, mirroring onSaveRate).
    */
@@ -1052,6 +1062,8 @@ interface PricingGridRowProps {
   columnDescriptors: ColumnDescriptor[];
   columnFormulas: ColumnFormula[];
   override: boolean;
+  /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
+  formulasComplete: boolean;
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
@@ -1095,6 +1107,7 @@ export function pricingRowPropsAreEqual(
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
     prev.override === next.override &&
+    prev.formulasComplete === next.formulasComplete &&
     prev.onSaveRate === next.onSaveRate &&
     prev.onSaveColor === next.onSaveColor &&
     prev.onSaveRemark === next.onSaveRemark &&
@@ -1134,6 +1147,7 @@ const PricingGridRow = memo(function PricingGridRow({
   columnDescriptors,
   columnFormulas,
   override,
+  formulasComplete,
   onSaveRate,
   onSaveColor,
   onSaveRemark,
@@ -1287,11 +1301,15 @@ const PricingGridRow = memo(function PricingGridRow({
           />
         ) : null;
         // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
-        // Asymmetric gate (isRateEditableRow): Line Item always editable; Preamble editable
-        // only when qty-bearing; override unlocks both. A non-editable rate cell falls through
-        // to the read-only render below (its priced/anomaly marker still shows).
+        // MANDATORY formula gate (formulasComplete): ANDed OUTSIDE isRateEditableRow, so the
+        // override (inside isRateEditableRow) can NEVER reach past it -- no declared formulas =>
+        // NOTHING rate-editable, override or not. Then the asymmetric gate (isRateEditableRow):
+        // Line Item always editable; Preamble editable only when qty-bearing; override unlocks
+        // both. A non-editable rate cell falls through to the read-only render below (its
+        // priced/anomaly marker still shows).
         if (
           onSaveRate &&
+          formulasComplete &&
           isRateDescriptor(d) &&
           isRateEditableRow(row, override)
         ) {
@@ -1475,7 +1493,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
   ref,
 ) {
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
@@ -1876,6 +1894,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 columnDescriptors={columnDescriptors}
                 columnFormulas={columnFormulas}
                 override={override}
+                formulasComplete={formulasComplete}
                 onSaveRate={onSaveRate}
                 onSaveColor={onSaveColor}
                 onSaveRemark={onSaveRemark}

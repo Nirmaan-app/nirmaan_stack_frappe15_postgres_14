@@ -776,6 +776,7 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
       columnDescriptors: [],
       columnFormulas: [],
       override: false,
+      formulasComplete: true,
       onSaveRate: undefined,
       onSaveColor: undefined,
       onSaveRemark: undefined,
@@ -828,6 +829,13 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
     expect(pricingRowPropsAreEqual(prev, { ...prev, openRemark: true })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, override: true })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, anyCellActive: true })).toBe(false);
+  });
+
+  it("RE-renders (false) when formulasComplete flips (the gate locked/unlocked the sheet)", () => {
+    const prev = baseProps(); // formulasComplete: true
+    expect(pricingRowPropsAreEqual(prev, { ...prev, formulasComplete: false })).toBe(false);
+    // unchanged -> still skips (the per-sheet boolean is identical for an unrelated re-render)
+    expect(pricingRowPropsAreEqual(prev, { ...prev })).toBe(true);
   });
 
   it("RE-renders (false) when a shared callback / descriptor reference changes (a page re-render handed fresh ones)", () => {
@@ -910,5 +918,35 @@ describe("isRateEditableRow (the asymmetric Preamble/Line-Item gate)", () => {
     expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null }), true)).toBe(true);
     expect(isRateEditableRow(prow({ node_type: "Other", qty_total: 0, qty_by_area: null }), true)).toBe(true);
     expect(isRateEditableRow(prow({ node_type: null, qty_total: 0, qty_by_area: null }), true)).toBe(true);
+  });
+});
+
+// ── The MANDATORY formula gate composition (override can NOT bypass it) ────────────
+// The grid's rate-cell render gate is `onSaveRate && formulasComplete && isRateDescriptor(d) &&
+// isRateEditableRow(row, override)`. formulasComplete is a SEPARATE AND-term BEFORE
+// isRateEditableRow; the override lives INSIDE isRateEditableRow, so it can NEVER reach past
+// formulasComplete. The render isn't unit-testable in the node env, so this proves the boolean
+// composition directly -- the load-bearing override-can't-bypass property.
+describe("the mandatory formula gate composition (override cannot bypass)", () => {
+  // The (formulasComplete-aware) editability term, mirroring the grid's render condition with the
+  // descriptor/onSaveRate terms factored out (both already covered by other tests).
+  const rateEditable = (row: PricedRow, override: boolean, formulasComplete: boolean) =>
+    formulasComplete && isRateEditableRow(row, override);
+
+  it("formulasComplete=false => NOT editable EVEN with override=true (any row type)", () => {
+    const lineItem = prow({ node_type: "Line Item", qty_total: 220, qty_by_area: null });
+    const other = prow({ node_type: "Other", qty_total: 99, qty_by_area: null });
+    // override true would unlock the type/qty axis -- but formulasComplete=false gates it OUT.
+    expect(rateEditable(lineItem, true, false)).toBe(false);
+    expect(rateEditable(other, true, false)).toBe(false);
+    expect(rateEditable(lineItem, false, false)).toBe(false);
+  });
+
+  it("formulasComplete=true => the asymmetric rules apply unchanged", () => {
+    const lineItem = prow({ node_type: "Line Item", qty_total: 0, qty_by_area: null });
+    const zeroPreamble = prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null });
+    expect(rateEditable(lineItem, false, true)).toBe(true); // Line Item always editable
+    expect(rateEditable(zeroPreamble, false, true)).toBe(false); // zero-qty Preamble locked
+    expect(rateEditable(zeroPreamble, true, true)).toBe(true); // override unlocks it (gate open)
   });
 });
