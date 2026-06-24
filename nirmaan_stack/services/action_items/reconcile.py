@@ -31,6 +31,7 @@ from nirmaan_stack.services.action_items.predicates import (
     is_dc_pending,
     is_dn_pending,
 )
+from nirmaan_stack.services.ceo_hold import core as ceo_hold
 
 # A duplicate dedup_key can surface as EITHER class depending on cache/timing — the
 # in-app pre-check raises UniqueValidationError (<- ValidationError) while the DB unique
@@ -265,6 +266,13 @@ def reconcile_project_action_items(project_name):
     # (2) Project-status gate. NULL/blank status = active (not Completed/Halted) → keep.
     if project_status in _SUPPRESS_PROJECT_STATUSES:
         counts["resolved"] = _resolve_all_open(project_name)
+        # A suppressed (Completed/Halted) project must not be held by ANY automatic
+        # condition — clear every reason row and let recompute release the mirror if
+        # nothing else holds it (ADR-0004). Clearing ALL reasons (not just dn_pending)
+        # prevents recompute from resurrecting a terminal project off a stale reason.
+        # Rides this function's single commit.
+        ceo_hold.clear_all_reasons(project_name)
+        ceo_hold.recompute_ceo_hold(project_name)
         frappe.db.commit()
         return counts
 
@@ -302,6 +310,16 @@ def reconcile_project_action_items(project_name):
                 update_modified=False,
             )
             counts["resolved"] += 1
+
+    # (4b) Delivery-pending CEO Hold. The DN_PENDING count is already in `desired` (one
+    # row per PO awaiting delivery); >4 holds the project, <=4 releases it. The write
+    # rides this reconcile's single commit, under the Projects row lock already held
+    # above. CEO Hold is deliberately NOT in _SUPPRESS_PROJECT_STATUSES, so a held
+    # project keeps generating these rows and the count stays truthful (no oscillation).
+    dn_pending_count = sum(
+        1 for p in desired.values() if p["action_type"] == ACTION_DN_PENDING
+    )
+    ceo_hold.sync_delivery_pending(project_name, dn_pending_count)
 
     # (5) Commit once.
     frappe.db.commit()

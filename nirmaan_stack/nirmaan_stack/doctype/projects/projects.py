@@ -51,6 +51,25 @@ class Projects(Document):
 
 		# Changing FROM CEO Hold
 		elif old_status == "CEO Hold":
+			# Block ANY manual release while an automatic (system) condition still
+			# holds this project — the reason rows are the source of truth and clear
+			# themselves when the underlying condition is resolved (ADR-0004 FORK 9).
+			# recompute's auto-release uses set_value (bypasses validate), so it is
+			# unaffected by this guard.
+			active = frappe.get_all(
+				"CEO Hold Reason",
+				filters={"project": self.name},
+				fields=["reason_text"],
+				limit_page_length=0,
+			)
+			if active:
+				texts = ", ".join(r.reason_text for r in active if r.reason_text) or "active system conditions"
+				frappe.throw(
+					f"Cannot release CEO Hold while it is held by: {texts}. "
+					"These clear automatically when the underlying conditions are resolved.",
+					frappe.PermissionError,
+				)
+
 			# Cron-set holds (ceo_hold_by = CEO_HOLD_SYSTEM_USER) are clearable
 			# by the authorized human, since no real user "owns" them.
 			is_cron_set_hold = old_doc.ceo_hold_by == CEO_HOLD_SYSTEM_USER

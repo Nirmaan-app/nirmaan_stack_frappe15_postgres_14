@@ -137,3 +137,4 @@ nirmaan_stack.patches.v3_0.normalize_project_expense_types
 nirmaan_stack.patches.v3_0.boq_commit_current_unique_guard
 
 nirmaan_stack.patches.v3_0.backfill_committed_sheet_work_packages
+nirmaan_stack.patches.v3_0.seed_ceo_hold_reasons
