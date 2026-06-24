@@ -340,6 +340,27 @@ remarks cell opens its editor (a controlled `RemarkCell`, open-state lifted to t
 inside the editor = save-and-move-down via the SAME `nextCell(..., "down")` path; Esc closes. **Extend this matrix
 (colCount, focus targets) for new columns; never reshape the rate-cell nav.**
 
+**Row-level memoization contract (`PricingGrid.tsx`, editor perf fix -- the load-bearing render rule):** the per-row
+`<tr>` is a `React.memo`'d **`PricingGridRow`** (comparator `pricingRowPropsAreEqual`, both exported for unit test). The
+cursor (`activeCell`) is grid-local state, so a cursor move (arrow key / click) re-renders `PricingGrid`; without per-row
+memoization the WHOLE table (every row x every cell, an `evaluateAmountCell` at each amount cell) re-rendered per
+keystroke -- the felt lag on big sheets (Electrical 194 / VRF 121). Now a cursor move re-renders only the **2** rows
+whose active-state flipped, and a keystroke only the **1** edited row. **THE LOAD-BEARING ANTI-DEFEAT RULE: a memoized
+row must NEVER receive the shared `draftRates` / `proposedRates` object** (a keystroke makes a new reference -> all rows
+re-render -> memo silently defeated). Each row gets ONLY its own slice via **`groupDraftsByRow`** (exported, unit-tested):
+per-row sub-maps keyed by the FULL `${row_index}:${col}` key, **reference-REUSED** from the prior render (a `useRef` +
+`useMemo([draftRates])`) so an unrelated row's slice identity is stable across a keystroke. **The cursor lever** is the
+`activeColIndex: number | null` prop (= `activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null`) -- only the
+previously-active + newly-active rows see it change. The per-cell active/tabindex/className helpers (`isActiveCol`,
+`isTabStop`, `cellNavClass`, `tdFocusProps`, `inputFocusProps`) now live INSIDE `PricingGridRow`, computed from
+`activeColIndex`/`anyCellActive`; the grid keeps only the focus-ref plumbing (`registerCell`/`focusCell`/`onCellFocus`)
+and the mutation closures (`commitRate`/`scheduleAutoSave`/`setOpenRemark`), ALL `useCallback`-stable so the memo holds.
+The grid derivations (`byIdx`, `computeDepths(rows)`, `displayDescriptors`, `slNoLetter`/`descriptionLetter`) are
+`useMemo`'d on `[rows]` / `[columnDescriptors]` (NEVER on `activeCell`). The comparator is EXHAUSTIVE (returns false if
+ANY prop changed) so memoization never goes stale -- a save->`mutate()` hands fresh `row`/`flags`/slice references ->
+that row re-renders. **ZERO behaviour change** (same flags / markers / amounts / nav / lock gating, computed fewer
+times). NEVER pass the shared draft/proposed map, the whole `byIdx`, or an inline-arrow callback to a memoized row.
+
 **Read-only gating = PRESENCE of the save callback (the single root signal -- do NOT add a second):** the grid's
 editability is whether `onSaveRate` (and, for annotations, `onSaveRemark`/`onSaveColor`) is passed. The page withholds
 them (`onSaveRate={locked ? undefined : handleSaveRate}`, same for the annotation handlers) when `locked = editable ===
@@ -514,7 +535,11 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Editor perf fix -- `PricingGrid` row-level memoization
+(extract the `<tr>` into a `React.memo`'d `PricingGridRow` + `groupDraftsByRow` per-row draft slices [the anti-defeat rule]
++ `useMemo`'d grid derivations; the `activeColIndex` cursor lever; fixes the arrow-key/click lag on big sheets; NO
+behaviour change; PricingGrid.test 83->94, suite 203->214, see the memoization-contract paragraph above + plan §"Editor
+perf fix", 2026-06-24); Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
 review-strip DISMISS (pure `priceability.ts` filter helpers + `SheetPricingPage` active/show-all feed + "Show dismissed"
 toggle + per-entry Looks-OK/Restore action wired to `save_cell_dismissal`; `ReviewEntry` UNCHANGED; server-side re-arm,
 priceability 27->30, 2026-06-23); Slice 4b-A computed-flag layer -- the shared
