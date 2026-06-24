@@ -392,6 +392,32 @@ zero-qty rate-only Line Item is now editable but, because `isPriceableLine` excl
 priced-count nor flagged needs_rate -- a follow-up decision for the owner; `isPriceableLine`/flags/count were NOT changed
 here.
 
+**MANDATORY amount-formula gate (`priceability.areFormulasComplete` + `PricingGrid.formulasComplete` + `SheetPricingPage`
+banner; owner-locked):** amount formulas are now **MANDATORY before pricing** -- this **REVERSES the F1-F4 "formula
+optional" property**. The new pure `priceability.areFormulasComplete(columnDescriptors, columnFormulas)` is the per-SHEET
+completeness predicate: **every amount column descriptor (`isAmountDescriptor`) must be COVERED by a declared formula**, where
+"covered" is **`pickFormula`'s override>area-wildcard-default resolution** -- so ONE wildcard default (`target_value_key`
+null) covers ALL per-area amount columns sharing its `(value_field, rate_subkey)`; a present-but-CLEARED record (null
+`.formula`) does NOT count; a sheet with **zero** amount columns is **TRIVIALLY complete** (rate editing NOT blocked). It
+REUSES the EXACT `pickFormula` resolution `evaluateAmountCell` uses, so completeness can never drift from how amounts
+compute. **No import cycle** (`priceability` already imports PricingGrid's leaf predicates; `pickFormula` from the leaf
+`amountFormula.ts`). The page computes `const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas)` (the
+data is ALREADY in hand from `get_priced_rows` -- NO new fetch) and passes it as a NEW per-SHEET boolean prop
+`formulasComplete?: boolean` (**default TRUE** for back-compat). The grid ANDs it into the rate-cell render gate **OUTSIDE
+`isRateEditableRow`**: `onSaveRate && formulasComplete && isRateDescriptor(d) && isRateEditableRow(row, override)` -- because
+the `override` lives INSIDE `isRateEditableRow`, it can **NEVER reach past `formulasComplete`** (no declared formulas =>
+NOTHING rate-editable, override or not). The prop is added to `PricingGridRowProps` AND the exhaustive comparator
+`pricingRowPropsAreEqual` (**memo-safe**: a per-sheet boolean flips identically for all rows -> a flip re-renders all rows
+ONCE). **`onSaveFormula` is DELIBERATELY NOT withheld by this gate** -- declaration (the `AmountFormulaBuilder` on each amount
+`<th>`, gated only by `isAmountDescriptor(d) && onSaveFormula`) stays live while rates are locked, so the gate is
+satisfiable; it is withheld only by `locked` (the single-editor lock), as before. The `SheetPricingPage` banner ("Declare
+amount formulas to enable rate entry.", amber-note style) shows when `!isGridOnly && !locked && !pricedLoading &&
+!pricedError && !formulasComplete` (a trivially-complete sheet never shows it). The server (`save_cell_price` ->
+`_sheet_formulas_complete`) enforces the SAME rule OUTSIDE the override block -- client = UX, server = the real boundary. The
+asymmetric gate / `isPriceableLine` / flags / count / rollup / perf memo are UNTOUCHED; the formula gate composes cleanly on
+top. **Live re-gate:** removing a formula flips `formulasComplete` back to false (re-locking rates) as a natural consequence
+of the live `column_formulas` read -- no special handling.
+
 **Cross-area prefill save-path invariant (`PricingGrid.tsx`):** proposals live in a SEPARATE `proposedRates` map, NEVER
 in `draftRates`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the
 `flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates` is
@@ -557,7 +583,13 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Editor perf fix -- `PricingGrid` row-level memoization
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** MANDATORY amount-formula gate -- amount formulas required
+before any rate is editable (REVERSES "formula optional"); `priceability.areFormulasComplete` (per-COVERAGE via `pickFormula`,
+wildcard-default covers per-area cols) -> a per-sheet `formulasComplete` boolean ANDed into the grid rate gate OUTSIDE
+`isRateEditableRow` (override CANNOT bypass) + added to `pricingRowPropsAreEqual` (memo-safe) + a "Declare amount formulas to
+enable rate entry." banner; `onSaveFormula`/declaration stays live under the gate; vitest 226->235 (priceability 30->36,
+PricingGrid 106->109), tsc 3175 (0 new), 2026-06-24, see the gate paragraph above + plan §"Mandatory amount-formula gate";
+Editor perf fix -- `PricingGrid` row-level memoization
 (extract the `<tr>` into a `React.memo`'d `PricingGridRow` + `groupDraftsByRow` per-row draft slices [the anti-defeat rule]
 + `useMemo`'d grid derivations; the `activeColIndex` cursor lever; fixes the arrow-key/click lag on big sheets; NO
 behaviour change; PricingGrid.test 83->94, suite 203->214, see the memoization-contract paragraph above + plan §"Editor
