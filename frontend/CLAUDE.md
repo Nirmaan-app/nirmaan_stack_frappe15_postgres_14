@@ -622,8 +622,9 @@ per-subtotal markers (owner option (a)). `SummaryPanel` already calls `rollupByP
 decision (the incomplete signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`) is INTENTIONALLY NOT
 regated (regating would change committed-amount totals); only the incompleteness SIGNAL uses the helper, so the existing
 rollup totals are byte-for-byte unchanged (the formula-aware / grand-total / reconciliation tests stay green).
-**Cluster B (the formula-vs-document reconciliation CHOICE store) is the NEXT slice -- deferred** (no choice store, no
-overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Display-only; no backend / fetch / doctype.
+**Cluster B (the formula-vs-document reconciliation CHOICE store) is now BUILT** (the choice store, the per-cell overlay,
+the rollup-source switch [document-default], and the document-vs-formula divergence flag all shipped -- see the
+"Formula-vs-document reconciliation (Cluster B)" paragraph below).
 
 **Acknowledge dismiss layer `priceability.ts` + `SheetPricingPage.tsx` (Slice 4b-ACKNOWLEDGE; full detail: plan §"Phase 5
 Slice 4b-ACKNOWLEDGE"):** a per-entry "reviewed / looks OK" DISMISS on the review strip. A dismissal HIDES a strip entry (a
@@ -644,9 +645,41 @@ mirrors `handleSaveColor` (in-flight count, takeover detection, `mutate()`); wir
 (`dismissed:false` un-dismisses). **RE-ARM is SERVER-side** (a successful `save_cell_price` freezes the row's computed
 dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; there is NO client re-arm logic.
 
+**Formula-vs-document reconciliation `reconcile.ts` + `PricingGrid.tsx` + `priceability.ts` + `pricingRollup.ts` +
+`SheetPricingPage.tsx` (Cluster B; full detail: plan §"Cluster B"):** when a committed (DOCUMENT) amount and the
+formula-computed amount DIVERGE for the same amount cell, the editor FLAGS it and lets the user CHOOSE per cell which value
+wins (stored per committed version via `save_cell_reconciliation_choice`). **NEW pure leaf `reconcile.ts`** (the ONE place
+the comparison + resolution live, so grid/strip/rollup agree): `RECON_EPSILON_ABS/REL` + **`amountsEqual`** (the SHARED
+tolerance -- `pricingRollup` now imports it for its Option-1-vs-Option-2 integrity guard, so ONE epsilon, never duplicated),
+`amountsDiffer` (both sides must be real finite numbers -> a null/NaN side is NOT a divergence), `resolveDivergence` (the
+**D1** rule: diverge+take_formula -> formula; diverge+unset/keep_document -> **DOCUMENT**; else no-divergence), `reconChoiceKey`
++ `buildReconChoiceMap`. **A LEAF** -- it imports only types, so `PricingGrid`/`priceability`/`pricingRollup` all import it
+with no cycle (PricingGrid can NOT import pricingRollup -- that is the cycle reconcile.ts exists to avoid). **Detection
+(D2a, `PricingGrid` amount cell):** when `cell.kind === "value"` (a real computed number -- not_yet/broken/committed never
+diverge, **F1**), compare `resolveDescriptorValue(row, d)` (document) vs `cell.value` (formula) via `resolveDivergence`; the
+SHOWN value defaults to the document (D1). A divergence renders a STRONG **violet `ReconcileBadge` pill** (distinct channel
+-- background/left-border/gutter are taken) + a chooser popover labelled with both numbers; a RESOLVED choice shows a MUTED
+grey pill (still visible). The badge is read-only (a static pill) when `onSaveReconChoice` is withheld (locked). **The grid
+threads `reconChoices` -> a per-sheet `reconChoiceMap` (useMemo, reference-stable across a keystroke like `columnFormulas`)
+-> the memoized row (added to `PricingGridRowProps` + `pricingRowPropsAreEqual`), memo intact.** **Strip (D2b):**
+`priceability.buildDivergenceEntries` adds a "divergence" `ReviewEntry` kind (one per row, listing the unresolved diverging
+cols; a resolved cell DROPS OUT); `ReviewFlagKind` gains `divergence`; `REVIEW_ENTRY_META` violet; the per-entry "Looks OK"
+dismiss is WITHHELD for a divergence entry (its kind is not a dismissal token -- the chooser IS its resolution). **Rollup
+(D4):** `rollupByParent` gains a `reconChoices` param -> `rowOwnAmount` resolves the chosen value ONCE (document-default) so
+Option-1==Option-2 stays balanced; `SummaryPanel` threads it. **`SheetPricingPage`:** reads `reconciliation_choices` from
+`get_priced_rows`, `handleSaveReconChoice` (mirrors `handleSaveDismiss`; `choice` null clears), withheld when `locked`. New
+wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `reconciliation_choices` key on
+`GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
++3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Full-screen / maximize editor (Slice 4c) -- a "Full
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Formula-vs-document reconciliation (Cluster B) -- a per-cell
+"keep document / use formula" choice on a divergent amount cell (NEW pure leaf `reconcile.ts` with the SHARED `amountsEqual`
+tolerance; document-DEFAULT [D1]; a STRONG violet `ReconcileBadge` cell cue + chooser, muted when resolved; a "divergence"
+review-strip kind; the chosen value resolved ONCE in `pricingRollup.rowOwnAmount` [D4]; divergence fires only on
+`cell.kind === "value"`); vitest 245->264, tsc 3175 (0 new), 2026-06-24, see the reconciliation paragraph above + plan
+§"Cluster B". Full-screen / maximize editor (Slice 4c) -- a "Full
 screen" toggle expands the pricing editor to a `fixed inset-0` full-viewport overlay (in-app maximize via a root
 className toggle, NOT native Fullscreen, NOT a Dialog/portal); the NO-REMOUNT rule (one JSX tree -> grid drafts / cursor /
 lock / all state survive expand/collapse), each grid's `expanded` prop relaxing its `max-h` cap to `flex-1 min-h-0`, Esc-
