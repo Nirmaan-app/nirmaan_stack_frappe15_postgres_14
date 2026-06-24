@@ -6,6 +6,11 @@ Date: 2026-06-21
 
 Accepted. **Amends [ADR-0002](./0002-boq-review-ai-classifier.md)** on one point: ADR-0002 decided "the `gemini_*` mirror columns are *not* reintroduced — `ai_*` **is** the Gemini track." This ADR **reverses that**: `ai_*` is now the **Claude** track and a parallel **`gemini_*`** track is (re)introduced for Gemini, so both providers run and are reviewed side by side. The rest of ADR-0002 (the Gemini classifier's blind-from-scratch approach, chunking, carried preambles, `Document AI Settings` home) is **retained unchanged**.
 
+> **Amended on `feature/boq-ai-validations` (2026-06-24):**
+> - **§4 mechanism revised by [ADR-0006](./0006-ai-apply-block-then-revert.md).** The *at-most-one-accepted-Source* invariant stands, but switching changes from *auto-revert-then-apply* to **block-then-explicit-revert**: any standing change (an accepted AI suggestion **or** a manual edit) disables AI Apply, and a **unified "Revert to parser"** clears any overridden row. This retires the Claude/Gemini revert asymmetry described in §4.
+> - **§5 column-highlight refined by [ADR-0006].** The Gemini *column* highlights only parser-divergences and suppresses detection-only (`subtotal_marker`/`header_repeat`) divergences; the accept block's display-six/accept-four is unchanged.
+> - **Chunking extended to Claude by [ADR-0005](./0005-claude-classifier-chunking.md)** (carried hierarchy spine for the corrector).
+
 ## Context
 
 Two BoQ review AI-assist implementations were built independently on branches that share only the `79280ad8` base:
