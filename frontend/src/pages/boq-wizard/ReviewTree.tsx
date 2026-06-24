@@ -115,6 +115,17 @@ import {
   ClassificationPill,
   CLS_LABELS,
 } from "./reviewRender";
+// DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
+// clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
+// the gemini endpoints. Mounted ADDITIVELY beside the Claude pieces (Nitesh's stay untouched).
+import {
+  GeminiHeaderCell,
+  GeminiBodyCell,
+  geminiSuggestionInfo,
+  geminiHasConfidence,
+  type GeminiFilter,
+} from "./GeminiSuggestionColumn";
+import { GeminiAcceptBlock } from "./GeminiAcceptBlock";
 
 // computeDepths + CLS_LABELS were extracted to ./reviewRender (Slice 2) and are
 // imported at the top. Behaviour unchanged.
@@ -322,9 +333,15 @@ interface ReviewTreeProps {
   // panel display, search, filters, column selector, scroll-to-parent) stays live. The
   // backend enforces the same freeze, so this is the UI line of defence, not the only one.
   readOnly?: boolean;
+  // DUAL-AI (ADR-0003 sec 8A): gates the second provider ("Gemini") column + detail-panel accept
+  // block. Sourced from get_review_rows.gemini_enabled (Document AI Settings.boq_ai_enabled). When
+  // false/undefined the Gemini column + block are NOT mounted -- the layout is byte-identical to
+  // the Claude-only tree (totalCols / colSpans stay 8-based). ADDITIVE: every existing caller that
+  // omits this prop renders exactly as before.
+  geminiEnabled?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -398,6 +415,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     presetRowParent?: number | null;
     presetParentMessage?: string;
     markAiAccepted?: boolean;
+    // DUAL-AI (ADR-0003): the Gemini mirror of markAiAccepted. Set when a WITH-children Gemini
+    // accept routes here (GeminiAcceptBlock -> onOpenRestructureGemini). Independent flag.
+    markGeminiAccepted?: boolean;
   } | null>(null);
   const [childlessConfirm, setChildlessConfirm] = useState<{ row: ReviewRow; newClassification: string } | null>(null);
   // Inline error for the childless confirm dialog ONLY (the modal owns its own error state).
@@ -567,6 +587,26 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
   };
 
+  // DUAL-AI (ADR-0003): open the SHARED RestructureModal for a WITH-children Gemini accept.
+  // Mirror of handleApplyAi's setRestructureModal route, with markGeminiAccepted set (so the
+  // modal's Save flips gemini_suggestion_status="Accepted" cancel-safely). GeminiAcceptBlock owns
+  // the accept-axis math + the preset-parent decision and calls this with the resolved args.
+  const onOpenRestructureGemini = (args: {
+    row: ReviewRow;
+    newClassification: string;
+    presetRowParent?: number | null;
+    presetParentMessage?: string;
+  }) => {
+    setRestructureModal({
+      row: args.row,
+      newClassification: args.newClassification,
+      ...(args.presetRowParent !== undefined
+        ? { presetRowParent: args.presetRowParent, presetParentMessage: args.presetParentMessage }
+        : {}),
+      markGeminiAccepted: true,
+    });
+  };
+
   const { depths, hasChildrenSet, byIdx } = useMemo(() => {
     const depths = computeDepths(rows);
     const hasChildrenSet = new Set<number>();
@@ -703,6 +743,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   // AI-3a: AI Rec column filter (default "all" = no narrowing).
   const [aiFilter, setAiFilter] = useState<AiFilter>("all");
+  // DUAL-AI (ADR-0003): Gemini column filter -- mirror of aiFilter (default "all" = no narrowing).
+  const [geminiFilter, setGeminiFilter] = useState<GeminiFilter>("all");
   const [classFilter, setClassFilter] = useState<Set<string>>(() => new Set(CLASS_FILTER_VALUES));
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
@@ -1029,6 +1071,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
   const aiFilterActive = aiFilter !== "all";
+  // DUAL-AI (ADR-0003): the Gemini filter-active styling is derived inside GeminiHeaderCell
+  // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
   const passesFilter = (row: ReviewRow): boolean => {
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
@@ -1055,6 +1099,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
         if (!aiHasConfidence(info, level)) return false;
       }
     }
+    // DUAL-AI (ADR-0003): Gemini predicate -- mirror of the AI predicate, gated on geminiEnabled
+    // (the filter cannot narrow when the column is not mounted). "any" = a pending Gemini
+    // suggestion exists; high/medium/low = a pending suggestion at that confidence in either axis.
+    if (geminiEnabled && geminiFilter !== "all") {
+      const info = geminiSuggestionInfo(row);
+      if (geminiFilter === "any") {
+        if (!(info.hasClass || info.hasParent)) return false;
+      } else {
+        const level = geminiFilter === "high" ? "High" : geminiFilter === "medium" ? "Medium" : "Low";
+        if (!geminiHasConfidence(info, level)) return false;
+      }
+    }
     return true;
   };
 
@@ -1074,7 +1130,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, showSpacers, showNotes, showSubtotals]);
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -1372,6 +1428,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                   </Popover>
                 </div>
               </th>
+              {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
+                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled. */}
+              {geminiEnabled && (
+                <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
+              )}
               {/* Sl.No: letter from the sl_no descriptor col, if mapped */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
@@ -1496,8 +1557,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
               // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
               // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
               // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
+              // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
+              // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
+              // flag-reasons row + the inline detail-panel row both span totalCols).
               const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
-              const totalCols = 8 + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              const totalCols = 8 + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
@@ -1579,13 +1643,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                     </td>
 
                     {/* Status (B2c): edit-provenance badge -- not frozen-left.
-                        AI-3a: "AI Accepted" (indigo) takes precedence over Edited -- an
-                        accepted suggestion writes to human_* (AI-3b) and would otherwise
-                        read "Edited", erasing the AI provenance. */}
+                        AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
+                        -- an accepted suggestion writes to human_* and would otherwise read
+                        "Edited", erasing the provenance.
+                        DUAL-AI (ADR-0003): the badge is SOURCE-TAGGED. "Accepted · Claude" when the
+                        Claude suggestion is Accepted (indigo, unchanged hue); "Accepted · Gemini"
+                        when the Gemini suggestion is Accepted (violet). Only one can be Accepted at
+                        a time (the backend enforces exactly-one-Source). Claude is checked FIRST so
+                        its existing badge path is byte-identical to before for the Claude case. */}
                     <td className="px-2 py-1.5 align-top w-20 border-r border-border">
                       {row.ai_suggestion_status === "Accepted" ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
-                          AI Accepted
+                          Accepted · Claude
+                        </span>
+                      ) : row.gemini_suggestion_status === "Accepted" ? (
+                        <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-200">
+                          Accepted · Gemini
                         </span>
                       ) : isEdited ? (
                         <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
@@ -1623,6 +1696,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                         </div>
                       ) : null}
                     </td>
+
+                    {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
+                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled. */}
+                    {geminiEnabled && <GeminiBodyCell row={row} />}
 
                     {/* Sl.No */}
                     <td className="px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border">
@@ -2035,6 +2112,31 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
                               </div>
                               {aiActionError && <p className="text-xs text-destructive mt-1">{aiActionError}</p>}
                             </div>
+                          )}
+                          {/* DUAL-AI (ADR-0003 sec 8A): the Gemini accept/reject/revert block,
+                              mounted BENEATH the Claude block. Visual clone of the Claude block
+                              reading gemini_* + calling the gemini endpoints. The Pending
+                              accept/reject UI is gated on !readOnly (a finalized sheet writes
+                              nothing); the Accepted Revert UI renders regardless (it disables
+                              itself under readOnly with a reason). With-children accepts route to
+                              the SHARED RestructureModal via onOpenRestructureGemini (markGemini-
+                              Accepted). Only mounted when geminiEnabled. */}
+                          {geminiEnabled && (row.gemini_suggestion_status === "Accepted" || !readOnly) && (
+                            <GeminiAcceptBlock
+                              row={row}
+                              boqName={boqName}
+                              sheetName={sheetName}
+                              hasChildren={hasChildrenSet.has(row.row_index)}
+                              parentLabel={(idx) => {
+                                if (idx < 0) return "Top level (root)";
+                                const src = byIdx.get(idx)?.source_row_number;
+                                return src !== undefined ? `row ${src}` : `#${idx}`;
+                              }}
+                              readOnly={readOnly}
+                              onOpenRestructure={onOpenRestructureGemini}
+                              onChanged={() => { onRemarkSaved?.(); }}
+                              onAccepted={(editedAt) => { onSaved?.(editedAt); }}
+                            />
                           )}
                           {/* C-v2: editable value inputs -- the flat numeric fields this sheet
                               surfaces (per-area cells + text fields stay read-only here). Each
@@ -2463,6 +2565,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, boqName, sheetName,
           presetRowParent={restructureModal.presetRowParent}
           presetParentMessage={restructureModal.presetParentMessage}
           markAiAccepted={restructureModal.markAiAccepted}
+          markGeminiAccepted={restructureModal.markGeminiAccepted}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}

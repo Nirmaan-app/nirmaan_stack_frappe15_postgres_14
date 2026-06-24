@@ -36,6 +36,10 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     _guard_sheet_not_parsing,
     get_boq_work_packages,
 )
+# DUAL-AI (ADR-0003): Gemini enable flag lives in Document AI Settings (NOT the
+# Claude BOQ Upload Review AI Settings). Read it perm-bypassing via the shared
+# extraction settings reader -- get_review_rows surfaces gemini_enabled from it.
+from nirmaan_stack.services.extraction.files import get_boq_classifier_settings
 
 
 # ---------------------------------------------------------------------------
@@ -1014,6 +1018,70 @@ def _apply_and_save_row_edit(
         if doc.ai_suggestion_status == "Accepted":
             doc.ai_suggestion_status = None
 
+        # ============================================================================
+        # DUAL-AI (ADR-0003) -- GEMINI additions. ADDITIVE-ONLY: these three writes
+        # MIRROR the Claude logic above for the gemini_* namespace, GATED on the same
+        # human_classification / human_parent fields. They do NOT touch any ai_* state.
+        #
+        # ASYMMETRY NOTE (deliberate; tests assert the gemini-direction baseline):
+        # Claude's accept snapshot (ai_accept_snapshot) is Nitesh's "immediate pre-state"
+        # semantic -- its revert restores whatever the row was just before THAT accept.
+        # Gemini's revert is baseline-correct because accept_gemini_suggestion PRE-REVERTS
+        # any standing Claude acceptance first (so the gemini snapshot captures the TRUE
+        # baseline). We do NOT change Claude's snapshot semantic; we only make Gemini's
+        # capture happen against a clean baseline at accept time.
+        #
+        # (1) Clear THIS row's gemini accept-revert snapshot; if this row is a moved
+        #     gemini child (gemini_snapshot_owner >= 0 -- -1 is the "not a child"
+        #     sentinel, Frappe coerces unset Int -> 0, hence the explicit >= 0 guard),
+        #     clear the OWNER row's gemini snapshot + this child's gemini back-pointer.
+        #     Mirrors the ai_accept_snapshot invalidation above.
+        doc.gemini_accept_snapshot = None
+        g_owner = getattr(doc, "gemini_snapshot_owner", None)
+        if g_owner is not None and g_owner >= 0:
+            frappe.db.set_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": g_owner},
+                "gemini_accept_snapshot", None,
+            )
+            doc.gemini_snapshot_owner = -1
+        # (2) A manual class/parent edit (or a Claude accept routed through here) OVERRIDES
+        #     Gemini's structural decision -> a gemini-Accepted row is no longer a Gemini
+        #     acceptance. Clear gemini_suggestion_status so the badge stops reading "Gemini
+        #     Accepted". GATED on the CURRENT status being "Accepted" (a Pending/Rejected
+        #     gemini suggestion is untouched), mirroring the ai_suggestion_status clear above.
+        #     ORDERING (load-bearing): accept_gemini_suggestion flips the status to "Accepted"
+        #     LAST and revert flips to "Pending" LAST (both AFTER every helper call), so this
+        #     in-flight clear is harmless during a gemini accept/revert -- their final flip wins.
+        if getattr(doc, "gemini_suggestion_status", None) == "Accepted":
+            doc.gemini_suggestion_status = None
+        # (3) chosen_source -- set ENTIRELY here from the `reason` string, so neither
+        #     accept_ai_suggestion / revert_ai_acceptance (Nitesh's, untouched) nor the
+        #     gemini endpoints need to set it. Only a human_classification / human_parent
+        #     edit changes it (this block); value/text/per-area edits never enter here, so
+        #     they leave chosen_source as-is (same gating as the override-clears-status rule).
+        #       reason has "Gemini" + "accepted"  -> "gemini"
+        #       reason has "AI"     + "accepted"  -> "claude"
+        #       reason has "reverted"             -> baseline: "manual" if a human override
+        #                                            REMAINS after the restore, else "parser"
+        #       otherwise (a genuine manual save_review_edit / restructure) -> "manual"
+        _reason = reason or ""
+        if "Gemini" in _reason and "accepted" in _reason:
+            doc.chosen_source = "gemini"
+        elif "AI" in _reason and "accepted" in _reason:
+            doc.chosen_source = "claude"
+        elif "reverted" in _reason:
+            # A revert restores baseline. The human layer was just rewritten on `doc`
+            # (this very call): if a human override REMAINS (a human_classification or a
+            # real human_parent / human_is_root), the baseline IS a prior manual edit
+            # ("manual"); otherwise the row falls back to the parser ("parser").
+            _has_human = bool(doc.human_classification) or (
+                doc.human_parent is not None and doc.human_parent >= 0
+            ) or bool(doc.human_is_root)
+            doc.chosen_source = "manual" if _has_human else "parser"
+        else:
+            doc.chosen_source = "manual"
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -1105,6 +1173,18 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # AI-3c-2a: fetched ONLY to derive the revert_available boolean below. The raw blob
         # (pre-accept internal state) is DROPPED from the payload -- never shipped to the client.
         "ai_accept_snapshot",
+        # ---- DUAL-AI (ADR-0003) -- GEMINI fields. ADDITIVE-ONLY. ----
+        # resolve_effective does NOT read or echo any gemini_* field (it is Claude-only),
+        # so ALL gemini display fields must be fetched here to reach the frontend.
+        "gemini_suggestion_status", "gemini_suggested_classification",
+        "gemini_suggested_parent", "gemini_suggested_is_root",
+        "gemini_classification_confidence", "gemini_parent_confidence",
+        "gemini_suggested_level", "gemini_explanation",
+        # chosen_source -- the audit-only "winning" Source (parser/claude/gemini/manual).
+        "chosen_source",
+        # Fetched ONLY to derive gemini_revert_available below; the raw blob is DROPPED
+        # from the payload -- never shipped to the client (mirrors ai_accept_snapshot).
+        "gemini_accept_snapshot",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1121,6 +1201,9 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         d.update(resolve_effective(d))
         # AI-3c-2a: ship a presence boolean; DROP the raw pre-accept snapshot blob.
         d["revert_available"] = bool(d.pop("ai_accept_snapshot", None))
+        # DUAL-AI (ADR-0003): same treatment for the gemini snapshot blob -- ship a
+        # presence boolean, DROP the raw blob from the payload.
+        d["gemini_revert_available"] = bool(d.pop("gemini_accept_snapshot", None))
         rows.append(d)
 
     # Work-package join: reuse get_boq_work_packages and pick this sheet.
@@ -1150,7 +1233,17 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     breaks = check_structural_integrity(rows)
     flags = _compute_advisory_flags(rows, breaks)
-    return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors, "flags": flags}
+    # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
+    # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
+    # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
+    gemini_enabled = bool(get_boq_classifier_settings().get("boq_ai_enabled"))
+    return {
+        "rows": rows,
+        "work_packages": work_packages,
+        "column_descriptors": column_descriptors,
+        "flags": flags,
+        "gemini_enabled": gemini_enabled,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1634,6 +1727,7 @@ def save_review_restructure(
     reason: str = None,
     row_new_parent=None,
     mark_ai_accepted=False,
+    mark_gemini_accepted=False,
 ) -> dict:
     """
     Atomically reclassify ONE row AND reparent a set of its children in a single
@@ -1662,6 +1756,15 @@ def save_review_restructure(
                              save). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
                              ai_suggestion_status untouched. CANCEL-SAFE: only the modal's
                              Save passes it, so a cancelled modal never flips the status.
+      mark_gemini_accepted -- OPTIONAL (DUAL-AI, ADR-0003). The Gemini MIRROR of
+                             mark_ai_accepted: when truthy, captures the gemini accept
+                             snapshot (row + each moved child), flips this row's
+                             gemini_suggestion_status -> "Accepted", and stamps each moved
+                             child's gemini_snapshot_owner -- all inside the SAME commit.
+                             Opt-in + cancel-safe exactly like mark_ai_accepted. The two
+                             flags are independent; the gemini accept endpoint pre-reverts
+                             any standing Claude acceptance BEFORE calling this, so they
+                             never both fire on one call from the gemini path.
 
     Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
     style; nothing is written until every check passes):
@@ -1722,6 +1825,12 @@ def save_review_restructure(
         mark_ai_accepted = mark_ai_accepted.strip().lower() in ("1", "true", "yes")
     else:
         mark_ai_accepted = bool(mark_ai_accepted)
+
+    # DUAL-AI (ADR-0003): coerce mark_gemini_accepted identically.
+    if isinstance(mark_gemini_accepted, str):
+        mark_gemini_accepted = mark_gemini_accepted.strip().lower() in ("1", "true", "yes")
+    else:
+        mark_gemini_accepted = bool(mark_gemini_accepted)
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
@@ -1900,6 +2009,28 @@ def save_review_restructure(
             ],
         }
 
+    # DUAL-AI (ADR-0003): the gemini MIRROR of the snapshot capture above. Built from the
+    # SAME pre-write rows_by_idx, PERSISTED LAST (in the flip block below) so the chokepoint's
+    # gemini-snapshot invalidation that fires during the helper writes cannot wipe it.
+    gemini_accept_snapshot_data = None
+    if mark_gemini_accepted:
+        row_pre = rows_by_idx[row_index]
+        gemini_accept_snapshot_data = {
+            "row": {
+                "hc": row_pre.get("human_classification"),
+                "hp": row_pre.get("human_parent"),
+                "hr": 1 if row_pre.get("human_is_root") else 0,
+            },
+            "children": [
+                {
+                    "idx": ci,
+                    "hp": rows_by_idx[ci].get("human_parent"),
+                    "hr": 1 if rows_by_idx[ci].get("human_is_root") else 0,
+                }
+                for ci in sorted(moves)
+            ],
+        }
+
     # --- Write block (atomic; the shared helper saves each row, single commit at the
     #     end). All validation above passed, so every helper call is on validated input. ---
     user = frappe.session.user
@@ -2004,6 +2135,35 @@ def save_review_restructure(
             )
             frappe.db.set_value(
                 "BoQ Review Row", child_name, "ai_snapshot_owner", row_index,
+                update_modified=False,
+            )
+
+    # DUAL-AI (ADR-0003): the gemini MIRROR of the capture-then-flip block above. Same
+    # ordering rationale -- flip + persist LAST, after every helper write, so the chokepoint's
+    # in-flight gemini clear (which fired on each human_classification/human_parent edit) is
+    # overwritten here. Also stamps chosen_source="gemini": the restructure helpers were called
+    # with non-"accepted" reasons, so the chokepoint set chosen_source="manual" on each write;
+    # this final stamp records that the WINNING source for this with-children accept is Gemini.
+    if mark_gemini_accepted:
+        target_doc.gemini_suggestion_status = "Accepted"
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            {"gemini_suggestion_status": "Accepted", "chosen_source": "gemini"},
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            "gemini_accept_snapshot", json.dumps(gemini_accept_snapshot_data),
+            update_modified=False,
+        )
+        for child_idx in children_moved:
+            child_name = frappe.db.get_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": child_idx},
+                "name",
+            )
+            frappe.db.set_value(
+                "BoQ Review Row", child_name, "gemini_snapshot_owner", row_index,
                 update_modified=False,
             )
 
