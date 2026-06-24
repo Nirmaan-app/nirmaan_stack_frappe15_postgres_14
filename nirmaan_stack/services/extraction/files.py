@@ -81,6 +81,41 @@ def get_extraction_settings():
         return {"enabled": False, "request_timeout_seconds": 90}
 
 
+def get_boq_classifier_settings():
+    """Read the BoQ review AI classifier settings (perm-bypassing, Gemini).
+
+    Reuses the shared Gemini auth + credentials in Document AI Settings (auth mode,
+    GCP project/location, encrypted key) but carries its own opt-in flag
+    (`boq_ai_enabled`) and an optional model override (`boq_gemini_model`, blank ->
+    the extraction `gemini_model`). The encrypted key is read via the shared
+    `get_gemini_api_key`. Fails closed to {boq_ai_enabled: False} so a transient DB
+    issue never raises into the AI pass. Distinct from the (kept, dormant) Anthropic
+    reader in api/boq/wizard/ai_settings.py.
+    """
+    try:
+        get = lambda field: frappe.db.get_single_value(SETTINGS_DOCTYPE, field)
+        return {
+            "boq_ai_enabled": bool(cint(get("boq_ai_enabled"))),
+            "provider": "gemini",
+            "auth_mode": (get("gemini_auth_mode") or "Vertex AI").strip(),
+            "gcp_project_id": (get("gcp_project_id") or "").strip(),
+            "gcp_location": (get("gcp_location") or "asia-south1").strip(),
+            "gemini_model": (
+                (get("boq_gemini_model") or "").strip()
+                or (get("gemini_model") or "").strip()
+                or "gemini-3.1-pro-preview"
+            ),
+            "gemini_thinking_level": (get("gemini_thinking_level") or "low").strip().lower(),
+            "request_timeout_seconds": int(get("request_timeout_seconds") or 90),
+        }
+    except Exception:
+        frappe.log_error(
+            title="BoQ classifier settings load failed",
+            message=frappe.get_traceback(),
+        )
+        return {"boq_ai_enabled": False, "request_timeout_seconds": 90}
+
+
 def get_gemini_api_key():
     """Read the encrypted Gemini API key (API-Key auth mode only)."""
     from frappe.utils.password import get_decrypted_password

@@ -74,7 +74,20 @@
   "ai_explanation",
   "ai_suggestion_status",
   "ai_accept_snapshot",
-  "ai_snapshot_owner"
+  "ai_snapshot_owner",
+  "gemini_suggestions_section",
+  "gemini_suggested_classification",
+  "gemini_classification_confidence",
+  "gemini_suggested_parent",
+  "gemini_suggested_is_root",
+  "gemini_parent_confidence",
+  "gemini_suggested_level",
+  "gemini_explanation",
+  "gemini_suggestion_status",
+  "gemini_accept_snapshot",
+  "gemini_snapshot_owner",
+  "resolution_section",
+  "chosen_source"
  ],
  "fields": [
   {
@@ -456,6 +469,97 @@
    "fieldname": "ai_snapshot_owner",
    "fieldtype": "Int",
    "label": "AI Snapshot Owner Row",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gemini_suggestions_section",
+   "fieldtype": "Section Break",
+   "label": "Gemini Suggestions"
+  },
+  {
+   "description": "Gemini-suggested row classification (Phase 4 dual-AI pass -- Gemini second opinion, blind to the parser's verdict). Written only by the Gemini service / gemini accept-reject endpoint, never by the parser or human edit layer. An accept folds the value into the human layer (mirrors the Claude ai_* flow); resolve_effective does NOT read this column directly.",
+   "fieldname": "gemini_suggested_classification",
+   "fieldtype": "Data",
+   "label": "Gemini Suggested Classification",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gemini_classification_confidence",
+   "fieldtype": "Select",
+   "label": "Gemini Classification Confidence",
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
+  },
+  {
+   "description": "Gemini-suggested parent row index. Same sentinel convention as parent_index / human_parent / ai_suggested_parent: -1 = no suggestion / root, >= 0 = a real suggested parent row index.",
+   "fieldname": "gemini_suggested_parent",
+   "fieldtype": "Int",
+   "label": "Gemini Suggested Parent Index",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Gemini suggests this row become a top-level root. Written from a null parent_id in the Gemini output. Distinct from gemini_suggested_parent = -1, which means 'no parent suggestion'.",
+   "fieldname": "gemini_suggested_is_root",
+   "fieldtype": "Check",
+   "label": "Gemini Suggested Root",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gemini_parent_confidence",
+   "fieldtype": "Select",
+   "label": "Gemini Parent Confidence",
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
+  },
+  {
+   "description": "Gemini-suggested level, derived server-side from the gemini_suggested_parent chain. Stored value; display only, not used by resolve_effective.",
+   "fieldname": "gemini_suggested_level",
+   "fieldtype": "Int",
+   "label": "Gemini Suggested Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gemini_explanation",
+   "fieldtype": "Small Text",
+   "label": "Gemini Explanation",
+   "read_only": 1
+  },
+  {
+   "description": "Lifecycle of the Gemini suggestion. Blank / Pending / Rejected = not in force; Accepted = the suggestion was folded into the human layer via the gemini accept endpoint. At most one of ai_suggestion_status / gemini_suggestion_status is Accepted per row (switching auto-reverts the other).",
+   "fieldname": "gemini_suggestion_status",
+   "fieldtype": "Select",
+   "label": "Gemini Suggestion Status",
+   "options": "\nPending\nAccepted\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "Per-row snapshot of the pre-accept state (row + any children the accept moved), captured on a Gemini-accept Save. Read by revert_gemini_acceptance to restore the row; cleared on a later human edit or on finalize. Mirrors ai_accept_snapshot. Written only by the backend.",
+   "fieldname": "gemini_accept_snapshot",
+   "fieldtype": "JSON",
+   "label": "Gemini Accept Snapshot",
+   "read_only": 1
+  },
+  {
+   "default": "-1",
+   "description": "Back-pointer: on a child moved by a Gemini-accept restructure, the row_index of the accepted (owner) row holding the snapshot. Mirrors ai_snapshot_owner. -1 = not a snapshotted child.",
+   "fieldname": "gemini_snapshot_owner",
+   "fieldtype": "Int",
+   "label": "Gemini Snapshot Owner Row",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution_section",
+   "fieldtype": "Section Break",
+   "label": "Resolution"
+  },
+  {
+   "default": "parser",
+   "description": "Audit-only record of which Source the row's in-force structural decision came from: parser (default / untouched), claude, gemini, or manual. Written by the accept / save_review_edit / revert endpoints; NOT read by resolve_effective or the commit pipeline. Powers the AI-classifier comparison. A re-run of a provider demotes a row sourced from it back to 'manual' (the accepted value is sticky but no longer backed by a live suggestion).",
+   "fieldname": "chosen_source",
+   "fieldtype": "Select",
+   "label": "Chosen Source",
+   "options": "parser\nclaude\ngemini\nmanual",
    "read_only": 1
   }
  ],

@@ -20,8 +20,56 @@ def convert_to_format1(data_format2: dict) -> dict:
     return data_format1
 
 
+LOSS_THRESHOLD_PERCENT = 10
+
+
+def compute_item_loss_percent(item, rfq_details) -> float:
+    """
+    Server-side mirror of the Send-for-Approval loss%: Target Amount (rate x 0.98,
+    matched on item_id/unit/make like the UI) is prioritized, else Lowest Quoted (L1)
+    from this PR's rfq_data (rfq_data.details is keyed by item_id). Returns the loss
+    magnitude as a positive percent, or 0 when there's a saving / no benchmark.
+    """
+    if not isinstance(rfq_details, dict):
+        rfq_details = {}
+    quote = flt(item.get("quote"))
+    quantity = flt(item.get("quantity"))
+    if not quote or not quantity or item.get("category") == "Additional Charges":
+        return 0.0
+    base_item_total = quote * quantity
+
+    # Target Amount (only when the item has a make, mirroring the UI's lookup key)
+    target_amount = 0.0
+    make = item.get("make")
+    if make:
+        rate = frappe.db.get_value(
+            "Target Rates",
+            {"item_id": item.get("item_id"), "unit": item.get("unit"), "make": make},
+            "rate",
+            order_by="modified desc",  # match the UI (target rates fetched modified desc)
+        )
+        if flt(rate) > 0:
+            target_amount = flt(rate) * 0.98 * quantity
+
+    # Lowest Quoted (L1) from this PR's RFQ data. rfq_data.details is keyed by item_id.
+    lowest_amount = 0.0
+    item_rfq = rfq_details.get(item.get("item_id")) or {}
+    vendor_quotes = item_rfq.get("vendorQuotes") or {}
+    numeric = [flt(vq.get("quote")) for vq in vendor_quotes.values() if flt(vq.get("quote")) > 0]
+    if numeric:
+        lowest_amount = min(numeric) * quantity
+
+    benchmark = target_amount if target_amount > 0 else lowest_amount
+    if benchmark <= 0:
+        return 0.0
+    saving_loss = benchmark - base_item_total
+    if saving_loss >= 0:
+        return 0.0
+    return (-saving_loss / benchmark) * 100.0
+
+
 @frappe.whitelist()
-def handle_delayed_items(pr_id: str, comments: dict = None):
+def handle_delayed_items(pr_id: str, comments: dict = None, loss_justifications=None):
     """
     Handles delayed items in a Procurement Request, creates Sent Back Category,
     and updates the Procurement Request workflow state.
@@ -41,6 +89,12 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # procurement_list = frappe.parse_json(pr_doc.procurement_list).get('list', [])
         order_list = pr_doc.get("order_list", [])
         payment_terms = frappe.parse_json(pr_doc.payment_terms or '{}').get('list', {})
+
+        # Loss justifications: { order_list child-row name -> reason }
+        if isinstance(loss_justifications, str):
+            loss_justifications = frappe.parse_json(loss_justifications or '{}')
+        if not isinstance(loss_justifications, dict):
+            loss_justifications = {}
 
         # RFQ data handling
         rfq_data_pr = {}
@@ -115,7 +169,18 @@ def handle_delayed_items(pr_id: str, comments: dict = None):
         # THIS IS THE FIX:
         # Explicitly mark items that are NOT delayed (i.e., have a vendor)
         # with the "Pending" status that the validator function expects.
-                item.status = "Pending"  
+                item.status = "Pending"
+
+                # Persist the loss justification provided at Send-for-Approval, then
+                # enforce it server-side: any item with loss > 10% must carry a reason.
+                if item.name in loss_justifications:
+                    item.loss_justification = loss_justifications.get(item.name)
+                loss_pct = compute_item_loss_percent(item, rfq_details)
+                if loss_pct > LOSS_THRESHOLD_PERCENT and not (item.loss_justification or "").strip():
+                    frappe.throw(
+                        f"Loss justification required for '{item.item_name}': "
+                        f"loss {loss_pct:.1f}% exceeds {LOSS_THRESHOLD_PERCENT}%."
+                    )
             # else:
             #     # Keep original item data (including vendor if present)
             #     updated_procurement_list_items.append(item)

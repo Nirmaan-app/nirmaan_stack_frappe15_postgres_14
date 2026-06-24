@@ -26,6 +26,7 @@ export interface VendorItemDetailsToDisplay extends ProcurementRequestItemDetail
     lowestQuotedAmountForItem?: number; // Lowest quote for this item across all vendors in current RFQ
     historicalLowestRate?: number; // e.g., 3 months lowest (if you implement this)
     savingLoss?: number;
+    lossPercent?: number; // |savingLoss| / benchmark * 100, when savingLoss < 0
     contributingHistoricalQuotes?: GlobalApprovedQuotations[]; // For hover card
 }
 

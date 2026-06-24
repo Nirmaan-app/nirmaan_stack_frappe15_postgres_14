@@ -8642,3 +8642,215 @@ committed rates now COMPUTE; a 0.0 unpriced still BLANKS). `pricingRollup.test.t
 use 0.0 (its true genuine-unfilled intent -> still folds to 0) + **added** a positive test proving the fix flows to the
 summary (non-zero committed -> rolls up 35). tsc **3178 == baseline** (0 in touched files). Vite build exit 0. The grid
 compute structure / rate-save / nav / color / remarks / backend UNTOUCHED.
+
+### Phase 5 Pricing Editor -- Slice 4b-A -- the computed review-flag layer (Cluster A) (FRONTEND, feat 2026-06-23)
+
+**Scope.** Cluster A of the 4b review-flag feature: the computed flags + their surfacing, riding existing surfaces.
+FRONTEND-only, NO new doctype / migrate / backend / endpoint. Cluster B (the formula-vs-document reconciliation CHOICE
+store) is a SEPARATE later slice -- DEFERRED here (no choice store, no overlay, no rollup-source switch, no
+document-vs-formula mismatch flag). Files: NEW `priceability.ts`; `boqTypes.ts` (additive types); `PricingGrid.tsx`;
+`SheetPricingPage.tsx`; `pricingRollup.ts`; + tests (`priceability.test.ts` NEW, `pricingRollup.test.ts` +3).
+
+**The ONE shared spine (`priceability.ts`).** The single home of the LOCKED owner rule (the §6 one-shared-definition):
+- **PRICEABLE LINE** iff `isPriceableType(node_type)` (Preamble/Line Item) AND **qty-bearing in >=1 pricing area**. A
+  zero-qty-everywhere priceable row DROPS OUT of the population (not counted, not "needs a rate").
+- **FILLED** (never a bare zero-check) = `isCellPriced` (an editor marker, incl. a deliberate 0) OR a prepopulated
+  committed NON-ZERO rate -- expressed as `lookupOperandValue(row, ref, descriptors, {}) !== undefined`, so "filled" REUSES
+  the editor's single source of truth (the prepopulated-rate fix flows through; an unfilled committed 0 is NOT filled).
+- **FULLY PRICED** (option-(i), owner-locked): for EVERY qty-bearing area, all that area's rate cells filled; a no-qty area
+  is IGNORED. Per-ROW count (owner-locked), strict done-test.
+- Area model: a `pricingAreas(descriptors)` set of per-area `value_key`s + a SCALAR sentinel (`null`) when scalar rate
+  columns exist; `qtyBearingAreas` = pricingAreas qty-bearing on the row; `isAreaFullyPriced` = all that area's rate cells
+  filled. An area with qty but NO rate column is excluded from the priceable surface.
+- Exports: `isPriceableLine` / `isFullyPriced` / `qtyBearingAreas` / `isRateFilled` / `computeRowFlags` /
+  `computePricedCount` / `isRowIncomplete` / `buildFlagEntries` / `hasAnyFlag` / `flagSeverity`.
+
+**No circular import (the load-bearing structure call).** `priceability` IMPORTS PricingGrid's leaf predicates
+(`isPriceableType`/`isCellPriced`/`isRateDescriptor`/`isAmountDescriptor`/`lookupOperandValue`/`evaluateAmountCell`) +
+`amountFormula.pickFormula` (the established consumer-of-PricingGrid pattern, like `pricingRollup`). PricingGrid NEVER
+imports `priceability` -- it RECEIVES the flags as a `rowFlags?: Map<number, RowReviewFlags>` PROP. The flag types
+(`AreaKey`/`ReviewFlagKind`/`RowReviewFlags`/`ReviewEntry`/`PricedLineCount`) live in `boqTypes.ts` so the grid consumes
+`RowReviewFlags` without importing `priceability` (which would be the cycle). `pricingRollup` imports `priceability` (one
+direction toward PricingGrid leaves; no cycle).
+
+**The flags (DERIVED on the fly -- no stored field).** `computeRowFlags(row, descriptors, columnFormulas)`:
+- **needs_rate** -- priceable line with a qty-bearing area not filled. PER-AREA aware (priced in X but not qty-bearing Y
+  fires for Y; `needsRateAreas` carries the specific areas).
+- **qty_anomaly** -- a NON-priceable node_type carrying a non-zero qty anywhere (the inverse guardrail).
+- Plus F4's **broken** / **not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})` (saved-state, empty draftRates --
+  a consistent snapshot matching the rollup; the live grid keeps its own draft-aware broken `AlertTriangle`). **GATED behind
+  the priceability spine (cert fix -- see Amend 2):** the loop is skipped entirely on a non-priceable row, and within it a
+  no-qty area's amount cell is ignored (option-(i), reusing `isAreaQtyBearing`), symmetric with needs_rate. **not_yet is also
+  DE-DUPED per-area against needs_rate (cert fix -- see Amend 3):** suppressed when its area is already in `needsRateAreas`
+  (same rate gap); broken is never suppressed; not_yet still fires for a non-rate cause.
+- **`wont_compute` was REMOVED before push** (the original 4b-A shipped it as "priceable + being-priced + amount column
+  has no applicable `pickFormula`"). It is superseded by the forthcoming MANDATORY amount-formula-declaration gate, which
+  makes the no-formula-at-pricing-time state impossible -- so the flag could never fire. Dropped from `ReviewFlagKind`,
+  `RowReviewFlags`, `computeRowFlags`, `buildFlagEntries`, the in-grid marker, and `REVIEW_ENTRY_META`; its 2 dedicated
+  unit tests removed (priceability.test.ts 22 -> 20). `priceability` no longer imports `amountFormula.pickFormula`.
+
+**In-grid marker (`PricingGrid.tsx`).** A left accent (`border-l-4`) + a `Flag` icon in the Excel-Row GUTTER (col 0).
+DELIBERATELY in the gutter -- which carries no priced tint / colour border -- so a system flag never collides with the
+emerald/amber priced background or the user colour border (§6). Rose = critical (broken/qty_anomaly), amber = attention.
+The grid only READS the passed `rowFlags` (a tiny boolean->severity map inline; NOT a priceability re-derivation). The
+existing amount-cell broken `AlertTriangle` is untouched.
+
+**Review strip + count + filter (`SheetPricingPage.tsx`).** The 4a remark feed is EXTENDED IN PLACE (one `ReviewEntry[]`,
+NO fork): remarks + `buildFlagEntries`, sorted by Excel row; each entry click-jumps via the
+existing `gridRef.current?.scrollToRow(excelRow)`; per-kind badge/colour via a module-level `REVIEW_ENTRY_META`. (The
+incomplete-subtotal entries were part of the original 4b-A feed; they were removed as noise -- see Amend 2.) The header
+gains a live **N of M priceable lines priced** readout (`computePricedCount`; "ready to finalize" text when N===M -- NO
+finalize logic, that is slice 6) + a **"Show unpriced"** toggle filtering `displayRows` to priceable-but-not-fully-priced.
+The filter is PAGE-side (the grid's nav/byIdx stay consistent over the rendered set; `draftRates` keyed by `row_index`
+persist across the toggle -- the grid is keyed on `sheetName` only, no remount). The flag map + count + entries are plain
+consts (computed AFTER the early-return guards -> not `useMemo`, hooks-after-return is illegal; the page re-renders on
+save/toggle, never per keystroke).
+
+**Incomplete-subtotal + rollup alignment (`pricingRollup.ts`, STEP 7+8).** `RollupNode` gains `incomplete: boolean` = an OR
+over self + descendants of `priceability.isRowIncomplete` (a qty-bearing priceable row not fully priced / not_yet / broken).
+**Zero-qty / non-priceable descendants NEVER flag a parent** (owner: only qty-bearing rows count). Originally surfaced as
+per-subtotal review-strip entries via `incompleteSubtotalEntries`; **that fn was REMOVED (Amend 2) -- the signal now drives
+ONE quiet `SummaryPanel` message instead** (`RollupNode.incomplete` + its plumbing are KEPT). **ALIGNMENT (KEPT):** the
+stale header comment ("node_type is NOT on the delivered row") is corrected -- node_type IS now on `PricedRow`, and the
+priceable-POPULATION decision (the incomplete signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`)
+is INTENTIONALLY **NOT regated** -- regating would change committed-amount totals (the HARD-GATE STOP), so only the SIGNAL
+uses the helper and the existing rollup totals are byte-for-byte unchanged.
+
+**Tests + gates.** Vitest **170 -> 195** (+25) at ship: NEW `priceability.test.ts` (+22 -- the spine: zero-qty-everywhere
+excluded / single-area scalar / multi-area partial-qty fully-priced-ignores-no-qty-area / fully- vs half-priced /
+filled-is-not-a-zero-check (editor-0 vs unfilled-0 vs prepopulated-non-zero); the flags; F4 not_yet/broken surfaced; N/M
+count; `isRowIncomplete` incl. the zero-qty-don't-flag case; `buildFlagEntries`), `pricingRollup.test.ts` (+3 -- half-priced
+child -> parent incomplete + strip entry / zero-qty-only-unpriced -> COMPLETE / fully-priced + totals unaffected by the
+signal). The existing **20** pricingRollup tests stayed GREEN before AND after the alignment (no existing total silently
+changed -- the HARD GATE held). tsc **3178 == baseline** (0 new in touched files, test files included). Vite build exit 0.
+Backend / rate-save / nav / color / remarks / `amountFormula` / `evaluateAmountCell` internals / `SummaryPanel` UNTOUCHED.
+**Amend (`wont_compute` removal, before push):** its 2 dedicated unit tests dropped -> Vitest **195 -> 193**
+(`priceability.test.ts` 22 -> 20); one `wont_compute` assertion struck from the multi-flag `buildFlagEntries` strip-feed
+test (the rest intact); tsc **3178 == baseline**, build exit 0. `pricingRollup.ts`/`pricingRollup.test.ts` untouched.
+
+**Amend 2 (two cert-surfaced fixes, before push).** (1) **not_yet/broken gated behind the priceability spine.** The bug:
+not_yet/broken fired on NON-priceable rows (notes / headers) that happen to have amount columns and evaluate blank --
+noise. Root cause: `computeRowFlags`' not_yet/broken loop ran over amount descriptors with NO `isPriceableLine` gate and NO
+per-area qty-bearing check (unlike needs_rate). Fix (LOCKED, option-(i), symmetric with needs_rate): the loop is skipped
+entirely when `!isPriceableLine`, and within it each amount cell's area (`amount_by_area` -> value_key; scalar -> the SCALAR
+sentinel) must be `isAreaQtyBearing` -- a no-qty area's amount is ignored. The SAME gate was applied to `isRowIncomplete`'s
+loop so the Summary message agrees with the grid (a fully-priced row with a no-qty area whose formula evaluates not_yet would
+otherwise falsely read incomplete). needs_rate / qty_anomaly / the return shape are unchanged; `PricingGrid` is UNTOUCHED
+(the marker booleans' SHAPE is unchanged -- only WHEN they fire). (2) **incomplete-subtotal strip -> one Summary message.**
+The per-subtotal "Incomplete subtotal..." review-STRIP entries were noise: `incompleteSubtotalEntries` is DELETED from
+`pricingRollup.ts` (its `ReviewEntry` import too), the `incompleteEntries` call/concat dropped from `SheetPricingPage`, the
+`"incomplete_subtotal"` kind removed from `ReviewFlagKind` + `REVIEW_ENTRY_META`. `RollupNode.incomplete` +
+`ownIncompleteByIdx`/`rolledIncomplete`/`isRowIncomplete` are KEPT. `SummaryPanel` (a DELIBERATE scope addition -- the owner
+brought it in) shows ONE muted panel-level line "Some priceable lines aren't fully priced yet." when
+`roots.some(r => r.incomplete)` (a root's `incomplete` already ORs its subtree); NO per-subtotal markers (owner option (a));
+no new prop/fetch (SummaryPanel already rolls up internally). The §6 rollup ALIGNMENT is KEPT (owner-explicit), not reverted.
+**Tests:** Vitest **193 -> 197** (+4): `priceability.test.ts` 20 -> 24 (+4 FIX-1 gate tests -- the non-priceable bug repro;
+the option-(i) A1-fires/A2-ignored multi-area case; broken gated-out on non-priceable vs fires on priceable; a no-regression
+priceable-no-rate -> not_yet). `pricingRollup.test.ts` stays **23**: the 2 combined incomplete tests were TRIMMED in place
+(the `incompleteSubtotalEntries` assertions removed, their `node.incomplete` assertions KEPT) + the totals-unaffected test
+KEPT -- no whole node.incomplete test deleted. No SummaryPanel test harness exists (all boq-wizard tests are pure-function
+units) -> none scaffolded; covered by the `node.incomplete` units + live cert. tsc **3178 == baseline**, build exit 0.
+`PricingGrid.tsx` UNTOUCHED.
+
+**Amend 3 (`not_yet` de-duped against `needs_rate`, before push).** The bug (live-cert): on a priceable qty-bearing row
+with no rate, TWO flags fired from ONE cause -- `needs_rate` (the rate is missing) AND `not_yet` (the amount couldn't compute
+BECAUSE that same rate operand is missing). The `not_yet` there just restates the rate gap -- noise. Fix (LOCKED, owner,
+PER-AREA, `computeRowFlags` only): an amount cell contributes to `notYetCols` ONLY IF its area is NOT in the row's
+`needsRateAreas` (already computed for `needs_rate`; the amount cell's area is resolved the SAME way the loop already does --
+`amount_by_area` -> `value_key`, scalar -> the SCALAR sentinel; SAME key space, since both per-area columns of an area share
+`value_key=area`). A membership test -- REUSES `needsRateAreas`, no recompute, no new rate check. **`broken` is NEVER
+suppressed** (a malformed/cyclic formula is a different, real problem). **`not_yet` STILL fires** for a non-`needs_rate`
+area whose formula blanks for a NON-rate cause (e.g. an uncomputed amount operand). **`isRowIncomplete` is UNCHANGED** and
+VERIFIED unaffected: a `needs_rate` row is already `!isFullyPriced` -> returns true BEFORE its amount loop, so the Summary
+message stays correct (no flip to "complete"). The flag SHAPE is unchanged (`notYet` boolean + `notYetCols` stay; only WHICH
+cols populate changes). **Tests:** Vitest **197 -> 200** (+3): `priceability.test.ts` 24 -> 27. THREE existing
+not_yet-on-a-needs_rate-row tests were updated to the new behavior (CALLED OUT): "not_yet fires when a formula needs a
+not-yet-entered rate" -> flipped to assert `needsRate` true + `notYet` FALSE (single-area de-dupe); the option-(i) test's
+A1 positive (`notYetCols.toContain("F")`) -> fixed to `needsRateAreas.toContain("A1")` + `notYetCols` has neither F nor I;
+the "no regression STILL flags not_yet" test (whose premise is exactly inverted by the de-dupe) -> REMOVED, replaced by the
+de-dupe block. FOUR new tests added (de-dupe block): per-area A1-rated-computes/A2-unrated-de-duped; non-rate not_yet
+SURVIVES (rate filled, an uncomputed `amount_supply` operand referenced); broken NOT suppressed on a needs_rate row;
+`isRowIncomplete` stays true for a needs_rate row. A non-needs_rate `not_yet`/`broken`/`qty_anomaly` test stays green
+unchanged. tsc **3178 == baseline**, build exit 0. Only `priceability.ts` (+ its test) touched -- `PricingGrid` /
+`SheetPricingPage` / `pricingRollup` / `boqTypes` / `SummaryPanel` UNTOUCHED.
+
+### Phase 5 Pricing Editor -- Slice 4b-ACKNOWLEDGE -- the per-row "reviewed / looks OK" dismiss layer (FULL-STACK, MIGRATE, feat f60fe231, 2026-06-23)
+
+**Branch-history note (owed from the b8c44dec merge):** commit **3908f733** `feat(boq-review-export): add Parent Level
+column to review CSV/XLSX export` -- a Phase-3 review-export change that rode into this branch via the PR #1027 merge; the
+review CSV/XLSX writers (`exportReviewCsv.ts` / `exportReviewXlsx.ts` / `buildReviewSheet`) gained a Parent Level column.
+Recorded here for branch-history completeness; not part of this slice.
+
+**What this is.** A per-entry DISMISS ("reviewed / looks OK") on the pricing-editor review strip. The strip (Slice 4b-A)
+shows computed FLAGS (needs_rate / qty_anomaly / broken / not_yet) + user REMARKS. This slice lets a user acknowledge an
+entry so it stops cluttering the active view -- WITHOUT changing the underlying condition (the flag clears for real only
+when its condition clears, e.g. the row gets priced). A "show dismissed" toggle keeps nothing lost; a RATE EDIT on a row
+RE-ARMS that row's dismissed COMPUTED flags (a material change -> re-see the computed state), but NOT a dismissed remark.
+
+**The §6 ACKNOWLEDGE spec, recorded as BUILT (the owner-locked D1-D8):**
+- **D1 STORE KEY** = (boq, sheet_name VERBATIM #152, excel_row, **flag_kind**, committed_version). Per-ROW (like
+  BoQ Cell Remark) + a flag_kind discriminator. **NO per-area dimension** -- a `ReviewEntry`'s identity is (excel_row, kind)
+  (needs_rate/not_yet fold their per-area detail into ONE entry per row per kind before the strip). BUILT.
+- **D2 flag_kind VALUE SET** = exactly five tokens, ONE Select: `needs_rate | qty_anomaly | broken | not_yet | remark`
+  (the four computed kinds + "remark"). ONE store, not a separate remark-dismissal doctype. BUILT.
+- **D3 RE-ARM = ROW-LEVEL, COMPUTED-FLAGS-ONLY.** A successful `save_cell_price` freezes the row's current dismissals for
+  the four computed kinds, EXCLUDING "remark" (the remark dismissal survives a rate edit). BUILT (`_rearm_row_dismissals`,
+  `flag_kind IN _DISMISSAL_REARM_KINDS`). Test T6 is the load-bearing exclusion proof.
+- **D4 RE-ARM IS A FREEZE, NOT A DELETE.** `set_value(is_current=0)`, the re-armed record becomes a frozen historical row;
+  the read returns only is_current=1, so a re-armed dismissal vanishes from BOTH active and show-all. BUILT.
+- **D5 WRITE ENDPOINT** `save_cell_dismissal(boq, sheet, excel_row, committed_version, flag_kind, dismissed, description)`:
+  truthy -> freeze prior current for (row, kind) + insert fresh current; falsy -> freeze current, insert nothing (the
+  explicit un-dismiss / the toggle's "show again"). Own trailing commit; lock-on-write + resolve-committed-row (no
+  priceability gate -- a dismissal is allowed on any row); HTTP-string coercion of `dismissed`. BUILT (mirrors
+  `save_row_remark`).
+- **D6 is_finalized DECLARED but INERT** (Check default 0) -- mirrors BoQ Cell Pricing; Slice 6 wires enforcement. BUILT.
+- **D7 description copy-forward GUARD** included now, NO copy-forward logic built. BUILT (field present, never branched on).
+- **D8 READ PATH = a SEPARATE sheet-level map** (like column_formulas, NOT merged per-row): an additive `dismissals` key on
+  `get_priced_rows` = a flat `[{excel_row, flag_kind}, ...]`. The frontend turns it into an O(1) set keyed
+  `"<flag_kind>:<excel_row>"`. **CHOSEN concrete shape = the flat list** (the natural `get_all` output, mirrors
+  pricing/remarks/colors; the frontend builds the membership set with the SAME composite the strip's `<li>` key already
+  uses). BUILT.
+
+**Backend (pricing.py + NEW doctype, MIGRATE).** NEW doctype **`BoQ Cell Dismissal`** (cloned from BoQ Cell Remark;
+istable=0, track_changes=1, autoname `BDSM-.YY.-.#####`; fields per D1/D2/D6/D7 + freeze triple
+`dismissal_version`/`is_current`/`dismissed_at` + `dismissed_by`). `pricing.py`: module consts `_DISMISSAL_KINDS` (5) +
+`_DISMISSAL_REARM_KINDS` (4, no remark); helpers `_dismissal_identity_filters` / `_current_dismissal_names` /
+`_next_dismissal_version` / `_rearm_row_dismissals`; endpoints `save_cell_dismissal` + `get_sheet_dismissals`; the re-arm
+call INSIDE `save_cell_price` placed AFTER the price insert + BEFORE the single `frappe.db.commit()` (fires only on a
+successful write -- every reject path threw earlier and mutated nothing -- and lands atomically under the one commit);
+the additive sheet-level `dismissals` key built in `get_priced_rows`'s `if commit_version is not None` block via
+`get_sheet_dismissals` (one query, no per-row query). ADDITIVE -- no existing doctype changed, get_priced_rows gains ONE
+key (backwards-compat; a zero-dismissal sheet behaves byte-for-byte as before). `bench migrate` clean -- tabBoQ Cell
+Dismissal, 22 columns (11 standard + 11 custom).
+
+**Frontend (priceability.ts + SheetPricingPage.tsx + boqTypes.ts).** `priceability.ts` PURE helpers `dismissalKey` (=
+`"<kind>:<excelRow>"`, EQUALS the strip's `<li>` key) / `reviewEntryKey` / `buildDismissedKeySet` / `isEntryDismissed` /
+`filterActiveReviewEntries` (ONE pass over the already-built list -- no new page recompute, per the perf-slice-comes-next
+constraint). `boqTypes.ts`: `DismissalRef` + `DismissalSaveArgs` + the `dismissals` key on `GetPricedRowsResponse`;
+`ReviewEntry` UNCHANGED. `SheetPricingPage.tsx`: `allReviewEntries` -> `activeReviewEntries` ->
+`reviewEntries = showDismissed ? all : active`; toolbar Review-count = ACTIVE count; strip header "Show dismissed (N)" /
+"Hide dismissed" toggle (only when `dismissedCount > 0`, per-sheet, reset on tab switch); per-entry "Looks OK" / "Restore"
+ghost button (`stopPropagation`; WITHHELD when `locked`); `handleSaveDismiss` (mirrors `handleSaveColor`:
+in-flight/takeover/mutate) wired to `save_cell_dismissal`. NO client re-arm logic -- the server re-arms, the frontend
+re-reads via `mutate()`.
+
+**Tests.** Backend `test_pricing` **82 -> 96** (+14: `TestCellDismissal` -- T1 create/v1+read, T2 freeze-and-supersede, T3
+two-kinds-independent, T4 un-dismiss-inserts-nothing, T5 rate-edit re-arms, T6 rate-edit EXCLUDES remark [load-bearing], T7
+rejected rate save [non-priceable] leaves dismissals [success-only], T8 non-existent row, T9 bad/missing flag_kind, the
+lock-reject guard, the HTTP-string coercion, T10 get_priced_rows surfaces/empty). Frontend Vitest **200 -> 203** (+3:
+`priceability.test.ts` 27 -> 30 -- T11 active-vs-show-all filter + the remark-survives-while-flag-dismissed read-layer
+mirror, T12 the strip-key composite match). tsc 0 new wizard-file errors; in-container Vite build exit 0 (167 PWA entries).
+
+**Test coverage matrix (which D each guards).** T1/T2 = D5 freeze-and-supersede + the one-current invariant; T3 = D1/D2
+(the flag_kind discriminator -> independent dismissals); T4 = D5 un-dismiss; T5 = D3 re-arm; T6 = D3 remark-exclusion
+(THE load-bearing rule); T7 = re-arm-only-on-success (the 3e "rejected write mutates nothing" discipline); T8/T9 =
+validation negatives; T10 = D8 additive read shape (+ backwards-compat empty); T11 = the strip filter; T12 = the
+membership composite == the strip key.
+
+**Cognitive scope (locked).** Acknowledge ONLY -- NOT the editor-perf fix, NOT the amount-formula-declaration gate, NOT
+Cluster B. The frontend filter is one pass over the existing `ReviewEntry[]`; NO new page-level recompute was introduced.
+
+**Manual live-cert (DESTRUCTIVE re-arm step -- pending Nitesh, on 145/150/166):** LC1 dismiss a needs_rate -> drops from
+the active strip + the count; LC2 "show all" -> the dismissed entry reappears marked; LC3 dismiss a remark -> drops too;
+LC4 edit a RATE on the dismissed row -> needs_rate re-arms (active again), the REMARK dismissal STAYS (D3); LC5 un-dismiss
+via show-all -> returns to active; LC6 reload -> dismissals persist (per committed version).

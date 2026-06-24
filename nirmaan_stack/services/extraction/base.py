@@ -13,6 +13,7 @@ from typing import Protocol, TypedDict
 # doc_kind values
 INVOICE = "invoice"
 PAYMENT = "payment"
+CUSTOMER_PO = "customer_po"
 
 
 class Entity(TypedDict):

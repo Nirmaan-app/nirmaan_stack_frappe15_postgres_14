@@ -119,6 +119,16 @@ export interface BoQSheetDraft {
    */
   ai_in_progress?: 0 | 1;
   /**
+   * DUAL-AI (ADR-0003): 1 while this sheet is under an active GEMINI pass. Exact mirror of
+   * ai_in_progress for the gemini_* provider (set at enqueue in run_gemini_pass, cleared in the
+   * _publish_gemini_event choke-point on completion). The review screen reads this to disable
+   * "Run Gemini pass" + show the "Gemini pass running…" chip, and to recover an in-flight pass on
+   * mount. Flows automatically on useFrappeGetDoc("BOQs"). Like ai_in_progress (and UNLIKE
+   * parse_in_progress) this does NOT make the screen read-only -- a Gemini pass only writes the
+   * gemini_* suggestion fields, never human/parser data.
+   */
+  gemini_in_progress?: 0 | 1;
+  /**
    * Per-sheet PARSE-failure stamp (Slice 1a, reactive #166). Ride the BOQs payload
    * (child-table fields on BoQ Sheet Draft) -- no separate fetch. category is one of the
    * three in-scope failures (matches the doctype Select); reason is the specific why;
@@ -210,6 +220,52 @@ export interface AiPassDonePayload {
   count?: number;
   error_code?: string;
 }
+
+/**
+ * Payload of the `boq:gemini_pass_done` realtime event (DUAL-AI, ADR-0003;
+ * gemini_assist._publish_gemini_event). User-targeted; room-targeted + not replayed -- a
+ * client that misses it recovers via get_gemini_pass_status polling. Shape:
+ * {status, boq_name, sheet_name, **kwargs}. NOTE: unlike AiPassDonePayload (whose success
+ * kwarg is `count`) the Gemini SUCCESS kwargs are `rows_done` + `token_total`; the ERROR
+ * kwarg is `error_code` ("gemini_failed" | "internal"). Field names confirmed against
+ * _publish_gemini_event / _run_gemini_pass_worker in gemini_assist.py.
+ */
+export interface GeminiPassDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  sheet_name: string;
+  rows_done?: number;
+  token_total?: number;
+  error_code?: string;
+}
+
+/**
+ * Response shape of run_gemini_pass (DUAL-AI, ADR-0003). Mirror of run_ai_pass's inline
+ * return type, with TWO deliberate differences (confirmed vs gemini_assist.py):
+ *   - NO `cached` field -- the Gemini module has NO result cache (only the missed-socket
+ *     status fallback); a re-run is always a fresh enqueue.
+ *   - adds `job_id` (the enqueued job id, or null) -- run_ai_pass does not return one.
+ * Pre-flight {ok:false} rejections set `error` to one of:
+ *   "not_parsed" | "gemini_disabled" | "frozen" | "parsing" | "in_progress".
+ * The unwrapped frappe-react-sdk `message` is this object.
+ * URL: nirmaan_stack.api.boq.wizard.gemini_assist.run_gemini_pass
+ */
+export interface RunGeminiPassResponse {
+  ok: boolean;
+  error?: string;
+  enqueued?: boolean;
+  job_id?: string | null;
+}
+
+/**
+ * Response shape of get_gemini_pass_status (DUAL-AI, ADR-0003). Mirror of the Claude-side
+ * AiStatusResponse: EITHER the cached terminal GeminiPassDonePayload, OR the idle shape
+ * carrying the live gemini_in_progress flag (note: gemini_in_progress, NOT ai_in_progress).
+ * URL: nirmaan_stack.api.boq.wizard.gemini_assist.get_gemini_pass_status
+ */
+export type GeminiStatusResponse =
+  | GeminiPassDonePayload
+  | { status: "idle_or_unknown"; gemini_in_progress: 0 | 1 };
 
 export interface BOQsDoc {
   name: string;
@@ -384,6 +440,44 @@ export interface ReviewRow {
   // or by finalize). Computed by get_review_rows from ai_accept_snapshot; the raw blob is
   // never shipped. Drives the Revert AI change button (enabled iff revert_available && !readOnly).
   revert_available?: boolean;
+  // R3a (ADR-0006): true when the row is NOT at the parser baseline -- it carries a standing
+  // change, i.e. an accepted AI suggestion (either provider's *_suggestion_status === "Accepted")
+  // OR a manual human_* override. Computed by get_review_rows. AI Apply (Claude or Gemini) is
+  // DISABLED while this is true (apply must never silently overwrite a standing decision); the
+  // unified "Revert to parser" affordance is shown whenever it is true and restores the row (and
+  // any children a restructure moved) to the parser baseline, after which AI Apply re-enables.
+  has_override?: boolean;
+
+  // ── DUAL-AI (ADR-0003) -- GEMINI suggestion layer. ADDITIVE-ONLY. ───────────────
+  // EXACT mirror of the ai_* block above for the second provider (Gemini), same optionality
+  // and union types. Written by the Gemini pass (run_gemini_pass worker) + the
+  // accept/reject/revert gemini endpoints; never by the parser or the human edit layer.
+  // resolve_effective is CLAUDE-ONLY -- it does NOT read or echo any gemini_* field, so these
+  // are surfaced purely from get_review_rows's explicit fetch list (read-only display +
+  // the symmetric accept/reject/revert flow). -1 sentinel on gemini_suggested_parent =
+  // "no parent-index suggestion" (root is carried by gemini_suggested_is_root). The status
+  // badge is SOURCE-TAGGED ("Accepted · Gemini") when gemini_suggestion_status === "Accepted";
+  // only one of ai_suggestion_status / gemini_suggestion_status can be "Accepted" at a time.
+  gemini_suggested_classification?: string | null;
+  gemini_classification_confidence?: "High" | "Medium" | "Low" | null;
+  gemini_suggested_parent?: number | null;
+  gemini_parent_confidence?: "High" | "Medium" | "Low" | null;
+  gemini_suggested_is_root?: 0 | 1;
+  gemini_suggested_level?: number | null;
+  gemini_explanation?: string | null;
+  gemini_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
+  // DUAL-AI mirror of revert_available: true when a Gemini acceptance on this row can still be
+  // reverted (the backend captured gemini_accept_snapshot on accept; cleared by a later
+  // classification/parent edit, a Claude accept routed through the chokepoint, or finalize).
+  // Computed by get_review_rows from gemini_accept_snapshot; the raw blob is never shipped.
+  // Drives the Revert Gemini change button (enabled iff gemini_revert_available && !readOnly).
+  gemini_revert_available?: boolean;
+  // The audit-only "winning" Source for this row (parser/claude/gemini/manual), set ENTIRELY by
+  // the shared write chokepoint (_apply_and_save_row_edit) from the edit reason string. MINIMUM
+  // UI FOOTPRINT (LOCKED, ADR-0003 sec 8A): NO dedicated column/badge/widget/filter -- the
+  // winning Source is conveyed SOLELY by the source-tagged status badge (Accepted·Claude /
+  // Accepted·Gemini; manual reads "Edited"; untouched reads "Original"/parser).
+  chosen_source?: "parser" | "claude" | "gemini" | "manual";
 }
 
 /**
@@ -423,6 +517,12 @@ export interface GetReviewRowsResponse {
   work_packages: string[];
   column_descriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
+  // DUAL-AI (ADR-0003): the Gemini enable flag, surfaced top-level by get_review_rows from
+  // Document AI Settings.boq_ai_enabled (read perm-bypassing, fails closed to false). The
+  // frontend gates the Gemini column + accept block on this. NOTE: there is NO `ai_enabled`
+  // sibling in this response -- Claude's enable lives in a separate settings home and is read
+  // elsewhere; only gemini_enabled rides this payload.
+  gemini_enabled?: boolean;
 }
 
 /**
@@ -612,6 +712,112 @@ export interface GetPricedRowsResponse {
   lock_info: LockInfo | null;
   /** F1: per-COLUMN amount formulas for this committed version ([] when none / uncommitted). */
   column_formulas: ColumnFormula[];
+  /**
+   * Slice 4b-ACKNOWLEDGE: the current "reviewed / looks OK" dismissals for this committed
+   * version, delivered as a SHEET-LEVEL list (NOT merged per-row, like column_formulas). The
+   * strip filter turns it into an O(1) membership set keyed "<flag_kind>:<excel_row>" (the
+   * strip's own list key). [] when none / uncommitted.
+   */
+  dismissals: DismissalRef[];
+}
+
+// ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
+// Pure DISPLAY-only types. The flag DERIVATION lives in priceability.ts (which imports
+// PricingGrid's leaf predicates -> these types must live HERE so PricingGrid can consume
+// RowReviewFlags as a prop WITHOUT importing priceability, which would be a cycle).
+
+/**
+ * A pricing AREA key: a concrete per-area name, or `null` -- the SCALAR sentinel for a
+ * scalar (value_key === null) rate/qty column. The one key space the shared qty-bearing /
+ * fully-priced predicates iterate over.
+ */
+export type AreaKey = string | null;
+
+/**
+ * The computed review-flag kinds (Slice 4b-A). All DERIVED on the fly from the delivered
+ * row + descriptors + column_formulas -- never a stored field. broken / not_yet fire ONLY on
+ * a PRICEABLE LINE and ONLY for a QTY-BEARING area's amount cell (option-(i), symmetric with
+ * needs_rate -- a cert fix):
+ *   needs_rate -- a priceable line with a qty-bearing area whose rate is not filled.
+ *   qty_anomaly -- qty on a NON-priceable row type (the inverse guardrail).
+ *   broken     -- a priceable qty-bearing amount cell's formula can't resolve (cycle / dangling).
+ *   not_yet    -- a priceable qty-bearing amount cell's formula needs a not-yet-entered operand.
+ * (The 4b-A `wont_compute` kind was removed before push -- superseded by the forthcoming
+ * mandatory amount-formula-declaration gate. The `incomplete_subtotal` kind was also removed:
+ * the per-subtotal review-STRIP entries were noise; the incomplete signal now surfaces as ONE
+ * quiet panel-level message in SummaryPanel, read from RollupNode.incomplete, NOT the strip.)
+ */
+export type ReviewFlagKind =
+  | "needs_rate"
+  | "qty_anomaly"
+  | "broken"
+  | "not_yet";
+
+/**
+ * The per-row computed flags (Slice 4b-A). Booleans drive the in-grid markers + the count;
+ * the detail arrays (areas / cols) drive the per-cell aim + the review-strip text. PURE --
+ * computed by priceability.computeRowFlags.
+ */
+export interface RowReviewFlags {
+  /** Priceable line with >=1 qty-bearing area not fully filled. */
+  needsRate: boolean;
+  /** The specific qty-bearing areas (AreaKey) on this row whose rate is not filled. */
+  needsRateAreas: AreaKey[];
+  /** Non-priceable row type carrying a non-zero qty (any area). */
+  qtyAnomaly: boolean;
+  /** An amount cell evaluates to {blank, broken} (saved-state). */
+  broken: boolean;
+  brokenCols: string[];
+  /** An amount cell evaluates to {blank, not_yet} (saved-state). */
+  notYet: boolean;
+  notYetCols: string[];
+}
+
+/**
+ * One entry in the unified review-list strip (Slice 4b-A extends the 4a remark feed in
+ * place -- a SINGLE list, no fork). `kind` is "remark" (4a) or any computed flag kind; each
+ * entry click-jumps to the row via the grid's scrollToRow handle.
+ */
+export interface ReviewEntry {
+  kind: "remark" | ReviewFlagKind;
+  /** the row's source_row_number (Excel row) -- the scrollToRow target. */
+  excelRow: number;
+  description: string;
+  /** the human-readable line shown in the strip. */
+  text: string;
+}
+
+/**
+ * Slice 4b-ACKNOWLEDGE: one current "reviewed / looks OK" dismissal, as delivered by
+ * get_priced_rows.dismissals. Identity = (excel_row, flag_kind). `flag_kind` is the SAME
+ * value space as ReviewEntry["kind"] (the four computed flags PLUS "remark"), so a dismissal
+ * matches an entry on the composite key "<flag_kind>:<excel_row>" (the strip's list key). NO
+ * per-area dimension (a ReviewEntry folds its per-area detail into ONE entry per row per kind).
+ */
+export interface DismissalRef {
+  excel_row: number;
+  flag_kind: ReviewEntry["kind"];
+}
+
+/**
+ * Slice 4b-ACKNOWLEDGE: the args the page sends to save_cell_dismissal. The strip hands up an
+ * entry's (excelRow, kind) + the desired state; the page fills boq_name / sheet_name /
+ * committed_version + description, then POSTs. `dismissed` false un-dismisses (re-shows).
+ */
+export interface DismissalSaveArgs {
+  excelRow: number;
+  flagKind: ReviewEntry["kind"];
+  dismissed: boolean;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
+/** The live priced-count readout (Slice 4b-A): N of M priceable lines fully priced. */
+export interface PricedLineCount {
+  /** N -- priceable lines that are FULLY priced (every qty-bearing area's rate filled). */
+  priced: number;
+  /** M -- priceable lines (priceable type AND qty-bearing in >=1 area). */
+  total: number;
 }
 
 /**
@@ -683,6 +889,11 @@ export type StructuralBreak =
 /** Response shape of get_structural_breaks. */
 export interface GetStructuralBreaksResponse {
   breaks: StructuralBreak[];
+  // Slice B2a addition: the endpoint also returns advisory flags alongside breaks (the same
+  // shape get_review_rows surfaces). R4's warnings panel reads `breaks` from this endpoint;
+  // advisory flags come from get_review_rows on the page, but the field is declared here for
+  // completeness with the backend contract.
+  flags?: AdvisoryFlag[];
 }
 
 // ── Finalized marking (Slice D1; renamed A1) ──────────────────────────────────

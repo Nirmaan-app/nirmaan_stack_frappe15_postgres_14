@@ -177,6 +177,18 @@ export function buildReviewSheet({
     const parent = byIdx.get(parentIdx);
     return parent ? (parent.source_row_number ?? null) : null;
   };
+  // Typed parent's stored parser `level` (the FINAL / effective parent). A genuine
+  // root (no parent: -1 sentinel / null / negative) renders the literal "Top level".
+  // A NON-root row whose parent is missing, or whose parent's own `level` is unset,
+  // renders blank (null) -- "Top level" is reserved for true roots so it never
+  // conflates "no parent" with "parent's level not captured". NOTE: this is the one
+  // mixed-type column (string sentinel OR numeric level); exceljs writes each cell
+  // by its own type, and csvCell stringifies both.
+  const parentLevel = (parentIdx: number | null | undefined): SheetCell => {
+    if (parentIdx === null || parentIdx === undefined || parentIdx < 0) return "Top level";
+    const parent = byIdx.get(parentIdx);
+    return parent ? (parent.level ?? null) : null;
+  };
 
   // Data columns: descriptor-driven, EXCLUDING sl_no/description roles (those are
   // the dedicated Sl.No/Description fixed columns -- same dedupe the tree applies,
@@ -195,6 +207,7 @@ export function buildReviewSheet({
     "Classification (Final)",
     "Parent Excel Row (Original)",
     "Parent Excel Row (Final)",
+    "Parent Level",
     ...dataDescriptors.map(descriptorHeader),
     "Row Notes",
     "Append Notes",
@@ -228,6 +241,7 @@ export function buildReviewSheet({
       labelCell(clsLabel(row.effective_classification)),
       parentExcelRow(row.parent_index),
       parentExcelRow(row.effective_parent_index),
+      parentLevel(row.effective_parent_index),
       // Per-descriptor values: reuse the tree's walk; numbers RAW (no formatter).
       ...dataDescriptors.map((d) => descriptorCell(resolveDescriptorValue(row, d))),
       textCell(row.row_notes),

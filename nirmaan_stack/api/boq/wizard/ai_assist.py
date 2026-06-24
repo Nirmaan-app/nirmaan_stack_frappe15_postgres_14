@@ -50,6 +50,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     _SHEET_FINALIZED,
     _apply_and_save_row_edit,
     _get_sheet_wizard_status,
+    _guard_row_at_parser_baseline,
     _guard_sheet_not_frozen,
     resolve_effective,
 )
@@ -360,6 +361,18 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     # SET only after a successful enqueue so a failed enqueue doesn't leave state stuck.
     _set_ai_in_progress(boq_name, sheet_name, 1)
     frappe.db.commit()
+
+    # Invalidate any PRIOR run's terminal status payload (the Redis missed-socket fallback set
+    # by _publish_ai_event) so the frontend's poll resolves THIS pass, not the last one's outcome.
+    # Without this, re-running after a failure re-shows the old error banner: the poll reads
+    # get_ai_pass_status -> stale cached {status:"error"} while the new run is still in flight.
+    # Best-effort (Redis, outside the DB txn) -- must never fail the enqueue. (Parity with
+    # run_gemini_pass; the cache-hit path above returns early and records no status payload.)
+    try:
+        frappe.cache().delete_value(_ai_status_key(boq_name, sheet_name))
+    except Exception:
+        pass
+
     return {"ok": True, "enqueued": True, "job_id": job.id if job else None}
 
 
@@ -476,6 +489,13 @@ def accept_ai_suggestion(
         row_index = int(row_index)
     except (ValueError, TypeError):
         frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    # R3a / ADR-0006 block-then-revert: an AI apply is allowed ONLY on a row at the parser
+    # baseline. If the row carries a standing override (a Gemini acceptance OR a manual
+    # human edit), BLOCK -- the user must Revert to parser first. (A standing CLAUDE
+    # acceptance also blocks: re-accepting an already-accepted Claude suggestion is itself a
+    # no-op-or-overwrite, so the same gate applies.) This replaces the prior silent overwrite.
+    _guard_row_at_parser_baseline(boq_name, sheet_name, row_index)
 
     row_name = frappe.db.get_value(
         _REVIEW_ROW,

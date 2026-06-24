@@ -1945,6 +1945,31 @@ const ReviewSummary: React.FC<{
                                         const rows = (Array.isArray(group?.rows)
                                             ? (group.rows as Array<Record<string, unknown>>)
                                             : []);
+                                        // CFM report: per-row Average CFM + Total / CFM Variation
+                                        // rollups, mirroring commission-printformat.html's
+                                        // duct-cfm-report branch (other templates unaffected).
+                                        const isCfm = template.templateId === 'duct-cfm-report';
+                                        const toNum = (v: unknown): number | null => {
+                                            if (v === null || v === undefined || v === '') return null;
+                                            const n = typeof v === 'number' ? v : parseFloat(String(v));
+                                            return Number.isFinite(n) ? n : null;
+                                        };
+                                        const rowAvgCfm = (r: Record<string, unknown>): number | null => {
+                                            const a = toNum(r?.r1);
+                                            const b = toNum(r?.r2);
+                                            const c = toNum(r?.r3);
+                                            if (a === null || b === null || c === null) return null;
+                                            return (a + b + c) / 3;
+                                        };
+                                        let cfmTotAvg = 0, cfmNAvg = 0, cfmTotDes = 0, cfmNDes = 0;
+                                        if (isCfm) {
+                                            rows.forEach((r) => {
+                                                const av = rowAvgCfm(r);
+                                                if (av !== null) { cfmTotAvg += av; cfmNAvg += 1; }
+                                                const d = toNum(r?.designed_cfm);
+                                                if (d !== null) { cfmTotDes += d; cfmNDes += 1; }
+                                            });
+                                        }
                                         return (
                                             <div
                                                 key={gIdx}
@@ -1992,14 +2017,27 @@ const ReviewSummary: React.FC<{
                                                                             #
                                                                         </th>
                                                                         {section.rowsTable!.columns.map(
-                                                                            (c) => (
-                                                                                <th
-                                                                                    key={c.key}
-                                                                                    className="py-1.5 pr-2 text-left font-medium"
-                                                                                >
-                                                                                    {c.label}
-                                                                                </th>
-                                                                            ),
+                                                                            (c) => {
+                                                                                const th = (
+                                                                                    <th
+                                                                                        key={c.key}
+                                                                                        className="py-1.5 pr-2 text-left font-medium"
+                                                                                    >
+                                                                                        {c.label}
+                                                                                    </th>
+                                                                                );
+                                                                                if (isCfm && c.key === 'designed_cfm') {
+                                                                                    return (
+                                                                                        <React.Fragment key={c.key}>
+                                                                                            <th className="py-1.5 pr-2 text-left font-medium">
+                                                                                                Average CFM
+                                                                                            </th>
+                                                                                            {th}
+                                                                                        </React.Fragment>
+                                                                                    );
+                                                                                }
+                                                                                return th;
+                                                                            },
                                                                         )}
                                                                     </tr>
                                                                 </thead>
@@ -2020,7 +2058,7 @@ const ReviewSummary: React.FC<{
                                                                                     );
                                                                                     const isEmpty =
                                                                                         display === '—';
-                                                                                    return (
+                                                                                    const td = (
                                                                                         <td
                                                                                             key={c.key}
                                                                                             className={
@@ -2033,11 +2071,54 @@ const ReviewSummary: React.FC<{
                                                                                             {display}
                                                                                         </td>
                                                                                     );
+                                                                                    if (isCfm && c.key === 'designed_cfm') {
+                                                                                        const av = rowAvgCfm(row);
+                                                                                        return (
+                                                                                            <React.Fragment key={c.key}>
+                                                                                                <td className="py-2 pr-2 font-medium">
+                                                                                                    {av === null ? '—' : av.toFixed(2)}
+                                                                                                </td>
+                                                                                                {td}
+                                                                                            </React.Fragment>
+                                                                                        );
+                                                                                    }
+                                                                                    return td;
                                                                                 },
                                                                             )}
                                                                         </tr>
                                                                     ))}
                                                                 </tbody>
+                                                                {isCfm && (
+                                                                    <tfoot>
+                                                                        <tr className="border-t font-semibold">
+                                                                            <td
+                                                                                className="py-2 pr-2 text-right"
+                                                                                colSpan={section.rowsTable!.columns.length}
+                                                                            >
+                                                                                Total CFM
+                                                                            </td>
+                                                                            <td className="py-2 pr-2">
+                                                                                {cfmNAvg > 0 ? cfmTotAvg.toFixed(2) : '—'}
+                                                                            </td>
+                                                                            <td className="py-2 pr-2">
+                                                                                {cfmNDes > 0 ? cfmTotDes.toFixed(2) : '—'}
+                                                                            </td>
+                                                                        </tr>
+                                                                        <tr className="font-semibold">
+                                                                            <td
+                                                                                className="py-2 pr-2 text-right"
+                                                                                colSpan={section.rowsTable!.columns.length}
+                                                                            >
+                                                                                CFM Variation
+                                                                            </td>
+                                                                            <td className="py-2 pr-2" colSpan={2}>
+                                                                                {cfmNAvg > 0 && cfmNDes > 0 && cfmTotDes > 0
+                                                                                    ? (cfmTotAvg / cfmTotDes).toFixed(2)
+                                                                                    : '—'}
+                                                                            </td>
+                                                                        </tr>
+                                                                    </tfoot>
+                                                                )}
                                                             </table>
                                                         </div>
                                                     )}

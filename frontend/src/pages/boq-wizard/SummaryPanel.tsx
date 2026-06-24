@@ -27,7 +27,7 @@
  * they may legitimately differ from the client BoQ's printed subtotals (intended).
  */
 import { useMemo, useState } from "react";
-import { ChevronRight, AlertTriangle } from "lucide-react";
+import { ChevronRight, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { rollupByParent, defaultCollapsedSet, type RollupNode } from "./pricingRollup";
 import type { ColumnDescriptor, ColumnFormula, PricedRow } from "./boqTypes";
@@ -121,6 +121,12 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, sheetName, onCl
 
   const hasAmountCols = columns.length > 0;
 
+  // Slice 4b-A (fix): the incomplete-subtotal signal is now ONE quiet panel-level message
+  // (the per-subtotal review-STRIP entries were removed as noise -- owner option (a)). A
+  // root's `incomplete` already ORs its whole subtree (rolledIncomplete), so any node anywhere
+  // being incomplete makes some root incomplete. No new prop / fetch -- reads the rollup forest.
+  const hasIncomplete = roots.some((r) => r.incomplete);
+
   return (
     <section className="rounded-md border border-border bg-background">
       {/* Header bar: title + expand/collapse-all + close */}
@@ -170,6 +176,15 @@ const SummaryPanel = ({ rows, columnDescriptors, columnFormulas, sheetName, onCl
               ))}
             </ul>
           </div>
+        </div>
+      )}
+
+      {/* Slice 4b-A (fix): ONE calm panel-level note when any priceable line isn't fully
+          priced yet -- NOT per-subtotal markers (owner option (a)); muted, not an error. */}
+      {hasIncomplete && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30 text-xs text-muted-foreground">
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span>Some priceable lines aren&rsquo;t fully priced yet.</span>
         </div>
       )}
 

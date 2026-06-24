@@ -36,6 +36,10 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
     _guard_sheet_not_parsing,
     get_boq_work_packages,
 )
+# DUAL-AI (ADR-0003): Gemini enable flag lives in Document AI Settings (NOT the
+# Claude BOQ Upload Review AI Settings). Read it perm-bypassing via the shared
+# extraction settings reader -- get_review_rows surfaces gemini_enabled from it.
+from nirmaan_stack.services.extraction.files import get_boq_classifier_settings
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +799,69 @@ def _guard_sheet_not_frozen(boq_name: str, sheet_name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Standing-override detection + block-then-revert guard (ADR-0006, R3a)
+# ---------------------------------------------------------------------------
+# A row carries a "standing override" when it is NOT at the parser baseline: an
+# accepted AI suggestion (Claude OR Gemini) OR a manual human edit. An AI apply is
+# allowed ONLY on a baseline row; on a row with any standing override the apply is
+# BLOCKED (the user must explicitly Revert to parser first). This replaces the
+# prior auto-revert-the-other-provider behaviour: an apply never silently overwrites
+# any standing decision.
+
+_BLOCK_THEN_REVERT_MESSAGE = (
+    "Revert this row to parser before applying an AI suggestion."
+)
+
+
+def _row_has_override(row: Any) -> bool:
+    """True iff `row` carries a STANDING override (it is NOT at the parser baseline).
+
+    A standing override is ANY of:
+      - an accepted Claude suggestion  (ai_suggestion_status == "Accepted")
+      - an accepted Gemini suggestion  (gemini_suggestion_status == "Accepted")
+      - a manual human edit:
+          * human_classification set, OR
+          * a real human_parent override (>= 0 -- the -1 sentinel means "no override"), OR
+          * human_is_root set.
+
+    `row` may be a Frappe Document, frappe._dict, or a plain dict (read via _get).
+    This is the single signal: get_review_rows ships it as `has_override` (the frontend
+    disables Apply + shows the unified Revert), and the accept endpoints throw on it.
+    """
+    if _get(row, "ai_suggestion_status") == "Accepted":
+        return True
+    if _get(row, "gemini_suggestion_status") == "Accepted":
+        return True
+    if _get(row, "human_classification"):
+        return True
+    hp = _get(row, "human_parent")
+    if hp is not None and hp >= 0:
+        return True
+    if _get(row, "human_is_root"):
+        return True
+    return False
+
+
+def _guard_row_at_parser_baseline(boq_name: str, sheet_name: str, row_index: int) -> None:
+    """Throw a ValidationError if the target row carries a standing override (ADR-0006).
+
+    An AI apply (accept_ai_suggestion / accept_gemini_suggestion / the with-children accept
+    path of save_review_restructure) is allowed ONLY on a baseline row. The user must first
+    Revert to parser (revert_to_parser) to clear any standing AI acceptance OR manual edit.
+    Reads the minimal override-deciding fields directly so the guard is cheap. sheet_name
+    VERBATIM (#152)."""
+    row = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        ["ai_suggestion_status", "gemini_suggestion_status",
+         "human_classification", "human_parent", "human_is_root"],
+        as_dict=True,
+    )
+    if row and _row_has_override(row):
+        frappe.throw(_BLOCK_THEN_REVERT_MESSAGE, title="Revert to parser first")
+
+
+# ---------------------------------------------------------------------------
 # Shared row-write helper (save-inside / commit-outside)
 # ---------------------------------------------------------------------------
 
@@ -1014,6 +1081,73 @@ def _apply_and_save_row_edit(
         if doc.ai_suggestion_status == "Accepted":
             doc.ai_suggestion_status = None
 
+        # ============================================================================
+        # DUAL-AI (ADR-0003) -- GEMINI additions. ADDITIVE-ONLY: these three writes
+        # MIRROR the Claude logic above for the gemini_* namespace, GATED on the same
+        # human_classification / human_parent fields. They do NOT touch any ai_* state.
+        #
+        # R3a / ADR-0006 (block-then-revert): the prior asymmetry is RETIRED. An AI apply
+        # can no longer stack on top of a standing acceptance or a manual edit -- the accept
+        # endpoints throw _BLOCK_THEN_REVERT_MESSAGE on any overridden row, so every accept
+        # is captured against a clean parser baseline and every revert lands on parser. There
+        # is no "restore to a prior manual edit" branch and no cross-provider pre-revert; the
+        # one escape hatch is the unified revert_to_parser. The clears below remain because a
+        # manual human_classification / human_parent edit is itself a standing change that
+        # supersedes any AI status (it clears here, then is reverted via the unified
+        # affordance); each accept path re-flips its status LAST, so this in-flight clear is
+        # harmless during an accept/revert.
+        #
+        # (1) Clear THIS row's gemini accept-revert snapshot; if this row is a moved
+        #     gemini child (gemini_snapshot_owner >= 0 -- -1 is the "not a child"
+        #     sentinel, Frappe coerces unset Int -> 0, hence the explicit >= 0 guard),
+        #     clear the OWNER row's gemini snapshot + this child's gemini back-pointer.
+        #     Mirrors the ai_accept_snapshot invalidation above.
+        doc.gemini_accept_snapshot = None
+        g_owner = getattr(doc, "gemini_snapshot_owner", None)
+        if g_owner is not None and g_owner >= 0:
+            frappe.db.set_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": g_owner},
+                "gemini_accept_snapshot", None,
+            )
+            doc.gemini_snapshot_owner = -1
+        # (2) A manual class/parent edit (or a Claude accept routed through here) OVERRIDES
+        #     Gemini's structural decision -> a gemini-Accepted row is no longer a Gemini
+        #     acceptance. Clear gemini_suggestion_status so the badge stops reading "Gemini
+        #     Accepted". GATED on the CURRENT status being "Accepted" (a Pending/Rejected
+        #     gemini suggestion is untouched), mirroring the ai_suggestion_status clear above.
+        #     ORDERING (load-bearing): accept_gemini_suggestion flips the status to "Accepted"
+        #     LAST and revert flips to "Pending" LAST (both AFTER every helper call), so this
+        #     in-flight clear is harmless during a gemini accept/revert -- their final flip wins.
+        if getattr(doc, "gemini_suggestion_status", None) == "Accepted":
+            doc.gemini_suggestion_status = None
+        # (3) chosen_source -- set ENTIRELY here from the `reason` string, so neither
+        #     accept_ai_suggestion / revert_ai_acceptance (Nitesh's, untouched) nor the
+        #     gemini endpoints need to set it. Only a human_classification / human_parent
+        #     edit changes it (this block); value/text/per-area edits never enter here, so
+        #     they leave chosen_source as-is (same gating as the override-clears-status rule).
+        #       reason has "Gemini" + "accepted"  -> "gemini"
+        #       reason has "AI"     + "accepted"  -> "claude"
+        #       reason has "reverted"             -> baseline: "manual" if a human override
+        #                                            REMAINS after the restore, else "parser"
+        #       otherwise (a genuine manual save_review_edit / restructure) -> "manual"
+        _reason = reason or ""
+        if "Gemini" in _reason and "accepted" in _reason:
+            doc.chosen_source = "gemini"
+        elif "AI" in _reason and "accepted" in _reason:
+            doc.chosen_source = "claude"
+        elif "reverted" in _reason:
+            # A revert restores baseline. The human layer was just rewritten on `doc`
+            # (this very call): if a human override REMAINS (a human_classification or a
+            # real human_parent / human_is_root), the baseline IS a prior manual edit
+            # ("manual"); otherwise the row falls back to the parser ("parser").
+            _has_human = bool(doc.human_classification) or (
+                doc.human_parent is not None and doc.human_parent >= 0
+            ) or bool(doc.human_is_root)
+            doc.chosen_source = "manual" if _has_human else "parser"
+        else:
+            doc.chosen_source = "manual"
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -1105,6 +1239,18 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # AI-3c-2a: fetched ONLY to derive the revert_available boolean below. The raw blob
         # (pre-accept internal state) is DROPPED from the payload -- never shipped to the client.
         "ai_accept_snapshot",
+        # ---- DUAL-AI (ADR-0003) -- GEMINI fields. ADDITIVE-ONLY. ----
+        # resolve_effective does NOT read or echo any gemini_* field (it is Claude-only),
+        # so ALL gemini display fields must be fetched here to reach the frontend.
+        "gemini_suggestion_status", "gemini_suggested_classification",
+        "gemini_suggested_parent", "gemini_suggested_is_root",
+        "gemini_classification_confidence", "gemini_parent_confidence",
+        "gemini_suggested_level", "gemini_explanation",
+        # chosen_source -- the audit-only "winning" Source (parser/claude/gemini/manual).
+        "chosen_source",
+        # Fetched ONLY to derive gemini_revert_available below; the raw blob is DROPPED
+        # from the payload -- never shipped to the client (mirrors ai_accept_snapshot).
+        "gemini_accept_snapshot",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1121,6 +1267,14 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         d.update(resolve_effective(d))
         # AI-3c-2a: ship a presence boolean; DROP the raw pre-accept snapshot blob.
         d["revert_available"] = bool(d.pop("ai_accept_snapshot", None))
+        # DUAL-AI (ADR-0003): same treatment for the gemini snapshot blob -- ship a
+        # presence boolean, DROP the raw blob from the payload.
+        d["gemini_revert_available"] = bool(d.pop("gemini_accept_snapshot", None))
+        # R3a / ADR-0006: the SINGLE block-then-revert signal. True iff the row is NOT at
+        # the parser baseline -- an accepted AI suggestion (Claude OR Gemini) OR a manual
+        # human override. The frontend disables both providers' Apply on a row with
+        # has_override and shows the unified "Revert to parser"; revert_to_parser clears it.
+        d["has_override"] = _row_has_override(d)
         rows.append(d)
 
     # Work-package join: reuse get_boq_work_packages and pick this sheet.
@@ -1150,7 +1304,17 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     breaks = check_structural_integrity(rows)
     flags = _compute_advisory_flags(rows, breaks)
-    return {"rows": rows, "work_packages": work_packages, "column_descriptors": column_descriptors, "flags": flags}
+    # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
+    # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
+    # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
+    gemini_enabled = bool(get_boq_classifier_settings().get("boq_ai_enabled"))
+    return {
+        "rows": rows,
+        "work_packages": work_packages,
+        "column_descriptors": column_descriptors,
+        "flags": flags,
+        "gemini_enabled": gemini_enabled,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1634,6 +1798,7 @@ def save_review_restructure(
     reason: str = None,
     row_new_parent=None,
     mark_ai_accepted=False,
+    mark_gemini_accepted=False,
 ) -> dict:
     """
     Atomically reclassify ONE row AND reparent a set of its children in a single
@@ -1662,6 +1827,15 @@ def save_review_restructure(
                              save). Opt-in: omitted/false (every pre-AI-3b-2 caller) leaves
                              ai_suggestion_status untouched. CANCEL-SAFE: only the modal's
                              Save passes it, so a cancelled modal never flips the status.
+      mark_gemini_accepted -- OPTIONAL (DUAL-AI, ADR-0003). The Gemini MIRROR of
+                             mark_ai_accepted: when truthy, captures the gemini accept
+                             snapshot (row + each moved child), flips this row's
+                             gemini_suggestion_status -> "Accepted", and stamps each moved
+                             child's gemini_snapshot_owner -- all inside the SAME commit.
+                             Opt-in + cancel-safe exactly like mark_ai_accepted. The two
+                             flags are independent; the gemini accept endpoint pre-reverts
+                             any standing Claude acceptance BEFORE calling this, so they
+                             never both fire on one call from the gemini path.
 
     Validation (all per-call, BEFORE any write -- frappe.throw on failure, house
     style; nothing is written until every check passes):
@@ -1722,6 +1896,12 @@ def save_review_restructure(
         mark_ai_accepted = mark_ai_accepted.strip().lower() in ("1", "true", "yes")
     else:
         mark_ai_accepted = bool(mark_ai_accepted)
+
+    # DUAL-AI (ADR-0003): coerce mark_gemini_accepted identically.
+    if isinstance(mark_gemini_accepted, str):
+        mark_gemini_accepted = mark_gemini_accepted.strip().lower() in ("1", "true", "yes")
+    else:
+        mark_gemini_accepted = bool(mark_gemini_accepted)
 
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
@@ -1795,6 +1975,18 @@ def save_review_restructure(
             f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
             title="Row not found",
         )
+
+    # R3a / ADR-0006 block-then-revert: when this restructure is an AI-ACCEPT call
+    # (mark_ai_accepted or mark_gemini_accepted -- the with-children accept path), the
+    # target row must be at the parser baseline. If it carries a standing override
+    # (another provider's accepted suggestion OR a manual edit), BLOCK -- the user must
+    # Revert to parser first. A PLAIN manual restructure (neither flag) is NOT blocked:
+    # it is itself a standing change, escapable via the unified Revert. Reads the full
+    # override-deciding field set straight from the DB (rows_by_idx above carries only the
+    # structural columns + ai/gemini status are NOT fetched there), so nothing is written
+    # when it throws (the guard runs BEFORE the write block).
+    if mark_ai_accepted or mark_gemini_accepted:
+        _guard_row_at_parser_baseline(boq_name, sheet_name, row_index)
 
     # --- row_new_parent validation (Slice 1b-beta2; None = leave the row's parent
     #     untouched, today's behaviour). Mirrors save_review_edit's human_parent
@@ -1885,6 +2077,28 @@ def save_review_restructure(
     if mark_ai_accepted:
         row_pre = rows_by_idx[row_index]
         accept_snapshot = {
+            "row": {
+                "hc": row_pre.get("human_classification"),
+                "hp": row_pre.get("human_parent"),
+                "hr": 1 if row_pre.get("human_is_root") else 0,
+            },
+            "children": [
+                {
+                    "idx": ci,
+                    "hp": rows_by_idx[ci].get("human_parent"),
+                    "hr": 1 if rows_by_idx[ci].get("human_is_root") else 0,
+                }
+                for ci in sorted(moves)
+            ],
+        }
+
+    # DUAL-AI (ADR-0003): the gemini MIRROR of the snapshot capture above. Built from the
+    # SAME pre-write rows_by_idx, PERSISTED LAST (in the flip block below) so the chokepoint's
+    # gemini-snapshot invalidation that fires during the helper writes cannot wipe it.
+    gemini_accept_snapshot_data = None
+    if mark_gemini_accepted:
+        row_pre = rows_by_idx[row_index]
+        gemini_accept_snapshot_data = {
             "row": {
                 "hc": row_pre.get("human_classification"),
                 "hp": row_pre.get("human_parent"),
@@ -2007,6 +2221,35 @@ def save_review_restructure(
                 update_modified=False,
             )
 
+    # DUAL-AI (ADR-0003): the gemini MIRROR of the capture-then-flip block above. Same
+    # ordering rationale -- flip + persist LAST, after every helper write, so the chokepoint's
+    # in-flight gemini clear (which fired on each human_classification/human_parent edit) is
+    # overwritten here. Also stamps chosen_source="gemini": the restructure helpers were called
+    # with non-"accepted" reasons, so the chokepoint set chosen_source="manual" on each write;
+    # this final stamp records that the WINNING source for this with-children accept is Gemini.
+    if mark_gemini_accepted:
+        target_doc.gemini_suggestion_status = "Accepted"
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            {"gemini_suggestion_status": "Accepted", "chosen_source": "gemini"},
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "BoQ Review Row", target_doc.name,
+            "gemini_accept_snapshot", json.dumps(gemini_accept_snapshot_data),
+            update_modified=False,
+        )
+        for child_idx in children_moved:
+            child_name = frappe.db.get_value(
+                "BoQ Review Row",
+                {"boq": boq_name, "sheet_name": sheet_name, "row_index": child_idx},
+                "name",
+            )
+            frappe.db.set_value(
+                "BoQ Review Row", child_name, "gemini_snapshot_owner", row_index,
+                update_modified=False,
+            )
+
     frappe.db.commit()
 
     return {
@@ -2017,6 +2260,144 @@ def save_review_restructure(
         "edited_at": edited_at,
         "row_moved": row_moved,
     }
+
+
+# ---------------------------------------------------------------------------
+# Unified "Revert to parser" (R3a / ADR-0006)
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist(methods=["POST"])
+def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=None) -> dict:
+    """Restore ONE overridden row (and any children a restructure moved) to the PARSER
+    baseline -- the single, provider-agnostic affordance behind the block-then-revert model
+    (ADR-0006). It handles ALL THREE standing-override kinds in one call:
+
+      (i)  a Claude acceptance   (ai_suggestion_status == "Accepted")
+      (ii) a Gemini acceptance   (gemini_suggestion_status == "Accepted")
+      (iii) a manual human edit  (human_classification / human_parent(>=0) / human_is_root)
+
+    Mechanics -- it REUSES the existing per-provider revert internals (revert_ai_acceptance /
+    revert_gemini_acceptance) for the accepted kinds (so any children the accept moved are
+    restored from the accept snapshot, and honest "reverted" edit_log entries are appended),
+    then clears any REMAINING manual human_* layer through the shared chokepoint (which logs
+    the restore + resolves chosen_source). Because an AI apply can never stack on a standing
+    change (the accept endpoints block), at most one accept kind is present and its snapshot
+    captured a clean parser baseline -- so after the revert the human layer is empty and the
+    row resolves to the parser. Finally it normalizes: any live suggestion's status -> Pending
+    (re-offered), both accept snapshots cleared, chosen_source -> "parser".
+
+    Returns {"ok": True, "reverted_children": [int, ...]}.
+
+    Guards _not_frozen + _not_parsing (it writes the human layer). sheet_name VERBATIM (#152).
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # A revert WRITES the human layer -> respect the same read-only backstops as the accept.
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    row_name = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},
+        "name",
+    )
+    if not row_name:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+
+    doc = frappe.get_doc("BoQ Review Row", row_name)
+    if not _row_has_override(doc):
+        # Idempotent: a baseline row has nothing to revert. (The frontend only shows the
+        # affordance on an overridden row, but the endpoint must be safe to call regardless.)
+        frappe.throw(
+            "There is nothing to revert -- this row is already at the parser baseline.",
+            title="Nothing to revert",
+        )
+
+    # Lazy imports: ai_assist / gemini_assist import FROM review_screen at module load, so
+    # importing them here (call-time) avoids a circular import.
+    from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
+    from nirmaan_stack.api.boq.wizard.gemini_assist import revert_gemini_acceptance
+
+    reverted_children: list = []
+
+    # (i) Claude acceptance -> reuse revert_ai_acceptance (restores row + any moved children
+    #     from ai_accept_snapshot, appends reverted entries, flips status -> Pending, clears
+    #     the snapshot; each call owns its own commit).
+    if doc.ai_suggestion_status == "Accepted":
+        res = revert_ai_acceptance(
+            boq_name=boq_name, sheet_name=sheet_name, row_index=row_index
+        )
+        reverted_children.extend(res.get("reverted_children", []))
+        doc = frappe.get_doc("BoQ Review Row", row_name)
+
+    # (ii) Gemini acceptance -> reuse revert_gemini_acceptance, symmetrically.
+    if doc.gemini_suggestion_status == "Accepted":
+        res = revert_gemini_acceptance(
+            boq_name=boq_name, sheet_name=sheet_name, row_index=row_index
+        )
+        for ci in res.get("reverted_children", []):
+            if ci not in reverted_children:
+                reverted_children.append(ci)
+        doc = frappe.get_doc("BoQ Review Row", row_name)
+
+    # (iii) Any REMAINING manual human layer (the manual-only kind, or a stray human override
+    #       the snapshot restore left behind) -> clear it through the chokepoint so the row
+    #       resolves to the parser. The "reverted to parser" reason makes the chokepoint set
+    #       chosen_source = "parser" (no human override remains after these clears).
+    if doc.human_classification:
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_classification", None,
+            reason="reverted to parser",
+        )
+    cur_hp = doc.human_parent if doc.human_parent is not None else -1
+    if cur_hp >= 0 or doc.human_is_root:
+        _apply_and_save_row_edit(
+            doc, boq_name, sheet_name, "human_parent", None,
+            reason="reverted to parser",
+        )
+
+    # Normalize: re-offer any live suggestion (status -> Pending when a suggestion exists),
+    # clear both accept snapshots, and pin chosen_source -> "parser". One commit covers these
+    # plus the chokepoint writes above. set_value runs in this request transaction.
+    normalize: dict = {
+        "ai_accept_snapshot": None,
+        "ai_snapshot_owner": -1,
+        "gemini_accept_snapshot": None,
+        "gemini_snapshot_owner": -1,
+        "chosen_source": "parser",
+    }
+    # A live suggestion is re-offered as Pending; a row that never had a suggestion stays
+    # untouched (don't fabricate a Pending on a no-suggestion row). ai_suggested_classification
+    # / a non-(-1) ai_suggested_parent / ai_suggested_is_root => there IS a Claude suggestion.
+    if (doc.ai_suggested_classification
+            or (doc.ai_suggested_parent is not None and doc.ai_suggested_parent >= 0)
+            or doc.ai_suggested_is_root):
+        normalize["ai_suggestion_status"] = "Pending"
+    if (doc.gemini_suggested_classification
+            or (doc.gemini_suggested_parent is not None and doc.gemini_suggested_parent >= 0)
+            or doc.gemini_suggested_is_root):
+        normalize["gemini_suggestion_status"] = "Pending"
+    frappe.db.set_value("BoQ Review Row", row_name, normalize, update_modified=False)
+
+    frappe.db.commit()
+
+    return {"ok": True, "reverted_children": sorted(set(reverted_children))}
 
 
 @frappe.whitelist(methods=["POST"])
