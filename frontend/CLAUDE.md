@@ -370,6 +370,28 @@ reaches PricingGrid (the `isGridOnlySheet` fork renders a read-only `SheetDataGr
 construction. **Do NOT add a per-cell `editable` check -- it duplicates the callback-presence gate.** Takeover detection:
 `isTakeoverError(msg)` = `msg.includes("BOQ_PRICING_LOCKED")` (`.includes`, since `getFrappeError` ", "-joins messages).
 
+**Rate-edit gate is ASYMMETRIC by node_type (`PricingGrid.isRateEditableRow`, owner-locked):** the rate-cell render
+branch gates on `onSaveRate && isRateDescriptor(d) && isRateEditableRow(row, override)`, where
+`isRateEditableRow(row, override) = override || row.node_type === "Line Item" || (row.node_type === "Preamble" &&
+isRowQtyBearing(row))`. **A LINE ITEM is ALWAYS editable** (a zero-qty Line Item is a valid rate-only line -- do NOT
+lock it); **a PREAMBLE is editable ONLY when qty-bearing** (a zero-qty Preamble -- nearly all Preambles -- is read-only);
+a non-priceable type / null node_type is read-only; the **"Price any row" override unlocks BOTH** a zero-qty Preamble and
+any non-priceable type. **This Preamble/Line-Item asymmetry is a DELIBERATE owner-locked rule -- never collapse it to
+uniformity.** `isRowQtyBearing(row)` = **"qty ANYWHERE" (Definition A)**: `isNonZeroNum(row.qty_total) || any
+Object.values(row.qty_by_area)` is finite non-zero. `isNonZeroNum` is a **SELF-CONTAINED copy inside PricingGrid** (NOT
+imported from priceability -- importing back would reverse the one-way dependency / make a cycle). **THE DELIBERATE
+DIVERGENCE (record, do NOT "fix"):** this gate's "qty anywhere, per-row, Preamble-only" is intentionally LOOSER than
+`priceability.isPriceableLine`'s "qty in a RATE-COLUMN area, per-area, both types" -- they answer different questions
+(edit-gate vs flags/priced-count/rollup) and correctly use different predicates. The gate change reads only
+`row.qty_total`/`row.qty_by_area`/`row.node_type` (already on the memoized row prop) -- NO new shared-object prop, so the
+perf memo is not defeated. The server (`save_cell_price`) enforces the SAME rule (`_node_is_qty_bearing`) -- client = UX,
+server = the real boundary, no axis drift. **Marker nuance (known, not a defect):** the amber "needs review" priced
+marker still keys on `isPriceableType` (TYPE), so an override-priced zero-qty Preamble renders emerald not amber; marker
+logic was left unchanged (out of this slice's scope). **Build-time consistency finding (reported, not decided):** a
+zero-qty rate-only Line Item is now editable but, because `isPriceableLine` excludes it, is NOT counted in the N/M
+priced-count nor flagged needs_rate -- a follow-up decision for the owner; `isPriceableLine`/flags/count were NOT changed
+here.
+
 **Cross-area prefill save-path invariant (`PricingGrid.tsx`):** proposals live in a SEPARATE `proposedRates` map, NEVER
 in `draftRates`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the
 `flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates` is
