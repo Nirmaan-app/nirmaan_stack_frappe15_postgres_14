@@ -106,6 +106,16 @@ def clear_reason(project, source):
     frappe.db.delete(_REASON_DOCTYPE, {"dedup_key": _dedup_key(project, source)})
 
 
+def clear_all_reasons(project):
+    """Remove EVERY system hold reason for a project. Idempotent. No commit.
+
+    Used when a project becomes terminal/suppressed (Completed/Halted) — it must not be
+    held by any automatic condition, and leaving a stale reason would let recompute
+    resurrect it to CEO Hold.
+    """
+    frappe.db.delete(_REASON_DOCTYPE, {"project": project})
+
+
 def active_sources(project):
     """Set of source strings currently holding the project."""
     rows = frappe.get_all(
