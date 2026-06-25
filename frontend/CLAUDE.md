@@ -514,7 +514,11 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Detail-panel read views (2026-06-25) -- ADDITIVE
+`ParentChain.tsx` (ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N`) mounted in the EXISTING review-screen
+detail panel, clickable to drill-navigate; the ORIGINAL single-column panel design is unchanged (a two-column revamp was
+prototyped then reverted -- only the two read views were kept). See the "Detail-panel read views" rule below. Prior:
+Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
 review-strip DISMISS (pure `priceability.ts` filter helpers + `SheetPricingPage` active/show-all feed + "Show dismissed"
 toggle + per-entry Looks-OK/Restore action wired to `save_cell_dismissal`; `ReviewEntry` UNCHANGED; server-side re-arm,
 priceability 27->30, 2026-06-23); Slice 4b-A computed-flag layer -- the shared
@@ -1046,7 +1050,27 @@ error/re-parse-warning red on this screen) + border/radius/shadow/inset padding.
 (it equals the row-hover tint -> the panel blends in) and do NOT swap the stripe to `--destructive`. Classification/Parent
 render as a VERTICAL stack (`grid-cols-1`, avoids off-screen horizontal scroll on wide sheets); the three edit blocks
 (numeric / text / per-area) are INDEPENDENT responsive `grid-cols-1 sm:2 md:3 lg:4` grids and stay SEPARATE (each has its
-own save path).
+own save path). (A two-column "Context | Actions" revamp of this panel was prototyped + reverted on 2026-06-25 -- the
+ORIGINAL single-column layout above is the live one; only the two read views below were kept.)
+
+**Detail-panel read views `ParentChain.tsx` + `ChildrenList.tsx` (ADDITIVE, 2026-06-25 -- the ONLY survivor of the
+reverted revamp):** two PURE read components mounted in the EXISTING panel, in a `mb-2 space-y-2` block placed right
+after the Classification/Parent display grid and before the AI-suggestion block (no other panel change; both render in
+editable AND readOnly sheets -- read context). **Text scale MATCHES the surrounding panel:** `text-[10px]` uppercase
+section label + `text-xs` rows (not the roomier text-sm of the reverted revamp). `ParentChain` walks
+`effective_parent_index -> byIdx` (the same walk as `revealAndScrollToRow`, `HOP_CAP=60` + self/cycle guard) to a vertical
+indented ancestors→(this row) tree; ancestor crumbs are clickable. **ROOT indication (correct):** there is NO synthetic
+"Root" node -- the actual root-most ancestor is tagged "top level" (only when its own `effective_parent_index` is null/-1,
+guarding cycle/hop-cap stops), and a current row that is itself top-level renders "This row is at the top level — no
+parent." (the prior synthetic "Root" line wrongly implied a top-level row had a root parent). `ChildrenList` reads the NEW
+`childrenByParent` map (the O(n) inverse of `effective_parent_index`, built in ReviewTree's `[rows]` memo alongside
+`byIdx`/`hasChildrenSet`) -- DIRECT children only, each with a `▸N` grandchild-count marker; **descriptions HARD-capped at
+35 chars** (`capDesc`, JS slice + ellipsis -- not CSS truncate), capped `max-h-48` scroll, empty → "No children." Both
+reuse `ClassificationPill` from `reviewRender` and take `onNavigate={navigateToRow}` where `navigateToRow(idx)` =
+`setExpandedDetailRow(idx)` + `revealAndScrollToRow(idx)` (a crumb/child click OPENS that row's panel AND
+reveals+scrolls+flashes it, auto-expanding collapsed ancestors). Known limit: a target hidden by an active
+classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
+`GeminiAcceptBlock` + the panel body are UNCHANGED from the original.
 
 **§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 

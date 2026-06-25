@@ -1,9 +1,16 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-24. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-25. **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest parser fix (2026-06-24):**
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest frontend slice
+(2026-06-25):** BoQ review-screen detail-panel READ VIEWS -- FRONTEND-ONLY (no backend/doctype). Two ADDITIVE pure
+components mounted in the EXISTING `expandedDetailRow` panel (its ORIGINAL single-column design unchanged): `ParentChain.tsx`
+(ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N` grandchild marker), both clickable to drill-navigate
+(`navigateToRow` = open that row's panel + reveal/scroll/flash). Supported by a `childrenByParent` memo (O(n) inverse of
+`effective_parent_index`) + `navigateToRow`. A two-column "Context|Actions" revamp of the panel was prototyped then
+REVERTED -- only the two read views were kept. tsc delta-0; details in `frontend/CLAUDE.md` + plan §"Row-detail panel
+read views". **Prior parser fix (2026-06-24):**
 PREAMBLE rows no longer drop their source quantities -- the owner-locked "no source attribute lost during parsing;
 classification is a label, not a data filter" principle (Option B). The resolver PREAMBLE `ResolvedRow` now carries
 qty/amount forward symmetric with LINE_ITEM (`hierarchy.py`), `_apply_multi_area_post_pass` widened to `{LINE_ITEM, PREAMBLE}`

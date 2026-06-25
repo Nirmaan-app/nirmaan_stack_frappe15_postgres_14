@@ -4,9 +4,12 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: §17.45 -- PREAMBLE rows no longer drop their source quantities
-(no-attribute-loss / Option B: resolver qty carry-forward + multi-area post-pass + advisory-flag, 2026-06-24). Prior:
-Slice 4a.2 / 4a-FE / 4a-BE -- the pricing-editor annotation layer (remarks + 8-color cells, 2026-06-22).
+the docs-hygiene cleanup (git holds it). Latest: "Row-detail panel read views" -- ADDITIVE ParentChain + ChildrenList read
+components mounted in the EXISTING review-screen detail panel (clickable drill-nav); the ORIGINAL single-column panel
+design is UNCHANGED (a two-column revamp was prototyped then reverted -- only the two read views kept). FRONTEND-only, tsc
+delta-0, build green (2026-06-25; see §"Row-detail panel read views" below). Prior: §17.45 -- PREAMBLE rows no longer drop
+their source quantities (no-attribute-loss / Option B: resolver qty carry-forward + multi-area post-pass + advisory-flag,
+2026-06-24).
 
 ## 1. Overview
 
@@ -2233,6 +2236,23 @@ rootless-row review flags; no parser-layer fix attempted.
 **Verification:** ~833 parser+review+commit tests green (Bug-19/Bug-20 promotion regressions + commit reconcile all intact). New tests: resolve_hierarchy preamble carry-forward (`test_hierarchy`), post-pass processes preamble + SPACER still skipped (`test_orchestrator` ×2), qty-only flag (`test_review_screen`); repurposed `test_non_line_item_rows_not_modified` → `test_spacer_rows_skipped`. Live non-destructive re-parse of BOQ-26-00021 / `HVAC_-19TH FLOOR`: **16/16 quantities restored, 15/16 surfaced for review**. To apply to a live BoQ: re-parse after the bench workers pick up the new code (re-parse discards human review edits on that sheet).
 
 **Known follow-up (not a regression):** Option A (narrowing Bug 19 so a self-priced leaf is never promoted → labels also correct) is deferred. The 1/16 un-flagged row is a qty-bearing preamble WITH children whose pre-existing with-children flag (`_apply_priced_preamble_with_children_review_flag_post_pass` / `_is_priced_for_review`) didn't fire.
+
+---
+
+### Row-detail panel read views (review screen, FRONTEND-only, 2026-06-25)
+
+**What:** added two NEW read views -- an ancestor breadcrumb (parent chain) + a direct-children list -- to the review-screen inline Row-detail panel (`ReviewTree.tsx`, the `expandedDetailRow === row.row_index` block), which previously showed only a row's IMMEDIATE parent and no children. **The original single-column panel design is UNCHANGED** (indigo brand-tinted card, vertical classification/parent stack, 3 separate edit grids, AI/Gemini/revert blocks, remarks, flags, edit history -- all exactly as before). The two views are mounted ADDITIVELY in a `mb-2 space-y-2` block placed right after the Classification/Parent display grid and before the AI-suggestion block.
+
+**Scope note (recorded):** a fuller two-column "CONTEXT (read) | ACTIONS (write)" revamp of this panel (neutral surface, FINDING B indigo reversal, AI consolidation, read/write bifurcation) was prototyped via `/grill-with-docs` + `/frontend-design` and then **REVERTED by owner request** -- only the two read views below were kept. `ReviewTree.tsx`'s panel body + `GeminiAcceptBlock.tsx` were git-restored to their pre-revamp state; the indigo-tint FINDING B decision STANDS (not reversed).
+
+**Build (the only surviving changes):**
+- NEW `frontend/src/pages/boq-wizard/ParentChain.tsx` -- PURE; walks `effective_parent_index -> byIdx` (same shape as `revealAndScrollToRow`, `HOP_CAP=60` + self/cycle guard) to a vertical indented ancestors→(this row) tree; ancestor crumbs clickable via `onNavigate`. ROOT indicated correctly: NO synthetic "Root" node -- the actual root-most ancestor is tagged "top level" (only when its own parent is null/-1), and a top-level current row renders "This row is at the top level — no parent." Text scale matches the panel (`text-[10px]` label / `text-xs` rows).
+- NEW `frontend/src/pages/boq-wizard/ChildrenList.tsx` -- PURE; reads the new `childrenByParent` map; DIRECT children only, each with a `▸N` grandchild-count (`childrenByParent.get(child)?.length`), descriptions HARD-capped at 35 chars (`capDesc`, JS slice + ellipsis), `max-h-48` scroll, empty → "No children." Text scale matches the panel (`text-[10px]` / `text-xs`). Both reuse `ClassificationPill` from `reviewRender`.
+- `ReviewTree.tsx` (4 minimal additions, panel body otherwise untouched): (a) imports the two components; (b) the `[rows]` memo now also builds `childrenByParent: Map<number, ReviewRow[]>` (O(n) inverse of `effective_parent_index`, render-order preserved); (c) new `navigateToRow(idx)` = `setExpandedDetailRow(idx)` + `revealAndScrollToRow(idx)` (open-target-panel + reveal/scroll/flash on a crumb/child click); (d) the `<ParentChain/>` + `<ChildrenList/>` mount block after the classification/parent grid. Both render in editable AND readOnly sheets (read context).
+
+**Known limit:** a ParentChain/ChildrenList navigate target hidden by an active classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
+
+**Verification:** project `tsc` delta-0 (3181 before == after; 0 errors in any touched file); in-container Vite build exit 0 (`✓ 7938 modules transformed`). No Frappe tests (frontend-only). Manual live-cert pending: LC1 parent chain renders + crumbs drill-navigate; LC2 children list + `▸N` + drill; LC3 both views show in a readOnly (finalized) sheet too; LC4 regression -- the rest of the original panel (reclassify, change-parent, 3 edit grids, remarks, Looks OK, Claude+Gemini, revert, edit history) unchanged.
 
 ---
 
