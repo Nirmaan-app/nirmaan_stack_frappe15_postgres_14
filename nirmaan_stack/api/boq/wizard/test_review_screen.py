@@ -2305,6 +2305,16 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         types = [f["type"] for f in flags]
         self.assertNotIn("priced_preamble_no_children", types)
 
+    def test_flag_i_fires_on_childless_preamble_with_only_qty(self):
+        """No-attribute-loss (Option B): a childless preamble carrying a quantity but
+        no price (rate/amount) still fires flag (i).  A preamble with a real qty is
+        exactly the 'is this actually a line item?' case the reviewer must confirm —
+        this is the surfacing half of the dropped-quantity fix (Bug-19 promotions)."""
+        rows = [self._row(0, "preamble", parent_index=None, qty_total=350.0)]
+        flags = _compute_advisory_flags(rows, [])
+        types = [f["type"] for f in flags]
+        self.assertIn("priced_preamble_no_children", types)
+
     def test_flag_i_fires_via_effective_classification(self):
         """
         A row with parser classification=line_item but human_classification=preamble
@@ -2447,7 +2457,7 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         self.assertIsNotNone(i_flag)
         self.assertEqual(
             i_flag["reason"],
-            "Preamble carrying a price with no sub-items — check if it's a line item.",
+            "Preamble carrying a price or quantity with no sub-items — check if it's a line item.",
         )
 
         rows_ii = [self._row(1, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]

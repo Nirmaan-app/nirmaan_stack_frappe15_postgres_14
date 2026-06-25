@@ -4,8 +4,9 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: Slice 4a.2 / 4a-FE / 4a-BE -- the pricing-editor annotation layer
-(remarks + 8-color cells, 2026-06-22).
+the docs-hygiene cleanup (git holds it). Latest: §17.45 -- PREAMBLE rows no longer drop their source quantities
+(no-attribute-loss / Option B: resolver qty carry-forward + multi-area post-pass + advisory-flag, 2026-06-24). Prior:
+Slice 4a.2 / 4a-FE / 4a-BE -- the pricing-editor annotation layer (remarks + 8-color cells, 2026-06-22).
 
 ## 1. Overview
 
@@ -2217,6 +2218,21 @@ alone. Disposition: out of scope for cycle 3 fix queue per
 agreement #43. The wizard review pathway (Phase 2c body) surfaces
 rootless level-2 PREAMBLEs for user-disambiguation via existing
 rootless-row review flags; no parser-layer fix attempted.
+
+### 17.45 [CLOSED 2026-06-24, feat pending] -- PREAMBLE rows silently dropped their source quantities (no-attribute-loss / Option B)
+
+**Issue:** Any row that ended up classified `preamble` lost its source quantity (+ amount / per-area) in the parsed output — `qty_total` was written as 0/None even when the Excel qty cell held a real number. Confirmed on the last real upload (BOQ-26-00021, sheet `HVAC_-19TH FLOOR`): 16 line-items with genuine quantities (350 Rmt, 40 Rmt, 8 No., 1 Lot, 300 Kgs, …) were turned into preambles with qty=0.
+
+**Root cause (two compounding parts):** (1) `_apply_priced_preamble_promotion` ("Bug 19", `classifier.py`) over-promotes real LINE_ITEMs into PREAMBLEs on sheets that use ONE flat integer `sl_no` series for BOTH section headers (no unit/qty → preamble) AND leaf line-items — its contiguous-sequence + cascade heuristic ("earlier promotions inform later ones") swallows the numbered leaf items. (2) STRUCTURAL: `resolve_hierarchy` built the PREAMBLE `ResolvedRow` WITHOUT the qty/amount carry-forward kwargs the LINE_ITEM branch has (`hierarchy.py`), so `flatten_resolved_row` read `qty_total=None`. The zero-children demotion that would rescue a leaf preamble explicitly SKIPS `promoted_from_line_item` rows → the qty was gone for good.
+
+**Fix (Option B — "no source attribute lost during parsing; classification is a label, not a data filter", owner-locked principle):**
+- `hierarchy.py`: the PREAMBLE `ResolvedRow` now carries `qty_by_area_raw`/`amount_by_area_raw`/`qty_total`(=`qty_total_raw`)/`amount_total`, symmetric with LINE_ITEM. No-op for genuine (qty-less) section headers.
+- `orchestrator.py`: `_apply_multi_area_post_pass` gate widened LINE_ITEM-only → `{LINE_ITEM, PREAMBLE}` (SPACER/NOTE/subtotal/header_repeat stay skipped — they never become priceable nodes and the committed grid tier already preserves their raw cells).
+- `review_screen.py`: the existing `priced_preamble_no_children` advisory flag now ALSO triggers on a carried `qty_total>0` (so qty-bearing preambles are surfaced for human reclassify, instead of a NEW parser `needs_classification_review` flag that would DUPLICATE the existing server-side flag); reason text → "…price or quantity…"; corrected the stale "DORMANT on freshly-parsed rows" docstring (false — Bug-19 promotions skip demotion, so 11 already fired on this sheet).
+
+**Verification:** ~833 parser+review+commit tests green (Bug-19/Bug-20 promotion regressions + commit reconcile all intact). New tests: resolve_hierarchy preamble carry-forward (`test_hierarchy`), post-pass processes preamble + SPACER still skipped (`test_orchestrator` ×2), qty-only flag (`test_review_screen`); repurposed `test_non_line_item_rows_not_modified` → `test_spacer_rows_skipped`. Live non-destructive re-parse of BOQ-26-00021 / `HVAC_-19TH FLOOR`: **16/16 quantities restored, 15/16 surfaced for review**. To apply to a live BoQ: re-parse after the bench workers pick up the new code (re-parse discards human review edits on that sheet).
+
+**Known follow-up (not a regression):** Option A (narrowing Bug 19 so a self-priced leaf is never promoted → labels also correct) is deferred. The 1/16 un-flagged row is a qty-bearing preamble WITH children whose pre-existing with-children flag (`_apply_priced_preamble_with_children_review_flag_post_pass` / `_is_priced_for_review`) didn't fire.
 
 ---
 

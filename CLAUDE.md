@@ -1,9 +1,17 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-23. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-24. **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (full-stack):** Phase 5
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest parser fix (2026-06-24):**
+PREAMBLE rows no longer drop their source quantities -- the owner-locked "no source attribute lost during parsing;
+classification is a label, not a data filter" principle (Option B). The resolver PREAMBLE `ResolvedRow` now carries
+qty/amount forward symmetric with LINE_ITEM (`hierarchy.py`), `_apply_multi_area_post_pass` widened to `{LINE_ITEM, PREAMBLE}`
+(`orchestrator.py`), and the `priced_preamble_no_children` advisory flag now ALSO fires on a carried `qty_total` so qty-bearing
+preambles are surfaced for human reclassify -- NOT a new parser flag (would duplicate the existing one) (`review_screen.py`).
+Root cause = Bug-19 `_apply_priced_preamble_promotion` over-promoting flat-`sl_no` leaf items INTO preambles + the PREAMBLE
+ResolvedRow never copying qty. ~833 parser+review+commit tests green; verified 16/16 dropped quantities restored on
+BOQ-26-00021 / `HVAC_-19TH FLOOR`. See plan §17.45. **Latest slice (full-stack):** Phase 5
 Slice 4b-ACKNOWLEDGE -- the per-ROW review-strip DISMISSAL ("reviewed / looks OK") layer (NEW doctype BoQ Cell Dismissal +
 save_cell_dismissal / get_sheet_dismissals + a row-level RE-ARM inside save_cell_price [computed kinds only, EXCLUDES remark]
 + an additive sheet-level `dismissals` key on get_priced_rows; frontend active/show-all strip filter + toggle + per-entry

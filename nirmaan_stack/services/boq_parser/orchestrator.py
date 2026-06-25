@@ -85,8 +85,18 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
     Sum validation: soft warning at ±1 absolute tolerance, appended to
     ResolvedRow.validation_warnings.
     """
+    # No-attribute-loss (Option B): PREAMBLE rows are processed identically to
+    # LINE_ITEM so a preamble that carries source quantities/amounts gets its
+    # per-area output dicts + empty-total fallback populated rather than dropped.
+    # Genuine section-header preambles have empty per-area raw dicts, so every
+    # operation below is a no-op for them. SPACER / NOTE / subtotal / header_repeat
+    # remain skipped (they never become priceable nodes; the committed grid tier
+    # already preserves their raw cells faithfully).
     for row in resolved_rows:
-        if row.classified_row.classification != RowClassification.LINE_ITEM:
+        if row.classified_row.classification not in (
+            RowClassification.LINE_ITEM,
+            RowClassification.PREAMBLE,
+        ):
             continue
 
         # Policy X: straight copy, zeros preserved
