@@ -1,9 +1,32 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-24. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-21 (Slice 5a). **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (full-stack):**
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (BACKEND, Slice 5a):**
+**Excel write-back backend -- the priced-workbook generator.** NEW module `api/boq/wizard/export_writeback.py` + endpoint
+`export_priced_workbook(boq_name, sheet_names)` (a sibling module, NOT folded into the 2076-line pricing.py). Given a committed
+BoQ + a ticked sheet subset (current committed version resolved SERVER-SIDE), it produces a priced `.xlsx` COPY and returns
+its bytes. **COPY-ON-WRITE** (fetch S3 -> `shutil.copy` -> stamp+save ONLY the copy; original temp/S3 never written);
+`openpyxl.load_workbook(copy, data_only=False)` (the `data_only=True` value-trap avoided). Per ticked sheet: **(a) RATES ONLY**
+-- stamp each filled `BoQ Cell Pricing.rate` into `(col_letter, excel_row)`, with **PER-CELL FORMULA SKIP** (`cell.data_type
+== 'f'` -> leave untouched + report the col_letter; e.g. a VRF combined-rate `=SUM(supply,install)`); **(b) COLOR** -- a solid
+`PatternFill` at the tagged cell (ANY column incl. non-rate; a fill never alters value/formula); **the 8 token->hex map is
+DECIDED HERE** (`_COLOR_HEX`: red `FFC7CE`, orange `FFD9A0`, yellow `FFEB9C`, green `C6EFCE`, blue `BDD7EE`, purple `E1D5F7`,
+pink `FBD4E4`, grey `D9D9D9`); **(c) REMARK** -- a `"Nirmaan Remarks"` TRAILING COLUMN one past the **TRUE DATA EDGE**
+(rightmost MAPPED col from the committed `column_role_map`, NOT inflated openpyxl `max_column`), with a HARD empty-column
+safety check that THROWS rather than overwrite real data. **POST-SAVE FIDELITY ASSERTION** re-opens the saved copy + asserts
+formula / merge / worksheet / defined-name counts unchanged (mismatch FAILS the export, reject-mutates-nothing). NEW additive
+`BoQ Sheet.last_exported_at` (Datetime), stamped per exported sheet via `frappe.db.set_value` (NOT doc.save -- the list-JSON
+`area_dimensions` gotcha). Grid-only general-specs sheets (`treat_as == "master_preamble"`) pass through untouched but count
+as exported. **RETURN = base64-in-JSON** (`{filename, content_type, content_base64, exported_sheets, skipped_formula_columns,
+remark_columns, last_exported_at}`) -- the file-only `frappe.local.response.filecontent` idiom can't carry the skipped-formula
+report, so one JSON response carries both; 5b decodes base64 -> Blob -> download. Governing principle 0: client-owned doc --
+rates + the user's own color/remark annotations ONLY, never amounts/formulas/structure. `bench migrate` landed the field (schema
+sync runs BEFORE the pre-existing unrelated `backfill_cashflow_gap_limited` patch wart, which aborts the patch phase -- NOT
+this slice's, not fixed). backend `test_pricing` 126->145 (+19), live-verified end-to-end on 145/150/166 (fidelity passes incl.
+166's 4585 defined names). NO frontend (Vitest/tsc N/A). 2026-06-21; see plan section "Slice 5a". **NEXT = Slice 5b (hub UI).**
+**Prior slice (full-stack):**
 **Cluster B -- formula-vs-document reconciliation (per-cell choice).** When a committed (DOCUMENT) amount and the
 formula-computed amount DIVERGE for the same amount cell, the editor FLAGS it (mismatch only -- never auto-fixes; the
 tendering doc is client-owned) and lets the user CHOOSE per cell which value wins, stored stickily per committed version in
