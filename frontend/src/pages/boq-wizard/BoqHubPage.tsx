@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -575,8 +576,8 @@ const BoqHubPage = () => {
   const committedCount = allDrafts.filter((s) => committedMap.has(s.sheet_name)).length;
 
   // ── Export eligibility (Slice D2b) ────────────────────────────────────────
-  // The global "Export Finalized" button + the dialog checklist operate on every
-  // "Finalized" sheet (VERBATIM names, #152). Empty => button disabled.
+  // The "Export Parsed BoQ" menu action + the dialog checklist operate on every
+  // "Finalized" sheet (VERBATIM names, #152). Empty => the menu item is disabled.
   const exportEligibleSheetNames = allDrafts
     .filter((s) => getEffectiveStatus(s) === "Finalized")
     .map((s) => s.sheet_name);
@@ -996,55 +997,17 @@ const BoqHubPage = () => {
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
         </p>
+        {/* Footer rework: 4 visible actions (Parse / Re-parse / Commit / Tendering) at
+            size="sm" + an "Export" overflow menu holding the two export actions, so the row
+            is uncluttered and the status line (the justify-between sibling) regains space. */}
         <div className="flex shrink-0 items-center gap-2">
           <TooltipProvider>
-            {/* Export Finalized (Slice D2b) -- one .xlsx workbook of the Finalized
-                sheets (one tab each). Enabled when >= 1 "Finalized" sheet
-                exists; opens the selection dialog. Status- and view-independent. */}
+            {/* Parse workbook (primary). */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
                   <Button
-                    variant="outline"
-                    disabled={exportEligibleSheetNames.length === 0}
-                    onClick={() => setExportDialogOpen(true)}
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Export Finalized
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {exportEligibleSheetNames.length > 0
-                  ? "Export checked sheets to Excel (one workbook, a tab per sheet)"
-                  : "No checked sheets to export"}
-              </TooltipContent>
-            </Tooltip>
-            {/* Global Re-parse (Force Re-parse slice) -- sits BESIDE Parse, never
-                replaces it. Enabled when >= 1 re-parse-eligible sheet; no blockingCount
-                gate. Opens the shared dialog in reparse mode (full picker). */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button
-                    variant="outline"
-                    disabled={!canReparse || parseInFlight}
-                    onClick={handleReparseGlobal}
-                  >
-                    Re-parse
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {canReparse
-                  ? "Re-parse already-parsed sheets (discards their parse output and review-screen work)"
-                  : "No previously-parsed sheets to re-parse"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button
+                    size="sm"
                     disabled={!canParse || parseInFlight}
                     onClick={handleParseClick}
                   >
@@ -1061,14 +1024,37 @@ const BoqHubPage = () => {
               </TooltipTrigger>
               <TooltipContent>{parseGateReason}</TooltipContent>
             </Tooltip>
-            {/* Commit (Phase 5 Slice 4b) -- 4th sibling. Enabled when >= 1 sheet is
-                commit-eligible (the gate); opens the commit modal. The eligible set
-                comes from get_committable_sheets, NOT from committed-state. */}
+            {/* Global Re-parse (Force Re-parse slice) -- sits BESIDE Parse, never
+                replaces it. Enabled when >= 1 re-parse-eligible sheet; no blockingCount
+                gate. Opens the shared dialog in reparse mode (full picker). */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
                   <Button
                     variant="outline"
+                    size="sm"
+                    disabled={!canReparse || parseInFlight}
+                    onClick={handleReparseGlobal}
+                  >
+                    Re-parse
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {canReparse
+                  ? "Re-parse already-parsed sheets (discards their parse output and review-screen work)"
+                  : "No previously-parsed sheets to re-parse"}
+              </TooltipContent>
+            </Tooltip>
+            {/* Commit (Phase 5 Slice 4b). Enabled when >= 1 sheet is commit-eligible (the
+                gate); opens the commit modal. The eligible set comes from
+                get_committable_sheets, NOT from committed-state. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     disabled={committableSheets.length === 0}
                     onClick={() => setCommitDialogOpen(true)}
                   >
@@ -1082,15 +1068,16 @@ const BoqHubPage = () => {
                   : "No sheets are eligible to commit yet"}
               </TooltipContent>
             </Tooltip>
-            {/* Tendering (Phase 5 Slice 3a) -- 5th sibling. The designed pricing-editor
-                entry door (design v1.3 Sec.8.5): a global button -> a picker of eligible
-                (committed) sheets -> open ONE in the pricing editor. Gated on committed-ness
-                (the same committedMap the card badges + the Committed tally use). */}
+            {/* Tendering (Phase 5 Slice 3a) -- the designed pricing-editor entry door
+                (design v1.3 Sec.8.5): a global button -> a picker of eligible (committed)
+                sheets -> open ONE in the pricing editor. Gated on committed-ness (the same
+                committedMap the card badges + the Committed tally use). */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
                   <Button
                     variant="outline"
+                    size="sm"
                     disabled={committedMap.size === 0}
                     onClick={() => setTenderingDialogOpen(true)}
                   >
@@ -1104,29 +1091,49 @@ const BoqHubPage = () => {
                   : "No committed sheets to price yet"}
               </TooltipContent>
             </Tooltip>
-            {/* Download priced tender (Phase 5 Slice 5b) -- 6th sibling. DISTINCT from
-                "Export Finalized" (a fresh review .xlsx): this downloads the ORIGINAL tender
-                workbook with the priced rates + colour/remark notes stamped in. Gated on
-                committed-ness (the same committedMap the Tendering button + card badges use). */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button
-                    variant="outline"
-                    disabled={committedMap.size === 0}
-                    onClick={() => setPricedDialogOpen(true)}
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Download priced tender
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                {committedMap.size > 0
-                  ? "Download the original workbook with your rates + notes stamped in"
-                  : "No committed sheets to price yet"}
-              </TooltipContent>
-            </Tooltip>
+            {/* Export overflow menu -- holds the two export actions (declutters the row).
+                A labelled "Export" + chevron trigger (NOT the top-of-card "More options"
+                MoreHorizontal menu -- distinct on purpose). Always opens; each item is
+                disabled per its own gate + shows a muted inline reason when disabled
+                (a disabled Radix menu item suppresses pointer events, so a hover-tooltip
+                would be unreliable -- the reason must be inline). Triggers UNCHANGED:
+                Export Parsed BoQ (D2b) and Download priced tender (5b) keep their gates +
+                setXDialogOpen handlers; only their home moved. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
+                  <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={exportEligibleSheetNames.length === 0}
+                  onClick={() => setExportDialogOpen(true)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Parsed BoQ
+                </DropdownMenuItem>
+                {exportEligibleSheetNames.length === 0 && (
+                  <DropdownMenuLabel className="pl-8 pt-0 text-xs font-normal text-muted-foreground">
+                    No checked sheets to export
+                  </DropdownMenuLabel>
+                )}
+                <DropdownMenuItem
+                  disabled={committedMap.size === 0}
+                  onClick={() => setPricedDialogOpen(true)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download priced tender
+                </DropdownMenuItem>
+                {committedMap.size === 0 && (
+                  <DropdownMenuLabel className="pl-8 pt-0 text-xs font-normal text-muted-foreground">
+                    No committed sheets to price yet
+                  </DropdownMenuLabel>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </TooltipProvider>
         </div>
       </div>

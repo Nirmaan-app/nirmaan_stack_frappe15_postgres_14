@@ -7,7 +7,7 @@
  * .xlsx, triggers a browser download, hands the result up via onDownloaded (so the hub can
  * surface the skipped-formula message + refresh staleness), and closes.
  *
- * DISTINCT from ExportWorkbookDialog ("Export Finalized" -- a fresh review .xlsx built
+ * DISTINCT from ExportWorkbookDialog ("Export Parsed BoQ" -- a fresh review .xlsx built
  * client-side from review rows): THIS downloads the user's ORIGINAL tender file with the
  * priced rates + the user's color/remark annotations stamped in by the server.
  *
