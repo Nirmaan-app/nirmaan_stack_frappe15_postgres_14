@@ -745,6 +745,65 @@ const SheetPricingPage = () => {
           </Button>
           {!isGridOnly && (
           <>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setSummaryOpen((o) => !o)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title="Toggle the parent-tree amount summary"
+          >
+            <Sigma className="h-4 w-4" />
+            Summary
+          </Button>
+          {/* Slice 4a/4b-A: the review-list toggle (remarks + all computed flags). */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setReviewOpen((o) => !o)}
+            disabled={pricedLoading || pricedError}
+            title="Rows flagged for review (remarks + computed flags)"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Review{activeReviewEntries.length > 0 ? ` (${activeReviewEntries.length})` : ""}
+          </Button>
+          {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
+              gun -- its ON state is loudly amber so the user always sees it is on. Default
+              off. Suppressed for grid-only (handled by the !isGridOnly cluster gate). */}
+          <Button
+            size="sm"
+            variant={override ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              override &&
+                "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700",
+            )}
+            aria-pressed={override}
+            onClick={() => setOverride((o) => !o)}
+            title={
+              override
+                ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
+                : "Allow pricing rows that aren't line items (notes, spacers). Off by default."
+            }
+          >
+            {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {override ? "Pricing any row" : "Price any row"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => gridRef.current?.flush()}
+            title="Flush any pending edits and save now"
+          >
+            <Save className="h-4 w-4" />
+            Save now
+          </Button>
+          {/* Status text (save-status chip + priced-count) -- pushed to the ribbon's right.
+              Moved here from before the action buttons in the two-ribbon reorg; behavior
+              (the saveStatus / pricedCount reads) is byte-identical. */}
+          <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs">
             {saveStatus === "saving" && (
               <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -797,6 +856,83 @@ const SheetPricingPage = () => {
               )}
             </span>
           )}
+          </div>
+          </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Single-editor lock banners (slice B) ──────────────────────────────
+          Mid-edit takeover takes precedence over the load-time holder banner. A STALE
+          lock returns editable===true -> NEITHER shows (silent auto-takeover on first
+          save). The holder banner shows ONLY when editable===false (truly blocked).
+          SUPPRESSED entirely for a grid-only sheet (no editing -> no lock). */}
+      {isGridOnly ? null : takenOver ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet was taken over by another user. Your latest change was not saved.
+            Reload to continue.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : editable === false ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet is being priced by{" "}
+            <span className="font-medium">{lockInfo?.locked_by_name ?? "another user"}</span>.
+            It is read-only until they finish.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : null}
+
+      {/* ── In-editor sheet tabs (slice 3d) ───────────────────────────────────
+          Switch to another COMMITTED sheet of the SAME BoQ without going out to the
+          hub. Workbook order (sheet_order); active tab = the current :sheetName
+          (VERBATIM, #152); label = the trimmed display name. A tab change navigates to
+          that sheet's editor (the hub's exact nav target) -> the route re-runs + the
+          key-remounted grid (below) flushes the old drafts and starts clean. The list
+          loads independently -- the strip simply doesn't render until it arrives. */}
+      {committedSheets.length > 0 && (
+        <Tabs
+          value={decodedSheetName}
+          onValueChange={(val) => {
+            if (val !== decodedSheetName) {
+              navigate(`/upload-boq/hub/${boqId ?? ""}/pricing/${encodeURIComponent(val)}`);
+            }
+          }}
+        >
+          <TabsList className="flex flex-wrap h-auto justify-start gap-1">
+            {committedSheets.map((s) => (
+              <TabsTrigger key={s.sheet_name} value={s.sheet_name} className="max-w-[16rem] truncate">
+                {s.sheet_name.trim() || s.sheet_name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+
+      {/* ── Bottom ribbon (toolbar two-ribbon reorg) ──────────────────────────
+          Grid view-controls BELOW the tab strip: Show unpriced, the description search
+          group, Columns, and the Show: row-type toggles. Wrapped in the SAME {!isGridOnly}
+          gate that held these controls in the old single toolbar row -- so a grid-only
+          general-specs sheet renders NO bottom ribbon (nothing to filter/search), exactly
+          as before. Every control is moved VERBATIM: handlers / state / disabled gates are
+          byte-identical -- this is a pure relocation, not a behavior change. */}
+      {!isGridOnly && (
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Slice 4b-A: show-only-unpriced filter (priceable-but-not-fully-priced rows). */}
           <Button
             size="sm"
@@ -958,127 +1094,7 @@ const SheetPricingPage = () => {
               Subtotals
             </label>
           </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => setSummaryOpen((o) => !o)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
-            title="Toggle the parent-tree amount summary"
-          >
-            <Sigma className="h-4 w-4" />
-            Summary
-          </Button>
-          {/* Slice 4a/4b-A: the review-list toggle (remarks + all computed flags). */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => setReviewOpen((o) => !o)}
-            disabled={pricedLoading || pricedError}
-            title="Rows flagged for review (remarks + computed flags)"
-          >
-            <ClipboardList className="h-4 w-4" />
-            Review{activeReviewEntries.length > 0 ? ` (${activeReviewEntries.length})` : ""}
-          </Button>
-          {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
-              gun -- its ON state is loudly amber so the user always sees it is on. Default
-              off. Suppressed for grid-only (handled by the !isGridOnly cluster gate). */}
-          <Button
-            size="sm"
-            variant={override ? "default" : "outline"}
-            className={cn(
-              "gap-1.5",
-              override &&
-                "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700",
-            )}
-            aria-pressed={override}
-            onClick={() => setOverride((o) => !o)}
-            title={
-              override
-                ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
-                : "Allow pricing rows that aren't line items (notes, spacers). Off by default."
-            }
-          >
-            {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-            {override ? "Pricing any row" : "Price any row"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => gridRef.current?.flush()}
-            title="Flush any pending edits and save now"
-          >
-            <Save className="h-4 w-4" />
-            Save now
-          </Button>
-          </>
-          )}
         </div>
-      </div>
-
-      {/* ── Single-editor lock banners (slice B) ──────────────────────────────
-          Mid-edit takeover takes precedence over the load-time holder banner. A STALE
-          lock returns editable===true -> NEITHER shows (silent auto-takeover on first
-          save). The holder banner shows ONLY when editable===false (truly blocked).
-          SUPPRESSED entirely for a grid-only sheet (no editing -> no lock). */}
-      {isGridOnly ? null : takenOver ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <p className="text-amber-900 dark:text-amber-100 flex-1">
-            This sheet was taken over by another user. Your latest change was not saved.
-            Reload to continue.
-          </p>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
-            <RefreshCw className="h-3.5 w-3.5" /> Reload
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleBack}>
-            Go to hub
-          </Button>
-        </div>
-      ) : editable === false ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
-          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <p className="text-amber-900 dark:text-amber-100 flex-1">
-            This sheet is being priced by{" "}
-            <span className="font-medium">{lockInfo?.locked_by_name ?? "another user"}</span>.
-            It is read-only until they finish.
-          </p>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
-            <RefreshCw className="h-3.5 w-3.5" /> Reload
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleBack}>
-            Go to hub
-          </Button>
-        </div>
-      ) : null}
-
-      {/* ── In-editor sheet tabs (slice 3d) ───────────────────────────────────
-          Switch to another COMMITTED sheet of the SAME BoQ without going out to the
-          hub. Workbook order (sheet_order); active tab = the current :sheetName
-          (VERBATIM, #152); label = the trimmed display name. A tab change navigates to
-          that sheet's editor (the hub's exact nav target) -> the route re-runs + the
-          key-remounted grid (below) flushes the old drafts and starts clean. The list
-          loads independently -- the strip simply doesn't render until it arrives. */}
-      {committedSheets.length > 0 && (
-        <Tabs
-          value={decodedSheetName}
-          onValueChange={(val) => {
-            if (val !== decodedSheetName) {
-              navigate(`/upload-boq/hub/${boqId ?? ""}/pricing/${encodeURIComponent(val)}`);
-            }
-          }}
-        >
-          <TabsList className="flex flex-wrap h-auto justify-start gap-1">
-            {committedSheets.map((s) => (
-              <TabsTrigger key={s.sheet_name} value={s.sheet_name} className="max-w-[16rem] truncate">
-                {s.sheet_name.trim() || s.sheet_name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
       )}
 
       {/* ── Editor note ───────────────────────────────────────────────────────
