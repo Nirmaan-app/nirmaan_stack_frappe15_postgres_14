@@ -1219,14 +1219,14 @@ export const PurchaseOrder = ({
                   {PO?.items?.map((item, index) => (
                     <tr key={index} className="hover:bg-gray-50 transition-colors text-sm text-gray-600">
                       <td className="pl-4 py-3 align-top">{index + 1}</td>
-                      <td className="pl-2 py-3 align-top">
+                      <td className="pl-2 py-3 align-top max-w-[450px]">
                         <div className="flex flex-col gap-1">
                           <span>{item.item_name}</span>
                           <small className="font-medium text-red-700">{item?.make}</small>
                           {item.comment && (
-                            <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5 mt-1">
+                            <div className="flex gap-1 items-start bg-gray-50 rounded p-1.5 mt-1 w-full">
                               <MessageCircleMore className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400" />
-                              <div className="text-xs text-gray-600 leading-snug">{item.comment}</div>
+                              <div className="text-xs text-gray-600 leading-snug break-words min-w-0">{item.comment}</div>
                             </div>
                           )}
                         </div>
