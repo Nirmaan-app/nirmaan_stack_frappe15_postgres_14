@@ -25,7 +25,8 @@
   "commit_version_section",
   "commit_version",
   "is_current",
-  "committed_at"
+  "committed_at",
+  "last_exported_at"
  ],
  "fields": [
   {
@@ -152,6 +153,13 @@
    "fieldname": "committed_at",
    "fieldtype": "Datetime",
    "label": "Committed At",
+   "read_only": 1
+  },
+  {
+   "description": "When this committed sheet's priced workbook was last exported (Slice 5a). Stamped per exported sheet via frappe.db.set_value at export time (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). Drives the 'pricing changed since last export' staleness signal (compared against MAX(BoQ Cell Pricing.priced_at) on the current version).",
+   "fieldname": "last_exported_at",
+   "fieldtype": "Datetime",
+   "label": "Last Exported At",
    "read_only": 1
   }
  ],
