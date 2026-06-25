@@ -823,9 +823,30 @@ at `collapsed.has(row.row_index)` -- that is the "parent disappears" trap.** All
   Collapse is ABSENT on the grid-only general-specs fork (it renders `SheetDataGrid`, never `PricingGrid`). vitest 307 -> 320
   (+13 `collapse.test.ts`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan §"Collapse/expand".
 
+**Collapse/expand ALL -- bottom-ribbon bulk toggle (`SheetPricingPage.tsx` + `collapse.ts`; view-layer, owner-locked):**
+ONE state-aware toggle button in the `{!isGridOnly}` BOTTOM ribbon (immediately after Show-unpriced, same `size="sm"
+variant="outline" className="gap-1.5"` template) that folds/unfolds the WHOLE hierarchy at once. **REUSES the slice-1
+engine -- NO new state, NO new context, the row memo + full-screen `expanded` UNTOUCHED.** **Option A (owner-locked):**
+"Collapse all" does `setCollapsed(collapsibleParents(childrenByParent))`, where the NEW pure one-liner
+`collapsibleParents(map) = new Set(map.keys())` (collapse.ts, unit-tested) is every collapsible parent's row_index -> only
+top-level roots remain (NOT the shallowest-tier model, which is SummaryPanel's separate *default view*). **size===0 rule
+(owner-locked):** label + action key off `collapsed.size === 0` -- size 0 -> "Collapse all" (`ChevronsDownUp`); size > 0
+-> "Expand all" (`ChevronsUpDown`) -> `setCollapsed(new Set())`. So a PARTIALLY hand-collapsed sheet reads "Expand all"
+(the button returns the sheet to clean -- SummaryPanel's proven rule). **DISABLED** when `childrenByParent.size === 0` (a
+flat sheet -- nothing to fold). It writes the SAME page `collapsed` set the per-parent chevrons read via `CollapseContext`,
+so chevrons + "+N hidden" reflect a bulk collapse with ZERO new wiring; composes into the existing `displayRows` filter
+(VIEW-ONLY -- counts/Summary read unfiltered `rows`, no total moves); "Expand all" hides nothing so it does NOT route
+through reveal-then-scroll. Absent on grid-only sheets (inherits the `{!isGridOnly}` gate). vitest 320 -> 323
+(+3 `collapse.test.ts`: `collapsibleParents`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan
+§"Collapse/expand ALL".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Hierarchy collapse/expand (2026-06-26) -- single-row
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Collapse/expand ALL (2026-06-26) -- a bottom-ribbon
+state-aware toggle that folds/unfolds the WHOLE pricing-grid hierarchy (Option A = `collapsibleParents` = every parent;
+`collapsed.size === 0` drives label "Collapse all"/"Expand all"; disabled on a flat sheet; reuses the slice-1 `collapsed`
+set + engine, NO new state, memo + full-screen `expanded` untouched); vitest 320 -> 323, tsc 3175 (0 new), see the
+collapse/expand-all rule above + plan §"Collapse/expand ALL". Prior: Hierarchy collapse/expand (2026-06-26) -- single-row
 collapse in the pricing grid (click a parent chevron to fold its whole descendant subtree; NEW pure leaf `collapse.ts`;
 page-owned `collapsed: Set<number>` composing the upstream `displayRows` filter [Option A]; `isHiddenByCollapse` mirrors
 ReviewTree.isVisible; a `+N hidden` badge DERIVED live; search PIERCES collapse + reveal-then-scroll via `onRevealRow`;
