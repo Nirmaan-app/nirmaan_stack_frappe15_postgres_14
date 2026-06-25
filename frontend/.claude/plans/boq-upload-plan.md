@@ -4,12 +4,13 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: "Row-detail panel read views" -- ADDITIVE ParentChain + ChildrenList read
-components mounted in the EXISTING review-screen detail panel (clickable drill-nav); the ORIGINAL single-column panel
-design is UNCHANGED (a two-column revamp was prototyped then reverted -- only the two read views kept). FRONTEND-only, tsc
-delta-0, build green (2026-06-25; see §"Row-detail panel read views" below). Prior: §17.45 -- PREAMBLE rows no longer drop
-their source quantities (no-attribute-loss / Option B: resolver qty carry-forward + multi-area post-pass + advisory-flag,
-2026-06-24).
+the docs-hygiene cleanup (git holds it). Latest: "Fuzzy description search" -- the case-insensitive SUBSTRING search in BOTH
+`ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder + RestructureModal parent-picker) replaced by the
+app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper `boqDescriptionSearch.ts` (token AND, partial, min
+length 2; fuzzy = MEMBERSHIP only, hits re-emitted in DOCUMENT order so prev/next still steps top-to-bottom). FRONTEND-only,
+tsc delta-0, build green (2026-06-25; see §"Fuzzy description search" below). Prior: "Row-detail panel read views" --
+ADDITIVE ParentChain + ChildrenList read components mounted in the EXISTING review-screen detail panel (clickable drill-nav;
+ORIGINAL single-column panel design UNCHANGED, a two-column revamp prototyped then reverted), 2026-06-25.
 
 ## 1. Overview
 
@@ -2253,6 +2254,53 @@ rootless-row review flags; no parser-layer fix attempted.
 **Known limit:** a ParentChain/ChildrenList navigate target hidden by an active classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
 
 **Verification:** project `tsc` delta-0 (3181 before == after; 0 errors in any touched file); in-container Vite build exit 0 (`✓ 7938 modules transformed`). No Frappe tests (frontend-only). Manual live-cert pending: LC1 parent chain renders + crumbs drill-navigate; LC2 children list + `▸N` + drill; LC3 both views show in a readOnly (finalized) sheet too; LC4 regression -- the rest of the original panel (reclassify, change-parent, 3 edit grids, remarks, Looks OK, Claude+Gemini, revert, edit history) unchanged.
+
+---
+
+### Fuzzy description search (review screen, FRONTEND-only, 2026-06-25)
+
+**What:** the two description search boxes in the BoQ post-parse review workflow -- `ReviewTree.tsx` (the #159 main
+find-&-filter) and `SheetSearchView.tsx` (the source-row finder, also embedded as the parent-picker inside
+`RestructureModal.tsx`) -- previously matched with case-insensitive SUBSTRING (`description.toLowerCase().includes(q)`).
+They now use the SAME token-scoring algorithm the app-wide pickers use (`utils/tokenSearch`, the extracted
+`FuzzySearchSelect` core), so a query like `cable 16` finds *"Supply & laying of XLPE cable 4C x 16 sqmm"* even though the
+words aren't contiguous. `RestructureModal` owns no search of its own -- it inherits the upgrade via SheetSearchView (no
+RestructureModal change). A codebase sweep confirmed these are the ONLY description/text searches in `boq-wizard/` (the
+other "filters" -- classification/status/AI/priceability -- are toggles, not text search, and are untouched).
+
+**Locked decisions (from `/grill`-style fork resolution):**
+- **A -- ordering.** Fuzzy decides MEMBERSHIP only (which rows match). Each surface then re-emits its hit list in
+  DOCUMENT order (its source `rows`/`allRows` order), so the prev/next stepper still walks top-to-bottom. tokenSearch's
+  relevance ranking is DELIBERATELY discarded -- a find-stepper should not jump around by score.
+- **B -- strictness.** AND semantics: every >=2-char query token must match (`minTokenMatches = tokenCount`, computed at
+  the call site). `partialMatch: true` (`cable` matches `cabling`). Min length 2 -- a <2-char query, OR a query whose
+  tokens are all 1-char, yields NO hits (1-char fuzzy-partial floods).
+- **C -- scope.** Only the two surfaces above; RestructureModal inherits; non-text filters untouched.
+
+**Build:**
+- NEW `frontend/src/pages/boq-wizard/boqDescriptionSearch.ts` -- ONE shared pure export `fuzzyDescriptionMatchSet<T>(items,
+  query, getText)` -> `Set<T>` of MATCHING ORIGINAL references. Guards short/empty queries to an EMPTY set (NOT
+  tokenSearch's "empty returns everything" default -- the find-semantics trap). The token-count it passes as
+  `minTokenMatches` uses the SAME `length >= 2` filter as the config's `minTokenLength` (they MUST agree or nothing
+  matches). One definition so the two surfaces never drift.
+- `ReviewTree.tsx` `searchHits` memo -- candidates gated by the UNCHANGED filter axis (`classificationVisible &&
+  passesFilter`, NOT the collapse axis `isVisible`); `fuzzyDescriptionMatchSet(candidates, q, r => r.description ?? "")`;
+  re-emit `candidates.filter(has).map(row_index)` (document order). Steppers / ring+flash tiers / counter /
+  `revealAndScrollToRow` / dep array all unchanged. The "hit predicate's filter axis == render gate's filter axis"
+  invariant is preserved (only the text test changed).
+- `SheetSearchView.tsx` `hits` memo -- keeps `searchEnabled`/`descriptionLetter`/degraded-mode guards;
+  `fuzzyDescriptionMatchSet(allRows, q, r => String(r.cells[descriptionLetter] ?? ""))`; re-emit
+  `allRows.filter(has).map(row_number)` (document order). Scroll/center/flash, `onCurrentHitChange`, counter unchanged.
+
+**Accepted edge cases:** 1-char query -> no hits (was substring); query of only 1-char tokens -> no hits;
+`description == null` -> never matches (mirrors the old `if (d && ...)` guard). Perf O(rows x tokens) per keystroke,
+trivial at BoQ scale; no debounce added.
+
+**Verification:** project `tsc` delta-0 (3181 before == after; 0 errors in any touched file -- the standalone-LSP `@/`-alias
+"cannot find module" + downstream implicit-any are pre-existing noise, not tsc errors). In-container Vite build exit 0
+(`✓ built in 1m 24s`). No Frappe tests (frontend-only). Manual live-cert pending: LC1 ReviewTree `cable 16` finds a
+non-contiguous match + Next walks top->bottom; LC2 same inside the RestructureModal parent-picker; LC3 1-char query => no
+hits; LC4 active classification/status filters still gate hits; LC5 highlight/flash/counter intact.
 
 ---
 

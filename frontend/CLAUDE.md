@@ -514,7 +514,12 @@ dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; ther
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Detail-panel read views (2026-06-25) -- ADDITIVE
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Fuzzy description search (2026-06-25) -- the
+case-insensitive SUBSTRING search in BOTH `ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder +
+RestructureModal parent-picker) replaced by the app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper
+`boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`); token AND, partial, min length 2; fuzzy = MEMBERSHIP only, hits
+re-emitted in DOCUMENT order so prev/next still steps top-to-bottom. RestructureModal inherits (no change). See the "Fuzzy
+description search" rule below. Prior: Detail-panel read views (2026-06-25) -- ADDITIVE
 `ParentChain.tsx` (ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N`) mounted in the EXISTING review-screen
 detail panel, clickable to drill-navigate; the ORIGINAL single-column panel design is unchanged (a two-column revamp was
 prototyped then reverted -- only the two read views were kept). See the "Detail-panel read views" rule below. Prior:
@@ -1071,6 +1076,38 @@ reuse `ClassificationPill` from `reviewRender` and take `onNavigate={navigateToR
 reveals+scrolls+flashes it, auto-expanding collapsed ancestors). Known limit: a target hidden by an active
 classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
 `GeminiAcceptBlock` + the panel body are UNCHANGED from the original.
+
+**Fuzzy description search conventions (`boqDescriptionSearch.ts` + `ReviewTree.tsx` + `SheetSearchView.tsx`; full detail:
+plan §"Fuzzy description search"):** the two description search boxes in the review workflow now use the app-wide
+token-scoring matcher instead of substring `.includes()`. There are only TWO real implementations: `ReviewTree.tsx`'s
+`searchHits` memo and `SheetSearchView.tsx`'s `hits` memo -- `RestructureModal.tsx` owns NO search (it embeds SheetSearchView
+as its parent-picker, so it upgrades for free; do NOT add search to it). The other `boq-wizard/` "filters"
+(classification/status/AI/priceability toggles) are NOT text search -- leave them alone.
+
+- **ONE shared helper -- never inline a second matcher.** `boqDescriptionSearch.ts` exports the single pure
+  `fuzzyDescriptionMatchSet<T>(items, query, getText) -> Set<T>` (the matching ORIGINAL references). It wraps
+  `utils/tokenSearch` (the extracted `FuzzySearchSelect` core -- do NOT add `fuse.js`; it's an unused dep). Both surfaces
+  call THIS; if you add a third description search anywhere in the wizard, call this too.
+- **THE TRAP (load-bearing):** `tokenSearch` returns ALL items on an empty/too-short query (not an empty set). The helper
+  GUARDS this -- a `< 2`-char trimmed query, or a query whose tokens are all 1-char, returns an EMPTY set (find-semantics:
+  short query => no hits). Each call site ALSO short-circuits `query.trim().length < 2` before calling. Never feed the
+  raw `tokenSearch` output to a find-stepper.
+- **Locked config (the `/grill` decisions):** token **AND** (`minTokenMatches = tokenCount`, computed at the call site
+  with the SAME `length >= 2` filter as the config's `minTokenLength` -- they MUST agree or nothing matches);
+  `partialMatch: true`; `minSearchLength: 2` / `minTokenLength: 2`.
+- **Fuzzy = MEMBERSHIP, document = ORDER (decision A).** The helper returns a Set; each surface iterates its OWN
+  document-ordered source (`rows.filter(...)` / `allRows`) and keeps `set.has(item)`, mapping to its identity field
+  (`row_index` for ReviewTree, `row_number` for SheetSearchView). tokenSearch's relevance ranking is DELIBERATELY
+  discarded so prev/next steps top-to-bottom -- do NOT "fix" this by using the ranked order.
+- **Invariants preserved.** ReviewTree still gates candidates on the FILTER axis (`classificationVisible && passesFilter`),
+  NOT the collapse axis (`isVisible`) -- the "hit predicate's filter axis == render gate's filter axis" rule holds (only
+  the text test changed). SheetSearchView keeps its `searchEnabled`/degraded-mode guard. All steppers, ring/flash highlight
+  tiers, "N of M" counters, `revealAndScrollToRow`, and `onCurrentHitChange` are UNCHANGED.
+- **Verification.** tsc delta-0 (3181 == 3181; 0 errors in the 3 touched files -- the `@/`-alias "cannot find module" +
+  implicit-any are standalone-LSP noise, not tsc errors); in-container Vite build exit 0 (`✓ built in 1m 24s`). No Frappe
+  tests (frontend-only). Manual live-cert pending Nitesh: LC1 ReviewTree `cable 16` finds a non-contiguous match + Next
+  walks top->bottom; LC2 same in the RestructureModal parent-picker; LC3 1-char => no hits; LC4 filters still gate hits;
+  LC5 highlight/flash/counter intact.
 
 **§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 

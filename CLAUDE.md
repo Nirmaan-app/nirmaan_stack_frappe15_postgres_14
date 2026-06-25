@@ -4,13 +4,17 @@
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest frontend slice
-(2026-06-25):** BoQ review-screen detail-panel READ VIEWS -- FRONTEND-ONLY (no backend/doctype). Two ADDITIVE pure
-components mounted in the EXISTING `expandedDetailRow` panel (its ORIGINAL single-column design unchanged): `ParentChain.tsx`
-(ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N` grandchild marker), both clickable to drill-navigate
-(`navigateToRow` = open that row's panel + reveal/scroll/flash). Supported by a `childrenByParent` memo (O(n) inverse of
-`effective_parent_index`) + `navigateToRow`. A two-column "Context|Actions" revamp of the panel was prototyped then
-REVERTED -- only the two read views were kept. tsc delta-0; details in `frontend/CLAUDE.md` + plan §"Row-detail panel
-read views". **Prior parser fix (2026-06-24):**
+(2026-06-25):** BoQ review-screen FUZZY DESCRIPTION SEARCH -- FRONTEND-ONLY (no backend/doctype). The case-insensitive
+SUBSTRING search in BOTH `ReviewTree.tsx` (the #159 find-&-filter) and `SheetSearchView.tsx` (the row-finder, also the
+RestructureModal parent-picker) is replaced by the app-wide token-scoring matcher (`utils/tokenSearch`, the FuzzySearchSelect
+core) via ONE shared wizard-local helper `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`). Locked behaviour: token AND
+(every >=2-char token must match), partial tokens on, min length 2; fuzzy decides MEMBERSHIP only -- each surface re-emits
+hits in DOCUMENT order so the prev/next stepper still walks top-to-bottom (tokenSearch's relevance ranking deliberately
+discarded). RestructureModal inherits via SheetSearchView (no change). tsc delta-0, build green; details in
+`frontend/CLAUDE.md` + plan §"Fuzzy description search". **Prior frontend slice (2026-06-25):** detail-panel READ VIEWS --
+two ADDITIVE pure components (`ParentChain.tsx` ancestor breadcrumb + `ChildrenList.tsx` direct children + `▸N`) mounted in
+the EXISTING `expandedDetailRow` panel (ORIGINAL single-column design unchanged), clickable to drill-navigate via
+`navigateToRow`; a two-column revamp was prototyped then REVERTED. **Prior parser fix (2026-06-24):**
 PREAMBLE rows no longer drop their source quantities -- the owner-locked "no source attribute lost during parsing;
 classification is a label, not a data filter" principle (Option B). The resolver PREAMBLE `ResolvedRow` now carries
 qty/amount forward symmetric with LINE_ITEM (`hierarchy.py`), `_apply_multi_area_post_pass` widened to `{LINE_ITEM, PREAMBLE}`

@@ -109,6 +109,7 @@ import { RestructureModal } from "./RestructureModal";
 // change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
 import { ParentChain } from "./ParentChain";
 import { ChildrenList } from "./ChildrenList";
+import { fuzzyDescriptionMatchSet } from "./boqDescriptionSearch";
 // Shared review-render helpers, extracted to ./reviewRender (Slice 2) for reuse by the
 // pricing grid. Byte-identical move -- behaviour unchanged. CLS_LABELS moved with the
 // pill (it depends on it) and is re-imported here for ReviewTree's own label usages.
@@ -1236,21 +1237,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return true;
   };
 
-  // §9 #159: search hit list -- ordered row_index of rows that pass the SAME shown-filter
-  // (classificationVisible + passesFilter) AND whose description matches the query. Collapse
-  // (isVisible) is DELIBERATELY excluded: a hit under a collapsed parent IS a hit, and
-  // stepping to it auto-expands via revealAndScrollToRow. Empty query => no hits.
+  // §9 #159 (+fuzzy): search hit list -- row_index of rows that pass the SAME shown-filter
+  // (classificationVisible + passesFilter) AND whose description FUZZY-matches the query
+  // (token AND, partial, min length 2 -- shared with SheetSearchView via boqDescriptionSearch).
+  // Collapse (isVisible) is DELIBERATELY excluded: a hit under a collapsed parent IS a hit, and
+  // stepping to it auto-expands via revealAndScrollToRow. Empty / <2-char query => no hits.
+  // Fuzzy decides MEMBERSHIP only; we re-emit in document (rows) order so prev/next steps
+  // top-to-bottom, NOT by relevance (the tokenSearch ranking is deliberately discarded).
   const searchHits = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (q === "") return [];
-    const out: number[] = [];
-    for (const row of rows) {
-      if (!classificationVisible(row)) continue;
-      if (!passesFilter(row)) continue;
-      const d = row.description;
-      if (d && d.toLowerCase().includes(q)) out.push(row.row_index);
-    }
-    return out;
+    if (searchQuery.trim().length < 2) return [];
+    const candidates = rows.filter((row) => classificationVisible(row) && passesFilter(row));
+    const matched = fuzzyDescriptionMatchSet(candidates, searchQuery, (row) => row.description ?? "");
+    return candidates.filter((row) => matched.has(row)).map((row) => row.row_index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals]);
 
