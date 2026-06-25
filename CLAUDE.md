@@ -1,9 +1,28 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-23. **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-25. **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (full-stack):** Phase 5
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest frontend slice
+(2026-06-25):** BoQ review-screen FUZZY DESCRIPTION SEARCH -- FRONTEND-ONLY (no backend/doctype). The case-insensitive
+SUBSTRING search in BOTH `ReviewTree.tsx` (the #159 find-&-filter) and `SheetSearchView.tsx` (the row-finder, also the
+RestructureModal parent-picker) is replaced by the app-wide token-scoring matcher (`utils/tokenSearch`, the FuzzySearchSelect
+core) via ONE shared wizard-local helper `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`). Locked behaviour: token AND
+(every >=2-char token must match), partial tokens on, min length 2; fuzzy decides MEMBERSHIP only -- each surface re-emits
+hits in DOCUMENT order so the prev/next stepper still walks top-to-bottom (tokenSearch's relevance ranking deliberately
+discarded). RestructureModal inherits via SheetSearchView (no change). tsc delta-0, build green; details in
+`frontend/CLAUDE.md` + plan §"Fuzzy description search". **Prior frontend slice (2026-06-25):** detail-panel READ VIEWS --
+two ADDITIVE pure components (`ParentChain.tsx` ancestor breadcrumb + `ChildrenList.tsx` direct children + `▸N`) mounted in
+the EXISTING `expandedDetailRow` panel (ORIGINAL single-column design unchanged), clickable to drill-navigate via
+`navigateToRow`; a two-column revamp was prototyped then REVERTED. **Prior parser fix (2026-06-24):**
+PREAMBLE rows no longer drop their source quantities -- the owner-locked "no source attribute lost during parsing;
+classification is a label, not a data filter" principle (Option B). The resolver PREAMBLE `ResolvedRow` now carries
+qty/amount forward symmetric with LINE_ITEM (`hierarchy.py`), `_apply_multi_area_post_pass` widened to `{LINE_ITEM, PREAMBLE}`
+(`orchestrator.py`), and the `priced_preamble_no_children` advisory flag now ALSO fires on a carried `qty_total` so qty-bearing
+preambles are surfaced for human reclassify -- NOT a new parser flag (would duplicate the existing one) (`review_screen.py`).
+Root cause = Bug-19 `_apply_priced_preamble_promotion` over-promoting flat-`sl_no` leaf items INTO preambles + the PREAMBLE
+ResolvedRow never copying qty. ~833 parser+review+commit tests green; verified 16/16 dropped quantities restored on
+BOQ-26-00021 / `HVAC_-19TH FLOOR`. See plan §17.45. **Latest slice (full-stack):** Phase 5
 Slice 4b-ACKNOWLEDGE -- the per-ROW review-strip DISMISSAL ("reviewed / looks OK") layer (NEW doctype BoQ Cell Dismissal +
 save_cell_dismissal / get_sheet_dismissals + a row-level RE-ARM inside save_cell_price [computed kinds only, EXCLUDES remark]
 + an additive sheet-level `dismissals` key on get_priced_rows; frontend active/show-all strip filter + toggle + per-entry

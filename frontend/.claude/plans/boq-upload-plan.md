@@ -4,8 +4,13 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: Slice 4a.2 / 4a-FE / 4a-BE -- the pricing-editor annotation layer
-(remarks + 8-color cells, 2026-06-22).
+the docs-hygiene cleanup (git holds it). Latest: "Fuzzy description search" -- the case-insensitive SUBSTRING search in BOTH
+`ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder + RestructureModal parent-picker) replaced by the
+app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper `boqDescriptionSearch.ts` (token AND, partial, min
+length 2; fuzzy = MEMBERSHIP only, hits re-emitted in DOCUMENT order so prev/next still steps top-to-bottom). FRONTEND-only,
+tsc delta-0, build green (2026-06-25; see §"Fuzzy description search" below). Prior: "Row-detail panel read views" --
+ADDITIVE ParentChain + ChildrenList read components mounted in the EXISTING review-screen detail panel (clickable drill-nav;
+ORIGINAL single-column panel design UNCHANGED, a two-column revamp prototyped then reverted), 2026-06-25.
 
 ## 1. Overview
 
@@ -2217,6 +2222,85 @@ alone. Disposition: out of scope for cycle 3 fix queue per
 agreement #43. The wizard review pathway (Phase 2c body) surfaces
 rootless level-2 PREAMBLEs for user-disambiguation via existing
 rootless-row review flags; no parser-layer fix attempted.
+
+### 17.45 [CLOSED 2026-06-24, feat pending] -- PREAMBLE rows silently dropped their source quantities (no-attribute-loss / Option B)
+
+**Issue:** Any row that ended up classified `preamble` lost its source quantity (+ amount / per-area) in the parsed output — `qty_total` was written as 0/None even when the Excel qty cell held a real number. Confirmed on the last real upload (BOQ-26-00021, sheet `HVAC_-19TH FLOOR`): 16 line-items with genuine quantities (350 Rmt, 40 Rmt, 8 No., 1 Lot, 300 Kgs, …) were turned into preambles with qty=0.
+
+**Root cause (two compounding parts):** (1) `_apply_priced_preamble_promotion` ("Bug 19", `classifier.py`) over-promotes real LINE_ITEMs into PREAMBLEs on sheets that use ONE flat integer `sl_no` series for BOTH section headers (no unit/qty → preamble) AND leaf line-items — its contiguous-sequence + cascade heuristic ("earlier promotions inform later ones") swallows the numbered leaf items. (2) STRUCTURAL: `resolve_hierarchy` built the PREAMBLE `ResolvedRow` WITHOUT the qty/amount carry-forward kwargs the LINE_ITEM branch has (`hierarchy.py`), so `flatten_resolved_row` read `qty_total=None`. The zero-children demotion that would rescue a leaf preamble explicitly SKIPS `promoted_from_line_item` rows → the qty was gone for good.
+
+**Fix (Option B — "no source attribute lost during parsing; classification is a label, not a data filter", owner-locked principle):**
+- `hierarchy.py`: the PREAMBLE `ResolvedRow` now carries `qty_by_area_raw`/`amount_by_area_raw`/`qty_total`(=`qty_total_raw`)/`amount_total`, symmetric with LINE_ITEM. No-op for genuine (qty-less) section headers.
+- `orchestrator.py`: `_apply_multi_area_post_pass` gate widened LINE_ITEM-only → `{LINE_ITEM, PREAMBLE}` (SPACER/NOTE/subtotal/header_repeat stay skipped — they never become priceable nodes and the committed grid tier already preserves their raw cells).
+- `review_screen.py`: the existing `priced_preamble_no_children` advisory flag now ALSO triggers on a carried `qty_total>0` (so qty-bearing preambles are surfaced for human reclassify, instead of a NEW parser `needs_classification_review` flag that would DUPLICATE the existing server-side flag); reason text → "…price or quantity…"; corrected the stale "DORMANT on freshly-parsed rows" docstring (false — Bug-19 promotions skip demotion, so 11 already fired on this sheet).
+
+**Verification:** ~833 parser+review+commit tests green (Bug-19/Bug-20 promotion regressions + commit reconcile all intact). New tests: resolve_hierarchy preamble carry-forward (`test_hierarchy`), post-pass processes preamble + SPACER still skipped (`test_orchestrator` ×2), qty-only flag (`test_review_screen`); repurposed `test_non_line_item_rows_not_modified` → `test_spacer_rows_skipped`. Live non-destructive re-parse of BOQ-26-00021 / `HVAC_-19TH FLOOR`: **16/16 quantities restored, 15/16 surfaced for review**. To apply to a live BoQ: re-parse after the bench workers pick up the new code (re-parse discards human review edits on that sheet).
+
+**Known follow-up (not a regression):** Option A (narrowing Bug 19 so a self-priced leaf is never promoted → labels also correct) is deferred. The 1/16 un-flagged row is a qty-bearing preamble WITH children whose pre-existing with-children flag (`_apply_priced_preamble_with_children_review_flag_post_pass` / `_is_priced_for_review`) didn't fire.
+
+---
+
+### Row-detail panel read views (review screen, FRONTEND-only, 2026-06-25)
+
+**What:** added two NEW read views -- an ancestor breadcrumb (parent chain) + a direct-children list -- to the review-screen inline Row-detail panel (`ReviewTree.tsx`, the `expandedDetailRow === row.row_index` block), which previously showed only a row's IMMEDIATE parent and no children. **The original single-column panel design is UNCHANGED** (indigo brand-tinted card, vertical classification/parent stack, 3 separate edit grids, AI/Gemini/revert blocks, remarks, flags, edit history -- all exactly as before). The two views are mounted ADDITIVELY in a `mb-2 space-y-2` block placed right after the Classification/Parent display grid and before the AI-suggestion block.
+
+**Scope note (recorded):** a fuller two-column "CONTEXT (read) | ACTIONS (write)" revamp of this panel (neutral surface, FINDING B indigo reversal, AI consolidation, read/write bifurcation) was prototyped via `/grill-with-docs` + `/frontend-design` and then **REVERTED by owner request** -- only the two read views below were kept. `ReviewTree.tsx`'s panel body + `GeminiAcceptBlock.tsx` were git-restored to their pre-revamp state; the indigo-tint FINDING B decision STANDS (not reversed).
+
+**Build (the only surviving changes):**
+- NEW `frontend/src/pages/boq-wizard/ParentChain.tsx` -- PURE; walks `effective_parent_index -> byIdx` (same shape as `revealAndScrollToRow`, `HOP_CAP=60` + self/cycle guard) to a vertical indented ancestors→(this row) tree; ancestor crumbs clickable via `onNavigate`. ROOT indicated correctly: NO synthetic "Root" node -- the actual root-most ancestor is tagged "top level" (only when its own parent is null/-1), and a top-level current row renders "This row is at the top level — no parent." Text scale matches the panel (`text-[10px]` label / `text-xs` rows).
+- NEW `frontend/src/pages/boq-wizard/ChildrenList.tsx` -- PURE; reads the new `childrenByParent` map; DIRECT children only, each with a `▸N` grandchild-count (`childrenByParent.get(child)?.length`), descriptions HARD-capped at 35 chars (`capDesc`, JS slice + ellipsis), `max-h-48` scroll, empty → "No children." Text scale matches the panel (`text-[10px]` / `text-xs`). Both reuse `ClassificationPill` from `reviewRender`.
+- `ReviewTree.tsx` (4 minimal additions, panel body otherwise untouched): (a) imports the two components; (b) the `[rows]` memo now also builds `childrenByParent: Map<number, ReviewRow[]>` (O(n) inverse of `effective_parent_index`, render-order preserved); (c) new `navigateToRow(idx)` = `setExpandedDetailRow(idx)` + `revealAndScrollToRow(idx)` (open-target-panel + reveal/scroll/flash on a crumb/child click); (d) the `<ParentChain/>` + `<ChildrenList/>` mount block after the classification/parent grid. Both render in editable AND readOnly sheets (read context).
+
+**Known limit:** a ParentChain/ChildrenList navigate target hidden by an active classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
+
+**Verification:** project `tsc` delta-0 (3181 before == after; 0 errors in any touched file); in-container Vite build exit 0 (`✓ 7938 modules transformed`). No Frappe tests (frontend-only). Manual live-cert pending: LC1 parent chain renders + crumbs drill-navigate; LC2 children list + `▸N` + drill; LC3 both views show in a readOnly (finalized) sheet too; LC4 regression -- the rest of the original panel (reclassify, change-parent, 3 edit grids, remarks, Looks OK, Claude+Gemini, revert, edit history) unchanged.
+
+---
+
+### Fuzzy description search (review screen, FRONTEND-only, 2026-06-25)
+
+**What:** the two description search boxes in the BoQ post-parse review workflow -- `ReviewTree.tsx` (the #159 main
+find-&-filter) and `SheetSearchView.tsx` (the source-row finder, also embedded as the parent-picker inside
+`RestructureModal.tsx`) -- previously matched with case-insensitive SUBSTRING (`description.toLowerCase().includes(q)`).
+They now use the SAME token-scoring algorithm the app-wide pickers use (`utils/tokenSearch`, the extracted
+`FuzzySearchSelect` core), so a query like `cable 16` finds *"Supply & laying of XLPE cable 4C x 16 sqmm"* even though the
+words aren't contiguous. `RestructureModal` owns no search of its own -- it inherits the upgrade via SheetSearchView (no
+RestructureModal change). A codebase sweep confirmed these are the ONLY description/text searches in `boq-wizard/` (the
+other "filters" -- classification/status/AI/priceability -- are toggles, not text search, and are untouched).
+
+**Locked decisions (from `/grill`-style fork resolution):**
+- **A -- ordering.** Fuzzy decides MEMBERSHIP only (which rows match). Each surface then re-emits its hit list in
+  DOCUMENT order (its source `rows`/`allRows` order), so the prev/next stepper still walks top-to-bottom. tokenSearch's
+  relevance ranking is DELIBERATELY discarded -- a find-stepper should not jump around by score.
+- **B -- strictness.** AND semantics: every >=2-char query token must match (`minTokenMatches = tokenCount`, computed at
+  the call site). `partialMatch: true` (`cable` matches `cabling`). Min length 2 -- a <2-char query, OR a query whose
+  tokens are all 1-char, yields NO hits (1-char fuzzy-partial floods).
+- **C -- scope.** Only the two surfaces above; RestructureModal inherits; non-text filters untouched.
+
+**Build:**
+- NEW `frontend/src/pages/boq-wizard/boqDescriptionSearch.ts` -- ONE shared pure export `fuzzyDescriptionMatchSet<T>(items,
+  query, getText)` -> `Set<T>` of MATCHING ORIGINAL references. Guards short/empty queries to an EMPTY set (NOT
+  tokenSearch's "empty returns everything" default -- the find-semantics trap). The token-count it passes as
+  `minTokenMatches` uses the SAME `length >= 2` filter as the config's `minTokenLength` (they MUST agree or nothing
+  matches). One definition so the two surfaces never drift.
+- `ReviewTree.tsx` `searchHits` memo -- candidates gated by the UNCHANGED filter axis (`classificationVisible &&
+  passesFilter`, NOT the collapse axis `isVisible`); `fuzzyDescriptionMatchSet(candidates, q, r => r.description ?? "")`;
+  re-emit `candidates.filter(has).map(row_index)` (document order). Steppers / ring+flash tiers / counter /
+  `revealAndScrollToRow` / dep array all unchanged. The "hit predicate's filter axis == render gate's filter axis"
+  invariant is preserved (only the text test changed).
+- `SheetSearchView.tsx` `hits` memo -- keeps `searchEnabled`/`descriptionLetter`/degraded-mode guards;
+  `fuzzyDescriptionMatchSet(allRows, q, r => String(r.cells[descriptionLetter] ?? ""))`; re-emit
+  `allRows.filter(has).map(row_number)` (document order). Scroll/center/flash, `onCurrentHitChange`, counter unchanged.
+
+**Accepted edge cases:** 1-char query -> no hits (was substring); query of only 1-char tokens -> no hits;
+`description == null` -> never matches (mirrors the old `if (d && ...)` guard). Perf O(rows x tokens) per keystroke,
+trivial at BoQ scale; no debounce added.
+
+**Verification:** project `tsc` delta-0 (3181 before == after; 0 errors in any touched file -- the standalone-LSP `@/`-alias
+"cannot find module" + downstream implicit-any are pre-existing noise, not tsc errors). In-container Vite build exit 0
+(`✓ built in 1m 24s`). No Frappe tests (frontend-only). Manual live-cert pending: LC1 ReviewTree `cable 16` finds a
+non-contiguous match + Next walks top->bottom; LC2 same inside the RestructureModal parent-picker; LC3 1-char query => no
+hits; LC4 active classification/status filters still gate hits; LC5 highlight/flash/counter intact.
 
 ---
 

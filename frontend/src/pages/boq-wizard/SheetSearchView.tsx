@@ -41,6 +41,7 @@ import { ChevronDown, ChevronUp, Loader2, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { fuzzyDescriptionMatchSet } from "./boqDescriptionSearch";
 import {
   Table,
   TableBody,
@@ -266,18 +267,16 @@ export function SheetSearchView({
   const [flashRow, setFlashRow] = useState<number | null>(null);
   const rowRefs = useRef<Map<number, HTMLElement>>(new Map());
 
-  // Ordered hit list: row_numbers whose Description cell matches (case-insensitive).
+  // Ordered hit list: row_numbers whose Description cell FUZZY-matches the query (token AND,
+  // partial, min length 2 -- shared with ReviewTree via boqDescriptionSearch). Fuzzy decides
+  // MEMBERSHIP only; we re-emit in allRows (document) order so prev/next steps top-to-bottom.
   const hits = useMemo(() => {
-    if (!searchEnabled || !descriptionLetter || query.trim() === "") return [];
-    const q = query.trim().toLowerCase();
-    const out: number[] = [];
-    for (const row of allRows) {
+    if (!searchEnabled || !descriptionLetter || query.trim().length < 2) return [];
+    const matched = fuzzyDescriptionMatchSet(allRows, query, (row) => {
       const v = row.cells[descriptionLetter];
-      if (v !== null && v !== undefined && String(v).toLowerCase().includes(q)) {
-        out.push(row.row_number);
-      }
-    }
-    return out;
+      return v === null || v === undefined ? "" : String(v);
+    });
+    return allRows.filter((row) => matched.has(row)).map((row) => row.row_number);
   }, [allRows, descriptionLetter, query, searchEnabled]);
 
   const hitSet = useMemo(() => new Set(hits), [hits]);

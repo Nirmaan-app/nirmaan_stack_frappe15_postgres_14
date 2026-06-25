@@ -284,16 +284,70 @@ class TestMultiAreaPostPass(unittest.TestCase):
         self.assertEqual(row.amount_by_area["Floor 1"]["total"], 0.0)
 
     # ---------------------------------------------------------------- #
-    # Test 3 — non-LINE_ITEM rows untouched                            #
+    # Test 3 — SPACER/NOTE rows still skipped by the gate              #
     # ---------------------------------------------------------------- #
 
-    def test_non_line_item_rows_not_modified(self):
-        """PREAMBLE rows are skipped; qty_by_area/amount_by_area stay {} and no warnings."""
-        row = self._preamble_row()
+    def test_spacer_rows_skipped(self):
+        """SPACER rows are skipped by the post-pass gate: even with per-area raw data
+        present, qty_by_area/amount_by_area stay {} and no warnings.  No-attribute-loss
+        (Option B) widened the gate to LINE_ITEM + PREAMBLE only; SPACER/NOTE/subtotal/
+        header_repeat never become priceable nodes, so they remain excluded."""
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+        classified = ClassifiedRow(
+            raw_row=RawRow(row_number=1, cells={}),
+            classification=RowClassification.SPACER,
+        )
+        row = ResolvedRow(
+            classified_row=classified,
+            qty_by_area_raw={"Floor 1": 5.0},
+            amount_by_area_raw={"Floor 1": {"total": 500.0}},
+        )
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.qty_by_area, {})
         self.assertEqual(row.amount_by_area, {})
         self.assertEqual(row.validation_warnings, [])
+
+    # ---------------------------------------------------------------- #
+    # Test 3b — PREAMBLE rows now processed (no-attribute-loss)        #
+    # ---------------------------------------------------------------- #
+
+    def test_preamble_rows_now_processed(self):
+        """No-attribute-loss (Option B): a PREAMBLE carrying per-area data + a scalar
+        qty_total now has its per-area output dicts populated by the post-pass, instead
+        of being dropped.  A genuine (data-less) section-header preamble stays a no-op."""
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+
+        def _preamble(row_number, **kw):
+            return ResolvedRow(
+                classified_row=ClassifiedRow(
+                    raw_row=RawRow(row_number=row_number, cells={}),
+                    classification=RowClassification.PREAMBLE,
+                ),
+                **kw,
+            )
+
+        row = _preamble(
+            1,
+            qty_by_area_raw={"Floor 1": 4.0, "Floor 2": 6.0},
+            amount_by_area_raw={"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}},
+            qty_total=10.0,
+            amount_total=500.0,
+        )
+        _apply_multi_area_post_pass([row])
+        self.assertEqual(row.qty_by_area, {"Floor 1": 4.0, "Floor 2": 6.0})
+        self.assertEqual(row.amount_by_area, {"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}})
+        self.assertEqual(row.qty_total, 10.0)
+
+        # A data-less preamble (real section header) remains a no-op.
+        empty = _preamble(2)
+        _apply_multi_area_post_pass([empty])
+        self.assertEqual(empty.qty_by_area, {})
+        self.assertEqual(empty.amount_by_area, {})
+        self.assertEqual(empty.validation_warnings, [])
 
     # ---------------------------------------------------------------- #
     # Test 4 — qty_total fallback when None + per-area populated       #
