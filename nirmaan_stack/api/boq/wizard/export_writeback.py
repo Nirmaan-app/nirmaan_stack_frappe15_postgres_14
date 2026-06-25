@@ -18,6 +18,12 @@ What it stamps, per ticked sheet, onto a fresh copy:
   - COLORS (BoQ Cell Color): an openpyxl PatternFill at the tagged (excel_row, col_letter)
     -- any column, incl. non-rate (a description cell). A fill never alters the cell value
     or formula, so it is NOT subject to the formula-skip rule.
+  - PRICED-CELL VERIFICATION HIGHLIGHT (system, always-on): a muted-teal PatternFill on every
+    rate cell the write-back ACTUALLY stamped -- a Nirmaan-facing "which cells did we write"
+    aid. Skipped formula rate cells get NO highlight (so teal doubles as the live signal of
+    the rates-only + formula-skip rule). Applied AFTER the user-color pass, so on a stamped
+    rate cell that also carries a user color tag the system teal WINS (the one place a system
+    fill beats a user fill -- the aid must be exhaustive over written cells).
   - REMARKS (BoQ Cell Remark, per-row): a NEW TRAILING COLUMN one past the TRUE data edge
     (the rightmost MAPPED column from the committed column_role_map -- NOT openpyxl
     max_column, which is inflated by empty styled cells). A hard empty-column safety check
@@ -78,6 +84,15 @@ _COLOR_HEX: dict[str, str] = {
     "pink": "FBD4E4",    # light pink
     "grey": "D9D9D9",    # light grey
 }
+
+# System "priced-cell verification highlight" fill -- a Nirmaan-facing aid marking every rate
+# cell the write-back ACTUALLY stamped (teal => "we wrote a rate here"; no-teal on a rate cell
+# => "we left the client's formula untouched"). Muted teal, DELIBERATELY a SEPARATE constant
+# from the 8 user tokens in _COLOR_HEX (and distinct from user green C6EFCE / user blue BDD7EE)
+# so a SYSTEM mark can never read as a USER color tag. On a stamped rate cell that also carries
+# a user color tag, this system fill WINS (applied AFTER _apply_colors) -- the verification aid
+# must be exhaustive over written cells; that is the ONE place a system fill beats a user fill.
+_PRICED_HIGHLIGHT_HEX = "B7E4D8"
 
 
 # ── arg coercion ─────────────────────────────────────────────────────────────────
@@ -140,12 +155,18 @@ def _col_is_empty(ws, col_idx: int) -> bool:
     return True
 
 
-def _stamp_rates(ws, pricing_rows: list[dict]) -> list[dict]:
+def _stamp_rates(ws, pricing_rows: list[dict]) -> tuple[list[dict], list[tuple]]:
     """Stamp each filled rate into its (col_letter, excel_row) cell -- RATES ONLY.
     PER-CELL FORMULA SKIP: a cell whose data_type == 'f' is LEFT UNTOUCHED and recorded as
-    skipped (decided against the REAL file, never inferred from the role name). Returns the
-    list of skipped {excel_row, col_letter} entries."""
+    skipped (decided against the REAL file, never inferred from the role name).
+
+    Returns (skipped, written): the list of skipped {excel_row, col_letter} entries AND the
+    list of (col_letter, excel_row) addresses ACTUALLY written. The priced-cell highlight is
+    driven by `written` (the truly-stamped cells), NOT the input pricing list, so a skipped
+    formula cell is EXCLUDED from the highlight -- the teal mark is the live signal of the
+    rates-only + formula-skip safety rule."""
     skipped: list[dict] = []
+    written: list[tuple] = []
     for p in pricing_rows:
         col = p["col_letter"]
         row = int(p["excel_row"])
@@ -154,7 +175,19 @@ def _stamp_rates(ws, pricing_rows: list[dict]) -> list[dict]:
             skipped.append({"excel_row": row, "col_letter": col})
             continue
         cell.value = p["rate"]
-    return skipped
+        written.append((col, row))
+    return skipped, written
+
+
+def _apply_priced_highlight(ws, written_cells: list[tuple]) -> int:
+    """Apply the system priced-cell verification fill (muted teal) to every rate cell the
+    write-back ACTUALLY stamped. MUST run AFTER _apply_colors so on a collision with a user
+    color tag the system teal lands last and WINS (RULE 2). A fill sets ONLY .fill -- the
+    rate value just stamped into the cell is untouched. Only stamped RATE cells get this; a
+    user color on a NON-stamped cell is left as the user set it. Returns the count filled."""
+    for col, row in written_cells:
+        ws[f"{col}{row}"].fill = PatternFill(fill_type="solid", fgColor=_PRICED_HIGHLIGHT_HEX)
+    return len(written_cells)
 
 
 def _apply_colors(ws, color_rows: list[dict]) -> int:
@@ -313,8 +346,11 @@ def _generate_priced_workbook(boq_name: str, sheet_names: list[str], src_path: s
             order_by="excel_row asc",
         )
 
-        skipped = _stamp_rates(ws, pricing)
+        skipped, written = _stamp_rates(ws, pricing)
         _apply_colors(ws, colors)
+        # System priced-cell highlight LAST so it WINS over any user color on a stamped rate
+        # cell (RULE 2); driven by `written`, so skipped formula cells get NO teal (RULE 1).
+        _apply_priced_highlight(ws, written)
         if remarks:
             remark_cols[sn] = _write_remark_column(ws, remarks, plan.column_role_map, plan.header_row)
 

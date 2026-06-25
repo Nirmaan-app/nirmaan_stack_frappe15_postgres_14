@@ -2731,7 +2731,9 @@ import openpyxl as _openpyxl
 
 from nirmaan_stack.api.boq.wizard.export_writeback import (
     _COLOR_HEX,
+    _PRICED_HIGHLIGHT_HEX,
     _apply_colors,
+    _apply_priced_highlight,
     _assert_fidelity,
     _col_is_empty,
     _fidelity_snapshot,
@@ -2782,24 +2784,26 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
         ws["D36"] = 10
         ws["E36"] = None                  # a blank rate cell
         ws["F36"] = "=D36*E36"            # paired amount formula
-        skipped = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 123.45}])
+        skipped, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 123.45}])
         self.assertEqual(ws["E36"].value, 123.45, "rate stamped into the blank cell")
         self.assertEqual(ws["F36"].value, "=D36*E36", "paired amount formula preserved")
         self.assertEqual(skipped, [], "a value cell is not skipped")
+        self.assertEqual(written, [("E", 36)], "the stamped cell is reported as written")
 
     def test_stamp_rates_skips_formula_cell(self):
         wb, ws = _new_ws()
         ws["E10"] = "=SUM(H10:I10)"       # the VRF combined-rate case (a formula rate cell)
-        skipped = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        skipped, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
         self.assertEqual(ws["E10"].value, "=SUM(H10:I10)", "formula rate cell NOT overwritten")
         self.assertEqual(skipped, [{"excel_row": 10, "col_letter": "E"}], "formula cell reported skipped")
+        self.assertEqual(written, [], "a skipped formula cell is NOT reported written (-> no highlight)")
 
     def test_stamp_rates_distinguishes_formula_vs_value_vs_blank(self):
         wb, ws = _new_ws()
         ws["E1"] = "=A1+B1"   # formula -> skip
         ws["E2"] = 500        # static value -> overwrite
         ws["E3"] = None       # blank -> overwrite
-        skipped = _stamp_rates(ws, [
+        skipped, written = _stamp_rates(ws, [
             {"excel_row": 1, "col_letter": "E", "rate": 1.0},
             {"excel_row": 2, "col_letter": "E", "rate": 2.0},
             {"excel_row": 3, "col_letter": "E", "rate": 3.0},
@@ -2809,6 +2813,51 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
         self.assertEqual(ws["E3"].value, 3.0)
         self.assertEqual(skipped, [{"excel_row": 1, "col_letter": "E"}],
                          "only the formula cell is skipped")
+        self.assertEqual(written, [("E", 2), ("E", 3)],
+                         "only the two value/blank cells are reported written")
+
+    def test_priced_highlight_on_stamped_cell(self):
+        wb, ws = _new_ws()
+        ws["E36"] = None
+        _, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 50.0}])
+        n = _apply_priced_highlight(ws, written)
+        self.assertEqual(n, 1)
+        self.assertEqual(ws["E36"].fill.fill_type, "solid")
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E36"].fill.fgColor.rgb or "",
+                      "stamped rate cell carries the muted-teal verification fill")
+        self.assertEqual(ws["E36"].value, 50.0, "the fill does not disturb the stamped rate value")
+
+    def test_priced_highlight_excludes_skipped_formula_cell(self):
+        wb, ws = _new_ws()
+        ws["E10"] = "=SUM(H10:I10)"   # a formula rate cell -> skipped, never written
+        _, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        _apply_priced_highlight(ws, written)
+        # RULE 1: a skipped formula cell gets NO teal (no fill applied).
+        self.assertIsNone(ws["E10"].fill.fill_type, "skipped formula cell has NO highlight")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["E10"].fill.fgColor.rgb or "")
+
+    def test_priced_highlight_distinct_from_user_tokens(self):
+        # The system teal must not collide with any of the 8 user token hexes.
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, set(_COLOR_HEX.values()),
+                         "the system highlight hex is distinct from every user color token")
+
+    def test_priced_highlight_wins_collision_user_color_on_nonstamped_untouched(self):
+        # Simulate the worker's pass order: stamp -> apply_colors -> apply_priced_highlight.
+        wb, ws = _new_ws()
+        ws["E5"] = None   # will be stamped
+        _, written = _stamp_rates(ws, [{"excel_row": 5, "col_letter": "E", "rate": 7.0}])
+        _apply_colors(ws, [
+            {"excel_row": 5, "col_letter": "E", "color": "red"},   # collision: same as a stamped cell
+            {"excel_row": 5, "col_letter": "B", "color": "blue"},  # non-stamped cell
+        ])
+        _apply_priced_highlight(ws, written)
+        # RULE 2: system teal WINS on the stamped cell (overrides the user red there)...
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E5"].fill.fgColor.rgb or "",
+                      "system teal overrides the user color on a stamped rate cell")
+        self.assertNotIn(_COLOR_HEX["red"], ws["E5"].fill.fgColor.rgb or "")
+        # ...but a user color on a NON-stamped cell is untouched.
+        self.assertIn(_COLOR_HEX["blue"], ws["B5"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved")
 
     def test_apply_colors_fills_any_cell_incl_formula(self):
         wb, ws = _new_ws()
@@ -3002,6 +3051,44 @@ class TestExportWritebackEndToEnd(FrappeTestCase):
         # last_exported_at stamped on the committed BoQ Sheet via set_value
         stamped = frappe.db.get_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at")
         self.assertIsNotNone(stamped, "last_exported_at stamped on the exported sheet")
+
+    def test_generate_priced_highlight_only_on_stamped_rate_cells(self):
+        self._add_price(34, "E", 250.0)         # stamped rate cell -> teal
+        self._add_color(34, "B", "purple")      # user color on a non-stamped (description) cell
+        self._add_remark(34, "verify qty")      # remark -> Nirmaan Remarks column J
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        # stamped rate cell carries the system teal
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E34"].fill.fgColor.rgb or "",
+                      "stamped rate cell highlighted teal")
+        # RULE 3: NOT on the amount/formula cell, NOT on the remark column, NOT on the user-color cell
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["F34"].fill.fgColor.rgb or "",
+                         "amount/formula cell never highlighted")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["J34"].fill.fgColor.rgb or "",
+                         "remark cell never highlighted")
+        self.assertIn(_COLOR_HEX["purple"], ws["B34"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved (not teal)")
+        self.assertEqual(ws["E34"].value, 250.0, "the highlight did not disturb the stamped rate")
+        wb.close()
+
+    def test_generate_highlight_skips_formula_rate_cell(self):
+        self._add_price(34, "E", 999.0)
+        path = self._synthetic_path(formula_rate=True)  # E34 is a formula
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        # RULE 1: a skipped formula rate cell gets NO teal (it was never written).
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, wb[self.sheet_stripped]["E34"].fill.fgColor.rgb or "",
+                         "skipped formula rate cell carries no highlight")
+        self.assertEqual(res["skipped_formula_columns"], {self.sheet: ["E"]})
+        wb.close()
 
     def test_generate_reports_skipped_formula_rate_column(self):
         self._add_price(34, "E", 999.0)
