@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-21 (Slice 5a). **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-25 (Slice 5a + highlight amendment). **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (BACKEND, Slice 5a):**
@@ -25,7 +25,15 @@ report, so one JSON response carries both; 5b decodes base64 -> Blob -> download
 rates + the user's own color/remark annotations ONLY, never amounts/formulas/structure. `bench migrate` landed the field (schema
 sync runs BEFORE the pre-existing unrelated `backfill_cashflow_gap_limited` patch wart, which aborts the patch phase -- NOT
 this slice's, not fixed). backend `test_pricing` 126->145 (+19), live-verified end-to-end on 145/150/166 (fidelity passes incl.
-166's 4585 defined names). NO frontend (Vitest/tsc N/A). 2026-06-21; see plan section "Slice 5a". **NEXT = Slice 5b (hub UI).**
+166's 4585 defined names). NO frontend (Vitest/tsc N/A). 2026-06-25; see plan section "Slice 5a". **Amendment (highlight,
+commit 95f07c47):** an ALWAYS-ON priced-cell verification highlight -- a muted-teal `PatternFill` (`_PRICED_HIGHLIGHT_HEX =
+"B7E4D8"`, a SEPARATE constant from the 8 user tokens, distinct from user green/blue) on every rate cell the write-back
+ACTUALLY stamped. RULE 1 stamped-only (`_stamp_rates` returns `(skipped, written)`; the highlight is driven by `written`, so
+a SKIPPED formula rate cell gets NO teal -- teal = the live signal of the rates-only + formula-skip rule); RULE 2 system wins
+(`_apply_priced_highlight` runs AFTER `_apply_colors`, so on a collision the teal overrides a user color tag on a stamped
+rate cell; a user color on a non-stamped cell is untouched); RULE 3 only stamped RATE cells (never remark/amount/remark-col).
+A fill changes no value/formula -> the fidelity assertion is unaffected. NO schema/migrate. test_pricing 145->151 (+6),
+live-verified on 145 Electrical. **NEXT = Slice 5b (hub UI).**
 **Prior slice (full-stack):**
 **Cluster B -- formula-vs-document reconciliation (per-cell choice).** When a committed (DOCUMENT) amount and the
 formula-computed amount DIVERGE for the same amount cell, the editor FLAGS it (mismatch only -- never auto-fixes; the
