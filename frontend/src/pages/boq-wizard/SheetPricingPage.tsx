@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -71,7 +71,7 @@ import {
   isFullyPriced,
   isPriceableLine,
 } from "./priceability";
-import { buildChildrenByParent, collapsedAncestors, isHiddenByCollapse, type CollapseRow } from "./collapse";
+import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHiddenByCollapse, type CollapseRow } from "./collapse";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -1019,6 +1019,40 @@ const SheetPricingPage = () => {
           >
             <Filter className="h-4 w-4" />
             {showOnlyUnpriced ? "Unpriced only" : "Show unpriced"}
+          </Button>
+
+          {/* ── Collapse/expand ALL (slice 2): one state-aware toggle for the WHOLE hierarchy.
+              Option A -- "Collapse all" folds EVERY collapsible parent (collapsibleParents =
+              new Set(childrenByParent.keys())) so only top-level roots remain; "Expand all" =
+              setCollapsed(new Set()). The size===0 rule: nothing collapsed -> offer "Collapse all";
+              ANYTHING collapsed (incl. a partially hand-collapsed sheet) -> offer "Expand all" (the
+              button returns the sheet to clean). It writes the SAME page `collapsed` set the
+              per-parent chevrons read via CollapseContext, so the chevrons + "+N hidden" reflect a
+              bulk collapse with ZERO new wiring (no new state, no memo touch). DISABLED on a flat
+              sheet (no collapsible parents -- nothing to fold). ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={pricedLoading || pricedError || childrenByParent.size === 0}
+            aria-label={collapsed.size === 0 ? "Collapse all rows" : "Expand all rows"}
+            title={
+              childrenByParent.size === 0
+                ? "This sheet has no hierarchy to collapse."
+                : collapsed.size === 0
+                ? "Collapse every parent (only top-level rows stay visible)."
+                : "Expand every collapsed row."
+            }
+            onClick={() =>
+              setCollapsed(collapsed.size === 0 ? collapsibleParents(childrenByParent) : new Set())
+            }
+          >
+            {collapsed.size === 0 ? (
+              <ChevronsDownUp className="h-4 w-4" />
+            ) : (
+              <ChevronsUpDown className="h-4 w-4" />
+            )}
+            {collapsed.size === 0 ? "Collapse all" : "Expand all"}
           </Button>
 
           {/* ── Toolbar Part 1: description search (input + N-of-M + prev/next cycle). Stepping

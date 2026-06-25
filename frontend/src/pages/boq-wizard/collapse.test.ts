@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildChildrenByParent,
+  collapsibleParents,
   rowHasDescendants,
   descendantCount,
   isHiddenByCollapse,
@@ -35,6 +36,24 @@ describe("buildChildrenByParent", () => {
   it("a flat sheet (all roots) yields an EMPTY map -- nothing to collapse", () => {
     const flat = [r(0, null), r(1, null), r(2, -1)];
     expect(buildChildrenByParent(flat).size).toBe(0);
+  });
+});
+
+describe("collapsibleParents (collapse-all = every parent with children)", () => {
+  it("returns exactly every parent row_index (the inverse-map keys)", () => {
+    const set = collapsibleParents(buildChildrenByParent(tree));
+    expect([...set].sort((a, b) => a - b)).toEqual([0, 1, 3]); // 2,4,5 are leaves
+  });
+
+  it("a flat sheet (no parents) yields an EMPTY set -> collapse-all has nothing to do", () => {
+    const flat = [r(0, null), r(1, null), r(2, -1)];
+    expect(collapsibleParents(buildChildrenByParent(flat)).size).toBe(0);
+  });
+
+  it("includes a single-child parent (it IS collapsible)", () => {
+    // 10 -> 11 (lone child). 10 must be collapsible.
+    const set = collapsibleParents(buildChildrenByParent([r(10, null), r(11, 10)]));
+    expect([...set]).toEqual([10]);
   });
 });
 

@@ -52,6 +52,16 @@ export function buildChildrenByParent(rows: CollapseRow[]): Map<number, number[]
   return m;
 }
 
+/**
+ * Every collapsible parent's row_index (= every row that has >=1 direct child). This is exactly
+ * the KEY set of the inverse map, so "collapse all" = setCollapsed(collapsibleParents(...)) folds
+ * every parent (Option A -> only top-level roots remain). Empty for a flat sheet (nothing to
+ * collapse -> the collapse-all toggle disables). A fresh Set (caller may mutate freely).
+ */
+export function collapsibleParents(childrenByParent: Map<number, number[]>): Set<number> {
+  return new Set(childrenByParent.keys());
+}
+
 /** True iff this row has at least one direct child (i.e. it is a collapsible parent). */
 export function rowHasDescendants(
   childrenByParent: Map<number, number[]>,
