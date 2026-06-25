@@ -36,12 +36,13 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
 import { CommitResultsModal } from "./CommitResultsModal";
+import { PricedTenderDialog } from "./PricedTenderDialog";
 import { TenderingDialog } from "./TenderingDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
@@ -160,6 +161,10 @@ const BoqHubPage = () => {
   // the {committed, failed} envelope; the modal opens once it is set.
   const [commitResult, setCommitResult] = useState<CommitBoqResponse | null>(null);
   const [commitResultsOpen, setCommitResultsOpen] = useState(false);
+  // Download-priced-tender dialog + its acknowledge-only results note (Phase 5 Slice 5b).
+  const [pricedDialogOpen, setPricedDialogOpen] = useState(false);
+  const [pricedResult, setPricedResult] = useState<ExportPricedWorkbookResponse | null>(null);
+  const [pricedResultsOpen, setPricedResultsOpen] = useState(false);
 
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
@@ -433,6 +438,24 @@ const BoqHubPage = () => {
     setCommitResult(result);
     setCommitResultsOpen(true);
   };
+
+  // After export_priced_workbook RESOLVES (Slice 5b): the dialog already triggered the
+  // browser download. Re-fetch committed-state so the per-sheet staleness chips clear
+  // (last_exported_at just advanced), and open the acknowledge-only results note (which
+  // surfaces any skipped formula-rate columns -- the 0 "tell the user what we left
+  // untouched" requirement).
+  const handleDownloaded = (result: ExportPricedWorkbookResponse) => {
+    void mutateCommittedState();
+    setPricedResult(result);
+    setPricedResultsOpen(true);
+  };
+
+  // The skipped-formula columns as flat "Sheet: A, B" lines (empty when none skipped).
+  const pricedSkippedLines = pricedResult
+    ? Object.entries(pricedResult.skipped_formula_columns).map(
+        ([sheet, cols]) => `${sheet.trim() || sheet}: ${cols.join(", ")}`,
+      )
+    : [];
 
   // ── Spoke navigation callback (Module 3 Slice 3b-ii) ──────────────────────
   // Passed to each SheetCard so the card stays router-free. Hub owns navigate.
@@ -1081,6 +1104,29 @@ const BoqHubPage = () => {
                   : "No committed sheets to price yet"}
               </TooltipContent>
             </Tooltip>
+            {/* Download priced tender (Phase 5 Slice 5b) -- 6th sibling. DISTINCT from
+                "Export Finalized" (a fresh review .xlsx): this downloads the ORIGINAL tender
+                workbook with the priced rates + colour/remark notes stamped in. Gated on
+                committed-ness (the same committedMap the Tendering button + card badges use). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="outline"
+                    disabled={committedMap.size === 0}
+                    onClick={() => setPricedDialogOpen(true)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download priced tender
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {committedMap.size > 0
+                  ? "Download the original workbook with your rates + notes stamped in"
+                  : "No committed sheets to price yet"}
+              </TooltipContent>
+            </Tooltip>
           </TooltipProvider>
         </div>
       </div>
@@ -1130,6 +1176,54 @@ const BoqHubPage = () => {
           handleOpenPricing(sheetName);
         }}
       />
+
+      {/* ── Download priced tender dialog (Phase 5 Slice 5b) ─────────────────── */}
+      {/* Pick committed sheets -> the 5a write-back stamps the original workbook -> download. */}
+      <PricedTenderDialog
+        open={pricedDialogOpen}
+        onOpenChange={setPricedDialogOpen}
+        boqName={boq.name}
+        committedState={committedMap}
+        onDownloaded={handleDownloaded}
+      />
+
+      {/* ── Priced-tender results note (Phase 5 Slice 5b) ───────────────────── */}
+      {/* Acknowledge-only (single OK), mirrors the commit-results modal. Confirms the
+          download and, if any rate columns were formula-driven, names what we left
+          untouched (the 0 client-owned-doc requirement). */}
+      <AlertDialog
+        open={pricedResultsOpen}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setPricedResultsOpen(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Priced tender downloaded</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pricedResult
+                ? `Downloaded ${pricedResult.filename} (${pricedResult.exported_sheets.length} sheet${pricedResult.exported_sheets.length !== 1 ? "s" : ""}).`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pricedSkippedLines.length > 0 && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/40">
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                Some rate cells were left untouched because they hold formulas in your
+                workbook (these recompute on their own):
+              </p>
+              <ul className="mt-1.5 space-y-0.5 pl-4 text-sm text-amber-700 dark:text-amber-400">
+                {pricedSkippedLines.map((line) => (
+                  <li key={line}>&middot; {line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setPricedResultsOpen(false)}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Commit-results acknowledge modal (Phase 5 Slice 5 frontend) ────── */}
       {/* Enumerates committed[] + failed[] from commit_boq; single OK dismiss.   */}
