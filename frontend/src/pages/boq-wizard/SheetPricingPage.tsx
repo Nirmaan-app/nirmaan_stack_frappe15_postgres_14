@@ -19,7 +19,7 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
@@ -38,6 +38,7 @@ import type {
   DismissalSaveArgs,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
+  PricedRow,
   RateCellSaveArgs,
   ReconChoiceSaveArgs,
   RemarkSaveArgs,
@@ -70,6 +71,7 @@ import {
   isFullyPriced,
   isPriceableLine,
 } from "./priceability";
+import { buildChildrenByParent, collapsedAncestors, isHiddenByCollapse, type CollapseRow } from "./collapse";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -256,6 +258,42 @@ const SheetPricingPage = () => {
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
 
+  // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
+  // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
+  // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
+  // (which the page has; the grid only gets the filtered displayRows). The grid receives it +
+  // childrenByParent + the toggle as GRID-LEVEL props for the chevrons (NOT a row-memo prop, R6).
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
+  // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
+  const collapsedRef = useRef(collapsed);
+  const byRowIndexRef = useRef<Map<number, CollapseRow>>(new Map());
+  const byExcelRowRef = useRef<Map<number, CollapseRow>>(new Map());
+  // Toggle one parent's collapsed state (chevron click). Stable.
+  const toggleCollapse = useCallback((rowIndex: number) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowIndex)) next.delete(rowIndex);
+      else next.add(rowIndex);
+      return next;
+    });
+  }, []);
+  // Reveal-then-scroll (R5): expand a jump target's collapsed ANCESTORS so the scroll lands on a
+  // visible row instead of silently no-opping. Returns TRUE iff it changed `collapsed` (the grid
+  // then defers the scroll a tick). Reads refs -> stable (useCallback []).
+  const revealRow = useCallback((excelRow: number): boolean => {
+    const row = byExcelRowRef.current.get(excelRow);
+    if (!row) return false;
+    const anc = collapsedAncestors(row, collapsedRef.current, byRowIndexRef.current);
+    if (anc.length === 0) return false;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      for (const a of anc) next.delete(a);
+      return next;
+    });
+    return true;
+  }, []);
+
   // Reset the takeover flag whenever a FRESH get_priced_rows payload reports the sheet
   // editable (a Reload re-read found it free / mine / stale). Keyed on the payload identity
   // so it fires on EVERY refetch -- an [editable] dep would miss a true->true no-change.
@@ -290,6 +328,7 @@ const SheetPricingPage = () => {
     setShowSpacers(true);
     setShowNotes(true);
     setShowSubtotals(true);
+    setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -613,20 +652,51 @@ const SheetPricingPage = () => {
   // default (nothing hidden), byte-identical to the prior showOnlyUnpriced-only behaviour.
   const rowTypeToggles = { showSpacers, showNotes, showSubtotals };
   const noRowTypeHidden = showSpacers && showNotes && showSubtotals;
+
+  // Collapse/expand: the FULL-rows maps + the inverse children map (built over UNFILTERED `rows`
+  // so visibility/descendant math is filter-independent -- the canonical rule). Plain consts (not
+  // useMemo) because they sit AFTER the early-return guards, matching the rowFlags pattern. Refs
+  // are synced so the toggle/reveal callbacks (declared in the hook region) read current data.
+  const byRowIndex = new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r]));
+  const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
+  const childrenByParent = buildChildrenByParent(rows);
+  collapsedRef.current = collapsed;
+  byRowIndexRef.current = byRowIndex;
+  byExcelRowRef.current = byExcelRow;
+  const collapseActive = collapsed.size > 0;
+
+  // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
+  // search universe (R3: search ignores collapse) and folded into displayRows below.
+  const passesViewFilter = (r: PricedRow) =>
+    (!showOnlyUnpriced ||
+      (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
+    classificationVisible(r.effective_classification, rowTypeToggles);
+  const anyViewFilter = showOnlyUnpriced || !noRowTypeHidden;
+  // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
+  // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
+  // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
+  // moves any total or the N-of-M priceable count. The `=== rows` fast path (stable reference ->
+  // the grid's byIdx/depths memos hold) is preserved when nothing is filtered or collapsed.
   const displayRows =
-    !showOnlyUnpriced && noRowTypeHidden
+    !anyViewFilter && !collapseActive
       ? rows
       : rows.filter(
           (r) =>
-            (!showOnlyUnpriced ||
-              (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
-            classificationVisible(r.effective_classification, rowTypeToggles),
+            passesViewFilter(r) &&
+            (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
         );
 
-  // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows over the
-  // RENDERED set (displayRows) so a hit is always a visible, scroll-to-able row. The current hit's
-  // Excel row is handed to the grid (the per-row highlight) + drives the prev/next scroll jump.
-  const searchHits = buildSearchHits(displayRows, searchQuery);
+  // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
+  // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
+  // a match under a collapsed parent is still a hit; stepping to it auto-expands its ancestors
+  // (revealRow -> the grid's reveal-then-scroll). When nothing is collapsed this IS displayRows
+  // (reused, no extra pass); only an active collapse needs the separate non-collapse universe.
+  const searchUniverse = !collapseActive
+    ? displayRows
+    : anyViewFilter
+      ? rows.filter(passesViewFilter)
+      : rows;
+  const searchHits = buildSearchHits(searchUniverse, searchQuery);
   const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
   const currentHitExcelRow = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
   const stepSearch = (dir: "prev" | "next") => {
@@ -1383,6 +1453,13 @@ const SheetPricingPage = () => {
             // the current search hit (the grid derives the per-row highlight boolean from it).
             hiddenCols={hiddenCols}
             currentHitExcelRow={currentHitExcelRow}
+            // Collapse/expand: page-owned `collapsed` (also composes displayRows above) +
+            // childrenByParent (over FULL rows) + the toggle drive the grid's chevrons; onRevealRow
+            // powers reveal-then-scroll. GRID-LEVEL props -- NONE enter the row memo (R6).
+            collapsed={collapsed}
+            childrenByParent={childrenByParent}
+            onToggleCollapse={toggleCollapse}
+            onRevealRow={revealRow}
           />
         )}
         </div>

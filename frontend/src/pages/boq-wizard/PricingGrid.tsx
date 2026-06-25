@@ -43,9 +43,11 @@
  * write-back (5), finalize/revert (6).
  */
 import {
+  createContext,
   forwardRef,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -57,7 +59,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -70,6 +72,7 @@ import {
   resolveDescriptorValue,
 } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
+import { descendantCount, rowHasDescendants } from "./collapse";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import {
@@ -1305,6 +1308,26 @@ interface PricingGridProps {
    * owns the query + hit-stepper + scrollToRow jump; the grid only paints the highlight.
    */
   currentHitExcelRow?: number | null;
+  /**
+   * Hierarchy collapse/expand (per-GRID; NEVER a per-row prop, so the row memo is untouched --
+   * R6). `collapsed` = the set of collapsed parents' row_index (page-owned: it ALSO composes the
+   * upstream displayRows filter, so the rows handed to the grid are already collapse-filtered).
+   * `childrenByParent` is built over the FULL (unfiltered) rows so descendant/visibility math is
+   * filter-independent. `onToggleCollapse` flips one parent. These feed CollapseContext -> the
+   * chevrons; they are NOT in PricingGridRowProps / pricingRowPropsAreEqual. ABSENT => no chevrons
+   * (back-compat: a caller that omits them gets the prior flat render).
+   */
+  collapsed?: Set<number>;
+  childrenByParent?: Map<number, number[]>;
+  onToggleCollapse?: (rowIndex: number) => void;
+  /**
+   * Reveal-then-scroll (R5): expand a target row's collapsed ANCESTORS before the jump scrolls,
+   * so a jump into a collapsed parent no longer silently no-ops. The grid's `jumpToRow` (the ONE
+   * jump path -- parent-click + search-step + review-strip all route through it) calls this FIRST;
+   * the page expands the ancestors and returns TRUE iff it changed anything, so the grid defers
+   * the scroll one tick (let the reveal re-render land) only when needed. ABSENT => plain scroll.
+   */
+  onRevealRow?: (excelRow: number) => boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1392,6 +1415,74 @@ export function groupDraftsByRow(
     out.set(ri, old && shallowEqualStrMap(old, slice) ? old : slice);
   }
   return out;
+}
+
+// ── Hierarchy collapse/expand (the "collapse/expand" slice) ──────────────────────
+// The chevron + "+N hidden" badge live INSIDE the memoized PricingGridRow, but their state
+// (which parents are collapsed + the live descendant count) is GRID-LEVEL and changes on a
+// collapse toggle. To flip the toggled parent's chevron WITHOUT busting the row memo (R6:
+// collapse adds NOTHING to pricingRowPropsAreEqual), the chevron is a SEPARATE component
+// (`RowChevron`) that reads this CONTEXT. A context change re-renders ONLY the consumers
+// (the chevrons) -- the memoized PricingGridRow (which does NOT read the context) is skipped,
+// so a keystroke/cursor move is unaffected and a collapse toggle re-paints just the chevrons.
+// This is the "derived, not carried on the row" rule: the chevron derives its state from the
+// context, never from a per-row prop. The PAGE owns `collapsed` (it composes the upstream
+// displayRows filter); the grid receives it + `childrenByParent` (built over the FULL rows) +
+// `onToggleCollapse` as GRID-LEVEL props and exposes them here.
+interface CollapseCtx {
+  collapsed: Set<number>;
+  childrenByParent: Map<number, number[]>;
+  onToggle: (rowIndex: number) => void;
+  /** False when the sheet has no hierarchy at all (flat sheet) -> render no chevrons/spacers. */
+  anyParents: boolean;
+}
+const CollapseContext = createContext<CollapseCtx | null>(null);
+
+/**
+ * The per-row hierarchy chevron + "+N hidden" affordance, rendered at the Description indent.
+ * Reads CollapseContext (NOT props) so it re-renders on a collapse toggle while the memoized
+ * PricingGridRow is skipped. Renders:
+ *   - nothing            when the sheet is flat (no hierarchy anywhere);
+ *   - an invisible spacer for a leaf row on a hierarchical sheet (keeps description text aligned);
+ *   - a chevron toggle   for a parent (down=expanded / right=collapsed), plus a muted "+N hidden"
+ *     badge (N = whole-subtree descendant count, DERIVED live) when collapsed.
+ * tabIndex={-1}: the chevron is mouse-operable and is DELIBERATELY out of the grid's roving-
+ * tabindex matrix (it would add a second tab stop in the Description cell); nav is untouched.
+ */
+function RowChevron({ rowIndex }: { rowIndex: number }) {
+  const ctx = useContext(CollapseContext);
+  if (!ctx || !ctx.anyParents) return null;
+  if (!rowHasDescendants(ctx.childrenByParent, rowIndex)) {
+    return <span aria-hidden className="inline-block h-4 w-4 shrink-0" />;
+  }
+  const isCollapsed = ctx.collapsed.has(rowIndex);
+  const hidden = isCollapsed ? descendantCount(rowIndex, ctx.childrenByParent) : 0;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={isCollapsed ? "Expand" : "Collapse"}
+        aria-expanded={!isCollapsed}
+        title={isCollapsed ? "Expand" : "Collapse"}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.onToggle(rowIndex);
+        }}
+        className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground outline-none hover:bg-muted hover:text-foreground"
+      >
+        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !isCollapsed && "rotate-90")} />
+      </button>
+      {isCollapsed && hidden > 0 && (
+        <span
+          className="rounded bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground whitespace-nowrap"
+          title={`${hidden} descendant row${hidden === 1 ? "" : "s"} hidden`}
+        >
+          +{hidden} hidden
+        </span>
+      )}
+    </span>
+  );
 }
 
 interface PricingGridRowProps {
@@ -1693,7 +1784,11 @@ const PricingGridRow = memo(function PricingGridRow({
         data-colkey="a4"
         className={cn("px-2 py-1.5 align-top border-r border-border", cellNavClass(4))}
       >
-        <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+        {/* Collapse/expand: the chevron + "+N hidden" sit at the depth indent (where the
+            hierarchy lives), before the description text, so they nest with the tree. The
+            chevron reads CollapseContext (NOT a row prop) -> the row memo is untouched (R6). */}
+        <div style={{ paddingLeft: `${depth * INDENT_PX}px` }} className="flex items-start gap-1 min-w-0">
+          <RowChevron rowIndex={row.row_index} />
           <span
             className={cn(
               "leading-snug break-words min-w-0",
@@ -1973,7 +2068,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2037,6 +2132,22 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   const byIdx = useMemo(() => new Map<number, PricedRow>(rows.map((r) => [r.row_index, r])), [rows]);
   // Effective depth per row (reused helper -- single source of truth with the review tree).
   const depths = useMemo(() => computeDepths(rows), [rows]);
+
+  // Collapse/expand context value: stable across a keystroke (only `collapsed` / the page-built
+  // `childrenByParent` / `onToggleCollapse` move it). The chevrons consume it; the memoized
+  // PricingGridRow does NOT -- so a collapse toggle re-paints only the chevrons (R6). `anyParents`
+  // is false on a flat sheet (childrenByParent empty) -> no chevrons/spacers render there.
+  const emptyChildrenMap = useMemo(() => new Map<number, number[]>(), []);
+  const collapseChildren = childrenByParent ?? emptyChildrenMap;
+  const collapseCtxValue = useMemo<CollapseCtx>(
+    () => ({
+      collapsed: collapsed ?? new Set<number>(),
+      childrenByParent: collapseChildren,
+      onToggle: onToggleCollapse ?? (() => {}),
+      anyParents: !!onToggleCollapse && collapseChildren.size > 0,
+    }),
+    [collapsed, collapseChildren, onToggleCollapse],
+  );
 
   // Descriptor-driven columns: everything except the sl_no / description anchors. This is the
   // FULL set -- kept for the data-fanout concerns (commitRate's cross-area prefill, autoSave
@@ -2209,24 +2320,35 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // safe no-op. Reference-stable (deps []: only refs are read) -> memo-safe as a row prop. The
   // imperative scrollToRow (search / review-strip) delegates here so there is ONE jump path.
   const jumpToRow = useCallback((excelRow: number) => {
-    const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
-    if (idx < 0) return;
-    const el = cellRefs.current.get(navKey(idx, 0));
-    if (el) {
-      el.focus();
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-    // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
-    // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
-    // latest jump's flash replaces the prior. setState updater + a timeout ref keep this
-    // useCallback reference-stable (deps []), so the onJumpToRow row prop stays memo-safe.
-    setFlashExcelRow(excelRow);
-    if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
-    flashTimeoutRef.current = setTimeout(() => {
-      setFlashExcelRow(null);
-      flashTimeoutRef.current = null;
-    }, 3000);
-  }, []);
+    // Reveal-then-scroll (R5): if the target sits under collapsed parents, ask the page to
+    // expand them FIRST. revealed === true means the page mutated `collapsed`, so the target is
+    // not yet in the rendered rows -- defer the scroll one tick (50ms, mirroring ReviewTree) so
+    // the reveal re-render lands (rowsRef + cellRefs update) before we resolve + scroll. Nothing
+    // collapsed on the chain (the common case) -> revealed false -> scroll synchronously, exactly
+    // as before (no behaviour change when collapse is unused).
+    const revealed = onRevealRow ? onRevealRow(excelRow) : false;
+    const doScroll = () => {
+      const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
+      if (idx < 0) return;
+      const el = cellRefs.current.get(navKey(idx, 0));
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
+      // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
+      // latest jump's flash replaces the prior. setState updater + a timeout ref keep this
+      // useCallback reference-stable, so the onJumpToRow row prop stays memo-safe.
+      setFlashExcelRow(excelRow);
+      if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = setTimeout(() => {
+        setFlashExcelRow(null);
+        flashTimeoutRef.current = null;
+      }, 3000);
+    };
+    if (revealed) setTimeout(doScroll, 50);
+    else doScroll();
+  }, [onRevealRow]);
 
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
   // passes its own array index; open=true makes it the single open editor, false closes it.
@@ -2440,7 +2562,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     >
       {/* Resize: table-fixed makes the <colgroup> widths AUTHORITATIVE; the explicit px total
           (not w-full) prevents table-fixed from redistributing slack. border-collapse is KEPT
-          (the cells carry border-r). */}
+          (the cells carry border-r). CollapseContext provides the per-row chevrons' state without
+          a per-row prop (R6) -- it wraps the table so every RowChevron consumes it. */}
+      <CollapseContext.Provider value={collapseCtxValue}>
       <table
         ref={tableRef}
         className="text-xs border-collapse table-fixed"
@@ -2618,6 +2742,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           })}
         </tbody>
       </table>
+      </CollapseContext.Provider>
     </div>
   );
 });
