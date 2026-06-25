@@ -837,6 +837,16 @@ Editor perf fix -- `PricingGrid` row-level memoization
 + `useMemo`'d grid derivations; the `activeColIndex` cursor lever; fixes the arrow-key/click lag on big sheets; NO
 behaviour change; PricingGrid.test 83->94, suite 203->214, see the memoization-contract paragraph above + plan §"Editor
 perf fix", 2026-06-24); Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Fuzzy description search (2026-06-25) -- the
+case-insensitive SUBSTRING search in BOTH `ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder +
+RestructureModal parent-picker) replaced by the app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper
+`boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`); token AND, partial, min length 2; fuzzy = MEMBERSHIP only, hits
+re-emitted in DOCUMENT order so prev/next still steps top-to-bottom. RestructureModal inherits (no change). See the "Fuzzy
+description search" rule below. Prior: Detail-panel read views (2026-06-25) -- ADDITIVE
+`ParentChain.tsx` (ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N`) mounted in the EXISTING review-screen
+detail panel, clickable to drill-navigate; the ORIGINAL single-column panel design is unchanged (a two-column revamp was
+prototyped then reverted -- only the two read views were kept). See the "Detail-panel read views" rule below. Prior:
+Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
 review-strip DISMISS (pure `priceability.ts` filter helpers + `SheetPricingPage` active/show-all feed + "Show dismissed"
 toggle + per-entry Looks-OK/Restore action wired to `save_cell_dismissal`; `ReviewEntry` UNCHANGED; server-side re-arm,
 priceability 27->30, 2026-06-23); Slice 4b-A computed-flag layer -- the shared
@@ -885,6 +895,7 @@ from URL param (survives refresh; not from the transient store). Module export:
 
 **Review screen (ReviewTree) conventions -- live component contract** (consolidated from Slices B1 / B1.1a / B1.1b-i/ii/iii / fix-B; full per-slice as-built detail in `boq-upload-plan.md` §"Slice B1...". The pricing editor's `PricingGrid` reuses these via the extracted `reviewRender.tsx` -- see Slice 2):
 
+- **Backend note (2026-06-24 parser fix, plan §17.45 -- BACKEND-ONLY, no frontend code change):** PREAMBLE rows now PRESERVE their source quantity (the parser no longer drops qty when a row is classified or Bug-19-promoted to preamble -- the owner-locked "no source attribute lost during parsing" Option-B fix in `hierarchy.py`/`orchestrator.py`/`review_screen.py`). Two ReviewTree-visible effects: (1) a preamble row can now render a real qty in its value/`qty_total` columns instead of blank/0; (2) the server `priced_preamble_no_children` advisory flag (rendered verbatim by ReviewTree, mapped in `ReviewTree.tsx` WARN_FLAG_ORDER) now ALSO fires on a carried quantity, reason text → "...price or quantity...", so a qty-bearing preamble is surfaced for reclassify.
 - **Review route:** `/upload-boq/hub/:boqId/review/:sheetName` -- lazy, exports `{ SheetReviewPage as Component }`; same `encodeURIComponent`/auto-decode convention as the config spoke. `onOpenReview?: (sheetName) => void` on SheetCard navigates to it (distinct from `onOpenSpoke`; SheetCard stays router-free). The "Review parsed sheets" hub section shows when `reviewableDrafts.length > 0`.
 - **Depth + visibility (the tree walk, in `reviewRender.computeDepths` + ReviewTree `isVisible`):** depth is computed from the `effective_parent_index` chain (memoised, visited-set cycle guard -> cycle members depth 0). **NEVER use the stored `level` field for indentation** -- it is the parser's static value and diverges after `human_parent` edits. `isVisible(row)` walks the parent chain (60-hop cap) starting from `row.effective_parent_index` (the PARENT, not the row), breaking on `cur < 0` (-1 sentinel = root) and `cur === row.row_index` (self-cycle). Net: a collapsed row stays visible; only its descendants hide. Do NOT start the loop at `collapsed.has(row.row_index)` (reintroduces the "parent disappears" bug). `collapsed` is a `Set<number>` of `row_index`. `computeDepths` pre-runs over ALL (unfiltered) rows, so depth is independent of view filters.
 - **ColumnDescriptor type (`boqTypes.ts`):** `{col, role, area: string|null, value_field, value_key: string|null, rate_subkey: string|null}` + `GetReviewRowsResponse.column_descriptors`. `resolveDescriptorValue(row, d)` (in `reviewRender.tsx`): dynamic access `(row as unknown as Record<string, unknown>)[d.value_field]` (the `as unknown` intermediate is required for TS2352), walking value_field -> value_key -> rate_subkey, `undefined` at any missing level. `renderDescriptorCell(val)`: null/undefined -> `""`, number -> `fmtNum(val)` incl. `0 -> "0"`. **Absent-vs-zero rule:** a missing key (blank) and a zero ("0") are visually distinct -- never collapse them.
@@ -1367,7 +1378,59 @@ error/re-parse-warning red on this screen) + border/radius/shadow/inset padding.
 (it equals the row-hover tint -> the panel blends in) and do NOT swap the stripe to `--destructive`. Classification/Parent
 render as a VERTICAL stack (`grid-cols-1`, avoids off-screen horizontal scroll on wide sheets); the three edit blocks
 (numeric / text / per-area) are INDEPENDENT responsive `grid-cols-1 sm:2 md:3 lg:4` grids and stay SEPARATE (each has its
-own save path).
+own save path). (A two-column "Context | Actions" revamp of this panel was prototyped + reverted on 2026-06-25 -- the
+ORIGINAL single-column layout above is the live one; only the two read views below were kept.)
+
+**Detail-panel read views `ParentChain.tsx` + `ChildrenList.tsx` (ADDITIVE, 2026-06-25 -- the ONLY survivor of the
+reverted revamp):** two PURE read components mounted in the EXISTING panel, in a `mb-2 space-y-2` block placed right
+after the Classification/Parent display grid and before the AI-suggestion block (no other panel change; both render in
+editable AND readOnly sheets -- read context). **Text scale MATCHES the surrounding panel:** `text-[10px]` uppercase
+section label + `text-xs` rows (not the roomier text-sm of the reverted revamp). `ParentChain` walks
+`effective_parent_index -> byIdx` (the same walk as `revealAndScrollToRow`, `HOP_CAP=60` + self/cycle guard) to a vertical
+indented ancestors→(this row) tree; ancestor crumbs are clickable. **ROOT indication (correct):** there is NO synthetic
+"Root" node -- the actual root-most ancestor is tagged "top level" (only when its own `effective_parent_index` is null/-1,
+guarding cycle/hop-cap stops), and a current row that is itself top-level renders "This row is at the top level — no
+parent." (the prior synthetic "Root" line wrongly implied a top-level row had a root parent). `ChildrenList` reads the NEW
+`childrenByParent` map (the O(n) inverse of `effective_parent_index`, built in ReviewTree's `[rows]` memo alongside
+`byIdx`/`hasChildrenSet`) -- DIRECT children only, each with a `▸N` grandchild-count marker; **descriptions HARD-capped at
+35 chars** (`capDesc`, JS slice + ellipsis -- not CSS truncate), capped `max-h-48` scroll, empty → "No children." Both
+reuse `ClassificationPill` from `reviewRender` and take `onNavigate={navigateToRow}` where `navigateToRow(idx)` =
+`setExpandedDetailRow(idx)` + `revealAndScrollToRow(idx)` (a crumb/child click OPENS that row's panel AND
+reveals+scrolls+flashes it, auto-expanding collapsed ancestors). Known limit: a target hidden by an active
+classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
+`GeminiAcceptBlock` + the panel body are UNCHANGED from the original.
+
+**Fuzzy description search conventions (`boqDescriptionSearch.ts` + `ReviewTree.tsx` + `SheetSearchView.tsx`; full detail:
+plan §"Fuzzy description search"):** the two description search boxes in the review workflow now use the app-wide
+token-scoring matcher instead of substring `.includes()`. There are only TWO real implementations: `ReviewTree.tsx`'s
+`searchHits` memo and `SheetSearchView.tsx`'s `hits` memo -- `RestructureModal.tsx` owns NO search (it embeds SheetSearchView
+as its parent-picker, so it upgrades for free; do NOT add search to it). The other `boq-wizard/` "filters"
+(classification/status/AI/priceability toggles) are NOT text search -- leave them alone.
+
+- **ONE shared helper -- never inline a second matcher.** `boqDescriptionSearch.ts` exports the single pure
+  `fuzzyDescriptionMatchSet<T>(items, query, getText) -> Set<T>` (the matching ORIGINAL references). It wraps
+  `utils/tokenSearch` (the extracted `FuzzySearchSelect` core -- do NOT add `fuse.js`; it's an unused dep). Both surfaces
+  call THIS; if you add a third description search anywhere in the wizard, call this too.
+- **THE TRAP (load-bearing):** `tokenSearch` returns ALL items on an empty/too-short query (not an empty set). The helper
+  GUARDS this -- a `< 2`-char trimmed query, or a query whose tokens are all 1-char, returns an EMPTY set (find-semantics:
+  short query => no hits). Each call site ALSO short-circuits `query.trim().length < 2` before calling. Never feed the
+  raw `tokenSearch` output to a find-stepper.
+- **Locked config (the `/grill` decisions):** token **AND** (`minTokenMatches = tokenCount`, computed at the call site
+  with the SAME `length >= 2` filter as the config's `minTokenLength` -- they MUST agree or nothing matches);
+  `partialMatch: true`; `minSearchLength: 2` / `minTokenLength: 2`.
+- **Fuzzy = MEMBERSHIP, document = ORDER (decision A).** The helper returns a Set; each surface iterates its OWN
+  document-ordered source (`rows.filter(...)` / `allRows`) and keeps `set.has(item)`, mapping to its identity field
+  (`row_index` for ReviewTree, `row_number` for SheetSearchView). tokenSearch's relevance ranking is DELIBERATELY
+  discarded so prev/next steps top-to-bottom -- do NOT "fix" this by using the ranked order.
+- **Invariants preserved.** ReviewTree still gates candidates on the FILTER axis (`classificationVisible && passesFilter`),
+  NOT the collapse axis (`isVisible`) -- the "hit predicate's filter axis == render gate's filter axis" rule holds (only
+  the text test changed). SheetSearchView keeps its `searchEnabled`/degraded-mode guard. All steppers, ring/flash highlight
+  tiers, "N of M" counters, `revealAndScrollToRow`, and `onCurrentHitChange` are UNCHANGED.
+- **Verification.** tsc delta-0 (3181 == 3181; 0 errors in the 3 touched files -- the `@/`-alias "cannot find module" +
+  implicit-any are standalone-LSP noise, not tsc errors); in-container Vite build exit 0 (`✓ built in 1m 24s`). No Frappe
+  tests (frontend-only). Manual live-cert pending Nitesh: LC1 ReviewTree `cable 16` finds a non-contiguous match + Next
+  walks top->bottom; LC2 same in the RestructureModal parent-picker; LC3 1-char => no hits; LC4 filters still gate hits;
+  LC5 highlight/flash/counter intact.
 
 **§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
 

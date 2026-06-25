@@ -105,6 +105,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RestructureModal } from "./RestructureModal";
+// Row-detail panel READ views: the ancestor chain + direct-children list (additive, no layout
+// change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
+import { ParentChain } from "./ParentChain";
+import { ChildrenList } from "./ChildrenList";
+import { fuzzyDescriptionMatchSet } from "./boqDescriptionSearch";
 // Shared review-render helpers, extracted to ./reviewRender (Slice 2) for reuse by the
 // pricing grid. Byte-identical move -- behaviour unchanged. CLS_LABELS moved with the
 // pill (it depends on it) and is re-imported here for ReviewTree's own label usages.
@@ -639,15 +644,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     });
   };
 
-  const { depths, hasChildrenSet, byIdx } = useMemo(() => {
+  const { depths, hasChildrenSet, byIdx, childrenByParent } = useMemo(() => {
     const depths = computeDepths(rows);
     const hasChildrenSet = new Set<number>();
     const byIdx = new Map<number, ReviewRow>(rows.map(r => [r.row_index, r]));
+    // Inverse of effective_parent_index (same O(n) pass) -- feeds the detail panel's
+    // ChildrenList (direct children) + the per-child "▸N" counts. Render order preserved.
+    const childrenByParent = new Map<number, ReviewRow[]>();
     for (const row of rows) {
       const p = row.effective_parent_index;
-      if (p !== null && p !== undefined) hasChildrenSet.add(p);
+      if (p !== null && p !== undefined) {
+        hasChildrenSet.add(p);
+        const arr = childrenByParent.get(p);
+        if (arr) arr.push(row); else childrenByParent.set(p, [row]);
+      }
     }
-    return { depths, hasChildrenSet, byIdx };
+    return { depths, hasChildrenSet, byIdx, childrenByParent };
   }, [rows]);
 
   // A2 edit-log clarity (render-time): translate a stored parent value (internal
@@ -1133,6 +1145,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     }, 50);
   };
 
+  // Detail-panel drill navigation: clicking a ParentChain crumb / ChildrenList entry both
+  // OPENS that row's detail panel (single-open -> replaces the current one) AND reveals +
+  // scrolls + flashes it in the main tree (reusing revealAndScrollToRow's collapse-expand).
+  const navigateToRow = (targetRowIdx: number) => {
+    setExpandedDetailRow(targetRowIdx);
+    revealAndScrollToRow(targetRowIdx);
+  };
+
   // FIX 3: a row is hidden only if an ANCESTOR is collapsed, never itself.
   // Collapsing row R hides R's descendants; R stays visible as the expand affordance.
   //
@@ -1217,21 +1237,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return true;
   };
 
-  // §9 #159: search hit list -- ordered row_index of rows that pass the SAME shown-filter
-  // (classificationVisible + passesFilter) AND whose description matches the query. Collapse
-  // (isVisible) is DELIBERATELY excluded: a hit under a collapsed parent IS a hit, and
-  // stepping to it auto-expands via revealAndScrollToRow. Empty query => no hits.
+  // §9 #159 (+fuzzy): search hit list -- row_index of rows that pass the SAME shown-filter
+  // (classificationVisible + passesFilter) AND whose description FUZZY-matches the query
+  // (token AND, partial, min length 2 -- shared with SheetSearchView via boqDescriptionSearch).
+  // Collapse (isVisible) is DELIBERATELY excluded: a hit under a collapsed parent IS a hit, and
+  // stepping to it auto-expands via revealAndScrollToRow. Empty / <2-char query => no hits.
+  // Fuzzy decides MEMBERSHIP only; we re-emit in document (rows) order so prev/next steps
+  // top-to-bottom, NOT by relevance (the tokenSearch ranking is deliberately discarded).
   const searchHits = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (q === "") return [];
-    const out: number[] = [];
-    for (const row of rows) {
-      if (!classificationVisible(row)) continue;
-      if (!passesFilter(row)) continue;
-      const d = row.description;
-      if (d && d.toLowerCase().includes(q)) out.push(row.row_index);
-    }
-    return out;
+    if (searchQuery.trim().length < 2) return [];
+    const candidates = rows.filter((row) => classificationVisible(row) && passesFilter(row));
+    const matched = fuzzyDescriptionMatchSet(candidates, searchQuery, (row) => row.description ?? "");
+    return candidates.filter((row) => matched.has(row)).map((row) => row.row_index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals]);
 
@@ -2237,6 +2254,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 </button>
                               )}
                             </div>
+                          </div>
+                          {/* NEW read views: ancestor chain + direct children. Additive, read-only
+                              (shown in both editable + readOnly sheets); clicking a crumb / child
+                              drill-navigates the main tree (navigateToRow). No change to the
+                              surrounding panel layout. */}
+                          <div className="mb-2 space-y-2">
+                            <ParentChain row={row} byIdx={byIdx} onNavigate={navigateToRow} />
+                            <ChildrenList row={row} childrenByParent={childrenByParent} onNavigate={navigateToRow} />
                           </div>
                           {/* AI-3b-1/3b-2: per-field accept/reject of a PENDING AI suggestion.
                               Shown only when the row carries a pending suggestion + not readOnly.

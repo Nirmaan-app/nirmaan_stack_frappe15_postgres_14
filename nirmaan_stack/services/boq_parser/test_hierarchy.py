@@ -934,6 +934,52 @@ class TestResolvedRowMultiAreaFields(unittest.TestCase):
         self.assertEqual(line_item_row.qty_total, 10.0)   # from qty_total_raw, not qty
         self.assertEqual(line_item_row.amount_total, 800.0)
 
+    def test_resolver_carries_forward_qty_for_preambles(self):
+        """
+        No-attribute-loss (Option B): after resolve_hierarchy(), a PREAMBLE
+        ResolvedRow carries forward qty_by_area_raw/amount_by_area_raw + qty_total
+        (from qty_total_raw) + amount_total, identically to a LINE_ITEM, instead of
+        dropping them.  This is the parser-level fix for the 'preamble drops its
+        quantity' bug — a Bug-19-promoted row (or any qty-bearing preamble) keeps
+        its source quantity rather than having it silently zeroed at resolution.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import resolve_hierarchy
+
+        raw_row = RawRow(row_number=1, cells={})
+        classified = ClassifiedRow(
+            raw_row=raw_row,
+            classification=RowClassification.PREAMBLE,
+            sl_no_value="19",
+            description="Supply & installation of 2 core x 1.5 Sq.mm cable",
+            unit="Rmt",
+            qty=350.0,
+            qty_total_raw=350.0,
+            amount_total=60550.0,
+            qty_by_area_raw={"Floor 1": 350.0},
+            amount_by_area_raw={"Floor 1": {"total": 60550.0}},
+        )
+
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+            },
+        )
+        result = resolve_hierarchy([classified], config, GlobalSettings())
+
+        preamble_row = next(
+            rr for rr in result.rows
+            if rr.classified_row.classification == RowClassification.PREAMBLE
+        )
+        # Before the fix these were all dropped (None / {}).
+        self.assertEqual(preamble_row.qty_total, 350.0)
+        self.assertEqual(preamble_row.amount_total, 60550.0)
+        self.assertEqual(preamble_row.qty_by_area_raw, {"Floor 1": 350.0})
+        self.assertEqual(preamble_row.amount_by_area_raw, {"Floor 1": {"total": 60550.0}})
+
 
 class TestZeroChildrenPreambleDemotion(unittest.TestCase):
     """Phase 2b.2 Part B2f — _apply_zero_children_preamble_demotion_post_pass."""

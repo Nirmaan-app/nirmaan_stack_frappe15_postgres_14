@@ -655,6 +655,16 @@ def resolve_hierarchy(
                 parent_index=parent_index,
                 level=level,
                 path=path,
+                # No-attribute-loss (Option B): a PREAMBLE carries its source qty/amount
+                # forward identically to the LINE_ITEM branch below. Genuine section
+                # headers have qty_total_raw=None / empty per-area dicts, so this is a
+                # no-op for them; for a row promoted into a preamble (Bug 19) or any
+                # preamble that legitimately carries a quantity, the value is preserved
+                # instead of being silently dropped at resolution time.
+                qty_by_area_raw=classified_row.qty_by_area_raw,
+                amount_by_area_raw=classified_row.amount_by_area_raw,
+                qty_total=classified_row.qty_total_raw,
+                amount_total=classified_row.amount_total,
             ))
             continue
 

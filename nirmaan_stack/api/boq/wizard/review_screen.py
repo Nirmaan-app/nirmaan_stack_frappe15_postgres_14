@@ -175,7 +175,7 @@ _SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
 # instead of a canonical override.
 _FLAG_REASONS: dict[str, str] = {
     "priced_preamble_no_children": (
-        "Preamble carrying a price with no sub-items — check if it's a line item."
+        "Preamble carrying a price or quantity with no sub-items — check if it's a line item."
     ),
     "zero_amount_line_item": (
         "Has a rate but the amount is zero — check the quantity or amount."
@@ -516,12 +516,15 @@ def _compute_advisory_flags(
     Compute advisory flags for all rows using EFFECTIVE values.
 
     Four sources:
-      priced_preamble_no_children -- (i) preamble with no children AND a price.
-          NOTE: the parse-time hierarchy post-pass (_apply_zero_children_preamble
-          _demotion_post_pass) demotes all childless priced preambles to line_items
-          at parse time, so this flag is DORMANT on freshly-parsed rows.  It only
-          fires when a human reclassifies a line_item back to preamble via
-          human_classification (Slice C) and the row ends up childless.
+      priced_preamble_no_children -- (i) preamble with no children AND a price
+          OR a quantity.  The parse-time demotion (_apply_zero_children_preamble
+          _demotion_post_pass) demotes most childless priced preambles to
+          line_items, BUT it deliberately skips promoted_from_line_item rows
+          (hierarchy.py), so Bug-19-promoted leaf preambles survive as childless
+          priced/qty-bearing preambles and this flag fires for them on a freshly
+          parsed sheet -- exactly the "is this actually a line item?" nudge.  It
+          also fires when a human reclassifies a line_item back to a childless
+          preamble (Slice C).
       zero_amount_line_item -- (ii) line_item with amount_total==0/None
           OR qty_total==0/None (either zero/absent triggers the flag).
       orphan -- (iii) reused from structural_breaks input; NOT recomputed.
@@ -554,8 +557,17 @@ def _compute_advisory_flags(
         eff = resolve_effective(row)
         eff_cls = eff["effective_classification"]
 
-        # Flag (i): priced preamble with no children.
-        if eff_cls == "preamble" and row_index not in children_of and _has_price_signal(row):
+        # Flag (i): childless preamble that carries a price OR a quantity.
+        # qty_total is included (no-attribute-loss, Option B): a preamble now
+        # preserves its source quantity, and a childless preamble carrying a real
+        # qty is precisely the "is this actually a line item?" case to surface.
+        qty_total = _get(row, "qty_total")
+        has_qty = qty_total is not None and qty_total > 0
+        if (
+            eff_cls == "preamble"
+            and row_index not in children_of
+            and (_has_price_signal(row) or has_qty)
+        ):
             flags.append({
                 "type": "priced_preamble_no_children",
                 "row_index": row_index,
