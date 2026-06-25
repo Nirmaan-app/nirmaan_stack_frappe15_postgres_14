@@ -787,9 +787,51 @@ not dropped). NO test changed (subtractive className/style removal -- no pure he
 tests stay green). **vitest 303 (PricingGrid 129, unchanged)**, tsc 3175 (0 new in PricingGrid), in-container build exit 0,
 2026-06-25; see plan §"Drop frozen-left, ship resize alone".
 
+**Hierarchy collapse/expand (`collapse.ts` [NEW pure leaf] + `PricingGrid.tsx` + `SheetPricingPage.tsx`; view-layer,
+owner-locked):** click a parent's chevron to hide its ENTIRE descendant subtree; click again to reveal. A NEW per-grid
+concept, **SEPARATE from the full-screen `expanded` flag -- do NOT touch/reuse/rename `expanded`** (it is the maximize
+axis). **State lives in the PAGE** as `collapsed: Set<number>` (of `row_index`), reset to empty in the existing
+`useEffect([sheetName])` (a tab switch + a reload start fully expanded; per-sheet per-session, NO backend persist). It
+lives in the page because it **composes the upstream `displayRows` filter** (Option A) and the visibility/descendant math
+needs the FULL unfiltered `rows` (which the page has; the grid only gets the filtered `displayRows`). **NEW pure leaf
+`collapse.ts`** (unit-tested, no React): `buildChildrenByParent` (the inverse children map the grid LACKED -- it had only
+the parent-direction `parentExcelRowOf`), `rowHasDescendants`, `descendantCount` (whole-subtree, cycle-guarded -- drives
+"+N hidden"), `isHiddenByCollapse` + `collapsedAncestors`. **`isHiddenByCollapse` MIRRORS ReviewTree.isVisible EXACTLY:**
+walk the parent chain from `row.effective_parent_index` (the PARENT, NOT the row), 60-hop cap, break on `<0` (root) +
+`cur === row.row_index` (self-cycle); a collapsed parent STAYS visible, only descendants hide; **the loop must NOT start
+at `collapsed.has(row.row_index)` -- that is the "parent disappears" trap.** All over the FULL rows (filter-independent).
+- **R4 upstream filter (VIEW-ONLY):** collapse is ONE MORE clause in the page-side `displayRows` `.filter()`, AND-composed
+  in the SAME pass as show-unpriced + row-type (`passesViewFilter(r) && (!collapseActive || !isHiddenByCollapse(...))`).
+  The priced count / `SummaryPanel` / flag feed all read the UNFILTERED `rows`, so collapsing moves NO total. The `=== rows`
+  fast path holds when nothing is filtered or collapsed.
+- **R3 search pierces collapse:** `buildSearchHits` runs over `searchUniverse` (the view-filtered set IGNORING collapse),
+  so a hit under a collapsed parent is still a hit (`searchUniverse === displayRows` when nothing collapsed -- no extra pass).
+- **R5 reveal-then-scroll:** the grid's ONE jump path `jumpToRow` (parent-click + search-step + review-strip all route
+  through it) calls the NEW grid prop `onRevealRow(excelRow)` FIRST; the page (`revealRow`) expands the target's collapsed
+  ancestors and returns TRUE iff it changed `collapsed`, so the grid defers the scroll 50ms (mirroring ReviewTree) ONLY when
+  a reveal happened (else synchronous scroll, byte-for-byte the prior behaviour). The 3s landing flash still fires.
+- **R6 row memo UNTOUCHED (load-bearing):** NOTHING was added to `pricingRowPropsAreEqual`. The chevron flips on toggle via
+  a NEW `CollapseContext`: the chevron is a SEPARATE `RowChevron` component (inside the memoized `PricingGridRow`) that reads
+  the CONTEXT, so a context change re-paints ONLY the chevrons -- the memoized row (which does NOT read the context) is
+  skipped, and keystroke/cursor perf is unaffected. This is the recon's **"derived, not carried on the row"** rule. The grid
+  receives `collapsed` / `childrenByParent` (over FULL rows) / `onToggleCollapse` / `onRevealRow` as **GRID-LEVEL props**
+  (NONE per-row, NONE in the comparator).
+- **Chevron UI:** at the Description-cell depth indent (`depth * INDENT_PX`), before the text, so it nests with the tree;
+  ONLY on rows with descendants (leaves get an invisible spacer for alignment); a FLAT sheet (`anyParents` false -> no
+  hierarchy) renders NO chevrons/spacers (no `+0 hidden`, no crash). Single-child parents collapse; mixed child node_types
+  collapse regardless of type. `tabIndex={-1}` keeps it OUT of the roving-tabindex matrix (no second tab stop; nav untouched).
+  Collapse is ABSENT on the grid-only general-specs fork (it renders `SheetDataGrid`, never `PricingGrid`). vitest 307 -> 320
+  (+13 `collapse.test.ts`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan §"Collapse/expand".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Drop frozen-left, ship resize alone -- the frozen-left
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Hierarchy collapse/expand (2026-06-26) -- single-row
+collapse in the pricing grid (click a parent chevron to fold its whole descendant subtree; NEW pure leaf `collapse.ts`;
+page-owned `collapsed: Set<number>` composing the upstream `displayRows` filter [Option A]; `isHiddenByCollapse` mirrors
+ReviewTree.isVisible; a `+N hidden` badge DERIVED live; search PIERCES collapse + reveal-then-scroll via `onRevealRow`;
+the row memo `pricingRowPropsAreEqual` is UNTOUCHED -- the chevron flips via a `CollapseContext`-reading `RowChevron`, not
+a per-row prop; full-screen `expanded` untouched); vitest 307 -> 320, tsc 3175 (0 new), see the collapse/expand rule above
++ plan §"Collapse/expand". Prior: Drop frozen-left, ship resize alone -- the frozen-left
 (sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
 scroll: frozen cells paint in place, scrolling columns clip behind + don't reset on scroll-back; the border-separate flip
 was wrong-axis + reverted; a two-pane fix fights resize's wrap-grow + doubles the row memo -- not worth it now), so the
