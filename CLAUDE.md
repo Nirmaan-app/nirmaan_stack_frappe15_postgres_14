@@ -1,16 +1,25 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-25 (Slice 5b -- Slice-5 write-back arc COMPLETE). **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-25 (Slice 5b + hub footer toolbar rework). **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (FULL-STACK, Slice 5b):**
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (FRONTEND, presentational
+-- hub footer toolbar rework):** the cluttered 6-button parse-gate footer is reworked to **4 visible buttons** (Parse workbook /
+Re-parse / Commit / Tendering, all `size="sm"`) **+ an "Export" overflow `DropdownMenu`** holding the two export actions
+(**Export Parsed BoQ** [RENAMED from "Export Finalized"] + **Download priced tender**). The menu mirrors the in-file header
+"More options" pattern but uses a labelled "Export" + `ChevronDown` trigger (distinct from the `MoreHorizontal` card menu); each
+export item is `disabled` per its own unchanged gate with a muted inline reason line when disabled (option c -- a disabled Radix
+menu item can't carry a hover tooltip); the dialogs/handlers/gates are UNCHANGED (purely presentational -- only the triggers
+relocated + reordered + compacted). The rename touched the menu label + the `ExportWorkbookDialog` title + comments only
+(internal identifiers unchanged). tsc 3175 (0 new), vitest 307 (unchanged); NO backend/schema/migrate. See plan section "Hub
+footer toolbar rework" + frontend/CLAUDE.md. **Prior slice (FULL-STACK, Slice 5b):**
 **Download priced tender hub UI + staleness.** The hub UI for the 5a write-back -- COMPLETES the Slice-5 arc (5a backend +
 highlight + 5b UI). **Backend (ADDITIVE, NO schema/migrate):** `commit_gate.get_committed_state` now ALSO returns per committed
 sheet **`last_exported_at`** (FREE -- folded into the existing `is_current=1` BoQ Sheet lookup) + **`pricing_changed_since_export`**
 (bool: `max(priced_at/colored_at/remarked_at on the sheet's CURRENT commit_version, is_current=1)` > `last_exported_at`, or
 content-exists-but-never-exported -> True, nothing -> False; **version-isolated** via `_latest_change_by_sheet_version` grouping
 by `(sheet_name, committed_version)`; three GROUPED queries; existing return keys UNCHANGED). **Frontend:** a NEW "Download
-priced tender" hub button (6th sibling, gated on `committedMap.size`, DELIBERATELY distinct from the D2b "Export Finalized"
+priced tender" hub button (now an "Export" overflow-menu item per the toolbar rework, gated on `committedMap.size`, DELIBERATELY distinct from the D2b "Export Parsed BoQ"
 draft-review export) -> NEW **`PricedTenderDialog`** (CommitDialog's committedState rows + ExportWorkbookDialog's
 self-contained download; all finalized rows ticked by default; **grid-only general-specs rows SHOWN but DISABLED "no rates to
 write"**; per-row "last exported {date} / never exported" + amber "changed since export"); NEW **`downloadBlob.ts`**
