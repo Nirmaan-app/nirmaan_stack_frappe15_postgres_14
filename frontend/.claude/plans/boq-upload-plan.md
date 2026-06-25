@@ -8996,3 +8996,613 @@ PWA 167 entries).
 computes; nav identical (arrows/Tab/Enter-down/Esc/commit-on-move); markers intact (priced tint, flags, color borders,
 override amber, amounts); annotations (remark popover, color apply); acknowledge dismiss + rate-edit re-arm; lock/read-only
 stays read-only. Any divergence = regression, not PASS.
+
+### Phase 5 Preamble-only qty-bearing rate-edit gate (FULL-STACK, predicate-only, NO migrate, feat pending, 2026-06-24; base tip cbb93b16)
+
+**What + why.** A read-only recon (Checklist-B PASS) found the rate-edit gate used TYPE-ONLY priceability (`isPriceableType`
+frontend / `_PRICEABLE_NODE_TYPES` server), so a zero-qty Preamble showed an editable rate cell that the flags/priced-count
+correctly excluded -- the inconsistency the owner spotted. This slice makes the gate ASYMMETRIC (owner-locked), enforced on
+BOTH sides. FRONTEND + BACKEND, predicate-only, NO schema/migrate (reads existing fields).
+
+**The asymmetric rule (owner-locked).** A rate cell is editable iff: **override OR `node_type == "Line Item"` (ALWAYS) OR
+(`node_type == "Preamble"` AND qty-bearing)**. A LINE ITEM is always editable -- **a zero-qty Line Item is a valid rate-only
+line, do NOT lock it.** A PREAMBLE is editable only when qty-bearing -- a zero-qty Preamble (nearly all Preambles) is
+read-only. "Other"/null node_type is non-priceable. The override ("Price any row") unlocks BOTH a zero-qty Preamble AND any
+non-priceable type. **The Preamble/Line-Item asymmetry is the FIRST time the two diverge for rate editing -- DELIBERATE,
+recorded so nobody "fixes" it into uniformity.**
+
+**Qty-bearing = "Definition A" (qty ANYWHERE).** The scalar qty OR any per-area qty is finite non-zero. DELIBERATELY SIMPLER
++ LOOSER than the existing `priceability.isPriceableLine` (qty in a RATE-COLUMN area, per-area). **THE DELIBERATE DIVERGENCE
+(recorded, owner-locked):** two qty definitions now coexist ON PURPOSE -- the EDIT GATE ("qty anywhere", per-row,
+Preamble-only) answers "can I edit this row?"; the FLAGS/priced-count/rollup (`isPriceableLine`, unchanged) answer "does
+THIS area need a rate?". Different questions -> different predicates -> do NOT align them.
+
+**Frontend (`PricingGrid.tsx`).** New self-contained pure leaves (exported, unit-tested): `isNonZeroNum` (a COPY of
+priceability's, NOT imported -- importing back would reverse the one-way dependency / make a cycle), `isRowQtyBearing(row)`
+(qty_total OR any qty_by_area non-zero), `isRateEditableRow(row, override)` (the asymmetric gate). The rate-cell render
+branch swapped `(isPriceableType(row.node_type) || override)` -> `isRateEditableRow(row, override)`. Reads only
+`row.qty_total`/`row.qty_by_area`/`row.node_type` (already on the memoized `PricingGridRow` prop) -> NO new shared-object
+prop, the perf memo is NOT defeated. **Markers left unchanged** (the amber "needs review" still keys on `isPriceableType`
+TYPE) -> an override-priced zero-qty Preamble renders emerald not amber: a known cosmetic nuance, out of scope, reported.
+
+**Backend (`pricing.py`).** `_resolve_committed_cell` now also fetches the node's scalar `qty` (added to the SAME
+get_value -> `["name","node_type","qty"]`, no extra query). New `_is_nonzero_qty` (mirrors `isNonZeroNum`; guards None/bool)
++ `_node_is_qty_bearing(node_name, node_qty)` (scalar qty OR any `BOQ Node Qty By Area` child qty non-zero; the child read
+via `frappe.get_all` filtered `parent`/`parenttype="BOQ Nodes"`/`parentfield="qty_by_area"`, firing ONLY for a
+Preamble-without-override). The `save_cell_price` guard (after cell-resolve, before lock/freeze/insert -- reject mutates
+nothing, placement preserved) is now the per-type split: Line Item -> pass; Preamble -> require `_node_is_qty_bearing`;
+else -> the UNCHANGED "not priceable" throw. Override (`allow_non_priceable`) bypasses the whole guard. `_PRICEABLE_NODE_TYPES`
+is now inert (definition only; left in place, harmless).
+
+**Build-time consistency finding (REPORTED, not decided -- owner follow-up).** A zero-qty rate-only Line Item is now
+editable but, because `isPriceableLine` (qty-bearing) excludes it, is NOT in the N/M priced-count denominator nor flagged
+needs_rate -> EDITABLE but NOT counted/flagged. `isPriceableLine`/flags/count were DELIBERATELY NOT changed in this slice
+(edit-gate only). Surfaced for the owner to decide whether a follow-up is needed.
+
+**Real targets (read-only DB peek, prior recon).** Zero-qty current Preamble/Line-Item committed nodes the gate newly locks
+(Preambles): 145 -> 54/55 Preamble + 40/209 Line Item; 150 -> 23/23 + 57/104; 166 -> 13/13 + 42/56. The large Preamble
+magnitude (~all Preambles lock) is INTENDED (Preambles are headers). Line Items stay editable regardless.
+
+**Tests.** Frontend `PricingGrid.test.ts` 94 -> 106 (+12: `isNonZeroNum` edge set incl. "0"-string/NaN/Infinity/negative;
+`isRowQtyBearing` scalar/area/negative/all-zero; `isRateEditableRow` Preamble-zero-locked / Preamble-qty-open /
+LineItem-always-open / Other-locked / null-locked / override-unlocks-all); full Vitest suite 214 -> 226 green. Backend
+`test_pricing.py` 96 -> 104 (+8 `TestPreambleQtyBearingGuard`: zero-qty Preamble rejected; qty-bearing Preamble accepted
+[scalar AND via-area-child, exercising the child read]; zero-qty Line Item accepted [rate-only]; qty-bearing Line Item
+accepted; Other rejected; zero-qty-Preamble + Other accepted with override). tsc 3175 (unchanged, 0 new); in-container Vite
+build exit 0 (PWA 167). NOTE: the canonical pricing-test invocation is now `bench --site localhost run-tests --module
+nirmaan_stack.api.boq.wizard.test_pricing` (raw `python -m unittest` broke post-merge -- merged `boq_ai_assist` opens a log
+at import).
+
+**Manual live-cert (pending Nitesh, on 145/150/166).** 1) zero-qty PREAMBLE (145 r4 "Note" / 150 r9 "AIR DISTRIBUTION" /
+166 r4 "VARIABLE REFRIGERANT FLOW UNITS :") -> rate cells READ-ONLY. 2) qty-bearing Preamble (if any) -> editable. 3)
+zero-qty LINE ITEM (166 r42 "3 TR, 1200 cfm") -> STILL editable. 4) qty Line Item -> editable. 5) override ON -> the locked
+Preamble becomes editable; OFF -> locks again. 6) normal qty-bearing line: rate saves + amount computes. 7) server: with
+override OFF a zero-qty Preamble cannot be priced. 8) perf intact (big sheets fast). 9) acknowledge re-arm intact. 10)
+markers/annotations/lock intact. Any divergence in 6-10 = regression.
+
+### Mandatory amount-formula gate (FULL-STACK, NO migrate, base tip 31369808, 2026-06-24)
+
+**What + why.** Amount formulas (F1-F4) were OPTIONAL. The owner wants them MANDATORY before pricing: every amount column on
+a sheet must have a declared builder formula before ANY rate cell on that sheet is editable. This REVERSES the F1-F4
+"formula optional" property. The gate is **ABSOLUTE** -- the "Price any row" override (`allow_non_priceable`) does NOT bypass
+it (override loosens ONLY the type/qty axis). Declaration must stay live while rates are locked (else the gate is
+unsatisfiable). NO migrate -- the gate READS the existing `BoQ Cell Amount Formula` storage.
+
+**The completeness predicate (per-COVERAGE, NOT per-record).** A sheet is COMPLETE iff for EVERY amount column descriptor
+`d` (`isAmountDescriptor(d)`), `pickFormula({value_field, value_key, rate_subkey}, columnFormulas)` returns a record with a
+non-null `.formula`. "Covered" is `pickFormula`'s override>area-wildcard-default resolution: an area-WILDCARD default
+(`target_value_key=null`) covers ALL per-area amount columns sharing its `(value_field, rate_subkey)`; a per-area OVERRIDE
+covers its own column; a CLEARED record (null `.formula`) does NOT count. A sheet with **zero** amount columns is
+**TRIVIALLY complete** (rate editing NOT blocked). This REUSES the EXACT `pickFormula` resolution `evaluateAmountCell` uses,
+so completeness can never drift from how amounts compute.
+
+**Client threading (override-proof).** `priceability.areFormulasComplete(columnDescriptors, columnFormulas)` (new pure
+export; imports `pickFormula` from the leaf `amountFormula.ts` -- no cycle). `SheetPricingPage` computes
+`const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas)` (data already in hand from
+`get_priced_rows` -- NO new fetch) and passes it as a NEW per-SHEET prop `formulasComplete?: boolean` (**default TRUE**,
+back-compat). The grid ANDs it OUTSIDE `isRateEditableRow`:
+`onSaveRate && formulasComplete && isRateDescriptor(d) && isRateEditableRow(row, override)` -- the override lives INSIDE
+`isRateEditableRow`, so it can NEVER reach past `formulasComplete`. Added to `PricingGridRowProps` AND
+`pricingRowPropsAreEqual` (memo-safe: a per-sheet boolean flips identically for all rows -> a flip re-renders all rows ONCE).
+`onSaveFormula`/the `AmountFormulaBuilder` mount is UNTOUCHED (gated only by `isAmountDescriptor(d) && onSaveFormula`), so
+declaration works under the gate. A `SheetPricingPage` amber banner "Declare amount formulas to enable rate entry." shows
+when `!isGridOnly && !locked && !pricedLoading && !pricedError && !formulasComplete`.
+
+**Server restructure (override-proof).** `pricing.py`: NEW `_formula_target_matches_column(target_vf, target_vk, target_rk,
+column)` -- the SHARED override-or-wildcard primitive, now backing BOTH `save_amount_formula`'s target-gate AND the new
+`_formula_covers(column, current_records)` / `_sheet_formulas_complete(boq, sheet, version)` (over
+`_committed_amount_descriptors` + `_current_formula_records`; `[]` amount cols -> True). The throw
+(`title="Formulas incomplete"`) sits in `save_cell_price` AFTER `_resolve_committed_cell` and OUTSIDE/BEFORE the
+`if not _coerce_bool(allow_non_priceable):` block (so override can't skip it) and BEFORE the lock/freeze/insert
+(reject-mutates-nothing). `save_amount_formula` is NOT gated (declaration under the gate). **Live re-gate:** removing a
+formula flips completeness back to false (re-locking) as a natural consequence of the live `column_formulas` read.
+
+**Q7 magnitude (current committed versions, owner-confirmed, intended -- the gate LOCKS existing sheets until declared):**
+
+| BoQ | Sheet | amount cols | declared | post-gate |
+|---|---|---|---|---|
+| 145 | Electrical | 2 (F,I) | 1 | LOCKED |
+| 145 | HVAC | 2 (F,I) | 1 | LOCKED |
+| 145 | Fire Fitting | 2 (F,I) | 0 | LOCKED |
+| 145 | FAS | 0 | 0 | editable (trivially complete) |
+| 150 | low side | 1 (G) | 1 | editable |
+| 166 | VRF System | 9 (Q-Y) | 0 | LOCKED (1 wildcard default per kind unlocks all 9) |
+
+**Tests + verification.** Backend `test_pricing` 104 -> 110: a shared `_declare_fixture_amount_formulas(boq, sheet, cv)` (two
+wildcard defaults -- the per-area fixture's two amount cols carry DIFFERENT rate_subkeys total+install) declared in the
+setUpClass of the 7 fixture-pricing classes (TestCellPricing / TestGetPricedRows / TestSingleEditorLock /
+TestLockPerSheetIsolation [both sheets] / TestPriceabilityGuard [restores the priceability-message ordering --
+formula-gate-before-priceability] / TestPreambleQtyBearingGuard / TestCellDismissal) so they stay green; NEW
+`TestMandatoryFormulaGate` (+6): the predicate (true / partial-false / zero-cols-true), `save_cell_price` throws "Formulas
+incomplete" EVEN WITH `allow_non_priceable=True` + reject-mutated-nothing (no price row, no lock), success once complete,
+declaration works while locked. The `column_formulas`-assertion tests (in TestAmountFormula -- NOT one of the 7) are
+untouched (the per-class approach, not a centralized fixture change, leaves them green). Frontend vitest 226 -> 235
+(priceability 30->36 `areFormulasComplete`; PricingGrid 106->109 the comparator + the override-can't-bypass composition).
+tsc 3175 (0 new wizard errors). In-container Vite build exit 0. Two commits (feat + docs).
+
+**Manual live-cert (pending Nitesh, on 145/150/166).** 1) incomplete sheet (145 Fire Fitting / 166 VRF) -> rate cells
+READ-ONLY + banner. 2) override ON on the incomplete sheet -> STILL read-only (the load-bearing override-can't-bypass
+check). 3) declare the missing formula(s) via the header builder while rates are locked (must work). 4) VRF: ONE
+wildcard-default declaration unlocks all 9 per-area amount cols. 5) complete sheet (150 low side) -> editable, no banner.
+6) remove a formula on a now-complete sheet -> re-locks + banner returns. 7) on a complete sheet the asymmetric
+Preamble/Line-Item gate still applies. 8) perf / acknowledge re-arm / markers / annotations / lock intact. Divergence in
+7-8 = regression.
+
+### Amount-column formula-status badge (FRONTEND, display + trigger relocation, NO migrate, base tip 0ec97fcc, 2026-06-21)
+
+**Problem.** After the mandatory formula gate the user had no per-column guidance -- which amount columns still NEED a
+formula (pending) vs which are DONE. The only formula affordance was the `AmountFormulaBuilder` trigger, rendered as a
+small *secondary line UNDER* each amount column's label, far right, in a narrow `<th>`. A read-only recon
+(Checklist-B PASS) established: (1) that far-right "blue thing" is NOT a passive status light -- it IS the EDITOR TRIGGER
+(the `PopoverTrigger`), showing a blue `tokensToText` preview when a formula resolves and "set formula" when not; and
+(2) its "sometimes doesn't render / easy to miss" behavior is a **layout/visibility** problem (a tiny truncated 2nd line
+on far-right, often-scrolled-off, narrow columns) -- **NOT a data bug**: the control already used `pickFormula` correctly
+(wildcard-aware), and the recon Q6 cross-check found NO gate-vs-column disagreement (VRF's 9 cols / 6 records all resolve).
+
+**Owner-approved design (option (a) -- MERGE status + trigger into ONE control).**
+- A leading `ƒ` STATUS BADGE at the START of each amount column `<th>`, BEFORE the label: **AMBER** when the column has
+  no covering formula (pending), **GREEN** when covered. The badge **IS the `PopoverTrigger`** -- clicking it opens the
+  SAME `AmountFormulaBuilder` popover (all builder logic / `onSave` / structural validation / cycle-check UNCHANGED;
+  only the trigger's look + position changed).
+- The redundant far-right secondary preview line is **REMOVED** (its blue preview is superseded by the badge; the full
+  formula still shows in the popover and rides the badge `title`). **Relocating the trigger to the prominent leading
+  badge IS the render-bug fix.**
+- A subtle full-`<th>` **amber tint** (`bg-amber-50 dark:bg-amber-950/40`, mirroring the gate banner) washes PENDING
+  amount columns so a wide sheet (VRF 9 cols) is scannable at a glance; covered/non-amount columns keep neutral `bg-muted`.
+- The page-level "Declare amount formulas to enable rate entry." banner is unchanged.
+
+**Badge⇔gate agreement (by construction).** NEW pure `priceability.isAmountColumnCovered(d, columnFormulas)` =
+`!!(pickFormula({value_field,value_key,rate_subkey}, columnFormulas)?.formula)` is the SINGLE per-column coverage
+predicate; `areFormulasComplete` now folds `.every()` over it (behavior IDENTICAL -- its tests stay green). So **every
+amount column GREEN ⇔ `areFormulasComplete` true ⇔ rate gate open + banner hidden.** The badge color reuses
+`AmountFormulaBuilder`'s already-computed `applicable = pickFormula(...)` (`covered = !!(applicable && applicable.formula)`
+-- the SAME resolution, no second path). **No import cycle:** `AmountFormulaBuilder` does NOT import `priceability` (it
+uses its local `applicable`), and the `<th>` tint check is `pickFormula` **inline** in `PricingGrid` (already imported
+from `amountFormula.ts`), NOT `priceability.isAmountColumnCovered` -- importing priceability into PricingGrid would
+reverse the one-way dependency (priceability imports PricingGrid) into a cycle, the SAME reason `isNonZeroNum` is a
+self-contained copy in PricingGrid. All three (gate fold, badge color, tint) share `pickFormula`'s override>area-wildcard
+resolution, so none can drift. (This is a deliberate, recorded deviation from the build brief's literal "use
+isAmountColumnCovered in PricingGrid" -- the equivalent inline `pickFormula` preserves the badge⇔gate guarantee without
+the forbidden cycle.)
+
+**Read-only branch preserved.** When `onSaveFormula` is withheld (locked / taken-over / general-specs) the badge renders
+as a STATIC amber/green glyph with NO popover -- status always visible, editing gated by `onSave` exactly as before.
+
+**Display-only.** The amount-column header is in `<thead>`, OUTSIDE the memoized `PricingGridRow` -- so a badge/tint
+re-render is free. UNTOUCHED: the gate logic / `formulasComplete` result, the rate-edit gate / override,
+`isRateEditableRow` / `isPriceableLine` / flags / count / rollup, the perf memo + `pricingRowPropsAreEqual`, the builder
+popover / `onSave` / validation / cycle-check, `pickFormula` / `amountFormula.ts`, all backend/schema/migrate. Non-amount
+columns get no badge + no tint.
+
+**Files.** `priceability.ts` (+`isAmountColumnCovered`, `areFormulasComplete` refactor), `AmountFormulaBuilder.tsx`
+(trigger -> leading badge; dropped `FunctionSquare` import + the preview-line markup), `PricingGrid.tsx` (badge moved
+before the label inside an `inline-flex` span; amber `<th>` tint via inline `pickFormula`), `priceability.test.ts` (+6).
+
+**Verification.** vitest 235 -> 241 (priceability 36 -> 42: `isAmountColumnCovered` covered-by-override / covered-by-
+wildcard-both-areas / uncovered / cleared-null-formula / scalar / the `areFormulasComplete == every isAmountColumnCovered`
+agreement). No RTL in this env, so the badge RENDER is not unit-tested -- the underlying coverage boolean is. tsc 3175 (0
+new, 0 in boq-wizard/boqTypes); in-container Vite build exit 0. Manual live-cert (owner; current live state per recon Q6:
+only 145 Fire Fitting 0/2 is uncovered -- use it for amber, or remove a formula to manufacture amber): LC1 amber badge +
+amber `<th>` tint on an uncovered amount col (rates locked + banner); LC2 green badge + neutral tint on a covered col;
+LC3 click badge -> builder popover opens -> declare/edit -> badge flips amber->green + tint clears + (if last uncovered)
+rates unlock + banner clears; LC4 VRF one wildcard default flips MULTIPLE per-area badges green at once; LC5 the far-right
+preview line is GONE; LC6 read-only/locked sheet -> badge shows status but click does NOT open the builder; LC7-9
+no-regression (declare/edit works as before; gate still every-green⇔editable; perf intact, non-amount headers unchanged).
+Pending Nitesh.
+
+### Slice 4c full-screen editor (FRONTEND, layout/presentational, NO migrate, base tip cca150b0, 2026-06-24)
+
+**Goal.** A full-screen / maximize mode for the dense pricing editor: a "Full screen" toggle grows the editor to fill the
+viewport (more rows/columns visible); "Exit full screen" / Esc collapses back. Pure FRONTEND, layout-only -- NO data
+model, NO endpoint, NO change to pricing / gate / badge / flag / lock / rollup LOGIC. Built on the read-only recon
+(Checklist-B PASS) whose findings are the spec.
+
+**Files (3 source + 1 test).** `SheetPricingPage.tsx` (the toggle, state, Esc effect, root-class swap, grid slot),
+`PricingGrid.tsx` (the `expanded` prop relaxing the container cap + the pure `shouldExitFullscreenOnEsc` helper),
+`SheetDataGrid.tsx` (the same `expanded` cap-relax for the grid-only read-only fork), `PricingGrid.test.ts` (+4 tests).
+
+**APPROACH -- in-app maximize (recon Q2 (a)).** The page root `<div>` className flips between EMBEDDED
+(`flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4`, byte-for-byte the prior layout) and FULL
+(`fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4`) via `cn(expanded ? FULL : EMBEDDED)`. FULL
+covers the app shell exactly like the house Dialog/Sheet overlay (`fixed inset-0 z-50`). **NOT** the native Fullscreen API
+(the codebase never uses it; it hides browser chrome + fights our Esc), **NOT** a Dialog / Sheet / `createPortal` (they
+remount the subtree -- see below).
+
+**THE LOAD-BEARING NO-REMOUNT RULE (recon Q3).** The grid holds un-persisted state -- `draftRates` (typed-but-unsaved
+rates), `proposedRates`, `activeCell` (cursor), per-cell debouncer timers, `openRemarkRowIdx`, the imperative `gridRef`
+(used by the review strip's `scrollToRow`) -- plus page state (the single-editor lock / `takenOver`, `override`,
+`showOnlyUnpriced`, `reviewOpen`, `lastSavedAt`). The grid is `key={sheetName}` and FLUSHES drafts on unmount. So the
+implementation toggles ONLY the root wrapper's className: **ONE JSX tree, same children, same positions, same PricingGrid
+key**. React reconciles the same element in place -> expand/collapse NEVER remounts the grid -> ALL of that state
+survives. A Dialog / Sheet / portal / a second return-branch with a different child tree would remount and DROP unsaved
+rates + re-fire the unmount-flush + lose the cursor -- explicitly avoided.
+
+**Grid height (recon Q4).** FULL root is `flex flex-col`; the grid SLOT (a wrapper `<div className={cn(expanded &&
+"flex min-h-0 flex-1 flex-col")}>` around the render fork) takes `flex-1 min-h-0`; each grid's OUTER scroll container
+relaxes its `max-h-[calc(100vh-14rem)]` cap to `flex-1 min-h-0` when `expanded` (new `expanded?: boolean` prop, default
+false, on BOTH `PricingGrid` and `SheetDataGrid`). The grids' sticky header (`sticky top-0 z-20`) + horizontal
+`overflow-auto` are scroll-container-relative -- they carry into full-screen unchanged; NO grid scroll/sticky internals
+were touched. **`expanded` is a per-GRID prop, NOT a per-row prop** -- it never enters `PricingGridRowProps` /
+`pricingRowPropsAreEqual` / the row render, so the perf memo is intact (display-only).
+
+**Esc handling (recon Q5).** A `window` keydown listener mounted ONLY while `expanded` (`useEffect([expanded])`, removed
+on collapse/unmount) calls the pure `shouldExitFullscreenOnEsc(e, document.activeElement)` (exported from `PricingGrid.tsx`
+alongside `deriveSaveStatus`/`isGridOnlySheet`/`isTakeoverError`/`orderCommittedSheets` -- the established home for
+page-level pure helpers, sdk/router-free so it is unit-testable in `PricingGrid.test.ts`; the page already imports several
+helpers from there). It returns true ONLY for a bare `Escape` that is **not `e.defaultPrevented`** AND not while an
+`<input>`/`<textarea>` is focused. **The popover-Esc resolution:** the RemarkCell + AmountFormulaBuilder Radix popovers
+`preventDefault` THEIR Escape-dismiss, so `defaultPrevented` cleanly distinguishes "Esc closed a popover" (don't exit)
+from "Esc should exit full-screen". DELIBERATELY a window listener (not the grid `<table>` -- it would miss Escs fired
+while focus is in a portaled popover); the grid's own `handleGridKeyDown` / `nextCell` are UNTOUCHED.
+
+**Toggle placement -- outside the `!isGridOnly` gate.** The right-cluster wrapper (`ml-auto shrink-0 flex ...`) now renders
+unconditionally with the Maximize2/Minimize2 toggle always inside it; only the Save/Summary/Review/override/unpriced
+buttons stay gated by `!isGridOnly` (wrapped in a fragment). So a read-only / grid-only / general-specs sheet can ALSO
+maximize -- full-screen is orthogonal to editability and composes with the lock (a locked sheet stays read-only but is
+expandable). Per-session; DELIBERATELY NOT reset on a tab switch (staying maximized across sheets is the useful
+behaviour).
+
+**Scope.** Layout-only: NO pricing/gate/badge/flag/lock/rollup logic, NO perf-memo change, NO endpoint, NO backend, NO
+doctype, NO migrate, NO new fetch. Backwards-compat: embedded layout byte-for-byte unchanged when `expanded=false`;
+expand is purely additive.
+
+**Tests / build.** vitest 241->245 (PricingGrid 109->113: `shouldExitFullscreenOnEsc` -- Escape+non-input+not-prevented
+exits; defaultPrevented -> no exit; input/textarea focus -> no exit; non-Escape key -> no exit). The className toggle /
+overlay / state-survival / popover-Esc are inherently render/interaction behaviour and are covered by the live-cert (the
+node/no-RTL env can't assert them). tsc 3175 (0 new; 0 in the 3 edited files), in-container Vite build exit 0
+(`Done in 382s`, PWA 167 entries). NO root CLAUDE.md change (frontend-only slice).
+
+**Manual live-cert (owner; three-BoQ 145/150/166, de-stale first):** LC1 Expand -> editor fills the viewport (covers
+sidebar), Collapse/Esc -> back. LC2 (load-bearing) state survives: type an unsaved rate -> Expand -> still there; cursor
+preserved; lock not re-acquired (no takeover flicker). LC3 Esc: popover open -> Esc closes the POPOVER, stays full-screen;
+nothing open -> Esc exits; typing in a cell -> Esc does NOT exit. LC4 works on a read-only / grid-only sheet (Expand
+available, fills screen). LC5 no-regression: in full-screen, rate save + amount compute + badges + banners + review strip
++ summary + scroll-to-row all work; Collapse -> still works embedded. LC6 perf intact (big sheets fast both modes).
+Pending Nitesh.
+
+### Cluster B -- formula-vs-document reconciliation (per-cell choice) (FULL-STACK, MIGRATE [new doctype], base tip b2c1b1fa, 2026-06-24)
+
+**What:** when a committed (DOCUMENT) amount and the formula-computed amount DIVERGE for the same amount cell, the editor
+FLAGS the divergence (mismatch only -- never auto-fixes; the tendering doc is client-owned), lets the user CHOOSE per cell
+which value wins (keep-document / use-formula), stores that choice stickily per committed version, and routes the CHOSEN
+value to the grid cell AND the rollup/summary (single source of truth).
+
+**Four LOCKED owner decisions:**
+- **D1 DEFAULT = DOCUMENT.** An unset (or keep_document) divergent cell shows the DOCUMENT value in BOTH the grid and the
+  rollup, with the divergence highlighted until resolved. This REVERSES the prior formula-wins display. Resolution map:
+  unset -> document; keep_document -> document; take_formula -> formula.
+- **D2 VISUALIZATION = BOTH CHANNELS.** (a) A STRONG cell cue: a solid VIOLET `ReconcileBadge` pill (a DISTINCT channel --
+  background=priced tint / left-border=color / gutter=flag marker are all taken) + a chooser popover labelled with both
+  numbers; a RESOLVED choice renders a MUTED grey pill (still visible, no nag). (b) A NEW "divergence" `ReviewEntry` kind in
+  the unified strip carrying the unresolved count; click-jumps via `scrollToRow`; a resolved cell drops from the active strip.
+- **D3 INVALIDATION = AUTO-RESET, SURGICAL, PER-CELL, COLUMN-AWARE.** A rate save clears a stored choice ONLY on amount
+  cells (on that row) whose formula REFERENCES the edited rate operand (NOT the whole row -- more surgical than the per-row
+  dismissal re-arm). A formula save/remove clears that column's cells (remove = silent). A re-commit mints a new version ->
+  old choices orphaned (no live code). No "survive but warn" path.
+- **D4 ROLLUP SINGLE SOURCE.** The chosen value resolves ONCE inside `pricingRollup.rowOwnAmount`, so Option-1 (tree) and
+  Option-2 (flat) both read the same `ownByIdx` -> the reconciliation integrity guard stays balanced by construction.
+
+**Divergence fires ONLY when the formula yields a real number** (`evaluateAmountCell` -> `cell.kind === "value"`).
+not_yet / broken (`kind: "blank"`) and no-formula (`kind: "committed"`) carry NO computed number -> NO divergence (F1: the
+mandatory formula gate guarantees coverage, NOT a number).
+
+**Backend (`nirmaan_stack/api/boq/wizard/pricing.py` + NEW doctype):**
+- NEW doctype **`BoQ Cell Reconciliation Choice`** (`nirmaan_stack/nirmaan_stack/doctype/boq_cell_reconciliation_choice/`):
+  istable=0, track_changes=1, autoname `BRCC-.YY.-.#####`, bare-stub controller. Identity = (boq, sheet_name VERBATIM #152,
+  excel_row, **col_letter**, committed_version) -- PER-CELL (carries col_letter, the difference from the per-ROW BoQ Cell
+  Dismissal). `choice` Select keep_document/take_formula; "unset" = the absence of a current record. Own freeze-and-supersede
+  triple `choice_version`/`is_current`/`chosen_at`+`chosen_by` + inert `is_finalized`. One-current ENDPOINT-enforced.
+- `save_cell_reconciliation_choice(boq, sheet, excel_row, col_letter, committed_version, choice, description)` -- mirrors
+  `save_cell_dismissal`: resolve committed row (NO priceability gate, col_letter not node-checked -- like save_cell_color),
+  lock-on-write AFTER resolve / BEFORE freeze+insert (reject-mutates-nothing), freeze prior current via `set_value` (NEVER
+  doc.save) then `doc.insert`; a blank/None/"unset" `choice` -> freeze-only (the CLEAR -> revert to document-default). Invalid
+  token -> throw.
+- `get_sheet_reconciliation_choices(boq, sheet, committed_version)` -- bare whitelist read; current (is_current=1) per-cell
+  choices. Merged into `get_priced_rows` as a flat per-CELL `reconciliation_choices` key `[{excel_row, col_letter, choice}]`.
+- INVALIDATION machinery (the surgical re-arm): `_committed_descriptors` (full descriptor list, refactored out of
+  `_committed_amount_descriptors`); `_bind_ref` (wildcard leaf -> area; mirrors frontend `amountFormula.bindRef`);
+  `_pick_formula_record` (override>wildcard, mirrors `pickFormula`); `_node_refs_rate` + `_amount_col_depends_on_rate`
+  (the operand-tree walk -- direct rate-leaf match + transitive amount-refs-amount, cycle-guarded -- mirrors the F2
+  evaluator resolution); `_rearm_cell_recon_choices` (resolves the edited rate descriptor by col_letter, clears choices on
+  referencing amount cells of THAT row) wired into `save_cell_price` AFTER the price insert + the dismissal re-arm, BEFORE
+  the single commit; `_rearm_column_recon_choices` (clears the formula target covered columns) wired into BOTH
+  `save_amount_formula` paths (save + clear). Response keys `rearmed_choices` added (additive).
+
+**Frontend (`frontend/src/pages/boq-wizard/`):**
+- NEW pure leaf `reconcile.ts`: `RECON_EPSILON_ABS`(0.01)/`RECON_EPSILON_REL`(1e-9) + `amountsEqual` (the SHARED tolerance,
+  now ALSO imported by `pricingRollup.ts` for its Option-1-vs-Option-2 integrity guard -- ONE epsilon, the private constants
+  removed there), `amountsDiffer` (both sides must be real finite numbers), `resolveDivergence` (the D1 rule),
+  `reconChoiceKey` + `buildReconChoiceMap`. A LEAF (imports only types) so PricingGrid/priceability/pricingRollup all import
+  it with NO cycle (PricingGrid can NOT import pricingRollup -- the cycle reconcile.ts exists to dodge).
+- `PricingGrid.tsx`: the `ReconcileBadge` component + divergence detection in the amount block (`cell.kind === "value"` ->
+  `resolveDivergence(document, formula, choice)` -> shown value defaults to document); `reconChoices` -> a `useMemo`'d
+  per-sheet `reconChoiceMap` (reference-stable like `columnFormulas`) threaded to the memoized row (`reconChoiceMap` +
+  `onSaveReconChoice` added to `PricingGridRowProps` + the exhaustive `pricingRowPropsAreEqual` -- memo intact). The badge is
+  read-only (static pill) when `onSaveReconChoice` is withheld (locked).
+- `priceability.ts`: `buildDivergenceEntries` (imports `resolveDescriptorValue` from reviewRender + the reconcile helpers;
+  one entry per row listing unresolved diverging cols; resolved cells drop out). `boqTypes.ts`: `ReconChoice` +
+  `ReconciliationChoiceRef` + `ReconChoiceSaveArgs` + `reconciliation_choices` on `GetPricedRowsResponse` + `divergence`
+  added to `ReviewFlagKind`.
+- `pricingRollup.ts`: `rollupByParent` gains a `reconChoices` param -> builds the choice map -> `rowOwnAmount` resolves the
+  chosen value ONCE (document-default) in the formula branch. `SummaryPanel.tsx` threads `reconChoices`.
+- `SheetPricingPage.tsx`: reads `reconciliation_choices`, `handleSaveReconChoice` (mirrors `handleSaveDismiss`; `choice`
+  null clears), passes `reconChoices` + `onSaveReconChoice` (withheld when `locked`) to the grid + `reconChoices` to the
+  summary; `buildDivergenceEntries` feeds the strip; `REVIEW_ENTRY_META.divergence` (violet); the per-entry dismiss button
+  is WITHHELD for a divergence entry (its kind is not a dismissal token; the chooser IS its resolution).
+
+**Tests:** backend `test_pricing` 110 -> 126 (NEW `TestReconciliationChoice` 16: CRUD + freeze-and-supersede + keep-vs-take
++ clear + read + get_priced_rows merge + 6 NEG + the surgical re-arm [a rate save on E clears F@same-row, NOT I (qty-only)
+nor F@other-row; a rate save on the unreferenced H re-arms nothing] + formula-remove-clears-silently + formula-save-rearms).
+frontend vitest 245 -> 264 (NEW `reconcile.test` 12 + `pricingRollup` +4 [document-default / take_formula / keep_document /
+Option-1==Option-2 mixed-set balance] + `priceability` +3 [buildDivergenceEntries: kind==="value"-only, resolved-drops-out,
+agree-emits-nothing]). tsc 3175 (0 new). in-container Vite build exit 0 (built in 4m 48s, PWA 168 entries).
+
+**MIGRATE note:** `bench --site localhost migrate` creates `tabBoQ Cell Reconciliation Choice` (12 custom + 11 Frappe
+standard = 23 cols; model sync runs before patches). The migrate run ALSO surfaced a PRE-EXISTING unrelated failure --
+`nirmaan_stack.patches.v3_0.backfill_cashflow_gap_limited` has no `execute` (from commit 4cc217f8, NOT this slice; no
+patches/ file was touched). The doctype table synced before that patch ran; the test DB (which auto-migrates) is unaffected
+(126 tests green). Flagged for the owner -- the broken patch is independent of Cluster B.
+
+**Live-cert (pending Nitesh):** LC1 a divergent cell shows the DOCUMENT amount + a violet badge; LC2 click -> chooser shows
+both numbers; "Use formula" -> cell shows formula + muted pill + Summary total tracks it; LC3 "Keep document" / "Use default"
+-> document; LC4 the strip "Reconcile" entry click-jumps + drops once resolved; LC5 edit a rate the cell formula uses -> the
+choice auto-resets (badge back to unresolved); LC6 a rate edit on an UNRELATED column leaves the choice intact; LC7
+remove/replace the column formula -> choices clear; LC8 a locked/taken-over sheet shows static read-only pills; LC9
+regression: rates / amounts / flags / dismiss / colors / remarks / summary / full-screen all unchanged on non-divergent cells.
+
+### Toolbar Part 1 -- search + column-hide + 3 row-type filters (FRONTEND, view-layer, NO migrate, base tip 1f199f74, 2026-06-24)
+
+**FIVE view-layer toolbar controls added to the pricing editor** (`SheetPricingPage.tsx` + `PricingGrid.tsx` + the NEW
+`PricingToolbar.test.ts`). Frontend-only -- NO backend, NO doctype, NO migrate. The toolbar LAYOUT rework (button
+sizing / overflow / clustering) is **Part 2, explicitly deferred until after Slice 5** -- this slice only DROPS the five
+controls into the existing header flex cluster (the `!isGridOnly` block, beside "Show unpriced"). All five default to the
+CURRENT behaviour (nothing hidden, no search), so a user who touches nothing sees the exact prior grid (A10 back-compat).
+
+- **CONTROL 1 -- column-hide.** A "Columns" Popover of checkboxes hides NON-AMOUNT descriptor columns. **LOCKED owner
+  decision: AMOUNT COLUMNS ARE NEVER HIDEABLE** -- their formula-status `ƒ` badge must never be hidden (it is the only
+  remedy for a gate-locked rate state). One source of truth: the popover lists `hideableDescriptors(columnDescriptors)`
+  (`!FIXED_ROLE_DEDUPE.has(role) && !isAmountDescriptor(d)` -- the SAME `isAmountDescriptor` the badge / amber-pending tint
+  use), and the grid guard `isColumnVisible(d, hiddenCols)` returns true for any amount column regardless of the set. State
+  is a per-GRID `hiddenCols: Set<string>` -- **tracked as HIDDEN (not visible), default EMPTY = nothing hidden** so the
+  default needs NO seeding from `columnDescriptors` (which the page does not have until the fetch lands; a visible-set
+  lazy-init would flash all columns hidden for one paint on every sheet open). The grid renders + navigates a
+  `visibleDescriptors` set (= `displayDescriptors` filtered by `isColumnVisible`), used UNIFORMLY for the header `<th>`
+  map, the row `<td>` map, the nav dims (`remarksColIndex`/`colCount`), AND the `commitActiveRate` colIndex reverse-lookup
+  -- so the colIndex matrix re-indexes over the visible set and the cursor can NEVER land on a hidden column (the column
+  analog of the row nav-skip). The FULL `displayDescriptors` is KEPT for the data-fanout concerns (cross-area prefill
+  `findCorrespondingRateDescriptors`, autosave col lookup) so `commitRate`'s `useCallback` dep stays stable across a hide
+  (a hide must not churn `commitRate`'s identity, which the row memo compares). `hiddenCols` is per-GRID -- it changes
+  `visibleDescriptors`' reference, re-rendering all rows ONCE (like `formulasComplete`); it NEVER enters the row memo.
+
+- **CONTROL 2 -- description search.** A thin case-insensitive substring matcher over `row.description` (NO review-tier
+  AI/Gemini/class/status compose -- those do not exist in pricing). `buildSearchHits(displayRows, query)` -> ordered Excel
+  row numbers of matching rows (over the RENDERED set, so a hit is always visible/scroll-to-able); an N-of-M counter +
+  prev/next steppers that `stepHit`-wrap the pointer and jump via the grid's EXISTING `gridRef.scrollToRow(excelRow)` (NOT
+  ReviewTree's tree-collapse-aware `revealAndScrollToRow` -- the pricing grid is flat). **THE ONE ROW-MEMO TOUCH:** the
+  per-row `isCurrentHit` boolean is added to `PricingGridRowProps` AND `pricingRowPropsAreEqual` (exactly like
+  `reconChoiceMap`) so the highlight REPAINTS as the user steps (without it, memo'd rows would not re-render on a step). The
+  current-hit row is highlighted with a **yellow BACKGROUND, not a ring** -- the table is `border-collapse` (ring-inset on a
+  `<tr>` is unreliable, ReviewTree's documented caveat) and a blue ring would collide with the blue active-cell ring; the bg
+  shows through the anchor/Description cells (exactly where the matched text is). The page owns `searchQuery` +
+  `searchCurrentIdx`; the grid receives only `currentHitExcelRow` (a per-GRID prop) + derives `isCurrentHit` per row.
+
+- **CONTROLS 3/4/5 -- row-type filters (spacers / notes / subtotals).** Three booleans, default true. **PREDICATE AXIS =
+  `effective_classification`, NOT node_type** (node_type collapses spacer/note/subtotal all into "Other" and cannot tell
+  them apart). `classificationVisible(cls, toggles)` keys on the literal tokens `"spacer"` / `"note"` /
+  `"subtotal_marker"` (mirrors ReviewTree). **SEAM = the EXISTING page-side `displayRows` filter** -- the row-type predicate
+  is AND-composed into the SAME single `.filter()` that produces `displayRows` (the `showOnlyUnpriced` pass), and the
+  `=== rows` stable-reference fast path is preserved at default (nothing hidden) so the grid's `byIdx`/`depths` memos hold.
+  **VIEW-ONLY (load-bearing):** the three toggles live in the `displayRows` pass EXCLUSIVELY -- `computePricedCount` (reads
+  `rows`), `SummaryPanel` (`rows={rows}`), and the review-flag/strip feed (built from `rows`) all read the UNFILTERED rows,
+  so hiding a row-type can move NO total and NO N-of-M priceable count. **NAV-SKIP is free:** the grid receives the
+  already-filtered `displayRows` as its `rows` prop, `nextCell` uses `rows.length`, and `cellRefs` holds only rendered rows
+  -- the cursor cannot land on a hidden row (the `showOnlyUnpriced` precedent).
+
+- **A20 pre-step verified:** `effective_classification` is present on the priced rows at runtime (`PricedRow extends
+  ReviewRow`; rendered by `ClassificationPill` at `PricingGrid.tsx`'s row + read for the preamble/line-item styling) -- NO
+  backend field added.
+- **Pure helpers** (`searchMatches`/`buildSearchHits`/`stepHit`/`isCurrentHitRow`/`classificationVisible`/
+  `hideableDescriptors`/`isColumnVisible`) live in `PricingGrid.tsx` (the established SDK-free pure-helper home) + are
+  unit-tested in the NEW `PricingToolbar.test.ts` (+23: search matcher incl. null-desc NEG, hit-list, stepper wrap,
+  current-hit boolean, row-type predicate incl. the line_item/preamble NEG, hideable filter [amount excluded] + the
+  amount-always-visible NEG, and the VIEW-ONLY invariant). **Vitest 264 -> 287**, tsc 3175 (0 new in touched files),
+  in-container build exit 0, 2026-06-24.
+- **Live-cert (pending Nitesh, all 3 canonical BoQs 145/150/166):** LC1 search highlights + N-of-M + prev/next jump+scroll;
+  LC2 Columns hides a non-amount column from header+rows, amount columns not offered + never hide; LC3 uncheck spacers/notes/
+  subtotals -> those rows vanish, priced-count + grand-total UNCHANGED; LC4 with a row-type hidden, keyboard-nav never lands
+  on a hidden row; LC5 all controls at default == the exact current grid; LC6 repeat on 145/150/166.
+
+### Parent click-to-jump (FRONTEND, view-layer, NO migrate, base tip 3049c294, 2026-06-25)
+
+**The pricing grid's Parent anchor cell (col 2) becomes a CLICKABLE jump to the parent row** (`PricingGrid.tsx` + the
+existing `PricingGrid.test.ts`). Frontend-only -- NO backend, NO doctype, NO migrate, NO table-layout change.
+**Restores §13-3a click-to-jump, which Slice 3a shipped read-only** (3a rendered the Parent column as a static muted
+`↑ {parentExcelRow}` span). `SheetPricingPage.tsx` is UNTOUCHED -- the jump is grid-internal (`scrollToRow` is on the
+grid's own imperative handle).
+
+- **Reuses the EXISTING jump path.** The parent's Excel row was ALREADY resolved at render and the grid already had a
+  `scrollToRow(excelRow)` on its imperative handle (search + review-strip precedent). This slice wires the click to that
+  same path -- it does NOT add a new scroll mechanism. The shared resolution is extracted to the NEW pure exported
+  `parentExcelRowOf(row, byIdx)` (root `effective_parent_index` null / the -1 sentinel -> null; a parent absent from the
+  rendered set's `byIdx` -> null too -> the click is a safe no-op), which now backs THREE call sites (the row render's
+  `parentExcelRow`, the Enter handler, and -- via delegation -- the imperative `scrollToRow`), so the resolution is ONE
+  source. A grid-level `jumpToRow` `useCallback` (deps `[]`, reads only refs) is the single jump fn; the imperative
+  `scrollToRow` now delegates to it.
+
+- **The button is col-2's roving nav target (no second tab stop).** When a parent exists the cell renders a `<button>`
+  that CARRIES the col-2 focus props (`tabIndex` via `isTabStop(2)` + `onFocus -> onCellFocus(rowIndex, 2)` + the
+  `registerCell` ref) and the active-cell ring -- exactly the pattern a rate `<input>` uses to own its cell -- so there
+  is no second tab stop and the roving-tabindex single-tab-stop model holds. A **ROOT row renders no button**, so its
+  `<td>` keeps `tdFocusProps(2)` + `cellNavClass(2)` (col 2 ALWAYS has a registered nav target, root or not) --
+  backwards-compatible.
+
+- **Activation: click + Space + Enter.** Mouse-click and **Space** fire the `<button>` natively (Space is not a nav key,
+  so `handleGridKeyDown` lets it fall through at `if (!dir) return`). **Enter** is a NEW col-2 special-case in
+  `handleGridKeyDown` (mirrors the existing remarks-cell Enter case): it resolves the active row's parent via
+  `parentExcelRowOf` and `jumpToRow`s it; a ROOT row has no parent so it falls through to the generic Enter->down (nav
+  unchanged there).
+
+- **Row-memo rule (load-bearing).** The jump arrives as a NEW per-row prop `onJumpToRow` -- a grid-level `useCallback`,
+  reference-STABLE -> memo-safe -- added to BOTH `PricingGridRowProps` AND the exhaustive `pricingRowPropsAreEqual`
+  comparator (the established stable-callback pattern, e.g. `commitRate`/`focusCell`). At rest the cell behaves the same
+  except it is now clickable; no existing prop/behaviour of `PricingGrid` changes (A10).
+
+- **Frozen-left + column-resize remain a SEPARATE later BUNDLED slice** (per the recon recommendation (iii)): they share a
+  `table-fixed + colgroup` foundation, so they are built together later; this slice deliberately touches NO table layout /
+  column widths / sticky-left / colgroup. Parent-jump is independent of that table-layout decision.
+
+- **Tests + gates.** NEW pure `parentExcelRowOf` is unit-tested in `PricingGrid.test.ts` (+4: valid-parent -> source_row_
+  number, root-null -> null, the -1 root sentinel -> null, parent-absent-from-byIdx -> null NEG/no-throw). **Vitest 287 ->
+  291** (PricingGrid 113 -> 117), tsc 3175 (0 new in touched files), in-container Vite build exit 0, 2026-06-25.
+
+- **Live-cert (pending Nitesh, all 3 canonical BoQs 145/150/166):** LC1 click a row's parent ref -> grid scrolls to that
+  parent row; LC2 a root row shows no clickable parent / no dead click; LC3 click a parent currently filtered out
+  (show-unpriced on, or a row-type hidden) -> safe no-op, no crash; LC4 keyboard: the parent control is focusable +
+  activates on Enter/Space; LC5 repeat on 145/150/166.
+
+**Landing flash (follow-up, base tip 2d046dc0, 2026-06-25).** A jump now also FLASHES THE WHOLE landed row blue for 3s
+then clears -- focus alone cued only the col-0 cell, leaving the rest of the row without a "you landed here" signal. Same
+`PricingGrid.tsx`-only scope (frontend, view-layer, NO backend/doctype/migrate, NO table-layout). `SheetPricingPage.tsx`
+untouched.
+
+- **Grid-level state, per-row signal.** A new `flashExcelRow: number | null` `useState` + a `flashTimeoutRef`. In
+  `jumpToRow`, AFTER the existing focus + `scrollIntoView`: `setFlashExcelRow(excelRow)`, clear any prior timeout, start a
+  **3000ms** timeout that clears it back to null. A new jump RESETS the timer (rapid jumps don't stack -- the latest
+  replaces the prior). `jumpToRow` STAYS reference-stable (deps `[]`: only the stable `setFlashExcelRow` setter + the
+  timeout ref are added), so the `onJumpToRow` row prop stays memo-safe. Cleared on unmount via a small effect; resets for
+  free on a sheet-switch (the page remounts the grid `key={sheetName}`).
+- **Row paint + memo.** The derived per-row boolean `isJumpFlashRow(row.source_row_number, flashExcelRow)` (NEW pure
+  exported predicate, mirrors `isCurrentHitRow`) is passed as `isJumpFlash` and added to BOTH `PricingGridRowProps` AND
+  `pricingRowPropsAreEqual` -- so the flash paints/un-paints as `flashExcelRow` flips (a memo'd row would not otherwise
+  re-render). The `<tr>` wash is `isJumpFlash ? blue-100/blue-900-40 : isCurrentHit ? yellow : hover`.
+- **Layering + precedence (LOCKED).** Blue is a WHOLE-ROW background (like the search current-hit yellow); per-cell priced
+  emerald/amber tints still win on their own `<td>`s (same harmless layering the yellow already accepts). When a row is
+  BOTH the search current-hit (yellow) AND the jump target (blue), **the blue jump flash WINS for its 3s** (the jump just
+  happened -> the more relevant cue), then reverts to yellow if still the hit. The active-cell ring is unchanged.
+- **Reduced-motion.** Implemented as **instant on / held 3s / instant off, NO CSS transition** -- the calmer of the two
+  sanctioned options, inherently reduced-motion-safe, and it deliberately leaves the existing hover/current-hit paint
+  timing UNTOUCHED (adding a `transition` to the shared `<tr>` would have altered the protected search-hit behaviour).
+- **Also flashes on the shared `scrollToRow`.** Since parent-jump delegates to the one `jumpToRow`, the imperative
+  `scrollToRow` (review-strip + search "jump to row") now flashes the landed row too -- consistent + desirable.
+- **Tests + gates.** NEW pure `isJumpFlashRow` unit-tested in `PricingGrid.test.ts` (+3: matching-row true, null-flash
+  false, non-matching false). The 3s timeout/timing itself is manual-cert (not a hollow timer unit test). **Vitest 291 ->
+  294** (PricingGrid 117 -> 120), tsc 3175 (0 new in touched files), in-container Vite build exit 0, 2026-06-25.
+- **Live-cert (pending Nitesh, 145/150/166):** LC1 click a parent ref -> the WHOLE row flashes blue ~3s then fades to
+  normal (not just col 0); LC2 self-clears after 3s, active-cell ring remains; LC3 rapid A-then-B jump -> A's flash stops,
+  B flashes (no stuck/stacked flashes); LC4 a row that is both search-hit (yellow) and just-jumped -> blue wins 3s then
+  reverts to yellow; LC5 review-strip / search jump also flashes (shared path), not jarring; LC6 repeat on 145/150/166.
+
+### Frozen-left + column-resize bundle (FRONTEND, view-layer, NO migrate, base tip 78dc7cfd, 2026-06-25)
+
+**The heaviest editor slice: ONE structural table-layout change (`table-fixed` + `<colgroup>`) carrying TWO features --
+frozen-left anchors AND column resize** (`PricingGrid.tsx` + `PricingGrid.test.ts`). Frontend-only -- NO backend, NO
+doctype, NO migrate, NO persistence, `reviewRender.tsx`/`SheetPricingPage.tsx` UNTOUCHED. They are BUNDLED because they
+SHARE the authoritative-width foundation (Option B's fixed-width Description + the live frozen offsets both need the
+colgroup that resize needs) -- building them apart would lay it twice.
+
+- **SUPERSEDES the "independent" claim (recorded correction).** The standalone column-resize spec (§6/§2) and the editor
+  design doc (§14) said frozen-left and column-resize are INDEPENDENT. Option B (freeze through a FIXED-width Description,
+  offsets from the live colgroup) COUPLES them -- they share `table-fixed`+`<colgroup>` and were built in one slice. The
+  PK design docs get this correction separately; recorded here so the in-repo record is consistent.
+
+- **The structural change (D5/C1/C2).** `<table>` goes auto-layout -> **`table-fixed`** with a **`<colgroup>`** of `<col>`
+  widths = AUTHORITATIVE. The colgroup = 5 anchor `<col>` + one per **`visibleDescriptors`** entry (keyed by `d.col` so a
+  hide+reshow keeps the width) + one Remarks `<col>` (rebuilds when column-hide changes the visible set). The table width
+  is an explicit px TOTAL (sum of widths), **NOT `w-full`** -- `w-full` would let table-fixed redistribute slack and break
+  the frozen-offset math. Seeds mirror the old Tailwind hints (`seedWidthPx`: `w-16`=64, `w-36`=144, `w-28`=112, `w-48`=192,
+  Description=280), so day-one render is **NEAR-identical** (acknowledged change: columns stop auto-sizing; a narrow sheet
+  no longer stretches to fill).
+
+- **The 8 resize decisions.** D1 ALL columns resizable (anchors + descriptors + Remarks) via a pointer-capture drag handle
+  on each header's right edge (`startResize`/`moveResize`/`endResize`, `setPointerCapture`). D2 SESSION-ONLY: a sparse
+  grid-level `colWidths` useState (absent key => the seed), reset per sheet by the page's `key={sheetName}` remount -- no
+  store/schema/backend/localStorage. D3 narrowing WRAPS body + the row grows (body cells already wrap; no `whitespace-nowrap`
+  there). D4 HEADERS truncate single-line (`truncate` + `title`) so the sticky header keeps one height. D6 DOUBLE-CLICK a
+  handle = AUTOFIT: `autofitColumn` measures the max content width over the column's `data-colkey` cells via a temporary
+  `whiteSpace:nowrap` + `scrollWidth` read, restored synchronously (no paint between -> no flash). D7 MIN-WIDTH clamp
+  (`clampColumnWidth`): rate columns floor at `RATE_COL_MIN_PX=96` (the w-20 input + padding), others `COL_MIN_PX=48`. D8
+  ZERO change to `reviewRender.tsx` (verified -- no width coupling).
+
+- **Frozen-left (Option B, F1-F5).** The **5 anchors through Description** pin sticky-LEFT (descriptor + Remarks scroll).
+  Description seeds 280px (F2) but stays a **normal resizable column** (F3). **F4 (the bundling payoff):** the cumulative
+  frozen LEFT offsets are computed from the LIVE widths (`fcol1=w(a0)`, `fcol2=+w(a1)`, ...) and exposed as **CSS vars
+  `--fcol-0..4` on the `<table>`**; the body anchor `<td>`s reference them with a STATIC `left: var(--fcol-N)` -- so a
+  resize updates ONLY the table's vars + the colgroup, the frozen strip STAYS ALIGNED, and (critically) the memoized rows
+  are SKIPPED (width never becomes a per-row prop). F5: the z-stack mirrors SheetDataGrid -- **frozen header z-30 (corner)
+  > descriptor/remarks header z-20 > frozen body z-10 > body**; frozen anchor `<td>`s get an **opaque `frozenBg`** that
+  mirrors the row state (jump-flash blue / search-hit yellow / `group-hover`, the `<tr>` is now a `group`) so freezing
+  never MASKS those cues; **border-collapse is KEPT** (frozen cells carry `border-r`; S7 not triggered). The 5 anchors are
+  never hideable, so the frozen block is always exactly those 5 regardless of column-hide (F5d).
+
+- **Row memo INTACT (S8 honored).** Width is GRID-LEVEL only (the colgroup + the `--fcol` CSS vars live on the `<table>`).
+  NO width prop was added to `PricingGridRow`; `pricingRowPropsAreEqual` is UNCHANGED. On a resize drag only the grid
+  re-renders (colgroup + table vars + headers); the rows are memo-skipped (their props -- `frozenBg` derives from the
+  existing `isJumpFlash`/`isCurrentHit`, the `left: var(...)` is static, `data-colkey` is static -- don't change).
+
+- **Integration (C4/C8/C9).** The resize handle is edge-only (`absolute right-0 w-1.5`) so on an amount `<th>` it never
+  overlaps / steals the ƒ formula-badge popover trigger's click. table-fixed + colgroup + frozen-left hold in BOTH embedded
+  and full-screen (one JSX tree). NAV (`colCount`/`visibleDescriptors`/`nextCell`), parent-jump, the 3s flash, rate
+  editing + auto-save are untouched (resize changes WIDTH, not column count/order).
+
+- **Tests + gates.** NEW pure `seedWidthPx` / `columnWidthKey` / `clampColumnWidth` unit-tested in `PricingGrid.test.ts`
+  (+9: key resolver incl. the NEG no-collide, seed map incl. the NEG unknown->default, clamp rate/non-rate/passthrough).
+  The pointer-drag, autofit measure, and sticky-left rendering are manual-cert (DOM-bound). **Vitest 294 -> 303**
+  (PricingGrid 120 -> 129), tsc 3175 (0 new in touched files), in-container Vite build exit 0, 2026-06-25.
+
+- **Live-cert (pending Nitesh, 145/150/166) -- the big matrix.** RESIZE: LC1 every border drags (anchors/descriptors/
+  Remarks); LC2 narrowing wraps body + that row grows; LC3 headers stay single-line + tooltip; LC4 double-click autofits;
+  LC5 a rate column can't clip its input (min-width); LC6 reload + sheet-switch reset widths (session-only). FROZEN-LEFT:
+  LC7 scroll right -> the 5 anchors stay pinned; LC8 frozen anchors opaque + flash/hit/hover still show; LC9 resize
+  Description -> it resizes AND the freeze stays aligned; LC10 corner cell layers over headers + frozen body. INTEGRATION:
+  LC11 column-hide rebuilds the colgroup, frozen block still the 5 anchors; LC12 the ƒ badge popover still opens; LC13
+  full-screen still works (no remount); LC14 nav / parent-jump+flash / rate edit + auto-save still behave; LC15 repeat
+  LC1/LC2/LC7/LC9 on 145/150/166.
+
+### Drop frozen-left, ship resize alone (FRONTEND, view-layer, NO migrate, base tip 5415fd20, 2026-06-25)
+
+**Subtractive slice: the frozen-left HALF of the bundle above is REMOVED; the column-resize half STAYS** (`PricingGrid.tsx`
+only -- `PricingGrid.test.ts` UNCHANGED). Frontend-only, NO backend/doctype/migrate/persistence, `reviewRender.tsx`/
+`SheetPricingPage.tsx` UNTOUCHED.
+
+- **WHY (structural, not cosmetic).** The red-box experiment confirmed cell-level **multi-column sticky-left does not track
+  horizontal scroll**: the frozen anchor cells paint in place but the scrolling columns clip BEHIND them and do NOT reset
+  on scroll-back -- a STRUCTURAL failure of cumulative per-cell `sticky left:var(--fcol-N)` on a `table-fixed` table, not an
+  opacity/border bug. The **`border-collapse` -> `border-separate` flip tried during debugging was a WRONG-AXIS attempt**
+  (the problem is h-scroll tracking, not border mode) and was **reverted** (border-collapse is unchanged in the shipped
+  code). The only real fix is a **two-pane split table** (frozen columns in one table, scrolling in another, scroll-synced)
+  -- but the feasibility recon found a split **fights resize's wrap-and-grow** (Description, the tallest-wrapping column, is
+  in the frozen pane while Remarks, also growable, scrolls -> two-directional per-row height-sync over 120-194 rows) **and
+  doubles the row memo** (the `<tr>` would split into two memoized halves). NAV across the split is tractable (the nav is
+  already a shared ref-map + pure `nextCell` + grid-level `activeCell`), but the row-height antagonism is not worth it now.
+  Decided: drop frozen-left, ship the certed resize alone.
+
+- **WHAT WAS REMOVED (frozen-left only).** R1 the opaque `frozenBg` const (the per-row sticky-cell bg) + the now-unused
+  `group` class on the `<tr>` (its only consumer was `frozenBg`'s `group-hover:`). R2 the 5 anchor body `<td>`s lose
+  `style={{left:"var(--fcol-N)"}}` + `sticky z-10` + `frozenBg` -> normal scrolling cells (padding/border/align/
+  `cellNavClass`, the col-0 flag accents, the col-2 parent-jump button, the col-4 depth indent ALL stay). R3 the `fcol0..4`
+  cumulative-offset derivations + the `--fcol-0..4` CSS vars on `tableStyle` (now `{ width }` only; the unused
+  `type CSSProperties` import was dropped). R4 the 5 anchor `<th>`s are downgraded from the z-30 corner tier back to the
+  descriptor-header `sticky top-0 z-20 bg-muted` (the **VERTICAL sticky header STAYS** -- only the horizontal freeze +
+  corner tier went).
+
+- **WHAT STAYS (resize, UNCHANGED + certed).** `table-fixed` + the `<colgroup>` (5 anchor + visibleDescriptors + Remarks
+  `<col>`); `width: ${totalWidth}px`; `colWidths` state; ALL resize handlers (`startResize`/`moveResize`/`endResize`/
+  `autofitColumn`/`resizeHandle`); the rate min-width clamp (`clampColumnWidth`/`RATE_COL_MIN_PX`); the seed helpers
+  (`seedWidthPx`/`columnWidthKey`/`seedForWidthKey`); headers-truncate (D4) / body-wrap-and-grow (D3); `data-colkey` on all
+  cells (autofit reads it); the VERTICAL sticky header; the **row memo `pricingRowPropsAreEqual` UNCHANGED**. NAV /
+  parent-jump / 3s flash / rate edit + auto-save all unchanged (resize changes WIDTH, not column count/order).
+
+- **Frozen-left = DEFERRED (NOT dropped from scope).** It returns as a dedicated **structural two-pane slice** (recon option
+  c) if/when prioritized -- the editor-design §14 frozen-left row stays a SCHEDULED item.
+
+- **Tests + gates.** NO test changed (subtractive className/style removal -- no pure-helper touched; the resize helpers +
+  their PricingGrid.test.ts tests stay green). **Vitest 303 -> 303** (PricingGrid 129), tsc 3175 (0 new in PricingGrid),
+  in-container Vite build exit 0, 2026-06-25.
+
+- **Live-cert (pending Nitesh, 145/150/166).** RESIZE (the kept feature): LC1 every border drags; LC2 narrowing wraps body
+  + that row grows; LC3 headers stay single-line + tooltip; LC4 double-click autofits; LC5 rate column can't clip its input;
+  LC6 reload + sheet-switch reset widths. FROZEN-LEFT GONE: LC7 scroll right -> anchors scroll AWAY normally (not pinned,
+  not half-stuck -- the freeze bug is gone because the freeze is gone); LC8 the vertical sticky header STILL pins on vertical
+  scroll; LC9 current-hit yellow / jump-flash blue / row hover still show on the anchor cells (now via the normal `<tr>` bg);
+  LC10 nav / parent-jump+flash / rate edit + auto-save still behave; LC11 full-screen resize + sticky header + nav; LC12
+  repeat LC1/LC2/LC7 on 145/150/166.

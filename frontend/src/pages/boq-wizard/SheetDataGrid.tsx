@@ -79,6 +79,13 @@ interface SheetDataGridProps {
   headerRowCount: 1 | 2;
   /** From last-saved sheet_config.area_dimensions. Empty → no area tinting. */
   areaList: string[];
+  /**
+   * Slice 4c: full-screen editor (the grid-only / general-specs read-only fork). When TRUE,
+   * the outer wrapper + scroll container relax to flex-1 min-h-0 so the grid fills the
+   * expanded full-viewport layout (the page's expanded root is flex flex-col). Default false
+   * (embedded layout, back-compat). Layout-only.
+   */
+  expanded?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -120,6 +127,7 @@ export function SheetDataGrid({
   headerRow,
   headerRowCount,
   areaList,
+  expanded = false,
 }: SheetDataGridProps) {
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isInitLoading) {
@@ -151,15 +159,21 @@ export function SheetDataGrid({
   const areaColorMap = buildAreaColorMap(areaList);
 
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-3", expanded && "flex min-h-0 flex-1 flex-col")}>
       {/*
         Scroll container: overflow-auto + max-h bounds BOTH axes so that:
         - Wide sheets scroll horizontally.
         - Long sheets scroll vertically WITHIN the container (not the page).
         The bounded scroll ancestor is required for `sticky top-0` to fire on
         column-letter header cells and for frozen data rows.
+        Slice 4c: when expanded, drop the rem-cap and fill the flex-col space instead.
       */}
-      <div className="overflow-auto max-h-[calc(100vh-14rem)] rounded-md border border-border">
+      <div
+        className={cn(
+          "overflow-auto rounded-md border border-border",
+          expanded ? "min-h-0 flex-1" : "max-h-[calc(100vh-14rem)]",
+        )}
+      >
         <Table>
           <TableHeader>
             {/*

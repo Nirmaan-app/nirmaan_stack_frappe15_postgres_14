@@ -719,6 +719,13 @@ export interface GetPricedRowsResponse {
    * strip's own list key). [] when none / uncommitted.
    */
   dismissals: DismissalRef[];
+  /**
+   * Cluster B: the current per-CELL formula-vs-document reconciliation choices for this
+   * committed version, a flat PER-CELL list (carries col_letter, unlike dismissals). The grid
+   * cue + the rollup build an O(1) map keyed "<excel_row>:<col_letter>". [] when none /
+   * uncommitted. A cell NOT in this list is "unset" -> the document value wins (D1).
+   */
+  reconciliation_choices: ReconciliationChoiceRef[];
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
@@ -742,6 +749,10 @@ export type AreaKey = string | null;
  *   qty_anomaly -- qty on a NON-priceable row type (the inverse guardrail).
  *   broken     -- a priceable qty-bearing amount cell's formula can't resolve (cycle / dangling).
  *   not_yet    -- a priceable qty-bearing amount cell's formula needs a not-yet-entered operand.
+ *   divergence -- (Cluster B) a committed (document) amount and the formula-computed amount
+ *                 DIFFER for the same amount cell AND the user has NOT yet chosen which wins
+ *                 (an UNRESOLVED divergence; a resolved one drops from the active strip). Fires
+ *                 ONLY when the formula yields a real number (kind === "value").
  * (The 4b-A `wont_compute` kind was removed before push -- superseded by the forthcoming
  * mandatory amount-formula-declaration gate. The `incomplete_subtotal` kind was also removed:
  * the per-subtotal review-STRIP entries were noise; the incomplete signal now surfaces as ONE
@@ -751,7 +762,8 @@ export type ReviewFlagKind =
   | "needs_rate"
   | "qty_anomaly"
   | "broken"
-  | "not_yet";
+  | "not_yet"
+  | "divergence";
 
 /**
  * The per-row computed flags (Slice 4b-A). Booleans drive the in-grid markers + the count;
@@ -808,6 +820,41 @@ export interface DismissalSaveArgs {
   excelRow: number;
   flagKind: ReviewEntry["kind"];
   dismissed: boolean;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
+// ── Reconciliation-choice types (Cluster B: formula-vs-document per-cell choice) ──
+
+/**
+ * The two stored reconciliation choice tokens. MUST stay in sync with the Select options on
+ * the BoQ Cell Reconciliation Choice doctype + the backend _CHOICE_TOKENS. "unset" is NOT a
+ * token -- it is the ABSENCE of a current choice record (the default), and per the locked
+ * design D1 the DOCUMENT value wins while unset.
+ */
+export type ReconChoice = "keep_document" | "take_formula";
+
+/**
+ * One current per-CELL reconciliation choice, as delivered by
+ * get_priced_rows.reconciliation_choices. Identity = (excel_row, col_letter) within the
+ * committed version. PER-CELL -- it carries col_letter (unlike the per-ROW DismissalRef),
+ * because a divergence + its resolution is specific to one amount column.
+ */
+export interface ReconciliationChoiceRef {
+  excel_row: number;
+  col_letter: string;
+  choice: ReconChoice;
+}
+
+/**
+ * The args the grid hands up to the page's onSaveReconChoice (-> save_cell_reconciliation_choice).
+ * The grid supplies the cell identity; the page fills boq_name / sheet_name / committed_version +
+ * description, then POSTs. `choice` null CLEARS (revert to unset -> the document value wins).
+ */
+export interface ReconChoiceSaveArgs {
+  excelRow: number;
+  colLetter: string;
+  choice: ReconChoice | null;
   /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
   description?: string;
 }

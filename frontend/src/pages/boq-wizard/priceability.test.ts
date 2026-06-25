@@ -5,12 +5,15 @@
 // the priced N/M count, and the incomplete-row predicate.
 import { describe, it, expect } from "vitest";
 import {
+  areFormulasComplete,
   buildDismissedKeySet,
+  buildDivergenceEntries,
   buildFlagEntries,
   computePricedCount,
   computeRowFlags,
   dismissalKey,
   filterActiveReviewEntries,
+  isAmountColumnCovered,
   isEntryDismissed,
   isFullyPriced,
   isPriceableLine,
@@ -491,5 +494,166 @@ describe("priceability -- acknowledge dismiss filter", () => {
     const dismissed = buildDismissedKeySet([{ excel_row: 34, flag_kind: "needs_rate" }]);
     expect(isEntryDismissed(e, dismissed)).toBe(true);
     expect(isEntryDismissed(entry(34, "qty_anomaly"), dismissed)).toBe(false);
+  });
+});
+
+// ── The MANDATORY amount-formula gate (Phase 5) -- the per-COVERAGE completeness predicate ──
+describe("areFormulasComplete (the mandatory amount-formula gate)", () => {
+  // A minimal structurally-valid formula tree (a single leaf -- presence is what coverage needs).
+  const LEAF = { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } } as never;
+  function cf(
+    target_value_field: string,
+    target_value_key: string | null,
+    target_rate_subkey: string | null,
+    formula: ColumnFormula["formula"] = LEAF,
+  ): ColumnFormula {
+    return { target_value_field, target_value_key, target_rate_subkey, target_col: null, formula };
+  }
+  // PER_AREA_CDS has TWO amount columns -- F (A1, total) and I (A2, total) -- both rate_subkey
+  // "total", so ONE wildcard default covers both. A descriptor set with NO amount columns:
+  const NO_AMOUNT_CDS: ColumnDescriptor[] = [
+    desc("A", "sl_no", "sl_no_value"),
+    desc("B", "description", "description"),
+    desc("D", "qty", "qty_by_area", "A1"),
+    desc("E", "rate_combined_by_area", "rate_by_area", "A1", "combined_rate"),
+  ];
+
+  it("a WILDCARD DEFAULT (null value_key) covers ALL per-area amount cols sharing its kind", () => {
+    // one (amount_by_area, null, total) formula covers BOTH F (A1) and I (A2) -> complete.
+    expect(areFormulasComplete(PER_AREA_CDS, [cf("amount_by_area", null, "total")])).toBe(true);
+  });
+
+  it("per-area OVERRIDES cover their own columns (both needed for completeness)", () => {
+    const both = [cf("amount_by_area", "A1", "total"), cf("amount_by_area", "A2", "total")];
+    expect(areFormulasComplete(PER_AREA_CDS, both)).toBe(true);
+    // only A1 overridden -> I (A2) uncovered -> INCOMPLETE.
+    expect(areFormulasComplete(PER_AREA_CDS, [cf("amount_by_area", "A1", "total")])).toBe(false);
+  });
+
+  it("INCOMPLETE when an amount column has no covering formula (none declared)", () => {
+    expect(areFormulasComplete(PER_AREA_CDS, [])).toBe(false);
+  });
+
+  it("TRIVIALLY COMPLETE when the sheet has zero amount columns", () => {
+    expect(areFormulasComplete(NO_AMOUNT_CDS, [])).toBe(true);
+  });
+
+  it("a present-but-CLEARED record (null .formula) does NOT count as covered", () => {
+    expect(areFormulasComplete(PER_AREA_CDS, [cf("amount_by_area", null, "total", null)])).toBe(false);
+  });
+
+  it("a SCALAR amount column is covered by a scalar (null/null) formula", () => {
+    expect(areFormulasComplete(SCALAR_CDS, [cf("amount_total", null, null)])).toBe(true);
+    expect(areFormulasComplete(SCALAR_CDS, [])).toBe(false);
+  });
+});
+
+describe("isAmountColumnCovered (the per-column predicate shared with the gate + badge)", () => {
+  const LEAF = { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } } as never;
+  function cf(
+    target_value_field: string,
+    target_value_key: string | null,
+    target_rate_subkey: string | null,
+    formula: ColumnFormula["formula"] = LEAF,
+  ): ColumnFormula {
+    return { target_value_field, target_value_key, target_rate_subkey, target_col: null, formula };
+  }
+  const F = PER_AREA_CDS[4]; // amount_by_area · A1 · total
+  const I = PER_AREA_CDS[7]; // amount_by_area · A2 · total
+  const SCALAR_AMT = SCALAR_CDS[3]; // amount_total (scalar)
+
+  it("TRUE when covered by a per-area OVERRIDE (exact value_key)", () => {
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", "A1", "total")])).toBe(true);
+  });
+
+  it("TRUE when covered by a WILDCARD DEFAULT (null value_key) sharing the kind -- BOTH areas", () => {
+    const wildcard = [cf("amount_by_area", null, "total")];
+    expect(isAmountColumnCovered(F, wildcard)).toBe(true);
+    expect(isAmountColumnCovered(I, wildcard)).toBe(true);
+  });
+
+  it("FALSE when no formula resolves (none, or a different-kind wildcard)", () => {
+    expect(isAmountColumnCovered(F, [])).toBe(false);
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", null, "supply")])).toBe(false);
+  });
+
+  it("FALSE for a present-but-CLEARED record (null .formula)", () => {
+    expect(isAmountColumnCovered(F, [cf("amount_by_area", null, "total", null)])).toBe(false);
+  });
+
+  it("a SCALAR amount column is covered by a scalar (null/null) formula", () => {
+    expect(isAmountColumnCovered(SCALAR_AMT, [cf("amount_total", null, null)])).toBe(true);
+    expect(isAmountColumnCovered(SCALAR_AMT, [])).toBe(false);
+  });
+
+  it("areFormulasComplete == every amount column isAmountColumnCovered (one shared predicate)", () => {
+    const amountCols = PER_AREA_CDS.filter((d) => d.value_field === "amount_by_area");
+    // all covered via one wildcard default -> every() true <=> gate complete.
+    const allCovered = [cf("amount_by_area", null, "total")];
+    expect(amountCols.every((d) => isAmountColumnCovered(d, allCovered))).toBe(true);
+    expect(areFormulasComplete(PER_AREA_CDS, allCovered)).toBe(true);
+    // only A1 overridden -> I (A2) uncovered -> every() false <=> gate incomplete.
+    const partial = [cf("amount_by_area", "A1", "total")];
+    expect(amountCols.every((d) => isAmountColumnCovered(d, partial))).toBe(false);
+    expect(areFormulasComplete(PER_AREA_CDS, partial)).toBe(false);
+  });
+});
+
+// ── Cluster B: buildDivergenceEntries (D2b -- the review-strip divergence kind) ──
+describe("buildDivergenceEntries", () => {
+  // amount total = qty x rate(combined), a wildcard default covering both A1 (F) and A2 (I).
+  const TOTAL_FORMULA: ColumnFormula = {
+    target_value_field: "amount_by_area",
+    target_value_key: null,
+    target_rate_subkey: "total",
+    target_col: null,
+    formula: {
+      op: "*",
+      operands: [
+        { ref: { value_field: "qty_by_area", value_key: null, rate_subkey: null } },
+        { ref: { value_field: "rate_by_area", value_key: null, rate_subkey: "combined_rate" } },
+      ],
+    },
+  };
+  // A1 is PRICED (formula computes 10*5 = 50) and DIVERGES from the document 80. A2 is NOT priced
+  // (formula -> not_yet -> NO computed number), so even though its document amount (999) differs
+  // from nothing, it must NOT flag -- divergence fires only on kind === "value".
+  const divergeRow = (): PricedRow =>
+    prow({
+      row_index: 1, source_row_number: 34, effective_parent_index: null,
+      effective_classification: "line_item", node_type: "Line Item", description: "i1",
+      qty_by_area: { A1: 10, A2: 2 },
+      rate_by_area: { A1: { combined_rate: 5 } } as never,
+      amount_by_area: { A1: { total: 80 }, A2: { total: 999 } } as never,
+      priced_by_area: { A1: { combined_rate: true } } as never,
+    });
+
+  it("flags an UNRESOLVED divergence ONLY for the cell with a computed number (kind === value)", () => {
+    const entries = buildDivergenceEntries([divergeRow()], PER_AREA_CDS, [TOTAL_FORMULA], []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].kind).toBe("divergence");
+    expect(entries[0].excelRow).toBe(34);
+    // names F (the diverging, computed cell) -- NOT I (A2 is not_yet -> no number -> no divergence).
+    expect(entries[0].text).toContain("F");
+    expect(entries[0].text).not.toContain("I");
+  });
+
+  it("drops the entry once the cell is RESOLVED (keep_document or take_formula)", () => {
+    const resolved = buildDivergenceEntries([divergeRow()], PER_AREA_CDS, [TOTAL_FORMULA], [
+      { excel_row: 34, col_letter: "F", choice: "take_formula" },
+    ]);
+    expect(resolved).toHaveLength(0);
+  });
+
+  it("emits nothing when document and formula agree (no divergence)", () => {
+    const agree = prow({
+      row_index: 1, source_row_number: 34, effective_parent_index: null,
+      effective_classification: "line_item", node_type: "Line Item", description: "i1",
+      qty_by_area: { A1: 10 },
+      rate_by_area: { A1: { combined_rate: 5 } } as never,
+      amount_by_area: { A1: { total: 50 } } as never, // 10*5 == 50 -> equal
+      priced_by_area: { A1: { combined_rate: true } } as never,
+    });
+    expect(buildDivergenceEntries([agree], PER_AREA_CDS, [TOTAL_FORMULA], [])).toHaveLength(0);
   });
 });

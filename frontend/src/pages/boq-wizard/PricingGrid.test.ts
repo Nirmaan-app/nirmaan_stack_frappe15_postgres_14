@@ -28,6 +28,15 @@ import {
   validateFormulaRefs,
   groupDraftsByRow,
   pricingRowPropsAreEqual,
+  isNonZeroNum,
+  isRowQtyBearing,
+  isRateEditableRow,
+  shouldExitFullscreenOnEsc,
+  parentExcelRowOf,
+  isJumpFlashRow,
+  seedWidthPx,
+  columnWidthKey,
+  clampColumnWidth,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -524,6 +533,92 @@ function prow(p: Partial<PricedRow>): PricedRow {
   return { row_index: 1, source_row_number: 10, ...p } as unknown as PricedRow;
 }
 
+describe("parentExcelRowOf (parent click-to-jump resolver)", () => {
+  // byIdx mirrors PricingGrid's row_index -> PricedRow map. Parent row_index 2 lives at Excel 30.
+  const parent = { row_index: 2, source_row_number: 30 } as unknown as PricedRow;
+  const byIdx = new Map<number, PricedRow>([[2, parent]]);
+
+  it("a row with a valid parent resolves to the parent's source_row_number", () => {
+    const child = { row_index: 5, source_row_number: 31, effective_parent_index: 2 } as unknown as PricedRow;
+    expect(parentExcelRowOf(child, byIdx)).toBe(30);
+  });
+
+  it("a root row (effective_parent_index null) resolves to null (no jump target)", () => {
+    const root = { row_index: 5, source_row_number: 31, effective_parent_index: null } as unknown as PricedRow;
+    expect(parentExcelRowOf(root, byIdx)).toBeNull();
+  });
+
+  it("the -1 root sentinel also resolves to null", () => {
+    const root = { row_index: 5, source_row_number: 31, effective_parent_index: -1 } as unknown as PricedRow;
+    expect(parentExcelRowOf(root, byIdx)).toBeNull();
+  });
+
+  it("a parent index absent from byIdx resolves to null safely (no throw)", () => {
+    const orphan = { row_index: 5, source_row_number: 31, effective_parent_index: 99 } as unknown as PricedRow;
+    expect(parentExcelRowOf(orphan, byIdx)).toBeNull();
+  });
+});
+
+describe("isJumpFlashRow (parent-jump landing flash predicate)", () => {
+  it("the matching row is flashed (true)", () => {
+    expect(isJumpFlashRow(30, 30)).toBe(true);
+  });
+
+  it("a null flash target -> no row flashed (false)", () => {
+    expect(isJumpFlashRow(30, null)).toBe(false);
+  });
+
+  it("a non-matching row is not flashed (false)", () => {
+    expect(isJumpFlashRow(30, 31)).toBe(false);
+  });
+});
+
+describe("column width model (frozen-left + resize bundle)", () => {
+  describe("columnWidthKey (stable width-state key resolver)", () => {
+    it("an anchor maps to its fixed-index key", () => {
+      expect(columnWidthKey("anchor", 2)).toBe("a2");
+      expect(columnWidthKey("anchor", 0)).toBe("a0");
+    });
+    it("a descriptor maps to a d:<col> key", () => {
+      expect(columnWidthKey("descriptor", "E")).toBe("d:E");
+    });
+    it("remarks maps to the literal remarks key", () => {
+      expect(columnWidthKey("remarks", "")).toBe("remarks");
+    });
+    it("NEG: two different descriptors do not collide", () => {
+      expect(columnWidthKey("descriptor", "E")).not.toBe(columnWidthKey("descriptor", "F"));
+    });
+  });
+
+  describe("seedWidthPx (Tailwind hint -> px seed)", () => {
+    it("maps the known hints", () => {
+      expect(seedWidthPx("w-16")).toBe(64);
+      expect(seedWidthPx("w-36")).toBe(144);
+      expect(seedWidthPx("w-28")).toBe(112);
+      expect(seedWidthPx("w-48")).toBe(192);
+      expect(seedWidthPx("description")).toBe(280);
+    });
+    it("NEG/edge: an unknown hint falls back to a sane default", () => {
+      expect(seedWidthPx("w-99")).toBe(112);
+      expect(seedWidthPx("")).toBe(112);
+    });
+  });
+
+  describe("clampColumnWidth (per-kind min-width floor)", () => {
+    it("a rate column clamps UP to the rate floor when dragged below", () => {
+      expect(clampColumnWidth(50, true)).toBe(96);
+    });
+    it("a non-rate column uses the small floor", () => {
+      expect(clampColumnWidth(30, false)).toBe(48);
+    });
+    it("NEG: a width above the floor passes through (rounded)", () => {
+      expect(clampColumnWidth(200, true)).toBe(200);
+      expect(clampColumnWidth(200, false)).toBe(200);
+      expect(clampColumnWidth(150.6, false)).toBe(151);
+    });
+  });
+});
+
 describe("lookupOperandValue", () => {
   // descriptors: a scalar rate (col E) + a scalar qty.
   const rateE = desc("rate_supply", null, null, "E");
@@ -773,6 +868,7 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
       columnDescriptors: [],
       columnFormulas: [],
       override: false,
+      formulasComplete: true,
       onSaveRate: undefined,
       onSaveColor: undefined,
       onSaveRemark: undefined,
@@ -827,10 +923,149 @@ describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
     expect(pricingRowPropsAreEqual(prev, { ...prev, anyCellActive: true })).toBe(false);
   });
 
+  it("RE-renders (false) when formulasComplete flips (the gate locked/unlocked the sheet)", () => {
+    const prev = baseProps(); // formulasComplete: true
+    expect(pricingRowPropsAreEqual(prev, { ...prev, formulasComplete: false })).toBe(false);
+    // unchanged -> still skips (the per-sheet boolean is identical for an unrelated re-render)
+    expect(pricingRowPropsAreEqual(prev, { ...prev })).toBe(true);
+  });
+
   it("RE-renders (false) when a shared callback / descriptor reference changes (a page re-render handed fresh ones)", () => {
     const prev = baseProps();
     expect(pricingRowPropsAreEqual(prev, { ...prev, commitRate: () => {} })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, displayDescriptors: [] })).toBe(false);
     expect(pricingRowPropsAreEqual(prev, { ...prev, columnFormulas: [] })).toBe(false);
+  });
+});
+
+// ── Preamble-only qty-bearing rate-edit gate (the asymmetric, owner-locked rule) ──
+//
+// A rate cell is editable iff: override OR Line Item (always) OR a qty-bearing Preamble. A
+// zero-qty Preamble is read-only; a zero-qty Line Item stays editable (rate-only). The
+// qty-bearing predicate is "qty ANYWHERE" (Definition A) -- scalar qty_total OR any per-area
+// qty -- DELIBERATELY looser than priceability.isPriceableLine (which restricts to a
+// rate-column area); the two answer different questions and are NOT to be aligned.
+
+describe("isNonZeroNum (the qty-bearing leaf -- self-contained in PricingGrid)", () => {
+  it("is true ONLY for a finite non-zero number (a negative qty counts)", () => {
+    expect(isNonZeroNum(5)).toBe(true);
+    expect(isNonZeroNum(-3)).toBe(true);
+    expect(isNonZeroNum(0.0001)).toBe(true);
+  });
+  it("is false for 0, null, undefined, '', a '0' string, NaN, Infinity", () => {
+    expect(isNonZeroNum(0)).toBe(false);
+    expect(isNonZeroNum(null)).toBe(false);
+    expect(isNonZeroNum(undefined)).toBe(false);
+    expect(isNonZeroNum("")).toBe(false);
+    expect(isNonZeroNum("0")).toBe(false); // a numeric string is NOT a number -> not qty-bearing
+    expect(isNonZeroNum("5")).toBe(false);
+    expect(isNonZeroNum(NaN)).toBe(false);
+    expect(isNonZeroNum(Infinity)).toBe(false);
+  });
+});
+
+describe("isRowQtyBearing (qty ANYWHERE: qty_total OR any qty_by_area)", () => {
+  it("true when the scalar qty_total is non-zero (even with no area qty)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 220, qty_by_area: null }))).toBe(true);
+  });
+  it("true when ANY per-area qty is non-zero (even if qty_total is 0/null)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: { "Phase 1": 0, "Phase 2": 4 } }))).toBe(true);
+    expect(isRowQtyBearing(prow({ qty_total: null, qty_by_area: { L1: 158400 } }))).toBe(true);
+  });
+  it("true for a NEGATIVE qty (a real, non-zero quantity)", () => {
+    expect(isRowQtyBearing(prow({ qty_total: -2, qty_by_area: null }))).toBe(true);
+  });
+  it("FALSE when qty_total is 0/null AND every area qty is 0", () => {
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: { "Phase 1": 0, "Phase 2": 0 } }))).toBe(false);
+    expect(isRowQtyBearing(prow({ qty_total: null, qty_by_area: {} }))).toBe(false);
+    expect(isRowQtyBearing(prow({ qty_total: 0, qty_by_area: null }))).toBe(false);
+  });
+});
+
+describe("isRateEditableRow (the asymmetric Preamble/Line-Item gate)", () => {
+  it("PREAMBLE zero-qty -> NOT editable (the new lock)", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null }), false)).toBe(false);
+    expect(
+      isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: { A: 0 } }), false),
+    ).toBe(false);
+  });
+  it("PREAMBLE with qty -> editable", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 5, qty_by_area: null }), false)).toBe(true);
+    expect(
+      isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: { A: 3 } }), false),
+    ).toBe(true);
+  });
+  it("LINE ITEM is ALWAYS editable -- a zero-qty Line Item is a valid rate-only line", () => {
+    expect(isRateEditableRow(prow({ node_type: "Line Item", qty_total: 0, qty_by_area: null }), false)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: "Line Item", qty_total: 220, qty_by_area: { "Phase 1": 220 } }), false)).toBe(true);
+  });
+  it("a NON-priceable type (Other) -> NOT editable", () => {
+    expect(isRateEditableRow(prow({ node_type: "Other", qty_total: 99, qty_by_area: null }), false)).toBe(false);
+  });
+  it("a null/undefined node_type -> NOT editable (old/absent payload)", () => {
+    expect(isRateEditableRow(prow({ node_type: null, qty_total: 5, qty_by_area: null }), false)).toBe(false);
+    expect(isRateEditableRow(prow({ qty_total: 5 }), false)).toBe(false); // node_type undefined
+  });
+  it("OVERRIDE unlocks EVERYTHING (zero-qty Preamble, Other, null type)", () => {
+    expect(isRateEditableRow(prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null }), true)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: "Other", qty_total: 0, qty_by_area: null }), true)).toBe(true);
+    expect(isRateEditableRow(prow({ node_type: null, qty_total: 0, qty_by_area: null }), true)).toBe(true);
+  });
+});
+
+// ── The MANDATORY formula gate composition (override can NOT bypass it) ────────────
+// The grid's rate-cell render gate is `onSaveRate && formulasComplete && isRateDescriptor(d) &&
+// isRateEditableRow(row, override)`. formulasComplete is a SEPARATE AND-term BEFORE
+// isRateEditableRow; the override lives INSIDE isRateEditableRow, so it can NEVER reach past
+// formulasComplete. The render isn't unit-testable in the node env, so this proves the boolean
+// composition directly -- the load-bearing override-can't-bypass property.
+describe("the mandatory formula gate composition (override cannot bypass)", () => {
+  // The (formulasComplete-aware) editability term, mirroring the grid's render condition with the
+  // descriptor/onSaveRate terms factored out (both already covered by other tests).
+  const rateEditable = (row: PricedRow, override: boolean, formulasComplete: boolean) =>
+    formulasComplete && isRateEditableRow(row, override);
+
+  it("formulasComplete=false => NOT editable EVEN with override=true (any row type)", () => {
+    const lineItem = prow({ node_type: "Line Item", qty_total: 220, qty_by_area: null });
+    const other = prow({ node_type: "Other", qty_total: 99, qty_by_area: null });
+    // override true would unlock the type/qty axis -- but formulasComplete=false gates it OUT.
+    expect(rateEditable(lineItem, true, false)).toBe(false);
+    expect(rateEditable(other, true, false)).toBe(false);
+    expect(rateEditable(lineItem, false, false)).toBe(false);
+  });
+
+  it("formulasComplete=true => the asymmetric rules apply unchanged", () => {
+    const lineItem = prow({ node_type: "Line Item", qty_total: 0, qty_by_area: null });
+    const zeroPreamble = prow({ node_type: "Preamble", qty_total: 0, qty_by_area: null });
+    expect(rateEditable(lineItem, false, true)).toBe(true); // Line Item always editable
+    expect(rateEditable(zeroPreamble, false, true)).toBe(false); // zero-qty Preamble locked
+    expect(rateEditable(zeroPreamble, true, true)).toBe(true); // override unlocks it (gate open)
+  });
+});
+
+// ── Slice 4c: full-screen Esc-to-exit predicate ────────────────────────────────
+describe("shouldExitFullscreenOnEsc", () => {
+  // A minimal stand-in for an active element (only tagName is read).
+  const el = (tag: string): Element => ({ tagName: tag }) as unknown as Element;
+
+  it("Escape + not-defaultPrevented + non-input focus => exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, null)).toBe(true);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("DIV"))).toBe(true);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("BUTTON"))).toBe(true);
+  });
+
+  it("defaultPrevented (a popover already handled the Esc) => no exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: true }, null)).toBe(false);
+  });
+
+  it("focus in an <input> / <textarea> (mid-edit) => no exit", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("INPUT"))).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape", defaultPrevented: false }, el("TEXTAREA"))).toBe(false);
+  });
+
+  it("a non-Escape key => no exit (the listener ignores everything else)", () => {
+    expect(shouldExitFullscreenOnEsc({ key: "Enter", defaultPrevented: false }, null)).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "ArrowDown", defaultPrevented: false }, null)).toBe(false);
+    expect(shouldExitFullscreenOnEsc({ key: "Escape ", defaultPrevented: false }, null)).toBe(false);
   });
 });
