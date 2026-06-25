@@ -26,6 +26,8 @@ import {
   evaluateAmountCell,
   lookupOperandValue,
   validateFormulaRefs,
+  groupDraftsByRow,
+  pricingRowPropsAreEqual,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -693,5 +695,142 @@ describe("evaluateAmountCell -- no formula falls back to the pairing (UNCHANGED)
     const row = prow({ row_index: 1, qty_by_area: { "Phase 1": 3 } as Record<string, number> });
     // editing supply (E=5) + install (F=10); override uses install -> 3*10 = 30 (not the default's 3*5).
     expect(evaluateAmountCell(amt1, row, cols, [def, ovr], { "1:E": "5", "1:F": "10" })).toEqual({ kind: "value", value: 30 });
+  });
+});
+
+// ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
+//
+// These are the MEMO-WORKS proof. The grid environment is `node` (no jsdom / RTL), so the row
+// re-render behaviour is proven via the two PURE surfaces the memoization rests on:
+//   (1) groupDraftsByRow -- the load-bearing anti-defeat slicer: a memoized row receives only
+//       its own draft slice, and an UNRELATED row's slice keeps a STABLE reference across a
+//       keystroke (so a keystroke in row X never re-renders row Y);
+//   (2) pricingRowPropsAreEqual -- the React.memo comparator: it SKIPS a re-render iff every
+//       prop is unchanged (so a cursor move re-renders only the 2 active-flipped rows) and
+//       RE-renders when this row's own data/active-state changes (so memoization never goes
+//       stale -- the correctness side).
+
+describe("groupDraftsByRow (per-row draft slicing + reference reuse)", () => {
+  it("groups a flat `${rowIndex}:${col}` map into per-row sub-maps with FULL keys kept", () => {
+    const drafts = { "5:E": "3", "5:F": "4", "7:E": "9" };
+    const out = groupDraftsByRow(drafts, new Map());
+    expect(out.get(5)).toEqual({ "5:E": "3", "5:F": "4" });
+    expect(out.get(7)).toEqual({ "7:E": "9" });
+    expect(out.size).toBe(2);
+  });
+
+  it("a row with no drafts is simply absent (the grid maps absent -> the shared EMPTY_SLICE)", () => {
+    const out = groupDraftsByRow({ "5:E": "3" }, new Map());
+    expect(out.has(7)).toBe(false);
+  });
+
+  it("THE ANTI-DEFEAT RULE: a keystroke in row 5 does NOT change row 7's slice reference", () => {
+    const first = groupDraftsByRow({ "5:E": "3", "7:E": "9" }, new Map());
+    const row7a = first.get(7);
+    // Simulate a keystroke in row 5 (a NEW drafts object, row 5 changed, row 7 untouched).
+    const second = groupDraftsByRow({ "5:E": "3.1", "7:E": "9" }, first);
+    expect(second.get(7)).toBe(row7a); // row 7's slice reference is REUSED (memo holds for it)
+    expect(second.get(5)).not.toBe(first.get(5)); // row 5's slice changed (it re-renders)
+    expect(second.get(5)).toEqual({ "5:E": "3.1" });
+  });
+
+  it("an UNCHANGED row keeps its slice reference even when another row changes", () => {
+    const first = groupDraftsByRow({ "5:E": "3", "7:E": "9" }, new Map());
+    const row5a = first.get(5);
+    // row 7 changes this time; row 5 must keep its reference.
+    const second = groupDraftsByRow({ "5:E": "3", "7:E": "9.5" }, first);
+    expect(second.get(5)).toBe(row5a);
+    expect(second.get(7)).not.toBe(first.get(7));
+  });
+
+  it("ignores a malformed (no-colon) key without throwing", () => {
+    const out = groupDraftsByRow({ bogus: "x", "5:E": "3" }, new Map());
+    expect(out.has(5)).toBe(true);
+    expect(out.size).toBe(1);
+  });
+});
+
+describe("pricingRowPropsAreEqual (React.memo comparator)", () => {
+  type RowProps = Parameters<typeof pricingRowPropsAreEqual>[0];
+
+  // A base props object with every field a STABLE reference. A `next` built by spreading this
+  // keeps all references identical except the one field a test overrides -- exactly the
+  // single-field-change scenarios the memo must discriminate.
+  function baseProps(): RowProps {
+    const noop = () => {};
+    return {
+      row: { row_index: 5, source_row_number: 50 } as unknown as PricedRow,
+      rowIndex: 0,
+      depth: 0,
+      parentExcelRow: null,
+      flags: undefined,
+      rowDraftRates: {},
+      rowProposedRates: {},
+      activeColIndex: null,
+      anyCellActive: false,
+      openRemark: false,
+      displayDescriptors: [],
+      columnDescriptors: [],
+      columnFormulas: [],
+      override: false,
+      onSaveRate: undefined,
+      onSaveColor: undefined,
+      onSaveRemark: undefined,
+      colCount: 6,
+      rowCount: 1,
+      remarksColIndex: 5,
+      commitRate: noop,
+      scheduleAutoSave: noop,
+      onCellFocus: noop,
+      registerCell: noop,
+      focusCell: noop,
+      setDraftRates: noop,
+      setProposedRates: noop,
+      setOpenRemark: noop,
+    } as unknown as RowProps;
+  }
+
+  it("SKIPS (returns true) when every prop reference is unchanged -- the cursor-move win for an unrelated row", () => {
+    const prev = baseProps();
+    // An unrelated row's draft changed elsewhere -> THIS row's props are all identical.
+    expect(pricingRowPropsAreEqual(prev, { ...prev })).toBe(true);
+  });
+
+  it("RE-renders (false) when THIS row's activeColIndex changes (it gained/lost the cursor)", () => {
+    const prev = baseProps();
+    expect(pricingRowPropsAreEqual(prev, { ...prev, activeColIndex: 3 })).toBe(false);
+    // and the inverse: a row losing the cursor (3 -> null) also re-renders
+    const active = { ...prev, activeColIndex: 3 };
+    expect(pricingRowPropsAreEqual(active, { ...active, activeColIndex: null })).toBe(false);
+  });
+
+  it("RE-renders (false) when THIS row's draft slice reference changes (a keystroke in this row)", () => {
+    const prev = baseProps();
+    expect(pricingRowPropsAreEqual(prev, { ...prev, rowDraftRates: { "5:E": "1" } })).toBe(false);
+  });
+
+  it("RE-renders (false) when this row's flags / row / color data changes (no staleness after a save->mutate)", () => {
+    const prev = baseProps();
+    expect(
+      pricingRowPropsAreEqual(prev, { ...prev, flags: { needsRate: true } as unknown as RowProps["flags"] }),
+    ).toBe(false);
+    expect(
+      pricingRowPropsAreEqual(prev, { ...prev, row: { row_index: 5 } as unknown as PricedRow }),
+    ).toBe(false);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, rowProposedRates: { "5:E": "1" } })).toBe(false);
+  });
+
+  it("RE-renders (false) when the open-remark / override / proposal state of this row changes", () => {
+    const prev = baseProps();
+    expect(pricingRowPropsAreEqual(prev, { ...prev, openRemark: true })).toBe(false);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, override: true })).toBe(false);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, anyCellActive: true })).toBe(false);
+  });
+
+  it("RE-renders (false) when a shared callback / descriptor reference changes (a page re-render handed fresh ones)", () => {
+    const prev = baseProps();
+    expect(pricingRowPropsAreEqual(prev, { ...prev, commitRate: () => {} })).toBe(false);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, displayDescriptors: [] })).toBe(false);
+    expect(pricingRowPropsAreEqual(prev, { ...prev, columnFormulas: [] })).toBe(false);
   });
 });

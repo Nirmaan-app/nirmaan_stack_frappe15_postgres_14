@@ -44,11 +44,16 @@
  */
 import {
   forwardRef,
+  memo,
+  useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
+  type Dispatch,
   type KeyboardEvent,
+  type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
 import { Palette, MessageSquare, AlertTriangle, Flag } from "lucide-react";
@@ -914,6 +919,515 @@ export interface PricingGridHandle {
   scrollToRow: (excelRow: number) => void;
 }
 
+// ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
+// The cursor (`activeCell`) is grid-local state, so a cursor move (arrow key / click)
+// re-renders PricingGrid. Without per-row memoization the WHOLE table re-renders --
+// every row x every cell, re-running evaluateAmountCell at every amount cell -- work the
+// changed cell does not need; on a 194-row sheet that is the felt lag. We extract the
+// per-row <tr> into a React.memo'd PricingGridRow so a cursor move re-renders only the 2
+// rows whose active-state flipped, and a keystroke only the 1 edited row. NO behaviour
+// change -- same flags / markers / amounts / nav, computed fewer times.
+
+// `${rowIndex}:${col}` -- the draftRates / proposedRates key (DATA row_index, NOT the array
+// nav index). Module-level (pure) so commitRate's useCallback need not list it.
+const cellKey = (rowIndex: number, col: string) => `${rowIndex}:${col}`;
+// `${rowIndex}:${colIndex}` -- the cellRefs / nav-matrix key (ARRAY index + colIndex). A
+// SEPARATE key space from cellKey (which uses the DATA row_index). Do not conflate them.
+const navKey = (r: number, c: number) => `${r}:${c}`;
+// A row's saved (committed/merged) rate as a string for the input value. Pure (only reads
+// the row via resolveDescriptorValue) -> module-level so it is reference-stable.
+const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
+  const v = resolveDescriptorValue(row, d);
+  return v === null || v === undefined ? "" : String(v);
+};
+
+// A stable empty slice for a row with no drafts/proposals -- a shared frozen reference so
+// such rows never get a fresh `{}` per render (which would defeat the memo). Read-only by
+// the row (lookups only; never mutated).
+const EMPTY_SLICE: Record<string, string> = Object.freeze({});
+
+/** Shallow string-map equality (key set + values). Pure -- unit-tested. */
+function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ak = Object.keys(a);
+  if (ak.length !== Object.keys(b).length) return false;
+  for (const k of ak) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+/**
+ * Group a flat `${rowIndex}:${col}` -> value map into per-row sub-maps (FULL keys kept), so a
+ * memoized row receives ONLY its own draft slice, never the shared draftRates object. The
+ * sub-map of a row whose contents are unchanged is REUSED from `prev` (reference-stable), so a
+ * keystroke in row X does not change row Y's slice identity -> only the edited row re-renders.
+ * Pure (given prev) -- unit-tested. This is the load-bearing anti-defeat mechanism.
+ */
+export function groupDraftsByRow(
+  drafts: Record<string, string>,
+  prev: Map<number, Record<string, string>>,
+): Map<number, Record<string, string>> {
+  const grouped = new Map<number, Record<string, string>>();
+  for (const key of Object.keys(drafts)) {
+    const sep = key.indexOf(":");
+    if (sep < 0) continue;
+    const ri = Number(key.slice(0, sep));
+    let g = grouped.get(ri);
+    if (!g) {
+      g = {};
+      grouped.set(ri, g);
+    }
+    g[key] = drafts[key];
+  }
+  const out = new Map<number, Record<string, string>>();
+  for (const [ri, slice] of grouped) {
+    const old = prev.get(ri);
+    out.set(ri, old && shallowEqualStrMap(old, slice) ? old : slice);
+  }
+  return out;
+}
+
+interface PricingGridRowProps {
+  // ── per-row data (changes -> this row re-renders) ──
+  row: PricedRow;
+  /** ARRAY index into rows (the nav-matrix row coord), NOT row.row_index. */
+  rowIndex: number;
+  depth: number;
+  parentExcelRow: number | null;
+  flags: RowReviewFlags | undefined;
+  /** This row's draft slice (FULL `${row_index}:${col}` keys) -- NEVER the shared draftRates. */
+  rowDraftRates: Record<string, string>;
+  /** This row's proposal slice (FULL keys) -- NEVER the shared proposedRates. */
+  rowProposedRates: Record<string, string>;
+  /** The active COLUMN on this row, or null when no cell of this row is active (the lever:
+   *  only the previously-active + newly-active rows see this change on a cursor move). */
+  activeColIndex: number | null;
+  /** Whether ANY cell in the grid is active (drives roving-tabindex's (0,0) entry fallback). */
+  anyCellActive: boolean;
+  /** Whether this row's remarks editor is open. */
+  openRemark: boolean;
+  // ── stable shared values/refs (reference-stable across a keystroke -> memo holds) ──
+  displayDescriptors: ColumnDescriptor[];
+  columnDescriptors: ColumnDescriptor[];
+  columnFormulas: ColumnFormula[];
+  override: boolean;
+  onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
+  onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
+  onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
+  colCount: number;
+  rowCount: number;
+  remarksColIndex: number;
+  commitRate: (row: PricedRow, d: ColumnDescriptor, rawValue: string) => void;
+  scheduleAutoSave: (row: PricedRow, d: ColumnDescriptor) => void;
+  onCellFocus: (r: number, c: number) => void;
+  registerCell: (r: number, c: number, el: HTMLElement | null) => void;
+  focusCell: (r: number, c: number) => void;
+  setDraftRates: Dispatch<SetStateAction<Record<string, string>>>;
+  setProposedRates: Dispatch<SetStateAction<Record<string, string>>>;
+  setOpenRemark: (rowIndex: number, open: boolean) => void;
+}
+
+/**
+ * The memo comparator (the memo-WORKS proof's testable surface). Returns true (SKIP re-render)
+ * iff EVERY prop is reference/value-equal -- exhaustive, so a changed prop NEVER yields a stale
+ * row (correctness side of memoization). On a cursor move only `activeColIndex` changes (for the
+ * 2 affected rows) so every other row is skipped; on a keystroke only the edited row's
+ * `rowDraftRates` reference changes; on a save->mutate() the row's `row` / `flags` references
+ * change so it re-renders fresh. Pure -- unit-tested in PricingGrid.test.ts.
+ */
+export function pricingRowPropsAreEqual(
+  prev: PricingGridRowProps,
+  next: PricingGridRowProps,
+): boolean {
+  return (
+    prev.row === next.row &&
+    prev.rowIndex === next.rowIndex &&
+    prev.depth === next.depth &&
+    prev.parentExcelRow === next.parentExcelRow &&
+    prev.flags === next.flags &&
+    prev.rowDraftRates === next.rowDraftRates &&
+    prev.rowProposedRates === next.rowProposedRates &&
+    prev.activeColIndex === next.activeColIndex &&
+    prev.anyCellActive === next.anyCellActive &&
+    prev.openRemark === next.openRemark &&
+    prev.displayDescriptors === next.displayDescriptors &&
+    prev.columnDescriptors === next.columnDescriptors &&
+    prev.columnFormulas === next.columnFormulas &&
+    prev.override === next.override &&
+    prev.onSaveRate === next.onSaveRate &&
+    prev.onSaveColor === next.onSaveColor &&
+    prev.onSaveRemark === next.onSaveRemark &&
+    prev.colCount === next.colCount &&
+    prev.rowCount === next.rowCount &&
+    prev.remarksColIndex === next.remarksColIndex &&
+    prev.commitRate === next.commitRate &&
+    prev.scheduleAutoSave === next.scheduleAutoSave &&
+    prev.onCellFocus === next.onCellFocus &&
+    prev.registerCell === next.registerCell &&
+    prev.focusCell === next.focusCell &&
+    prev.setDraftRates === next.setDraftRates &&
+    prev.setProposedRates === next.setProposedRates &&
+    prev.setOpenRemark === next.setOpenRemark
+  );
+}
+
+/**
+ * One committed-pricing ROW (the extracted, memoized `<tr>`). The render is byte-for-byte the
+ * pre-extraction inline row -- same fixed anchors, descriptor cells (rate input / amount /
+ * read-only), flag gutter, color border, priced tint, and trailing Remarks cell. The only
+ * change is that the cursor/active state arrives as `activeColIndex` (the lever) and the row's
+ * drafts arrive as its own `rowDraftRates`/`rowProposedRates` slices (never the shared maps).
+ */
+const PricingGridRow = memo(function PricingGridRow({
+  row,
+  rowIndex,
+  depth,
+  parentExcelRow,
+  flags,
+  rowDraftRates,
+  rowProposedRates,
+  activeColIndex,
+  anyCellActive,
+  openRemark,
+  displayDescriptors,
+  columnDescriptors,
+  columnFormulas,
+  override,
+  onSaveRate,
+  onSaveColor,
+  onSaveRemark,
+  colCount,
+  rowCount,
+  remarksColIndex,
+  commitRate,
+  scheduleAutoSave,
+  onCellFocus,
+  registerCell,
+  focusCell,
+  setDraftRates,
+  setProposedRates,
+  setOpenRemark,
+}: PricingGridRowProps) {
+  const isPreamble = row.effective_classification === "preamble";
+  const isLineItem = row.effective_classification === "line_item";
+
+  // Active-cell helpers, computed from this row's activeColIndex (the per-row lever) so a
+  // cursor move re-renders only the rows whose active-state changed.
+  const isActiveCol = (c: number) => activeColIndex === c;
+  // Roving tabindex: the active cell is the single tab stop; before any focus, (0,0) is the
+  // entry point so the grid is reachable by Tab from the page.
+  const isTabStop = (c: number) =>
+    anyCellActive ? activeColIndex === c : rowIndex === 0 && c === 0;
+  const cellNavClass = (c: number) =>
+    cn("scroll-mt-9 outline-none", isActiveCol(c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400");
+  const tdFocusProps = (c: number) => ({
+    tabIndex: isTabStop(c) ? 0 : -1,
+    onFocus: () => onCellFocus(rowIndex, c),
+    ref: (el: HTMLTableCellElement | null) => registerCell(rowIndex, c, el),
+  });
+  const inputFocusProps = (c: number) => ({
+    tabIndex: isTabStop(c) ? 0 : -1,
+    onFocus: () => onCellFocus(rowIndex, c),
+    ref: (el: HTMLInputElement | null) => registerCell(rowIndex, c, el),
+  });
+
+  // Slice 4b-A: the in-grid review marker (a left accent + Flag icon in the Excel-Row gutter).
+  const flagCritical = !!flags && (flags.broken || flags.qtyAnomaly);
+  const flagAttention = !!flags && !flagCritical && (flags.needsRate || flags.notYet);
+  const hasFlag = flagCritical || flagAttention;
+  const flagTitle = flags
+    ? [
+        flags.needsRate && "Needs a rate",
+        flags.qtyAnomaly && "Quantity on a non-priceable row",
+        flags.broken && "Formula won't resolve -- check the formula",
+        flags.notYet && "Amount not computed yet (a rate is missing)",
+      ]
+        .filter(Boolean)
+        .join("; ") || undefined
+    : undefined;
+
+  return (
+    <tr className="border-b border-border hover:bg-muted/30">
+      {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
+      <td
+        {...tdFocusProps(0)}
+        title={hasFlag ? flagTitle : undefined}
+        className={cn(
+          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
+          flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
+          flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
+          cellNavClass(0),
+        )}
+      >
+        <span className="inline-flex items-center gap-1">
+          {hasFlag && (
+            <Flag
+              aria-hidden
+              className={cn(
+                "h-3 w-3 shrink-0",
+                flagCritical
+                  ? "text-rose-600 dark:text-rose-400"
+                  : "text-amber-600 dark:text-amber-400",
+              )}
+            />
+          )}
+          {row.source_row_number}
+        </span>
+      </td>
+      {/* Sl.No (col 1) */}
+      <td
+        {...tdFocusProps(1)}
+        className={cn(
+          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border",
+          cellNavClass(1),
+        )}
+      >
+        {row.sl_no_value ?? ""}
+      </td>
+      {/* Parent (col 2): parent's Excel row number (muted; read-only -- focus only). */}
+      <td
+        {...tdFocusProps(2)}
+        className={cn("px-2 py-1.5 align-top w-16 border-r border-border", cellNavClass(2))}
+      >
+        {parentExcelRow !== null ? (
+          <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
+            ↑ {parentExcelRow}
+          </span>
+        ) : null}
+      </td>
+      {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
+      <td
+        {...tdFocusProps(3)}
+        className={cn("px-2 py-1.5 align-top w-36 border-r border-border", cellNavClass(3))}
+      >
+        <ClassificationPill cls={row.effective_classification} />
+      </td>
+      {/* Description (col 4): depth indent + per-classification styling. */}
+      <td {...tdFocusProps(4)} className={cn("px-2 py-1.5 align-top", cellNavClass(4))}>
+        <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+          <span
+            className={cn(
+              "leading-snug break-words min-w-0",
+              isPreamble && "font-medium text-foreground",
+              isLineItem && "text-foreground",
+              !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+            )}
+          >
+            {row.description || (
+              <span className="not-italic text-muted-foreground">(no description)</span>
+            )}
+          </span>
+        </div>
+      </td>
+      {/* Descriptor-driven data cells: editable rate inputs, live-amount cells, and read-only
+          qty/other cells. */}
+      {displayDescriptors.map((d, dIdx) => {
+        const colIndex = FIXED_ANCHOR_COUNT + dIdx;
+        // ── Slice 4a: per-cell color (the SEPARATE left-border channel) + the picker
+        //    trigger (editable only when onSaveColor is present). ──
+        const cellColor = row.color_by_cell?.[d.col];
+        const colorBorderClass = cellColor
+          ? colorClassForToken(cellColor)
+          : "border-l border-border";
+        const colorPicker = onSaveColor ? (
+          <ColorPicker
+            current={cellColor}
+            onApply={(token, wholeRow) => {
+              const cols = wholeRow ? rowColorCells(displayDescriptors) : [d.col];
+              return onSaveColor(
+                cols.map((col) => ({
+                  excelRow: row.source_row_number,
+                  colLetter: col,
+                  color: token,
+                  description: row.description ?? undefined,
+                })),
+              );
+            }}
+          />
+        ) : null;
+        // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
+        if (
+          onSaveRate &&
+          isRateDescriptor(d) &&
+          (isPriceableType(row.node_type) || override)
+        ) {
+          const key = cellKey(row.row_index, d.col);
+          const priced = isCellPriced(row, d);
+          const needsReview = priced && !isPriceableType(row.node_type);
+          const draft = rowDraftRates[key];
+          const proposed = rowProposedRates[key];
+          const value = draft ?? proposed ?? savedRateStr(row, d);
+          const isProposed = draft === undefined && proposed !== undefined && !priced;
+          return (
+            <td
+              key={d.col}
+              title={
+                needsReview
+                  ? "Priced on a non-priceable row -- flagged for review"
+                  : priced
+                    ? "Priced"
+                    : undefined
+              }
+              className={cn(
+                "relative px-1 py-1 align-top",
+                colorBorderClass,
+                priced &&
+                  (needsReview
+                    ? "bg-amber-50 dark:bg-amber-950/30"
+                    : "bg-emerald-50 dark:bg-emerald-950/30"),
+                isActiveCol(colIndex) &&
+                  "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+              )}
+            >
+              {colorPicker}
+              <div className="flex items-center justify-end gap-1">
+                {priced && (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "inline-block h-1.5 w-1.5 rounded-full shrink-0",
+                      needsReview ? "bg-amber-500" : "bg-emerald-500",
+                    )}
+                  />
+                )}
+                <Input
+                  {...inputFocusProps(colIndex)}
+                  type="text"
+                  inputMode="decimal"
+                  value={value}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (DECIMAL_IN_PROGRESS.test(v)) {
+                      setDraftRates((prev) => ({ ...prev, [key]: v }));
+                      setProposedRates((prev) => {
+                        if (prev[key] === undefined) return prev;
+                        const next = { ...prev };
+                        delete next[key];
+                        return next;
+                      });
+                      scheduleAutoSave(row, d); // Slice 3c: debounced 1s auto-save
+                    }
+                  }}
+                  onBlur={() => commitRate(row, d, value)}
+                  className={cn(
+                    "h-7 text-xs w-20 text-right tabular-nums scroll-mt-9",
+                    isProposed && "text-muted-foreground italic",
+                  )}
+                />
+              </div>
+            </td>
+          );
+        }
+
+        // ── AMOUNT cell (F4): formula-wins-else-pairing (uses this row's draft slice). ──
+        if (isAmountDescriptor(d)) {
+          const cell = evaluateAmountCell(d, row, columnDescriptors, columnFormulas, rowDraftRates);
+          const isBroken = cell.kind === "blank" && cell.reason === "broken";
+          const needsRate = cell.kind === "blank" && cell.reason === "not_yet";
+          return (
+            <td
+              key={d.col}
+              {...tdFocusProps(colIndex)}
+              title={isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined}
+              className={cn(
+                "relative px-2 py-1.5 text-right align-top tabular-nums",
+                colorBorderClass,
+                cellNavClass(colIndex),
+              )}
+            >
+              {colorPicker}
+              {cell.kind === "value" ? (
+                renderDescriptorCell(cell.value)
+              ) : cell.kind === "committed" ? (
+                renderDescriptorCell(resolveDescriptorValue(row, d))
+              ) : isBroken ? (
+                <AlertTriangle className="inline-block h-3 w-3 text-destructive" aria-label="Check formula" />
+              ) : null /* not_yet -> blank (the cell is empty; title = "Needs a rate") */}
+            </td>
+          );
+        }
+
+        // ── Default read-only cell (qty / others; rate when no onSaveRate, OR a
+        //    non-priceable rate cell with the override off) ──
+        const val = resolveDescriptorValue(row, d);
+        const priced = isRateDescriptor(d) && isCellPriced(row, d);
+        const needsReview = priced && !isPriceableType(row.node_type);
+        return (
+          <td
+            key={d.col}
+            {...tdFocusProps(colIndex)}
+            title={
+              needsReview
+                ? "Priced on a non-priceable row -- flagged for review"
+                : priced
+                  ? "Priced"
+                  : undefined
+            }
+            className={cn(
+              "relative px-2 py-1.5 text-right align-top tabular-nums",
+              colorBorderClass,
+              priced &&
+                (needsReview
+                  ? "bg-amber-50 dark:bg-amber-950/30"
+                  : "bg-emerald-50 dark:bg-emerald-950/30"),
+              cellNavClass(colIndex),
+            )}
+          >
+            {colorPicker}
+            {priced && (
+              <span
+                aria-hidden
+                className={cn(
+                  "mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle",
+                  needsReview ? "bg-amber-500" : "bg-emerald-500",
+                )}
+              />
+            )}
+            {renderDescriptorCell(val)}
+          </td>
+        );
+      })}
+      {/* Slice 4a.2: trailing Remarks cell (per-row) -- the matrix's LAST column. */}
+      <td
+        {...tdFocusProps(remarksColIndex)}
+        className={cn(
+          "px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]",
+          cellNavClass(remarksColIndex),
+        )}
+      >
+        <RemarkCell
+          remark={row.remark}
+          onSave={
+            onSaveRemark
+              ? (remark) =>
+                  onSaveRemark({
+                    excelRow: row.source_row_number,
+                    remark,
+                    description: row.description ?? undefined,
+                  })
+              : undefined
+          }
+          open={openRemark}
+          onOpenChange={(o) => {
+            setOpenRemark(rowIndex, o);
+            // On close (Esc / Save / outside-click) restore focus to this cell so arrow-nav
+            // continues. An Enter-save's onMoveDown runs AFTER and wins.
+            if (!o) focusCell(rowIndex, remarksColIndex);
+          }}
+          onMoveDown={() => {
+            const next = nextCell(
+              { rowIndex, colIndex: remarksColIndex },
+              "down",
+              rowCount,
+              colCount,
+            );
+            if (next) focusCell(next.rowIndex, next.colIndex);
+          }}
+        />
+      </td>
+    </tr>
+  );
+}, pricingRowPropsAreEqual);
+PricingGridRow.displayName = "PricingGridRow";
+
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
   { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
   ref,
@@ -954,25 +1468,52 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // it to check a corresponding cell's CURRENT priced state at save-resolve time.
   const rowsRef = useRef<PricedRow[]>(rows);
 
+  // Editor perf fix (item 2): memoize the O(rows) / O(cols) grid derivations on their real
+  // inputs so a cursor move (which changes only the grid-local activeCell, not rows /
+  // columnDescriptors) does NOT rebuild them -- and so the memoized rows that reference
+  // displayDescriptors keep a stable prop reference.
   // row_index -> row, for resolving a parent's Excel row number.
-  const byIdx = new Map<number, PricedRow>(rows.map((r) => [r.row_index, r]));
+  const byIdx = useMemo(() => new Map<number, PricedRow>(rows.map((r) => [r.row_index, r])), [rows]);
   // Effective depth per row (reused helper -- single source of truth with the review tree).
-  const depths = computeDepths(rows);
+  const depths = useMemo(() => computeDepths(rows), [rows]);
 
   // Descriptor-driven columns: everything except the sl_no / description anchors.
-  const displayDescriptors = columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role));
-  const slNoLetter = columnDescriptors.find((d) => d.role === "sl_no")?.col ?? null;
-  const descriptionLetter = columnDescriptors.find((d) => d.role === "description")?.col ?? null;
+  const displayDescriptors = useMemo(
+    () => columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role)),
+    [columnDescriptors],
+  );
+  const slNoLetter = useMemo(
+    () => columnDescriptors.find((d) => d.role === "sl_no")?.col ?? null,
+    [columnDescriptors],
+  );
+  const descriptionLetter = useMemo(
+    () => columnDescriptors.find((d) => d.role === "description")?.col ?? null,
+    [columnDescriptors],
+  );
 
-  const cellKey = (rowIndex: number, col: string) => `${rowIndex}:${col}`;
-  const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
-    const v = resolveDescriptorValue(row, d);
-    return v === null || v === undefined ? "" : String(v);
-  };
+  // Editor perf fix (item 1, the load-bearing slice): per-row draft / proposal sub-maps (FULL
+  // `${row_index}:${col}` keys), reference-reused via groupDraftsByRow so each memoized row
+  // gets ONLY its own slice -- NEVER the shared draftRates/proposedRates object. The ref holds
+  // the previous render's slices so an unchanged row's slice identity is stable; on a cursor
+  // move draftRates is unchanged -> useMemo returns the cached structure -> no row re-renders.
+  const draftSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
+  const draftSlicesByRow = useMemo(() => {
+    const next = groupDraftsByRow(draftRates, draftSlicesRef.current);
+    draftSlicesRef.current = next;
+    return next;
+  }, [draftRates]);
+  const proposedSlicesRef = useRef<Map<number, Record<string, string>>>(new Map());
+  const proposedSlicesByRow = useMemo(() => {
+    const next = groupDraftsByRow(proposedRates, proposedSlicesRef.current);
+    proposedSlicesRef.current = next;
+    return next;
+  }, [proposedRates]);
 
   // Commit a rate cell (blur / Enter). No-op when unchanged or a duplicate of the last
   // attempt (blur+Enter). Blank/NaN -> 0 (the endpoint coerces blank -> 0.0, still priced).
-  const commitRate = (row: PricedRow, d: ColumnDescriptor, rawValue: string) => {
+  // useCallback so the memoized rows receive a STABLE reference (deps: onSaveRate +
+  // displayDescriptors, both stable across a cursor move).
+  const commitRate = useCallback((row: PricedRow, d: ColumnDescriptor, rawValue: string) => {
     if (!onSaveRate) return;
     const key = cellKey(row.row_index, d.col);
     // Slice 3c: a commit (gesture OR the debounce firing) cancels this cell's pending
@@ -1022,7 +1563,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         // Clear the dedupe so a retry of the same value is allowed.
         delete committedAttemptRef.current[key];
       });
-  };
+  }, [onSaveRate, displayDescriptors]);
 
   // Slice 3c: keep the latest-state commit closure + draft snapshot fresh for the
   // debounce/flush (refs avoid stale captures). Runs after every render.
@@ -1041,7 +1582,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   // Schedule (or restart) the per-cell 1000ms debounced auto-save. The fire reads the
   // latest draft via autoSaveCellRef; no-ops when the grid is read-only (no onSaveRate).
-  const scheduleAutoSave = (row: PricedRow, d: ColumnDescriptor) => {
+  // useCallback (dep: onSaveRate) so the memoized rows get a stable reference.
+  const scheduleAutoSave = useCallback((row: PricedRow, d: ColumnDescriptor) => {
     if (!onSaveRate) return;
     const key = cellKey(row.row_index, d.col);
     let deb = debouncersRef.current.get(key);
@@ -1050,7 +1592,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       debouncersRef.current.set(key, deb);
     }
     deb();
-  };
+  }, [onSaveRate]);
 
   // ── Slice 3b.2 nav model ───────────────────────────────────────────────────
   // Slice 4a.2: the trailing Remarks column is now the matrix's LAST column. Its colIndex is
@@ -1060,44 +1602,35 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
   const remarksColIndex = FIXED_ANCHOR_COUNT + displayDescriptors.length;
   const colCount = remarksColIndex + 1;
-  const navKey = (r: number, c: number) => `${r}:${c}`;
+  const anyCellActive = activeCell !== null;
 
-  const registerCell = (r: number, c: number, el: HTMLElement | null) => {
+  // Editor perf fix (item 1): the cell-level callbacks the memoized rows receive. ALL are
+  // useCallback([]) -- they capture only stable refs / state setters, so their identity never
+  // changes -> the memo holds across a cursor move (only the per-row activeColIndex changes).
+  // The per-cell active/tabindex/className helpers now live INSIDE PricingGridRow (computed
+  // from its activeColIndex prop -- the lever); the grid keeps only the focus-ref plumbing.
+  const registerCell = useCallback((r: number, c: number, el: HTMLElement | null) => {
     if (el) cellRefs.current.set(navKey(r, c), el);
     else cellRefs.current.delete(navKey(r, c));
-  };
+  }, []);
 
-  const isActive = (r: number, c: number) =>
-    activeCell !== null && activeCell.rowIndex === r && activeCell.colIndex === c;
-  // Roving tabindex: the active cell is the single tab stop; before any focus, (0,0) is the
-  // entry point so the grid is reachable by Tab from the page.
-  const isTabStop = (r: number, c: number) =>
-    activeCell !== null ? isActive(r, c) : r === 0 && c === 0;
+  const onCellFocus = useCallback((r: number, c: number) => {
+    setActiveCell({ rowIndex: r, colIndex: c });
+  }, []);
 
-  // Shared per-cell nav className: focus ring on the active cell + a scroll-margin so a
-  // cell scrolled to the top clears the sticky header (no frozen-left to handle).
-  const cellNavClass = (r: number, c: number) =>
-    cn("scroll-mt-9 outline-none", isActive(r, c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400");
-  // Focus props for a <td>-focusable cell (every cell except a rate input).
-  const tdFocusProps = (r: number, c: number) => ({
-    tabIndex: isTabStop(r, c) ? 0 : -1,
-    onFocus: () => setActiveCell({ rowIndex: r, colIndex: c }),
-    ref: (el: HTMLTableCellElement | null) => registerCell(r, c, el),
-  });
-  // Focus props for a rate cell's <input> (the focus target for an editable cell).
-  const inputFocusProps = (r: number, c: number) => ({
-    tabIndex: isTabStop(r, c) ? 0 : -1,
-    onFocus: () => setActiveCell({ rowIndex: r, colIndex: c }),
-    ref: (el: HTMLInputElement | null) => registerCell(r, c, el),
-  });
-
-  const focusCell = (r: number, c: number) => {
+  const focusCell = useCallback((r: number, c: number) => {
     const el = cellRefs.current.get(navKey(r, c));
     if (el) {
       el.focus();
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
-  };
+  }, []);
+
+  // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
+  // passes its own array index; open=true makes it the single open editor, false closes it.
+  const setOpenRemark = useCallback((rowIndexArg: number, open: boolean) => {
+    setOpenRemarkRowIdx(open ? rowIndexArg : null);
+  }, []);
 
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
@@ -1271,356 +1804,47 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         </thead>
         <tbody>
           {rows.map((row, rowIdx) => {
-            const depth = depths.get(row.row_index) ?? 0;
-            const isPreamble = row.effective_classification === "preamble";
-            const isLineItem = row.effective_classification === "line_item";
+            // Editor perf fix (item 1): the parent resolves ONLY the row's cheap, reference-
+            // stable inputs (depth, parent Excel row, its flags, its draft/proposal slices, and
+            // its activeColIndex lever) and hands them to the memoized PricingGridRow. The heavy
+            // per-cell work (evaluateAmountCell, the descriptor map, the RemarkCell) lives inside
+            // the row and is SKIPPED by React.memo for every row whose props are unchanged -- so
+            // a cursor move re-renders only the 2 rows whose active-state flipped, and a keystroke
+            // only the 1 edited row (its slice reference changed; everyone else's is reused).
             const pIdx = row.effective_parent_index ?? -1;
-            const parentExcelRow =
-              pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
-
-            // Slice 4b-A: the in-grid review marker (a left accent + Flag icon in the
-            // Excel-Row gutter). The grid only READS the page-computed flags + maps the
-            // booleans to a severity colour (this is NOT a priceability re-derivation -- the
-            // single shared derivation lives in priceability.computeRowFlags). The gutter
-            // cell carries no priced tint / colour border, so a system flag here never
-            // collides with the emerald/amber priced background or the user colour border (§6).
-            const flags = rowFlags?.get(row.row_index);
-            const flagCritical = !!flags && (flags.broken || flags.qtyAnomaly);
-            const flagAttention =
-              !!flags && !flagCritical && (flags.needsRate || flags.notYet);
-            const hasFlag = flagCritical || flagAttention;
-            const flagTitle = flags
-              ? [
-                  flags.needsRate && "Needs a rate",
-                  flags.qtyAnomaly && "Quantity on a non-priceable row",
-                  flags.broken && "Formula won't resolve -- check the formula",
-                  flags.notYet && "Amount not computed yet (a rate is missing)",
-                ]
-                  .filter(Boolean)
-                  .join("; ") || undefined
-              : undefined;
-
+            const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
             return (
-              <tr key={row.row_index} className="border-b border-border hover:bg-muted/30">
-                {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
-                <td
-                  {...tdFocusProps(rowIdx, 0)}
-                  title={hasFlag ? flagTitle : undefined}
-                  className={cn(
-                    "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
-                    flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
-                    flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
-                    cellNavClass(rowIdx, 0),
-                  )}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {hasFlag && (
-                      <Flag
-                        aria-hidden
-                        className={cn(
-                          "h-3 w-3 shrink-0",
-                          flagCritical
-                            ? "text-rose-600 dark:text-rose-400"
-                            : "text-amber-600 dark:text-amber-400",
-                        )}
-                      />
-                    )}
-                    {row.source_row_number}
-                  </span>
-                </td>
-                {/* Sl.No (col 1) */}
-                <td
-                  {...tdFocusProps(rowIdx, 1)}
-                  className={cn(
-                    "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border",
-                    cellNavClass(rowIdx, 1),
-                  )}
-                >
-                  {row.sl_no_value ?? ""}
-                </td>
-                {/* Parent (col 2): parent's Excel row number (muted; read-only -- focus only). */}
-                <td
-                  {...tdFocusProps(rowIdx, 2)}
-                  className={cn(
-                    "px-2 py-1.5 align-top w-16 border-r border-border",
-                    cellNavClass(rowIdx, 2),
-                  )}
-                >
-                  {parentExcelRow !== null ? (
-                    <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
-                      ↑ {parentExcelRow}
-                    </span>
-                  ) : null}
-                </td>
-                {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
-                <td
-                  {...tdFocusProps(rowIdx, 3)}
-                  className={cn(
-                    "px-2 py-1.5 align-top w-36 border-r border-border",
-                    cellNavClass(rowIdx, 3),
-                  )}
-                >
-                  <ClassificationPill cls={row.effective_classification} />
-                </td>
-                {/* Description (col 4): depth indent + per-classification styling. */}
-                <td
-                  {...tdFocusProps(rowIdx, 4)}
-                  className={cn("px-2 py-1.5 align-top", cellNavClass(rowIdx, 4))}
-                >
-                  <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
-                    <span
-                      className={cn(
-                        "leading-snug break-words min-w-0",
-                        isPreamble && "font-medium text-foreground",
-                        isLineItem && "text-foreground",
-                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                      )}
-                    >
-                      {row.description || (
-                        <span className="not-italic text-muted-foreground">(no description)</span>
-                      )}
-                    </span>
-                  </div>
-                </td>
-                {/* Descriptor-driven data cells: editable rate inputs, live-amount cells,
-                    and read-only qty/other cells. */}
-                {displayDescriptors.map((d, dIdx) => {
-                  const colIndex = FIXED_ANCHOR_COUNT + dIdx;
-                  // ── Slice 4a: per-cell color (the SEPARATE left-border channel) + the
-                  //    picker trigger (editable only when onSaveColor is present). The applied
-                  //    color is a left border so it never masks the system emerald/amber
-                  //    priced background, the dot, or the blue inset focus ring -- all coexist.
-                  const cellColor = row.color_by_cell?.[d.col];
-                  const colorBorderClass = cellColor
-                    ? colorClassForToken(cellColor)
-                    : "border-l border-border";
-                  const colorPicker = onSaveColor ? (
-                    <ColorPicker
-                      current={cellColor}
-                      onApply={(token, wholeRow) => {
-                        const cols = wholeRow ? rowColorCells(displayDescriptors) : [d.col];
-                        return onSaveColor(
-                          cols.map((col) => ({
-                            excelRow: row.source_row_number,
-                            colLetter: col,
-                            color: token,
-                            description: row.description ?? undefined,
-                          })),
-                        );
-                      }}
-                    />
-                  ) : null;
-                  // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
-                  // Slice 3e per-row priceability gate: editable ONLY on a priceable row
-                  // (node_type Preamble / Line Item) UNLESS the per-sheet override is on. A
-                  // non-priceable row with the override off falls through to the read-only
-                  // render below (where its needs-review marker still shows).
-                  if (
-                    onSaveRate &&
-                    isRateDescriptor(d) &&
-                    (isPriceableType(row.node_type) || override)
-                  ) {
-                    const key = cellKey(row.row_index, d.col);
-                    const priced = isCellPriced(row, d);
-                    // A priced cell on a NON-priceable row is the "needs review" anomaly
-                    // (override-priced) -> amber instead of emerald (lightweight 3e marker;
-                    // the full review flag is 4b).
-                    const needsReview = priced && !isPriceableType(row.node_type);
-                    // Value precedence: user draft (highest) -> cross-area proposal
-                    // (middle) -> saved/empty (lowest).
-                    const draft = draftRates[key];
-                    const proposed = proposedRates[key];
-                    const value = draft ?? proposed ?? savedRateStr(row, d);
-                    // A cell renders "proposed" (muted/italic) only when the displayed
-                    // value is the proposal -- no user draft and not priced.
-                    const isProposed = draft === undefined && proposed !== undefined && !priced;
-                    return (
-                      <td
-                        key={d.col}
-                        title={
-                          needsReview
-                            ? "Priced on a non-priceable row -- flagged for review"
-                            : priced
-                              ? "Priced"
-                              : undefined
-                        }
-                        className={cn(
-                          "relative px-1 py-1 align-top",
-                          colorBorderClass,
-                          priced &&
-                            (needsReview
-                              ? "bg-amber-50 dark:bg-amber-950/30"
-                              : "bg-emerald-50 dark:bg-emerald-950/30"),
-                          isActive(rowIdx, colIndex) &&
-                            "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
-                        )}
-                      >
-                        {colorPicker}
-                        <div className="flex items-center justify-end gap-1">
-                          {priced && (
-                            <span
-                              aria-hidden
-                              className={cn(
-                                "inline-block h-1.5 w-1.5 rounded-full shrink-0",
-                                needsReview ? "bg-amber-500" : "bg-emerald-500",
-                              )}
-                            />
-                          )}
-                          {/* type=text + inputMode=decimal: frees Arrow keys for cell nav
-                              (a number input hijacks them). Decimal guard in onChange keeps
-                              the value numeric. Nav keys (arrows/Enter/Tab) bubble to the
-                              table's onKeyDown; onBlur stays as the commit safety net. */}
-                          <Input
-                            {...inputFocusProps(rowIdx, colIndex)}
-                            type="text"
-                            inputMode="decimal"
-                            value={value}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              if (DECIMAL_IN_PROGRESS.test(v)) {
-                                setDraftRates((prev) => ({ ...prev, [key]: v }));
-                                // Promotion: touching a proposed cell turns it into a real
-                                // draft -> drop the proposal so it stops rendering proposed
-                                // and the normal save path (auto-save + emerald-on-save)
-                                // takes over.
-                                setProposedRates((prev) => {
-                                  if (prev[key] === undefined) return prev;
-                                  const next = { ...prev };
-                                  delete next[key];
-                                  return next;
-                                });
-                                scheduleAutoSave(row, d); // Slice 3c: debounced 1s auto-save
-                              }
-                            }}
-                            onBlur={() => commitRate(row, d, value)}
-                            className={cn(
-                              "h-7 text-xs w-20 text-right tabular-nums scroll-mt-9",
-                              isProposed && "text-muted-foreground italic",
-                            )}
-                          />
-                        </div>
-                      </td>
-                    );
-                  }
-
-                  // ── AMOUNT cell (F4): formula-wins-else-pairing. The VALUE flows from the
-                  //    pure evaluateAmountCell; the render is a thin map. A formula that can't
-                  //    resolve renders BLANK (never a stale/wrong number) -- not_yet = needs a
-                  //    rate, broken = check formula (a marker). The no-formula case is the
-                  //    UNCHANGED single-paired-rate fallback. ──
-                  if (isAmountDescriptor(d)) {
-                    const cell = evaluateAmountCell(d, row, columnDescriptors, columnFormulas, draftRates);
-                    const isBroken = cell.kind === "blank" && cell.reason === "broken";
-                    const needsRate = cell.kind === "blank" && cell.reason === "not_yet";
-                    return (
-                      <td
-                        key={d.col}
-                        {...tdFocusProps(rowIdx, colIndex)}
-                        title={isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined}
-                        className={cn(
-                          "relative px-2 py-1.5 text-right align-top tabular-nums",
-                          colorBorderClass,
-                          cellNavClass(rowIdx, colIndex),
-                        )}
-                      >
-                        {colorPicker}
-                        {cell.kind === "value" ? (
-                          renderDescriptorCell(cell.value)
-                        ) : cell.kind === "committed" ? (
-                          renderDescriptorCell(resolveDescriptorValue(row, d))
-                        ) : isBroken ? (
-                          // broken -> blank value + a small "check formula" marker (4b extends
-                          // this into the review-list seam; here the MUST-have is no wrong number).
-                          <AlertTriangle className="inline-block h-3 w-3 text-destructive" aria-label="Check formula" />
-                        ) : null /* not_yet -> blank (the cell is empty; title = "Needs a rate") */}
-                      </td>
-                    );
-                  }
-
-                  // ── Default read-only cell (qty / others; rate when no onSaveRate, OR a
-                  //    non-priceable rate cell with the override off) ────────────────────
-                  const val = resolveDescriptorValue(row, d);
-                  const priced = isRateDescriptor(d) && isCellPriced(row, d);
-                  // A priced non-priceable rate cell that lands here (override off) still
-                  // shows the amber needs-review marker -- the anomaly stays visible.
-                  const needsReview = priced && !isPriceableType(row.node_type);
-                  return (
-                    <td
-                      key={d.col}
-                      {...tdFocusProps(rowIdx, colIndex)}
-                      title={
-                        needsReview
-                          ? "Priced on a non-priceable row -- flagged for review"
-                          : priced
-                            ? "Priced"
-                            : undefined
-                      }
-                      className={cn(
-                        "relative px-2 py-1.5 text-right align-top tabular-nums",
-                        colorBorderClass,
-                        priced &&
-                          (needsReview
-                            ? "bg-amber-50 dark:bg-amber-950/30"
-                            : "bg-emerald-50 dark:bg-emerald-950/30"),
-                        cellNavClass(rowIdx, colIndex),
-                      )}
-                    >
-                      {colorPicker}
-                      {priced && (
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle",
-                            needsReview ? "bg-amber-500" : "bg-emerald-500",
-                          )}
-                        />
-                      )}
-                      {renderDescriptorCell(val)}
-                    </td>
-                  );
-                })}
-                {/* Slice 4a.2: trailing Remarks cell (per-row) -- now the matrix's LAST
-                    column. The <td> is the nav focus target (arrows land here); Enter opens
-                    the editor (handled in handleGridKeyDown), Esc/Save close + restore focus
-                    here, Enter-in-editor saves + moves down. Open-state is grid-controlled. */}
-                <td
-                  {...tdFocusProps(rowIdx, remarksColIndex)}
-                  className={cn(
-                    "px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]",
-                    cellNavClass(rowIdx, remarksColIndex),
-                  )}
-                >
-                  <RemarkCell
-                    remark={row.remark}
-                    onSave={
-                      onSaveRemark
-                        ? (remark) =>
-                            onSaveRemark({
-                              excelRow: row.source_row_number,
-                              remark,
-                              description: row.description ?? undefined,
-                            })
-                        : undefined
-                    }
-                    open={openRemarkRowIdx === rowIdx}
-                    onOpenChange={(o) => {
-                      setOpenRemarkRowIdx(o ? rowIdx : null);
-                      // On close (Esc / Save / outside-click) restore focus to this cell so
-                      // arrow-nav continues. An Enter-save's onMoveDown runs AFTER and wins.
-                      if (!o) focusCell(rowIdx, remarksColIndex);
-                    }}
-                    onMoveDown={() => {
-                      const next = nextCell(
-                        { rowIndex: rowIdx, colIndex: remarksColIndex },
-                        "down",
-                        rows.length,
-                        colCount,
-                      );
-                      if (next) focusCell(next.rowIndex, next.colIndex);
-                    }}
-                  />
-                </td>
-              </tr>
+              <PricingGridRow
+                key={row.row_index}
+                row={row}
+                rowIndex={rowIdx}
+                depth={depths.get(row.row_index) ?? 0}
+                parentExcelRow={parentExcelRow}
+                flags={rowFlags?.get(row.row_index)}
+                rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+                rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+                activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
+                anyCellActive={anyCellActive}
+                openRemark={openRemarkRowIdx === rowIdx}
+                displayDescriptors={displayDescriptors}
+                columnDescriptors={columnDescriptors}
+                columnFormulas={columnFormulas}
+                override={override}
+                onSaveRate={onSaveRate}
+                onSaveColor={onSaveColor}
+                onSaveRemark={onSaveRemark}
+                colCount={colCount}
+                rowCount={rows.length}
+                remarksColIndex={remarksColIndex}
+                commitRate={commitRate}
+                scheduleAutoSave={scheduleAutoSave}
+                onCellFocus={onCellFocus}
+                registerCell={registerCell}
+                focusCell={focusCell}
+                setDraftRates={setDraftRates}
+                setProposedRates={setProposedRates}
+                setOpenRemark={setOpenRemark}
+              />
             );
           })}
         </tbody>
