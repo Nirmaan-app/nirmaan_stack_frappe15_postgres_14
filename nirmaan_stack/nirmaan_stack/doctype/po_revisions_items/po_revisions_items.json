@@ -21,6 +21,7 @@
   "revision_amount",
   "revision_category",
   "revision_procurement_package",
+  "revision_comment",
   "original_details_section",
   "original_item_id",
   "original_item_name",
@@ -31,7 +32,8 @@
   "original_tax",
   "original_amount",
   "original_category",
-  "original_procurement_package"
+  "original_procurement_package",
+  "original_comment"
  ],
  "fields": [
   {
@@ -163,6 +165,16 @@
    "fieldname": "original_procurement_package",
    "fieldtype": "Data",
    "label": "Original Procurement Package"
+  },
+  {
+   "fieldname": "revision_comment",
+   "fieldtype": "Small Text",
+   "label": "Revision Comment"
+  },
+  {
+   "fieldname": "original_comment",
+   "fieldtype": "Small Text",
+   "label": "Original Comment"
   }
  ],
  "grid_page_length": 50,

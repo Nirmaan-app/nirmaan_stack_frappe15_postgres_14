@@ -432,6 +432,15 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
     item.item_type === "New" ||
     origRate !== revRate;
 
+  const origComment = (item.original_comment || "").toString().trim();
+  const revComment = (item.revision_comment ?? item.comment ?? "").toString().trim();
+  const commentChanged =
+    item.item_type === "Deleted"
+      ? !!origComment
+      : item.item_type === "New"
+        ? !!revComment
+        : origComment !== revComment;
+
   return (
     <tr className="hover:bg-slate-50/50 transition-colors border-b border-slate-50 last:border-0">
       <td className="pl-3 py-2.5">
@@ -442,9 +451,21 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
         </span>
       </td>
       <td className="py-2.5 pr-2">
-        <span className="text-[11px] text-slate-700 font-medium line-clamp-1">
-          {item.revision_item_name || item.original_item_name || "--"}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[11px] text-slate-700 font-medium line-clamp-1">
+            {item.revision_item_name || item.original_item_name || "--"}
+          </span>
+          {commentChanged && (
+            <div className="flex flex-col gap-0.5">
+              {item.item_type !== "Deleted" && revComment && (
+                <span className="text-[10px] text-slate-500 italic line-clamp-2">💬 {revComment}</span>
+              )}
+              {origComment && origComment !== revComment && (
+                <span className="text-[10px] text-slate-400 line-through line-clamp-2">{origComment}</span>
+              )}
+            </div>
+          )}
+        </div>
       </td>
       <td className="py-2.5 text-center">
         <div className="flex flex-col items-center gap-1">
@@ -464,6 +485,20 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
               revised={revRate}
               formatFn={formatToIndianRupee}
             />
+          )}
+          {commentChanged && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 rounded border border-slate-100/50">
+              <span className="text-[9px] font-medium text-slate-400 uppercase tracking-tighter">
+                Cmt
+              </span>
+              <span className="text-[10px] font-medium text-slate-600">
+                {item.item_type === "Deleted"
+                  ? "removed"
+                  : item.item_type === "New"
+                    ? "added"
+                    : "updated"}
+              </span>
+            </div>
           )}
         </div>
       </td>
