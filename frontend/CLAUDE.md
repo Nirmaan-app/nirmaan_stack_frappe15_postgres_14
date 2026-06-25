@@ -672,6 +672,19 @@ wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `
 `GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
 +3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Editor toolbar two-ribbon layout (`SheetPricingPage.tsx`; presentational, move-only; full detail: plan §"Editor toolbar
+two-ribbon reorg"):** the pricing-editor sheet screen's toolbar is split into TWO ribbons sandwiching the sheet-tab strip --
+a **TOP ribbon** (Back | title | Full screen | Summary | Review (N) | Price any row | Save now | `ml-auto` status text
+[save-status chip + priced-count]) ABOVE the `<Tabs>` strip, and a **BOTTOM ribbon** (Show unpriced | Search group | Columns |
+Show: Spacers/Notes/Subtotals) BELOW it. **This was the "Toolbar Part 2 layout rework" deferred below.** LOCKED invariants:
+(1) the BOTTOM ribbon is wrapped in the SAME `{!isGridOnly}` gate that held those controls before -> a grid-only general-specs
+sheet renders **NO bottom ribbon** (and the top ribbon shows only Back/title/Full screen, as the `{!isGridOnly}` cluster
+always did); (2) coupled groups stay single JSX subtrees -- the Search group (shares `searchQuery`/`searchHits`/`safeSearchIdx`/
+`stepSearch`), the Columns popover, the Show toggles; (3) Summary/Review stay PLAIN (no pressed state); (4) all backing state
+is local `useState` so the move severs no closure -- it is purely presentational (same handlers/gates). A future Lock/unlock-edits
+button will join the TOP ribbon (separate slice). When adding a control: a document/sheet-level action -> top ribbon; a grid
+VIEW control (filter/search/column) -> bottom ribbon (inside `{!isGridOnly}`).
+
 **Toolbar Part 1 -- search + column-hide + 3 row-type filters (`SheetPricingPage.tsx` + `PricingGrid.tsx`; view-layer,
 owner-locked; full detail: plan §"Toolbar Part 1"):** the pricing-editor header now carries FIVE view-only controls
 (dropped into the existing `!isGridOnly` flex cluster; the toolbar LAYOUT rework is **Part 2, deferred until after Slice

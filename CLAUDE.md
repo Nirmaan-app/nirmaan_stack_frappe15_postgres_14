@@ -1,6 +1,6 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-25 (Slice 5b + hub footer toolbar rework). **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-25 (Slice 5b + hub footer rework + editor toolbar two-ribbon reorg [FRONTEND, presentational, move-only -- detail in frontend/CLAUDE.md + plan §"Editor toolbar two-ribbon reorg"]). **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
 per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (FRONTEND, presentational
