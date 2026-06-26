@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -206,6 +206,16 @@ const SheetPricingPage = () => {
   const { call: saveCellReconChoice } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_reconciliation_choice",
   );
+  // The deliberate per-sheet lock/unlock (this slice). Toggled from the top ribbon; the editor
+  // re-reads is_locked from get_priced_rows via mutate() after the POST.
+  const { call: lockSheetCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.lock_sheet",
+  );
+  const { call: unlockSheetCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.unlock_sheet",
+  );
+  // In-flight guard for the lock toggle (disables it during the POST).
+  const [lockToggling, setLockToggling] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -409,12 +419,34 @@ const SheetPricingPage = () => {
   // grid so 3b can gate inline edit on them without reshaping the contract.
   const editable = pricedData?.message?.editable ?? true;
   const lockInfo = pricedData?.message?.lock_info ?? null;
+  // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
+  // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
+  const isLocked = pricedData?.message?.is_locked ?? false;
   const pricedLoading = pricedData === undefined;
   const pricedError = pricedData === null;
-  // HARD READ-ONLY when held FRESH by another user (backend editable===false) OR after a
-  // mid-edit takeover. Withholding onSaveRate collapses ALL of the grid's edit gates (the
-  // single onSaveRate root gate) to the read-only render -- no per-cell editable check.
-  const locked = editable === false || takenOver;
+  // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
+  // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
+  // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
+  // editable check. The deliberate lock is ABSOLUTE: it rides this same boolean, so the override
+  // (which lives INSIDE isRateEditableRow, ANDed AFTER onSaveRate) can never reach past it.
+  const locked = editable === false || takenOver || isLocked;
+
+  // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
+  // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
+  // (#152). ANY user may toggle (no role check -- a coordination signal). Disabled while in flight.
+  const handleToggleLock = async () => {
+    if (commitVersion === null) return;
+    setLockToggling(true);
+    try {
+      const fn = isLocked ? unlockSheetCall : lockSheetCall;
+      await fn({ boq_name: boqId, sheet_name: decodedSheetName, committed_version: commitVersion });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
+    } finally {
+      setLockToggling(false);
+    }
+  };
 
   // Slice 3b: the page-owned save. The grid hands up the cell identity; the page fills
   // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
@@ -815,6 +847,37 @@ const SheetPricingPage = () => {
           </Button>
           {!isGridOnly && (
           <>
+          {/* The DELIBERATE per-sheet lock toggle (this slice). State-aware Lock/Unlock; a DISTINCT
+              icon (ShieldCheck/ShieldOff) from the override's Lock/Unlock so they never read alike.
+              NOT gated by `locked` -- it is the ONE control that stays live when locked (so an
+              unlock is always reachable). Disabled only while the toggle POST is in flight or the
+              sheet is uncommitted (no version to lock). A locked sheet's button is loudly teal. */}
+          <Button
+            size="sm"
+            variant={isLocked ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              isLocked &&
+                "bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800",
+            )}
+            aria-pressed={isLocked}
+            onClick={handleToggleLock}
+            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null}
+            title={
+              isLocked
+                ? "This sheet is locked (read-only). Click to unlock and allow edits."
+                : "Lock this sheet read-only (no rates / formulas / annotations). Anyone can unlock."
+            }
+          >
+            {lockToggling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isLocked ? (
+              <ShieldCheck className="h-4 w-4" />
+            ) : (
+              <ShieldOff className="h-4 w-4" />
+            )}
+            {isLocked ? "Unlock" : "Lock"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -851,6 +914,10 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={override}
             onClick={() => setOverride((o) => !o)}
+            // Disabled when locked: the override is inert under the lock (it lives INSIDE
+            // isRateEditableRow, ANDed AFTER the withheld onSaveRate), so greying it removes the
+            // clickable-but-dead confusion.
+            disabled={locked}
             title={
               override
                 ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
@@ -865,6 +932,8 @@ const SheetPricingPage = () => {
             variant="outline"
             className="gap-1.5"
             onClick={() => gridRef.current?.flush()}
+            // Disabled when locked: a read-only grid accumulates no drafts, so flush is a no-op.
+            disabled={locked}
             title="Flush any pending edits and save now"
           >
             <Save className="h-4 w-4" />
@@ -932,12 +1001,35 @@ const SheetPricingPage = () => {
         </div>
       </div>
 
-      {/* ── Single-editor lock banners (slice B) ──────────────────────────────
-          Mid-edit takeover takes precedence over the load-time holder banner. A STALE
-          lock returns editable===true -> NEITHER shows (silent auto-takeover on first
-          save). The holder banner shows ONLY when editable===false (truly blocked).
-          SUPPRESSED entirely for a grid-only sheet (no editing -> no lock). */}
-      {isGridOnly ? null : takenOver ? (
+      {/* ── Lock banners ──────────────────────────────────────────────────────
+          PRECEDENCE: the DELIBERATE lock (this slice) is the persistent, cross-user reason and
+          DOMINATES the transient concurrency banners -- so a locked sheet shows the TEAL lock
+          banner even if a takeover / holder reason is also true. Its TEAL + ShieldCheck styling
+          is VISUALLY DISTINCT from the two amber concurrency banners ("someone else is editing").
+          Then: mid-edit takeover > the load-time holder banner (editable===false). A STALE lock
+          returns editable===true -> neither amber banner shows. SUPPRESSED for a grid-only sheet
+          (no editing -> no lock; the lock toggle is also absent there). */}
+      {isGridOnly ? null : isLocked ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
+          <p className="text-teal-900 dark:text-teal-100 flex-1">
+            This sheet is locked (read-only). Unlock it to make changes.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleToggleLock}
+            disabled={lockToggling}
+          >
+            {lockToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
+            Unlock
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : takenOver ? (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
           <p className="text-amber-900 dark:text-amber-100 flex-1">

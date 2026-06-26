@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.pricing import (
+    _get_sheet_is_locked,
     _sheet_formulas_complete,
     get_committed_sheet_grid,
     get_priced_rows,
@@ -32,13 +33,16 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_sheet_pricing,
     get_sheet_reconciliation_choices,
     get_sheet_remarks,
+    lock_sheet,
     save_amount_formula,
     save_cell_color,
     save_cell_dismissal,
     save_cell_price,
     save_cell_reconciliation_choice,
     save_row_remark,
+    unlock_sheet,
 )
+from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     LOCK_STALE_SECONDS,
@@ -3146,3 +3150,187 @@ class TestExportWritebackEndToEnd(FrappeTestCase):
     def test_endpoint_missing_boq_throws(self):
         with self.assertRaises(frappe.exceptions.ValidationError):
             export_priced_workbook(boq_name=None, sheet_names=[self.sheet])
+
+
+class TestSheetLock(FrappeTestCase):
+    """Slice (3): the DELIBERATE, per-sheet, persisted, server-enforced read-only lock --
+    the pricing twin of the review-screen "Finalized" freeze.
+
+    Covers: lock_sheet/unlock_sheet stamp+clear BoQ Sheet.is_locked/locked_by/locked_at;
+    ANY user may unlock (no role/ownership check); _guard_sheet_not_locked REJECTS all SIX
+    pricing write endpoints when locked (reject-mutates-nothing); get_priced_rows +
+    get_committed_state surface is_locked; a re-commit (a fresh BoQ Sheet row) starts UNLOCKED
+    (the lock NEVER carries forward). Reuses the shared committed fixture (Line Item row 34 is
+    qty-bearing on rate col E / amount cols F[total] + I[install]); sheet_name VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Sheet Lock Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Lock Me "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.bqsh = cls.fixture["bqsh"]
+        # Make the sheet formula-COMPLETE so save_cell_price reaches the lock/priceability/write
+        # (the mandatory-formula gate fires before priceability; the lock guard fires first).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # get_committed_state iterates BoQ Committed Sheet Grid rows -- the shared node fixture
+        # doesn't create one, so add a minimal is_current grid row for the is_locked-surface test.
+        grid = frappe.new_doc("BoQ Committed Sheet Grid")
+        grid.boq = cls.boq
+        grid.source_sheet_name = cls.sheet  # VERBATIM (#152)
+        grid.commit_version = cls.cv
+        grid.is_current = 1
+        grid.committed_at = frappe.utils.now()
+        grid.sheet_disposition = "grid_and_nodes"
+        grid.insert(ignore_permissions=True)
+        cls.grid = grid.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq})
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Clean slate: clear the overlays + the concurrency lock, and UNLOCK the sheet.
+        for dt in (_PRICING, _LOCK_DT, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.commit()
+
+    # -- lock_sheet / unlock_sheet stamp + clear the three fields ----------------
+
+    def test_lock_then_unlock_sets_and_clears_fields(self):
+        res = lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 1)
+        self.assertTrue(res["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 1)
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_at"))
+        res2 = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res2["is_locked"], 0)
+        self.assertIsNone(res2["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 0)
+        self.assertFalse(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    def test_unlock_works_regardless_of_who_locked(self):
+        # ANY user may unlock -- there is NO ownership/role check. Lock, then forge a DIFFERENT
+        # locked_by, then unlock as the current (non-locker) user: it must still clear.
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "locked_by", "someone.else@example.com")
+        frappe.db.commit()
+        res = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 0)
+        self.assertIsNone(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    # -- the guard: ALL SIX save_* paths rejected when locked, mutating nothing --
+
+    def test_locked_rejects_every_save_path_and_writes_nothing(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+
+        def assert_locked(thunk):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                thunk()
+            self.assertIn("locked", str(ctx.exception).lower())
+
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1"))
+        # override does NOT bypass the lock (it loosens only the priceability axis).
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1", allow_non_priceable=True))
+        assert_locked(lambda: save_cell_color(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, color="green"))
+        assert_locked(lambda: save_row_remark(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, remark="x"))
+        assert_locked(lambda: save_cell_dismissal(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, flag_kind="needs_rate", dismissed=True))
+        assert_locked(lambda: save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+            committed_version=self.cv, choice="keep_document"))
+        assert_locked(lambda: save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_FIXTURE_FORMULA_LEAF))
+
+        # reject-mutates-nothing: no overlay rows written, and the concurrency lock never acquired
+        # (the deliberate-lock guard sits BEFORE acquire_or_refresh).
+        for dt in (_PRICING, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            self.assertEqual(
+                frappe.db.count(dt, {"boq": self.boq, "is_current": 1}), 0,
+                f"{dt}: a locked reject wrote a record",
+            )
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0,
+                         "the concurrency lock was acquired on a locked reject")
+
+    def test_unlocked_allows_saves(self):
+        # After setUp (unlocked), a priceable rate save passes through byte-for-byte (regression).
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1")
+        self.assertTrue(res["ok"])
+        self.assertEqual(
+            frappe.db.count(_PRICING, {"boq": self.boq, "sheet_name": self.sheet,
+                                       "excel_row": 34, "is_current": 1}), 1)
+
+    # -- the flag rides the existing reads ---------------------------------------
+
+    def test_get_priced_rows_surfaces_is_locked(self):
+        self.assertFalse(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+
+    def test_get_committed_state_surfaces_is_locked(self):
+        def my_row():
+            state = get_committed_state(boq_name=self.boq)["committed_state"]
+            return next(r for r in state if r["sheet_name"] == self.sheet)
+        self.assertIn("is_locked", my_row())
+        self.assertFalse(my_row()["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(my_row()["is_locked"])
+
+    # -- re-commit invalidates: a fresh version starts UNLOCKED ------------------
+
+    def test_recommit_starts_unlocked_lock_does_not_carry_forward(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, self.cv), 1)
+        # Simulate a re-commit (freeze-and-supersede): freeze v1, insert a FRESH is_current=1
+        # BoQ Sheet at v2 -- mirrors _write_committed_boq_sheet, which new_doc()s the row and
+        # NEVER sets is_locked, so the new version defaults is_locked=0 (no carry-forward).
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 0)
+        bs = frappe.new_doc(self._SHEET_DT)
+        bs.boq = self.boq
+        bs.sheet_name = self.sheet  # VERBATIM (#152)
+        bs.sheet_order = 0
+        bs.treat_as = "data"
+        bs.commit_version = 2
+        bs.is_current = 1
+        bs.column_role_map = json.dumps({})
+        bs.column_headers = json.dumps({})
+        bs.area_dimensions = json.dumps([])
+        bs.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            # the NEW current version is UNLOCKED -- the lock did not carry forward.
+            self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, 2), 0)
+        finally:
+            # Restore the fixture: drop v2, re-mark v1 current (test isolation within the class).
+            frappe.db.delete(self._SHEET_DT, bs.name)
+            frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 1)
+            frappe.db.commit()

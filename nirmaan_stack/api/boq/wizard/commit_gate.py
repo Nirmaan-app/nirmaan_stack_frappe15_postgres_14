@@ -266,13 +266,16 @@ def get_committed_state(boq_name: str) -> dict:
     # is the join key, matched VERBATIM (#152). A committed grid row should always have a
     # matching current BoQ Sheet (the pipeline writes both); default None if not.
     # last_exported_at (Slice 5b) rides this SAME existing lookup -- no extra query.
+    # is_locked (the deliberate per-sheet read-only lock) rides this SAME existing lookup --
+    # one more field, no new query (like last_exported_at). Drives the hub's lock indicator.
     order_rows = frappe.get_all(
         "BoQ Sheet",
         filters={"boq": boq_name, "is_current": 1},
-        fields=["sheet_name", "sheet_order", "last_exported_at"],
+        fields=["sheet_name", "sheet_order", "last_exported_at", "is_locked"],
     )
     order_by_sheet = {r.sheet_name: r.sheet_order for r in order_rows}
     exported_by_sheet = {r.sheet_name: r.last_exported_at for r in order_rows}
+    locked_by_sheet = {r.sheet_name: bool(r.is_locked) for r in order_rows}
 
     # Slice 5b -- the "pricing changed since last export" signal. Per (sheet, current version),
     # the latest pricing/color/remark write timestamp; compared per row against last_exported_at.
@@ -294,6 +297,8 @@ def get_committed_state(boq_name: str) -> dict:
                 changes_by_sheet_version.get((row.source_sheet_name, row.commit_version)),
                 exported_by_sheet.get(row.source_sheet_name),
             ),
+            # Deliberate per-sheet read-only lock (this slice, ADDITIVE):
+            "is_locked": locked_by_sheet.get(row.source_sheet_name, False),
         }
         for row in rows
     ]

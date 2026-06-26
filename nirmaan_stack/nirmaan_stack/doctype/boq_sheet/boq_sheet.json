@@ -26,7 +26,11 @@
   "commit_version",
   "is_current",
   "committed_at",
-  "last_exported_at"
+  "last_exported_at",
+  "editor_lock_section",
+  "is_locked",
+  "locked_by",
+  "locked_at"
  ],
  "fields": [
   {
@@ -160,6 +164,32 @@
    "fieldname": "last_exported_at",
    "fieldtype": "Datetime",
    "label": "Last Exported At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "editor_lock_section",
+   "fieldtype": "Section Break",
+   "label": "Editor Lock"
+  },
+  {
+   "default": "0",
+   "description": "Deliberate, user-controlled, per-sheet read-only lock for the pricing editor (the pricing twin of the review-screen 'Finalized' freeze). When 1, the SIX pricing save_* endpoints reject writes via _guard_sheet_not_locked. PERSISTED + cross-user; ANY user may toggle (no role gate -- a coordination signal). Stamped via frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). Re-commit INVALIDATES: a new commit_version inserts a fresh BoQ Sheet row that defaults is_locked=0 (the lock does NOT carry forward).",
+   "fieldname": "is_locked",
+   "fieldtype": "Check",
+   "label": "Is Locked"
+  },
+  {
+   "description": "The user who last set the lock (frappe.session.user). Cleared on unlock. Typed Data + read_only to mirror BoQ Cell Dismissal.dismissed_by / BoQ Cell Reconciliation Choice.chosen_by.",
+   "fieldname": "locked_by",
+   "fieldtype": "Data",
+   "label": "Locked By",
+   "read_only": 1
+  },
+  {
+   "description": "When the lock was last set. Cleared on unlock.",
+   "fieldname": "locked_at",
+   "fieldtype": "Datetime",
+   "label": "Locked At",
    "read_only": 1
   }
  ],
