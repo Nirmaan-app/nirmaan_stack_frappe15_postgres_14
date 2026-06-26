@@ -19,10 +19,10 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -38,6 +38,7 @@ import type {
   DismissalSaveArgs,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
+  PricedRow,
   RateCellSaveArgs,
   ReconChoiceSaveArgs,
   RemarkSaveArgs,
@@ -70,6 +71,7 @@ import {
   isFullyPriced,
   isPriceableLine,
 } from "./priceability";
+import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHiddenByCollapse, type CollapseRow } from "./collapse";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -204,6 +206,16 @@ const SheetPricingPage = () => {
   const { call: saveCellReconChoice } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.save_cell_reconciliation_choice",
   );
+  // The deliberate per-sheet lock/unlock (this slice). Toggled from the top ribbon; the editor
+  // re-reads is_locked from get_priced_rows via mutate() after the POST.
+  const { call: lockSheetCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.lock_sheet",
+  );
+  const { call: unlockSheetCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.unlock_sheet",
+  );
+  // In-flight guard for the lock toggle (disables it during the POST).
+  const [lockToggling, setLockToggling] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -256,6 +268,42 @@ const SheetPricingPage = () => {
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
 
+  // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
+  // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
+  // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
+  // (which the page has; the grid only gets the filtered displayRows). The grid receives it +
+  // childrenByParent + the toggle as GRID-LEVEL props for the chevrons (NOT a row-memo prop, R6).
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
+  // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
+  const collapsedRef = useRef(collapsed);
+  const byRowIndexRef = useRef<Map<number, CollapseRow>>(new Map());
+  const byExcelRowRef = useRef<Map<number, CollapseRow>>(new Map());
+  // Toggle one parent's collapsed state (chevron click). Stable.
+  const toggleCollapse = useCallback((rowIndex: number) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowIndex)) next.delete(rowIndex);
+      else next.add(rowIndex);
+      return next;
+    });
+  }, []);
+  // Reveal-then-scroll (R5): expand a jump target's collapsed ANCESTORS so the scroll lands on a
+  // visible row instead of silently no-opping. Returns TRUE iff it changed `collapsed` (the grid
+  // then defers the scroll a tick). Reads refs -> stable (useCallback []).
+  const revealRow = useCallback((excelRow: number): boolean => {
+    const row = byExcelRowRef.current.get(excelRow);
+    if (!row) return false;
+    const anc = collapsedAncestors(row, collapsedRef.current, byRowIndexRef.current);
+    if (anc.length === 0) return false;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      for (const a of anc) next.delete(a);
+      return next;
+    });
+    return true;
+  }, []);
+
   // Reset the takeover flag whenever a FRESH get_priced_rows payload reports the sheet
   // editable (a Reload re-read found it free / mine / stale). Keyed on the payload identity
   // so it fires on EVERY refetch -- an [editable] dep would miss a true->true no-change.
@@ -290,6 +338,7 @@ const SheetPricingPage = () => {
     setShowSpacers(true);
     setShowNotes(true);
     setShowSubtotals(true);
+    setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -370,12 +419,34 @@ const SheetPricingPage = () => {
   // grid so 3b can gate inline edit on them without reshaping the contract.
   const editable = pricedData?.message?.editable ?? true;
   const lockInfo = pricedData?.message?.lock_info ?? null;
+  // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
+  // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
+  const isLocked = pricedData?.message?.is_locked ?? false;
   const pricedLoading = pricedData === undefined;
   const pricedError = pricedData === null;
-  // HARD READ-ONLY when held FRESH by another user (backend editable===false) OR after a
-  // mid-edit takeover. Withholding onSaveRate collapses ALL of the grid's edit gates (the
-  // single onSaveRate root gate) to the read-only render -- no per-cell editable check.
-  const locked = editable === false || takenOver;
+  // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
+  // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
+  // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
+  // editable check. The deliberate lock is ABSOLUTE: it rides this same boolean, so the override
+  // (which lives INSIDE isRateEditableRow, ANDed AFTER onSaveRate) can never reach past it.
+  const locked = editable === false || takenOver || isLocked;
+
+  // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
+  // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
+  // (#152). ANY user may toggle (no role check -- a coordination signal). Disabled while in flight.
+  const handleToggleLock = async () => {
+    if (commitVersion === null) return;
+    setLockToggling(true);
+    try {
+      const fn = isLocked ? unlockSheetCall : lockSheetCall;
+      await fn({ boq_name: boqId, sheet_name: decodedSheetName, committed_version: commitVersion });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
+    } finally {
+      setLockToggling(false);
+    }
+  };
 
   // Slice 3b: the page-owned save. The grid hands up the cell identity; the page fills
   // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
@@ -613,20 +684,51 @@ const SheetPricingPage = () => {
   // default (nothing hidden), byte-identical to the prior showOnlyUnpriced-only behaviour.
   const rowTypeToggles = { showSpacers, showNotes, showSubtotals };
   const noRowTypeHidden = showSpacers && showNotes && showSubtotals;
+
+  // Collapse/expand: the FULL-rows maps + the inverse children map (built over UNFILTERED `rows`
+  // so visibility/descendant math is filter-independent -- the canonical rule). Plain consts (not
+  // useMemo) because they sit AFTER the early-return guards, matching the rowFlags pattern. Refs
+  // are synced so the toggle/reveal callbacks (declared in the hook region) read current data.
+  const byRowIndex = new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r]));
+  const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
+  const childrenByParent = buildChildrenByParent(rows);
+  collapsedRef.current = collapsed;
+  byRowIndexRef.current = byRowIndex;
+  byExcelRowRef.current = byExcelRow;
+  const collapseActive = collapsed.size > 0;
+
+  // The view-filter predicate (show-unpriced + row-type), WITHOUT collapse -- shared by the
+  // search universe (R3: search ignores collapse) and folded into displayRows below.
+  const passesViewFilter = (r: PricedRow) =>
+    (!showOnlyUnpriced ||
+      (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
+    classificationVisible(r.effective_classification, rowTypeToggles);
+  const anyViewFilter = showOnlyUnpriced || !noRowTypeHidden;
+  // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
+  // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
+  // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
+  // moves any total or the N-of-M priceable count. The `=== rows` fast path (stable reference ->
+  // the grid's byIdx/depths memos hold) is preserved when nothing is filtered or collapsed.
   const displayRows =
-    !showOnlyUnpriced && noRowTypeHidden
+    !anyViewFilter && !collapseActive
       ? rows
       : rows.filter(
           (r) =>
-            (!showOnlyUnpriced ||
-              (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
-            classificationVisible(r.effective_classification, rowTypeToggles),
+            passesViewFilter(r) &&
+            (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
         );
 
-  // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows over the
-  // RENDERED set (displayRows) so a hit is always a visible, scroll-to-able row. The current hit's
-  // Excel row is handed to the grid (the per-row highlight) + drives the prev/next scroll jump.
-  const searchHits = buildSearchHits(displayRows, searchQuery);
+  // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
+  // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
+  // a match under a collapsed parent is still a hit; stepping to it auto-expands its ancestors
+  // (revealRow -> the grid's reveal-then-scroll). When nothing is collapsed this IS displayRows
+  // (reused, no extra pass); only an active collapse needs the separate non-collapse universe.
+  const searchUniverse = !collapseActive
+    ? displayRows
+    : anyViewFilter
+      ? rows.filter(passesViewFilter)
+      : rows;
+  const searchHits = buildSearchHits(searchUniverse, searchQuery);
   const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
   const currentHitExcelRow = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
   const stepSearch = (dir: "prev" | "next") => {
@@ -745,6 +847,102 @@ const SheetPricingPage = () => {
           </Button>
           {!isGridOnly && (
           <>
+          {/* The DELIBERATE per-sheet lock toggle (this slice). State-aware Lock/Unlock; a DISTINCT
+              icon (ShieldCheck/ShieldOff) from the override's Lock/Unlock so they never read alike.
+              NOT gated by `locked` -- it is the ONE control that stays live when locked (so an
+              unlock is always reachable). Disabled only while the toggle POST is in flight or the
+              sheet is uncommitted (no version to lock). A locked sheet's button is loudly teal. */}
+          <Button
+            size="sm"
+            variant={isLocked ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              isLocked &&
+                "bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-800",
+            )}
+            aria-pressed={isLocked}
+            onClick={handleToggleLock}
+            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null}
+            title={
+              isLocked
+                ? "This sheet is locked (read-only). Click to unlock and allow edits."
+                : "Lock this sheet read-only (no rates / formulas / annotations). Anyone can unlock."
+            }
+          >
+            {lockToggling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : isLocked ? (
+              <ShieldCheck className="h-4 w-4" />
+            ) : (
+              <ShieldOff className="h-4 w-4" />
+            )}
+            {isLocked ? "Unlock" : "Lock"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setSummaryOpen((o) => !o)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title="Toggle the parent-tree amount summary"
+          >
+            <Sigma className="h-4 w-4" />
+            Summary
+          </Button>
+          {/* Slice 4a/4b-A: the review-list toggle (remarks + all computed flags). */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => setReviewOpen((o) => !o)}
+            disabled={pricedLoading || pricedError}
+            title="Rows flagged for review (remarks + computed flags)"
+          >
+            <ClipboardList className="h-4 w-4" />
+            Review{activeReviewEntries.length > 0 ? ` (${activeReviewEntries.length})` : ""}
+          </Button>
+          {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
+              gun -- its ON state is loudly amber so the user always sees it is on. Default
+              off. Suppressed for grid-only (handled by the !isGridOnly cluster gate). */}
+          <Button
+            size="sm"
+            variant={override ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              override &&
+                "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700",
+            )}
+            aria-pressed={override}
+            onClick={() => setOverride((o) => !o)}
+            // Disabled when locked: the override is inert under the lock (it lives INSIDE
+            // isRateEditableRow, ANDed AFTER the withheld onSaveRate), so greying it removes the
+            // clickable-but-dead confusion.
+            disabled={locked}
+            title={
+              override
+                ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
+                : "Allow pricing rows that aren't line items (notes, spacers). Off by default."
+            }
+          >
+            {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {override ? "Pricing any row" : "Price any row"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => gridRef.current?.flush()}
+            // Disabled when locked: a read-only grid accumulates no drafts, so flush is a no-op.
+            disabled={locked}
+            title="Flush any pending edits and save now"
+          >
+            <Save className="h-4 w-4" />
+            Save now
+          </Button>
+          {/* Status text (save-status chip + priced-count) -- pushed to the ribbon's right.
+              Moved here from before the action buttons in the two-ribbon reorg; behavior
+              (the saveStatus / pricedCount reads) is byte-identical. */}
+          <div className="ml-auto flex items-center gap-3">
           <div className="flex items-center gap-1.5 text-xs">
             {saveStatus === "saving" && (
               <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -797,6 +995,106 @@ const SheetPricingPage = () => {
               )}
             </span>
           )}
+          </div>
+          </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Lock banners ──────────────────────────────────────────────────────
+          PRECEDENCE: the DELIBERATE lock (this slice) is the persistent, cross-user reason and
+          DOMINATES the transient concurrency banners -- so a locked sheet shows the TEAL lock
+          banner even if a takeover / holder reason is also true. Its TEAL + ShieldCheck styling
+          is VISUALLY DISTINCT from the two amber concurrency banners ("someone else is editing").
+          Then: mid-edit takeover > the load-time holder banner (editable===false). A STALE lock
+          returns editable===true -> neither amber banner shows. SUPPRESSED for a grid-only sheet
+          (no editing -> no lock; the lock toggle is also absent there). */}
+      {isGridOnly ? null : isLocked ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
+          <p className="text-teal-900 dark:text-teal-100 flex-1">
+            This sheet is locked (read-only). Unlock it to make changes.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleToggleLock}
+            disabled={lockToggling}
+          >
+            {lockToggling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldOff className="h-3.5 w-3.5" />}
+            Unlock
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : takenOver ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet was taken over by another user. Your latest change was not saved.
+            Reload to continue.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : editable === false ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet is being priced by{" "}
+            <span className="font-medium">{lockInfo?.locked_by_name ?? "another user"}</span>.
+            It is read-only until they finish.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleBack}>
+            Go to hub
+          </Button>
+        </div>
+      ) : null}
+
+      {/* ── In-editor sheet tabs (slice 3d) ───────────────────────────────────
+          Switch to another COMMITTED sheet of the SAME BoQ without going out to the
+          hub. Workbook order (sheet_order); active tab = the current :sheetName
+          (VERBATIM, #152); label = the trimmed display name. A tab change navigates to
+          that sheet's editor (the hub's exact nav target) -> the route re-runs + the
+          key-remounted grid (below) flushes the old drafts and starts clean. The list
+          loads independently -- the strip simply doesn't render until it arrives. */}
+      {committedSheets.length > 0 && (
+        <Tabs
+          value={decodedSheetName}
+          onValueChange={(val) => {
+            if (val !== decodedSheetName) {
+              navigate(`/upload-boq/hub/${boqId ?? ""}/pricing/${encodeURIComponent(val)}`);
+            }
+          }}
+        >
+          <TabsList className="flex flex-wrap h-auto justify-start gap-1">
+            {committedSheets.map((s) => (
+              <TabsTrigger key={s.sheet_name} value={s.sheet_name} className="max-w-[16rem] truncate">
+                {s.sheet_name.trim() || s.sheet_name}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      )}
+
+      {/* ── Bottom ribbon (toolbar two-ribbon reorg) ──────────────────────────
+          Grid view-controls BELOW the tab strip: Show unpriced, the description search
+          group, Columns, and the Show: row-type toggles. Wrapped in the SAME {!isGridOnly}
+          gate that held these controls in the old single toolbar row -- so a grid-only
+          general-specs sheet renders NO bottom ribbon (nothing to filter/search), exactly
+          as before. Every control is moved VERBATIM: handlers / state / disabled gates are
+          byte-identical -- this is a pure relocation, not a behavior change. */}
+      {!isGridOnly && (
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Slice 4b-A: show-only-unpriced filter (priceable-but-not-fully-priced rows). */}
           <Button
             size="sm"
@@ -813,6 +1111,40 @@ const SheetPricingPage = () => {
           >
             <Filter className="h-4 w-4" />
             {showOnlyUnpriced ? "Unpriced only" : "Show unpriced"}
+          </Button>
+
+          {/* ── Collapse/expand ALL (slice 2): one state-aware toggle for the WHOLE hierarchy.
+              Option A -- "Collapse all" folds EVERY collapsible parent (collapsibleParents =
+              new Set(childrenByParent.keys())) so only top-level roots remain; "Expand all" =
+              setCollapsed(new Set()). The size===0 rule: nothing collapsed -> offer "Collapse all";
+              ANYTHING collapsed (incl. a partially hand-collapsed sheet) -> offer "Expand all" (the
+              button returns the sheet to clean). It writes the SAME page `collapsed` set the
+              per-parent chevrons read via CollapseContext, so the chevrons + "+N hidden" reflect a
+              bulk collapse with ZERO new wiring (no new state, no memo touch). DISABLED on a flat
+              sheet (no collapsible parents -- nothing to fold). ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={pricedLoading || pricedError || childrenByParent.size === 0}
+            aria-label={collapsed.size === 0 ? "Collapse all rows" : "Expand all rows"}
+            title={
+              childrenByParent.size === 0
+                ? "This sheet has no hierarchy to collapse."
+                : collapsed.size === 0
+                ? "Collapse every parent (only top-level rows stay visible)."
+                : "Expand every collapsed row."
+            }
+            onClick={() =>
+              setCollapsed(collapsed.size === 0 ? collapsibleParents(childrenByParent) : new Set())
+            }
+          >
+            {collapsed.size === 0 ? (
+              <ChevronsDownUp className="h-4 w-4" />
+            ) : (
+              <ChevronsUpDown className="h-4 w-4" />
+            )}
+            {collapsed.size === 0 ? "Collapse all" : "Expand all"}
           </Button>
 
           {/* ── Toolbar Part 1: description search (input + N-of-M + prev/next cycle). Stepping
@@ -958,127 +1290,7 @@ const SheetPricingPage = () => {
               Subtotals
             </label>
           </div>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => setSummaryOpen((o) => !o)}
-            disabled={pricedLoading || pricedError || rows.length === 0}
-            title="Toggle the parent-tree amount summary"
-          >
-            <Sigma className="h-4 w-4" />
-            Summary
-          </Button>
-          {/* Slice 4a/4b-A: the review-list toggle (remarks + all computed flags). */}
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => setReviewOpen((o) => !o)}
-            disabled={pricedLoading || pricedError}
-            title="Rows flagged for review (remarks + computed flags)"
-          >
-            <ClipboardList className="h-4 w-4" />
-            Review{activeReviewEntries.length > 0 ? ` (${activeReviewEntries.length})` : ""}
-          </Button>
-          {/* Slice 3e: the priceability OVERRIDE toggle (per-sheet, per-session). A loaded
-              gun -- its ON state is loudly amber so the user always sees it is on. Default
-              off. Suppressed for grid-only (handled by the !isGridOnly cluster gate). */}
-          <Button
-            size="sm"
-            variant={override ? "default" : "outline"}
-            className={cn(
-              "gap-1.5",
-              override &&
-                "bg-amber-500 text-white hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700",
-            )}
-            aria-pressed={override}
-            onClick={() => setOverride((o) => !o)}
-            title={
-              override
-                ? "Pricing any row is ON -- non-line-item cells are editable; priced ones are flagged for review. Click to turn off."
-                : "Allow pricing rows that aren't line items (notes, spacers). Off by default."
-            }
-          >
-            {override ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-            {override ? "Pricing any row" : "Price any row"}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => gridRef.current?.flush()}
-            title="Flush any pending edits and save now"
-          >
-            <Save className="h-4 w-4" />
-            Save now
-          </Button>
-          </>
-          )}
         </div>
-      </div>
-
-      {/* ── Single-editor lock banners (slice B) ──────────────────────────────
-          Mid-edit takeover takes precedence over the load-time holder banner. A STALE
-          lock returns editable===true -> NEITHER shows (silent auto-takeover on first
-          save). The holder banner shows ONLY when editable===false (truly blocked).
-          SUPPRESSED entirely for a grid-only sheet (no editing -> no lock). */}
-      {isGridOnly ? null : takenOver ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <p className="text-amber-900 dark:text-amber-100 flex-1">
-            This sheet was taken over by another user. Your latest change was not saved.
-            Reload to continue.
-          </p>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
-            <RefreshCw className="h-3.5 w-3.5" /> Reload
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleBack}>
-            Go to hub
-          </Button>
-        </div>
-      ) : editable === false ? (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
-          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <p className="text-amber-900 dark:text-amber-100 flex-1">
-            This sheet is being priced by{" "}
-            <span className="font-medium">{lockInfo?.locked_by_name ?? "another user"}</span>.
-            It is read-only until they finish.
-          </p>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
-            <RefreshCw className="h-3.5 w-3.5" /> Reload
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleBack}>
-            Go to hub
-          </Button>
-        </div>
-      ) : null}
-
-      {/* ── In-editor sheet tabs (slice 3d) ───────────────────────────────────
-          Switch to another COMMITTED sheet of the SAME BoQ without going out to the
-          hub. Workbook order (sheet_order); active tab = the current :sheetName
-          (VERBATIM, #152); label = the trimmed display name. A tab change navigates to
-          that sheet's editor (the hub's exact nav target) -> the route re-runs + the
-          key-remounted grid (below) flushes the old drafts and starts clean. The list
-          loads independently -- the strip simply doesn't render until it arrives. */}
-      {committedSheets.length > 0 && (
-        <Tabs
-          value={decodedSheetName}
-          onValueChange={(val) => {
-            if (val !== decodedSheetName) {
-              navigate(`/upload-boq/hub/${boqId ?? ""}/pricing/${encodeURIComponent(val)}`);
-            }
-          }}
-        >
-          <TabsList className="flex flex-wrap h-auto justify-start gap-1">
-            {committedSheets.map((s) => (
-              <TabsTrigger key={s.sheet_name} value={s.sheet_name} className="max-w-[16rem] truncate">
-                {s.sheet_name.trim() || s.sheet_name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
       )}
 
       {/* ── Editor note ───────────────────────────────────────────────────────
@@ -1367,6 +1579,13 @@ const SheetPricingPage = () => {
             // the current search hit (the grid derives the per-row highlight boolean from it).
             hiddenCols={hiddenCols}
             currentHitExcelRow={currentHitExcelRow}
+            // Collapse/expand: page-owned `collapsed` (also composes displayRows above) +
+            // childrenByParent (over FULL rows) + the toggle drive the grid's chevrons; onRevealRow
+            // powers reveal-then-scroll. GRID-LEVEL props -- NONE enter the row memo (R6).
+            collapsed={collapsed}
+            childrenByParent={childrenByParent}
+            onToggleCollapse={toggleCollapse}
+            onRevealRow={revealRow}
           />
         )}
         </div>

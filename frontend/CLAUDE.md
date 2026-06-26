@@ -672,6 +672,19 @@ wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `
 `GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
 +3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Editor toolbar two-ribbon layout (`SheetPricingPage.tsx`; presentational, move-only; full detail: plan §"Editor toolbar
+two-ribbon reorg"):** the pricing-editor sheet screen's toolbar is split into TWO ribbons sandwiching the sheet-tab strip --
+a **TOP ribbon** (Back | title | Full screen | Summary | Review (N) | Price any row | Save now | `ml-auto` status text
+[save-status chip + priced-count]) ABOVE the `<Tabs>` strip, and a **BOTTOM ribbon** (Show unpriced | Search group | Columns |
+Show: Spacers/Notes/Subtotals) BELOW it. **This was the "Toolbar Part 2 layout rework" deferred below.** LOCKED invariants:
+(1) the BOTTOM ribbon is wrapped in the SAME `{!isGridOnly}` gate that held those controls before -> a grid-only general-specs
+sheet renders **NO bottom ribbon** (and the top ribbon shows only Back/title/Full screen, as the `{!isGridOnly}` cluster
+always did); (2) coupled groups stay single JSX subtrees -- the Search group (shares `searchQuery`/`searchHits`/`safeSearchIdx`/
+`stepSearch`), the Columns popover, the Show toggles; (3) Summary/Review stay PLAIN (no pressed state); (4) all backing state
+is local `useState` so the move severs no closure -- it is purely presentational (same handlers/gates). A future Lock/unlock-edits
+button will join the TOP ribbon (separate slice). When adding a control: a document/sheet-level action -> top ribbon; a grid
+VIEW control (filter/search/column) -> bottom ribbon (inside `{!isGridOnly}`).
+
 **Toolbar Part 1 -- search + column-hide + 3 row-type filters (`SheetPricingPage.tsx` + `PricingGrid.tsx`; view-layer,
 owner-locked; full detail: plan §"Toolbar Part 1"):** the pricing-editor header now carries FIVE view-only controls
 (dropped into the existing `!isGridOnly` flex cluster; the toolbar LAYOUT rework is **Part 2, deferred until after Slice
@@ -774,9 +787,97 @@ not dropped). NO test changed (subtractive className/style removal -- no pure he
 tests stay green). **vitest 303 (PricingGrid 129, unchanged)**, tsc 3175 (0 new in PricingGrid), in-container build exit 0,
 2026-06-25; see plan §"Drop frozen-left, ship resize alone".
 
+**Hierarchy collapse/expand (`collapse.ts` [NEW pure leaf] + `PricingGrid.tsx` + `SheetPricingPage.tsx`; view-layer,
+owner-locked):** click a parent's chevron to hide its ENTIRE descendant subtree; click again to reveal. A NEW per-grid
+concept, **SEPARATE from the full-screen `expanded` flag -- do NOT touch/reuse/rename `expanded`** (it is the maximize
+axis). **State lives in the PAGE** as `collapsed: Set<number>` (of `row_index`), reset to empty in the existing
+`useEffect([sheetName])` (a tab switch + a reload start fully expanded; per-sheet per-session, NO backend persist). It
+lives in the page because it **composes the upstream `displayRows` filter** (Option A) and the visibility/descendant math
+needs the FULL unfiltered `rows` (which the page has; the grid only gets the filtered `displayRows`). **NEW pure leaf
+`collapse.ts`** (unit-tested, no React): `buildChildrenByParent` (the inverse children map the grid LACKED -- it had only
+the parent-direction `parentExcelRowOf`), `rowHasDescendants`, `descendantCount` (whole-subtree, cycle-guarded -- drives
+"+N hidden"), `isHiddenByCollapse` + `collapsedAncestors`. **`isHiddenByCollapse` MIRRORS ReviewTree.isVisible EXACTLY:**
+walk the parent chain from `row.effective_parent_index` (the PARENT, NOT the row), 60-hop cap, break on `<0` (root) +
+`cur === row.row_index` (self-cycle); a collapsed parent STAYS visible, only descendants hide; **the loop must NOT start
+at `collapsed.has(row.row_index)` -- that is the "parent disappears" trap.** All over the FULL rows (filter-independent).
+- **R4 upstream filter (VIEW-ONLY):** collapse is ONE MORE clause in the page-side `displayRows` `.filter()`, AND-composed
+  in the SAME pass as show-unpriced + row-type (`passesViewFilter(r) && (!collapseActive || !isHiddenByCollapse(...))`).
+  The priced count / `SummaryPanel` / flag feed all read the UNFILTERED `rows`, so collapsing moves NO total. The `=== rows`
+  fast path holds when nothing is filtered or collapsed.
+- **R3 search pierces collapse:** `buildSearchHits` runs over `searchUniverse` (the view-filtered set IGNORING collapse),
+  so a hit under a collapsed parent is still a hit (`searchUniverse === displayRows` when nothing collapsed -- no extra pass).
+- **R5 reveal-then-scroll:** the grid's ONE jump path `jumpToRow` (parent-click + search-step + review-strip all route
+  through it) calls the NEW grid prop `onRevealRow(excelRow)` FIRST; the page (`revealRow`) expands the target's collapsed
+  ancestors and returns TRUE iff it changed `collapsed`, so the grid defers the scroll 50ms (mirroring ReviewTree) ONLY when
+  a reveal happened (else synchronous scroll, byte-for-byte the prior behaviour). The 3s landing flash still fires.
+- **R6 row memo UNTOUCHED (load-bearing):** NOTHING was added to `pricingRowPropsAreEqual`. The chevron flips on toggle via
+  a NEW `CollapseContext`: the chevron is a SEPARATE `RowChevron` component (inside the memoized `PricingGridRow`) that reads
+  the CONTEXT, so a context change re-paints ONLY the chevrons -- the memoized row (which does NOT read the context) is
+  skipped, and keystroke/cursor perf is unaffected. This is the recon's **"derived, not carried on the row"** rule. The grid
+  receives `collapsed` / `childrenByParent` (over FULL rows) / `onToggleCollapse` / `onRevealRow` as **GRID-LEVEL props**
+  (NONE per-row, NONE in the comparator).
+- **Chevron UI:** at the Description-cell depth indent (`depth * INDENT_PX`), before the text, so it nests with the tree;
+  ONLY on rows with descendants (leaves get an invisible spacer for alignment); a FLAT sheet (`anyParents` false -> no
+  hierarchy) renders NO chevrons/spacers (no `+0 hidden`, no crash). Single-child parents collapse; mixed child node_types
+  collapse regardless of type. `tabIndex={-1}` keeps it OUT of the roving-tabindex matrix (no second tab stop; nav untouched).
+  Collapse is ABSENT on the grid-only general-specs fork (it renders `SheetDataGrid`, never `PricingGrid`). vitest 307 -> 320
+  (+13 `collapse.test.ts`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan §"Collapse/expand".
+
+**Collapse/expand ALL -- bottom-ribbon bulk toggle (`SheetPricingPage.tsx` + `collapse.ts`; view-layer, owner-locked):**
+ONE state-aware toggle button in the `{!isGridOnly}` BOTTOM ribbon (immediately after Show-unpriced, same `size="sm"
+variant="outline" className="gap-1.5"` template) that folds/unfolds the WHOLE hierarchy at once. **REUSES the slice-1
+engine -- NO new state, NO new context, the row memo + full-screen `expanded` UNTOUCHED.** **Option A (owner-locked):**
+"Collapse all" does `setCollapsed(collapsibleParents(childrenByParent))`, where the NEW pure one-liner
+`collapsibleParents(map) = new Set(map.keys())` (collapse.ts, unit-tested) is every collapsible parent's row_index -> only
+top-level roots remain (NOT the shallowest-tier model, which is SummaryPanel's separate *default view*). **size===0 rule
+(owner-locked):** label + action key off `collapsed.size === 0` -- size 0 -> "Collapse all" (`ChevronsDownUp`); size > 0
+-> "Expand all" (`ChevronsUpDown`) -> `setCollapsed(new Set())`. So a PARTIALLY hand-collapsed sheet reads "Expand all"
+(the button returns the sheet to clean -- SummaryPanel's proven rule). **DISABLED** when `childrenByParent.size === 0` (a
+flat sheet -- nothing to fold). It writes the SAME page `collapsed` set the per-parent chevrons read via `CollapseContext`,
+so chevrons + "+N hidden" reflect a bulk collapse with ZERO new wiring; composes into the existing `displayRows` filter
+(VIEW-ONLY -- counts/Summary read unfiltered `rows`, no total moves); "Expand all" hides nothing so it does NOT route
+through reveal-then-scroll. Absent on grid-only sheets (inherits the `{!isGridOnly}` gate). vitest 320 -> 323
+(+3 `collapse.test.ts`: `collapsibleParents`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan
+§"Collapse/expand ALL".
+
+**Deliberate per-sheet lock/unlock (`SheetPricingPage.tsx` + `boqTypes.ts`; FULL-STACK, server-enforced, owner-locked):**
+a USER-CONTROLLED, PERSISTED, CROSS-USER read-only lock -- the pricing twin of the review-screen "Finalized" freeze
+(backend detail in root CLAUDE.md). The frontend rides the EXISTING `locked` choke point: `isLocked =
+pricedData?.message?.is_locked ?? false` (a SEPARATE payload key from `editable`); `locked = editable === false ||
+takenOver || isLocked`. That ALONE makes the grid read-only -- all six save handlers already withhold on `locked`
+(callback-presence gate), and the "Price any row" override lives INSIDE `isRateEditableRow` ANDed AFTER the withheld
+`onSaveRate`, so **the lock is ABSOLUTE: override can never reach past it** (NO parallel override gate; `pricingRowPropsAreEqual`
+UNTOUCHED). **The toggle** is a state-aware Lock/Unlock `Button` in the TOP-ribbon right cluster, INSIDE `{!isGridOnly}`
+(absent on grid-only sheets), with a DISTINCT icon (`ShieldCheck`/`ShieldOff`, not the override's Lock/Unlock), **NOT gated
+by `locked`** (the one control that stays live so unlock is always reachable), disabled while the POST is in flight / the
+sheet is uncommitted, loudly TEAL when locked; on click it POSTs `lock_sheet`/`unlock_sheet` then `mutate()`s the
+priced-rows query. **The signal** is a TEAL `ShieldCheck` banner when `isLocked`, VISUALLY DISTINCT from the two amber
+concurrency banners; **PRECEDENCE: the deliberate-lock banner DOMINATES** (shown even if takeover/holder is also true --
+the persistent reason wins). The override toggle + "Save now"/flush button are **disabled when locked** (inert under the
+lock -- removes clickable-but-dead confusion). Types: `is_locked: boolean` on `GetPricedRowsResponse`, `is_locked?: boolean`
+on `CommittedSheetState`. vitest 323 (unchanged -- UI, owner-live-certed; no new pure leaf), tsc 3175 (0 new), in-container
+build exit 0, 2026-06-26; see root CLAUDE.md (backend) + plan §"Lock/unlock edits".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Drop frozen-left, ship resize alone -- the frozen-left
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Deliberate lock/unlock (2026-06-26) -- a user-controlled,
+persisted, cross-user, SERVER-ENFORCED per-sheet read-only lock (the pricing twin of the review "Finalized" freeze): rides
+the existing `locked` choke point (`locked = editable===false || takenOver || isLocked`, the override can't bypass it,
+`pricingRowPropsAreEqual` untouched), a top-ribbon teal `ShieldCheck` Lock/Unlock toggle [stays live when locked, distinct
+icon from the override] -> `lock_sheet`/`unlock_sheet` + mutate, a teal banner that DOMINATES the amber concurrency banners,
+override + Save-now disabled when locked; backend = `BoQ Sheet.is_locked` + `_guard_sheet_not_locked` in all six save_*
+endpoints + the `get_priced_rows`/`get_committed_state` fold (root CLAUDE.md); test_pricing 151->158, vitest 323, tsc 3175
+(0 new); see the lock/unlock rule above + plan §"Lock/unlock edits". Prior: Collapse/expand ALL (2026-06-26) -- a bottom-ribbon
+state-aware toggle that folds/unfolds the WHOLE pricing-grid hierarchy (Option A = `collapsibleParents` = every parent;
+`collapsed.size === 0` drives label "Collapse all"/"Expand all"; disabled on a flat sheet; reuses the slice-1 `collapsed`
+set + engine, NO new state, memo + full-screen `expanded` untouched); vitest 320 -> 323, tsc 3175 (0 new), see the
+collapse/expand-all rule above + plan §"Collapse/expand ALL". Prior: Hierarchy collapse/expand (2026-06-26) -- single-row
+collapse in the pricing grid (click a parent chevron to fold its whole descendant subtree; NEW pure leaf `collapse.ts`;
+page-owned `collapsed: Set<number>` composing the upstream `displayRows` filter [Option A]; `isHiddenByCollapse` mirrors
+ReviewTree.isVisible; a `+N hidden` badge DERIVED live; search PIERCES collapse + reveal-then-scroll via `onRevealRow`;
+the row memo `pricingRowPropsAreEqual` is UNTOUCHED -- the chevron flips via a `CollapseContext`-reading `RowChevron`, not
+a per-row prop; full-screen `expanded` untouched); vitest 307 -> 320, tsc 3175 (0 new), see the collapse/expand rule above
++ plan §"Collapse/expand". Prior: Drop frozen-left, ship resize alone -- the frozen-left
 (sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
 scroll: frozen cells paint in place, scrolling columns clip behind + don't reset on scroll-back; the border-separate flip
 was wrong-axis + reverted; a two-pane fix fights resize's wrap-grow + doubles the row memo -- not worth it now), so the
@@ -1208,7 +1309,17 @@ its `readOnly` gating already freezes everything).
 - **`append_notes_raw` is a `dict[str,str]`** keyed `column_headers.get(col_letter, col_letter)` (header text when mapped, else bare Excel letter; classifier.py:983); empty columns OMITTED; values are strings. The writer flattens to `"key: value"` joined `" | "` (flat, no JSON blobs per §8); defensively handles array/string/null.
 - **CSV mechanics:** `Papa.unparse`; prepend a UTF-8 BOM so Excel renders rupee/unicode; filename a bare basename + `.csv` ONCE (the shared util's double-extension trap). Export is the sheet's DATA in row_index order, NOT the current view (filters/collapse/search ignored). The "Export CSV" button is NOT gated on status (a frozen/checked sheet is the prime export target).
 - **XLSX dependency rule (reusable):** `exceljs` is **DYNAMICALLY imported** (`(await import("exceljs")).default`) so it stays in its OWN lazy chunk (~942 kB), absent from the hub/entry chunks. The npm `xlsx` (SheetJS) is FORBIDDEN (abandoned + 2 unpatched high-severity CVEs). **Install heavy deps IN-CONTAINER** (host installs corrupt the Linux-native node_modules). One worksheet per ticked sheet, header row bold, NO BOM (xlsx needs none). **Tab-name sanitize + dedupe (`sanitizeSheetTabName`/`dedupeTabName`) is TAB-TITLE ONLY** (#152): strip `: \ / ? * [ ]`, TRIM (Excel rejects the trailing-space corpus names as tab titles -- load-bearing), truncate to 31, " (2)"/" (3)" on collision; the Sheet Name COLUMN stays verbatim.
-- **Hub vs card:** the global "Export reviewed" hub button -> `ExportWorkbookDialog` (ParseRunDialog pattern: pre-ticked Finalized sheets, sequential per-sheet `get_review_rows` fetch, abort-on-any-failure -> no partial file) -> ONE .xlsx; a per-card "Export CSV" -> the existing `buildAndDownloadReviewCsv` -> a single .csv. The hub owns all fetches; SheetCard stays fetch/router-free.
+- **Hub vs card:** the hub **"Export Parsed BoQ"** action (label renamed from "Export Finalized"; now an item in the hub footer "Export" overflow menu -- see the toolbar-rework note below) -> `ExportWorkbookDialog` (ParseRunDialog pattern: pre-ticked Finalized sheets, sequential per-sheet `get_review_rows` fetch, abort-on-any-failure -> no partial file) -> ONE .xlsx; a per-card "Export CSV" -> the existing `buildAndDownloadReviewCsv` -> a single .csv. The hub owns all fetches; SheetCard stays fetch/router-free.
+
+**Download priced tender conventions (Phase 5 Slice 5b -- `PricedTenderDialog.tsx` + `downloadBlob.ts` + `BoqHubPage.tsx` + `SheetCard.tsx` + `boqTypes.ts`; full detail: plan section "Slice 5b"):** the hub UI for the 5a Excel write-back. **DELIBERATELY DISTINCT from "Export Parsed BoQ"** (`ExportWorkbookDialog`, the D2b fresh review .xlsx built client-side from review rows; label renamed from "Export Finalized") -- this DOWNLOADS THE ORIGINAL TENDER FILE with the priced rates + the user's colour/remark notes stamped in SERVER-SIDE (the 5a `export_priced_workbook` endpoint). The two must never read as duplicates -- both now live as items in the hub footer "Export" overflow menu (see the toolbar-rework note below).
+
+- **The button:** a NEW "Download priced tender" Button (6th sibling in the hub header action cluster, after Tendering), `variant="outline"` + `<Download/>` icon, gated `disabled={committedMap.size === 0}` with the Tooltip disabled-reason pattern (mirrors the Tendering button). Opens `PricedTenderDialog`.
+- **`PricedTenderDialog`** mirrors `CommitDialog`'s `committedState`-driven rows + per-row metadata sub-line, with `ExportWorkbookDialog`'s self-contained "confirm does the download" shape (it calls the endpoint, downloads, then hands the result up via `onDownloaded` -- no result-callback-then-hub-does-the-work split). **Source = `committedMap`** (the COMMITTED sheets, the SAME source `TenderingDialog` uses -- NOT `committableSheets`/eligibility). **All finalized (`grid_and_nodes`) rows ticked by default**; grid-only general-specs rows (`sheet_disposition === "grid_only"`) are **SHOWN but DISABLED** (`checked={!isGridOnly && isTicked}`, `disabled={running || isGridOnly}`) labelled "(no rates to write)" -- they pass through the workbook untouched so ticking would be a no-op. Per-row sub-line: `last exported {date}` / `never exported` + an amber "changed since export" when `pricing_changed_since_export`. Reset ticked set in `useEffect([open])`; dismiss-guard while `running`; inline `getFrappeError`.
+- **`downloadBlob.ts` (NEW, the download mechanics):** `base64ToBytes(base64): Uint8Array` is PURE (atob loop) + unit-tested (`downloadBlob.test.ts`); `downloadBytes(bytes, filename, contentType)` is the `exportReviewXlsx` download tail (`new Blob([bytes],{type}) -> URL.createObjectURL -> anchor[download] -> click -> revokeObjectURL`) -- DOM-side, **owner-cert-live, NOT headless-unit-runnable**. The dialog decodes `res.message.content_base64` and downloads under `res.message.filename`. (5a returns base64-in-JSON because the file-only `frappe.response.filecontent` can't also carry the skipped-formula report.)
+- **Skipped-formula message:** the hub's `onDownloaded` opens an acknowledge-only `AlertDialog` (single OK, mirrors `CommitResultsModal`) confirming the download + -- when `skipped_formula_columns` is non-empty -- naming the sheets+columns left untouched because they hold formulas (the 0 client-owned-doc requirement: tell the user what we did NOT write). Plain success when none skipped. `onDownloaded` also `mutateCommittedState()` so the staleness chips refresh.
+- **Staleness chip on `SheetCard`:** a muted amber "priced since last export" chip rendered when `committedState.pricing_changed_since_export` -- rides the EXISTING `committedState` prop (NO new prop wiring), styled like the needs-attention chip. `last_exported_at` + `pricing_changed_since_export` are ADDITIVE on `CommittedSheetState` (server-computed by `get_committed_state`, version-isolated to the current commit_version); `ExportPricedWorkbookResponse` is the NEW endpoint response type. **Completes the Slice-5 write-back arc.** vitest 303 -> 307 (+4 `base64ToBytes`), tsc 3175 (0 new). OWED live-cert: (i) VRF formula-skip live proof; (ii) unticked/grid-only-unchanged + chip flip/clear.
+
+**Hub footer toolbar conventions (toolbar-rework slice -- `BoqHubPage.tsx`; presentational):** the parse-gate footer action row was reworked from 6 buttons to **4 visible buttons + an "Export" overflow `DropdownMenu`** (it was crowding the status-line sibling). LOCKED layout: **Parse workbook (primary) / Re-parse / Commit / Tendering** stay visible, all **`size="sm"`**, gates/handlers/Tooltip-disabled-reason wrappers UNCHANGED; the **two export actions live in the "Export" menu** (a labelled "Export" + `ChevronDown` trigger -- DISTINCT from the top-of-card `MoreHorizontal` "More options" menu; reuses `@/components/ui/dropdown-menu`, mirroring the in-file header menu). **Menu-item disabled-reason rule (reusable):** a disabled Radix `DropdownMenuItem` suppresses pointer events, so a hover-tooltip is unreliable -- instead disable the item per its gate AND render a muted inline reason line (`DropdownMenuLabel`, `text-xs font-normal text-muted-foreground`) ONLY when disabled, reusing the button's old tooltip string. The menu **trigger stays always-clickable** (independent gates -- the menu must open to show which action is available). Moving a button into a menu item is PURELY PRESENTATIONAL: same gate expression, same `onClick` (the `setXDialogOpen` setters + dialogs + mounts are untouched). The export label was renamed **"Export Finalized" -> "Export Parsed BoQ"** (menu item + `ExportWorkbookDialog` title "Export Parsed BoQ to Excel" + comments; internal identifiers `ExportWorkbookDialog`/`exportReviewXlsx`/`exportEligibleSheetNames`/`setExportDialogOpen` UNCHANGED). Future footer actions: add a visible `size="sm"` button only if it is a primary flow; otherwise add an "Export"/overflow menu item with the same disabled-reason pattern.
 
 **Slice D1 Parsed Check Done freeze conventions (`boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
 

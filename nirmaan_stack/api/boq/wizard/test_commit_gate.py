@@ -409,3 +409,142 @@ class TestGetCommittedStateDisposition(FrappeTestCase):
         }
         self.assertEqual(by_sheet["Specs"]["sheet_disposition"], "grid_only")
         self.assertEqual(by_sheet["Electrical"]["sheet_disposition"], "grid_and_nodes")
+
+
+class TestGetCommittedStateStaleness(FrappeTestCase):
+    """Slice 5b: get_committed_state additionally returns last_exported_at + a computed
+    pricing_changed_since_export boolean. Seeds, per scenario, a current grid row + a matching
+    current BoQ Sheet (carrying last_exported_at) + pricing/color/remark rows (carrying
+    priced_at/colored_at/remarked_at), and asserts the boolean -- including version isolation
+    (an OLD commit_version's timestamp must NOT mark the CURRENT version stale)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = _TEST_PROJECT_COMMITTED
+        boq.boq_name = "Shared Test BoQ for Committed State Staleness"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        T_EARLY = "2026-06-20 10:00:00"
+        T_LATE = "2026-06-21 10:00:00"
+        T_LATER = "2026-06-22 10:00:00"
+
+        # Stale: exported EARLY, priced LATE -> changed since export.
+        cls._seed(cls.boq_name, "Stale", 1, last_exported=T_EARLY, priced_at=T_LATE)
+        # Fresh: priced LATE, exported LATER -> not stale.
+        cls._seed(cls.boq_name, "Fresh", 1, last_exported=T_LATER, priced_at=T_LATE)
+        # NeverExported: content exists, never exported -> stale.
+        cls._seed(cls.boq_name, "NeverExported", 1, last_exported=None, priced_at=T_LATE)
+        # NoContent: exported, but nothing priced/colored/remarked -> not stale.
+        cls._seed(cls.boq_name, "NoContent", 1, last_exported=T_EARLY)
+        # ColorDriven: a COLOR after export drives staleness (not just rates).
+        cls._seed(cls.boq_name, "ColorDriven", 1, last_exported=T_EARLY, colored_at=T_LATE)
+        # OldVer: current version 2 exported EARLY; a priced row on the OLD version 1 (is_current=1
+        # for ITS identity) at T_LATE must NOT mark version 2 stale.
+        cls._seed(cls.boq_name, "OldVer", 2, last_exported=T_EARLY)
+        cls._price(cls.boq_name, "OldVer", 1, T_LATE)  # old-version content, current for its id
+        frappe.db.commit()
+
+    @staticmethod
+    def _grid(boq, sheet, version):
+        d = frappe.new_doc("BoQ Committed Sheet Grid")
+        d.boq = boq
+        d.source_sheet_name = sheet
+        d.commit_version = version
+        d.is_current = 1
+        d.committed_at = "2026-06-19 09:00:00"
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @staticmethod
+    def _boqsheet(boq, sheet, version, last_exported):
+        d = frappe.new_doc("BoQ Sheet")
+        d.boq = boq
+        d.sheet_name = sheet
+        d.sheet_order = 1
+        d.treat_as = "data"
+        d.commit_version = version
+        d.is_current = 1
+        d.committed_at = "2026-06-19 09:00:00"
+        if last_exported:
+            d.last_exported_at = last_exported
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @staticmethod
+    def _price(boq, sheet, version, priced_at):
+        d = frappe.new_doc("BoQ Cell Pricing")
+        d.boq = boq
+        d.sheet_name = sheet
+        d.excel_row = 10
+        d.col_letter = "E"
+        d.committed_version = version
+        d.rate = 100.0
+        d.is_filled = 1
+        d.pricing_version = 1
+        d.is_current = 1
+        d.priced_at = priced_at
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @staticmethod
+    def _color(boq, sheet, version, colored_at):
+        d = frappe.new_doc("BoQ Cell Color")
+        d.boq = boq
+        d.sheet_name = sheet
+        d.excel_row = 10
+        d.col_letter = "B"
+        d.committed_version = version
+        d.color = "red"
+        d.color_version = 1
+        d.is_current = 1
+        d.colored_at = colored_at
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @classmethod
+    def _seed(cls, boq, sheet, version, last_exported=None, priced_at=None, colored_at=None):
+        cls._grid(boq, sheet, version)
+        cls._boqsheet(boq, sheet, version, last_exported)
+        if priced_at:
+            cls._price(boq, sheet, version, priced_at)
+        if colored_at:
+            cls._color(boq, sheet, version, colored_at)
+
+    @classmethod
+    def tearDownClass(cls):
+        name = getattr(cls, "boq_name", None)
+        if name:
+            for dt in ("BoQ Cell Pricing", "BoQ Cell Color", "BoQ Cell Remark",
+                       "BoQ Sheet", "BoQ Committed Sheet Grid"):
+                frappe.db.delete(dt, {"boq": name})
+            frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _by_sheet(self):
+        return {r["sheet_name"]: r for r in get_committed_state(self.boq_name)["committed_state"]}
+
+    def test_last_exported_at_surfaces(self):
+        bs = self._by_sheet()
+        self.assertIsNotNone(bs["Stale"]["last_exported_at"], "exported sheet carries the timestamp")
+        self.assertIsNone(bs["NeverExported"]["last_exported_at"], "never-exported sheet is None")
+
+    def test_stale_true_when_change_after_export(self):
+        self.assertTrue(self._by_sheet()["Stale"]["pricing_changed_since_export"])
+
+    def test_fresh_false_when_export_after_change(self):
+        self.assertFalse(self._by_sheet()["Fresh"]["pricing_changed_since_export"])
+
+    def test_never_exported_with_content_is_true(self):
+        self.assertTrue(self._by_sheet()["NeverExported"]["pricing_changed_since_export"])
+
+    def test_no_content_is_false(self):
+        self.assertFalse(self._by_sheet()["NoContent"]["pricing_changed_since_export"])
+
+    def test_color_change_also_marks_stale(self):
+        self.assertTrue(self._by_sheet()["ColorDriven"]["pricing_changed_since_export"],
+                        "a color edit after export marks the sheet stale, not just rates")
+
+    def test_version_isolation_old_version_not_stale(self):
+        # OldVer current = v2 (exported early); the only content is on v1 -> NOT stale.
+        self.assertFalse(self._by_sheet()["OldVer"]["pricing_changed_since_export"],
+                         "an old version's timestamp must not mark the current version stale")

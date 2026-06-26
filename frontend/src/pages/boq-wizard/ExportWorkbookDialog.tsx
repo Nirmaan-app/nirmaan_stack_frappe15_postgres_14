@@ -137,7 +137,7 @@ export function ExportWorkbookDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Export Finalized sheets to Excel</DialogTitle>
+          <DialogTitle>Export Parsed BoQ to Excel</DialogTitle>
           <DialogDescription>
             One workbook with a tab per sheet. All Finalized sheets are selected by
             default; untick any you want to leave out.

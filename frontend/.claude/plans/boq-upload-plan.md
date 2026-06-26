@@ -9606,3 +9606,354 @@ only -- `PricingGrid.test.ts` UNCHANGED). Frontend-only, NO backend/doctype/migr
   scroll; LC9 current-hit yellow / jump-flash blue / row hover still show on the anchor cells (now via the normal `<tr>` bg);
   LC10 nav / parent-jump+flash / rate edit + auto-save still behave; LC11 full-screen resize + sticky header + nav; LC12
   repeat LC1/LC2/LC7 on 145/150/166.
+
+### Slice 5a -- Excel write-back BACKEND core (priced-workbook generator) (BACKEND, MIGRATE [additive field], base tip e9833dc5, 2026-06-25)
+
+**NEW module `nirmaan_stack/api/boq/wizard/export_writeback.py` + endpoint `export_priced_workbook(boq_name, sheet_names)`**
+(a sibling module, NOT folded into the 2076-line pricing.py per the >500-line split rule). Preceded by two Checklist-B-PASS
+recons (DATA SHAPE + WRITE-PATH MECHANICS). BACKEND-ONLY -- the hub UI is **Slice 5b (NEXT)**.
+
+**The write-back contract as built (owner-locked, governing principle 0 -- the tendering doc is client-owned; we write RATES
+only + the user's own color/remark annotations; NEVER amounts/formulas/structure):**
+- **Resolve current version server-side.** The client passes only `boq_name` + `sheet_names` (a list; JSON-string coerced
+  via `_coerce_names`, mirrors `commit_pipeline._coerce_subset`). `_resolve_sheet_plan` reads the CURRENT committed
+  `BoQ Sheet` per sheet (is_current=1) -> name / commit_version / treat_as / column_role_map / header_row; throws "No
+  committed version" if absent. The client NEVER passes a version.
+- **COPY-ON-WRITE.** `_fetch_boq_file_to_tempfile(source_file_url)` (reused from sheet_preview) -> `shutil.copy` to a second
+  temp; ONLY the copy is stamped + saved; the original temp and the S3 object are NEVER written. Both temps unlinked in a
+  `finally`. (Chosen over fetch-and-stamp-that-temp for an explicit immutable-original guarantee.)
+- **`openpyxl.load_workbook(copy, data_only=False)`** -- formulas preserved as strings. The `data_only=True` trap (loads
+  cached VALUES, discards formulas on save) is explicitly avoided + documented.
+- **RATES ONLY + PER-CELL FORMULA SKIP (`_stamp_rates`).** For each current+is_filled `BoQ Cell Pricing` row, stamp `rate`
+  into `(col_letter, excel_row)` -- BUT if `cell.data_type == 'f'` the cell is LEFT UNTOUCHED and recorded as a skipped
+  formula-rate column (decided against the REAL file, never inferred from the role name -- e.g. a VRF combined-rate
+  `=SUM(supply,install)`). Returned per-sheet as `skipped_formula_columns` (unique col_letters) for 5b to surface (the 0
+  requirement: tell the user which rate columns we left untouched).
+- **COLOR -> PatternFill (`_apply_colors`).** For each current `BoQ Cell Color`, a solid `PatternFill(fgColor=hex)` at the
+  tagged `(col_letter, excel_row)` -- ANY column incl. non-rate (a description cell). A fill sets ONLY `.fill`; the cell
+  `.value`/formula is never touched (NOT subject to the formula-skip rule -- a colored formula cell keeps its formula).
+  **The 8 token->hex map is DECIDED HERE** (`_COLOR_HEX`, the one place a hex is chosen -- light, distinct tints so cell
+  text stays readable): red `FFC7CE`, orange `FFD9A0`, yellow `FFEB9C`, green `C6EFCE`, blue `BDD7EE`, purple `E1D5F7`,
+  pink `FBD4E4`, grey `D9D9D9`.
+- **REMARK -> "Nirmaan Remarks" TRAILING COLUMN (`_write_remark_column`).** The column lands **one past the TRUE DATA EDGE**
+  = `_rightmost_mapped_col_index(column_role_map) + 1` (the rightmost MAPPED letter from the committed `column_role_map` --
+  deliberately NOT openpyxl `max_column`, which recon found inflated by empty styled cells out to AC/Z/AS). **HARD SAFETY
+  CHECK `_col_is_empty`:** if the target column carries ANY value/formula across the sheet, the export THROWS (never
+  overwrite real data). Header `"Nirmaan Remarks"` at `header_row`; each `BoQ Cell Remark.remark` at its `excel_row`.
+- **POST-SAVE FIDELITY ASSERTION (`_fidelity_snapshot` + `_assert_fidelity`).** After save, re-open the saved copy and assert
+  the four invariants are unchanged vs the pre-stamp copy: total formula-cell count, merged-range count, worksheet count,
+  defined-name count. A mismatch FAILS the export with a naming error (reject-mutates-nothing -- no file returned, no
+  last_exported_at stamp). (Recon: 145 carries 33 conditional formats, 166 carries 4585 defined names; live verify passed.)
+- **`last_exported_at` (NEW additive `Datetime` on BoQ Sheet).** Stamped per exported sheet AFTER the fidelity pass via
+  `frappe.db.set_value(..., update_modified=False)` -- NOT `doc.save` (the list-valued `area_dimensions` JSON throws on a
+  full save; mirrors the commit pipeline's set_value-on-this-tier idiom). Drives the future "pricing changed since last
+  export" signal (compared against `MAX(BoQ Cell Pricing.priced_at)` on the current version -- recon #2 C2).
+- **Grid-only general-specs sheets** (`treat_as == "master_preamble"`) pass through UNTOUCHED (no stamp) but still count as
+  exported (ticked => last_exported_at stamped).
+- **RETURN = base64-in-JSON (NOT `frappe.local.response.filecontent`).** The file-only download idiom cannot carry the
+  skipped-formula report alongside the bytes, so ONE JSON response carries both:
+  `{filename, content_type, content_base64, exported_sheets, skipped_formula_columns, remark_columns, last_exported_at}`.
+  5b decodes `content_base64` -> Blob -> browser download (reusing the existing exceljs-export download tail) and surfaces
+  `skipped_formula_columns`. The whitelisted endpoint is a thin shell (validate -> fetch S3 -> copy -> `_generate_priced_workbook`
+  -> cleanup); the worker `_generate_priced_workbook(boq, sheet_names, src_path)` takes an already-fetched copy path so tests
+  inject a synthetic workbook and bypass S3.
+
+**Tests:** `test_pricing` 126 -> 145 (+19). `TestExportWritebackPureHelpers` (hermetic, synthetic workbooks): stamp lands +
+paired formula preserved; formula-skip (the =SUM case) reported; formula-vs-value-vs-blank distinguished; color fills any
+cell incl. a formula cell; unknown token skipped; rightmost-mapped-edge; remark column at the true edge; remark refuses a
+non-empty target; col-is-empty (a real 0 is data); fidelity clean round-trip PASSES; fidelity FAILS on each of the four
+invariants diverging (non-vacuous). `TestExportWritebackEndToEnd` (committed fixture + injected synthetic workbook): stamp +
+last_exported_at set_value; skipped-formula reported; remark column; color fill survives the round-trip; neg
+(uncommitted-sheet / unknown-boq / empty-list / missing-boq throw). **Live end-to-end verify on all three canonical BoQs
+(145/150/166): fidelity PASSES, incl. 166's 4585 defined names; 145's J remark column confirmed against a genuinely-empty
+column.** `bench migrate` landed `last_exported_at` (the schema sync runs BEFORE the pre-existing unrelated
+`backfill_cashflow_gap_limited` patch wart, which aborts the patch phase -- NOT this slice's, NOT fixed). NO Vitest/tsc
+(backend-only). **NEXT = Slice 5b (hub UI: export picker mirroring CommitDialog + the base64->Blob download + the
+skipped-formula + staleness surfacing).**
+
+**Amendment (2026-06-25) -- priced-cell verification highlight (BACKEND, no schema/migrate, commit 95f07c47):** an
+ALWAYS-ON Nirmaan-facing "which cells did we write" aid -- a muted-teal solid PatternFill (`_PRICED_HIGHLIGHT_HEX =
+"B7E4D8"`, a SEPARATE constant from the 8 user tokens in `_COLOR_HEX`, distinct from user green C6EFCE / blue BDD7EE so a
+system mark never reads as a user tag) on every rate cell the write-back ACTUALLY stamped. **RULE 1 (stamped-only):**
+`_stamp_rates` now returns `(skipped, written)` and the new `_apply_priced_highlight` is driven by `written`, so a SKIPPED
+formula rate cell (data_type=='f', e.g. a VRF combined-rate `=SUM`) gets NO teal -- teal doubles as the live signal of the
+rates-only + formula-skip rule (no-teal on a rate cell = the client's formula was left untouched). **RULE 2 (system wins):**
+`_apply_priced_highlight` runs AFTER `_apply_colors` in the per-sheet pass, so on a stamped rate cell that ALSO carries a
+user color tag the teal lands last and WINS (the aid must be exhaustive over written cells -- the ONE place a system fill
+beats a user fill); a user color on a NON-stamped cell is untouched. **RULE 3:** only stamped RATE cells (never
+remark/amount cells, never the Nirmaan Remarks column). A fill sets only `.fill` -- the stamped rate value is untouched; the
+post-save fidelity assertion is unaffected (a fill changes no formula/merge/sheet/defined-name count). NO schema / NO
+migrate. `test_pricing` 145 -> 151 (+6); live-verified on 145 Electrical (stamped E24/H24/E34 carry teal, amount F36 does
+not, version-isolated to the current committed version). NO frontend (Vitest/tsc N/A).
+
+### Slice 5b -- Download priced tender hub UI + staleness (FULL-STACK, NO schema/migrate, base tip 0b0b7eaf, 2026-06-25)
+
+**The hub UI for the 5a Excel write-back** -- download the original tender workbook with the priced rates + the user's
+colour/remark notes stamped in. Completes the Slice-5 arc (5a backend + highlight + 5b UI).
+
+**Backend (additive, NO schema, NO migrate -- `commit_gate.get_committed_state`):** the endpoint now ALSO returns, per
+committed sheet, two ADDITIVE fields (existing keys UNCHANGED -> existing consumers unbroken):
+- **`last_exported_at`** -- the committed `BoQ Sheet.last_exported_at` (5a field). FREE: folded into the EXISTING
+  `is_current=1` BoQ Sheet lookup the endpoint already does for `sheet_order` (one field added to `fields=[...]`).
+- **`pricing_changed_since_export`** (bool) -- TRUE iff `max(priced_at over BoQ Cell Pricing, colored_at over BoQ Cell
+  Color, remarked_at over BoQ Cell Remark)` for the sheet's **CURRENT** `commit_version` (`is_current=1`) is AFTER
+  `last_exported_at`; content-exists-but-never-exported -> TRUE; nothing priced/colored/remarked -> FALSE. **Version-isolated**
+  (the new `_latest_change_by_sheet_version` groups by `(sheet_name, committed_version)`, so an OLD version's timestamp can
+  never mark the current version stale). Three GROUPED queries total (NOT per-sheet); `_is_changed_since_export` normalizes
+  both sides via `frappe.utils.get_datetime` (get_all-Datetime vs raw-SQL-MAX type-robust). Server-computed (one hub fetch,
+  the `get_stale_sheets` idiom) -- NO separate endpoint.
+
+**Frontend:**
+- **NEW "Download priced tender" hub button** (6th sibling in the header action cluster, gated on `committedMap.size > 0`,
+  Tooltip/disabled-reason pattern). **DELIBERATELY distinct from "Export Parsed BoQ"** (the D2b draft-review .xlsx built
+  client-side -- renamed from "Export Finalized" in the footer-rework slice below): this downloads the ORIGINAL tender file
+  stamped server-side.
+- **NEW `PricedTenderDialog.tsx`** -- mirrors CommitDialog's `committedState`-driven rows + per-row metadata sub-line, with
+  ExportWorkbookDialog's self-contained "confirm does the download" shape. Source = `committedMap` (committed sheets, same as
+  TenderingDialog -- NOT `committableSheets`). **All finalized (grid_and_nodes) rows ticked by default** (reset in
+  `useEffect([open])`); **grid-only general-specs rows SHOWN but DISABLED ("no rates to write")** (passthrough no-op).
+  Per-row sub-line: `last exported {date}` / `never exported` + an amber "changed since export" when
+  `pricing_changed_since_export`. Dismiss-guard while running; inline `getFrappeError`.
+- **NEW `downloadBlob.ts`** -- `base64ToBytes` (PURE, unit-tested) + `downloadBytes` (the `exportReviewXlsx` `Blob ->
+  createObjectURL -> anchor[download] -> click -> revokeObjectURL` tail). The dialog calls `export_priced_workbook`, decodes
+  `content_base64`, downloads, then hands the result up via `onDownloaded`.
+- **Skipped-formula message** (0 client-owned-doc requirement -- tell the user what we left untouched): an acknowledge-only
+  results note (`AlertDialog`, single OK, mirrors `CommitResultsModal`) names the sheets+columns left untouched because they
+  hold formulas; plain success when none skipped. The hub `onDownloaded` mutates `get_committed_state` so the staleness chips
+  refresh.
+- **Per-sheet staleness chip on `SheetCard`** -- a muted amber "priced since last export" chip when
+  `committedState.pricing_changed_since_export` (rides the EXISTING `committedState` prop -- NO new wiring; mirrors the
+  needs-attention chip styling).
+- **`boqTypes.ts`**: `CommittedSheetState` gains `last_exported_at?` + `pricing_changed_since_export?`; NEW
+  `ExportPricedWorkbookResponse`.
+
+**Tests:** backend `test_commit_gate` 20 -> 27 (+7: last_exported_at surfaces null/value, stale TRUE when change-after-export,
+FALSE when export-after-change, never-exported-with-content TRUE, no-content FALSE, colour-driven TRUE, version-isolation).
+frontend vitest 303 -> 307 (+4: `base64ToBytes`). tsc 3175 (0 new). NO migrate. Backend extension live-verified on
+BOQ-26-00145 (both fields surface, staleness + version-isolation correct). The browser download round-trip (`atob -> Blob ->
+anchor`) is **owner-certified live, NOT headless-unit-runnable**.
+
+**OWED live-cert (pending Nitesh):** (i) **VRF formula-skip live proof** -- price a VRF combined-rate (`=SUM`) cell,
+Download priced tender, confirm the column appears in the skipped-formula note + the cell stays a formula + carries NO teal;
+(ii) **uncommitted/unticked-sheet-unchanged** -- a grid-only sheet (disabled, untickable) and an unticked finalized sheet are
+not stamped; LC the staleness chip flips after a new price + clears after a re-download.
+
+### Hub footer toolbar rework -- export overflow menu + compact + rename (FRONTEND, presentational, NO migrate, base tip d3539e5b, 2026-06-25)
+
+**Declutter the hub parse-gate footer action row** (was 6 buttons -> too crowded; squeezed the status line into a thin
+column). Frontend-only, presentational -- NO backend / schema / migrate / dialog-logic change.
+
+- **4 buttons stay visible** (reordered, Parse first): **Parse workbook** (primary) / **Re-parse** / **Commit** /
+  **Tendering**. Their gate expressions (`!canParse || parseInFlight`, `!canReparse || parseInFlight`,
+  `committableSheets.length === 0`, `committedMap.size === 0`), `onClick` handlers, and Tooltip-as-disabled-reason wrappers
+  are UNCHANGED -- only order + size changed.
+- **The 2 export actions moved into an "Export" overflow `DropdownMenu`** (mirrors the in-file header "More options"
+  pattern; reuses `@/components/ui/dropdown-menu`). The trigger is a labelled **"Export" + `ChevronDown`** Button (NOT the
+  bare `MoreHorizontal` "More options" card menu -- distinct on purpose). Items: **Export Parsed BoQ** (renamed; D2b;
+  `setExportDialogOpen(true)`; gate `exportEligibleSheetNames.length === 0`) + **Download priced tender** (5b;
+  `setPricedDialogOpen(true)`; gate `committedMap.size === 0`), each with a `<Download/>` icon. The dialogs + open-state
+  setters + mounts are UNTOUCHED -- only the triggers relocated (purely presentational; same gate, same handler).
+- **Disabled-reason in the menu (option c):** a disabled Radix menu item suppresses pointer events, so a hover-tooltip is
+  unreliable -- instead each export item is `disabled` when its gate is unmet AND a muted inline reason line
+  (`DropdownMenuLabel`, `text-xs font-normal text-muted-foreground pl-8`) renders ONLY when disabled, reusing the EXISTING
+  reason strings ("No checked sheets to export" / "No committed sheets to price yet"). When enabled, no reason line. The
+  menu **trigger stays always-clickable** (the two gates are independent -- the menu must open to show which export is
+  available + why the other is greyed).
+- **`size="sm"` on all 4 buttons + the Export trigger** -> a tighter row; the status line (the `justify-between` sibling,
+  content/structure UNCHANGED) regains horizontal space.
+- **Rename "Export Finalized" -> "Export Parsed BoQ":** the menu item label + the `ExportWorkbookDialog` title
+  ("Export Parsed BoQ to Excel") + stale comments (BoqHubPage + PricedTenderDialog). Internal identifiers
+  (`ExportWorkbookDialog` / `exportReviewXlsx` / `exportEligibleSheetNames` / `setExportDialogOpen`) UNCHANGED. No test
+  asserts the old literal (grep-verified).
+
+tsc 3175 (0 new), vitest 307 (unchanged -- no testable pure helper added; presentational). NO backend tests, NO migrate.
+The visual result (uncluttered row, menu opens, disabled reasons show, rename reads correctly) is OWNER-CERTIFIED LIVE
+(not unit-provable headless).
+
+### Editor toolbar two-ribbon reorg (FRONTEND, presentational, move-only, NO migrate, base tip cbf6bb49, 2026-06-25)
+
+**The pricing-editor sheet screen (`SheetPricingPage.tsx`) had ALL toolbar controls in ONE crowded row.** Reorganized into
+TWO ribbons sandwiching the existing sheet-tab strip. **PURE MOVE -- zero behavior change:** every control keeps its exact
+`onClick` / state / disabled gate / panel interaction; only its on-screen position changed. (The single file touched.)
+
+- **TOP RIBBON (above the tabs):** Back | title | Full screen | Summary | Review (N) | Price any row | Save now | (ml-auto
+  right) status text = the save-status chip + the priced-count readout. The status text MOVED from before the action buttons
+  to the ribbon's right end (wrapped in a new `ml-auto` div -- the only structural add). Status + Summary/Review/Price-any-row/
+  Save-now stay inside the EXISTING `{!isGridOnly}` gate (a grid-only sheet still shows only Back/title/Full screen, unchanged).
+- **BOTTOM RIBBON (below the tabs):** Show unpriced | Search group (input + clear-X + N-of-M counter + prev/next arrows) |
+  Columns popover | Show: Spacers/Notes/Subtotals. The WHOLE bottom ribbon is wrapped in the SAME `{!isGridOnly}` gate that
+  held these controls before -> a grid-only general-specs sheet renders **NO bottom ribbon** (nothing to filter/search),
+  preserving current behavior exactly.
+- **The sheet-tab strip (`<Tabs>`) is UNCHANGED** and now sits BETWEEN the two ribbons (it was already a sibling below the
+  old toolbar; the bottom ribbon moved to after it).
+- **Coupled groups kept intact** as single JSX subtrees (recon-confirmed all backing state is local `useState`, so a moved
+  subtree keeps working): the Search group (shares `searchQuery`/`searchHits`/`safeSearchIdx`/`stepSearch`), the Columns
+  popover (trigger + content), the Show toggles.
+- **Summary/Review kept PLAIN** -- no pressed/active state added (they had none; adding it would be a behavior change).
+  **NO Lock/unlock-edits button** -- that is a SEPARATE upcoming slice (the top ribbon will gain it later).
+
+tsc 3175 (0 new), vitest 307 (unchanged -- `PricingToolbar.test.ts` is pure-helper-only, passes identically). NO backend /
+schema / migrate / panel-body / handler change. The two-ribbon visual + the grid-only-hides-bottom-ribbon behavior are
+OWNER-CERTIFIED LIVE (not unit-provable headless).
+
+### Collapse/expand -- single-row hierarchy collapse in the pricing grid (FRONTEND, view-layer, NO migrate, base tip 49366849, 2026-06-26)
+
+**The pricing grid rendered the FULL flat row list with no way to fold a parent's subtree.** This slice adds single-row
+hierarchy collapse/expand: click a parent's chevron to hide its ENTIRE descendant subtree; click again to reveal. NEW
+per-grid concept, SEPARATE from the full-screen `expanded` flag (untouched). Files: NEW pure leaf `collapse.ts`
+(+ `collapse.test.ts`), `PricingGrid.tsx`, `SheetPricingPage.tsx`. No backend / schema / migrate; `reviewRender.tsx` /
+`boqTypes.ts` UNTOUCHED.
+
+- **R1 WHOLE SUBTREE.** Collapsing a parent hides every descendant (children, grandchildren, ...), via the upstream
+  filter + the structural descendant walk. Verified on the depth-3 145 Electrical sheet.
+- **R2 "+N hidden" DERIVED.** A collapsed parent shows a right-chevron + a muted `+N hidden` badge; N =
+  `descendantCount(rowIndex, childrenByParent)` (the WHOLE-subtree structural count), DERIVED live -- never stored -- so
+  it is correct by construction after a search/jump auto-expand. The review screen has no such badge; built fresh here.
+- **R3 SEARCH PIERCES COLLAPSE.** `buildSearchHits` runs over `searchUniverse` (the view-filtered set IGNORING collapse),
+  so a match under a collapsed parent is still a hit; stepping to it auto-expands its ancestors before scrolling. When
+  nothing is collapsed `searchUniverse === displayRows` (reused, no extra pass).
+- **R4 UPSTREAM FILTER (Option A).** Collapse is ONE MORE clause in the page-side `displayRows` `.filter()`, composed in
+  the SAME pass as show-unpriced + row-type (`passesViewFilter(r) && (!collapseActive || !isHiddenByCollapse(...))`).
+  Hidden-descendant rows are dropped from the rendered list. VIEW-ONLY: the priced count / SummaryPanel / flag feed all
+  read the UNFILTERED `rows`, so collapsing moves NO total. The `=== rows` fast path holds when nothing is filtered or
+  collapsed.
+- **R5 REVEAL-THEN-SCROLL.** The grid's ONE jump path (`jumpToRow` -- parent-click + search-step + review-strip all route
+  through it) now calls `onRevealRow(excelRow)` FIRST. The page (`revealRow`) expands the target's collapsed ancestors
+  (`collapsedAncestors`) and returns TRUE iff it changed `collapsed`; the grid then defers the scroll 50ms (mirroring
+  ReviewTree) so the reveal re-render lands before resolving + scrolling. Nothing collapsed on the chain -> returns
+  FALSE -> synchronous scroll, byte-for-byte the prior behaviour. The 3s landing flash still fires after the reveal.
+- **R6 MEMO UNTOUCHED (the load-bearing constraint).** Collapse state is page-level `collapsed: Set<number>` of
+  `row_index`. NOTHING was added to `pricingRowPropsAreEqual`. The chevron flips on toggle via a NEW `CollapseContext`:
+  the chevron is a SEPARATE `RowChevron` component (inside the memoized `PricingGridRow`) that reads the context, so a
+  context change re-paints ONLY the chevrons -- the memoized row (which does NOT read the context) is skipped, and a
+  keystroke/cursor move is completely unaffected. This is the recon's "derived, not carried on the row" rule realized.
+- **isVisible SEMANTICS mirror (collapse.ts).** `isHiddenByCollapse` walks the parent chain from
+  `row.effective_parent_index` (the PARENT, never the row), 60-hop cap, breaking on `<0` (root) + `cur===row.row_index`
+  (self-cycle). A collapsed parent STAYS visible; only its descendants hide. The loop does NOT start at
+  `collapsed.has(row.row_index)` (the explicit "parent disappears" trap). `buildChildrenByParent` is the NEW inverse
+  children map the grid lacked (it had only the parent-direction `parentExcelRowOf`). All over the FULL unfiltered rows.
+- **Chevron placement + structural cases.** The chevron sits at the Description-cell depth indent
+  (`depth * INDENT_PX`), before the text, so it nests with the tree. Chevron ONLY on rows with descendants; leaf rows on
+  a hierarchical sheet get an invisible spacer (alignment); a FLAT sheet (`childrenByParent` empty -> `anyParents` false)
+  renders NO chevrons/spacers (145 Fire Fitting -- no `+0 hidden`, no crash). Single-child parents ARE collapsible;
+  mixed child node_types collapse regardless of type. `tabIndex={-1}` keeps the chevron OUT of the roving-tabindex matrix
+  (no second tab stop; nav untouched).
+- **Grid-only fork (S4 holds).** Collapse props are passed only to the `PricingGrid` branch; the grid-only general-specs
+  fork renders `SheetDataGrid` (no collapse, by construction). Collapse is per-sheet per-session: reset to empty in the
+  existing `useEffect([sheetName])` (tab switch + reload start expanded); no backend persist. Independent of full-screen
+  / column-resize / column-hide (none reset on a collapse toggle; collapse not reset by them).
+
+**Tests:** vitest 307 -> 320 (+13 in NEW `collapse.test.ts`: buildChildrenByParent incl. flat-sheet empty;
+rowHasDescendants incl. single-child + unknown; descendantCount whole-subtree + cycle-guard; isHiddenByCollapse parent-
+stays / whole-subtree-hides / root / single-child / self-cycle / chain-cycle / nothing-collapsed; collapsedAncestors).
+tsc 3175 (0 new, 0 in touched files). in-container Vite build exit 0. No backend suite (frontend-only -- test_pricing
+UNTOUCHED). OWNER live-cert pending: LC1 collapse a depth-1 parent hides its L2/L3 subtree + chevron flips + `+N hidden`;
+LC2 expand restores; LC3 search to a hit under a collapsed parent auto-expands + scrolls + flashes; LC4 parent-jump into
+a collapsed subtree reveals; LC5 flat sheet has no chevrons; LC6 compose with show-unpriced/row-type/search (counts
+unmoved); LC7 full-screen + column-resize unaffected by collapse and vice versa; LC8 tab switch starts expanded.
+
+### Collapse/expand ALL -- bottom-ribbon bulk toggle (FRONTEND, view-layer, NO migrate, base tip 8f610710, 2026-06-26)
+
+**Slice 1 shipped per-parent collapse; this adds ONE state-aware toggle in the bottom grid-controls ribbon that folds or
+unfolds the WHOLE sheet's hierarchy at once.** It reuses the slice-1 engine entirely -- NO new state, NO new context, NO
+memo touch, NO backend. Files: `collapse.ts` (+ one tiny pure helper + tests), `SheetPricingPage.tsx` (the button + a
+one-line handler).
+
+- **OPTION A (owner-locked) -- collapse-all = EVERY collapsible parent.** "Collapse all" does
+  `setCollapsed(collapsibleParents(childrenByParent))`, where the NEW pure one-liner
+  `collapsibleParents(map) = new Set(map.keys())` is exactly the set of every row that has >=1 child (the inverse-map
+  keys). On the depth-3 145 Electrical sheet that folds all 19 parents -> only top-level roots remain, each showing its
+  existing chevron + "+N hidden". NOT the shallowest-tier model (that is SummaryPanel's *default view*, a separate thing).
+- **size===0 toggle rule (owner-locked).** ONE button; label + action key off `collapsed.size === 0`: size 0 ->
+  "Collapse all" (`ChevronsDownUp`) -> collapse every parent; size > 0 -> "Expand all" (`ChevronsUpDown`) ->
+  `setCollapsed(new Set())`. A PARTIALLY hand-collapsed sheet (some parents folded via slice-1 chevrons) therefore reads
+  "Expand all" -- the button's job in any non-fully-expanded state is to return the sheet to clean (SummaryPanel's proven
+  rule, `:126-128`).
+- **Placement + gate.** The button sits INSIDE the existing `{!isGridOnly}` bottom-ribbon flex container, immediately
+  AFTER the Show-unpriced button, styled to match (`size="sm" variant="outline" className="gap-1.5"` + icon + label). It
+  inherits `{!isGridOnly}` BY CONSTRUCTION -> absent on grid-only general-specs sheets (no extra guard).
+- **Flat-sheet treatment.** DISABLED when `childrenByParent.size === 0` (a flat sheet, e.g. 145 Fire Fitting -- nothing
+  to fold), with a "no hierarchy to collapse" title (mirrors slice-1's "no chevrons" treatment). Single-child parents ARE
+  included in collapse-all (they are collapsible parents).
+- **Composition (unchanged from slice 1).** Bulk collapse writes the SAME page `collapsed` set the per-parent chevrons
+  read via `CollapseContext`, so the chevrons + "+N hidden" reflect it with ZERO new wiring (no memo prop). It composes
+  into the existing `displayRows` filter -> VIEW-ONLY (the priced count over `rows`, `SummaryPanel` `rows={rows}`, and the
+  flag feed read UNFILTERED rows, so bulk collapse moves NO total). "Expand all" hides nothing -> does NOT route through
+  reveal-then-scroll. Independent of full-screen `expanded` / column-resize / column-hide. The per-sheet reset effect
+  (`setCollapsed(new Set())` on tab switch) is undisturbed -> a switched-to sheet starts fully expanded + the button reads
+  "Collapse all".
+
+**Tests:** vitest 320 -> 323 (+3 `collapse.test.ts`: `collapsibleParents` = every parent / flat-sheet empty /
+single-child included). tsc 3175 (0 new, 0 in touched files). in-container Vite build exit 0. No backend (test_pricing
+UNTOUCHED). OWNER live-cert pending: LC1 Collapse-all on 145 Electrical -> only roots, each "+N hidden"; LC2 button flips
+to "Expand all" -> one click restores; LC3 partial hand-collapse -> button reads "Expand all" -> clears all; LC4 flat
+sheet -> button disabled; LC5 grid-only sheet -> button absent; LC6 counts/Summary unmoved by bulk collapse; LC7 tab
+switch starts expanded with "Collapse all".
+
+### Lock/unlock edits -- deliberate per-sheet server-enforced read-only lock (FULL-STACK + MIGRATE, base tip c339c5d8, 2026-06-26)
+
+**A DELIBERATE, user-controlled, per-sheet, PERSISTED, SERVER-ENFORCED read-only lock for the pricing editor -- the
+pricing twin of the review-screen "Finalized" freeze.** When a sheet is locked the editor is fully read-only (NO rate /
+amount formula / color / remark / dismissal / reconciliation choice); the "Price any row" override does NOT bypass it;
+it persists across sessions + users; ANY user may unlock (no role gate -- a coordination signal); the unlock toggle stays
+live when locked; a re-commit INVALIDATES the lock (a new commit_version starts unlocked). DISTINCT from (a) the transient
+single-editor CONCURRENCY lock (`BoQ Sheet Pricing Lock` / `BOQ_PRICING_LOCKED`) and (b) the inert per-cell `is_finalized`.
+
+**BACKEND:**
+- **Doctype (additive, migrate):** three fields on **`BoQ Sheet`** (the committed sheet tier, mirroring the
+  `last_exported_at` additive precedent): `is_locked` (Check, default 0), `locked_by` (Data, read_only -- matches
+  `BoQ Cell Dismissal.dismissed_by` / `BoQ Cell Reconciliation Choice.chosen_by`), `locked_at` (Datetime, read_only).
+  `bench migrate` created all three (verified via information_schema: `is_locked` smallint default 0 / `locked_by`
+  varchar / `locked_at` timestamp). Migrate hit the pre-existing unrelated `backfill_cashflow_gap_limited` patch wart
+  (NOT this slice) -- schema sync runs BEFORE the patch phase, so the columns landed.
+- **Endpoints (`pricing.py`):** `lock_sheet(boq_name, sheet_name, committed_version)` / `unlock_sheet(...)` (both
+  `@frappe.whitelist(methods=["POST"])`), mirroring `mark_sheet_parsed_check_done`/`unmark`: resolve the `is_current=1`
+  BoQ Sheet row for (boq, sheet_name VERBATIM #152, committed_version) via the shared `_set_sheet_lock` ->
+  `frappe.db.set_value` (NOT doc.save -- the list-valued `area_dimensions` JSON throws on a full save) of the three
+  fields + an explicit commit. NO role check (any user). Returns `{ok, is_locked, locked_by, locked_at}`.
+- **Guard (`pricing.py`):** `_guard_sheet_not_locked(boq, sheet, version)` (mirrors `_guard_sheet_not_frozen`): a single
+  `frappe.db.get_value` of `is_locked` on the `is_current=1`+`commit_version` row; throws `_LOCKED_WRITE_MESSAGE`
+  ("This sheet is locked and is read-only. Unlock it to make changes.") if truthy. Called in ALL SIX save_* endpoints --
+  `save_cell_price` (before the formula/priceability gates so the lock error wins precedence), `save_row_remark`,
+  `save_cell_color`, `save_cell_dismissal`, `save_cell_reconciliation_choice`, `save_amount_formula` -- AFTER the cell/
+  target resolve and BEFORE `acquire_or_refresh` (reject-mutates-nothing; the same slot the mandatory-formula gate uses).
+  PURELY ADDITIVE: an unlocked sheet passes through byte-for-byte. **The server is the real boundary** -- a direct API
+  call on a locked sheet is rejected (proven by test), so the frontend gate is not bypassable.
+- **Return fold:** `get_priced_rows` adds an `is_locked` key BESIDE `editable` (a SEPARATE key, NOT folded into editable
+  -- the frontend keeps the reason distinct for the banner); built in the existing `commit_version is not None` branch.
+  `get_committed_state` folds `is_locked` into the EXISTING `is_current=1` BoQ Sheet lookup (one more field, no new query
+  -- like last_exported_at) -> a per-sheet `is_locked` for a future hub indicator.
+- **Re-commit invalidates FOR FREE:** `_write_committed_boq_sheet` `new_doc()`s a fresh BoQ Sheet row per commit and
+  NEVER sets `is_locked`, so a new commit_version defaults `is_locked=0`; the version-scoped guard/read (commit_version +
+  is_current) means a re-committed-away version is never locked. NO pipeline change.
+
+**FRONTEND:**
+- **The lock boolean:** `isLocked = pricedData?.message?.is_locked ?? false`; `locked = editable === false || takenOver ||
+  isLocked`. This ALONE makes the grid read-only -- all six handlers already withhold on `locked` (callback-presence
+  gate), and the override lives INSIDE `isRateEditableRow` ANDed AFTER the withheld `onSaveRate`, so it can NEVER reach
+  past the lock (verified -- no parallel override gate added). **`pricingRowPropsAreEqual` is UNTOUCHED.**
+- **The toggle (`SheetPricingPage` top-ribbon right cluster, inside `{!isGridOnly}`):** a state-aware Lock/Unlock button,
+  DISTINCT icon (`ShieldCheck`/`ShieldOff`) from the override's Lock/Unlock so they never read alike; **NOT gated by
+  `locked`** (the one control that stays live so an unlock is always reachable); disabled while the POST is in flight or
+  the sheet is uncommitted; loudly TEAL when locked. On click -> POST `lock_sheet`/`unlock_sheet` then `mutate()` so the
+  editor re-reads `is_locked` (persisted + cross-user). Absent on grid-only sheets (inherits the `{!isGridOnly}` gate).
+- **The signal:** a TEAL `ShieldCheck` banner when `isLocked` ("This sheet is locked (read-only). Unlock it to make
+  changes." + an Unlock button + Go to hub), VISUALLY DISTINCT from the two amber concurrency banners. **Precedence: the
+  deliberate lock banner DOMINATES** -- a locked sheet shows the teal banner even if a takeover/holder reason is also true
+  (the persistent reason wins over the transient ones).
+- **Residue buttons disabled when locked:** the "Price any row" override toggle + the "Save now"/flush button (inert under
+  the lock anyway -- removes the clickable-but-dead confusion).
+- **Types (`boqTypes.ts`):** `is_locked: boolean` on `GetPricedRowsResponse`; `is_locked?: boolean` on
+  `CommittedSheetState`.
+
+**Tests:** backend `test_pricing` 151 -> 158 (+7 `TestSheetLock`: lock/unlock set+clear the three fields; any-user-unlocks
+[no ownership check]; the guard REJECTS all six save_* paths + override-doesn't-bypass + reject-mutates-nothing [no overlay
+row, concurrency lock never acquired]; unlocked passes through; `get_priced_rows` + `get_committed_state` surface
+is_locked; re-commit starts unlocked [carry-forward NOT]). `test_commit_gate` 27 (unchanged -- additive field). Frontend
+vitest 323 (unchanged -- the toggle/banner are UI, owner-live-certed; no new pure leaf, no brittle DOM test invented).
+tsc 3175 (0 new, 0 in touched). in-container Vite build exit 0. bench migrate landed the 3 columns. OWNER live-cert
+pending: LC1 lock a grid_and_nodes sheet -> every path read-only + override can't re-enable + teal banner + toggle reads
+Unlock; LC2 unlock -> editing returns; LC3 persist across reload + cross-user; LC4 direct API save on a locked sheet
+rejected (server proof -- covered by test); LC5 grid-only sheet -> no toggle, no banner; LC6 re-commit -> unlocked; LC7
+concurrency lock + deliberate lock compose (locked stays read-only regardless; unlock doesn't grant the concurrency lock).
+

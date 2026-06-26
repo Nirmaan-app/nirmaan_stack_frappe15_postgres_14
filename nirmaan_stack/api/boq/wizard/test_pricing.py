@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.pricing import (
+    _get_sheet_is_locked,
     _sheet_formulas_complete,
     get_committed_sheet_grid,
     get_priced_rows,
@@ -32,13 +33,16 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_sheet_pricing,
     get_sheet_reconciliation_choices,
     get_sheet_remarks,
+    lock_sheet,
     save_amount_formula,
     save_cell_color,
     save_cell_dismissal,
     save_cell_price,
     save_cell_reconciliation_choice,
     save_row_remark,
+    unlock_sheet,
 )
+from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     LOCK_STALE_SECONDS,
@@ -2718,3 +2722,615 @@ class TestReconciliationChoice(FrappeTestCase):
         self.assertFalse(res["cleared"])
         self.assertGreaterEqual(res["rearmed_choices"], 1)
         self.assertEqual(len(self._current_choice(34, "F")), 0, "the column's choice re-armed on save")
+
+
+# ====================================================================================
+# Slice 5a -- Excel write-back backend (export_writeback)
+# ====================================================================================
+import base64 as _b64
+import os as _os
+import tempfile as _tempfile
+
+import openpyxl as _openpyxl
+
+from nirmaan_stack.api.boq.wizard.export_writeback import (
+    _COLOR_HEX,
+    _PRICED_HIGHLIGHT_HEX,
+    _apply_colors,
+    _apply_priced_highlight,
+    _assert_fidelity,
+    _col_is_empty,
+    _fidelity_snapshot,
+    _generate_priced_workbook,
+    _resolve_sheet_plan,
+    _rightmost_mapped_col_index,
+    _stamp_rates,
+    _write_remark_column,
+    export_priced_workbook,
+)
+
+# The committed fixture's role map (mirrors test_review_screen.COMMITTED_FIXTURE_ROLE_MAP):
+# A-I mapped, so the TRUE data edge is I (9) and the remark column is J (10).
+_FIX_ROLE_MAP = {
+    "A": {"role": "sl_no", "area": None},
+    "B": {"role": "description", "area": None},
+    "C": {"role": "unit", "area": None},
+    "D": {"role": "qty", "area": "Phase 1"},
+    "E": {"role": "rate_combined_by_area", "area": "Phase 1"},
+    "F": {"role": "amount_total_by_area", "area": "Phase 1"},
+    "G": {"role": "qty", "area": "Phase 2"},
+    "H": {"role": "rate_combined_by_area", "area": "Phase 2"},
+    "I": {"role": "amount_install_by_area", "area": "Phase 2"},
+}
+
+
+def _new_ws(title="S"):
+    """A fresh single-sheet workbook for pure-helper tests."""
+    wb = _openpyxl.Workbook()
+    ws = wb.active
+    ws.title = title
+    return wb, ws
+
+
+def _save_tmp(wb):
+    """Save a workbook to a throwaway temp path; caller unlinks."""
+    fd, path = _tempfile.mkstemp(suffix=".xlsx")
+    _os.close(fd)
+    wb.save(path)
+    return path
+
+
+class TestExportWritebackPureHelpers(FrappeTestCase):
+    """Pure worksheet/fidelity helpers -- hermetic, no DB, synthetic workbooks."""
+
+    def test_stamp_rates_lands_value_preserves_paired_formula(self):
+        wb, ws = _new_ws()
+        ws["D36"] = 10
+        ws["E36"] = None                  # a blank rate cell
+        ws["F36"] = "=D36*E36"            # paired amount formula
+        skipped, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 123.45}])
+        self.assertEqual(ws["E36"].value, 123.45, "rate stamped into the blank cell")
+        self.assertEqual(ws["F36"].value, "=D36*E36", "paired amount formula preserved")
+        self.assertEqual(skipped, [], "a value cell is not skipped")
+        self.assertEqual(written, [("E", 36)], "the stamped cell is reported as written")
+
+    def test_stamp_rates_skips_formula_cell(self):
+        wb, ws = _new_ws()
+        ws["E10"] = "=SUM(H10:I10)"       # the VRF combined-rate case (a formula rate cell)
+        skipped, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        self.assertEqual(ws["E10"].value, "=SUM(H10:I10)", "formula rate cell NOT overwritten")
+        self.assertEqual(skipped, [{"excel_row": 10, "col_letter": "E"}], "formula cell reported skipped")
+        self.assertEqual(written, [], "a skipped formula cell is NOT reported written (-> no highlight)")
+
+    def test_stamp_rates_distinguishes_formula_vs_value_vs_blank(self):
+        wb, ws = _new_ws()
+        ws["E1"] = "=A1+B1"   # formula -> skip
+        ws["E2"] = 500        # static value -> overwrite
+        ws["E3"] = None       # blank -> overwrite
+        skipped, written = _stamp_rates(ws, [
+            {"excel_row": 1, "col_letter": "E", "rate": 1.0},
+            {"excel_row": 2, "col_letter": "E", "rate": 2.0},
+            {"excel_row": 3, "col_letter": "E", "rate": 3.0},
+        ])
+        self.assertEqual(ws["E1"].value, "=A1+B1")
+        self.assertEqual(ws["E2"].value, 2.0)
+        self.assertEqual(ws["E3"].value, 3.0)
+        self.assertEqual(skipped, [{"excel_row": 1, "col_letter": "E"}],
+                         "only the formula cell is skipped")
+        self.assertEqual(written, [("E", 2), ("E", 3)],
+                         "only the two value/blank cells are reported written")
+
+    def test_priced_highlight_on_stamped_cell(self):
+        wb, ws = _new_ws()
+        ws["E36"] = None
+        _, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 50.0}])
+        n = _apply_priced_highlight(ws, written)
+        self.assertEqual(n, 1)
+        self.assertEqual(ws["E36"].fill.fill_type, "solid")
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E36"].fill.fgColor.rgb or "",
+                      "stamped rate cell carries the muted-teal verification fill")
+        self.assertEqual(ws["E36"].value, 50.0, "the fill does not disturb the stamped rate value")
+
+    def test_priced_highlight_excludes_skipped_formula_cell(self):
+        wb, ws = _new_ws()
+        ws["E10"] = "=SUM(H10:I10)"   # a formula rate cell -> skipped, never written
+        _, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        _apply_priced_highlight(ws, written)
+        # RULE 1: a skipped formula cell gets NO teal (no fill applied).
+        self.assertIsNone(ws["E10"].fill.fill_type, "skipped formula cell has NO highlight")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["E10"].fill.fgColor.rgb or "")
+
+    def test_priced_highlight_distinct_from_user_tokens(self):
+        # The system teal must not collide with any of the 8 user token hexes.
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, set(_COLOR_HEX.values()),
+                         "the system highlight hex is distinct from every user color token")
+
+    def test_priced_highlight_wins_collision_user_color_on_nonstamped_untouched(self):
+        # Simulate the worker's pass order: stamp -> apply_colors -> apply_priced_highlight.
+        wb, ws = _new_ws()
+        ws["E5"] = None   # will be stamped
+        _, written = _stamp_rates(ws, [{"excel_row": 5, "col_letter": "E", "rate": 7.0}])
+        _apply_colors(ws, [
+            {"excel_row": 5, "col_letter": "E", "color": "red"},   # collision: same as a stamped cell
+            {"excel_row": 5, "col_letter": "B", "color": "blue"},  # non-stamped cell
+        ])
+        _apply_priced_highlight(ws, written)
+        # RULE 2: system teal WINS on the stamped cell (overrides the user red there)...
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E5"].fill.fgColor.rgb or "",
+                      "system teal overrides the user color on a stamped rate cell")
+        self.assertNotIn(_COLOR_HEX["red"], ws["E5"].fill.fgColor.rgb or "")
+        # ...but a user color on a NON-stamped cell is untouched.
+        self.assertIn(_COLOR_HEX["blue"], ws["B5"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved")
+
+    def test_apply_colors_fills_any_cell_incl_formula(self):
+        wb, ws = _new_ws()
+        ws["B5"] = "description text"       # a NON-rate cell
+        ws["F36"] = "=D36*E36"             # a formula cell
+        applied = _apply_colors(ws, [
+            {"excel_row": 5, "col_letter": "B", "color": "red"},
+            {"excel_row": 36, "col_letter": "F", "color": "green"},
+        ])
+        self.assertEqual(applied, 2)
+        self.assertEqual(ws["B5"].fill.fill_type, "solid", "fill applied to non-rate cell")
+        self.assertIn(_COLOR_HEX["red"], ws["B5"].fill.fgColor.rgb or "")
+        self.assertEqual(ws["F36"].value, "=D36*E36", "formula intact under a color fill")
+        self.assertIn(_COLOR_HEX["green"], ws["F36"].fill.fgColor.rgb or "")
+
+    def test_apply_colors_skips_unknown_token(self):
+        wb, ws = _new_ws()
+        applied = _apply_colors(ws, [{"excel_row": 1, "col_letter": "A", "color": "chartreuse"}])
+        self.assertEqual(applied, 0, "an unknown token is skipped, never invented")
+
+    def test_rightmost_mapped_col_index(self):
+        self.assertEqual(_rightmost_mapped_col_index(_FIX_ROLE_MAP), 9, "I is the edge")
+        self.assertEqual(_rightmost_mapped_col_index({}), 0)
+        self.assertEqual(_rightmost_mapped_col_index({"A": {}, "AB": {}}), 28, "AB beyond Z")
+
+    def test_write_remark_column_at_true_edge(self):
+        wb, ws = _new_ws()
+        col = _write_remark_column(
+            ws, [{"excel_row": 34, "remark": "check with Nitesh"}], _FIX_ROLE_MAP, 3
+        )
+        self.assertEqual(col, "J", "one past the true edge (I) -- NOT inflated max_column")
+        self.assertEqual(ws["J3"].value, "Nirmaan Remarks", "header at the data header row")
+        self.assertEqual(ws["J34"].value, "check with Nitesh")
+
+    def test_write_remark_column_refuses_nonempty_target(self):
+        wb, ws = _new_ws()
+        ws["J10"] = "real data already here"   # J is the would-be remark column
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+
+    def test_col_is_empty(self):
+        wb, ws = _new_ws()
+        self.assertTrue(_col_is_empty(ws, 10))
+        ws["J7"] = 0          # a real 0 is data, not empty
+        self.assertFalse(_col_is_empty(ws, 10))
+
+    def test_fidelity_snapshot_clean_round_trip_passes(self):
+        wb, ws = _new_ws()
+        ws["F1"] = "=A1+B1"
+        ws["F2"] = "=A2+B2"
+        ws.merge_cells("A1:B1")
+        before = _fidelity_snapshot(wb)
+        path = _save_tmp(wb)
+        try:
+            wb2 = _openpyxl.load_workbook(path, data_only=False)
+            after = _fidelity_snapshot(wb2)
+            wb2.close()
+        finally:
+            _os.unlink(path)
+        self.assertEqual(before["formulas"], 2)
+        self.assertEqual(before["merges"], 1)
+        _assert_fidelity(before, after)  # must NOT raise on a clean round-trip
+
+    def test_assert_fidelity_fails_on_divergence(self):
+        base = {"formulas": 5, "merges": 2, "sheets": 3, "defined_names": 4585}
+        # Each of the four invariants must be caught (non-vacuous).
+        for k in ("formulas", "merges", "sheets", "defined_names"):
+            bad = dict(base)
+            bad[k] = base[k] - 1
+            with self.assertRaises(frappe.exceptions.ValidationError, msg=f"{k} divergence must raise"):
+                _assert_fidelity(base, bad)
+        _assert_fidelity(base, dict(base))  # identical -> no raise
+
+
+class TestExportWritebackEndToEnd(FrappeTestCase):
+    """The worker against the committed fixture + a synthetic workbook injected (bypassing
+    the S3 fetch, which is a one-line reused helper). Exercises version resolution, stamping,
+    the fidelity guard, last_exported_at, and the skipped-formula report."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Export WB Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Export Fix "          # VERBATIM trailing space (#152)
+        cls.sheet_stripped = "Export Fix"   # openpyxl tab title (Excel trims trailing space)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_COLOR_DT, {"boq": self.boq})
+        frappe.db.delete(_REMARK_DT, {"boq": self.boq})
+        # reset last_exported_at on the committed sheet so each test starts unstamped
+        frappe.db.set_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at", None,
+                            update_modified=False)
+        frappe.db.commit()
+
+    # -- builders -----------------------------------------------------------
+    def _add_price(self, excel_row, col_letter, rate):
+        doc = frappe.new_doc(_PRICING)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet  # VERBATIM
+        doc.excel_row = excel_row
+        doc.col_letter = col_letter
+        doc.committed_version = self.cv
+        doc.rate = rate
+        doc.is_filled = 1
+        doc.pricing_version = 1
+        doc.is_current = 1
+        doc.priced_at = frappe.utils.now()
+        doc.is_finalized = 0
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _add_color(self, excel_row, col_letter, color):
+        doc = frappe.new_doc(_COLOR_DT)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet
+        doc.excel_row = excel_row
+        doc.col_letter = col_letter
+        doc.committed_version = self.cv
+        doc.color = color
+        doc.color_version = 1
+        doc.is_current = 1
+        doc.colored_at = frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _add_remark(self, excel_row, remark):
+        doc = frappe.new_doc(_REMARK_DT)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet
+        doc.excel_row = excel_row
+        doc.committed_version = self.cv
+        doc.remark = remark
+        doc.remark_version = 1
+        doc.is_current = 1
+        doc.remarked_at = frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _synthetic_path(self, formula_rate=False):
+        """A workbook whose tab matches the fixture sheet (stripped title), with the role-map
+        columns + a paired amount formula (fidelity anchor) and the priced rate cells."""
+        wb = _openpyxl.Workbook()
+        ws = wb.active
+        ws.title = self.sheet_stripped
+        for r in (34, 35):
+            ws["D{}".format(r)] = 10
+            ws["E{}".format(r)] = "=H{0}:I{0}".format(r) if formula_rate else None
+            ws["F{}".format(r)] = "=D{0}*E{0}".format(r)   # amount formula -> the fidelity anchor
+        return _save_tmp(wb)
+
+    def _load_b64(self, content_base64):
+        raw = _b64.b64decode(content_base64)
+        fd, path = _tempfile.mkstemp(suffix=".xlsx")
+        _os.write(fd, raw)
+        _os.close(fd)
+        wb = _openpyxl.load_workbook(path, data_only=False)
+        _os.unlink(path)
+        return wb
+
+    # -- POSITIVE -----------------------------------------------------------
+    def test_generate_stamps_rate_and_sets_last_exported_at(self):
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["exported_sheets"], [self.sheet])
+        self.assertEqual(res["skipped_formula_columns"], {})
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        self.assertEqual(ws["E34"].value, 250.0, "rate stamped")
+        self.assertEqual(ws["F34"].value, "=D34*E34", "paired amount formula preserved")
+        wb.close()
+        # last_exported_at stamped on the committed BoQ Sheet via set_value
+        stamped = frappe.db.get_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at")
+        self.assertIsNotNone(stamped, "last_exported_at stamped on the exported sheet")
+
+    def test_generate_priced_highlight_only_on_stamped_rate_cells(self):
+        self._add_price(34, "E", 250.0)         # stamped rate cell -> teal
+        self._add_color(34, "B", "purple")      # user color on a non-stamped (description) cell
+        self._add_remark(34, "verify qty")      # remark -> Nirmaan Remarks column J
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        # stamped rate cell carries the system teal
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E34"].fill.fgColor.rgb or "",
+                      "stamped rate cell highlighted teal")
+        # RULE 3: NOT on the amount/formula cell, NOT on the remark column, NOT on the user-color cell
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["F34"].fill.fgColor.rgb or "",
+                         "amount/formula cell never highlighted")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["J34"].fill.fgColor.rgb or "",
+                         "remark cell never highlighted")
+        self.assertIn(_COLOR_HEX["purple"], ws["B34"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved (not teal)")
+        self.assertEqual(ws["E34"].value, 250.0, "the highlight did not disturb the stamped rate")
+        wb.close()
+
+    def test_generate_highlight_skips_formula_rate_cell(self):
+        self._add_price(34, "E", 999.0)
+        path = self._synthetic_path(formula_rate=True)  # E34 is a formula
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        # RULE 1: a skipped formula rate cell gets NO teal (it was never written).
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, wb[self.sheet_stripped]["E34"].fill.fgColor.rgb or "",
+                         "skipped formula rate cell carries no highlight")
+        self.assertEqual(res["skipped_formula_columns"], {self.sheet: ["E"]})
+        wb.close()
+
+    def test_generate_reports_skipped_formula_rate_column(self):
+        self._add_price(34, "E", 999.0)
+        path = self._synthetic_path(formula_rate=True)  # E34/E35 are formulas
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["skipped_formula_columns"], {self.sheet: ["E"]},
+                         "the formula rate column is reported skipped")
+        wb = self._load_b64(res["content_base64"])
+        self.assertEqual(wb[self.sheet_stripped]["E34"].value, "=H34:I34",
+                         "formula rate cell left untouched")
+        wb.close()
+
+    def test_generate_applies_remark_column(self):
+        self._add_remark(34, "verify qty")
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["remark_columns"], {self.sheet: "J"})
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        self.assertEqual(ws["J3"].value, "Nirmaan Remarks")
+        self.assertEqual(ws["J34"].value, "verify qty")
+        wb.close()
+
+    def test_generate_color_fill_present_in_output(self):
+        self._add_color(34, "B", "blue")     # color on a non-rate (description) column
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        self.assertEqual(wb[self.sheet_stripped]["B34"].fill.fill_type, "solid",
+                         "color fill survived the save round-trip")
+        wb.close()
+
+    # -- NEGATIVE -----------------------------------------------------------
+    def test_resolve_plan_throws_for_uncommitted_sheet(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            _resolve_sheet_plan(self.boq, "No Such Sheet")
+
+    def test_endpoint_unknown_boq_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name="BOQ-NOPE-99999", sheet_names=[self.sheet])
+
+    def test_endpoint_empty_sheet_names_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name=self.boq, sheet_names=[])
+
+    def test_endpoint_missing_boq_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name=None, sheet_names=[self.sheet])
+
+
+class TestSheetLock(FrappeTestCase):
+    """Slice (3): the DELIBERATE, per-sheet, persisted, server-enforced read-only lock --
+    the pricing twin of the review-screen "Finalized" freeze.
+
+    Covers: lock_sheet/unlock_sheet stamp+clear BoQ Sheet.is_locked/locked_by/locked_at;
+    ANY user may unlock (no role/ownership check); _guard_sheet_not_locked REJECTS all SIX
+    pricing write endpoints when locked (reject-mutates-nothing); get_priced_rows +
+    get_committed_state surface is_locked; a re-commit (a fresh BoQ Sheet row) starts UNLOCKED
+    (the lock NEVER carries forward). Reuses the shared committed fixture (Line Item row 34 is
+    qty-bearing on rate col E / amount cols F[total] + I[install]); sheet_name VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Sheet Lock Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Lock Me "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.bqsh = cls.fixture["bqsh"]
+        # Make the sheet formula-COMPLETE so save_cell_price reaches the lock/priceability/write
+        # (the mandatory-formula gate fires before priceability; the lock guard fires first).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # get_committed_state iterates BoQ Committed Sheet Grid rows -- the shared node fixture
+        # doesn't create one, so add a minimal is_current grid row for the is_locked-surface test.
+        grid = frappe.new_doc("BoQ Committed Sheet Grid")
+        grid.boq = cls.boq
+        grid.source_sheet_name = cls.sheet  # VERBATIM (#152)
+        grid.commit_version = cls.cv
+        grid.is_current = 1
+        grid.committed_at = frappe.utils.now()
+        grid.sheet_disposition = "grid_and_nodes"
+        grid.insert(ignore_permissions=True)
+        cls.grid = grid.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq})
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Clean slate: clear the overlays + the concurrency lock, and UNLOCK the sheet.
+        for dt in (_PRICING, _LOCK_DT, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.commit()
+
+    # -- lock_sheet / unlock_sheet stamp + clear the three fields ----------------
+
+    def test_lock_then_unlock_sets_and_clears_fields(self):
+        res = lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 1)
+        self.assertTrue(res["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 1)
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_at"))
+        res2 = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res2["is_locked"], 0)
+        self.assertIsNone(res2["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 0)
+        self.assertFalse(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    def test_unlock_works_regardless_of_who_locked(self):
+        # ANY user may unlock -- there is NO ownership/role check. Lock, then forge a DIFFERENT
+        # locked_by, then unlock as the current (non-locker) user: it must still clear.
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "locked_by", "someone.else@example.com")
+        frappe.db.commit()
+        res = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 0)
+        self.assertIsNone(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    # -- the guard: ALL SIX save_* paths rejected when locked, mutating nothing --
+
+    def test_locked_rejects_every_save_path_and_writes_nothing(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+
+        def assert_locked(thunk):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                thunk()
+            self.assertIn("locked", str(ctx.exception).lower())
+
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1"))
+        # override does NOT bypass the lock (it loosens only the priceability axis).
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1", allow_non_priceable=True))
+        assert_locked(lambda: save_cell_color(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, color="green"))
+        assert_locked(lambda: save_row_remark(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, remark="x"))
+        assert_locked(lambda: save_cell_dismissal(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, flag_kind="needs_rate", dismissed=True))
+        assert_locked(lambda: save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+            committed_version=self.cv, choice="keep_document"))
+        assert_locked(lambda: save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_FIXTURE_FORMULA_LEAF))
+
+        # reject-mutates-nothing: no overlay rows written, and the concurrency lock never acquired
+        # (the deliberate-lock guard sits BEFORE acquire_or_refresh).
+        for dt in (_PRICING, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            self.assertEqual(
+                frappe.db.count(dt, {"boq": self.boq, "is_current": 1}), 0,
+                f"{dt}: a locked reject wrote a record",
+            )
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0,
+                         "the concurrency lock was acquired on a locked reject")
+
+    def test_unlocked_allows_saves(self):
+        # After setUp (unlocked), a priceable rate save passes through byte-for-byte (regression).
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1")
+        self.assertTrue(res["ok"])
+        self.assertEqual(
+            frappe.db.count(_PRICING, {"boq": self.boq, "sheet_name": self.sheet,
+                                       "excel_row": 34, "is_current": 1}), 1)
+
+    # -- the flag rides the existing reads ---------------------------------------
+
+    def test_get_priced_rows_surfaces_is_locked(self):
+        self.assertFalse(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+
+    def test_get_committed_state_surfaces_is_locked(self):
+        def my_row():
+            state = get_committed_state(boq_name=self.boq)["committed_state"]
+            return next(r for r in state if r["sheet_name"] == self.sheet)
+        self.assertIn("is_locked", my_row())
+        self.assertFalse(my_row()["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(my_row()["is_locked"])
+
+    # -- re-commit invalidates: a fresh version starts UNLOCKED ------------------
+
+    def test_recommit_starts_unlocked_lock_does_not_carry_forward(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, self.cv), 1)
+        # Simulate a re-commit (freeze-and-supersede): freeze v1, insert a FRESH is_current=1
+        # BoQ Sheet at v2 -- mirrors _write_committed_boq_sheet, which new_doc()s the row and
+        # NEVER sets is_locked, so the new version defaults is_locked=0 (no carry-forward).
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 0)
+        bs = frappe.new_doc(self._SHEET_DT)
+        bs.boq = self.boq
+        bs.sheet_name = self.sheet  # VERBATIM (#152)
+        bs.sheet_order = 0
+        bs.treat_as = "data"
+        bs.commit_version = 2
+        bs.is_current = 1
+        bs.column_role_map = json.dumps({})
+        bs.column_headers = json.dumps({})
+        bs.area_dimensions = json.dumps([])
+        bs.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            # the NEW current version is UNLOCKED -- the lock did not carry forward.
+            self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, 2), 0)
+        finally:
+            # Restore the fixture: drop v2, re-mark v1 current (test isolation within the class).
+            frappe.db.delete(self._SHEET_DT, bs.name)
+            frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 1)
+            frappe.db.commit()

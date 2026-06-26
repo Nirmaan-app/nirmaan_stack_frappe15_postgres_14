@@ -726,6 +726,14 @@ export interface GetPricedRowsResponse {
    * uncommitted. A cell NOT in this list is "unset" -> the document value wins (D1).
    */
   reconciliation_choices: ReconciliationChoiceRef[];
+  /**
+   * Deliberate per-sheet read-only lock (the lock/unlock slice). A SEPARATE key from `editable`
+   * (the concurrency verdict): the page ORs the two into its `locked` boolean but keeps the
+   * reason DISTINCT (a deliberate-lock teal banner vs the amber concurrency banner). false for an
+   * uncommitted / grid-only sheet. Toggled by lock_sheet / unlock_sheet; persisted on BoQ Sheet,
+   * cross-user; re-commit starts a fresh version UNLOCKED (the lock never carries forward).
+   */
+  is_locked: boolean;
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
@@ -1006,11 +1014,44 @@ export interface CommittedSheetState {
    * faithful-grid fork for grid-only sheets.
    */
   sheet_disposition: "grid_only" | "grid_and_nodes";
+  /**
+   * Slice 5b (ADDITIVE). The committed BoQ Sheet.last_exported_at -- when this sheet's
+   * priced workbook was last downloaded. null when never exported.
+   */
+  last_exported_at?: string | null;
+  /**
+   * Slice 5b (ADDITIVE). True iff a rate/color/remark on the sheet's CURRENT committed
+   * version was written AFTER last_exported_at (or content exists and it was never
+   * exported). Drives the per-sheet "priced since last export" staleness chip.
+   */
+  pricing_changed_since_export?: boolean;
+  /**
+   * Deliberate per-sheet read-only lock (the lock/unlock slice, ADDITIVE). true when this
+   * committed sheet is locked. Rides the SAME is_current=1 BoQ Sheet lookup last_exported_at
+   * uses. For a future hub lock indicator; the editor reads its own is_locked from get_priced_rows.
+   */
+  is_locked?: boolean;
 }
 
-/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
+/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint; 5b additive fields). */
 export interface GetCommittedStateResponse {
   committed_state: CommittedSheetState[];
+}
+
+/**
+ * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
+ * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
+ */
+export interface ExportPricedWorkbookResponse {
+  filename: string;
+  content_type: string;
+  content_base64: string;
+  exported_sheets: string[];
+  /** {sheetName: [colLetter, ...]} -- rate columns left untouched because they hold formulas. */
+  skipped_formula_columns: Record<string, string[]>;
+  /** {sheetName: colLetter} -- where a "Nirmaan Remarks" column was appended. */
+  remark_columns: Record<string, string>;
+  last_exported_at: string;
 }
 
 /**

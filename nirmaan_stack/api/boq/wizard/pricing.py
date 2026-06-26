@@ -41,6 +41,19 @@ _NODE = "BOQ Nodes"
 _GRID = "BoQ Committed Sheet Grid"
 _GRID_ROW = "BoQ Committed Sheet Grid Row"
 
+# ── Deliberate per-sheet read-only lock (the pricing twin of the review-screen freeze) ──
+# A USER-CONTROLLED, PERSISTED, CROSS-USER lock living on the committed BoQ Sheet tier
+# (is_locked / locked_by / locked_at). DISTINCT from the transient single-editor concurrency
+# lock (BoQ Sheet Pricing Lock / BOQ_PRICING_LOCKED) and from the inert per-cell is_finalized.
+# Enforced server-side by _guard_sheet_not_locked in EVERY save_* endpoint (so a direct API
+# call can't write a locked sheet -- a frontend-only gate would be bypassable). Mirrors
+# review_screen._guard_sheet_not_frozen exactly in shape. Re-commit INVALIDATES the lock:
+# _write_committed_boq_sheet inserts a FRESH BoQ Sheet row (is_locked defaults 0), so a new
+# commit_version starts unlocked -- the lock never carries forward (no pipeline change needed).
+_LOCKED_WRITE_MESSAGE = (
+    "This sheet is locked and is read-only. Unlock it to make changes."
+)
+
 # ── Amount-formula layer (Formula Builder F1) ────────────────────────────────────
 # A per-COLUMN, per-committed-version USER-DECLARED amount FORMULA -- ADDITIVE, sits on
 # top of the committed tier like BoQ Cell Pricing (never mutates it). F1 STORES + SERVES;
@@ -266,6 +279,99 @@ def _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version) 
     return node
 
 
+# ── Deliberate per-sheet lock: read / guard / toggle ──────────────────────────────
+def _current_sheet_name(boq_name, sheet_name, committed_version):
+    """The name of the is_current=1 committed BoQ Sheet row for (boq, sheet_name VERBATIM
+    #152, committed_version), or None. The lock lives here; the version scoping means a
+    re-commit (new commit_version, fresh is_current row) naturally drops the prior lock."""
+    return frappe.db.get_value(
+        _BOQ_SHEET,
+        {
+            "boq": boq_name,
+            "sheet_name": sheet_name,
+            "commit_version": _coerce_int(committed_version, "committed_version"),
+            "is_current": 1,
+        },
+        "name",
+    )
+
+
+def _get_sheet_is_locked(boq_name, sheet_name, committed_version) -> int:
+    """1 iff the current committed BoQ Sheet for (boq, sheet_name, version) is deliberately
+    locked; 0 when unlocked OR no current row (an uncommitted / re-committed-away version is
+    not locked -- pass-through). A pure read."""
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        return 0
+    return 1 if frappe.db.get_value(_BOQ_SHEET, name, "is_locked") else 0
+
+
+def _guard_sheet_not_locked(boq_name, sheet_name, committed_version) -> None:
+    """Block any pricing write to a deliberately-locked sheet. Mirrors
+    review_screen._guard_sheet_not_frozen: called in EVERY save_* endpoint AFTER the cell/
+    target resolve and BEFORE acquire_or_refresh / any freeze/insert, so a locked sheet
+    short-circuits and mutates NOTHING (reject-mutates-nothing). PURELY ADDITIVE: an unlocked
+    sheet passes through byte-for-byte. sheet_name VERBATIM (#152)."""
+    if _get_sheet_is_locked(boq_name, sheet_name, committed_version):
+        frappe.throw(_LOCKED_WRITE_MESSAGE, title="Sheet is locked")
+
+
+@frappe.whitelist(methods=["POST"])
+def lock_sheet(boq_name=None, sheet_name=None, committed_version=None):
+    """Deliberately LOCK a committed sheet read-only (the pricing twin of
+    mark_sheet_parsed_check_done). ANY user may lock -- NO role check (a coordination signal,
+    not permission). Resolves the is_current=1 BoQ Sheet row for (boq, sheet_name VERBATIM
+    #152, committed_version) and stamps is_locked=1 / locked_by / locked_at via set_value
+    (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save), then commits.
+    Returns {ok, is_locked, locked_by, locked_at}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.lock_sheet"""
+    return _set_sheet_lock(boq_name, sheet_name, committed_version, True)
+
+
+@frappe.whitelist(methods=["POST"])
+def unlock_sheet(boq_name=None, sheet_name=None, committed_version=None):
+    """Deliberately UNLOCK a committed sheet (the inverse of lock_sheet; mirrors
+    unmark_sheet_parsed_check_done). ANY user may unlock. Clears is_locked / locked_by /
+    locked_at on the is_current=1 BoQ Sheet row. Returns {ok, is_locked: 0, locked_by: None,
+    locked_at: None}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.unlock_sheet"""
+    return _set_sheet_lock(boq_name, sheet_name, committed_version, False)
+
+
+def _set_sheet_lock(boq_name, sheet_name, committed_version, locked: bool) -> dict:
+    """Shared lock/unlock write. set_value (update_modified=False) + an explicit commit,
+    mirroring the mark/unmark + last_exported_at idioms. sheet_name VERBATIM (#152)."""
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    name = _current_sheet_name(boq_name, sheet_name, committed_version)
+    if not name:
+        frappe.throw(
+            f"No current committed sheet '{sheet_name}' at version {committed_version}.",
+            title="Not found",
+        )
+    locked_by = frappe.session.user if locked else None
+    locked_at = now_datetime() if locked else None
+    frappe.db.set_value(
+        _BOQ_SHEET,
+        name,
+        {"is_locked": 1 if locked else 0, "locked_by": locked_by, "locked_at": locked_at},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {
+        "ok": True,
+        "is_locked": 1 if locked else 0,
+        "locked_by": locked_by,
+        "locked_at": locked_at,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def save_cell_price(
     boq_name: str = None,
@@ -323,6 +429,11 @@ def save_cell_price(
     # The cell must exist in the committed tier (also yields the node pointer + node_type).
     node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
     node_name = node["name"]
+
+    # DELIBERATE LOCK GUARD -- AFTER the cell resolve, BEFORE the formula/priceability/lock
+    # gates + freeze/insert (reject-mutates-nothing). A locked sheet rejects EVERY save path;
+    # placed first so the "locked" error wins precedence over the formula/priceability errors.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
 
     # MANDATORY AMOUNT-FORMULA GATE -- ABSOLUTE, override does NOT bypass it. Placed AFTER the
     # committed-cell check (a non-cell still throws first) and OUTSIDE / BEFORE the
@@ -577,6 +688,10 @@ def save_row_remark(
     # allowed on any row, no priceability gate).
     _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
 
+    # DELIBERATE LOCK GUARD -- after the row resolve, before the lock acquire / freeze+insert
+    # (reject-mutates-nothing). A locked sheet rejects remarks too.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
+
     # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected
     # write mutates nothing). Holder = session user; shares this request's transaction.
     acquire_or_refresh(
@@ -688,6 +803,10 @@ def save_cell_color(
     # The committed cell's ROW must exist (NO priceability gate -- color is allowed
     # anywhere). _resolve_committed_cell is row-level (keys on source_row_number).
     _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # DELIBERATE LOCK GUARD -- after the row resolve, before the lock acquire / freeze+insert
+    # (reject-mutates-nothing). A locked sheet rejects color writes too.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
 
     # Single-editor lock -- AFTER the resolve, BEFORE the freeze/insert.
     acquire_or_refresh(
@@ -933,6 +1052,10 @@ def save_cell_dismissal(
     # The committed ROW must exist (row-level check; node_type ignored -- a dismissal is
     # allowed on any row, no priceability gate).
     _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # DELIBERATE LOCK GUARD -- after the row resolve, before the lock acquire / freeze+insert
+    # (reject-mutates-nothing). A locked sheet rejects dismissals too.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
 
     # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected write
     # mutates nothing). Holder = session user; shares this request's transaction.
@@ -1266,6 +1389,10 @@ def save_cell_reconciliation_choice(
     # The committed ROW must exist (row-level check; node_type ignored -- a choice is about an
     # amount cell, no priceability gate). Mirrors save_cell_color.
     _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+
+    # DELIBERATE LOCK GUARD -- after the row resolve, before the lock acquire / freeze+insert
+    # (reject-mutates-nothing). A locked sheet rejects reconciliation choices too.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
 
     # Single-editor lock -- AFTER the row-resolve, BEFORE the freeze/insert (a rejected write
     # mutates nothing). Holder = session user; shares this request's transaction.
@@ -1688,6 +1815,10 @@ def save_amount_formula(
     if not is_clear:
         _validate_formula_structure(formula_obj)
 
+    # DELIBERATE LOCK GUARD -- after the target-resolve + validation, before the lock acquire /
+    # freeze+insert (reject-mutates-nothing). A locked sheet rejects amount-formula writes too.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
+
     # Single-editor lock -- AFTER target-resolve + validation, BEFORE the freeze/insert
     # (a rejection mutates nothing). Holder = session user; shares this request's transaction.
     acquire_or_refresh(
@@ -1872,6 +2003,11 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # (carries col_letter, unlike dismissals). The grid + rollup build an O(1) map keyed
         # "<excel_row>:<col_letter>". Empty for an uncommitted/grid-only sheet. Built ONCE below.
         "reconciliation_choices": [],
+        # Deliberate per-sheet read-only lock (this slice) -- a SEPARATE key from `editable`
+        # (the concurrency verdict): the frontend ORs the two into `locked` but keeps the
+        # REASON distinct (a deliberate-lock teal banner vs the amber concurrency banner).
+        # False for an uncommitted / grid-only sheet (no committed BoQ Sheet -> not locked).
+        "is_locked": False,
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -1887,6 +2023,9 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             or lock_info["is_locked_by_me"]
             or lock_info["is_stale"]
         )
+        # Deliberate lock (persisted on BoQ Sheet) -- a pure read of the current committed
+        # version's is_locked; rides the same committed-version branch.
+        base["is_locked"] = bool(_get_sheet_is_locked(boq_name, sheet_name, commit_version))
         # Amount formulas (F1): the current per-column formulas for this committed version,
         # shaped PER-COLUMN for the grid lookup (built once; NOT stamped onto any row).
         base["column_formulas"] = [

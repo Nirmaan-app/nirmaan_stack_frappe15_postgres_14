@@ -315,6 +315,15 @@ export function SheetCard({
               Committed
             </span>
           )}
+          {/* Staleness chip (Slice 5b): a muted amber "priced since last export" marker --
+              the priced-tender download is out of date for this sheet. Mirrors the
+              needs-attention chip styling (amber/muted, not alarming). Rides the existing
+              committedState prop (no new wiring). */}
+          {committedState?.pricing_changed_since_export && (
+            <span className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              priced since last export
+            </span>
+          )}
           {/* F2: "needs attention" chip -- RED when a failure stamp is present, AMBER when
               only stale-config. Click toggles the inline detail block below. */}
           {attnCount > 0 && (
