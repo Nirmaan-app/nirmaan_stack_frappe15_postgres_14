@@ -1038,6 +1038,26 @@ export interface GetCommittedStateResponse {
 }
 
 /**
+ * One committed version of a sheet, from get_sheet_versions (Phase 5 version-view). The version
+ * SOURCE-OF-TRUTH is the committed grid tier, so this covers grid-only and node versions alike.
+ * Drives the read-only version-history dropdown. `last_change_at` is the max priced/colored/
+ * remarked_at on that version, or null when the version was committed but NEVER priced (a COMMON
+ * case -- the dropdown then falls back to committed_at with a "never priced" affordance).
+ */
+export interface SheetVersionRow {
+  commit_version: number;
+  is_current: boolean;
+  committed_at: string | null;
+  sheet_disposition: "grid_only" | "grid_and_nodes";
+  last_change_at: string | null;
+}
+
+/** Response shape of get_sheet_versions (Phase 5 version-view; versions sorted version-desc). */
+export interface GetSheetVersionsResponse {
+  versions: SheetVersionRow[];
+}
+
+/**
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
  */

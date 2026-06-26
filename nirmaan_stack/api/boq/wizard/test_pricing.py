@@ -27,6 +27,7 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     _sheet_formulas_complete,
     get_committed_sheet_grid,
     get_priced_rows,
+    get_version_priced_rows,
     get_sheet_amount_formulas,
     get_sheet_colors,
     get_sheet_dismissals,
@@ -51,7 +52,10 @@ from nirmaan_stack.api.boq.wizard.pricing_lock import (
     acquire_or_refresh,
     read_lock_info,
 )
-from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    get_committed_rows,
+    get_committed_rows_at_version,
+)
 from nirmaan_stack.api.boq.wizard.test_review_screen import (
     _cleanup_project,
     _make_project,
@@ -3334,3 +3338,115 @@ class TestSheetLock(FrappeTestCase):
             frappe.db.delete(self._SHEET_DT, bs.name)
             frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 1)
             frappe.db.commit()
+
+
+class TestGetVersionPricedRows(FrappeTestCase):
+    """get_version_priced_rows + get_committed_rows_at_version -- the READ-ONLY version-history
+    read (Phase 5 version-view). Builds TWO committed versions of the SAME sheet: an OLD frozen
+    v1 (is_current=0) priced at 150 and a CURRENT v2 (is_current=1) priced at 999, and proves the
+    cross-version read returns EACH version's own rows + pricing, with editable forced False and no
+    lock touch. The CURRENT live read (get_priced_rows) is asserted to still see v2 only -- the hot
+    path is untouched. sheet_name carries a trailing space (#152) throughout."""
+
+    _SHEET_DT = "BoQ Sheet"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Version-View Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Ver Fix "  # VERBATIM trailing space (#152)
+
+        # v1: build (is_current=1), declare formulas, price col E (Phase 1 combined) = 150 -> freeze.
+        cls.v1 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=1)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, 1)
+        save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
+                        committed_version=1, rate=150.0, area="Phase 1", rate_kind="combined")
+        # Freeze v1 (BoQ Sheet + its nodes) so the CURRENT path resolves v2 unambiguously.
+        frappe.db.set_value(cls._SHEET_DT, cls.v1["bqsh"], "is_current", 0)
+        frappe.db.sql("UPDATE `tabBOQ Nodes` SET is_current=0 WHERE sheet=%s", cls.v1["bqsh"])
+        frappe.db.commit()
+
+        # v2: build (is_current=1), declare formulas, price the SAME cell = 999 (a different rate).
+        cls.v2 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=2)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, 2)
+        save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
+                        committed_version=2, rate=999.0, area="Phase 1", rate_kind="combined")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _row(self, res, excel_row):
+        return next((r for r in res["rows"] if r.get("source_row_number") == excel_row), None)
+
+    # -- the cross-version read returns EACH version's own pricing --------------------
+
+    def test_old_version_returns_its_own_price(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertEqual(res["commit_version"], 1)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 150.0,
+                         "the OLD version reads its OWN frozen price (150), not the current (999)")
+        self.assertTrue(self._row(res, 34)["priced_by_area"]["Phase 1"]["combined_rate"])
+
+    def test_current_version_via_version_read(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=2)
+        self.assertEqual(res["commit_version"], 2)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 999.0)
+
+    def test_live_hot_path_still_sees_only_current(self):
+        # get_priced_rows (the untouched live editor read) resolves is_current=1 -> v2 (999).
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertEqual(res["commit_version"], 2)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 999.0,
+                         "the current-version hot path is unchanged and version-isolated")
+
+    # -- read-only posture: editable forced False, no lock touch ----------------------
+
+    def test_version_read_is_read_only(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertIs(res["editable"], False, "a historical read is never editable")
+        self.assertIsNone(res["lock_info"], "a historical read never surfaces a lock holder")
+
+    def test_version_read_no_concurrency_lock_acquired(self):
+        # A historical read must NOT create/touch a single-editor lock (unlike a save). The setup
+        # pricing acquired locks, so assert the count is UNCHANGED across the read, not absolute-0.
+        before = frappe.db.count(_LOCK_DT, {"boq": self.boq})
+        get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), before,
+                         "a read-only version view changed the concurrency-lock state")
+
+    # -- the underlying node read crosses versions ------------------------------------
+
+    def test_committed_rows_at_version_reads_old_nodes(self):
+        res = get_committed_rows_at_version(boq_name=self.boq, sheet_name=self.sheet,
+                                            committed_version=1)
+        self.assertEqual(res["commit_version"], 1)
+        row = self._row(res, 34)
+        self.assertIsNotNone(row, "the OLD (is_current=0) version's nodes are still readable")
+        self.assertTrue(res["column_descriptors"], "old-version descriptors rebuild from its config")
+
+    # -- graceful empty for a version with no node-tier row ---------------------------
+
+    def test_missing_version_returns_empty_rows(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=99)
+        self.assertEqual(res["rows"], [], "a version with no node-tier sheet returns empty rows")
+        self.assertEqual(res["commit_version"], 99)
+        self.assertIs(res["editable"], False)
+
+    # -- arg guards -------------------------------------------------------------------
+
+    def test_missing_args_and_unknown_boq_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet)  # no version
+        with self.assertRaises(frappe.ValidationError):
+            get_version_priced_rows(boq_name="NO_SUCH_BOQ", sheet_name=self.sheet, committed_version=1)

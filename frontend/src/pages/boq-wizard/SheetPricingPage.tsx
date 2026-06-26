@@ -38,6 +38,7 @@ import type {
   DismissalSaveArgs,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
+  GetSheetVersionsResponse,
   PricedRow,
   RateCellSaveArgs,
   ReconChoiceSaveArgs,
@@ -46,6 +47,7 @@ import type {
   RowReviewFlags,
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+import { VersionRibbon } from "./VersionRibbon";
 import {
   PricingGrid,
   buildSearchHits,
@@ -154,6 +156,37 @@ const SheetPricingPage = () => {
     boqId ? undefined : null,
   );
 
+  // ── Version-view (read-only history browser) ──────────────────────────────────
+  // selectedVersion: null = the CURRENT/live version (today's editable behaviour, unchanged); a
+  // number = an EARLIER committed version shown read-only with its OWN pricing. Reset on a sheet
+  // switch (the [sheetName] effect below) so a new sheet always opens on its live version.
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  // The live read's committed version -- the single source of "which version is live".
+  const liveCommitVersion = pricedData?.message?.commit_version ?? null;
+  // History mode iff an EARLIER version than the live one is selected.
+  const isViewingHistory = selectedVersion !== null && selectedVersion !== liveCommitVersion;
+
+  // The committed versions of THIS sheet, for the version dropdown. Source-of-truth = the committed
+  // grid tier (get_sheet_versions), the existing "what versions exist" authority (covers grid-only
+  // sheets + versions the node tier may lack). Disabled until boqId + sheetName are present.
+  const { data: versionsData } = useFrappeGetCall<{ message: GetSheetVersionsResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_sheet_versions",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
+    boqId && sheetName ? undefined : null,
+  );
+
+  // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
+  // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
+  const { data: historyData } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+    "nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: selectedVersion ?? 0,
+    },
+    isViewingHistory ? undefined : null,
+  );
+
   // General-specs faithful-grid fork: a GRID-ONLY (general-specs) committed sheet commits a
   // faithful grid with ZERO nodes, so the node-based get_priced_rows renders it empty. Detect
   // it via the EXPLICIT sheet_disposition discriminator (NOT by inferring "empty rows"). The
@@ -167,7 +200,11 @@ const SheetPricingPage = () => {
   // commit_version comes from get_priced_rows (it carries it for BOTH dispositions -- a
   // grid-only sheet still has a current committed BoQ Sheet). The faithful-grid fetch is
   // disabled until it's a known grid-only sheet WITH a version.
-  const commitVersionForGrid = pricedData?.message?.commit_version ?? null;
+  // In history mode the faithful grid (grid-only sheets) must read the SELECTED version; else the
+  // live current version. Both are version-parameterized reads, so this just swaps the version arg.
+  const commitVersionForGrid = isViewingHistory
+    ? selectedVersion
+    : pricedData?.message?.commit_version ?? null;
   const { data: gridData } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid",
     {
@@ -327,6 +364,7 @@ const SheetPricingPage = () => {
     setLastSavedAt(null);
     setTakenOver(false);
     setSummaryOpen(false);
+    setSelectedVersion(null); // version-view: a new sheet always opens on its live version
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
@@ -408,28 +446,36 @@ const SheetPricingPage = () => {
   // on it). The active tab is the current :sheetName (matched VERBATIM, #152).
   const committedSheets = orderCommittedSheets(committedStateData?.message?.committed_state ?? []);
 
-  // Data derived from the priced-rows fetch.
-  const rows = pricedData?.message?.rows ?? [];
-  const columnDescriptors = pricedData?.message?.column_descriptors ?? [];
-  const columnFormulas = pricedData?.message?.column_formulas ?? []; // F3: per-column amount formulas
-  const dismissals = pricedData?.message?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
-  const reconChoices = pricedData?.message?.reconciliation_choices ?? []; // Cluster B: per-cell choices
-  const commitVersion = pricedData?.message?.commit_version ?? null;
+  // Data derived from the ACTIVE priced-rows payload: the selected EARLIER version (read-only
+  // history, from get_version_priced_rows) when viewing history, else the live current version
+  // (get_priced_rows). The live fetch is unchanged; this is a pure read-source swap. The history
+  // payload carries editable=false, so every downstream edit gate collapses to read-only.
+  const activeMessage = isViewingHistory ? historyData?.message : pricedData?.message;
+  const rows = activeMessage?.rows ?? [];
+  const columnDescriptors = activeMessage?.column_descriptors ?? [];
+  const columnFormulas = activeMessage?.column_formulas ?? []; // F3: per-column amount formulas
+  const dismissals = activeMessage?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
+  const reconChoices = activeMessage?.reconciliation_choices ?? []; // Cluster B: per-cell choices
+  const commitVersion = activeMessage?.commit_version ?? null;
   // RESERVED for the future single-editor-lock slice (3b) -- inert in 3a. Threaded into the
   // grid so 3b can gate inline edit on them without reshaping the contract.
-  const editable = pricedData?.message?.editable ?? true;
-  const lockInfo = pricedData?.message?.lock_info ?? null;
+  const editable = activeMessage?.editable ?? true;
+  const lockInfo = activeMessage?.lock_info ?? null;
   // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
   // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
-  const isLocked = pricedData?.message?.is_locked ?? false;
-  const pricedLoading = pricedData === undefined;
-  const pricedError = pricedData === null;
+  const isLocked = activeMessage?.is_locked ?? false;
+  // Loading/error track the ACTIVE source (the history fetch while in history mode).
+  const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
+  const pricedError = isViewingHistory ? historyData === null : pricedData === null;
   // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
   // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
   // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
   // editable check. The deliberate lock is ABSOLUTE: it rides this same boolean, so the override
   // (which lives INSIDE isRateEditableRow, ANDed AFTER onSaveRate) can never reach past it.
-  const locked = editable === false || takenOver || isLocked;
+  // Version-view: an EARLIER version is read-only history -- it rides this SAME choke (no parallel
+  // gate), so withholding the save callbacks below collapses EVERY mutation path to read-only by
+  // construction. The history payload also reports editable=false (server belt to this suspenders).
+  const locked = editable === false || takenOver || isLocked || isViewingHistory;
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -804,6 +850,18 @@ const SheetPricingPage = () => {
           : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
+      {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
+          ribbon. Shows on ALL sheet types (it sits above the {!isGridOnly} bottom-ribbon gate);
+          renders only when 2+ committed versions exist. Selecting an earlier version drops the
+          whole editor into read-only history mode via the `locked` choke above. */}
+      <VersionRibbon
+        versions={versionsData?.message?.versions ?? []}
+        currentVersion={liveCommitVersion}
+        selectedVersion={selectedVersion}
+        onSelectVersion={(v) => setSelectedVersion(v === liveCommitVersion ? null : v)}
+        isViewingHistory={isViewingHistory}
+      />
+
       {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
       <div className="flex items-start gap-3">
         <Button
@@ -862,7 +920,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={isLocked}
             onClick={handleToggleLock}
-            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null}
+            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null || isViewingHistory}
             title={
               isLocked
                 ? "This sheet is locked (read-only). Click to unlock and allow edits."
@@ -1008,8 +1066,10 @@ const SheetPricingPage = () => {
           is VISUALLY DISTINCT from the two amber concurrency banners ("someone else is editing").
           Then: mid-edit takeover > the load-time holder banner (editable===false). A STALE lock
           returns editable===true -> neither amber banner shows. SUPPRESSED for a grid-only sheet
-          (no editing -> no lock; the lock toggle is also absent there). */}
-      {isGridOnly ? null : isLocked ? (
+          (no editing -> no lock; the lock toggle is also absent there). ALSO suppressed in read-only
+          history mode -- the version ribbon's own banner is the read-only surface there (a historical
+          payload reports editable=false, which would otherwise trip the holder banner). */}
+      {isGridOnly || isViewingHistory ? null : isLocked ? (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
           <ShieldCheck className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
           <p className="text-teal-900 dark:text-teal-100 flex-1">
@@ -1303,6 +1363,11 @@ const SheetPricingPage = () => {
             This is a general-specifications sheet -- read-only reference. There is nothing to
             price here.
           </span>
+        ) : isViewingHistory ? (
+          <span>
+            You are viewing an earlier committed version (read-only history). Switch back to
+            &ldquo;Current (live)&rdquo; in the version selector above to make changes.
+          </span>
         ) : (
           <span>
             Enter a rate in any rate cell. It auto-saves a second after you stop typing (or on
@@ -1312,8 +1377,9 @@ const SheetPricingPage = () => {
         )}
       </div>
 
-      {/* ── Slice 3e: override-on banner (loud, amber -- the override is a loaded gun). */}
-      {!isGridOnly && override && (
+      {/* ── Slice 3e: override-on banner (loud, amber -- the override is a loaded gun). Suppressed
+          in read-only history mode (the override is inert there -- the whole editor is read-only). */}
+      {!isGridOnly && !isViewingHistory && override && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <Unlock className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>
@@ -1533,7 +1599,9 @@ const SheetPricingPage = () => {
             // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
             // grid -- the existing flush-on-unmount commits the OLD sheet's pending drafts to
             // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
-            key={sheetName}
+            // version-view: the key also carries the selected version so switching to/from a
+            // read-only historical version cleanly remounts the grid (no stale drafts/scroll).
+            key={`${sheetName}::${selectedVersion ?? "current"}`}
             ref={gridRef}
             // Slice 4b-A: "show only unpriced" filters the RENDERED rows to
             // priceable-but-not-fully-priced. Filtering page-side keeps the grid's nav/byIdx

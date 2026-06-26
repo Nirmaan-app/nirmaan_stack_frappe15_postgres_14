@@ -24,6 +24,7 @@ from nirmaan_stack.api.boq.wizard.commit_gate import (
     compute_committable_sheets,
     get_committable_sheets,
     get_committed_state,
+    get_sheet_versions,
 )
 
 _TEST_PROJECT = "_TEST_BOQ_PROJECT_COMMIT_GATE"
@@ -548,3 +549,111 @@ class TestGetCommittedStateStaleness(FrappeTestCase):
         # OldVer current = v2 (exported early); the only content is on v1 -> NOT stale.
         self.assertFalse(self._by_sheet()["OldVer"]["pricing_changed_since_export"],
                          "an old version's timestamp must not mark the current version stale")
+
+
+class TestGetSheetVersions(FrappeTestCase):
+    """get_sheet_versions -- the READ-ONLY version-dropdown list (Phase 5 version-view). Seeds ONE
+    sheet with three committed grid versions: v1 (committed early, NEVER priced), v2 (priced ->
+    last_change_at set), v3 (current, never priced). Asserts the list is version-desc, carries the
+    is_current / committed_at / sheet_disposition fields, and that last_change_at is the max pricing
+    change (None -> the never-priced committed_at-fallback case the client handles). sheet_name
+    carries a trailing space (#152)."""
+
+    _PROJECT = "_TEST_BOQ_PROJECT_SHEET_VERSIONS"
+    SHEET = "Ver List "  # VERBATIM trailing space (#152)
+    T1 = "2026-06-17 09:00:00"
+    T2 = "2026-06-18 09:00:00"
+    T3 = "2026-06-19 09:00:00"
+    T_PRICED = "2026-06-18 15:30:00"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls._PROJECT
+        boq.boq_name = "Shared Test BoQ for Sheet Versions"
+        boq.insert(ignore_permissions=True, ignore_links=True)
+        cls.boq_name = boq.name
+
+        # Three committed grid versions of the SAME sheet (v3 current). v2 is priced.
+        cls._grid(cls.boq_name, cls.SHEET, 1, is_current=0, committed_at=cls.T1,
+                  disposition="grid_and_nodes")
+        cls._grid(cls.boq_name, cls.SHEET, 2, is_current=0, committed_at=cls.T2,
+                  disposition="grid_and_nodes")
+        cls._grid(cls.boq_name, cls.SHEET, 3, is_current=1, committed_at=cls.T3,
+                  disposition="grid_and_nodes")
+        cls._price(cls.boq_name, cls.SHEET, 2, cls.T_PRICED)
+        frappe.db.commit()
+
+    @staticmethod
+    def _grid(boq, sheet, version, is_current, committed_at, disposition):
+        d = frappe.new_doc("BoQ Committed Sheet Grid")
+        d.boq = boq
+        d.source_sheet_name = sheet
+        d.commit_version = version
+        d.is_current = is_current
+        d.committed_at = committed_at
+        d.sheet_disposition = disposition
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @staticmethod
+    def _price(boq, sheet, version, priced_at):
+        d = frappe.new_doc("BoQ Cell Pricing")
+        d.boq = boq
+        d.sheet_name = sheet
+        d.excel_row = 10
+        d.col_letter = "E"
+        d.committed_version = version
+        d.rate = 100.0
+        d.is_filled = 1
+        d.pricing_version = 1
+        d.is_current = 1
+        d.priced_at = priced_at
+        d.insert(ignore_permissions=True, ignore_links=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        name = getattr(cls, "boq_name", None)
+        if name:
+            for dt in ("BoQ Cell Pricing", "BoQ Committed Sheet Grid"):
+                frappe.db.delete(dt, {"boq": name})
+            frappe.db.delete("BOQs", {"name": name})
+        frappe.db.commit()
+        super().tearDownClass()
+
+    def _versions(self):
+        return get_sheet_versions(boq_name=self.boq_name, sheet_name=self.SHEET)["versions"]
+
+    def test_returns_all_versions_desc(self):
+        vs = self._versions()
+        self.assertEqual([v["commit_version"] for v in vs], [3, 2, 1],
+                         "every committed version, sorted version-descending")
+
+    def test_is_current_flag(self):
+        by_v = {v["commit_version"]: v for v in self._versions()}
+        self.assertTrue(by_v[3]["is_current"], "v3 is the current version")
+        self.assertFalse(by_v[2]["is_current"])
+        self.assertFalse(by_v[1]["is_current"])
+
+    def test_last_change_at_for_priced_version(self):
+        by_v = {v["commit_version"]: v for v in self._versions()}
+        self.assertEqual(frappe.utils.get_datetime(by_v[2]["last_change_at"]),
+                         frappe.utils.get_datetime(self.T_PRICED),
+                         "a priced version's last_change_at = its max pricing change")
+
+    def test_never_priced_versions_have_no_change(self):
+        by_v = {v["commit_version"]: v for v in self._versions()}
+        self.assertIsNone(by_v[1]["last_change_at"], "v1 was never priced -> None (committed_at fallback)")
+        self.assertIsNone(by_v[3]["last_change_at"], "v3 was never priced -> None")
+
+    def test_committed_at_and_disposition_surface(self):
+        by_v = {v["commit_version"]: v for v in self._versions()}
+        self.assertEqual(frappe.utils.get_datetime(by_v[1]["committed_at"]),
+                         frappe.utils.get_datetime(self.T1))
+        self.assertEqual(by_v[3]["sheet_disposition"], "grid_and_nodes")
+
+    def test_missing_args_and_unknown_boq_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_sheet_versions(boq_name=self.boq_name)  # no sheet
+        with self.assertRaises(frappe.ValidationError):
+            get_sheet_versions(boq_name="NO_SUCH_BOQ", sheet_name=self.SHEET)

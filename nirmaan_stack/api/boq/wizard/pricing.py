@@ -32,7 +32,11 @@ import math
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows, _build_column_descriptors
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    get_committed_rows,
+    get_committed_rows_at_version,
+    _build_column_descriptors,
+)
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
 
 _PRICING = "BoQ Cell Pricing"
@@ -2061,8 +2065,20 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     if not rows or commit_version is None:
         return base
 
+    _merge_overlays(boq_name, sheet_name, commit_version, rows, column_descriptors)
+    return base
+
+
+def _merge_overlays(boq_name, sheet_name, committed_version, rows, column_descriptors) -> None:
+    """Overlay current prices + per-row remarks + per-cell colors onto committed `rows` IN PLACE
+    (factored out of get_priced_rows so the version-view read reuses the IDENTICAL merge). The
+    three reads (get_sheet_pricing / _remarks / _colors) all take committed_version, so this works
+    for ANY committed version -- current OR historical. Mutates `rows`; returns None.
+
+    Behavior preserved from the inline original: in the no-content fast path it returns WITHOUT
+    stamping row["remark"], so a sheet with no overlays leaves rows untouched (no remark key)."""
     pricing = get_sheet_pricing(
-        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
     )["pricing"]
 
     # Index current, FILLED prices by the durable cell key (excel_row, col_letter). The
@@ -2077,18 +2093,18 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     remark_by_row = {
         r["excel_row"]: r["remark"]
         for r in get_sheet_remarks(
-            boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
         )["remarks"]
     }
     colors_by_row: dict = {}
     for c in get_sheet_colors(
-        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
     )["colors"]:
         colors_by_row.setdefault(c["excel_row"], {})[c["col_letter"]] = c["color"]
 
     # Nothing to merge at all (no prices, no remarks, no colors) -> graceful passthrough.
     if not price_by_cell and not remark_by_row and not colors_by_row:
-        return base
+        return
 
     # Only RATE descriptors are eligible to receive a price (see _SCALAR_RATE_FIELDS doc).
     rate_descs = [
@@ -2122,6 +2138,85 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
                 row[field] = rate_val
                 row["priced_" + field] = True
 
+
+@frappe.whitelist()
+def get_version_priced_rows(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Read-only HISTORY twin of get_priced_rows (Phase 5 version-view). Returns an OLD committed
+    version's rows WITH that version's OWN saved pricing/annotations merged -- the data source for
+    the read-only version-history browser. DISTINCT from get_priced_rows (welded to the CURRENT
+    version -- the live editor hot path, left byte-for-byte unchanged): this is ADDITIVE and takes
+    an explicit committed_version.
+
+    Mirrors get_priced_rows' shape so the grid renders an old version with NO new render code, but
+    forces the read-only posture: editable=False, lock_info=None (a historical read NEVER touches
+    the single-editor lock -- read_lock_info / acquire are not called). column_formulas /
+    dismissals / reconciliation_choices are read for the REQUESTED version (all version-parameterized).
+
+    Graceful empty: a version with no node-tier rows (the node tier and grid tier can carry
+    different version sets) returns empty rows -- the client falls back to the faithful grid
+    (get_committed_sheet_grid, version-parameterized). sheet_name VERBATIM (#152). PURE READ.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # Version-aware node read (additive twin; resolves the OLD BoQ Sheet by commit_version).
+    committed = get_committed_rows_at_version(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+    )
+    rows = committed.get("rows") or []
+    column_descriptors = committed.get("column_descriptors") or []
+
+    base = {
+        "rows": rows,
+        "column_descriptors": column_descriptors,
+        "commit_version": committed_version,
+        # READ-ONLY HISTORY: never editable, never touch the lock. The client also forces
+        # read-only via isViewingHistory; editable=False is the server-side belt to that suspenders.
+        "editable": False,
+        "lock_info": None,
+        # Amount formulas / dismissals / reconciliation choices for the REQUESTED version (the
+        # three reads are version-parameterized -- identical shaping to get_priced_rows).
+        "column_formulas": [
+            {
+                "target_value_field": f["target_value_field"],
+                "target_value_key": f["target_value_key"],
+                "target_rate_subkey": f["target_rate_subkey"],
+                "target_col": f["target_col"],
+                "formula": f["formula"],
+            }
+            for f in _current_formula_records(boq_name, sheet_name, committed_version)
+        ],
+        "dismissals": [
+            {"excel_row": d["excel_row"], "flag_kind": d["flag_kind"]}
+            for d in get_sheet_dismissals(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+            )["dismissals"]
+        ],
+        "reconciliation_choices": [
+            {"excel_row": c["excel_row"], "col_letter": c["col_letter"], "choice": c["choice"]}
+            for c in get_sheet_reconciliation_choices(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+            )["choices"]
+        ],
+        # A historical version is intrinsically read-only; is_locked reports its own stored flag
+        # (informational -- the client renders read-only via isViewingHistory regardless).
+        "is_locked": bool(_get_sheet_is_locked(boq_name, sheet_name, committed_version)),
+    }
+
+    # Overlay this version's prices/remarks/colors onto its rows (the shared merge).
+    if rows:
+        _merge_overlays(boq_name, sheet_name, committed_version, rows, column_descriptors)
     return base
 
 

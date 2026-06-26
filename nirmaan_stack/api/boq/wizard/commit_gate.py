@@ -308,3 +308,60 @@ def get_committed_state(boq_name: str) -> dict:
         key=lambda e: (e["sheet_order"] is None, e["sheet_order"] or 0, e["sheet_name"])
     )
     return {"committed_state": committed_state}
+
+
+@frappe.whitelist()
+def get_sheet_versions(boq_name: str = None, sheet_name: str = None) -> dict:
+    """READ-ONLY. List every committed version of ONE sheet for the version-view dropdown
+    (Phase 5 version-view). The version SOURCE-OF-TRUTH is the committed GRID tier
+    (BoQ Committed Sheet Grid) -- the existing "what versions exist" authority: it is written for
+    BOTH dispositions, so it covers a grid-only sheet the node tier lacks AND a version the node
+    tier is missing (the two tiers can carry different version sets). Each version carries its
+    last-pricing-change datetime (max priced/colored/remarked_at on that version, REUSING
+    _latest_change_by_sheet_version -- one grouped call, no version filter, returns every version)
+    so the dropdown can label an earlier version by its last edit; a committed-but-never-priced
+    version has last_change_at=None and the client falls back to committed_at with a "never priced"
+    affordance (a COMMON case, not an edge). sheet_name VERBATIM (#152). Sorted version-DESC.
+
+    No DB write -- a pure read (no set_value / insert / save / commit).
+
+    Returns:
+      {"versions": [{"commit_version": int,
+                     "is_current": bool,
+                     "committed_at": str | None,
+                     "sheet_disposition": "grid_only" | "grid_and_nodes",
+                     "last_change_at": str | None}, ...]}  # version-desc
+    URL: /api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_sheet_versions
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Every committed grid row for this sheet across versions (one per version -- the pipeline's
+    # freeze-and-supersede mints exactly one grid row per commit_version). source_sheet_name is the
+    # per-sheet key, matched VERBATIM (#152).
+    grid_rows = frappe.get_all(
+        "BoQ Committed Sheet Grid",
+        filters={"boq": boq_name, "source_sheet_name": sheet_name},
+        fields=["commit_version", "is_current", "committed_at", "sheet_disposition"],
+    )
+
+    # Last pricing/color/remark change per (sheet, version) -- the dropdown's earlier-version label.
+    # Reused as-is from the Slice-5b staleness signal; keyed (sheet_name VERBATIM, version).
+    changes = _latest_change_by_sheet_version(boq_name)
+
+    versions = [
+        {
+            "commit_version": r.commit_version,
+            "is_current": bool(r.is_current),
+            "committed_at": r.committed_at,
+            "sheet_disposition": r.sheet_disposition,
+            "last_change_at": changes.get((sheet_name, r.commit_version)),
+        }
+        for r in grid_rows
+    ]
+    versions.sort(key=lambda v: v["commit_version"], reverse=True)
+    return {"versions": versions}

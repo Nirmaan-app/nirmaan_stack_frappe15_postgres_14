@@ -1444,10 +1444,26 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     }
     column_descriptors = _build_column_descriptors(sheet_config)
 
-    # Current nodes for this sheet (node.sheet is the BoQ Sheet Link), ordered like the draft.
+    # Current nodes + row assembly (factored into the shared tail). The CURRENT path pins
+    # is_current=1 -- byte-for-byte the prior query (the version-aware twin omits it).
+    return _assemble_committed_rows(
+        boq_name,
+        {"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        column_descriptors,
+        sheet_doc.get("commit_version"),
+    )
+
+
+def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_version) -> dict:
+    """Shared committed node-read + row-assembly tail (factored out of get_committed_rows so a
+    version-aware read can reuse it). `node_filters` selects the version's nodes: the CURRENT path
+    passes {boq, sheet, is_current:1} (byte-for-byte the prior query); the version-aware path
+    passes {boq, sheet:<that version's BoQ Sheet name>} (a version-specific BoQ Sheet row uniquely
+    scopes its own nodes, so no is_current filter is needed there). Returns the same
+    {rows, column_descriptors, commit_version} contract; empty rows when the version has no nodes."""
     nodes = frappe.db.get_all(
         "BOQ Nodes",
-        filters={"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        filters=node_filters,
         fields=_COMMITTED_NODE_FIELDS,
         order_by="sort_order asc",
     )
@@ -1455,7 +1471,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         return {
             "rows": [],
             "column_descriptors": column_descriptors,
-            "commit_version": sheet_doc.get("commit_version"),
+            "commit_version": commit_version,
         }
 
     # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
@@ -1479,8 +1495,71 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     return {
         "rows": rows,
         "column_descriptors": column_descriptors,
-        "commit_version": sheet_doc.get("commit_version"),
+        "commit_version": commit_version,
     }
+
+
+@frappe.whitelist()
+def get_committed_rows_at_version(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Version-aware twin of get_committed_rows (read-only history browser, Phase 5 version-view).
+    Resolves the BoQ Sheet row for (boq, sheet_name VERBATIM #152, commit_version) -- WHICHEVER
+    is_current it carries (an OLD frozen version is is_current=0) -- and emits the SAME
+    {rows, column_descriptors, commit_version} contract get_committed_rows emits for the current
+    version, so the descriptor-driven grid renders an old version with NO new render code.
+
+    DISTINCT from get_committed_rows (hardwired to is_current=1 -- the LIVE EDITOR hot path, left
+    byte-for-byte unchanged): this is ADDITIVE. Nodes are scoped by the resolved version's BoQ
+    Sheet name (a version-specific row), so no is_current node filter is needed.
+
+    Graceful empty: a version that exists in the committed grid tier but has NO node-tier BoQ Sheet
+    row (the node tier and grid tier can carry different version sets) returns empty rows -- the
+    caller falls back to the faithful grid (get_committed_sheet_grid, version-parameterized).
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_committed_rows). PURE READ.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.get_committed_rows_at_version
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    try:
+        committed_version = int(committed_version)
+    except (ValueError, TypeError):
+        frappe.throw("committed_version must be an integer.", title="Invalid field")
+
+    # Resolve the requested version's BoQ Sheet (commit_version is unique per (boq, sheet_name);
+    # is_current is NOT constrained -- an old version is is_current=0). sheet_name VERBATIM (#152).
+    sheet_doc = frappe.db.get_value(
+        "BoQ Sheet",
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        ["name", "column_role_map", "column_headers", "commit_version"],
+        as_dict=True,
+    )
+    if not sheet_doc:
+        # No node-tier BoQ Sheet at this version -> empty (grid-only fallback on the client).
+        return {"rows": [], "column_descriptors": [], "commit_version": committed_version}
+
+    sheet_config = {
+        "column_role_map": _coerce_json_obj(sheet_doc.get("column_role_map")),
+        "column_headers": _coerce_json_obj(sheet_doc.get("column_headers")),
+    }
+    column_descriptors = _build_column_descriptors(sheet_config)
+    # Nodes scoped by the resolved version's BoQ Sheet name (no is_current -- that row IS the
+    # version). A flat/degenerate parent_node shape (some versions carry one) assembles fine:
+    # _committed_node_to_row synthesizes hierarchy from sort_order + parent_node, never crashes.
+    return _assemble_committed_rows(
+        boq_name,
+        {"boq": boq_name, "sheet": sheet_doc["name"]},
+        column_descriptors,
+        sheet_doc.get("commit_version"),
+    )
 
 
 def _coerce_json_obj(v):
