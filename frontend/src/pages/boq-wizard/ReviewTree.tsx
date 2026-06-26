@@ -310,11 +310,44 @@ const WARN_FLAG_LABELS: Record<string, string> = {
 };
 const WARN_FLAG_ORDER = ["orphan", "parser", "classifier_warning"];
 // R4: labels for the must-fix structural-break group (from check_structural_integrity).
+// `orphan` is NO LONGER a structural break (demoted to a soft advisory flag) -- it lives only
+// in WARN_FLAG_LABELS now; the must-fix group is line_item_as_parent + cycle.
 const WARN_BREAK_LABELS: Record<string, string> = {
-  orphan: "Orphan line item",
   line_item_as_parent: "Line item used as a parent",
   cycle: "Parent cycle",
 };
+
+// Shared renderer for a row's advisory-flag content across the three warning surfaces (top
+// Warnings panel, in-grid "Show all flags" reveal, detail panel). A `classifier_warning` flag
+// renders its parser notes as one bullet PER note -- from the row's `classifier_warnings` array
+// (the structured source), NOT the "·"-joined `flag.reason`. `orphan` / `parser` render their
+// single reason line. Every item is a bullet so the surfaces read identically. `classifierNotes`
+// is passed in: the panel reads it off the precomputed warningRows entry; the grid + detail read
+// `row.classifier_warnings` directly.
+function WarningFlagContent({ flags, classifierNotes }: {
+  flags: AdvisoryFlag[];
+  classifierNotes?: unknown[] | null;
+}) {
+  if (flags.length === 0) return null;
+  // Flatten to one bullet line per reason/note. A classifier_warning expands to one bullet per
+  // note; orphan/parser is one bullet for its reason. Rendered as block <span>s (NOT <ul>/<li>)
+  // because two of the three call sites are inside a <button>, where list elements are invalid.
+  const lines = flags.flatMap((f) =>
+    f.type === "classifier_warning" && Array.isArray(classifierNotes) && classifierNotes.length > 0
+      ? classifierNotes.map((n) => String(n))
+      : [f.reason],
+  );
+  return (
+    <span className="flex flex-col gap-0.5">
+      {lines.map((text, i) => (
+        <span key={i} className="flex gap-1.5 text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug">
+          <span aria-hidden className="select-none text-amber-400/70">&bull;</span>
+          <span className="min-w-0">{text}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 // Slice 1b-beta: local response shape of save_review_restructure (Slice 1b-alpha
 // backend). Defined here -- boqTypes.ts is out of scope for this slice.
@@ -982,6 +1015,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       excelRow: number | null;
       breaks: StructuralBreak[];
       flags: AdvisoryFlag[];
+      // R3: the row's classifier_warnings, carried so the panel can render them as bullets
+      // (the panel has no row-lookup in scope; this entry is its source of truth).
+      classifierNotes: unknown[] | null;
       dismissed: boolean;
     }>();
     const ensure = (rowIndex: number, srn: number | null) => {
@@ -992,6 +1028,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           excelRow: srn ?? byIdxLocal.get(rowIndex)?.source_row_number ?? null,
           breaks: [],
           flags: [],
+          classifierNotes: byIdxLocal.get(rowIndex)?.classifier_warnings ?? null,
           // A break is a must-fix and NEVER counts as dismissed (dismissal acknowledges advisory
           // flags only); this flag drives the default hide of advisory-only dismissed rows.
           dismissed: dismissedIdx.has(rowIndex),
@@ -1363,6 +1400,23 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         <span className="text-[11px] text-red-700/90 dark:text-red-300/90 leading-snug">
                           {w.breaks.map(b => b.reason).join(" · ")}
                         </span>
+                        {/* R2: advisory flags riding on a must-fix row (e.g. a classifier note on a
+                            line_item_as_parent) still surface here, in amber, so they are never hidden. */}
+                        {w.flags.length > 0 && (
+                          <span className="mt-1 flex flex-col gap-0.5">
+                            <span className="flex flex-wrap items-center gap-1">
+                              {w.flags.map((f, i) => (
+                                <span
+                                  key={i}
+                                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 whitespace-nowrap"
+                                >
+                                  {WARN_FLAG_LABELS[f.type] ?? f.type}
+                                </span>
+                              ))}
+                            </span>
+                            <WarningFlagContent flags={w.flags} classifierNotes={w.classifierNotes} />
+                          </span>
+                        )}
                       </span>
                     </button>
                   ))}
@@ -1408,9 +1462,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             </span>
                           )}
                         </span>
-                        <span className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug">
-                          {w.flags.map(f => f.reason).join(" · ")}
-                        </span>
+                        <WarningFlagContent flags={w.flags} classifierNotes={w.classifierNotes} />
                       </span>
                     </button>
                   ))}
@@ -2128,16 +2180,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         colSpan={totalCols}
                         className="px-3 py-2 border-b border-amber-100 dark:border-amber-900/30"
                       >
-                        <ul className="space-y-0.5">
-                          {rowFlags.map((f, i) => (
-                            <li
-                              key={i}
-                              className="text-xs text-amber-700 dark:text-amber-300 leading-snug"
-                            >
-                              {f.reason}
-                            </li>
-                          ))}
-                        </ul>
+                        <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
                         {/* C-flag-dismissal: when acknowledged, the reasons stay readable
                             (the cover the flag-reason text provides) but are tagged reviewed. */}
                         {isDismissed && (
@@ -2657,19 +2700,31 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               </div>
                             );
                           })()}
-                          {/* Advisory flags for this row (reuses flagsByRowIdx already computed above) */}
+                          {/* R4: ONE consolidated warning block for this row -- advisory flags
+                              (orphan/parser as a line, classifier_warning expanded to one bullet
+                              PER note, via WarningFlagContent) folded together with the (removed)
+                              standalone "Classifier notes" section, and the per-row "Looks OK"
+                              moved to the BOTTOM so it reads as "this whole block is reviewed". */}
                           {rowFlags.length > 0 && (
-                            <div className="mb-2">
-                              <div className="flex items-center gap-2">
-                                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Flags</p>
-                                {/* C-flag-dismissal: per-row "Looks OK" -- acknowledges ALL of
-                                    this row's flags at once. NOT an edit (the row stays
-                                    "Original"). stopPropagation so the table-body click that
-                                    dismisses the detail panel doesn't fire. When already
-                                    dismissed, reads "Reviewed" (no separate un-dismiss ships;
-                                    an edit re-opens / re-parse wipes). */}
+                            <div className="mb-2 rounded-md border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/40 dark:bg-amber-950/15 px-2.5 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300 mb-1 flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" /> Warnings
+                              </p>
+                              <WarningFlagContent flags={rowFlags} classifierNotes={row.classifier_warnings} />
+                              {isDismissed && row.flags_dismissed_by && (
+                                <p className="mt-1 text-[10px] text-muted-foreground">
+                                  Acknowledged by {row.flags_dismissed_by}
+                                  {row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}
+                                </p>
+                              )}
+                              {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
+                              {/* The "Looks OK" sits BELOW all the warnings -- one click acknowledges
+                                  ALL of this row's flags at once (per-row). NOT an edit (the row stays
+                                  "Original"). stopPropagation so the table-body click that closes the
+                                  detail panel doesn't fire. */}
+                              <div className="mt-2 flex items-center justify-end border-t border-amber-200/50 dark:border-amber-900/30 pt-1.5">
                                 {isDismissed ? (
-                                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
+                                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                                     <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK
                                   </span>
                                 ) : !readOnly ? (
@@ -2677,7 +2732,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    className="h-6 px-2 text-[11px] shrink-0"
+                                    className="h-7 px-2.5 text-[11px]"
                                     disabled={isDismissingFlags}
                                     onClick={(e) => { e.stopPropagation(); void dismissFlags(row.row_index, true); }}
                                   >
@@ -2685,31 +2740,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                   </Button>
                                 ) : null}
                               </div>
-                              <ul className="mt-0.5 space-y-0.5">
-                                {rowFlags.map((f, i) => (
-                                  <li key={i} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{f.reason}</li>
-                                ))}
-                              </ul>
-                              {isDismissed && row.flags_dismissed_by && (
-                                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                                  Acknowledged by {row.flags_dismissed_by}
-                                  {row.flags_dismissed_at ? ` · ${row.flags_dismissed_at}` : ""}
-                                </p>
-                              )}
-                              {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
-                            </div>
-                          )}
-                          {/* Classifier notes -- read-only parser low-confidence notes
-                              (classifier_warnings), surfaced verbatim. Rendered only when
-                              the row carries any. */}
-                          {Array.isArray(row.classifier_warnings) && row.classifier_warnings.length > 0 && (
-                            <div className="mb-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Classifier notes</p>
-                              <ul className="mt-0.5 space-y-0.5">
-                                {row.classifier_warnings.map((w, i) => (
-                                  <li key={i} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{String(w)}</li>
-                                ))}
-                              </ul>
                             </div>
                           )}
                           {/* Edit history from edit_log */}

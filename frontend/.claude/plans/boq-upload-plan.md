@@ -4,7 +4,15 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: "Review-warnings cleanup" (2026-06-25, develop, full-stack) -- the
+the docs-hygiene cleanup (git holds it). Latest: "Orphan demotion + warnings-UX polish" (2026-06-26, develop,
+full-stack) -- `orphan` demoted from a red structural MUST-FIX break to a soft amber dismissable advisory (removed
+from `check_structural_integrity` -> computed independently in `_compute_advisory_flags`, which lost its
+`structural_breaks` param; finalise gate no longer warns on orphan-only sheets, browser-verified); classifier notes
+now render as BULLETS (shared `WarningFlagContent` helper) across the top panel + in-grid reveal + detail panel;
+advisory flags also surface on must-fix rows; the detail panel consolidates FLAGS + "Classifier notes" into ONE
+"Warnings" block with "Looks OK" moved to the BOTTOM. test_review_screen 229->232, tsc 0 new, build green,
+chrome-devtools E2E green. Detail: `.claude/context/domain/boq-backend.md` (top) + `boq-frontend.md`. PRIOR:
+"Review-warnings cleanup" (2026-06-25, develop, full-stack) -- the
 review-screen advisory-flag set was reworked: REMOVED `priced_preamble_no_children` + `zero_amount_line_item`; ADDED
 `classifier_warning` (surfaces the per-row `classifier_warnings` notes in BOTH the warnings panel AND a "Classifier notes"
 detail-panel section -- previously computed+shipped but never rendered); REMOVED `validation_warnings` entirely (parser

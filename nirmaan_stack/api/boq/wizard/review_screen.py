@@ -5,7 +5,7 @@ Public API (unit-testable helpers):
   resolve_effective(row) -> dict
   check_structural_integrity(rows) -> list[dict]
   append_edit_log_entry(existing_log, field, from_val, to_val, user) -> list
-  _compute_advisory_flags(rows, structural_breaks) -> list [Slice B2a]
+  _compute_advisory_flags(rows) -> list [Slice B2a]
 
 Public API (endpoints):
   get_review_rows(boq_name, sheet_name) -> dict          [GET-capable]
@@ -179,9 +179,10 @@ _FLAG_REASONS: dict[str, str] = {
 
 # Fields required by get_structural_breaks beyond the minimal integrity set.
 # These are fetched in the extended endpoint for advisory flag computation.
-# Exactly the fields the surviving flags read: parser (iv) reads
+# Exactly the fields the surviving flags read: parser reads
 # needs_classification_review + review_reason; classifier_warning reads
-# classifier_warnings (orphan composes from structural_breaks, no extra fields).
+# classifier_warnings. Orphan now resolves effective values from the minimal
+# integrity fields (already in the base field list), so it needs no extra fields.
 _ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
     "needs_classification_review", "review_reason", "classifier_warnings",
 )
@@ -347,13 +348,15 @@ def check_structural_integrity(rows: list[dict]) -> list[dict]:
       row_index, source_row_number, classification, human_classification,
       parent_index, human_parent.
 
-    Three checks (all operate on EFFECTIVE values from resolve_effective):
-      ORPHAN              -- a line_item with effective_parent_index None (no parent group).
-                            Preambles and other non-line_item rows with no parent are NOT flagged.
+    Two checks (both operate on EFFECTIVE values from resolve_effective):
       LINE_ITEM_AS_PARENT -- any row whose effective parent is itself a line_item
                             (line_items cannot be structural parents).
       CYCLE               -- following effective_parent_index from any row eventually
                             loops back to that same row.
+
+    ORPHAN (a line_item with no effective parent group) is NOT a structural break --
+    it is a soft, dismissable advisory flag only (see _compute_advisory_flags). Such a
+    row simply falls through here producing no break.
 
     Returns a list of break records (empty list = clean); does NOT modify input rows.
     """
@@ -380,20 +383,7 @@ def check_structural_integrity(rows: list[dict]) -> list[dict]:
     for entry in eff_entries:
         row_index = entry["row_index"]
         source_row_number = entry["source_row_number"]
-        eff_cls = entry["effective_classification"]
         eff_parent = entry["effective_parent_index"]
-
-        # ORPHAN: a line_item with no parent group.
-        # Preambles with no parent are valid top-level groups -- not flagged.
-        if eff_cls == "line_item" and eff_parent is None:
-            breaks.append({
-                "type": "orphan",
-                "row_index": row_index,
-                "source_row_number": source_row_number,
-                "reason": "line_item has no parent group",
-            })
-            # No parent -> LINE_ITEM_AS_PARENT and CYCLE cannot apply; skip.
-            continue
 
         if eff_parent is not None:
             # LINE_ITEM_AS_PARENT: this row's parent is a line_item.
@@ -477,10 +467,7 @@ def append_edit_log_entry(
 # Advisory flag helpers (Slice B2a)
 # ---------------------------------------------------------------------------
 
-def _compute_advisory_flags(
-    rows: list[dict],
-    structural_breaks: list[dict],
-) -> list[dict]:
+def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
     """
     Compute advisory flags for all rows using EFFECTIVE values.
 
@@ -490,7 +477,9 @@ def _compute_advisory_flags(
           (get_structural_breaks fetches rows via frappe.db.get_all, which does NOT
           JSON-parse) or as a Python list (unit tests).  Both shapes are handled;
           None/""/[] / bad JSON -> no flag.
-      orphan -- (ii) reused from structural_breaks input; NOT recomputed.
+      orphan -- (ii) a line_item with no effective parent group, computed
+          INDEPENDENTLY here via resolve_effective (it is NOT a structural break --
+          it is a soft, dismissable advisory only).
       parser -- (iii) needs_classification_review is truthy; reason = review_reason
           verbatim (no canonical override).
 
@@ -498,11 +487,6 @@ def _compute_advisory_flags(
     reasons are verbatim.  Returns a flat list of flag dicts (multiple flags per
     row are separate entries).
     """
-    # Reuse orphan row_indexes from the already-computed structural_breaks -- do not recompute.
-    orphan_row_indexes: set[int] = {
-        b["row_index"] for b in structural_breaks if b["type"] == "orphan"
-    }
-
     flags: list[dict] = []
 
     for row in rows:
@@ -534,8 +518,14 @@ def _compute_advisory_flags(
                 "reason": " · ".join(str(n) for n in notes),
             })
 
-        # Flag (ii): orphan -- compose from structural_breaks, do not recompute.
-        if row_index in orphan_row_indexes:
+        # Flag (ii): orphan -- a line_item with no effective parent group.
+        # Computed INDEPENDENTLY here (not a structural break); preambles/other
+        # non-line_item rows with no parent are valid top-level groups -- not flagged.
+        eff = resolve_effective(row)
+        if (
+            eff["effective_classification"] == "line_item"
+            and eff["effective_parent_index"] is None
+        ):
             flags.append({
                 "type": "orphan",
                 "row_index": row_index,
@@ -1246,7 +1236,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     column_descriptors = _build_column_descriptors(sheet_config)
 
     breaks = check_structural_integrity(rows)
-    flags = _compute_advisory_flags(rows, breaks)
+    flags = _compute_advisory_flags(rows)
     # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
     # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
@@ -2565,7 +2555,7 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
     )
     rows_as_dicts = [dict(r) for r in rows]
     breaks = check_structural_integrity(rows_as_dicts)
-    flags = _compute_advisory_flags(rows_as_dicts, breaks)
+    flags = _compute_advisory_flags(rows_as_dicts)
     return {"breaks": breaks, "flags": flags}
 
 
