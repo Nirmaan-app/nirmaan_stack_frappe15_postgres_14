@@ -610,9 +610,49 @@ not dropped). NO test changed (subtractive className/style removal -- no pure he
 tests stay green). **vitest 303 (PricingGrid 129, unchanged)**, tsc 3175 (0 new in PricingGrid), in-container build exit 0,
 2026-06-25; see plan §"Drop frozen-left, ship resize alone".
 
+**Frozen-left Slice 1 of 2 -- two-pane split + measure-at-freeze heights + wrap/clip/tooltip (`PricingGrid.tsx` +
+`SheetPricingPage.tsx`; frontend-only, NO migrate; REVIVES the DEFERRED frozen-left as the structural two-pane slice):**
+The reverted approach was cumulative cell-level `sticky left` (broken -- doesn't track h-scroll). This slice ships the
+**TWO-PANE split** instead. A page-owned per-sheet **`frozen` toggle** ("Freeze columns" / "Unfreeze", `Pin`/`PinOff`, loud
+sky-600 when on) sits in the `!isGridOnly` ribbon cluster (so grid-only general-specs sheets -- rendered by SheetDataGrid --
+never get it); reset on tab switch; passed as `frozen` to the PricingGrid only. **When frozen+measured the grid renders TWO
+tables in a flex row:** a FROZEN pane (the 5 anchors `a0..a4`, `overflow-hidden`, width = summed anchor `colWidths`,
+vertical scroll DRIVEN) + a SCROLLING pane (descriptors + Remarks, owns `overflow-x`+`overflow-y`, `onScroll` mirrors
+`scrollTop` to the frozen pane). **Widths come from the SAME `colWidths` map** (each pane renders its own `<col>` slice; NO
+duplicate width state). The sticky header (`sticky top-0`) works in BOTH panes (each is its own bounded scroll container).
+When **unfrozen, ONE single table renders byte-for-byte as before** (the split is gated on `split = frozen && rows.length>0
+&& rows.every(measured)`; structural decisions key on `split`, not `frozen`). **Measure-at-freeze ("Fork A"):** a
+`useLayoutEffect([frozen, rows, rowHeights])` captures each row's NATURAL single-table `<tr>` height (via the always-
+registered col-0 cell -> `.closest("tr").getBoundingClientRect()`, `Math.ceil`) into a `rowHeights` state keyed by the
+stable `row.row_index` -- it runs on the render where `frozen` flipped on (or `rows` changed under freeze) WHILE the single
+table is still mounted (split deferred until all rows measured), post-layout/pre-paint, so the user never sees an unmeasured
+split frame. **Application:** each row gets a per-row SCALAR `rowHeight` prop (NEVER the whole map -> memo-safe; added to
+`PricingGridRowProps` + `pricingRowPropsAreEqual` alongside the new `pane` discriminator), applied as `style.height` on the
+`<tr>` in BOTH panes (forces the short scrolling-pane row up to match) + the Description inner wrapper clipped to
+`rowHeight - DESC_CLIP_VPAD_PX(12)` with `overflow:hidden` (text still WRAPS via `break-words`, clips from the top via
+`align-top`) so a tall row can't push its pane past the other. **Tooltip:** the Description span gains `title={description}`
+(native `title`, the grid's idiom -- NO shadcn Tooltip) for full-text-on-hover when clipped (applied regardless of freeze).
+**Scroll/jump retarget:** `focusCell` + `jumpToRow` are split-aware (read `splitRef`) -- they `focus({preventScroll:true})`
+(so focusing a frozen-pane cell can't desync the panes) and drive the SCROLLING pane (a data cell scrolls itself; an anchor
+cell scrolls its scrolling-pane counterpart `<tr>` found by `data-rowidx`); the frozen pane mirrors via `onScroll`.
+`unfreeze` clears `rowHeights` ({}); the grid's `key={sheetName::version}` remount resets it for free on sheet/version
+switch (so collapse + version-view flow through the SAME `displayRows` into both panes; read-only history stays read-only,
+lock/override semantics unchanged). The autofit measure ref moved from the `<table>` to the outer `containerRef` div (spans
+both panes). **KNOWN LIMITATION (deferred to Slice 2 with manual row-resize):** a COLUMN resize / double-click autofit WHILE
+frozen re-wraps Description + changes natural heights but does NOT refresh the captured map -> heights can go stale until
+unfreeze/re-freeze. **Slice 1 does NOT add manual row-resize** (no `rowResizeRef`/`clampRowHeight`/drag handle -- that is
+Slice 2). NO new pure helper extracted -> NO test added; **vitest 339 (boq-wizard; PricingGrid 129, unchanged)**, tsc 3175
+(0 new in the two touched files), in-container build exit 0, 2026-06-27; see plan §"Frozen-left Slice 1".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Drop frozen-left, ship resize alone -- the frozen-left
+docs-hygiene cleanup (git holds it). **Latest frontend slice: Frozen-left Slice 1 of 2** -- two-pane split (frozen anchors
+pane + scrolling descriptors/Remarks pane, scroll-coupled) + measure-at-freeze row heights ("Fork A", `useLayoutEffect` ->
+`rowHeights` keyed by `row.row_index`, applied as a per-row `rowHeight` scalar to both panes + Description wrap/clip) +
+native `title` full-text tooltip; page-owned `frozen` toggle gated off for grid-only; unfrozen renders today's single table
+byte-for-byte; manual row-resize + column-resize-while-frozen staleness DEFERRED to Slice 2; vitest 339 (PricingGrid 129),
+tsc 3175 (0 new), in-container build exit 0, 2026-06-27, see the Frozen-left Slice 1 paragraph above + plan §"Frozen-left
+Slice 1". **Prior frontend slice:** Drop frozen-left, ship resize alone -- the frozen-left
 (sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
 scroll: frozen cells paint in place, scrolling columns clip behind + don't reset on scroll-back; the border-separate flip
 was wrong-axis + reverted; a two-pane fix fights resize's wrap-grow + doubles the row memo -- not worth it now), so the
