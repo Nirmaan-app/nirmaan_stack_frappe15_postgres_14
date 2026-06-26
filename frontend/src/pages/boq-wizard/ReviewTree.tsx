@@ -304,12 +304,11 @@ function AiConfBadge({ conf, title }: { conf: "High" | "Medium" | "Low" | null; 
 // SheetReviewPage count strip used (FLAG_LABELS) -- moved here when the strip evolved into the
 // panel. FLAG_ORDER fixes the badge/rollup ordering.
 const WARN_FLAG_LABELS: Record<string, string> = {
-  zero_amount_line_item: "zero-amount",
   orphan: "orphan",
   parser: "needs-review",
-  priced_preamble_no_children: "priced-preamble",
+  classifier_warning: "classifier warning",
 };
-const WARN_FLAG_ORDER = ["zero_amount_line_item", "orphan", "parser", "priced_preamble_no_children"];
+const WARN_FLAG_ORDER = ["orphan", "parser", "classifier_warning"];
 // R4: labels for the must-fix structural-break group (from check_structural_integrity).
 const WARN_BREAK_LABELS: Record<string, string> = {
   orphan: "Orphan line item",
@@ -2698,6 +2697,19 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 </p>
                               )}
                               {dismissError && <p className="text-xs text-destructive mt-1">{dismissError}</p>}
+                            </div>
+                          )}
+                          {/* Classifier notes -- read-only parser low-confidence notes
+                              (classifier_warnings), surfaced verbatim. Rendered only when
+                              the row carries any. */}
+                          {Array.isArray(row.classifier_warnings) && row.classifier_warnings.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Classifier notes</p>
+                              <ul className="mt-0.5 space-y-0.5">
+                                {row.classifier_warnings.map((w, i) => (
+                                  <li key={i} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{String(w)}</li>
+                                ))}
+                              </ul>
                             </div>
                           )}
                           {/* Edit history from edit_log */}

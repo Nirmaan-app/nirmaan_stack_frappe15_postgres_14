@@ -5,7 +5,6 @@ Public API (unit-testable helpers):
   resolve_effective(row) -> dict
   check_structural_integrity(rows) -> list[dict]
   append_edit_log_entry(existing_log, field, from_val, to_val, user) -> list
-  _has_price_signal(row) -> bool                           [Slice B2a]
   _compute_advisory_flags(rows, structural_breaks) -> list [Slice B2a]
 
 Public API (endpoints):
@@ -125,13 +124,13 @@ _EDIT_LOG_FIELD = "edit_log"
 # get_valid_dict rejects Python lists for JSON fieldtype. edit_log is handled
 # separately (rebuilt in full above the save call).
 _RESAVE_LIST_JSON_FIELDS: frozenset[str] = frozenset({
-    "attached_notes", "validation_warnings", "classifier_warnings",
+    "attached_notes", "classifier_warnings",
     "preamble_candidate_signals",
 })
 
 # JSON fields returned as parsed Python objects in get_review_rows responses
 _JSON_LIST_FIELDS: frozenset[str] = frozenset({
-    "attached_notes", "validation_warnings", "classifier_warnings",
+    "attached_notes", "classifier_warnings",
     "preamble_candidate_signals", "edit_log",
 })
 _JSON_DICT_FIELDS: frozenset[str] = frozenset({
@@ -172,33 +171,19 @@ _SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
 
 # Canonical reason text per flag type.  These are FIXED phrases -- do not
 # paraphrase.  The parser flag (type="parser") carries review_reason verbatim
-# instead of a canonical override.
+# instead of a canonical override, and the classifier_warning flag carries the
+# row's classifier_warnings notes joined verbatim.
 _FLAG_REASONS: dict[str, str] = {
-    "priced_preamble_no_children": (
-        "Preamble carrying a price or quantity with no sub-items — check if it's a line item."
-    ),
-    "zero_amount_line_item": (
-        "Has a rate but the amount is zero — check the quantity or amount."
-    ),
     "orphan": "Line item with no parent group — check its parenting.",
 }
 
-# Scalar price-signal fields checked for flag (i).  rate_by_area is a JSON
-# dict (not a scalar Float) and is intentionally excluded here -- a preamble
-# with only by-area rates but zero scalar amounts is an edge case that a future
-# slice can address; the three scalar rate fields are what the review screen
-# currently surfaces.
-_PRICE_SIGNAL_FIELDS: tuple[str, ...] = (
-    "amount_total", "amount_supply", "amount_install",
-    "rate_supply", "rate_install", "rate_combined",
-)
-
 # Fields required by get_structural_breaks beyond the minimal integrity set.
 # These are fetched in the extended endpoint for advisory flag computation.
+# Exactly the fields the surviving flags read: parser (iv) reads
+# needs_classification_review + review_reason; classifier_warning reads
+# classifier_warnings (orphan composes from structural_breaks, no extra fields).
 _ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
-    "amount_total", "amount_supply", "amount_install",
-    "rate_supply", "rate_install", "rate_combined",
-    "qty_total", "needs_classification_review", "review_reason",
+    "needs_classification_review", "review_reason", "classifier_warnings",
 )
 
 # ---------------------------------------------------------------------------
@@ -492,22 +477,6 @@ def append_edit_log_entry(
 # Advisory flag helpers (Slice B2a)
 # ---------------------------------------------------------------------------
 
-def _has_price_signal(row: Any) -> bool:
-    """
-    True if row carries any non-zero value in one of the scalar price-signal
-    fields (amounts + scalar rates).  Operates on raw field values; the caller
-    is responsible for applying resolve_effective before checking classification.
-
-    rate_by_area is intentionally excluded -- it is a JSON dict, not a scalar,
-    and the B2a review screen does not surface by-area rate columns directly.
-    """
-    for field in _PRICE_SIGNAL_FIELDS:
-        v = _get(row, field)
-        if v is not None and v > 0:
-            return True
-    return False
-
-
 def _compute_advisory_flags(
     rows: list[dict],
     structural_breaks: list[dict],
@@ -515,33 +484,20 @@ def _compute_advisory_flags(
     """
     Compute advisory flags for all rows using EFFECTIVE values.
 
-    Four sources:
-      priced_preamble_no_children -- (i) preamble with no children AND a price
-          OR a quantity.  The parse-time demotion (_apply_zero_children_preamble
-          _demotion_post_pass) demotes most childless priced preambles to
-          line_items, BUT it deliberately skips promoted_from_line_item rows
-          (hierarchy.py), so Bug-19-promoted leaf preambles survive as childless
-          priced/qty-bearing preambles and this flag fires for them on a freshly
-          parsed sheet -- exactly the "is this actually a line item?" nudge.  It
-          also fires when a human reclassifies a line_item back to a childless
-          preamble (Slice C).
-      zero_amount_line_item -- (ii) line_item with amount_total==0/None
-          OR qty_total==0/None (either zero/absent triggers the flag).
-      orphan -- (iii) reused from structural_breaks input; NOT recomputed.
-      parser -- (iv) needs_classification_review is truthy; reason = review_reason
+    Three sources:
+      classifier_warning -- (i) the row's classifier_warnings notes joined into a
+          single reason verbatim.  classifier_warnings may arrive as a JSON STRING
+          (get_structural_breaks fetches rows via frappe.db.get_all, which does NOT
+          JSON-parse) or as a Python list (unit tests).  Both shapes are handled;
+          None/""/[] / bad JSON -> no flag.
+      orphan -- (ii) reused from structural_breaks input; NOT recomputed.
+      parser -- (iii) needs_classification_review is truthy; reason = review_reason
           verbatim (no canonical override).
 
-    Canonical reasons are pinned in _FLAG_REASONS; parser reason is verbatim.
-    Returns a flat list of flag dicts (multiple flags per row are separate entries).
+    Canonical reasons are pinned in _FLAG_REASONS; parser + classifier_warning
+    reasons are verbatim.  Returns a flat list of flag dicts (multiple flags per
+    row are separate entries).
     """
-    # Derive children set from EFFECTIVE parent values (same source as check_structural_integrity).
-    children_of: set[int] = set()
-    for row in rows:
-        eff = resolve_effective(row)
-        p = eff["effective_parent_index"]
-        if p is not None:
-            children_of.add(p)
-
     # Reuse orphan row_indexes from the already-computed structural_breaks -- do not recompute.
     orphan_row_indexes: set[int] = {
         b["row_index"] for b in structural_breaks if b["type"] == "orphan"
@@ -554,56 +510,31 @@ def _compute_advisory_flags(
         if row_index is None:
             continue
         source_row_number = _get(row, "source_row_number")
-        eff = resolve_effective(row)
-        eff_cls = eff["effective_classification"]
 
-        # Flag (i): childless preamble that carries a price OR a quantity.
-        # qty_total is included (no-attribute-loss, Option B): a preamble now
-        # preserves its source quantity, and a childless preamble carrying a real
-        # qty is precisely the "is this actually a line item?" case to surface.
-        qty_total = _get(row, "qty_total")
-        has_qty = qty_total is not None and qty_total > 0
-        if (
-            eff_cls == "preamble"
-            and row_index not in children_of
-            and (_has_price_signal(row) or has_qty)
-        ):
+        # Flag (i): classifier_warning -- surface the row's classifier_warnings notes.
+        # Tolerate both wire shapes: a JSON STRING (frappe.db.get_all does not parse
+        # JSON fields) or a Python list (unit tests).  Bad JSON / non-list -> skip.
+        raw_notes = _get(row, "classifier_warnings")
+        notes: list = []
+        if isinstance(raw_notes, str):
+            if raw_notes:
+                try:
+                    parsed = json.loads(raw_notes)
+                    if isinstance(parsed, list):
+                        notes = parsed
+                except (ValueError, TypeError):
+                    notes = []
+        elif isinstance(raw_notes, list):
+            notes = raw_notes
+        if notes:
             flags.append({
-                "type": "priced_preamble_no_children",
+                "type": "classifier_warning",
                 "row_index": row_index,
                 "source_row_number": source_row_number,
-                "reason": _FLAG_REASONS["priced_preamble_no_children"],
+                "reason": " · ".join(str(n) for n in notes),
             })
 
-        # Flag (ii): line item with a non-zero scalar rate but zero/missing amount.
-        # Fires only when amount_total is zero/None AND at least one scalar rate
-        # field is non-zero.  Rationale: a rate present with no amount is the
-        # meaningful signal (likely missing qty); a zero amount with no rate is
-        # a rate-only or unconfigured row and is not reliably advisory.
-        # The qty-zero trigger is intentionally removed (B2a-fix live-cert).
-        # Scalar rate fields only -- rate_by_area (JSON dict) is excluded.
-        # Multi-area zero-amount handling is deferred (see Slice B2a-fix docs).
-        if eff_cls == "line_item":
-            amount_total = _get(row, "amount_total")
-            amount_zero = amount_total is None or amount_total == 0
-            if amount_zero:
-                rate_supply = _get(row, "rate_supply")
-                rate_install = _get(row, "rate_install")
-                rate_combined = _get(row, "rate_combined")
-                has_rate = (
-                    (rate_supply is not None and rate_supply != 0)
-                    or (rate_install is not None and rate_install != 0)
-                    or (rate_combined is not None and rate_combined != 0)
-                )
-                if has_rate:
-                    flags.append({
-                        "type": "zero_amount_line_item",
-                        "row_index": row_index,
-                        "source_row_number": source_row_number,
-                        "reason": _FLAG_REASONS["zero_amount_line_item"],
-                    })
-
-        # Flag (iii): orphan -- compose from structural_breaks, do not recompute.
+        # Flag (ii): orphan -- compose from structural_breaks, do not recompute.
         if row_index in orphan_row_indexes:
             flags.append({
                 "type": "orphan",
@@ -612,7 +543,7 @@ def _compute_advisory_flags(
                 "reason": _FLAG_REASONS["orphan"],
             })
 
-        # Flag (iv): parser needs_classification_review -- verbatim reason.
+        # Flag (iii): parser needs_classification_review -- verbatim reason.
         needs_review = _get(row, "needs_classification_review")
         review_reason = _get(row, "review_reason")
         if needs_review and review_reason:
@@ -1227,7 +1158,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rate_supply", "rate_install", "rate_combined", "rate_by_area",
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
         "row_notes", "append_notes_raw",
-        "validation_warnings", "classifier_warnings", "is_synthetic",
+        "classifier_warnings", "is_synthetic",
         # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
         "human_classification", "human_parent", "human_is_root",
         "edit_log", "edited_by", "edited_at",
@@ -2610,7 +2541,7 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
       }
 
     Each flag dict: {type, row_index, source_row_number, reason}.
-    Flag types: priced_preamble_no_children, zero_amount_line_item, orphan, parser.
+    Flag types: classifier_warning, orphan, parser.
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")

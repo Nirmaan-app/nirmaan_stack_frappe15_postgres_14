@@ -49,7 +49,6 @@ class ParsedSheet(BaseModel):
     sheet_name: str
     multi_area_pattern: MultiAreaPattern | None = None
     resolved_rows: list[Any] = []  # list[ResolvedRow] — Any avoids dataclass serialization issues
-    validation_warnings: list[str] = []
 
     class Config:
         arbitrary_types_allowed = True
@@ -59,7 +58,6 @@ class ParsedBoq(BaseModel):
     file_path: str
     master_preambles: dict[str, str] = {}
     sheets: list[ParsedSheet] = []
-    validation_warnings: list[str] = []
 
     class Config:
         arbitrary_types_allowed = True
@@ -71,19 +69,15 @@ class ParsedBoq(BaseModel):
 
 def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
     """
-    Mutate LINE_ITEM ResolvedRows in place to populate resolved per-area dicts,
-    apply empty-total fallback (§7.24 amendment), and append sum-validation
-    warnings (§7.24).
+    Mutate LINE_ITEM ResolvedRows in place to populate resolved per-area dicts
+    and apply empty-total fallback (§7.24 amendment).
 
     Policy X (§7.25): zeros are preserved in per-area dicts — a key with 0.0
     means "explicitly zero in this area", distinct from a missing key.
 
     Empty-total fallback: when qty_total or amount_total is None and the
     corresponding per-area dict is populated, compute the total from the
-    per-area sum. No warning is emitted for the fallback case.
-
-    Sum validation: soft warning at ±1 absolute tolerance, appended to
-    ResolvedRow.validation_warnings.
+    per-area sum.
     """
     # No-attribute-loss (Option B): PREAMBLE rows are processed identically to
     # LINE_ITEM so a preamble that carries source quantities/amounts gets its
@@ -125,20 +119,6 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
                     if area_qty is not None and area_rate is not None:
                         row.amount_by_area[area] = {"total": area_qty * area_rate}
 
-            # Soft validation: combined_rate should equal supply_rate + install_rate.
-            for area, rates in row.rate_by_area.items():
-                supply = rates.get("supply_rate")
-                install = rates.get("install_rate")
-                combined = rates.get("combined_rate")
-                if supply is not None and install is not None and combined is not None:
-                    expected = supply + install
-                    if abs(combined - expected) > 0.01:
-                        row.validation_warnings.append(
-                            f"area '{area}': combined_rate {combined:.4g} != "
-                            f"supply_rate {supply:.4g} + install_rate {install:.4g} "
-                            f"({expected:.4g})"
-                        )
-
         # Empty-total fallback (no warning). amount_total derivation rule (field-set
         # Slice 2a): explicit total column already won upstream (cr.amount_total); only
         # when it is None do we derive = sum over areas of (per-area total, else
@@ -147,24 +127,6 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
             row.qty_total = sum(row.qty_by_area.values())
         if row.amount_total is None and row.amount_by_area:
             row.amount_total = _sum_area_amounts(row.amount_by_area)
-
-        # Sum validation — qty
-        if row.qty_by_area and row.qty_total is not None:
-            per_area_sum = sum(row.qty_by_area.values())
-            if abs(per_area_sum - row.qty_total) > 1.0:
-                row.validation_warnings.append(
-                    f"qty per-area sum {per_area_sum:.2f} differs from "
-                    f"qty_total {row.qty_total:.2f} (outside ±1 tolerance)"
-                )
-
-        # Sum validation — amount (collapse nested per-area amounts first)
-        if row.amount_by_area and row.amount_total is not None:
-            per_area_sum = _sum_area_amounts(row.amount_by_area)
-            if abs(per_area_sum - row.amount_total) > 1.0:
-                row.validation_warnings.append(
-                    f"amount per-area sum {per_area_sum:.2f} differs from "
-                    f"amount_total {row.amount_total:.2f} (outside ±1 tolerance)"
-                )
 
 
 # ------------------------------------------------------------------
@@ -296,12 +258,10 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
             sheet_name=sheet_name,
             multi_area_pattern=multi_area_pattern,
             resolved_rows=resolved_sheet.rows,
-            validation_warnings=[],
         ))
 
     return ParsedBoq(
         file_path=file_path,
         master_preambles=master_preambles,
         sheets=parsed_sheets,
-        validation_warnings=[],
     )

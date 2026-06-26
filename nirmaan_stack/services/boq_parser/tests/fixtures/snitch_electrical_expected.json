@@ -6,8 +6,7 @@
   },
   "workbook_assertions": {
     "parsed_sheet_count_after_skip_filter": 2,
-    "master_preamble_is_empty": true,
-    "no_validation_warnings_anywhere": true
+    "master_preamble_is_empty": true
   },
   "skip_sheets_expected_absent_from_output": [
     "OVERALL SUMMARY",

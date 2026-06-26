@@ -393,7 +393,6 @@ export interface ReviewRow {
   // notes / warnings
   row_notes: string | null;
   append_notes_raw: Record<string, unknown> | null;
-  validation_warnings: unknown[] | null;
   classifier_warnings: unknown[] | null;
   // human edit layer
   human_classification: string | null;
@@ -502,7 +501,7 @@ export interface ColumnDescriptor {
 /**
  * One advisory flag as returned by get_review_rows (Slice B2a single-source).
  * Computed by the backend _compute_advisory_flags helper.
- * type: "priced_preamble_no_children" | "zero_amount_line_item" | "orphan" | "parser"
+ * type: "orphan" | "parser" | "classifier_warning"
  */
 export interface AdvisoryFlag {
   type: string;

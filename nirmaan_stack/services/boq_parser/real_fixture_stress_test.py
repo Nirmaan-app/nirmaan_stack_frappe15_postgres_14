@@ -358,8 +358,6 @@ def parse_one_workbook(filepath: Path) -> dict:
                 "max_preamble_level": 0,
                 "classification_counts": {},
                 "first_3_line_items": [],
-                "validation_warnings_count": 0,
-                "first_3_warnings": [],
                 "review_flagged_count": 0,
                 "rate_column_variations": [],
             }
@@ -382,8 +380,6 @@ def parse_one_workbook(filepath: Path) -> dict:
             "max_preamble_level": 0,
             "classification_counts": {},
             "first_3_line_items": [],
-            "validation_warnings_count": 0,
-            "first_3_warnings": [],
             "review_flagged_count": 0,
             "rate_column_variations": [],
         }
@@ -407,7 +403,6 @@ def parse_one_workbook(filepath: Path) -> dict:
 
         counts: dict[str, int] = {}
         max_level = 0
-        all_warnings: list[str] = []
         review_flagged = 0
 
         for rr in ps.resolved_rows:
@@ -415,15 +410,12 @@ def parse_one_workbook(filepath: Path) -> dict:
             counts[cls_key] = counts.get(cls_key, 0) + 1
             if rr.level is not None and rr.level > max_level:
                 max_level = rr.level
-            all_warnings.extend(rr.validation_warnings)
             if rr.needs_classification_review:
                 review_flagged += 1
 
         sheet_result["classification_counts"] = counts
         sheet_result["max_preamble_level"] = max_level
         sheet_result["first_3_line_items"] = _first_n_line_items(ps.resolved_rows)
-        sheet_result["validation_warnings_count"] = len(all_warnings)
-        sheet_result["first_3_warnings"] = all_warnings[:3]
         sheet_result["review_flagged_count"] = review_flagged
 
         if ps.multi_area_pattern is not None:

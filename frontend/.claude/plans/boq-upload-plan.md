@@ -4,7 +4,14 @@
 editor) in progress on `feature/boq-phase-5`. **Full per-slice as-built history lives in the dedicated `### Slice ...` /
 `### Module 3 Slice ...` / `## Phase 5 Pricing Editor -- slice detail` sections below** (+ the §13 phasing plan, the
 Decisions log, and §17 Known Parser Issues). The prepended LATEST:/PRIOR: changelog that used to sit here was removed in
-the docs-hygiene cleanup (git holds it). Latest: "Fuzzy description search" -- the case-insensitive SUBSTRING search in BOTH
+the docs-hygiene cleanup (git holds it). Latest: "Review-warnings cleanup" (2026-06-25, develop, full-stack) -- the
+review-screen advisory-flag set was reworked: REMOVED `priced_preamble_no_children` + `zero_amount_line_item`; ADDED
+`classifier_warning` (surfaces the per-row `classifier_warnings` notes in BOTH the warnings panel AND a "Classifier notes"
+detail-panel section -- previously computed+shipped but never rendered); REMOVED `validation_warnings` entirely (parser
+`orchestrator.py`/`hierarchy.py` + worker `parse_run.py` + read endpoints + `BoQ Review Row` doctype field + `boqTypes.ts`
+type). Surviving flags = orphan / parser / classifier_warning. Orphan finalise gate left UNCHANGED (deliberate soft
+warn-and-confirm). bench migrate clean; 920 backend tests green; tsc 0 new errors. Full as-built detail:
+`.claude/context/domain/boq-backend.md` (top changelog) + `frontend/.claude/context/domain/boq-frontend.md`. PRIOR: "Fuzzy description search" -- the case-insensitive SUBSTRING search in BOTH
 `ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder + RestructureModal parent-picker) replaced by the
 app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper `boqDescriptionSearch.ts` (token AND, partial, min
 length 2; fuzzy = MEMBERSHIP only, hits re-emitted in DOCUMENT order so prev/next still steps top-to-bottom). FRONTEND-only,

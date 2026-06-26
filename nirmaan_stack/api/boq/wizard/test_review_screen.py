@@ -26,7 +26,6 @@ from nirmaan_stack.api.boq.wizard.gemini_assist import (
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
-    _has_price_signal,
     _row_has_override,
     append_edit_log_entry,
     check_structural_integrity,
@@ -52,7 +51,6 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 # ---------------------------------------------------------------------------
 _ALL_LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes",
-    "validation_warnings",
     "classifier_warnings",
     "preamble_candidate_signals",
     "edit_log",
@@ -135,7 +133,6 @@ def _minimal_row(
         "human_classification": human_classification,
         "human_parent": human_parent if human_parent is not None else -1,
         "attached_notes": [],
-        "validation_warnings": [],
         "classifier_warnings": [],
         "preamble_candidate_signals": [],
         "edit_log": [],
@@ -727,7 +724,7 @@ class TestGetReviewRows(FrappeTestCase):
                          human_classification="line_item"),
             {
                 **_minimal_row(cls.sheet_name, 1, "preamble", parent_index=None),
-                "validation_warnings": ["warn_on_row1"],
+                "classifier_warnings": ["warn_on_row1"],
             },
         ])
 
@@ -756,11 +753,11 @@ class TestGetReviewRows(FrappeTestCase):
     def test_json_list_fields_returned_as_python_lists(self):
         result = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         row1 = next(r for r in result["rows"] if r["row_index"] == 1)
-        vw = row1.get("validation_warnings")
-        if isinstance(vw, str):
-            vw = json.loads(vw)
-        self.assertIsInstance(vw, list)
-        self.assertIn("warn_on_row1", vw)
+        cw = row1.get("classifier_warnings")
+        if isinstance(cw, str):
+            cw = json.loads(cw)
+        self.assertIsInstance(cw, list)
+        self.assertIn("warn_on_row1", cw)
 
     def test_work_packages_key_present_and_is_list(self):
         """The response must include a work_packages list (empty when none assigned)."""
@@ -2209,15 +2206,17 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
 
 
 # ===========================================================================
-# Group 9: _has_price_signal + _compute_advisory_flags -- pure Python (B2a)
+# Group 9: _compute_advisory_flags -- pure Python (B2a; review-warnings cleanup)
 # ===========================================================================
 
 class TestAdvisoryFlagHelpers(unittest.TestCase):
     """
-    Pure-Python unit tests for the four B2a advisory flag sources.
+    Pure-Python unit tests for the three surviving advisory flag sources:
+    classifier_warning, orphan (composed), and parser. The priced-preamble and
+    zero-amount flags were removed in the review-warnings cleanup.
 
     All rows are constructed as plain dicts; no DB access needed.
-    _minimal_advisory_row() provides only the fields the helpers read.
+    _row() provides only the fields the helpers read.
     """
 
     def _row(
@@ -2228,15 +2227,9 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         human_classification=None,
         human_parent=None,
         source_row_number=None,
-        amount_total=None,
-        amount_supply=None,
-        amount_install=None,
-        rate_supply=None,
-        rate_install=None,
-        rate_combined=None,
-        qty_total=None,
         needs_classification_review=0,
         review_reason=None,
+        classifier_warnings=None,
     ):
         """Minimal row dict for advisory-flag tests."""
         return {
@@ -2246,147 +2239,61 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
             "human_classification": human_classification,
             "parent_index": parent_index if parent_index is not None else -1,
             "human_parent": human_parent if human_parent is not None else -1,
-            "amount_total": amount_total,
-            "amount_supply": amount_supply,
-            "amount_install": amount_install,
-            "rate_supply": rate_supply,
-            "rate_install": rate_install,
-            "rate_combined": rate_combined,
-            "qty_total": qty_total,
             "needs_classification_review": needs_classification_review,
             "review_reason": review_reason,
+            "classifier_warnings": classifier_warnings,
         }
 
-    # -- _has_price_signal --
+    # -- flag (i): classifier_warning --
 
-    def test_has_price_signal_amount_total(self):
-        row = self._row(0, "preamble", amount_total=100.0)
-        self.assertTrue(_has_price_signal(row))
+    def test_classifier_warning_fires_from_list(self):
+        """classifier_warnings as a Python list (unit-test shape) -> one flag whose
+        reason is the notes joined by ' · '."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings=["note A", "note B"])]
+        flags = _compute_advisory_flags(rows, [])
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["row_index"], 0)
+        self.assertEqual(cw_flags[0]["source_row_number"], 2)
+        self.assertEqual(cw_flags[0]["reason"], "note A · note B")
 
-    def test_has_price_signal_rate_combined(self):
-        row = self._row(0, "preamble", rate_combined=250.0)
-        self.assertTrue(_has_price_signal(row))
+    def test_classifier_warning_fires_from_json_string(self):
+        """classifier_warnings as a JSON STRING (the get_structural_breaks/db.get_all
+        shape, which does NOT JSON-parse) -> same single flag + joined reason."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings=json.dumps(["note A", "note B"]))]
+        flags = _compute_advisory_flags(rows, [])
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["reason"], "note A · note B")
 
-    def test_no_price_signal_all_none(self):
-        row = self._row(0, "preamble")
-        self.assertFalse(_has_price_signal(row))
+    def test_classifier_warning_single_note_reason(self):
+        rows = [self._row(0, "preamble", parent_index=None,
+                          classifier_warnings=["solo note"])]
+        flags = _compute_advisory_flags(rows, [])
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["reason"], "solo note")
 
-    def test_no_price_signal_all_zero(self):
-        row = self._row(0, "preamble", amount_total=0, rate_supply=0, qty_total=0)
-        self.assertFalse(_has_price_signal(row))
+    def test_classifier_warning_does_not_fire_when_empty(self):
+        """None / "" / [] / "[]" -> no flag (all four empty shapes)."""
+        for empty in (None, "", [], "[]"):
+            rows = [self._row(0, "line_item", parent_index=0, classifier_warnings=empty)]
+            flags = _compute_advisory_flags(rows, [])
+            types = [f["type"] for f in flags]
+            self.assertNotIn("classifier_warning", types,
+                             f"empty classifier_warnings {empty!r} must produce no flag")
 
-    # -- flag (i): priced_preamble_no_children --
-
-    def test_flag_i_fires_on_childless_priced_preamble(self):
-        """
-        A childless preamble with amount_total > 0 must receive flag (i).
-        NOTE: this scenario can only arise via human_classification override after
-        parse time (the parser demotes all childless priced preambles to line_items
-        during the post-pass).  The test constructs one directly to verify the
-        computation even though it is expected-dormant on real parse output.
-        """
-        rows = [self._row(0, "preamble", parent_index=None, amount_total=500.0)]
+    def test_classifier_warning_bad_json_string_skipped(self):
+        """A malformed JSON string must be tolerated -> no flag, no exception."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings="{not valid json")]
         flags = _compute_advisory_flags(rows, [])
         types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
+        self.assertNotIn("classifier_warning", types)
 
-    def test_flag_i_does_not_fire_when_preamble_has_children(self):
-        rows = [
-            self._row(0, "preamble", parent_index=None, amount_total=500.0),
-            self._row(1, "line_item", parent_index=0, amount_total=500.0),
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("priced_preamble_no_children", types)
-
-    def test_flag_i_does_not_fire_when_preamble_has_no_price(self):
-        rows = [self._row(0, "preamble", parent_index=None)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("priced_preamble_no_children", types)
-
-    def test_flag_i_fires_on_childless_preamble_with_only_qty(self):
-        """No-attribute-loss (Option B): a childless preamble carrying a quantity but
-        no price (rate/amount) still fires flag (i).  A preamble with a real qty is
-        exactly the 'is this actually a line item?' case the reviewer must confirm —
-        this is the surfacing half of the dropped-quantity fix (Bug-19 promotions)."""
-        rows = [self._row(0, "preamble", parent_index=None, qty_total=350.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
-
-    def test_flag_i_fires_via_effective_classification(self):
-        """
-        A row with parser classification=line_item but human_classification=preamble
-        (no children, has price) must be flagged -- effective_classification is used.
-        """
-        rows = [
-            self._row(0, "line_item", parent_index=None,
-                      human_classification="preamble", amount_total=100.0)
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
-
-    # -- flag (ii): zero_amount_line_item --
-
-    def test_flag_ii_fires_on_zero_amount_with_rate(self):
-        # New rule (B2a-fix): fires when amount_zero AND has_rate (scalar rate fields).
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_fires_when_amount_zero_and_rate_combined_present(self):
-        # Amount zero + non-zero combined rate -> fires regardless of qty.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0,
-                          qty_total=5.0, rate_combined=200.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_qty_zero_alone_does_not_fire(self):
-        # qty-zero trigger dropped (B2a-fix): amount non-zero -> no flag regardless of qty.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_zero_amount_without_rate_does_not_fire(self):
-        # No rate present -> flag does not fire even with zero/None amount.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_does_not_fire_on_non_zero_line_item(self):
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=2.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_respects_effective_classification(self):
-        """
-        A preamble reclassified to line_item via human_classification=line_item with
-        zero amount AND a non-zero rate must receive flag (ii) -- effective_classification used.
-        """
-        rows = [
-            self._row(0, "preamble", parent_index=0,
-                      human_classification="line_item",
-                      amount_total=0, rate_install=100.0)
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_not_fired_for_non_line_item(self):
-        """A preamble with zero amounts must NOT receive the zero-amount flag."""
-        rows = [self._row(0, "preamble", parent_index=None, amount_total=0, qty_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    # -- flag (iii): orphan (composed from structural_breaks) --
+    # -- flag (ii): orphan (composed from structural_breaks) --
 
     def test_orphan_composed_not_recomputed(self):
         """
@@ -2416,7 +2323,7 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         self.assertEqual(len(orphan_flags), 1)
         self.assertEqual(orphan_flags[0]["row_index"], 0)
 
-    # -- flag (iv): parser needs_classification_review --
+    # -- flag (iii): parser needs_classification_review --
 
     def test_parser_flag_surfaces_verbatim(self):
         review_text = "Scored borderline: check preamble vs line-item."
@@ -2436,46 +2343,25 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         self.assertEqual(len(parser_flags), 0, "no review_reason -> parser flag must not fire")
 
     def test_clean_sheet_no_flags(self):
-        """A structurally clean sheet with priced non-preamble rows returns no flags."""
+        """A structurally clean sheet with no warnings/review flags returns no flags."""
         rows = [
             self._row(0, "preamble", parent_index=None),
-            self._row(1, "line_item", parent_index=0, amount_total=500.0, qty_total=2.0),
+            self._row(1, "line_item", parent_index=0),
         ]
         flags = _compute_advisory_flags(rows, [])
         self.assertEqual(flags, [], "clean sheet must return no advisory flags")
 
     # -- canonical reason text --
 
-    def test_canonical_reasons_verbatim(self):
-        """Verify the four canonical reason strings are pinned verbatim."""
-        rows = [
-            self._row(0, "preamble", parent_index=None, amount_total=100.0),
-        ]
+    def test_canonical_orphan_reason_verbatim(self):
+        """The orphan flag's canonical reason string is pinned verbatim."""
+        rows = [self._row(0, "line_item", parent_index=None)]
         breaks = check_structural_integrity(rows)
         flags = _compute_advisory_flags(rows, breaks)
-        i_flag = next((f for f in flags if f["type"] == "priced_preamble_no_children"), None)
-        self.assertIsNotNone(i_flag)
+        orphan_flag = next((f for f in flags if f["type"] == "orphan"), None)
+        self.assertIsNotNone(orphan_flag)
         self.assertEqual(
-            i_flag["reason"],
-            "Preamble carrying a price or quantity with no sub-items — check if it's a line item.",
-        )
-
-        rows_ii = [self._row(1, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
-        flags_ii = _compute_advisory_flags(rows_ii, [])
-        ii_flag = next((f for f in flags_ii if f["type"] == "zero_amount_line_item"), None)
-        self.assertIsNotNone(ii_flag)
-        self.assertEqual(
-            ii_flag["reason"],
-            "Has a rate but the amount is zero — check the quantity or amount.",
-        )
-
-        rows_iii = [self._row(2, "line_item", parent_index=None)]
-        breaks_iii = check_structural_integrity(rows_iii)
-        flags_iii = _compute_advisory_flags(rows_iii, breaks_iii)
-        iii_flag = next((f for f in flags_iii if f["type"] == "orphan"), None)
-        self.assertIsNotNone(iii_flag)
-        self.assertEqual(
-            iii_flag["reason"],
+            orphan_flag["reason"],
             "Line item with no parent group — check its parenting.",
         )
 
@@ -2487,11 +2373,15 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
 class TestGetStructuralBreaksB2a(FrappeTestCase):
     """
     Verifies the Slice B2a extension of get_structural_breaks: the endpoint now
-    returns both "breaks" (unchanged) and "flags" (advisory flags).
+    returns both "breaks" (unchanged) and "flags" (advisory flags). Surviving flag
+    set (review-warnings cleanup): classifier_warning, orphan, parser.
 
-    FlagSheet: preamble (row 0, amount_total=500, no children) + orphan line_item
+    FlagSheet: preamble (row 0, classifier_warnings) + orphan line_item
                (row 1, parent=None) + parser-flagged preamble (row 2, needs_review=1).
-    CleanSheet3: preamble (row 0) + line_item with parent=0 (row 1, amount=100, qty=2).
+    CleanSheet3: preamble (row 0) + line_item with parent=0 (row 1).
+
+    classifier_warnings is fetched via frappe.db.get_all in get_structural_breaks,
+    which returns it as a JSON STRING -> exercises the str-shape parse path end-to-end.
     """
 
     @classmethod
@@ -2513,39 +2403,37 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         frappe.db.commit()
         cls.boq_name = boq.name
 
-        def _row_with_amounts(sheet_name, row_index, classification, parent_index,
-                              amount_total=None, qty_total=None,
-                              needs_classification_review=0, review_reason=None):
+        def _row_for_flags(sheet_name, row_index, classification, parent_index,
+                           classifier_warnings=None,
+                           needs_classification_review=0, review_reason=None):
             d = _minimal_row(sheet_name, row_index, classification,
                              parent_index=parent_index)
-            if amount_total is not None:
-                d["amount_total"] = amount_total
-            if qty_total is not None:
-                d["qty_total"] = qty_total
+            if classifier_warnings is not None:
+                d["classifier_warnings"] = classifier_warnings
             d["needs_classification_review"] = needs_classification_review
             if review_reason is not None:
                 d["review_reason"] = review_reason
             return d
 
         # FlagSheet:
-        #   row 0 -- preamble, no parent, amount_total=500, no children -> priced_preamble_no_children
-        #   row 1 -- line_item, no parent -> orphan + zero_amount_line_item
+        #   row 0 -- preamble, no parent, classifier_warnings=[...] -> classifier_warning flag
+        #   row 1 -- line_item, no parent -> orphan flag
         #   row 2 -- preamble, no parent, needs_review=1, review_reason set -> parser flag
         #   (row 2 must have parent=None so row 0 truly has no children; a root preamble
         #    is not an ORPHAN -- the orphan check is line_item-only.)
         _insert_rows(cls.boq_name, [
-            _row_with_amounts("FlagSheet", 0, "preamble", None, amount_total=500.0),
-            _row_with_amounts("FlagSheet", 1, "line_item", None),
-            _row_with_amounts("FlagSheet", 2, "preamble", None,
-                              needs_classification_review=1,
-                              review_reason="borderline preamble vs line_item"),
+            _row_for_flags("FlagSheet", 0, "preamble", None,
+                           classifier_warnings=["weak preamble signal", "ambiguous level"]),
+            _row_for_flags("FlagSheet", 1, "line_item", None),
+            _row_for_flags("FlagSheet", 2, "preamble", None,
+                           needs_classification_review=1,
+                           review_reason="borderline preamble vs line_item"),
         ])
 
         # CleanSheet3: no flags expected
         _insert_rows(cls.boq_name, [
-            _row_with_amounts("CleanSheet3", 0, "preamble", None),
-            _row_with_amounts("CleanSheet3", 1, "line_item", 0,
-                              amount_total=100.0, qty_total=2.0),
+            _row_for_flags("CleanSheet3", 0, "preamble", None),
+            _row_for_flags("CleanSheet3", 1, "line_item", 0),
         ])
 
     @classmethod
@@ -2567,10 +2455,14 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         orphan_breaks = [b for b in result["breaks"] if b["type"] == "orphan"]
         self.assertGreater(len(orphan_breaks), 0, "orphan break must still surface in 'breaks'")
 
-    def test_priced_preamble_no_children_flag_in_response(self):
+    def test_classifier_warning_flag_in_response(self):
+        """classifier_warnings is fetched as a JSON STRING by db.get_all -> the helper
+        parses it and joins the notes with ' · '."""
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="FlagSheet")
-        types = [f["type"] for f in result["flags"]]
-        self.assertIn("priced_preamble_no_children", types)
+        cw_flags = [f for f in result["flags"] if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["row_index"], 0)
+        self.assertEqual(cw_flags[0]["reason"], "weak preamble signal · ambiguous level")
 
     def test_orphan_advisory_flag_in_response(self):
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="FlagSheet")
@@ -3814,7 +3706,7 @@ _CR_DRAFT_ONLY_KEYS = (
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
     "edit_log", "revert_available", "human_classification", "human_parent",
     "human_is_root", "flags_dismissed", "needs_classification_review",
-    "validation_warnings",
+    "classifier_warnings",
 )
 
 
