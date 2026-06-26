@@ -1443,6 +1443,25 @@ the normal node path with an empty pricing overlay -- NOT grid-only, no special 
 `VersionRibbon.test.ts` -- the pure label helper), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see backend doc
 + plan §"Version-view".
 
+**Copy-forward -- carry an old version's RATES into current (`SheetPricingPage.tsx` + NEW `CopyForwardDialog.tsx` +
+`VersionRibbon.tsx` + `boqTypes.ts`; FULL-STACK, NO migrate, owner-locked):** the WRITE-side of version-view (slice 2).
+RATES ONLY. **Trigger** = a "Copy rates forward" button in `VersionRibbon` (new optional `onCopyForward` prop), shown ONLY
+in read-only history mode -- the ONE write action reachable from history; it writes to the CURRENT version, not the viewed
+one, so the slice-1 read-only spine + the `locked` choke + `pricingRowPropsAreEqual` are ALL untouched. **`CopyForwardDialog.tsx`
+(NEW, self-contained like CommitDialog):** fetches `get_copy_forward_plan`, renders the per-row outcome table (clean +
+conflict selectable; the three hard-skips -- non_match / no_rate_column / non_priceable -- shown DISABLED with their
+reason; a conflict shows current->source with a per-row Keep/Overwrite + bulk "Overwrite all"/"Keep all"), collects the
+decisions, POSTs `apply_copy_forward`, hands the summary up. **Owner UX:** clean rows + conflicts pre-ticked, conflicts
+default KEEP (the destructive overwrite needs deliberate intent); Apply disabled when `!current_formulas_complete` or
+nothing selected. PURE helpers (vitest): `cellKey` (a row can carry several rate cells -- keyed `excel_row|area|rate_kind`,
+NOT bare excel_row), `isWritable`, `initialSelection`, `applyBulkOverwrite`, `buildDecisions`, `outcomeMetaKey`. **The
+server is the boundary** -- it RE-DERIVES every outcome + target column on apply, so the client cannot force a wrong write;
+the dialog is UX over a server-authored plan. `SheetPricingPage`: `copyForwardOpen`/`copyForwardMsg` state (reset on sheet
+switch); on apply -> a transient emerald summary, return to live (`setSelectedVersion(null)`), `mutate()` the live read so
+the copied rates show. Types: `CopyForwardPlanRow` / `GetCopyForwardPlanResponse` / `CopyForwardDecision` /
+`ApplyCopyForwardResponse`. vitest 330 -> 339 (+9 NEW `CopyForwardDialog.test.ts`), tsc 3175 (0 new), in-container build
+exit 0, 2026-06-26; see backend doc + plan §"Copy-forward".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
 docs-hygiene cleanup (git holds it). **Latest frontend slices:** Deliberate lock/unlock (2026-06-26) -- a user-controlled,

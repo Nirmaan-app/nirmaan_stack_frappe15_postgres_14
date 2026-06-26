@@ -11,6 +11,27 @@
 
 ## Recent slice changelog (relocated header)
 
+**Copy-forward -- carry RATES from an old version into current (FULL-STACK, NO migrate, base tip 863dceb5, 2026-06-26):**
+the WRITE-side of version-view (slice 2). From the read-only history view, the user copies an OLD version's RATES into the
+CURRENT version (rates only; never structure/amount/qty). **Build shape = Option B: server-side plan + ATOMIC apply.**
+**Behavior-preserving extraction of `save_cell_price`** (the live write path stays byte-for-byte -- `test_pricing` 166
+unchanged): `_resolve_and_guard_cell(...)` (resolve + the three gates: deliberate lock, mandatory amount-formula,
+priceability) + `_write_cell_price_record(...)` (freeze-and-supersede + insert + the two re-arms, NO commit); the
+priceability rule is now a shared predicate `_node_priceable_without_override` used by BOTH the guard AND the plan
+classifier (no drift). **The CF3 safety rule** -- `_current_rate_column_index(column_descriptors)` builds the RESTRICTED
+rate-role-only inverse `{(area, rate_kind): col_letter}` (per-area key (area, rate_subkey) -- rate_subkey IS the stored
+rate_kind spelling supply_rate/install_rate/combined_rate; scalar key (None, <kind>) via the `rate_supply<->supply_rate`
+bridge; NON-rate roles excluded because a generic inverse is ambiguous -- append_to_notes maps one role+area to several
+letters); copy-forward re-resolves the target column by (area, rate_kind), NEVER the bare source col_letter. **Endpoints
+(`pricing.py`):** `get_copy_forward_plan(boq, sheet, from_version)` (whitelisted READ-ONLY) classifies every source
+priced cell via the SHARED `_build_copy_forward_plan` -> outcome 1 HARD SKIP (skip_reason non_match | no_rate_column |
+non_priceable) / 2 clean / 3 conflict, with the re-resolved target_col + current_rate; `apply_copy_forward(boq, sheet,
+from_version, decisions)` (whitelisted POST, ATOMIC) RE-DERIVES the plan server-side (client outcome/target/rate NOT
+trusted -- a crafted POST can't write a wrong column or an outcome-1 row), checks sheet-level gates once, does ONE lock
+acquire + ONE commit, and rolls back the WHOLE batch on any error. NO migrate (writes through existing BoQ Cell Pricing).
+`test_pricing` 166 -> 176 (+10 `TestCopyForward`: all outcomes + counts + overwrite/keep + outcome-1-never-written +
+column-drift re-resolution + atomic rollback + guards).
+
 **Version-view -- read-only committed-version history read paths (FULL-STACK, NO migrate, base tip 761c4bf3, 2026-06-26):**
 the pricing editor gains a read-only history browser; the BACKEND adds version-aware READ paths ONLY -- the live-editor hot
 path is byte-for-byte unchanged. **The hot-path problem:** `get_priced_rows`/`get_committed_rows` are welded to the CURRENT
