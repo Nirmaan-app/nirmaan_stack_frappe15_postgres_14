@@ -1,9 +1,31 @@
 # CLAUDE.md — Nirmaan Stack
 
-**Last updated:** 2026-06-25 (Slice 5b + hub footer rework + editor toolbar two-ribbon reorg [FRONTEND, presentational, move-only -- detail in frontend/CLAUDE.md + plan §"Editor toolbar two-ribbon reorg"]). **Live status + full per-slice as-built detail: see
+**Last updated:** 2026-06-26 (Pricing-editor lock/unlock [FULL-STACK + MIGRATE -- BoQ Sheet is_locked]; preceded by collapse/expand + collapse-all [FRONTEND-only, detail in frontend/CLAUDE.md + plan]). **Live status + full per-slice as-built detail: see
 `frontend/.claude/plans/boq-upload-plan.md`** (the dedicated `### Slice ...` / `### Module 3 Slice ...` /
 `## Phase 5 Pricing Editor -- slice detail` sections) and `frontend/CLAUDE.md` for frontend conventions. The prepended
-per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (FRONTEND, presentational
+per-slice status-block history was removed in the docs-hygiene cleanup (git holds it). **Latest slice (FULL-STACK + MIGRATE
+-- deliberate per-sheet pricing-editor lock):** a USER-CONTROLLED, PERSISTED, CROSS-USER, SERVER-ENFORCED per-sheet read-only
+lock for the pricing editor -- the pricing twin of the review-screen "Finalized" freeze. DISTINCT from the transient
+single-editor CONCURRENCY lock (`BoQ Sheet Pricing Lock` / `BOQ_PRICING_LOCKED`) and the inert per-cell `is_finalized`.
+**Doctype (ADDITIVE, migrate):** three fields on **`BoQ Sheet`** (the committed sheet tier) -- `is_locked` (Check, default 0),
+`locked_by` (Data read_only, mirroring `dismissed_by`/`chosen_by`), `locked_at` (Datetime read_only); written via
+`frappe.db.set_value` (NOT doc.save -- the list-valued `area_dimensions` JSON throws on a full save), mirroring the
+`last_exported_at` precedent. **Endpoints (`pricing.py`):** `lock_sheet`/`unlock_sheet(boq_name, sheet_name, committed_version)`
+(POST; mirror `mark_sheet_parsed_check_done`/`unmark` -- resolve the `is_current=1` BoQ Sheet row via the shared
+`_set_sheet_lock` -> set_value the three fields + commit; **NO role check -- ANY user may toggle**, a coordination signal not
+a permission). **Guard:** `_guard_sheet_not_locked(boq, sheet, version)` (mirrors `_guard_sheet_not_frozen`) called in ALL SIX
+save_* endpoints (`save_cell_price` [before the formula/priceability gates so the lock error wins], `save_row_remark`,
+`save_cell_color`, `save_cell_dismissal`, `save_cell_reconciliation_choice`, `save_amount_formula`) AFTER the resolve + BEFORE
+`acquire_or_refresh` -- reject-mutates-nothing; PURELY ADDITIVE (an unlocked sheet passes through byte-for-byte). The server is
+the real boundary (a direct API write on a locked sheet is rejected -- proven by test). **Return fold:** `get_priced_rows` adds
+an `is_locked` key BESIDE `editable` (separate -- the frontend ORs it into `locked` but keeps the reason distinct for the
+teal banner vs the amber concurrency banner); `get_committed_state` folds `is_locked` into its EXISTING `is_current=1` BoQ Sheet
+lookup (no new query). **Re-commit INVALIDATES the lock FOR FREE:** `_write_committed_boq_sheet` `new_doc()`s a fresh BoQ Sheet
+row per commit and never sets `is_locked`, so a new commit_version starts `is_locked=0` (no pipeline change). `bench migrate`
+landed the 3 columns (schema sync runs BEFORE the pre-existing unrelated `backfill_cashflow_gap_limited` patch wart). backend
+`test_pricing` 151->158 (+7 `TestSheetLock`), `test_commit_gate` 27 (unchanged); frontend rides the existing `locked` choke
+point (toggle + teal banner; `pricingRowPropsAreEqual` untouched -- detail in frontend/CLAUDE.md + plan §"Lock/unlock edits").
+**Prior slice (FRONTEND, presentational
 -- hub footer toolbar rework):** the cluttered 6-button parse-gate footer is reworked to **4 visible buttons** (Parse workbook /
 Re-parse / Commit / Tendering, all `size="sm"`) **+ an "Export" overflow `DropdownMenu`** holding the two export actions
 (**Export Parsed BoQ** [RENAMED from "Export Finalized"] + **Download priced tender**). The menu mirrors the in-file header

@@ -840,9 +840,34 @@ through reveal-then-scroll. Absent on grid-only sheets (inherits the `{!isGridOn
 (+3 `collapse.test.ts`: `collapsibleParents`), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see plan
 §"Collapse/expand ALL".
 
+**Deliberate per-sheet lock/unlock (`SheetPricingPage.tsx` + `boqTypes.ts`; FULL-STACK, server-enforced, owner-locked):**
+a USER-CONTROLLED, PERSISTED, CROSS-USER read-only lock -- the pricing twin of the review-screen "Finalized" freeze
+(backend detail in root CLAUDE.md). The frontend rides the EXISTING `locked` choke point: `isLocked =
+pricedData?.message?.is_locked ?? false` (a SEPARATE payload key from `editable`); `locked = editable === false ||
+takenOver || isLocked`. That ALONE makes the grid read-only -- all six save handlers already withhold on `locked`
+(callback-presence gate), and the "Price any row" override lives INSIDE `isRateEditableRow` ANDed AFTER the withheld
+`onSaveRate`, so **the lock is ABSOLUTE: override can never reach past it** (NO parallel override gate; `pricingRowPropsAreEqual`
+UNTOUCHED). **The toggle** is a state-aware Lock/Unlock `Button` in the TOP-ribbon right cluster, INSIDE `{!isGridOnly}`
+(absent on grid-only sheets), with a DISTINCT icon (`ShieldCheck`/`ShieldOff`, not the override's Lock/Unlock), **NOT gated
+by `locked`** (the one control that stays live so unlock is always reachable), disabled while the POST is in flight / the
+sheet is uncommitted, loudly TEAL when locked; on click it POSTs `lock_sheet`/`unlock_sheet` then `mutate()`s the
+priced-rows query. **The signal** is a TEAL `ShieldCheck` banner when `isLocked`, VISUALLY DISTINCT from the two amber
+concurrency banners; **PRECEDENCE: the deliberate-lock banner DOMINATES** (shown even if takeover/holder is also true --
+the persistent reason wins). The override toggle + "Save now"/flush button are **disabled when locked** (inert under the
+lock -- removes clickable-but-dead confusion). Types: `is_locked: boolean` on `GetPricedRowsResponse`, `is_locked?: boolean`
+on `CommittedSheetState`. vitest 323 (unchanged -- UI, owner-live-certed; no new pure leaf), tsc 3175 (0 new), in-container
+build exit 0, 2026-06-26; see root CLAUDE.md (backend) + plan §"Lock/unlock edits".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Collapse/expand ALL (2026-06-26) -- a bottom-ribbon
+docs-hygiene cleanup (git holds it). **Latest frontend slices:** Deliberate lock/unlock (2026-06-26) -- a user-controlled,
+persisted, cross-user, SERVER-ENFORCED per-sheet read-only lock (the pricing twin of the review "Finalized" freeze): rides
+the existing `locked` choke point (`locked = editable===false || takenOver || isLocked`, the override can't bypass it,
+`pricingRowPropsAreEqual` untouched), a top-ribbon teal `ShieldCheck` Lock/Unlock toggle [stays live when locked, distinct
+icon from the override] -> `lock_sheet`/`unlock_sheet` + mutate, a teal banner that DOMINATES the amber concurrency banners,
+override + Save-now disabled when locked; backend = `BoQ Sheet.is_locked` + `_guard_sheet_not_locked` in all six save_*
+endpoints + the `get_priced_rows`/`get_committed_state` fold (root CLAUDE.md); test_pricing 151->158, vitest 323, tsc 3175
+(0 new); see the lock/unlock rule above + plan §"Lock/unlock edits". Prior: Collapse/expand ALL (2026-06-26) -- a bottom-ribbon
 state-aware toggle that folds/unfolds the WHOLE pricing-grid hierarchy (Option A = `collapsibleParents` = every parent;
 `collapsed.size === 0` drives label "Collapse all"/"Expand all"; disabled on a flat sheet; reuses the slice-1 `collapsed`
 set + engine, NO new state, memo + full-screen `expanded` untouched); vitest 320 -> 323, tsc 3175 (0 new), see the
