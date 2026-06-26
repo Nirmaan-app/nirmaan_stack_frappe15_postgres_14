@@ -1416,6 +1416,33 @@ lock -- removes clickable-but-dead confusion). Types: `is_locked: boolean` on `G
 on `CommittedSheetState`. vitest 323 (unchanged -- UI, owner-live-certed; no new pure leaf), tsc 3175 (0 new), in-container
 build exit 0, 2026-06-26; see root CLAUDE.md (backend) + plan §"Lock/unlock edits".
 
+**Version-view -- read-only committed-version history browser (`SheetPricingPage.tsx` + NEW `VersionRibbon.tsx` +
+`boqTypes.ts`; FULL-STACK, NO migrate, owner-locked):** a version dropdown selects an OLDER committed version of a sheet
+and shows it read-only WITH that version's own pricing. Slice 1 of 2 -- copy-forward (the write-side) is the SEPARATE next
+slice; **NO copy/write/apply built here, NO copy-forward button** (owner). **The read-only spine = the EXISTING `locked`
+choke:** `locked = editable === false || takenOver || isLocked || isViewingHistory` (one-line add) -- every `onSave*`
+(already `locked ? undefined`) + `disabled={locked}` control collapses to read-only by construction; NO parallel gate;
+**`pricingRowPropsAreEqual` UNTOUCHED**. The history payload also reports `editable=false` (server belt). **State + fetches:**
+`selectedVersion: number|null` (null = current/live; reset on sheet switch in the `[sheetName]` effect; `isViewingHistory =
+selectedVersion !== null && selectedVersion !== liveCommitVersion`). Two ADDITIVE conditional fetches --
+`commit_gate.get_sheet_versions` (dropdown list) + `pricing.get_version_priced_rows` (enabled only when viewing history);
+the live `get_priced_rows` fetch is UNCHANGED, and an `activeMessage` ternary swaps the read source (rows / descriptors /
+formulas / dismissals / recon / commitVersion / editable / lock / loading / error) to the history payload. **`VersionRibbon.tsx`
+(NEW):** the OUTERMOST band, ABOVE the top ribbon -> shows on ALL sheet types (above the `{!isGridOnly}` gate); renders only
+when **2+ versions exist** (version-COUNT gated, not type-gated -- a grid-only multi-version sheet still gets it). shadcn
+`Select` only. Pure `versionLabelParts` / `formatVersionLabel` helpers (vitest, locale-safe -- no date formatting in the
+shape decision): current -> "Current (live)" (no date, the only editable one); earlier priced -> last-change date; earlier
+never-priced -> committed_at + "never priced". An indigo read-only pill when viewing history (DISTINCT from the teal
+deliberate-lock / amber concurrency banners). **Wiring:** grid `key` extended to `${sheetName}::${selectedVersion ??
+"current"}` (clean remount on version switch); `commitVersionForGrid` tracks the viewed version (grid-only history); lock
+toggle disabled `|| isViewingHistory`; concurrency/lock banners suppressed in history (`isGridOnly || isViewingHistory ?
+null : ...` -- the ribbon's pill is the read-only surface, else editable=false would trip the holder banner); override
+banner suppressed; editor note shows a history variant. **Never-priced common case** (VRF, Electrical v1/v2) renders through
+the normal node path with an empty pricing overlay -- NOT grid-only, no special path. Types: `SheetVersionRow` +
+`GetSheetVersionsResponse` on `boqTypes.ts`; the version read reuses `GetPricedRowsResponse`. vitest 323 -> 330 (+7 NEW
+`VersionRibbon.test.ts` -- the pure label helper), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see backend doc
++ plan §"Version-view".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
 docs-hygiene cleanup (git holds it). **Latest frontend slices:** Deliberate lock/unlock (2026-06-26) -- a user-controlled,
