@@ -14,11 +14,13 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
 | [domain/internal-transfer-memos.md](domain/internal-transfer-memos.md) | Internal Transfer Memos | Inter-project material transfer (ITM) — doctype, state machine, invariants, phase roadmap |
+| [domain/boq-backend.md](domain/boq-backend.md) | BoQ backend | Wizard endpoints, BoQ doctypes, commit pipeline, parse/review, slice changelog (relocated from CLAUDE.md 2026-06-25). Live status: `../../frontend/.claude/plans/boq-upload-plan.md` |
 
 ### Frontend Context (in `frontend/.claude/context/`)
 
 | File | Domain | When to Read |
 |------|--------|--------------|
+| `domain/boq-frontend.md` | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25) |
 | `domain/ceo-hold.md` | CEO Hold | Project hold status blocking, guard hooks, affected pages |
 | `domain/delivery-notes.md` | Delivery Notes | DN system on POs, delivery_data JSON, 51-point linkage map across the app |
 | `domain/projects.md` | Projects | Frontend status behavior, ProjectSelect component |
