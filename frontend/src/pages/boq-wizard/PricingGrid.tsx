@@ -50,6 +50,7 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -101,6 +102,12 @@ import type {
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
 const INDENT_PX = 20;
+
+// Frozen-left Slice 1: the Description cell's vertical padding (py-1.5 = 6px top + 6px bottom).
+// When a captured row height is applied, the description's inner wrapper is clipped to
+// (rowHeight - this) so the cell box totals the captured height and cannot push the <tr> past
+// its matching row in the other pane.
+const DESC_CLIP_VPAD_PX = 12;
 
 // The two roles rendered as fixed anchor columns (Sl.No, Description), excluded from the
 // descriptor-driven column set. Mirrors ReviewTree.FIXED_ROLE_DEDUPE (kept in sync; the
@@ -1328,6 +1335,16 @@ interface PricingGridProps {
    * the scroll one tick (let the reveal re-render land) only when needed. ABSENT => plain scroll.
    */
   onRevealRow?: (excelRow: number) => boolean;
+  /**
+   * Frozen-left Slice 1: when true, render the grid as a TWO-PANE split -- the 5 anchor columns
+   * (Excel row / Sl.No / Parent / Classification / Description) pinned in a non-horizontally-
+   * scrolling FROZEN pane; the descriptor + Remarks columns in a SCROLLING pane that owns
+   * overflow-x AND overflow-y and mirrors its vertical scroll to the frozen pane. Row heights are
+   * MEASURED at the freeze transition and applied identically to both panes so the rows stay
+   * aligned by construction. Default false = today's single table (byte-for-byte). The PAGE owns
+   * the toggle and gates it OFF for grid-only sheets (which render via SheetDataGrid, not here).
+   */
+  frozen?: boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1490,6 +1507,16 @@ interface PricingGridRowProps {
   row: PricedRow;
   /** ARRAY index into rows (the nav-matrix row coord), NOT row.row_index. */
   rowIndex: number;
+  /** Frozen-left Slice 1: which pane this row instance renders. undefined = the single
+   *  (unfrozen) table -> emits ALL cells (today's behaviour). "frozen" -> ONLY the 5 anchor
+   *  cells; "scrolling" -> ONLY the descriptor + Remarks cells. Constant per instance, so the
+   *  memo holds across a keystroke. */
+  pane?: "frozen" | "scrolling";
+  /** Frozen-left Slice 1: the captured px height for this row (measure-at-freeze). Applied to
+   *  the <tr> in BOTH panes so the matching rows stay aligned; the Description inner wrapper is
+   *  clipped to it. undefined when not frozen -> natural wrap-and-grow height (unchanged). A
+   *  per-row SCALAR (like depth / isCurrentHit) -> memo-safe. */
+  rowHeight?: number;
   depth: number;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
@@ -1557,6 +1584,8 @@ export function pricingRowPropsAreEqual(
   return (
     prev.row === next.row &&
     prev.rowIndex === next.rowIndex &&
+    prev.pane === next.pane &&
+    prev.rowHeight === next.rowHeight &&
     prev.depth === next.depth &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
@@ -1602,6 +1631,8 @@ export function pricingRowPropsAreEqual(
 const PricingGridRow = memo(function PricingGridRow({
   row,
   rowIndex,
+  pane,
+  rowHeight,
   depth,
   parentExcelRow,
   flags,
@@ -1695,7 +1726,17 @@ const PricingGridRow = memo(function PricingGridRow({
             ? "bg-yellow-100 dark:bg-yellow-900/40"
             : "hover:bg-muted/30",
       )}
+      // Frozen-left Slice 1: the captured row height (both panes share it -> aligned). undefined
+      // when not frozen -> no attribute -> natural height (byte-for-byte). data-rowidx tags the
+      // SCROLLING pane's <tr> so the vertical-scroll retarget can find a row's counterpart.
+      style={rowHeight != null ? { height: `${rowHeight}px` } : undefined}
+      data-rowidx={pane === "scrolling" ? rowIndex : undefined}
     >
+      {/* Frozen-left Slice 1: anchors render in the single table (pane undefined) and the FROZEN
+          pane; the data group (descriptors + Remarks) renders in the single table and the
+          SCROLLING pane. A React fragment adds no DOM, so the unfrozen path is unchanged. */}
+      {pane !== "scrolling" && (
+        <>
       {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). data-colkey
           backs the autofit measure. */}
       <td
@@ -1787,9 +1828,22 @@ const PricingGridRow = memo(function PricingGridRow({
         {/* Collapse/expand: the chevron + "+N hidden" sit at the depth indent (where the
             hierarchy lives), before the description text, so they nest with the tree. The
             chevron reads CollapseContext (NOT a row prop) -> the row memo is untouched (R6). */}
-        <div style={{ paddingLeft: `${depth * INDENT_PX}px` }} className="flex items-start gap-1 min-w-0">
+        <div
+          style={{
+            paddingLeft: `${depth * INDENT_PX}px`,
+            // Frozen-left Slice 1: when a captured row height is applied, clip the (still-wrapped)
+            // description to it so a tall row cannot push this pane's <tr> past the matching row in
+            // the other pane. Text still WRAPS (break-words) then clips from the top (align-top +
+            // overflow hidden); the full text stays readable via the title below. No-op unfrozen.
+            ...(rowHeight != null
+              ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
+              : {}),
+          }}
+          className="flex items-start gap-1 min-w-0"
+        >
           <RowChevron rowIndex={row.row_index} />
           <span
+            title={row.description ?? undefined}
             className={cn(
               "leading-snug break-words min-w-0",
               isPreamble && "font-medium text-foreground",
@@ -1803,6 +1857,10 @@ const PricingGridRow = memo(function PricingGridRow({
           </span>
         </div>
       </td>
+        </>
+      )}
+      {pane !== "frozen" && (
+        <>
       {/* Descriptor-driven data cells: editable rate inputs, live-amount cells, and read-only
           qty/other cells. */}
       {displayDescriptors.map((d, dIdx) => {
@@ -2062,13 +2120,15 @@ const PricingGridRow = memo(function PricingGridRow({
           }}
         />
       </td>
+        </>
+      )}
     </tr>
   );
 }, pricingRowPropsAreEqual);
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow },
+  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2109,10 +2169,22 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Frozen-left + column-resize: per-column width OVERRIDES (sparse -- absent => the seed). Width
   // is GRID-LEVEL (the colgroup + the frozen-offset CSS vars live on the table, NOT on a per-row
   // prop) so the row memo stays intact. Session-only: reset per sheet by the key={sheetName}
-  // remount. resizeRef holds the in-flight drag; tableRef backs the double-click autofit measure.
+  // remount. resizeRef holds the in-flight drag; containerRef (below) backs the autofit measure.
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const resizeRef = useRef<{ key: string; startX: number; startWidth: number; isRate: boolean } | null>(null);
-  const tableRef = useRef<HTMLTableElement | null>(null);
+  // The OUTER container ref backs the double-click autofit measure. It is on the bordered wrapper
+  // (NOT the <table>) so the [data-colkey] query spans BOTH panes when the grid is split.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Frozen-left Slice 1 ("Fork A"): captured per-row heights (px), keyed by the stable
+  // row.row_index. Populated by the measure-at-freeze layout-effect below; {} when unfrozen
+  // (rows return to natural auto-height). Resets to {} for free on a sheet/version switch (the
+  // grid remounts via key={sheetName::version}). frozenPaneRef/scrollPaneRef back the vertical-
+  // scroll coupling (the scrolling pane drives; the frozen pane mirrors its scrollTop). splitRef
+  // mirrors the render-time `split` so the stable focus/jump callbacks can read it at event time.
+  const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
+  const frozenPaneRef = useRef<HTMLDivElement | null>(null);
+  const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  const splitRef = useRef(false);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -2308,10 +2380,25 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   const focusCell = useCallback((r: number, c: number) => {
     const el = cellRefs.current.get(navKey(r, c));
-    if (el) {
-      el.focus();
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!el) return;
+    // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
+    // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
+    // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
+    // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
+    // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
+    if (splitRef.current) {
+      el.focus({ preventScroll: true });
+      if (c >= FIXED_ANCHOR_COUNT) {
+        el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } else {
+        scrollPaneRef.current
+          ?.querySelector(`tr[data-rowidx="${r}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }
+      return;
     }
+    el.focus();
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, []);
 
   // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
@@ -2332,8 +2419,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       if (idx < 0) return;
       const el = cellRefs.current.get(navKey(idx, 0));
       if (el) {
-        el.focus();
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (splitRef.current) {
+          // Split: col-0 lives in the frozen pane. Focus it WITHOUT auto-scroll (avoids desyncing
+          // the panes), then scroll the SCROLLING pane's counterpart <tr> -- its onScroll mirrors
+          // scrollTop back to the frozen pane so both land together.
+          el.focus({ preventScroll: true });
+          scrollPaneRef.current
+            ?.querySelector(`tr[data-rowidx="${idx}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       }
       // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
       // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
@@ -2480,6 +2577,38 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
   }, []);
 
+  // ── Frozen-left Slice 1: measure-at-freeze row heights ("Fork A") ────────────────
+  // When freeze turns ON we must capture each row's NATURAL (single-table) height BEFORE the
+  // two-pane split is committed, then apply the SAME captured height to the matching row in both
+  // panes so they stay aligned by construction. The split is gated on rows.every(measured) (see
+  // `split` below), so the render where `frozen` first flips true -- OR where `rows` changed under
+  // freeze (collapse/filter/version) -- still paints the SINGLE table; THIS layout-effect then
+  // runs post-layout / pre-paint, reads the live <tr> heights via the always-registered col-0
+  // cell, and writes them -> the next (synchronous, pre-paint) render commits the split with
+  // heights applied, so the user never sees an unmeasured split frame. Unfreeze clears the map
+  // (rows return to natural auto-height). The grid remounts on sheet/version switch, so the map
+  // resets to {} there for free -- no manual invalidation needed. KNOWN LIMITATION (deferred to
+  // Slice 2 with manual row-resize): a COLUMN resize (or double-click autofit) WHILE frozen
+  // re-wraps the Description and changes natural heights, but the captured map is not refreshed --
+  // the heights can go stale until unfreeze/re-freeze.
+  useLayoutEffect(() => {
+    if (!frozen) {
+      setRowHeights((prev) => (Object.keys(prev).length ? {} : prev));
+      return;
+    }
+    // Re-measure only while NOT every current row is measured (the pre-split single-table state).
+    // Once all are measured the split is committed and there is nothing to do. A `rows` change
+    // under freeze drops an unmeasured row -> `split` goes false -> the single table re-renders ->
+    // this measures the true natural heights again for the new row set.
+    if (rows.length > 0 && rows.every((r) => rowHeights[r.row_index] != null)) return;
+    const next: Record<number, number> = { ...rowHeights };
+    for (let i = 0; i < rows.length; i++) {
+      const tr = cellRefs.current.get(navKey(i, 0))?.closest("tr");
+      if (tr) next[rows[i].row_index] = Math.ceil(tr.getBoundingClientRect().height);
+    }
+    setRowHeights(next);
+  }, [frozen, rows, rowHeights]);
+
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
   const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
   const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
@@ -2490,6 +2619,19 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
   const tableStyle = { width: `${totalWidth}px` };
+
+  // Frozen-left Slice 1: the split is COMMITTED only when freeze is on AND every current row has a
+  // measured height (the measure-at-freeze layout-effect populates rowHeights). Until then -- the
+  // render where freeze just turned on, or where `rows` changed under freeze -- we render the
+  // SINGLE table so the effect can read true natural heights. splitRef mirrors it for the
+  // event-time scroll retarget in focusCell / jumpToRow (they read a ref, not this render var).
+  const split = frozen && rows.length > 0 && rows.every((r) => rowHeights[r.row_index] != null);
+  splitRef.current = split;
+  // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
+  // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
+  const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
+  const scrollPaneTableWidth =
+    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) + widthOf(REMARKS_WIDTH_KEY);
 
   // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
   // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
@@ -2515,9 +2657,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // once we force single-line; we set whiteSpace:nowrap, read scrollWidth, and restore -- all
   // synchronously (no paint between), so there is no visible flash. data-colkey tags the cells.
   const autofitColumn = (key: string, isRate: boolean) => {
-    const table = tableRef.current;
-    if (!table) return;
-    const cells = table.querySelectorAll<HTMLElement>(`[data-colkey="${CSS.escape(key)}"]`);
+    const container = containerRef.current;
+    if (!container) return;
+    const cells = container.querySelectorAll<HTMLElement>(`[data-colkey="${CSS.escape(key)}"]`);
     let max = 0;
     cells.forEach((el) => {
       const prevWS = el.style.whiteSpace;
@@ -2551,8 +2693,252 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     );
   }
 
+  // ── Frozen-left Slice 1: shared colgroup / header fragments + the row factory. Rendered into
+  //    ONE table when unfrozen, or split across the two panes when frozen -- the SAME <col>/<th>
+  //    from the SAME colWidths map (never duplicated) and the SAME PricingGridRow props. ──
+  const anchorCols = ANCHOR_WIDTH_KEYS.map((k) => (
+    <col key={k} style={{ width: `${widthOf(k)}px` }} />
+  ));
+  const descriptorCols = visibleDescriptors.map((d) => (
+    <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
+  ));
+  const remarksCol = <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />;
+
+  // Anchor headers: vertical sticky (top-0, z-20). Width comes from the colgroup; the label
+  // truncates single-line (D4) with a title tooltip; the right-edge handle drag-resizes (D1).
+  const anchorHeaderCells = (
+    <>
+      <th
+        data-colkey="a0"
+        title="Excel Row"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Excel Row</span>
+        {resizeHandle("a0", false)}
+      </th>
+      <th
+        data-colkey="a1"
+        title="Sl.No"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">{slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}</span>
+        {resizeHandle("a1", false)}
+      </th>
+      <th
+        data-colkey="a2"
+        title="Parent"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Parent</span>
+        {resizeHandle("a2", false)}
+      </th>
+      <th
+        data-colkey="a3"
+        title="Classification"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Classification</span>
+        {resizeHandle("a3", false)}
+      </th>
+      <th
+        data-colkey="a4"
+        title="Description"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">
+          {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+        </span>
+        {resizeHandle("a4", false)}
+      </th>
+    </>
+  );
+
+  const descriptorHeaderCells = visibleDescriptors.map((d) => {
+    const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+    const isAmount = isAmountDescriptor(d);
+    // PENDING TINT: a subtle amber wash on an amount column with NO covering formula so a wide
+    // sheet is scannable; a covered amount column + every non-amount column keep bg-muted. The
+    // coverage check is the SAME override>wildcard pickFormula the gate + badge use (inline here,
+    // NOT priceability.isAmountColumnCovered -- importing priceability would reverse the one-way
+    // dependency into a cycle). Amber tokens mirror the gate banner.
+    const amountPending =
+      isAmount &&
+      !pickFormula(
+        { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+        columnFormulas,
+      )?.formula;
+    return (
+      <th
+        key={d.col}
+        data-colkey={columnWidthKey("descriptor", d.col)}
+        title={label}
+        className={cn(
+          "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border sticky top-0 z-20 align-top",
+          amountPending ? "bg-amber-50 dark:bg-amber-950/40" : "bg-muted",
+        )}
+      >
+        {/* min-w-0 lets the label truncate (D4); the ƒ badge stays shrink-0 so the resize handle
+            never overlaps / steals its popover-trigger click (C4). */}
+        <span className="flex min-w-0 items-center justify-end gap-1">
+          {/* Formula Builder: the LEADING amber/green ƒ status badge that IS the click-to-edit
+              trigger, on AMOUNT columns only. Read-only (static glyph) when onSaveFormula is
+              withheld (locked). The amount-cell VALUE render is UNCHANGED (F4 owns the swap). */}
+          {isAmount && (
+            <AmountFormulaBuilder
+              target={d}
+              columnLabel={label}
+              descriptors={columnDescriptors}
+              columnFormulas={columnFormulas}
+              onSave={onSaveFormula}
+            />
+          )}
+          <span className="truncate">{label}</span>
+        </span>
+        {resizeHandle(columnWidthKey("descriptor", d.col), isRateDescriptor(d))}
+      </th>
+    );
+  });
+
+  // Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a descriptor;
+  // Slice 4a.2 made it the matrix's last navigable column.
+  const remarksHeaderCell = (
+    <th
+      data-colkey="remarks"
+      title="Remarks"
+      className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
+    >
+      <span className="block truncate">Remarks</span>
+      {resizeHandle("remarks", false)}
+    </th>
+  );
+
+  // Editor perf fix (item 1): the factory resolves ONLY the row's cheap, reference-stable inputs
+  // and hands them to the memoized PricingGridRow; the heavy per-cell work lives inside the row
+  // and is SKIPPED by React.memo for every unchanged row. `pane` selects which cells the row
+  // emits (undefined = all; "frozen" = anchors; "scrolling" = descriptors + Remarks); `rowHeight`
+  // is the captured scalar applied in both panes when split (undefined otherwise).
+  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => (
+    <PricingGridRow
+      key={row.row_index}
+      row={row}
+      rowIndex={rowIdx}
+      pane={pane}
+      rowHeight={split ? rowHeights[row.row_index] : undefined}
+      depth={depths.get(row.row_index) ?? 0}
+      parentExcelRow={parentExcelRowOf(row, byIdx)}
+      flags={rowFlags?.get(row.row_index)}
+      rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+      rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+      activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
+      anyCellActive={anyCellActive}
+      openRemark={openRemarkRowIdx === rowIdx}
+      isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
+      isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
+      displayDescriptors={visibleDescriptors}
+      columnDescriptors={columnDescriptors}
+      columnFormulas={columnFormulas}
+      reconChoiceMap={reconChoiceMap}
+      override={override}
+      formulasComplete={formulasComplete}
+      onSaveRate={onSaveRate}
+      onSaveColor={onSaveColor}
+      onSaveRemark={onSaveRemark}
+      onSaveReconChoice={onSaveReconChoice}
+      colCount={colCount}
+      rowCount={rows.length}
+      remarksColIndex={remarksColIndex}
+      commitRate={commitRate}
+      scheduleAutoSave={scheduleAutoSave}
+      onCellFocus={onCellFocus}
+      registerCell={registerCell}
+      focusCell={focusCell}
+      setDraftRates={setDraftRates}
+      setProposedRates={setProposedRates}
+      setOpenRemark={setOpenRemark}
+      onJumpToRow={jumpToRow}
+    />
+  );
+
+  // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
+  if (split) {
+    return (
+      <div
+        ref={containerRef}
+        className={cn(
+          "rounded-md border border-border overflow-hidden",
+          // Full-screen: fill the expanded flex-col root; the panes carry the height cap instead.
+          expanded ? "flex flex-col flex-1 min-h-0" : "",
+        )}
+      >
+        <CollapseContext.Provider value={collapseCtxValue}>
+          <div className={cn("flex", expanded ? "flex-1 min-h-0" : "")}>
+            {/* FROZEN pane: the 5 anchors only. overflow-x hidden (no horizontal scroll); its
+                vertical scroll is DRIVEN by the scrolling pane (overflow-hidden still accepts a
+                programmatic scrollTop). Width = the anchors' summed colWidths. */}
+            <div
+              ref={frozenPaneRef}
+              className={cn(
+                "overflow-hidden shrink-0",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+              )}
+              style={{ width: `${anchorPaneWidth}px` }}
+            >
+              <table
+                className="text-xs border-collapse table-fixed"
+                style={{ width: `${anchorPaneWidth}px` }}
+                onKeyDown={handleGridKeyDown}
+              >
+                <colgroup>{anchorCols}</colgroup>
+                <thead>
+                  <tr>{anchorHeaderCells}</tr>
+                </thead>
+                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "frozen"))}</tbody>
+              </table>
+            </div>
+            {/* SCROLLING pane: descriptors + Remarks. Owns overflow-x AND overflow-y; mirrors its
+                scrollTop to the frozen pane on every scroll so the matching rows stay aligned. */}
+            <div
+              ref={scrollPaneRef}
+              onScroll={(e) => {
+                if (frozenPaneRef.current) {
+                  frozenPaneRef.current.scrollTop = e.currentTarget.scrollTop;
+                }
+              }}
+              className={cn(
+                "overflow-auto flex-1 min-w-0",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+              )}
+            >
+              <table
+                className="text-xs border-collapse table-fixed"
+                style={{ width: `${scrollPaneTableWidth}px` }}
+                onKeyDown={handleGridKeyDown}
+              >
+                <colgroup>
+                  {descriptorCols}
+                  {remarksCol}
+                </colgroup>
+                <thead>
+                  <tr>
+                    {descriptorHeaderCells}
+                    {remarksHeaderCell}
+                  </tr>
+                </thead>
+                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "scrolling"))}</tbody>
+              </table>
+            </div>
+          </div>
+        </CollapseContext.Provider>
+      </div>
+    );
+  }
+
+  // ── Unfrozen (default): today's SINGLE table -- same div > table > colgroup / thead / tbody and
+  //    classes as before. The only inert differences: containerRef moved from the <table> to this
+  //    wrapper (refs are not DOM) and the col/th/row JSX comes from the shared fragments above. ──
   return (
     <div
+      ref={containerRef}
       className={cn(
         "rounded-md border border-border overflow-auto",
         // Slice 4c: full-screen relaxes the viewport-rem cap to fill the expanded flex-col
@@ -2566,181 +2952,23 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           a per-row prop (R6) -- it wraps the table so every RowChevron consumes it. */}
       <CollapseContext.Provider value={collapseCtxValue}>
       <table
-        ref={tableRef}
         className="text-xs border-collapse table-fixed"
         style={tableStyle}
         onKeyDown={handleGridKeyDown}
       >
         <colgroup>
-          {ANCHOR_WIDTH_KEYS.map((k) => (
-            <col key={k} style={{ width: `${widthOf(k)}px` }} />
-          ))}
-          {visibleDescriptors.map((d) => (
-            <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
-          ))}
-          <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />
+          {anchorCols}
+          {descriptorCols}
+          {remarksCol}
         </colgroup>
         <thead>
-          {/* Anchor headers: vertical sticky (top-0, z-20) like the descriptor headers -- the
-              horizontal freeze (left:var + the z-30 corner tier) was removed; the anchors are
-              normal scrolling columns again. Width comes from the colgroup; the label truncates
-              single-line (D4) with a title tooltip; the right-edge handle drag-resizes (D1). */}
           <tr>
-            <th
-              data-colkey="a0"
-              title="Excel Row"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">Excel Row</span>
-              {resizeHandle("a0", false)}
-            </th>
-            <th
-              data-colkey="a1"
-              title="Sl.No"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">{slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}</span>
-              {resizeHandle("a1", false)}
-            </th>
-            <th
-              data-colkey="a2"
-              title="Parent"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">Parent</span>
-              {resizeHandle("a2", false)}
-            </th>
-            <th
-              data-colkey="a3"
-              title="Classification"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">Classification</span>
-              {resizeHandle("a3", false)}
-            </th>
-            <th
-              data-colkey="a4"
-              title="Description"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">
-                {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-              </span>
-              {resizeHandle("a4", false)}
-            </th>
-            {/* Column-hide: render only the VISIBLE descriptors (amount columns always present). */}
-            {visibleDescriptors.map((d) => {
-              const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-              const isAmount = isAmountDescriptor(d);
-              // PENDING TINT: a subtle amber wash on an amount column with NO covering formula, so
-              // a wide sheet (VRF 9 cols) is scannable at a glance; a covered amount column + every
-              // non-amount column keep the neutral bg-muted. The coverage check is pickFormula
-              // (already imported -- amountFormula.ts) inline, NOT priceability.isAmountColumnCovered:
-              // importing priceability here would reverse the one-way dependency (priceability
-              // imports PricingGrid) into a cycle -- same reason isNonZeroNum is a self-contained
-              // copy above. It is the SAME override>wildcard pickFormula resolution the gate +
-              // badge use, so the tint can never drift from them. (Amber tokens mirror the gate banner.)
-              const amountPending =
-                isAmount &&
-                !pickFormula(
-                  { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
-                  columnFormulas,
-                )?.formula;
-              return (
-                <th
-                  key={d.col}
-                  data-colkey={columnWidthKey("descriptor", d.col)}
-                  title={label}
-                  className={cn(
-                    "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border sticky top-0 z-20 align-top",
-                    amountPending ? "bg-amber-50 dark:bg-amber-950/40" : "bg-muted",
-                  )}
-                >
-                  {/* min-w-0 lets the label truncate (D4); the ƒ badge stays shrink-0 so the resize
-                      handle never overlaps / steals its popover-trigger click (C4). */}
-                  <span className="flex min-w-0 items-center justify-end gap-1">
-                    {/* Formula Builder: the LEADING amber/green ƒ status badge that IS the
-                        click-to-edit trigger (status + action merged), on AMOUNT columns only.
-                        Read-only (static glyph) when onSaveFormula is withheld (locked). The
-                        amount-cell VALUE render is UNCHANGED (F4 owns the compute swap). */}
-                    {isAmount && (
-                      <AmountFormulaBuilder
-                        target={d}
-                        columnLabel={label}
-                        descriptors={columnDescriptors}
-                        columnFormulas={columnFormulas}
-                        onSave={onSaveFormula}
-                      />
-                    )}
-                    <span className="truncate">{label}</span>
-                  </span>
-                  {resizeHandle(columnWidthKey("descriptor", d.col), isRateDescriptor(d))}
-                </th>
-              );
-            })}
-            {/* Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a
-                descriptor; Slice 4a.2 made it the matrix's last navigable column. */}
-            <th
-              data-colkey="remarks"
-              title="Remarks"
-              className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
-            >
-              <span className="block truncate">Remarks</span>
-              {resizeHandle("remarks", false)}
-            </th>
+            {anchorHeaderCells}
+            {descriptorHeaderCells}
+            {remarksHeaderCell}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row, rowIdx) => {
-            // Editor perf fix (item 1): the parent resolves ONLY the row's cheap, reference-
-            // stable inputs (depth, parent Excel row, its flags, its draft/proposal slices, and
-            // its activeColIndex lever) and hands them to the memoized PricingGridRow. The heavy
-            // per-cell work (evaluateAmountCell, the descriptor map, the RemarkCell) lives inside
-            // the row and is SKIPPED by React.memo for every row whose props are unchanged -- so
-            // a cursor move re-renders only the 2 rows whose active-state flipped, and a keystroke
-            // only the 1 edited row (its slice reference changed; everyone else's is reused).
-            const parentExcelRow = parentExcelRowOf(row, byIdx);
-            return (
-              <PricingGridRow
-                key={row.row_index}
-                row={row}
-                rowIndex={rowIdx}
-                depth={depths.get(row.row_index) ?? 0}
-                parentExcelRow={parentExcelRow}
-                flags={rowFlags?.get(row.row_index)}
-                rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
-                rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
-                activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
-                anyCellActive={anyCellActive}
-                openRemark={openRemarkRowIdx === rowIdx}
-                isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
-                isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
-                displayDescriptors={visibleDescriptors}
-                columnDescriptors={columnDescriptors}
-                columnFormulas={columnFormulas}
-                reconChoiceMap={reconChoiceMap}
-                override={override}
-                formulasComplete={formulasComplete}
-                onSaveRate={onSaveRate}
-                onSaveColor={onSaveColor}
-                onSaveRemark={onSaveRemark}
-                onSaveReconChoice={onSaveReconChoice}
-                colCount={colCount}
-                rowCount={rows.length}
-                remarksColIndex={remarksColIndex}
-                commitRate={commitRate}
-                scheduleAutoSave={scheduleAutoSave}
-                onCellFocus={onCellFocus}
-                registerCell={registerCell}
-                focusCell={focusCell}
-                setDraftRates={setDraftRates}
-                setProposedRates={setProposedRates}
-                setOpenRemark={setOpenRemark}
-                onJumpToRow={jumpToRow}
-              />
-            );
-          })}
-        </tbody>
+        <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx))}</tbody>
       </table>
       </CollapseContext.Provider>
     </div>

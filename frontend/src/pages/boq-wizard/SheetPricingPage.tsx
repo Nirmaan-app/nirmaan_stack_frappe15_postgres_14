@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -311,6 +311,13 @@ const SheetPricingPage = () => {
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
 
+  // Frozen-left Slice 1 ("Fork A"): pin the 5 anchor columns (through Description) into a frozen
+  // pane while the descriptor + Remarks columns scroll horizontally. Page-owned per-sheet toggle
+  // (reset on a tab switch below); default OFF = today's single table. Passed to the PricingGrid
+  // only (the grid measures heights at the freeze transition + renders the two-pane split). Gated
+  // OFF for grid-only general-specs sheets (they render via SheetDataGrid, out of scope).
+  const [frozen, setFrozen] = useState(false);
+
   // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
   // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
   // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
@@ -385,6 +392,7 @@ const SheetPricingPage = () => {
     setShowNotes(true);
     setShowSubtotals(true);
     setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
+    setFrozen(false); // Frozen-left Slice 1: freeze is per-sheet -- a tab switch starts unfrozen
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -983,6 +991,29 @@ const SheetPricingPage = () => {
               <ShieldOff className="h-4 w-4" />
             )}
             {isLocked ? "Unlock" : "Lock"}
+          </Button>
+          {/* Frozen-left Slice 1: pin the anchor columns (through Description) so the descriptor /
+              Remarks columns scroll horizontally past them. State-aware (loud when on); default
+              off. Disabled while loading / on error / with no rows (nothing to freeze). Grid-only
+              sheets never reach here (this whole cluster is gated by !isGridOnly). */}
+          <Button
+            size="sm"
+            variant={frozen ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              frozen && "bg-sky-600 text-white hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-800",
+            )}
+            aria-pressed={frozen}
+            onClick={() => setFrozen((v) => !v)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title={
+              frozen
+                ? "Unfreeze columns -- let every column scroll normally."
+                : "Freeze the left columns (through Description) so the rest scroll horizontally."
+            }
+          >
+            {frozen ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            {frozen ? "Unfreeze" : "Freeze columns"}
           </Button>
           <Button
             size="sm"
@@ -1702,6 +1733,10 @@ const SheetPricingPage = () => {
             childrenByParent={childrenByParent}
             onToggleCollapse={toggleCollapse}
             onRevealRow={revealRow}
+            // Frozen-left Slice 1: two-pane frozen-left + measure-at-freeze heights. Page-owned
+            // per-sheet toggle; the grid measures + splits. Gated off for grid-only (this branch
+            // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
+            frozen={frozen}
           />
         )}
         </div>
