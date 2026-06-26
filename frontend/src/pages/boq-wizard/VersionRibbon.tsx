@@ -11,7 +11,8 @@
  * Build-NO copy-forward here -- the read-only history mode is the surface copy-forward will later
  * launch from, but this slice builds NO copy/apply action (owner-locked scope).
  */
-import { History } from "lucide-react";
+import { Copy, History } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -62,6 +63,9 @@ interface VersionRibbonProps {
   onSelectVersion: (version: number) => void;
   /** True when an EARLIER version is selected (the editor is read-only history). */
   isViewingHistory: boolean;
+  /** Launch the copy-forward review dialog (carry this old version's rates into current). Optional
+   * -- the button shows only when provided AND viewing history. */
+  onCopyForward?: () => void;
 }
 
 export function VersionRibbon({
@@ -70,6 +74,7 @@ export function VersionRibbon({
   selectedVersion,
   onSelectVersion,
   isViewingHistory,
+  onCopyForward,
 }: VersionRibbonProps) {
   // A single-version sheet has no history to browse -> no ribbon. (Version-COUNT gated, NOT
   // sheet-type gated: a grid-only sheet with 2+ versions still gets the ribbon.)
@@ -102,6 +107,15 @@ export function VersionRibbon({
           <History className="h-3.5 w-3.5" />
           Viewing Version {selectedVersion} — read-only history
         </span>
+      )}
+
+      {/* Copy-forward launch -- the ONE write action reachable from read-only history mode. It
+          writes to the CURRENT version (not the viewed one); the dialog reviews every row first. */}
+      {isViewingHistory && onCopyForward && (
+        <Button size="sm" variant="outline" className="ml-auto h-8 gap-1.5" onClick={onCopyForward}>
+          <Copy className="h-4 w-4" />
+          Copy rates forward
+        </Button>
       )}
     </div>
   );

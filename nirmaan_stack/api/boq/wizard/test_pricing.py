@@ -28,6 +28,8 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     get_committed_sheet_grid,
     get_priced_rows,
     get_version_priced_rows,
+    get_copy_forward_plan,
+    apply_copy_forward,
     get_sheet_amount_formulas,
     get_sheet_colors,
     get_sheet_dismissals,
@@ -44,6 +46,7 @@ from nirmaan_stack.api.boq.wizard.pricing import (
     unlock_sheet,
 )
 from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
+from nirmaan_stack.api.boq.wizard import pricing
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     LOCK_STALE_SECONDS,
@@ -3450,3 +3453,274 @@ class TestGetVersionPricedRows(FrappeTestCase):
             get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet)  # no version
         with self.assertRaises(frappe.ValidationError):
             get_version_priced_rows(boq_name="NO_SUCH_BOQ", sheet_name=self.sheet, committed_version=1)
+
+
+class TestCopyForward(FrappeTestCase):
+    """get_copy_forward_plan + apply_copy_forward -- copy RATES from an OLD version into CURRENT
+    (version-view slice 2). Seeds a CURRENT v2 + an OLD v1 (priced) with a custom scalar role map
+    and crafted node differences to exercise ALL outcomes server-side: clean copy, conflict
+    (overwrite/keep), the THREE hard-skips (non_match / no_rate_column / non_priceable), the
+    rate-role column re-resolution (column drift), the crafted-client guard, and atomic rollback.
+    No amount columns -> the current version is trivially formula-complete. sheet_name #152."""
+
+    _SHEET_DT = "BoQ Sheet"
+    _CUR_MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+    }
+    _OLD_MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+        "E": {"role": "rate_supply", "area": None},
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Copy-Forward Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "CF Fix "  # VERBATIM trailing space (#152)
+
+        cls._seed_sheet(cls.boq, cls.sheet, 2, 1, cls._CUR_MAP, [
+            {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 11, "node_type": "Line Item", "description": "Item B EDITED", "qty": 5.0},
+            {"srn": 12, "node_type": "Preamble", "description": "Header", "qty": 0.0},
+            {"srn": 13, "node_type": "Line Item", "description": "Item D", "qty": 5.0},
+            {"srn": 15, "node_type": "Line Item", "description": "Item F", "qty": 5.0},
+        ])
+        cls._price(cls.boq, cls.sheet, 2, 13, "D", None, "combined_rate", 999.0)
+
+        cls._seed_sheet(cls.boq, cls.sheet, 1, 0, cls._OLD_MAP, [
+            {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+            {"srn": 12, "node_type": "Preamble", "description": "Header", "qty": 0.0},
+            {"srn": 13, "node_type": "Line Item", "description": "Item D", "qty": 5.0},
+            {"srn": 14, "node_type": "Line Item", "description": "Item E", "qty": 5.0},
+            {"srn": 15, "node_type": "Line Item", "description": "Item F", "qty": 5.0},
+        ])
+        cls._price(cls.boq, cls.sheet, 1, 10, "D", None, "combined_rate", 100.0)  # clean
+        cls._price(cls.boq, cls.sheet, 1, 11, "D", None, "combined_rate", 200.0)  # non_match desc
+        cls._price(cls.boq, cls.sheet, 1, 12, "D", None, "combined_rate", 300.0)  # non_priceable
+        cls._price(cls.boq, cls.sheet, 1, 13, "D", None, "combined_rate", 400.0)  # conflict
+        cls._price(cls.boq, cls.sheet, 1, 14, "D", None, "combined_rate", 500.0)  # non_match absent
+        cls._price(cls.boq, cls.sheet, 1, 15, "E", None, "supply_rate", 600.0)    # no_rate_column
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        self._price(self.boq, self.sheet, 2, 13, "D", None, "combined_rate", 999.0)
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    @staticmethod
+    def _seed_sheet(boq, sheet, version, is_current, role_map, nodes):
+        bs = frappe.new_doc("BoQ Sheet")
+        bs.boq = boq
+        bs.sheet_name = sheet  # VERBATIM (#152)
+        bs.sheet_order = 1
+        bs.treat_as = "data"
+        bs.header_row = 1
+        bs.header_row_count = 1
+        bs.column_role_map = role_map
+        bs.column_headers = {}
+        bs.area_dimensions = json.dumps([])
+        bs.commit_version = version
+        bs.is_current = is_current
+        bs.committed_at = frappe.utils.now()
+        bs.insert(ignore_permissions=True)
+        for i, n in enumerate(nodes):
+            nd = frappe.new_doc("BOQ Nodes")
+            nd.sheet = bs.name  # boq auto-fetched from sheet (mirrors the shared fixture)
+            nd.node_type = n["node_type"]
+            nd.row_class = "line_item" if n["node_type"] == "Line Item" else "preamble"
+            if n["node_type"] != "Line Item":
+                nd.level = 1  # the controller forbids `level` on Line Item nodes
+            nd.description = n["description"]
+            nd.source_row_number = n["srn"]
+            nd.sort_order = i
+            nd.qty = n.get("qty", 0.0)
+            nd.commit_version = version
+            nd.is_current = is_current
+            nd.committed_at = frappe.utils.now()
+            nd.insert(ignore_permissions=True)
+        return bs.name
+
+    @staticmethod
+    def _price(boq, sheet, version, excel_row, col_letter, area, rate_kind, rate):
+        d = frappe.new_doc(_PRICING)
+        d.boq = boq
+        d.sheet_name = sheet
+        d.excel_row = excel_row
+        d.col_letter = col_letter
+        d.committed_version = version
+        d.area = area
+        d.rate_kind = rate_kind
+        d.rate = rate
+        d.is_filled = 1
+        d.pricing_version = 1
+        d.is_current = 1
+        d.priced_at = frappe.utils.now()
+        d.insert(ignore_permissions=True)
+
+    def _plan_by_row(self):
+        plan = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=1)["plan"]
+        return {r["excel_row"]: r for r in plan}
+
+    def _current_cell(self, excel_row, col_letter):
+        return frappe.db.get_value(
+            _PRICING,
+            {"boq": self.boq, "sheet_name": self.sheet, "committed_version": 2,
+             "excel_row": excel_row, "col_letter": col_letter, "is_current": 1, "is_filled": 1},
+            "rate",
+        )
+
+    def test_plan_classifies_every_outcome(self):
+        by = self._plan_by_row()
+        self.assertEqual(by[10]["outcome"], 2, "match + dest empty -> clean")
+        self.assertEqual(by[10]["target_col_letter"], "D")
+        self.assertEqual(by[13]["outcome"], 3, "match + dest filled -> conflict")
+        self.assertEqual(by[13]["current_rate"], 999.0)
+        self.assertEqual(by[11]["outcome"], 1)
+        self.assertEqual(by[11]["skip_reason"], "non_match")
+        self.assertEqual(by[14]["skip_reason"], "non_match")
+        self.assertEqual(by[12]["skip_reason"], "non_priceable")
+        self.assertEqual(by[15]["skip_reason"], "no_rate_column")
+        for srn in (11, 12, 14, 15):
+            self.assertIsNone(by[srn]["target_col_letter"])
+
+    def test_plan_counts(self):
+        res = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=1)
+        self.assertEqual(res["counts"], {
+            "clean": 1, "conflict": 1, "non_match": 2, "no_rate_column": 1, "non_priceable": 1,
+        })
+        self.assertEqual(res["current_version"], 2)
+        self.assertTrue(res["current_formulas_complete"])
+
+    def test_apply_clean_copy(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 10, "area": None, "rate_kind": "combined_rate"}]),
+        )
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(self._current_cell(10, "D"), 100.0)
+
+    def test_apply_conflict_overwrite(self):
+        apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 13, "area": None, "rate_kind": "combined_rate",
+                                   "overwrite": True}]),
+        )
+        self.assertEqual(self._current_cell(13, "D"), 400.0)
+
+    def test_apply_conflict_keep(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 13, "area": None, "rate_kind": "combined_rate",
+                                   "overwrite": False}]),
+        )
+        self.assertEqual(res["conflicts_kept"], 1)
+        self.assertEqual(self._current_cell(13, "D"), 999.0)
+
+    def test_apply_never_writes_hard_skips(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([
+                {"excel_row": 11, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 12, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 14, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 15, "area": None, "rate_kind": "supply_rate", "overwrite": True},
+            ]),
+        )
+        self.assertEqual(res["copied"], 0)
+        self.assertEqual(res["skipped"]["non_match"], 2)
+        self.assertEqual(res["skipped"]["non_priceable"], 1)
+        self.assertEqual(res["skipped"]["no_rate_column"], 1)
+        for srn, col in ((11, "D"), (12, "D"), (14, "D"), (15, "E")):
+            self.assertIsNone(self._current_cell(srn, col))
+
+    def test_apply_invalid_decision_ignored(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 999, "area": None, "rate_kind": "combined_rate"}]),
+        )
+        self.assertEqual(res["skipped"]["invalid"], 1)
+        self.assertEqual(res["copied"], 0)
+
+    def test_apply_re_resolves_drifted_column(self):
+        sheet = "CF Drift "
+        self._seed_sheet(self.boq, sheet, 2, 1,
+                         {"B": {"role": "description", "area": None},
+                          "D": {"role": "unit", "area": None},
+                          "E": {"role": "rate_combined", "area": None}},
+                         [{"srn": 20, "node_type": "Line Item", "description": "Drift A", "qty": 5.0}])
+        self._seed_sheet(self.boq, sheet, 1, 0,
+                         {"B": {"role": "description", "area": None},
+                          "C": {"role": "unit", "area": None},
+                          "D": {"role": "rate_combined", "area": None}},
+                         [{"srn": 20, "node_type": "Line Item", "description": "Drift A", "qty": 5.0}])
+        self._price(self.boq, sheet, 1, 20, "D", None, "combined_rate", 777.0)
+        frappe.db.commit()
+        try:
+            by = {r["excel_row"]: r for r in
+                  get_copy_forward_plan(boq_name=self.boq, sheet_name=sheet, from_version=1)["plan"]}
+            self.assertEqual(by[20]["target_col_letter"], "E", "re-resolved to current's rate col E")
+            apply_copy_forward(
+                boq_name=self.boq, sheet_name=sheet, from_version=1,
+                decisions=json.dumps([{"excel_row": 20, "area": None, "rate_kind": "combined_rate"}]),
+            )
+            on_e = frappe.db.get_value(_PRICING, {"boq": self.boq, "sheet_name": sheet,
+                "committed_version": 2, "excel_row": 20, "col_letter": "E", "is_current": 1}, "rate")
+            on_d = frappe.db.get_value(_PRICING, {"boq": self.boq, "sheet_name": sheet,
+                "committed_version": 2, "excel_row": 20, "col_letter": "D", "is_current": 1}, "rate")
+            self.assertEqual(on_e, 777.0, "the rate landed on the CURRENT letter E (re-resolved)")
+            self.assertIsNone(on_d, "the rate did NOT land on the source bare letter D")
+        finally:
+            frappe.db.delete(_PRICING, {"boq": self.boq, "sheet_name": sheet})
+            sheet_names = frappe.get_all("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet}, pluck="name")
+            if sheet_names:
+                frappe.db.delete("BOQ Nodes", {"sheet": ["in", sheet_names]})
+            frappe.db.delete("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet})
+            frappe.db.commit()
+
+    def test_apply_rolls_back_on_mid_batch_failure(self):
+        from unittest import mock
+        calls = {"n": 0}
+        real = pricing._write_cell_price_record
+
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("boom mid-batch")
+            return real(*a, **k)
+
+        with mock.patch.object(pricing, "_write_cell_price_record", side_effect=flaky):
+            with self.assertRaises(RuntimeError):
+                apply_copy_forward(
+                    boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+                    decisions=json.dumps([
+                        {"excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+                        {"excel_row": 13, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                    ]),
+                )
+        self.assertIsNone(self._current_cell(10, "D"), "the first write rolled back")
+        self.assertEqual(self._current_cell(13, "D"), 999.0, "the conflict cell is unchanged")
+
+    def test_plan_missing_args_and_same_version_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet)
+        with self.assertRaises(frappe.ValidationError):
+            get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=2)

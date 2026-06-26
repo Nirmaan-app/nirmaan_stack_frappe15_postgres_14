@@ -36,6 +36,7 @@ import type {
   ColorSaveArgs,
   CommittedSheetGridResponse,
   DismissalSaveArgs,
+  ApplyCopyForwardResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
   GetSheetVersionsResponse,
@@ -48,6 +49,7 @@ import type {
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
+import { CopyForwardDialog } from "./CopyForwardDialog";
 import {
   PricingGrid,
   buildSearchHits,
@@ -161,6 +163,10 @@ const SheetPricingPage = () => {
   // number = an EARLIER committed version shown read-only with its OWN pricing. Reset on a sheet
   // switch (the [sheetName] effect below) so a new sheet always opens on its live version.
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  // Copy-forward (version-view slice 2): the review-before-apply dialog launched from history mode,
+  // and a transient summary line after a successful apply. Both reset on a sheet switch (below).
+  const [copyForwardOpen, setCopyForwardOpen] = useState(false);
+  const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
   // History mode iff an EARLIER version than the live one is selected.
@@ -365,6 +371,8 @@ const SheetPricingPage = () => {
     setTakenOver(false);
     setSummaryOpen(false);
     setSelectedVersion(null); // version-view: a new sheet always opens on its live version
+    setCopyForwardOpen(false); // copy-forward dialog is per-sheet
+    setCopyForwardMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
@@ -860,7 +868,47 @@ const SheetPricingPage = () => {
         selectedVersion={selectedVersion}
         onSelectVersion={(v) => setSelectedVersion(v === liveCommitVersion ? null : v)}
         isViewingHistory={isViewingHistory}
+        onCopyForward={() => setCopyForwardOpen(true)}
       />
+
+      {/* Copy-forward review-before-apply dialog (launched from read-only history mode). Writes the
+          selected source rates into the CURRENT version; on success it returns to the live version
+          and refetches so the copied rates show, with a transient summary line. */}
+      {isViewingHistory && selectedVersion !== null && (
+        <CopyForwardDialog
+          open={copyForwardOpen}
+          boqId={boqId ?? ""}
+          sheetName={sheetName}
+          fromVersion={selectedVersion}
+          onClose={() => setCopyForwardOpen(false)}
+          onApplied={(summary: ApplyCopyForwardResponse) => {
+            const skipped =
+              summary.skipped.non_match +
+              summary.skipped.no_rate_column +
+              summary.skipped.non_priceable +
+              summary.skipped.invalid;
+            setCopyForwardMsg(
+              `Copied ${summary.copied} rate${summary.copied === 1 ? "" : "s"}` +
+                (summary.conflicts_overwritten ? `, overwrote ${summary.conflicts_overwritten}` : "") +
+                (summary.conflicts_kept ? `, kept ${summary.conflicts_kept}` : "") +
+                (skipped ? `, skipped ${skipped}` : "") +
+                " into the current version.",
+            );
+            setSelectedVersion(null); // back to the live, editable version
+            void mutate(); // refetch the live rows so the copied rates appear
+          }}
+        />
+      )}
+
+      {copyForwardMsg && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{copyForwardMsg}</span>
+          <button type="button" onClick={() => setCopyForwardMsg(null)} aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
       <div className="flex items-start gap-3">
