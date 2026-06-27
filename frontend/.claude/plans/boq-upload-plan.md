@@ -10484,3 +10484,53 @@ vitest UNCHANGED at 384; `PricingGrid.test.ts` 131; tsc 3175 (0 new, 0 in touche
 **OWNER live-cert OWED:** Undo enables after a rate edit; undo -> Redo enables; a fresh edit disables Redo; Ctrl+Z/Shift+Z
 still work; button state correct after a sheet/version switch (the render-count win itself is not visually observable).
 
+### Autosave-lag fix #1(c): structural row-identity merge (only the edited row re-renders on a save)
+
+**STATUS: code complete, OWNER live-cert pending on all three canonical BoQs (145/150/166).** FRONTEND change
+(`SheetPricingPage.tsx`) + a NEW pure leaf (`rowMerge.ts`); a READ-ONLY backend verification (STEP 0) preceded it. NO backend
+edit, NO endpoint, NO migrate. The proven lag: the per-cell `await mutate()` full-sheet refetch hands EVERY row a new object
+reference -> the grid row memo (`prev.row === next.row`) fails for all ~200 rows -> full re-render every keystroke-commit. Fix
+**(c)** reuses the prior row OBJECT for any row a save did not change, so the memo holds and only the edited row re-renders.
+This is (c) (identity preserve), NOT (b) -- the refetch still happens + is still awaited; only its RESULT preserves identity.
+
+**STEP 0 -- CAPTURE-ONLY VERIFIED (the load-bearing invariant, turned into fact before any merge):**
+- `save_cell_price` -> `_write_cell_price_record` (`pricing.py:434`): writes ONLY the edited cell's pricing record (rate +
+  `is_filled` marker) + the same-row dismissal/recon re-arms (SEPARATE doctypes, returned message-level, not per-row); the
+  committed tier (nodes/grid) is NOT mutated; no parent/other-row write.
+- `get_priced_rows` -> `_merge_overlays` (`pricing.py:2088`): overlays onto the IMMUTABLE committed base ONLY these per-row
+  fields -- `rate_by_area`/`priced_by_area`, scalar `rate_supply|install|combined` + `priced_rate_*`, `remark`, `color_by_cell`.
+  Parent rollup AMOUNTS are NOT folded per-row (client-derived: `SummaryPanel`/`buildChildrenByParent` over the full rows).
+- VERDICT: a save changes only the edited row's returned overlay data; the committed base can't change within a (boq, sheet,
+  version) -> the structural predicate is justified AND the field-compare is a cheap extra guard. (Had it NOT held, S1 STOP.)
+
+**`rowMerge.ts` (NEW pure leaf, type-only imports; vitest `rowMerge.test.ts`, 14):**
+- `mergeRowsPreservingIdentity(prev, next)` -- key by `row_index` (stable identity, NOT array position); reuse the prior
+  object when present AND `rowOverlayEqual` holds (returns the SAME reference -- the load-bearing property); a new row_index
+  -> the new object; a removed one -> absent; empty prev/next -> `next` as-is. Returns a NEW array unless nothing reused.
+- `rowOverlayEqual(a, b)` -- compares the FULL overlay surface: `rate_by_area`/`priced_by_area`/`color_by_cell` (struct/JSON),
+  scalar `rate_*` + `priced_rate_*` (===), and `remark` (===). **remark + color_by_cell are INCLUDED** because
+  `save_row_remark`/`save_cell_color` ALSO `await mutate()` the same refetch -- omitting them would display a stale
+  remark/colour (STEP-0 rule: a field a save can change must be in the compare). The committed base is omitted (immutable).
+  **Keep this list in sync with `pricing.py _merge_overlays`.** The field-compare is the FALLBACK GUARD -- a row whose visible
+  content changed FAILS it and correctly re-renders even if STEP 0 missed a case.
+
+**`SheetPricingPage.tsx` (the merge at the rows transform):** `const rawRows = activeMessage?.rows ?? []` ->
+`const rows = mergeRowsPreservingIdentity(priorRowsForMerge, rawRows)`, with a `prevRowsRef` (last merged array) +
+`rowsSourceSigRef`. **SOURCE-SWITCH RESET:** `priorRowsForMerge = rowsSourceSigRef.current === rowsSourceSig ?
+prevRowsRef.current : []`, signature `v:<selectedVersion>` (history) vs `"current"` -- a different version's committed base is
+never reused. Refs read/written in render (the established `collapsedRef` pattern; no extra render). The merge returns a NEW
+array so the O(rows) page maps recompute (cheap) but reuses unchanged row OBJECTS (the memo win). On a non-fetch re-render
+(toggle / `historyState` flip) the same rawRows ref re-merges to the same element identities -> grid memo still holds.
+
+**Scope boundary kept:** ONLY `SheetPricingPage.tsx` edited (+ the new `rowMerge.ts`/test); `pricing.py` READ-ONLY;
+`PricingGrid.tsx`, the row memo, `handleSaveRate`/`mutate`/`commitRate`/await timing UNTOUCHED. **NOT fixed (out of scope):**
+the page-level O(rows) recomputes (`rowFlags`/`pricedCount`/`byRowIndex`/`displayRows`) still run each render -- a smaller,
+separate item. Tests: vitest 384 -> 398 (+14 `rowMerge.test.ts`: unchanged-row SAME-reference [the core property], changed
+rate -> new, changed remark -> new, changed color -> new, priced-marker flip -> new, new row_index -> new, removed -> absent,
+empty prev -> next, match-by-index-not-position); `PricingGrid.test.ts` 131; tsc 3175 (0 new, 0 in touched); in-container Vite
+build exit 0. **OWNER live-cert OWED (ALL THREE BoQs -- data render path):** (1) edit a rate on 150 (~200 rows) -> no
+full-grid flicker, only the edited cell updates; (2) the saved rate is CORRECT + persists (no stale value -- the hardest
+watch); (3) SummaryPanel/parent rollup still updates after the save; (4) priced-count updates; (5) per-area prefill still
+proposes into the other area's empty cell; (6) paste/fill a block -> all targets correct, no stale rows; (7) undo/redo
+correct; (8) sheet/version switch carries no stale rows (the source-switch reset).
+
