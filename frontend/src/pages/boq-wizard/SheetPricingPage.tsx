@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -291,6 +291,13 @@ const SheetPricingPage = () => {
   const [inFlight, setInFlight] = useState(0);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  // Slice B (undo/redo): the grid's session-history {canUndo, canRedo}, surfaced via onHistoryChange
+  // (the onDirtyChange pattern), driving the bottom-ribbon Undo/Redo buttons' disabled state. The
+  // grid remount on a sheet/version switch re-emits {false,false}; also reset below for immediacy.
+  const [historyState, setHistoryState] = useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
   // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
@@ -394,6 +401,7 @@ const SheetPricingPage = () => {
     setShowSubtotals(true);
     setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
     setFrozen(false); // Frozen-left Slice 1: freeze is per-sheet -- a tab switch starts unfrozen
+    setHistoryState({ canUndo: false, canRedo: false }); // Slice B: undo history is per-sheet/version (grid remounts)
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -1352,6 +1360,36 @@ const SheetPricingPage = () => {
             {collapsed.size === 0 ? "Collapse all" : "Expand all"}
           </Button>
 
+          {/* ── Slice B (undo/redo): session history for RATE edits. Two icon buttons mirroring the
+              collapse-all pattern, calling the grid via the imperative handle; disabled from the
+              grid's onHistoryChange-fed {canUndo, canRedo} AND when the sheet is locked/read-only
+              (the grid no-ops there anyway, so greying is honest). History clears on a sheet/version
+              switch (the grid remounts). Shortcuts: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y). ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={locked || !historyState.canUndo}
+            aria-label="Undo the last rate edit"
+            title="Undo (Ctrl+Z)"
+            onClick={() => gridRef.current?.undo()}
+          >
+            <Undo2 className="h-4 w-4" />
+            Undo
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={locked || !historyState.canRedo}
+            aria-label="Redo the last undone rate edit"
+            title="Redo (Ctrl+Shift+Z or Ctrl+Y)"
+            onClick={() => gridRef.current?.redo()}
+          >
+            <Redo2 className="h-4 w-4" />
+            Redo
+          </Button>
+
           {/* ── Toolbar Part 1: description search (input + N-of-M + prev/next cycle). Stepping
               jumps via the grid's existing scrollToRow; the current hit row is highlighted. ── */}
           <div className="flex items-center gap-1.5">
@@ -1779,6 +1817,9 @@ const SheetPricingPage = () => {
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
             onDirtyChange={setHasUnsaved}
+            // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
+            // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
+            onHistoryChange={setHistoryState}
             override={override}
             // MANDATORY amount-formula gate (per-sheet): when false the grid renders ALL rate
             // cells read-only (ANDed OUTSIDE the override -- override can't bypass it). Default

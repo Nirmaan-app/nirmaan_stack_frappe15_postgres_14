@@ -104,6 +104,18 @@ import {
   type ClipCell,
   type SelRect,
 } from "./clipboard";
+import {
+  canRedo,
+  canUndo,
+  emptyHistory,
+  invert,
+  popRedo,
+  popUndo,
+  pushEntry,
+  type HistoryEntry,
+  type HistoryState,
+  type RateDelta,
+} from "./undoHistory";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -1263,6 +1275,13 @@ interface PricingGridProps {
    */
   onDirtyChange?: (hasUnsaved: boolean) => void;
   /**
+   * Slice B (undo/redo): surfaces the session history's {canUndo, canRedo} UP to the page so the
+   * bottom-ribbon Undo/Redo buttons can render their disabled state reactively. Fired in an effect
+   * whenever the history stacks change -- the SAME grid->page reactive pattern as onDirtyChange
+   * (an imperative-handle method is not reactive). The undo/redo ACTIONS ride PricingGridHandle.
+   */
+  onHistoryChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
+  /**
    * Priceability override (Slice 3e, per-sheet per-session). Default false. When false, a
    * rate cell is editable ONLY on a priceable row (node_type Preamble / Line Item); a
    * non-priceable row ("Other") renders read-only. When TRUE, the override unlocks editing on
@@ -1397,6 +1416,10 @@ export interface PricingGridHandle {
   flush: () => void;
   /** Slice 4a: scroll a row into view by its Excel row number (the review-list jump). */
   scrollToRow: (excelRow: number) => void;
+  /** Slice B: undo the most recent rate gesture (no-op when nothing to undo / read-only). */
+  undo: () => void;
+  /** Slice B: redo the most recently undone rate gesture (no-op when nothing to redo / read-only). */
+  redo: () => void;
 }
 
 // ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
@@ -2238,7 +2261,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2272,6 +2295,19 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Slice A (clipboard): the INTERNAL clipboard (a ref -- no re-render needed; a per-instance ref
   // is cleared for free by the page's key={sheetName::version} remount, NEVER navigator.clipboard).
   const clipboardRef = useRef<ClipboardBlock | null>(null);
+  // Slice B (undo/redo): the session history (undo/redo stacks of rate-delta gestures). useState so
+  // canUndo/canRedo can drive the onHistoryChange effect; a synced ref lets the imperative undo()/
+  // redo() read the CURRENT stacks. Cleared for free by the page's key={sheetName::version} remount
+  // (undoing into a different sheet/version is incoherent). isReplayingRef guards the capture path
+  // from re-recording a replay's writes (a re-record loop).
+  const [history, setHistory] = useState<HistoryState>(emptyHistory);
+  const historyRef = useRef<HistoryState>(history);
+  historyRef.current = history;
+  const isReplayingRef = useRef(false);
+  // The imperative handle is built once (deps [jumpToRow]); these refs let it call the LATEST
+  // undo/redo closures (which close over the current rows/override) without rebuilding the handle.
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
   // Slice A (clipboard) context menu: the controlled right-click menu's open-state + cursor anchor
   // (x,y) + the enabled flags SNAPSHOT computed at open-time (so the non-reactive clipboardRef is
   // read fresh for Paste, not via a stale render-time prop). Transient interaction state -- NOT a
@@ -2432,7 +2468,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     committedAttemptRef.current[key] = rawValue;
     const num = parseFloat(rawValue);
     const rate = Number.isFinite(num) ? num : 0;
-    void onSaveRate(buildRateCell(row, d), rate)
+    // Slice B (undo/redo): the OLD numeric rate, captured BEFORE the write (past the
+    // rawValue===saved early-return, so a no-op never makes an entry). Recorded as a 1-delta
+    // gesture only on SUCCESS (.then), so a failed write -- which keeps the draft -- never enters
+    // history. Skipped when this commit is itself a replay (the re-record guard).
+    const oldNum = Number.isFinite(parseFloat(saved)) ? parseFloat(saved) : 0;
+    const cellArgs = buildRateCell(row, d);
+    void onSaveRate(cellArgs, rate)
       .then(() => {
         // Success: drop the optimistic draft so the cell shows the refetched saved rate.
         setDraftRates((prev) => {
@@ -2441,6 +2483,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           return next;
         });
         delete committedAttemptRef.current[key];
+        if (!isReplayingRef.current) {
+          setHistory((h) =>
+            pushEntry(h, { deltas: [{ cell: cellArgs, draftKey: key, oldRate: oldNum, newRate: rate }] }),
+          );
+        }
         // Phase-2 prefill: on a successful PER-AREA rate save, OFFER the same value as a
         // PROPOSED (display-only) rate in the corresponding rate column of the OTHER
         // area(s) for THIS row -- but only into EMPTY cells (not priced, no user draft).
@@ -2716,8 +2763,14 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // After the batch settles (its single mutate landed), drop the optimistic drafts so the cells fall
   // back to the refetched saved values (on a partial failure the dropped draft reverts to the prior
   // saved value -- honest, no fake atomicity). Remarks have no draft layer -> they rely on the mutate.
-  const runBatch = (writes: BatchWrite[], optimisticDrafts: Record<string, string>) => {
-    if (!onBatchWrite || writes.length === 0) return;
+  // Returns the batch promise (resolves to BatchOutcome) so a caller can read outcome.written --
+  // the LANDED count (handleBatchWrite applies sequentially + breaks on first failure, so the
+  // first `written` entries of `writes` are exactly the successes). undefined when read-only / empty.
+  const runBatch = (
+    writes: BatchWrite[],
+    optimisticDrafts: Record<string, string>,
+  ): Promise<BatchOutcome> | undefined => {
+    if (!onBatchWrite || writes.length === 0) return undefined;
     const draftKeys = Object.keys(optimisticDrafts);
     if (draftKeys.length > 0) {
       setDraftRates((prev) => ({ ...prev, ...optimisticDrafts }));
@@ -2732,7 +2785,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         return changed ? next : prev;
       });
     }
-    void onBatchWrite(writes).finally(() => {
+    return onBatchWrite(writes).finally(() => {
       if (draftKeys.length > 0) {
         setDraftRates((prev) => {
           const next = { ...prev };
@@ -2741,6 +2794,27 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         });
       }
     });
+  };
+
+  // Slice B (undo/redo): record a batch gesture's LANDED rate deltas as ONE history entry. `deltas`
+  // is aligned 1:1 with the `writes` array (null where a write was a remark -- not undoable);
+  // `written` is the outcome's landed count, so only deltas[i] for i < written (and non-null) are
+  // recorded. Skipped while replaying (the re-record guard) and when nothing landed.
+  const recordLandedBatch = (deltas: (RateDelta | null)[], written: number) => {
+    if (isReplayingRef.current) return;
+    const landed: RateDelta[] = [];
+    for (let i = 0; i < written && i < deltas.length; i++) {
+      const dlt = deltas[i];
+      if (dlt) landed.push(dlt);
+    }
+    if (landed.length > 0) setHistory((h) => pushEntry(h, { deltas: landed }));
+  };
+
+  // Slice B (undo/redo): a target cell's current SAVED rate as a number (the "old" for a delta) --
+  // mirrors commitRate's saved-value semantics (blank / non-number -> 0).
+  const savedRateNum = (row: PricedRow, d: ColumnDescriptor): number => {
+    const n = parseFloat(savedRateStr(row, d));
+    return Number.isFinite(n) ? n : 0;
   };
 
   const doCopy = () => {
@@ -2764,6 +2838,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       return;
     }
     const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
     const drafts: Record<string, string> = {};
     const skips: { r: number; c: number }[] = [];
     for (let i = 0; i < block.rows; i++) {
@@ -2779,11 +2854,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             kind: "remark",
             args: { excelRow: row.source_row_number, remark: "", description: row.description ?? undefined },
           });
+          deltas.push(null);
         } else {
           const d = descriptorAt(c);
           if (d && rateWritableAt(row, c)) {
-            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: 0 });
-            drafts[cellKey(row.row_index, d.col)] = "";
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate: 0 });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: 0 });
+            drafts[dk] = "";
           } else {
             skips.push({ r, c });
           }
@@ -2791,7 +2870,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       }
     }
     flashSkips(skips);
-    runBatch(writes, drafts);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
     showClipboardMsg(
       skips.length
         ? `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}; skipped ${skips.length} (not writable).`
@@ -2816,6 +2895,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       return;
     }
     const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
     const drafts: Record<string, string> = {};
     const skips: { r: number; c: number }[] = [];
     let crossKind = 0;
@@ -2839,6 +2919,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               kind: "remark",
               args: { excelRow: row.source_row_number, remark: clip.value, description: row.description ?? undefined },
             });
+            deltas.push(null);
           } else {
             const d = descriptorAt(c);
             if (!d) {
@@ -2846,8 +2927,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               continue;
             }
             const num = parseFloat(clip.value);
-            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: Number.isFinite(num) ? num : 0 });
-            drafts[cellKey(row.row_index, d.col)] = clip.value;
+            const rate = Number.isFinite(num) ? num : 0;
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
+            drafts[dk] = clip.value;
           }
         } else {
           skips.push({ r, c });
@@ -2857,7 +2942,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       }
     }
     flashSkips(skips);
-    runBatch(writes, drafts);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
     showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
   };
 
@@ -2869,6 +2954,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       return;
     }
     const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
     const drafts: Record<string, string> = {};
     const skips: { r: number; c: number }[] = [];
     let crossKind = 0;
@@ -2890,6 +2976,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               kind: "remark",
               args: { excelRow: row.source_row_number, remark: top.value, description: row.description ?? undefined },
             });
+            deltas.push(null);
           } else {
             const d = descriptorAt(c);
             if (!d) {
@@ -2897,8 +2984,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
               continue;
             }
             const num = parseFloat(top.value);
-            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: Number.isFinite(num) ? num : 0 });
-            drafts[cellKey(row.row_index, d.col)] = top.value;
+            const rate = Number.isFinite(num) ? num : 0;
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
+            drafts[dk] = top.value;
           }
         } else {
           skips.push({ r, c });
@@ -2908,9 +2999,65 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       }
     }
     flashSkips(skips);
-    runBatch(writes, drafts);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
     showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
   };
+
+  // ── Slice B: undo / redo -- replay rate gestures through the EXISTING save path ────
+  // A delta-based replay: build BatchWrite[] from the entry's deltas and fire the grid's OWN
+  // runBatch -> onBatchWrite (ONE trailing mutate, server-consistent). isReplayingRef stops the
+  // capture path from re-recording the replay. Per-delta the target is RE-GATED (a now non-priceable
+  // row / hidden-irrelevant) via isDeltaWritable, mirroring the clipboard skip posture -- a replay
+  // never forces a write past a gate. A locked / read-only sheet (no onBatchWrite) -> the whole
+  // undo/redo no-ops, exactly like paste.
+
+  // Is this delta's target still a writable rate cell NOW? Resolve the row by excel row + the
+  // descriptor by col over the FULL set (column-hide must NOT block an undo), then apply the SAME
+  // server-mirrored gate (rate descriptor + formulasComplete + isRateEditableRow).
+  const isDeltaWritable = (delta: RateDelta): boolean => {
+    const row = rows.find((r) => r.source_row_number === delta.cell.excelRow);
+    if (!row) return false;
+    const dd = displayDescriptors.find((x) => x.col === delta.cell.colLetter);
+    if (!dd || !isRateDescriptor(dd)) return false;
+    return formulasComplete && isRateEditableRow(row, override);
+  };
+
+  // Replay one entry: write each still-writable delta's newRate (undo passes invert(entry), so its
+  // newRate is the OLD value). No history capture (runBatch is the low-level path; isReplayingRef is
+  // the belt-and-suspenders guard). Skipped deltas are simply not written.
+  const replayEntry = (entry: HistoryEntry) => {
+    if (!onBatchWrite) return;
+    const live = entry.deltas.filter(isDeltaWritable);
+    if (live.length === 0) return;
+    isReplayingRef.current = true;
+    try {
+      const writes: BatchWrite[] = live.map((d) => ({ kind: "rate", cell: d.cell, rate: d.newRate }));
+      const drafts: Record<string, string> = {};
+      for (const d of live) drafts[d.draftKey] = String(d.newRate);
+      void runBatch(writes, drafts);
+    } finally {
+      isReplayingRef.current = false;
+    }
+  };
+
+  const undo = () => {
+    if (!onBatchWrite) return; // read-only / locked -> no-op
+    const r = popUndo(historyRef.current);
+    if (!r) return;
+    setHistory({ undo: r.state.undo, redo: [...r.state.redo, r.entry] }); // move undo -> redo
+    replayEntry(invert(r.entry)); // write the OLD rates
+  };
+  const redo = () => {
+    if (!onBatchWrite) return;
+    const r = popRedo(historyRef.current);
+    if (!r) return;
+    setHistory({ undo: [...r.state.undo, r.entry], redo: r.state.redo }); // move redo -> undo
+    replayEntry(r.entry); // write the NEW rates again
+  };
+  // Keep refs to the latest closures so the (stable) imperative handle always calls the fresh
+  // undo/redo (which close over the current rows/override/etc.) without rebuilding the handle.
+  undoRef.current = undo;
+  redoRef.current = redo;
 
   // ── Slice A: right-click CONTEXT MENU -- a SECOND trigger for the SAME doX fns ────
   // A pure alternate trigger: every item calls the EXISTING doCopy/doCut/doPaste/doFillDown, so a
@@ -3031,6 +3178,20 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         doFillDown();
         return;
       }
+      // Slice B (undo/redo): Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z = redo, Ctrl/Cmd+Y = redo
+      // (Windows). preventDefault so a mid-edit rate <input> does NOT also do native text-undo
+      // (keydown bubbles to the table; the input has no onKeyDown). e.shiftKey distinguishes redo.
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (k === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
     }
     // Slice 4a.2: Enter on the focused REMARKS cell OPENS its editor (not move-down) --
     // but only when editable (onSaveRemark present). A read-only remarks cell has nothing
@@ -3080,6 +3241,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     onDirtyChange?.(hasUnsaved);
   }, [hasUnsaved, onDirtyChange]);
 
+  // Slice B (undo/redo): surface {canUndo, canRedo} up to the page (drives the ribbon buttons'
+  // disabled state) -- the SAME grid->page reactive pattern as onDirtyChange.
+  useEffect(() => {
+    onHistoryChange?.({ canUndo: canUndo(history), canRedo: canRedo(history) });
+  }, [history, onHistoryChange]);
+
   // Phase-2 prefill cleanup: when the refetched data shows a cell is now priced, drop any
   // stale proposal for it (a proposal must never linger on a now-priced cell). Keyed on
   // `rows` (the refetch trigger). Proposals are display-only -- this commits nothing.
@@ -3124,6 +3291,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       // uses the same path) -- resolve Excel row -> array index, focus + center the row's col-0
       // cell; onFocus sets activeCell, giving a visible landing. Safe no-op if not rendered.
       scrollToRow: (excelRow) => jumpToRow(excelRow),
+      // Slice B (undo/redo): the ribbon buttons call these; they delegate to the LATEST closures
+      // via refs (synced each render), so the handle need not rebuild when rows/override change.
+      undo: () => undoRef.current(),
+      redo: () => redoRef.current(),
     }),
     [jumpToRow],
   );
