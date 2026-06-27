@@ -508,6 +508,23 @@ wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `
 `GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
 +3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Cluster B amendment -- DOC-0 default flip (`reconcile.ts` ONLY; frontend-only, NO migrate, 2026-06-27):** the D1 default
+gets ONE narrow exception. When the committed DOCUMENT amount is approximately ZERO (`amountsEqual(documentVal, 0)` -- the
+EXISTING shared epsilon, no new const) and the formula is a real number that diverges, the **FORMULA value wins SILENTLY** --
+no badge, not in the review strip, no chooser, no override. Rationale: we upload UNPRICED BoQs, so almost every amount cell
+is doc-0 -- a doc-0 amount is an absent/blank value, not a client-stated price, so the computed amount is the right thing to
+show + roll up. **Implementation is ONE line in the single resolver:** `resolveDivergence` returns the SAME `{ diverges:
+false }` a true non-divergence returns, placed BEFORE the choice branch -> every consumer already falls through to the
+formula value when not diverging (`pricingRollup.rowOwnAmount` -> `return formulaVal`; `PricingGrid` -> `shownAmount` stays
+`cell.value`; `priceability.buildDivergenceEntries` -> not listed), so grid display, totals, AND strip all flip identically
+with **ZERO per-consumer special-casing** (PricingGrid.tsx / pricingRollup.ts / priceability.ts UNCHANGED). Placed before the
+choice branch so the formula ALWAYS wins on doc-0 (no keep-document path for the zero case, even if a stale choice is
+stored). **NON-zero document divergences are UNCHANGED** (default document, badge, strip, chooser, overridable). The
+integrity guard stays balanced (both Option-1/Option-2 routes read the same resolved value via `ownByIdx`). **This MOVES
+TOTALS** (doc-0 divergent cells now roll up their formula value instead of 0) -- intended. Backend untouched (it only stores
+explicit choice tokens; "unset" is never persisted; export write-back is rates-only). vitest 341->349 (`reconcile` 12->19,
+`pricingRollup` 27->28), tsc 3175 (0 new), in-container build exit 0, 2026-06-27; see plan §"Cluster B amendment -- doc-0".
+
 **Toolbar Part 1 -- search + column-hide + 3 row-type filters (`SheetPricingPage.tsx` + `PricingGrid.tsx`; view-layer,
 owner-locked; full detail: plan §"Toolbar Part 1"):** the pricing-editor header now carries FIVE view-only controls
 (dropped into the existing `!isGridOnly` flex cluster; the toolbar LAYOUT rework is **Part 2, deferred until after Slice
@@ -673,7 +690,11 @@ state (applied only when re-frozen). SheetPricingPage NOT touched (row-resize st
 
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slice: Frozen-left Slice 2 of 2** (COMPLETES the arc) -- manual
+docs-hygiene cleanup (git holds it). **Latest frontend change: Cluster B DOC-0 default flip** (2026-06-27) -- when the
+committed document amount is ~0 (absent/blank on an unpriced BoQ) a divergent amount cell now uses the FORMULA value
+silently (no badge / strip / chooser); ONE line in `reconcile.ts` `resolveDivergence` (returns `{diverges:false}` so all
+three consumers fall through to the formula), non-zero divergences UNCHANGED, moves totals (intended), frontend-only; see the
+"Cluster B amendment -- DOC-0" paragraph above. **Prior frontend slice: Frozen-left Slice 2 of 2** (COMPLETES the arc) -- manual
 row-resize (drag a frozen row's bottom edge -> `clampRowHeight` floor 40px -> `manualRowHeights`, applied to both panes via
 stable memo-safe handlers), sticky manual heights surviving unfreeze (Option A: two maps, applied = manual ?? captured),
 column-resize-while-frozen AUTO re-measure of captured rows (flash-free layout-effect cycle, manual rows untouched -- the
