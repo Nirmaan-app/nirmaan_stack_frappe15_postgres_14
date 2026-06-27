@@ -1177,33 +1177,44 @@ const SheetPricingPage = () => {
               Moved here from before the action buttons in the two-ribbon reorg; behavior
               (the saveStatus / pricedCount reads) is byte-identical. */}
           <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs">
+          {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
+              status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
+              width -- otherwise the right-pinned status-group widens and the whole ml-auto button
+              cluster shifts left on every edit. overflow-hidden + a `truncate` text child + a
+              `title` keep an unexpectedly-long message on ONE line (clipped with an ellipsis, full
+              text on hover) so it still can't wrap or shove neighbours. Messaging itself unchanged. */}
+          <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
             {saveStatus === "saving" && (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Saving&hellip;
+              <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                <span className="truncate">Saving&hellip;</span>
               </span>
             )}
             {saveStatus === "saved" && lastSavedAt && (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                Saved as of {fmtSavedTime(lastSavedAt)}
+              <span
+                className="flex items-center gap-1.5 text-muted-foreground min-w-0"
+                title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
+              >
+                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
               </span>
             )}
             {saveStatus === "unsaved" && (
-              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-                Unsaved changes
+              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
+                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="truncate">Unsaved changes</span>
               </span>
             )}
             {saveStatus === "failed" && (
-              <span className="flex items-center gap-1.5 text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Save failed
+              <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Save failed</span>
               </span>
             )}
             {saveStatus === "idle" && (
-              <span className="text-muted-foreground">All changes saved</span>
+              <span className="text-muted-foreground truncate" title="All changes saved">
+                All changes saved
+              </span>
             )}
           </div>
           {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
