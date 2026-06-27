@@ -10534,3 +10534,24 @@ watch); (3) SummaryPanel/parent rollup still updates after the save; (4) priced-
 proposes into the other area's empty cell; (6) paste/fill a block -> all targets correct, no stale rows; (7) undo/redo
 correct; (8) sheet/version switch carries no stale rows (the source-switch reset).
 
+### Phase 5 polish: save-status reflow fix (pin the ribbon buttons)
+
+**STATUS: code complete, OWNER live-cert pending.** FRONTEND-ONLY, presentational, `SheetPricingPage.tsx` only -- CSS/className
++ a `title=` attr; NO logic / messaging / data-path change. After the row-identity merge stopped the GRID jitter, the only
+remaining annoyance was the top-ribbon save-status label swapping "Saving..." <-> "Saved as of HH:MM" (different widths) and
+SHOVING the action buttons every edit. STEP-0 layout recon found why: the status sits in a right-pinned status-group
+(`ml-auto`) inside the right-pinned `shrink-0` action-button cluster, so a wider status grew the cluster LEFTWARD and shifted
+the whole button row (Full screen / Lock / Freeze / Summary / Review / Price-any-row / Save now). FIX = give the status a
+constant footprint so the cluster width never changes.
+
+- **The change:** the save-status wrapper div is now `w-40 overflow-hidden` (w-40 = 160px, sized to the longest NORMAL string
+  "Saved as of HH:MM" + icon, with buffer). Each status `<span>` is `min-w-0` with its TEXT in a `truncate` child + a `title=`
+  (full text on hover); icons carry `shrink-0`. So normal strings render at a constant width (buttons pinned), and an
+  unexpectedly-long message (e.g. a future error) stays on ONE line, ellipsis-clipped, never wrapping (no ribbon-height
+  change) and never shoving neighbours.
+- **Scope kept:** `deriveSaveStatus`, the status strings, the timing, and `inFlight`/`lastSavedAt` are UNCHANGED; the grid,
+  row memo, merge, save path, and undo/redo are untouched. Tests: presentational, NO new pure logic -> vitest UNCHANGED at
+  398; `PricingGrid.test.ts` 131; tsc 3175 (0 new, 0 in touched); in-container Vite build exit 0. **OWNER live-cert OWED:**
+  rapid edits -> the Undo/Redo + ribbon buttons do NOT move on the Saving<->Saved swap; the status is fully readable in both
+  states; a long/error message clips with full text on hover and still does not move the buttons; the messaging is unchanged.
+
