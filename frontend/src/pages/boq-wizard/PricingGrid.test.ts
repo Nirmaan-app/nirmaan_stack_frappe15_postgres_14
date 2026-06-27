@@ -37,6 +37,7 @@ import {
   seedWidthPx,
   columnWidthKey,
   clampColumnWidth,
+  clampRowHeight,
 } from "./PricingGrid";
 import type {
   AmountFormulaNode,
@@ -615,6 +616,21 @@ describe("column width model (frozen-left + resize bundle)", () => {
       expect(clampColumnWidth(200, true)).toBe(200);
       expect(clampColumnWidth(200, false)).toBe(200);
       expect(clampColumnWidth(150.6, false)).toBe(151);
+    });
+  });
+
+  describe("clampRowHeight (manual row-resize floor, Slice 2)", () => {
+    it("clamps UP to the 40px floor when dragged below", () => {
+      expect(clampRowHeight(10)).toBe(40);
+      expect(clampRowHeight(39)).toBe(40);
+      expect(clampRowHeight(0)).toBe(40);
+      expect(clampRowHeight(-50)).toBe(40); // a drag past the top can't invert the height
+    });
+    it("a height at/above the floor passes through (rounded)", () => {
+      expect(clampRowHeight(40)).toBe(40);
+      expect(clampRowHeight(120)).toBe(120);
+      expect(clampRowHeight(80.4)).toBe(80);
+      expect(clampRowHeight(80.6)).toBe(81);
     });
   });
 });

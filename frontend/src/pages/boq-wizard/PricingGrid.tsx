@@ -220,6 +220,12 @@ export function isJumpFlashRow(
 // anchor LEFT offsets derive from the SAME live widths, so a frozen-column resize stays aligned.
 const COL_MIN_PX = 48; // small floor for any column
 const RATE_COL_MIN_PX = 96; // rate columns: the w-20 (80px) input + dot + padding -- a drag must not clip it
+// Frozen-left Slice 2 -- manual row-resize floor (px). A row can't be dragged below this. Set
+// ABOVE the tallest irreducible single-line cell across BOTH panes (the scrolling pane's rate
+// input is h-7=28px + py-1=8px ~= 36px) so a dragged-short row can actually REACH the target in
+// the scrolling pane too -- otherwise the scrolling row would stay tall (content min) while the
+// frozen pane clipped shorter, drifting the two panes out of alignment.
+const ROW_MIN_PX = 40;
 const ANCHOR_WIDTH_KEYS = ["a0", "a1", "a2", "a3", "a4"] as const; // Excel Row / Sl.No / Parent / Classification / Description
 const REMARKS_WIDTH_KEY = "remarks";
 
@@ -266,6 +272,13 @@ export function seedForWidthKey(key: string): number {
  *  width (D7); every other column gets a small floor. A width above the floor passes through. */
 export function clampColumnWidth(width: number, isRate: boolean): number {
   return Math.max(isRate ? RATE_COL_MIN_PX : COL_MIN_PX, Math.round(width));
+}
+
+/** Frozen-left Slice 2: clamp a dragged ROW height UP to ROW_MIN_PX (a row can't be dragged to
+ *  0 / shorter than one usable line). A height above the floor passes through (rounded). Pure --
+ *  unit-tested, mirrors clampColumnWidth. */
+export function clampRowHeight(height: number): number {
+  return Math.max(ROW_MIN_PX, Math.round(height));
 }
 
 /** The three row-TYPE visibility toggles (default all true). */
@@ -1567,6 +1580,13 @@ interface PricingGridRowProps {
   /** Parent click-to-jump: scroll the grid to a row by its Excel row number. Reference-stable
    *  (a grid-level useCallback) -> memo-safe; still listed in pricingRowPropsAreEqual below. */
   onJumpToRow: (excelRow: number) => void;
+  /** Frozen-left Slice 2 -- manual row-resize. The FROZEN pane row renders a bottom-edge drag
+   *  handle (only when pane==="frozen") wired to these three STABLE (useCallback) handlers --
+   *  reference-stable so the row memo holds (mirrors registerCell/focusCell). pointerDown captures
+   *  (row_index, startHeight); move writes the dragged height into manualRowHeights; up releases. */
+  onRowResizePointerDown: (rowIndexData: number, startHeight: number, e: ReactPointerEvent) => void;
+  onRowResizePointerMove: (e: ReactPointerEvent) => void;
+  onRowResizePointerUp: (e: ReactPointerEvent) => void;
 }
 
 /**
@@ -1617,7 +1637,10 @@ export function pricingRowPropsAreEqual(
     prev.setDraftRates === next.setDraftRates &&
     prev.setProposedRates === next.setProposedRates &&
     prev.setOpenRemark === next.setOpenRemark &&
-    prev.onJumpToRow === next.onJumpToRow
+    prev.onJumpToRow === next.onJumpToRow &&
+    prev.onRowResizePointerDown === next.onRowResizePointerDown &&
+    prev.onRowResizePointerMove === next.onRowResizePointerMove &&
+    prev.onRowResizePointerUp === next.onRowResizePointerUp
   );
 }
 
@@ -1665,6 +1688,9 @@ const PricingGridRow = memo(function PricingGridRow({
   setProposedRates,
   setOpenRemark,
   onJumpToRow,
+  onRowResizePointerDown,
+  onRowResizePointerMove,
+  onRowResizePointerUp,
 }: PricingGridRowProps) {
   const isPreamble = row.effective_classification === "preamble";
   const isLineItem = row.effective_classification === "line_item";
@@ -1744,7 +1770,7 @@ const PricingGridRow = memo(function PricingGridRow({
         data-colkey="a0"
         title={hasFlag ? flagTitle : undefined}
         className={cn(
-          "px-2 py-1.5 text-muted-foreground align-top border-r border-border tabular-nums",
+          "relative px-2 py-1.5 text-muted-foreground align-top border-r border-border tabular-nums",
           flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
           flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
           cellNavClass(0),
@@ -1764,6 +1790,23 @@ const PricingGridRow = memo(function PricingGridRow({
           )}
           {row.source_row_number}
         </span>
+        {/* Frozen-left Slice 2 -- manual row-resize handle: a thin strip at the row's BOTTOM edge,
+            on the Excel-row gutter (the spreadsheet row-resize idiom), in the FROZEN pane only.
+            The td is `relative`; the handle is absolutely positioned at its bottom. Dragging writes
+            the new height into manualRowHeights (applied to BOTH panes). The handlers are STABLE
+            grid callbacks (memo-safe). rowHeight is the row's current applied height (the drag
+            start point). */}
+        {pane === "frozen" && rowHeight != null && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            title="Drag to resize row height"
+            onPointerDown={(e) => onRowResizePointerDown(row.row_index, rowHeight, e)}
+            onPointerMove={onRowResizePointerMove}
+            onPointerUp={onRowResizePointerUp}
+            className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-row-resize touch-none select-none hover:bg-blue-400/50"
+          />
+        )}
       </td>
       {/* Sl.No (col 1). */}
       <td
@@ -2182,6 +2225,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // scroll coupling (the scrolling pane drives; the frozen pane mirrors its scrollTop). splitRef
   // mirrors the render-time `split` so the stable focus/jump callbacks can read it at event time.
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
+  // Frozen-left Slice 2 -- manual row-resize (Option A, owner-locked). MANUALLY-dragged heights
+  // live in a SEPARATE map (keyed by row.row_index). The two maps are distinct so the origin of a
+  // height is unambiguous: the APPLIED height for a row = manualRowHeights[ri] ?? rowHeights[ri]
+  // (manual wins). manualRowHeights SURVIVES unfreeze (only the captured `rowHeights` is cleared),
+  // so a re-freeze keeps the user's dragged rows and re-measures only the rest; a column-resize
+  // re-measure (below) refreshes captured rows WITHOUT touching manual. BOTH reset on the
+  // sheet/version remount (key={sheetName::version}) -- session+sheet scoped, no backend persist.
+  const [manualRowHeights, setManualRowHeights] = useState<Record<number, number>>({});
+  const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(false);
@@ -2587,27 +2639,38 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // cell, and writes them -> the next (synchronous, pre-paint) render commits the split with
   // heights applied, so the user never sees an unmeasured split frame. Unfreeze clears the map
   // (rows return to natural auto-height). The grid remounts on sheet/version switch, so the map
-  // resets to {} there for free -- no manual invalidation needed. KNOWN LIMITATION (deferred to
-  // Slice 2 with manual row-resize): a COLUMN resize (or double-click autofit) WHILE frozen
-  // re-wraps the Description and changes natural heights, but the captured map is not refreshed --
-  // the heights can go stale until unfreeze/re-freeze.
+  // resets to {} there for free -- no manual invalidation needed. Slice 2 closed the former
+  // column-resize-while-frozen staleness limitation: a column resize / autofit clears the CAPTURED
+  // map (endResize / autofitColumn below) so this effect re-reads true natural heights for the
+  // non-manual rows -- MANUAL rows (manualRowHeights) are never re-measured here, so a column
+  // resize cannot clobber a user's dragged height (Option A).
   useLayoutEffect(() => {
     if (!frozen) {
+      // Unfreeze: clear ONLY the auto-CAPTURED heights; PRESERVE manualRowHeights so a re-freeze
+      // keeps the user's dragged rows (Option A). Functional no-op when already empty (no loop).
       setRowHeights((prev) => (Object.keys(prev).length ? {} : prev));
       return;
     }
-    // Re-measure only while NOT every current row is measured (the pre-split single-table state).
-    // Once all are measured the split is committed and there is nothing to do. A `rows` change
-    // under freeze drops an unmeasured row -> `split` goes false -> the single table re-renders ->
-    // this measures the true natural heights again for the new row set.
-    if (rows.length > 0 && rows.every((r) => rowHeights[r.row_index] != null)) return;
+    // Applied height = manual (wins) else captured. Measure only rows that have NEITHER yet -- so a
+    // manual row is never re-measured (its dragged height is authoritative) and an already-captured
+    // row is left alone. A `rows` change under freeze, OR a column-resize clearing `rowHeights` (the
+    // re-measure path), drops an applied height -> `split` goes false -> the single table re-renders
+    // at NATURAL height -> this reads the true (re-wrapped) natural height here, flash-free
+    // (post-layout / pre-paint, same as the freeze measure).
+    if (
+      rows.length > 0 &&
+      rows.every((r) => (manualRowHeights[r.row_index] ?? rowHeights[r.row_index]) != null)
+    )
+      return;
     const next: Record<number, number> = { ...rowHeights };
     for (let i = 0; i < rows.length; i++) {
+      const ri = rows[i].row_index;
+      if (manualRowHeights[ri] != null || rowHeights[ri] != null) continue; // already has an applied height
       const tr = cellRefs.current.get(navKey(i, 0))?.closest("tr");
-      if (tr) next[rows[i].row_index] = Math.ceil(tr.getBoundingClientRect().height);
+      if (tr) next[ri] = Math.ceil(tr.getBoundingClientRect().height);
     }
     setRowHeights(next);
-  }, [frozen, rows, rowHeights]);
+  }, [frozen, rows, rowHeights, manualRowHeights]);
 
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
   const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
@@ -2625,7 +2688,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // render where freeze just turned on, or where `rows` changed under freeze -- we render the
   // SINGLE table so the effect can read true natural heights. splitRef mirrors it for the
   // event-time scroll retarget in focusCell / jumpToRow (they read a ref, not this render var).
-  const split = frozen && rows.length > 0 && rows.every((r) => rowHeights[r.row_index] != null);
+  // Frozen-left Slice 2: the APPLIED height for a row = manual (wins) else captured. The split
+  // commits only when every row has one; the same value is passed to both panes (-> aligned).
+  const appliedRowHeight = (ri: number): number | undefined => manualRowHeights[ri] ?? rowHeights[ri];
+  const split = frozen && rows.length > 0 && rows.every((r) => appliedRowHeight(r.row_index) != null);
   splitRef.current = split;
   // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
@@ -2651,6 +2717,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     if (!resizeRef.current) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     resizeRef.current = null;
+    // Frozen-left Slice 2 -- column-resize re-measure: a column drag may have re-wrapped the
+    // Description, so the CAPTURED heights are now stale. Clearing them (manual heights live in a
+    // separate map, untouched) drops `split` to false for one render -> the single table re-renders
+    // at natural height with the NEW column widths -> the measure layout-effect re-reads the true
+    // natural heights -> split re-commits. All within a layout-effect cycle (pre-paint) -> no flash.
+    if (splitRef.current) setRowHeights({});
   };
   // Double-click autofit (D6): measure the column's natural content width. Under table-fixed the
   // colgroup clamps a cell's CLIENT width, but scrollWidth still reports the full content extent
@@ -2667,7 +2739,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       if (el.scrollWidth > max) max = el.scrollWidth;
       el.style.whiteSpace = prevWS;
     });
-    if (max > 0) setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
+    if (max > 0) {
+      setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
+      // Slice 2: autofit can re-wrap the Description -> re-measure captured rows (see endResize).
+      if (splitRef.current) setRowHeights({});
+    }
   };
   // The right-edge drag affordance rendered inside each header <th> (headers carry no other
   // handlers today). Edge-only (w-1.5, right-0) so on an amount <th> it never overlaps / steals
@@ -2684,6 +2760,31 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-blue-400/50"
     />
   );
+
+  // Frozen-left Slice 2 -- manual row-resize handlers. STABLE (useCallback []) so the memoized row
+  // holds (they only read refs / setters). Mirror the column-resize pointer-capture pattern but on
+  // the Y axis, writing the dragged height into manualRowHeights (the Option-A source of truth that
+  // survives unfreeze). The drag start height is the row's CURRENT applied height (passed in).
+  const onRowResizePointerDown = useCallback(
+    (rowIndexData: number, startHeight: number, e: ReactPointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      rowResizeRef.current = { rowIndex: rowIndexData, startY: e.clientY, startHeight };
+    },
+    [],
+  );
+  const onRowResizePointerMove = useCallback((e: ReactPointerEvent) => {
+    const st = rowResizeRef.current;
+    if (!st) return;
+    const next = clampRowHeight(st.startHeight + (e.clientY - st.startY));
+    setManualRowHeights((prev) => (prev[st.rowIndex] === next ? prev : { ...prev, [st.rowIndex]: next }));
+  }, []);
+  const onRowResizePointerUp = useCallback((e: ReactPointerEvent) => {
+    if (!rowResizeRef.current) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    rowResizeRef.current = null;
+  }, []);
 
   if (rows.length === 0) {
     return (
@@ -2823,7 +2924,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       row={row}
       rowIndex={rowIdx}
       pane={pane}
-      rowHeight={split ? rowHeights[row.row_index] : undefined}
+      rowHeight={split ? appliedRowHeight(row.row_index) : undefined}
       depth={depths.get(row.row_index) ?? 0}
       parentExcelRow={parentExcelRowOf(row, byIdx)}
       flags={rowFlags?.get(row.row_index)}
@@ -2856,6 +2957,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       setProposedRates={setProposedRates}
       setOpenRemark={setOpenRemark}
       onJumpToRow={jumpToRow}
+      onRowResizePointerDown={onRowResizePointerDown}
+      onRowResizePointerMove={onRowResizePointerMove}
+      onRowResizePointerUp={onRowResizePointerUp}
     />
   );
 
@@ -2874,11 +2978,15 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           <div className={cn("flex", expanded ? "flex-1 min-h-0" : "")}>
             {/* FROZEN pane: the 5 anchors only. overflow-x hidden (no horizontal scroll); its
                 vertical scroll is DRIVEN by the scrolling pane (overflow-hidden still accepts a
-                programmatic scrollTop). Width = the anchors' summed colWidths. */}
+                programmatic scrollTop). Width = the anchors' summed colWidths.
+                Slice 2 PART 1 -- freeze-boundary border: the table's own right-edge (Description
+                border-r) is CLIPPED away by this pane's overflow-hidden, so the boundary looked
+                invisible once split. Draw it ONCE on the container border-box instead (border-r) --
+                not clipped, no double-up (the clipped cell border can't show), one crisp line. */}
             <div
               ref={frozenPaneRef}
               className={cn(
-                "overflow-hidden shrink-0",
+                "overflow-hidden shrink-0 border-r border-border",
                 expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
               )}
               style={{ width: `${anchorPaneWidth}px` }}
