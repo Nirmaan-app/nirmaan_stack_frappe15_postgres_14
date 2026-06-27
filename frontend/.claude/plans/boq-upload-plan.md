@@ -10416,3 +10416,54 @@ cell -> menu at cursor; inside-selection preserves / outside collapses; Paste gr
 greyed on a locked sheet (Copy enabled); a menu action === its shortcut; Esc + click-away close; works in the frozen +
 scrolling panes (portal, no clip).
 
+---
+
+## Phase 5 Pricing Editor -- Slice B: undo / redo for rate edits
+
+**STATUS: code complete, OWNER live-cert pending.** FRONTEND-ONLY. SESSION-ONLY, delta-based undo/redo for RATE edits, the
+second half of the clipboard+undo arc. **At Slice B the editor module is functionally complete; next = the rate-helper arc
+(pricing engine -> other-BoQ rates -> material/PO/margin).** NO backend, NO endpoint, NO migrate, NO doctype. **SCOPE: RATE
+writes only** -- remark / colour / reconciliation-choice / lock-unlock / version-switch are NOT undoable; a mixed paste records
+only its rate deltas. In-memory, NO persistence; history clears for free on the `key={sheetName::version}` remount.
+
+**NEW pure leaf `undoHistory.ts`** (mirrors clipboard.ts -- type-only imports). Exports + vitest (`undoHistory.test.ts`, 16):
+- `emptyHistory()`; `pushEntry(state, entry, max=HISTORY_MAX=50)` -- ring buffer (drops OLDEST past max), CLEARS redo on a new
+  push, no-op on an empty-delta gesture; `popUndo`/`popRedo` -- return `{entry, state}` (reduced stack, other stack untouched)
+  or null, non-mutating; `canUndo`/`canRedo`; `invert(entry)` -- swap old<->new, returns a NEW entry (round-trips).
+- Types: `RateDelta {cell:RateCellSaveArgs, draftKey, oldRate, newRate}` / `HistoryEntry {deltas}` / `HistoryState {undo,redo}`.
+- **ONE-GESTURE-ONE-ENTRY** invariant: an 80-row fill-down = ONE undo entry.
+
+**`PricingGrid.tsx`:**
+- **Capture (alongside the existing funnels, no new save logic):** SINGLE-CELL at `commitRate` -- `oldNum` captured BEFORE the
+  write (past the `rawValue===saved` early-return), pushed as a 1-delta entry only in the `.then` SUCCESS (a failed write never
+  enters history). BATCH at the `doCut`/`doPaste`/`doFillDown` build sites -- a parallel `deltas:(RateDelta|null)[]` aligned 1:1
+  with `writes` (null = remark), `oldRate=savedRateNum(targetRow,d)` in hand at the push (**no `BatchWrite` type change** -- the
+  lower-churn recon path). **LANDED-ONLY:** `runBatch` now RETURNS the batch promise; callers read `outcome.written` and
+  `recordLandedBatch(deltas, written)` keeps only `deltas[i]` for `i<written` (sequential apply + break => first-N are the
+  successes; **`BatchOutcome.written` already IS the landed count -- no extension needed**, S2 not hit).
+- **Replay (through the existing save path):** `undo()` pops top-undo, cross-pushes onto redo, replays `invert(entry)` (writes
+  OLD rates); `redo()` pops redo, cross-pushes onto undo, replays the entry (NEW rates). Replay builds `BatchWrite[]` and fires
+  the grid's OWN `runBatch -> onBatchWrite` (ONE trailing mutate). `isReplayingRef` guards the capture path from re-recording a
+  replay (S5 -- the re-record loop). Each delta RE-GATED via `isDeltaWritable` (row present + rate descriptor + formulasComplete
+  + isRateEditableRow, over the FULL descriptor set so column-hide never blocks an undo); a now-non-priceable delta is SKIPPED.
+  A locked / read-only sheet (`onBatchWrite` withheld) -> undo/redo NO-OP (like paste).
+- **Keyboard:** in the `~3012` Ctrl/Cmd block -- `Ctrl/Cmd+Z` undo, `Ctrl/Cmd+Shift+Z` redo, `Ctrl/Cmd+Y` redo (reads
+  `e.shiftKey`), each `preventDefault` so a mid-edit `<input>` does NOT native-text-undo. `nextCell`/nav/the doX bodies are
+  otherwise UNCHANGED.
+- **Plumbing:** `history` grid-`useState` (+ synced `historyRef` for the imperative reads) -> cleared on the remount; `undo`/
+  `redo` added to `PricingGridHandle` + `useImperativeHandle` (delegating to `undoRef`/`redoRef` synced each render, so the
+  handle does not rebuild); NEW `onHistoryChange?({canUndo,canRedo})` prop fired in an effect on the history change (the
+  `onDirtyChange` precedent). **NO new per-row memo prop** (no per-row undo highlight this slice).
+
+**`SheetPricingPage.tsx`:** `historyState` `useState` fed by `onHistoryChange`; reset in the `[sheetName]` per-sheet effect.
+Two `size="sm"` `Undo2`/`Redo2` icon buttons in the `{!isGridOnly}` bottom ribbon (mirror collapse-all), `disabled={locked ||
+!canUndo/!canRedo}`, calling `gridRef.current.undo()/redo()`; titles teach the shortcuts.
+
+**Tests / build:** vitest 368 -> 384 (+16 NEW `undoHistory.test.ts`: pushEntry ring-cap@50 + oldest-drop + custom-max +
+redo-clear-on-push + empty-no-op; popUndo/popRedo + null-on-empty + non-mutating; canUndo/canRedo; invert swap/immutability/
+round-trip; the push->undo->redo composition); `PricingGrid.test.ts` unchanged at 131; tsc 3175 (0 new, 0 in touched files);
+in-container Vite build exit 0. ALL run IN-CONTAINER. **OWNER live-cert OWED:** type a rate -> Ctrl+Z reverts / Ctrl+Shift+Z
+reapplies; paste/fill 80 cells -> ONE undo reverts all; cut -> undo restores; >50 gestures drops the oldest; a fresh edit
+clears redo; locked sheet -> buttons greyed + shortcuts no-op; sheet/version switch wipes history; a replay onto a
+now-non-priceable row skips that delta; an N-cell undo fires ONE network refetch (the batch's single trailing mutate).
+
