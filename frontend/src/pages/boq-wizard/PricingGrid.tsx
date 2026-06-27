@@ -2304,6 +2304,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   const historyRef = useRef<HistoryState>(history);
   historyRef.current = history;
   const isReplayingRef = useRef(false);
+  // Flip-gate for onHistoryChange: the last {canUndo, canRedo} emitted to the page, so the effect
+  // fires only when a boolean actually changes (init {false,false} = the page default + empty start).
+  const prevHistoryFlagsRef = useRef<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
   // The imperative handle is built once (deps [jumpToRow]); these refs let it call the LATEST
   // undo/redo closures (which close over the current rows/override) without rebuilding the handle.
   const undoRef = useRef<() => void>(() => {});
@@ -3242,9 +3248,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   }, [hasUnsaved, onDirtyChange]);
 
   // Slice B (undo/redo): surface {canUndo, canRedo} up to the page (drives the ribbon buttons'
-  // disabled state) -- the SAME grid->page reactive pattern as onDirtyChange.
+  // disabled state) -- the SAME grid->page reactive pattern as onDirtyChange. FLIP-GATED (perf):
+  // `history` gets a NEW object on every edit, so an un-gated effect fired a fresh literal each
+  // keystroke-commit -> a redundant page render even when canUndo/canRedo were unchanged. We emit
+  // ONLY when EITHER boolean actually flips (tracked in a ref, init {false,false} -- matching the
+  // page default + the empty-history start, so observable button state is identical).
   useEffect(() => {
-    onHistoryChange?.({ canUndo: canUndo(history), canRedo: canRedo(history) });
+    const next = { canUndo: canUndo(history), canRedo: canRedo(history) };
+    const prev = prevHistoryFlagsRef.current;
+    if (next.canUndo !== prev.canUndo || next.canRedo !== prev.canRedo) {
+      prevHistoryFlagsRef.current = next;
+      onHistoryChange?.(next);
+    }
   }, [history, onHistoryChange]);
 
   // Phase-2 prefill cleanup: when the refetched data shows a cell is now priced, drop any
