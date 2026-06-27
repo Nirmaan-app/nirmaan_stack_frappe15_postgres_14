@@ -68,6 +68,14 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ClassificationPill,
   computeDepths,
   renderDescriptorCell,
@@ -1812,6 +1820,11 @@ const PricingGridRow = memo(function PricingGridRow({
       // SCROLLING pane's <tr> so the vertical-scroll retarget can find a row's counterpart.
       style={rowHeight != null ? { height: `${rowHeight}px` } : undefined}
       data-rowidx={pane === "scrolling" ? rowIndex : undefined}
+      // Slice A (clipboard) context menu: the row's ARRAY index, on EVERY pane's <tr>, so the
+      // grid-level onContextMenu can resolve which row was right-clicked (the column comes from
+      // the cell's existing data-colkey). Distinct from data-rowidx (scrolling-pane-only, used by
+      // the vertical-scroll retarget) so neither steps on the other.
+      data-navr={rowIndex}
     >
       {/* Frozen-left Slice 1: anchors render in the single table (pane undefined) and the FROZEN
           pane; the data group (descriptors + Remarks) renders in the single table and the
@@ -2259,6 +2272,19 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Slice A (clipboard): the INTERNAL clipboard (a ref -- no re-render needed; a per-instance ref
   // is cleared for free by the page's key={sheetName::version} remount, NEVER navigator.clipboard).
   const clipboardRef = useRef<ClipboardBlock | null>(null);
+  // Slice A (clipboard) context menu: the controlled right-click menu's open-state + cursor anchor
+  // (x,y) + the enabled flags SNAPSHOT computed at open-time (so the non-reactive clipboardRef is
+  // read fresh for Paste, not via a stale render-time prop). Transient interaction state -- NOT a
+  // lifted "hasClipboard" store; it exists only while the menu is open.
+  const [menu, setMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    canCopy: boolean;
+    canCut: boolean;
+    canPaste: boolean;
+    canFill: boolean;
+  }>({ open: false, x: 0, y: 0, canCopy: false, canCut: false, canPaste: false, canFill: false });
   // Slice A (clipboard): a transient per-row map (array rowIdx -> CSV of skipped colIndices) for the
   // amber paste/fill skip flash, self-clearing after a few seconds; plus a short status message for
   // the paste summary / shape-mismatch reject. Both surface the copy-forward partial-outcome posture.
@@ -2886,6 +2912,79 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
   };
 
+  // ── Slice A: right-click CONTEXT MENU -- a SECOND trigger for the SAME doX fns ────
+  // A pure alternate trigger: every item calls the EXISTING doCopy/doCut/doPaste/doFillDown, so a
+  // menu action is byte-for-byte a keyboard action (same selection semantics, status strip, skip
+  // flash). The menu is GRID-LEVEL (the onContextMenu is on the 3 <table>s, like onTableMouseDown
+  // -- no per-row prop, memo untouched). It reuses the house DropdownMenu (no new dep) as a
+  // CONTROLLED menu anchored to a 0-size cursor-positioned trigger; DropdownMenuContent portals to
+  // <body>, so it is never clipped by a pane's overflow + gets Esc / click-away / focus for free.
+
+  // Resolve a clicked cell's grid colIndex from its EXISTING data-colkey (every cell carries one:
+  // a0..a4 anchors / "d:<col>" descriptors / "remarks"). No new per-cell attribute needed.
+  const colIndexFromColKey = (colkey: string | undefined): number | null => {
+    if (!colkey) return null;
+    const anchor = ANCHOR_WIDTH_KEYS.indexOf(colkey as (typeof ANCHOR_WIDTH_KEYS)[number]);
+    if (anchor >= 0) return anchor; // a0..a4 -> 0..4
+    if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
+    const idx = visibleDescriptors.findIndex((d) => columnWidthKey("descriptor", d.col) === colkey);
+    return idx >= 0 ? FIXED_ANCHOR_COUNT + idx : null;
+  };
+
+  // Compute each menu item's enabled state for a target rect NOW (open-time), reading the
+  // NON-reactive clipboardRef FRESH (a render-time disabled prop would read stale). Copy needs any
+  // copyable cell; Cut needs onBatchWrite + any writable cell; Paste needs onBatchWrite + a
+  // non-empty clipboard; Fill-down needs onBatchWrite + a >1-row rect. Reuses the SAME
+  // blockFromRect / rateWritableAt the doX fns use -- no divergent logic.
+  const computeMenuFlags = (rect: SelRect) => {
+    const block = blockFromRect(rect);
+    let copyable = false;
+    let writable = false;
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const cell = block.cells[i][j];
+        if (!cell) continue;
+        copyable = true;
+        const row = rows[rect.top + i];
+        if (!row) continue;
+        if (cell.kind === "remark" || rateWritableAt(row, rect.left + j)) writable = true;
+      }
+    }
+    return {
+      canCopy: copyable,
+      canCut: !!onBatchWrite && writable,
+      canPaste: !!onBatchWrite && clipboardRef.current !== null,
+      canFill: !!onBatchWrite && rect.bottom > rect.top,
+    };
+  };
+
+  // Right-click a cell: suppress the native menu, ESTABLISH the target (inside the current
+  // multi-cell selection -> PRESERVE it, operate on the whole range; outside / no selection ->
+  // COLLAPSE to the clicked cell via focusCell, which onCellFocus reduces to a 1x1 selection),
+  // then OPEN the menu at the cursor with open-time enabled flags. A non-cell target (header /
+  // gutter -- no resolvable row) falls through to the native menu.
+  const onCellContextMenu = (e: ReactMouseEvent) => {
+    const target = e.target as HTMLElement;
+    const trEl = target.closest<HTMLElement>("[data-navr]");
+    const cellEl = target.closest<HTMLElement>("[data-colkey]");
+    if (!trEl || !cellEl) return; // not a grid cell -> leave the native menu
+    const r = Number(trEl.dataset.navr);
+    const c = colIndexFromColKey(cellEl.dataset.colkey);
+    if (!Number.isFinite(r) || c === null) return;
+    e.preventDefault();
+    const sel =
+      selectionAnchor && activeCell ? selectionRect(selectionAnchor, activeCell) : null;
+    const inside = !!sel && r >= sel.top && r <= sel.bottom && c >= sel.left && c <= sel.right;
+    const rect: SelRect = inside ? sel : { top: r, bottom: r, left: c, right: c };
+    if (!inside) {
+      // Collapse to the clicked cell. extendIntentRef=false so onCellFocus (fired by focusCell)
+      // reduces the selection to (r,c) -- never accidentally extends from a Shift+right-click.
+      extendIntentRef.current = false;
+      focusCell(r, c);
+    }
+    setMenu({ open: true, x: e.clientX, y: e.clientY, ...computeMenuFlags(rect) });
+  };
+
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
@@ -3413,11 +3512,48 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     </div>
   ) : null;
 
+  // Slice A (clipboard): the right-click context menu -- the house DropdownMenu driven as a
+  // CONTROLLED menu, anchored to a 0-size fixed element at the cursor (menu.x/menu.y). It portals
+  // to <body> (never clipped by a pane's overflow) and gives Esc + click-away + focus for free.
+  // Every item calls the EXISTING doX (same path as the keyboard shortcuts); the shortcut hint
+  // teaches the binding. Disabled flags are the open-time SNAPSHOT (Paste read clipboardRef fresh).
+  // Rendered in BOTH returns below (the portal makes its tree position irrelevant to layout).
+  const contextMenu = (
+    <DropdownMenu open={menu.open} onOpenChange={(o) => setMenu((m) => ({ ...m, open: o }))}>
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden
+          style={{ position: "fixed", left: menu.x, top: menu.y, width: 0, height: 0 }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-44"
+        onCloseAutoFocus={(e) => e.preventDefault()} // don't yank focus back to the 0-size trigger
+      >
+        <DropdownMenuItem disabled={!menu.canCopy} onSelect={() => doCopy()}>
+          Copy <DropdownMenuShortcut>Ctrl+C</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!menu.canCut} onSelect={() => doCut()}>
+          Cut <DropdownMenuShortcut>Ctrl+X</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!menu.canPaste} onSelect={() => doPaste()}>
+          Paste <DropdownMenuShortcut>Ctrl+V</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!menu.canFill} onSelect={() => doFillDown()}>
+          Fill down <DropdownMenuShortcut>Ctrl+D</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
   if (split) {
     return (
       <>
       {clipboardNotice}
+      {contextMenu}
       <div
         ref={containerRef}
         className={cn(
@@ -3448,6 +3584,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 style={{ width: `${anchorPaneWidth}px` }}
                 onKeyDown={handleGridKeyDown}
                 onMouseDownCapture={onTableMouseDown}
+                onContextMenu={onCellContextMenu}
               >
                 <colgroup>{anchorCols}</colgroup>
                 <thead>
@@ -3475,6 +3612,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 style={{ width: `${scrollPaneTableWidth}px` }}
                 onKeyDown={handleGridKeyDown}
                 onMouseDownCapture={onTableMouseDown}
+                onContextMenu={onCellContextMenu}
               >
                 <colgroup>
                   {descriptorCols}
@@ -3502,6 +3640,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   return (
     <>
     {clipboardNotice}
+    {contextMenu}
     <div
       ref={containerRef}
       className={cn(
@@ -3521,6 +3660,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         style={tableStyle}
         onKeyDown={handleGridKeyDown}
         onMouseDownCapture={onTableMouseDown}
+        onContextMenu={onCellContextMenu}
       >
         <colgroup>
           {anchorCols}
