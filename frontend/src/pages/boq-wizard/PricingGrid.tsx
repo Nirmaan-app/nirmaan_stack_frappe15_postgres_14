@@ -56,6 +56,7 @@ import {
   useState,
   type Dispatch,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
@@ -82,6 +83,19 @@ import {
   resolveDivergence,
   type ReconResolution,
 } from "./reconcile";
+import {
+  classifyPasteTarget,
+  rectDims,
+  rowSelectionRange,
+  selectionRect,
+  shapesMatch,
+  type BatchOutcome,
+  type BatchWrite,
+  type CellKind,
+  type ClipboardBlock,
+  type ClipCell,
+  type SelRect,
+} from "./clipboard";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -1227,6 +1241,15 @@ interface PricingGridProps {
    */
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   /**
+   * Slice A (clipboard): the page-owned BATCH write path for a paste / cut / fill-down gesture
+   * (the Q5 finding -- the per-cell save path fires one mutate() per cell, which would thrash on
+   * an N-cell paste). The page fires each write through the SAME save_cell_price / save_row_remark
+   * endpoints with the per-cell mutate SUPPRESSED, then does ONE trailing mutate() at the end.
+   * ABSENT (locked / read-only) => paste/cut/fill no-op (copy still works -- it is internal). Kept
+   * SEPARATE from onSaveRate so the inline single-cell edit contract is byte-for-byte unchanged.
+   */
+  onBatchWrite?: (writes: BatchWrite[]) => Promise<BatchOutcome>;
+  /**
    * Slice 3c: surfaces "has uncommitted drafts" UP to the page (drives the "Unsaved
    * changes" status). Called whenever the unsaved-drafts state flips.
    */
@@ -1540,6 +1563,16 @@ interface PricingGridRowProps {
   /** The active COLUMN on this row, or null when no cell of this row is active (the lever:
    *  only the previously-active + newly-active rows see this change on a cursor move). */
   activeColIndex: number | null;
+  /** Slice A (clipboard): this row's SELECTED column span (the multi-cell range highlight), as
+   *  two memo-safe scalars derived from the grid-level (anchor, focus) rectangle EXACTLY like
+   *  activeColIndex. null when the row is outside the selection (or the selection is a single
+   *  cell -- that just shows the focus ring). NEVER the shared selection object (memo anti-defeat). */
+  selLeftCol: number | null;
+  selRightCol: number | null;
+  /** Slice A (clipboard): a transient amber "skipped on paste/fill" flash for this row, as a CSV
+   *  of colIndices (e.g. "6,8") or null. A memo-safe STRING scalar (compared by value), derived
+   *  from a grid-level skip-flash map that self-clears after a few seconds. */
+  skipColsCsv: string | null;
   /** Whether ANY cell in the grid is active (drives roving-tabindex's (0,0) entry fallback). */
   anyCellActive: boolean;
   /** Whether this row's remarks editor is open. */
@@ -1612,6 +1645,9 @@ export function pricingRowPropsAreEqual(
     prev.rowDraftRates === next.rowDraftRates &&
     prev.rowProposedRates === next.rowProposedRates &&
     prev.activeColIndex === next.activeColIndex &&
+    prev.selLeftCol === next.selLeftCol &&
+    prev.selRightCol === next.selRightCol &&
+    prev.skipColsCsv === next.skipColsCsv &&
     prev.anyCellActive === next.anyCellActive &&
     prev.openRemark === next.openRemark &&
     prev.isCurrentHit === next.isCurrentHit &&
@@ -1662,6 +1698,9 @@ const PricingGridRow = memo(function PricingGridRow({
   rowDraftRates,
   rowProposedRates,
   activeColIndex,
+  selLeftCol,
+  selRightCol,
+  skipColsCsv,
   anyCellActive,
   openRemark,
   isCurrentHit,
@@ -1702,8 +1741,24 @@ const PricingGridRow = memo(function PricingGridRow({
   // entry point so the grid is reachable by Tab from the page.
   const isTabStop = (c: number) =>
     anyCellActive ? activeColIndex === c : rowIndex === 0 && c === 0;
-  const cellNavClass = (c: number) =>
-    cn("scroll-mt-9 outline-none", isActiveCol(c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400");
+  // Slice A (clipboard): this row's selection span + the transient skip-flash columns, both
+  // derived from the memo-safe scalars (NEVER the shared selection object). isSelected paints a
+  // light range ring on non-active selected cells; isSkipFlash paints the amber paste-skip cue.
+  const isSelected = (c: number) =>
+    selLeftCol !== null && selRightCol !== null && c >= selLeftCol && c <= selRightCol;
+  const skipFlashCols = skipColsCsv ? skipColsCsv.split(",").map(Number) : null;
+  const isSkipFlash = (c: number) => !!skipFlashCols && skipFlashCols.includes(c);
+  // The cell ring channel (does NOT mask the priced emerald/amber BACKGROUND -- a ring is a
+  // separate channel, like the focus ring). Precedence: skip-flash (amber) > active (blue) >
+  // range-selection (sky). Shared by every cell type (anchors via cellNavClass; the rate <td> +
+  // parent button call it directly since they inline their own ring).
+  const selectionRing = (c: number) =>
+    cn(
+      isSkipFlash(c) && "ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
+      !isSkipFlash(c) && isActiveCol(c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+      !isSkipFlash(c) && !isActiveCol(c) && isSelected(c) && "ring-1 ring-inset ring-sky-400/70",
+    );
+  const cellNavClass = (c: number) => cn("scroll-mt-9 outline-none", selectionRing(c));
   const tdFocusProps = (c: number) => ({
     tabIndex: isTabStop(c) ? 0 : -1,
     onFocus: () => onCellFocus(rowIndex, c),
@@ -1843,7 +1898,7 @@ const PricingGridRow = memo(function PricingGridRow({
             aria-label={`Jump to parent row ${parentExcelRow}`}
             className={cn(
               "text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap outline-none rounded scroll-mt-9",
-              isActiveCol(2) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+              selectionRing(2),
             )}
           >
             ↑ {parentExcelRow}
@@ -1968,8 +2023,7 @@ const PricingGridRow = memo(function PricingGridRow({
                   (needsReview
                     ? "bg-amber-50 dark:bg-amber-950/30"
                     : "bg-emerald-50 dark:bg-emerald-950/30"),
-                isActiveCol(colIndex) &&
-                  "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+                selectionRing(colIndex),
               )}
             >
               {colorPicker}
@@ -2171,7 +2225,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2195,6 +2249,23 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // rows), colIndex} is null until the user clicks / tabs in. Roving-tabindex: the active
   // cell (or (0,0) before any focus) is the single tab stop; arrows/Enter/Tab move it.
   const [activeCell, setActiveCell] = useState<CellCoord | null>(null);
+  // Slice A (clipboard): the SELECTION anchor. The selected rectangle is (anchor, activeCell);
+  // a plain arrow / plain click COLLAPSES it (anchor follows activeCell), Shift+arrow / Shift+click
+  // EXTENDS it (anchor held). `extendIntentRef` carries the "this focus should extend, not collapse"
+  // bit from the gesture (keyboard sets it before the move; the table mousedown sets it for clicks)
+  // into onCellFocus -- the single place both paths set the anchor. Cleared for free on remount.
+  const [selectionAnchor, setSelectionAnchor] = useState<CellCoord | null>(null);
+  const extendIntentRef = useRef(false);
+  // Slice A (clipboard): the INTERNAL clipboard (a ref -- no re-render needed; a per-instance ref
+  // is cleared for free by the page's key={sheetName::version} remount, NEVER navigator.clipboard).
+  const clipboardRef = useRef<ClipboardBlock | null>(null);
+  // Slice A (clipboard): a transient per-row map (array rowIdx -> CSV of skipped colIndices) for the
+  // amber paste/fill skip flash, self-clearing after a few seconds; plus a short status message for
+  // the paste summary / shape-mismatch reject. Both surface the copy-forward partial-outcome posture.
+  const [skipFlash, setSkipFlash] = useState<Map<number, string>>(() => new Map());
+  const skipFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clipboardMsg, setClipboardMsg] = useState<string | null>(null);
+  const clipboardMsgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Per-cell focusable element, keyed `${rowIndex}:${colIndex}` -- the <input> for a rate
   // cell, the <td> for every other cell. Used to .focus() the target on a keyboard move.
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -2428,6 +2499,22 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   const onCellFocus = useCallback((r: number, c: number) => {
     setActiveCell({ rowIndex: r, colIndex: c });
+    // Slice A (clipboard): the focus IS the new selection FOCUS. extendIntentRef (set by the
+    // gesture just before focus) decides whether the anchor is HELD (Shift+arrow / Shift+click ->
+    // extend) or RESET to here (plain arrow / plain click -> collapse). Consumed once, then reset.
+    if (extendIntentRef.current) {
+      setSelectionAnchor((a) => a ?? { rowIndex: r, colIndex: c });
+    } else {
+      setSelectionAnchor({ rowIndex: r, colIndex: c });
+    }
+    extendIntentRef.current = false;
+  }, []);
+
+  // Slice A (clipboard): a Shift held at pointer-down means "extend the selection to the clicked
+  // cell" -- record it for the imminent onCellFocus (mousedown precedes focus). Table-level so it
+  // needs no per-cell prop (memo untouched); attached via onMouseDownCapture on each table.
+  const onTableMouseDown = useCallback((e: ReactMouseEvent) => {
+    extendIntentRef.current = e.shiftKey;
   }, []);
 
   const focusCell = useCallback((r: number, c: number) => {
@@ -2505,6 +2592,300 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     setOpenRemarkRowIdx(open ? rowIndexArg : null);
   }, []);
 
+  // ── Slice A: in-grid clipboard (copy / cut / paste / fill-down) ──────────────────
+  // These read CURRENT render state (rows / visibleDescriptors / override / draftRates), so they
+  // are plain render-scope fns (recreated each render, like handleGridKeyDown / commitActiveRate).
+  // The WRITE side routes EXCLUSIVELY through onBatchWrite (ONE trailing mutate -- the Q5 finding) so
+  // there is a SINGLE funnel a later Slice-B undo wrapper can tap; nothing here calls a save endpoint
+  // directly. Internal clipboard only (clipboardRef), NEVER navigator.clipboard.
+
+  // The descriptor at a grid colIndex (descriptor columns only), else null.
+  const descriptorAt = (c: number): ColumnDescriptor | null =>
+    c >= FIXED_ANCHOR_COUNT && c <= remarksColIndex - 1
+      ? (visibleDescriptors[c - FIXED_ANCHOR_COUNT] ?? null)
+      : null;
+  // A target cell's kind: remark (last col), rate (a rate descriptor), else "other" (anchor/amount/qty).
+  const cellKindAt = (c: number): CellKind => {
+    if (c === remarksColIndex) return "remark";
+    const d = descriptorAt(c);
+    return d && isRateDescriptor(d) ? "rate" : "other";
+  };
+  // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
+  // axis (isRateDescriptor) + the sheet gate (formulasComplete, ANDed OUTSIDE) + the row axis
+  // (isRateEditableRow incl. the override). A paste can no more bypass these than a keystroke can.
+  const rateWritableAt = (row: PricedRow, c: number): boolean => {
+    const d = descriptorAt(c);
+    return !!d && isRateDescriptor(d) && formulasComplete && isRateEditableRow(row, override);
+  };
+  // Read one cell's copyable value (the optimistic draft when present, else the saved value). Returns
+  // a SKIP hole (null) for a non-copyable cell (anchor / amount / qty / out-of-range).
+  const readCellForCopy = (rArr: number, c: number): ClipCell => {
+    const row = rows[rArr];
+    if (!row) return null;
+    if (c === remarksColIndex) return { kind: "remark", value: row.remark ?? "" };
+    const d = descriptorAt(c);
+    if (!d || !isRateDescriptor(d)) return null;
+    const key = cellKey(row.row_index, d.col);
+    return { kind: "rate", value: draftRates[key] ?? savedRateStr(row, d) };
+  };
+  // The active gesture's target rectangle = the live selection, else the single active cell (1x1).
+  const activeRect = (): SelRect | null => {
+    if (!activeCell) return null;
+    if (selectionAnchor) return selectionRect(selectionAnchor, activeCell);
+    return {
+      top: activeCell.rowIndex,
+      bottom: activeCell.rowIndex,
+      left: activeCell.colIndex,
+      right: activeCell.colIndex,
+    };
+  };
+  // Build a clipboard block from a rectangle (copy / cut source).
+  const blockFromRect = (rect: SelRect): ClipboardBlock => {
+    const cells: ClipCell[][] = [];
+    for (let r = rect.top; r <= rect.bottom; r++) {
+      const rowCells: ClipCell[] = [];
+      for (let c = rect.left; c <= rect.right; c++) rowCells.push(readCellForCopy(r, c));
+      cells.push(rowCells);
+    }
+    const { rows: rr, cols: cc } = rectDims(rect);
+    return { rows: rr, cols: cc, cells };
+  };
+
+  // Show a transient status line (paste summary / shape-mismatch reject), auto-clearing.
+  const showClipboardMsg = (msg: string) => {
+    setClipboardMsg(msg);
+    if (clipboardMsgTimeoutRef.current) clearTimeout(clipboardMsgTimeoutRef.current);
+    clipboardMsgTimeoutRef.current = setTimeout(() => {
+      setClipboardMsg(null);
+      clipboardMsgTimeoutRef.current = null;
+    }, 4000);
+  };
+  // Flash the amber "skipped" ring on a set of (arrayRow, colIndex) cells, self-clearing (memo-safe
+  // per-row CSV scalars, NOT a shared object handed to a row).
+  const flashSkips = (skips: { r: number; c: number }[]) => {
+    const byRow = new Map<number, number[]>();
+    for (const s of skips) {
+      const a = byRow.get(s.r) ?? [];
+      a.push(s.c);
+      byRow.set(s.r, a);
+    }
+    const csv = new Map<number, string>();
+    for (const [r, cs] of byRow) csv.set(r, cs.sort((a, b) => a - b).join(","));
+    setSkipFlash(csv);
+    if (skipFlashTimeoutRef.current) clearTimeout(skipFlashTimeoutRef.current);
+    skipFlashTimeoutRef.current = setTimeout(() => {
+      setSkipFlash(new Map());
+      skipFlashTimeoutRef.current = null;
+    }, 2500);
+  };
+  const pasteSummary = (written: number, crossKind: number, nonPriceable: number): string => {
+    const head = `Wrote ${written} cell${written === 1 ? "" : "s"}`;
+    const bits: string[] = [];
+    if (nonPriceable) bits.push(`${nonPriceable} not priceable`);
+    if (crossKind) bits.push(`${crossKind} wrong type`);
+    return bits.length ? `${head}; skipped ${bits.join(", ")}.` : `${head}.`;
+  };
+
+  // Apply resolved writes optimistically (rate drafts show instantly) + fire the ONE-mutate batch.
+  // After the batch settles (its single mutate landed), drop the optimistic drafts so the cells fall
+  // back to the refetched saved values (on a partial failure the dropped draft reverts to the prior
+  // saved value -- honest, no fake atomicity). Remarks have no draft layer -> they rely on the mutate.
+  const runBatch = (writes: BatchWrite[], optimisticDrafts: Record<string, string>) => {
+    if (!onBatchWrite || writes.length === 0) return;
+    const draftKeys = Object.keys(optimisticDrafts);
+    if (draftKeys.length > 0) {
+      setDraftRates((prev) => ({ ...prev, ...optimisticDrafts }));
+      setProposedRates((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const k of draftKeys)
+          if (next[k] !== undefined) {
+            delete next[k];
+            changed = true;
+          }
+        return changed ? next : prev;
+      });
+    }
+    void onBatchWrite(writes).finally(() => {
+      if (draftKeys.length > 0) {
+        setDraftRates((prev) => {
+          const next = { ...prev };
+          for (const k of draftKeys) delete next[k];
+          return next;
+        });
+      }
+    });
+  };
+
+  const doCopy = () => {
+    const rect = activeRect();
+    if (!rect) return;
+    const block = blockFromRect(rect);
+    clipboardRef.current = block;
+    const n = block.cells.reduce((s, row) => s + row.filter(Boolean).length, 0);
+    showClipboardMsg(
+      n > 0 ? `Copied ${n} cell${n === 1 ? "" : "s"}.` : "Nothing copyable in the selection.",
+    );
+  };
+
+  const doCut = () => {
+    const rect = activeRect();
+    if (!rect) return;
+    const block = blockFromRect(rect);
+    clipboardRef.current = block;
+    if (!onBatchWrite) {
+      showClipboardMsg("Copied (sheet is read-only -- source not cleared).");
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const cell = block.cells[i][j];
+        if (!cell) continue;
+        const r = rect.top + i;
+        const c = rect.left + j;
+        const row = rows[r];
+        if (!row) continue;
+        if (cell.kind === "remark") {
+          writes.push({
+            kind: "remark",
+            args: { excelRow: row.source_row_number, remark: "", description: row.description ?? undefined },
+          });
+        } else {
+          const d = descriptorAt(c);
+          if (d && rateWritableAt(row, c)) {
+            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: 0 });
+            drafts[cellKey(row.row_index, d.col)] = "";
+          } else {
+            skips.push({ r, c });
+          }
+        }
+      }
+    }
+    flashSkips(skips);
+    runBatch(writes, drafts);
+    showClipboardMsg(
+      skips.length
+        ? `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}; skipped ${skips.length} (not writable).`
+        : `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}.`,
+    );
+  };
+
+  const doPaste = () => {
+    const block = clipboardRef.current;
+    if (!block) {
+      showClipboardMsg("Clipboard is empty -- copy cells first.");
+      return;
+    }
+    if (!onBatchWrite) return; // locked / read-only: paste no-ops
+    const rect = activeRect();
+    if (!rect) return;
+    const target = rectDims(rect);
+    if (!shapesMatch({ rows: block.rows, cols: block.cols }, target)) {
+      showClipboardMsg(
+        `Paste cancelled: the copied ${block.rows}x${block.cols} block doesn't match the ${target.rows}x${target.cols} selection. Nothing was written.`,
+      );
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    let crossKind = 0;
+    let nonPriceable = 0;
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const clip = block.cells[i][j];
+        if (!clip) continue; // a SKIP hole pastes nothing
+        const r = rect.top + i;
+        const c = rect.left + j;
+        const row = rows[r];
+        if (!row) continue;
+        const verdict = classifyPasteTarget(
+          clip.kind,
+          cellKindAt(c),
+          clip.kind === "rate" && rateWritableAt(row, c),
+        );
+        if (verdict === "WRITE") {
+          if (clip.kind === "remark") {
+            writes.push({
+              kind: "remark",
+              args: { excelRow: row.source_row_number, remark: clip.value, description: row.description ?? undefined },
+            });
+          } else {
+            const d = descriptorAt(c);
+            if (!d) {
+              skips.push({ r, c });
+              continue;
+            }
+            const num = parseFloat(clip.value);
+            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: Number.isFinite(num) ? num : 0 });
+            drafts[cellKey(row.row_index, d.col)] = clip.value;
+          }
+        } else {
+          skips.push({ r, c });
+          if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else nonPriceable++;
+        }
+      }
+    }
+    flashSkips(skips);
+    runBatch(writes, drafts);
+    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+  };
+
+  const doFillDown = () => {
+    if (!onBatchWrite) return; // locked / read-only: fill no-ops
+    const rect = activeRect();
+    if (!rect || rect.bottom === rect.top) {
+      showClipboardMsg("Fill down needs a selection spanning more than one row.");
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    let crossKind = 0;
+    let nonPriceable = 0;
+    for (let c = rect.left; c <= rect.right; c++) {
+      const top = readCellForCopy(rect.top, c);
+      if (!top) continue; // a non-copyable top cell -> skip the whole column silently
+      for (let r = rect.top + 1; r <= rect.bottom; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const verdict = classifyPasteTarget(
+          top.kind,
+          cellKindAt(c),
+          top.kind === "rate" && rateWritableAt(row, c),
+        );
+        if (verdict === "WRITE") {
+          if (top.kind === "remark") {
+            writes.push({
+              kind: "remark",
+              args: { excelRow: row.source_row_number, remark: top.value, description: row.description ?? undefined },
+            });
+          } else {
+            const d = descriptorAt(c);
+            if (!d) {
+              skips.push({ r, c });
+              continue;
+            }
+            const num = parseFloat(top.value);
+            writes.push({ kind: "rate", cell: buildRateCell(row, d), rate: Number.isFinite(num) ? num : 0 });
+            drafts[cellKey(row.row_index, d.col)] = top.value;
+          }
+        } else {
+          skips.push({ r, c });
+          if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else nonPriceable++;
+        }
+      }
+    }
+    flashSkips(skips);
+    runBatch(writes, drafts);
+    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+  };
+
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
@@ -2525,6 +2906,33 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // and Tab never escapes the grid (at an edge: commit + stay put).
   const handleGridKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
     if (!activeCell) return;
+    // Slice A (clipboard): Ctrl/Cmd + C/X/V/D act on the active cell or the selection. Checked
+    // BEFORE the nav mapping; each preventDefaults. Undo/redo (Z/Y) are Slice B -- deliberately NOT
+    // bound here; any OTHER modifier combo falls through untouched (Ctrl+A etc.), and plain typing /
+    // the input's decimal guard are never reached (a modifier is held), so they stay intact.
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c") {
+        e.preventDefault();
+        doCopy();
+        return;
+      }
+      if (k === "x") {
+        e.preventDefault();
+        doCut();
+        return;
+      }
+      if (k === "v") {
+        e.preventDefault();
+        doPaste();
+        return;
+      }
+      if (k === "d") {
+        e.preventDefault();
+        doFillDown();
+        return;
+      }
+    }
     // Slice 4a.2: Enter on the focused REMARKS cell OPENS its editor (not move-down) --
     // but only when editable (onSaveRemark present). A read-only remarks cell has nothing
     // to open, so Enter falls through to the generic Enter->down below (matching every other
@@ -2557,7 +2965,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     e.preventDefault(); // own the nav keys: no caret move, no tab-escape
     commitActiveRate(activeCell);
     const next = nextCell(activeCell, dir, rows.length, colCount);
-    if (next) focusCell(next.rowIndex, next.colIndex);
+    if (next) {
+      // Slice A (clipboard): Shift+arrow EXTENDS the selection (hold the anchor, move the focus); a
+      // plain arrow / Enter / Tab collapses it. extendIntentRef is read by onCellFocus after focus
+      // lands. (Shift+Tab stays pure nav -- not a selection-extend gesture.) Set ONLY on a real move.
+      extendIntentRef.current = e.key.startsWith("Arrow") && e.shiftKey;
+      focusCell(next.rowIndex, next.colIndex);
+    }
   };
 
   // ── Slice 3c: dirty signal + force-flush handle + flush-on-unmount ───────────
@@ -2625,8 +3039,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   // Parent-jump landing flash: clear any pending 3s clear-timer on unmount (a sheet-switch
   // remounts the grid key={sheetName}, so flash state resets for free; this guards a true unmount).
+  // Slice A (clipboard): also clear the skip-flash + clipboard-message self-clear timers.
   useEffect(() => () => {
     if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+    if (skipFlashTimeoutRef.current !== null) clearTimeout(skipFlashTimeoutRef.current);
+    if (clipboardMsgTimeoutRef.current !== null) clearTimeout(clipboardMsgTimeoutRef.current);
   }, []);
 
   // ── Frozen-left Slice 1: measure-at-freeze row heights ("Fork A") ────────────────
@@ -2918,7 +3335,19 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // and is SKIPPED by React.memo for every unchanged row. `pane` selects which cells the row
   // emits (undefined = all; "frozen" = anchors; "scrolling" = descriptors + Remarks); `rowHeight`
   // is the captured scalar applied in both panes when split (undefined otherwise).
-  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => (
+  // Slice A (clipboard): the live selection RECTANGLE = (anchor, focus=activeCell). Only when it
+  // spans MORE than a single cell (a collapsed 1x1 selection just shows the focus ring, no extra
+  // wash). Derived once per render; each row gets only its own memo-safe column span (two scalars).
+  const selRect: SelRect | null =
+    selectionAnchor &&
+    activeCell &&
+    (selectionAnchor.rowIndex !== activeCell.rowIndex ||
+      selectionAnchor.colIndex !== activeCell.colIndex)
+      ? selectionRect(selectionAnchor, activeCell)
+      : null;
+  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => {
+    const selRange = rowSelectionRange(selRect, rowIdx);
+    return (
     <PricingGridRow
       key={row.row_index}
       row={row}
@@ -2931,6 +3360,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
       rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
       activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
+      selLeftCol={selRange ? selRange.left : null}
+      selRightCol={selRange ? selRange.right : null}
+      skipColsCsv={skipFlash.get(rowIdx) ?? null}
       anyCellActive={anyCellActive}
       openRemark={openRemarkRowIdx === rowIdx}
       isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
@@ -2961,11 +3393,31 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       onRowResizePointerMove={onRowResizePointerMove}
       onRowResizePointerUp={onRowResizePointerUp}
     />
-  );
+    );
+  };
+
+  // Slice A (clipboard): the transient status strip (paste summary / shape-mismatch reject /
+  // copy count), rendered ABOVE the grid in both the split + single-table returns. Dismissible;
+  // self-clears after a few seconds. Inline (no portal) so it rides the grid's own layout.
+  const clipboardNotice = clipboardMsg ? (
+    <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+      <span className="flex-1">{clipboardMsg}</span>
+      <button
+        type="button"
+        onClick={() => setClipboardMsg(null)}
+        aria-label="Dismiss"
+        className="shrink-0 opacity-60 hover:opacity-100"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null;
 
   // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
   if (split) {
     return (
+      <>
+      {clipboardNotice}
       <div
         ref={containerRef}
         className={cn(
@@ -2995,6 +3447,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 className="text-xs border-collapse table-fixed"
                 style={{ width: `${anchorPaneWidth}px` }}
                 onKeyDown={handleGridKeyDown}
+                onMouseDownCapture={onTableMouseDown}
               >
                 <colgroup>{anchorCols}</colgroup>
                 <thead>
@@ -3021,6 +3474,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 className="text-xs border-collapse table-fixed"
                 style={{ width: `${scrollPaneTableWidth}px` }}
                 onKeyDown={handleGridKeyDown}
+                onMouseDownCapture={onTableMouseDown}
               >
                 <colgroup>
                   {descriptorCols}
@@ -3038,6 +3492,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           </div>
         </CollapseContext.Provider>
       </div>
+      </>
     );
   }
 
@@ -3045,6 +3500,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   //    classes as before. The only inert differences: containerRef moved from the <table> to this
   //    wrapper (refs are not DOM) and the col/th/row JSX comes from the shared fragments above. ──
   return (
+    <>
+    {clipboardNotice}
     <div
       ref={containerRef}
       className={cn(
@@ -3063,6 +3520,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         className="text-xs border-collapse table-fixed"
         style={tableStyle}
         onKeyDown={handleGridKeyDown}
+        onMouseDownCapture={onTableMouseDown}
       >
         <colgroup>
           {anchorCols}
@@ -3080,6 +3538,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       </table>
       </CollapseContext.Provider>
     </div>
+    </>
   );
 });
 

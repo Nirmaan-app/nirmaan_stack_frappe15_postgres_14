@@ -63,6 +63,7 @@ import {
   stepHit,
   type PricingGridHandle,
 } from "./PricingGrid";
+import type { BatchOutcome, BatchWrite } from "./clipboard";
 import {
   areFormulasComplete,
   buildDismissedKeySet,
@@ -716,6 +717,71 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
+  };
+
+  // Slice A (clipboard): the BATCH write path for a paste / cut / fill-down gesture. Fires each
+  // write through the SAME save_cell_price / save_row_remark endpoints as the single-cell saves but
+  // with the per-cell mutate() SUPPRESSED, then does ONE trailing mutate() at the end so markers /
+  // amounts re-derive once (the Q5 finding -- N per-cell mutates would thrash). Mirrors the copy-
+  // forward partial-outcome posture: on a mid-batch failure it STOPS, surfaces which cells failed,
+  // and STILL mutate()s so the grid reflects what DID land (no fake client-side atomicity). Each
+  // write carries its resolved {cell/args, value} -- the single funnel a later Slice-B undo wrapper
+  // can tap. Does NOT reshape handleSaveRate (the inline single-cell path stays byte-for-byte). */
+  const handleBatchWrite = async (writes: BatchWrite[]): Promise<BatchOutcome> => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to write to.");
+      return { written: 0, failed: writes.length };
+    }
+    if (writes.length === 0) return { written: 0, failed: 0 };
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    let written = 0;
+    let failed = 0;
+    let failMsg: string | null = null;
+    try {
+      for (const w of writes) {
+        try {
+          if (w.kind === "rate") {
+            await saveCellPrice({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.cell.excelRow,
+              col_letter: w.cell.colLetter,
+              committed_version: commitVersion,
+              rate: w.rate,
+              area: w.cell.area, // omitted by the SDK when undefined (scalar path)
+              rate_kind: w.cell.rateKind,
+              description: w.cell.description, // copy-forward MATCH GUARD
+              allow_non_priceable: override, // Slice 3e: the asserted per-sheet override
+            });
+          } else {
+            await saveRowRemark({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.args.excelRow,
+              committed_version: commitVersion,
+              remark: w.args.remark,
+              description: w.args.description,
+            });
+          }
+          written++;
+        } catch (e: unknown) {
+          // Mid-batch failure: STOP (the rest is skipped), remember the reason, surface a takeover
+          // as the takeover banner. The single trailing mutate() below still runs in `finally`.
+          failed = writes.length - written;
+          const msg = getFrappeError(e);
+          if (isTakeoverError(msg)) setTakenOver(true);
+          failMsg = msg || "Some cells could not be saved.";
+          break;
+        }
+      }
+    } finally {
+      await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      if (failMsg) setSaveError(`Saved ${written} of ${writes.length}. ${failMsg}`);
+      else setLastSavedAt(new Date());
+      setInFlight((n) => n - 1);
+    }
+    return { written, failed };
   };
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
@@ -1696,6 +1762,9 @@ const SheetPricingPage = () => {
             // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
             // single onSaveRate root gate) collapses to the read-only render.
             onSaveRate={locked ? undefined : handleSaveRate}
+            // Slice A (clipboard): the batch write path for paste / cut / fill-down (ONE trailing
+            // mutate). Withheld when locked -> paste/cut/fill no-op (copy still works, it is internal).
+            onBatchWrite={locked ? undefined : handleBatchWrite}
             // Slice 4a: annotation saves gated on the SAME editability signal as rates --
             // withheld when locked/taken-over so the grid renders remarks/colors read-only.
             onSaveRemark={locked ? undefined : handleSaveRemark}
