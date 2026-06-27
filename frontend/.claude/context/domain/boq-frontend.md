@@ -644,13 +644,45 @@ unfreeze/re-freeze. **Slice 1 does NOT add manual row-resize** (no `rowResizeRef
 Slice 2). NO new pure helper extracted -> NO test added; **vitest 339 (boq-wizard; PricingGrid 129, unchanged)**, tsc 3175
 (0 new in the two touched files), in-container build exit 0, 2026-06-27; see plan §"Frozen-left Slice 1".
 
+**Frozen-left Slice 2 of 2 -- manual row-resize + column-resize re-measure + frozen-pane border (`PricingGrid.tsx` +
+`PricingGrid.test.ts`; frontend-only, NO migrate; COMPLETES the frozen-left arc):** Three additions, all gated to the split
+(frozen) render. **(1) Frozen-pane right border (PART 1):** once split, the frozen table's own right edge (the Description
+`border-r`) is CLIPPED by the frozen pane's `overflow-hidden`, so the freeze boundary looked invisible -- fixed by drawing
+`border-r border-border` ONCE on the frozen-pane CONTAINER (its border-box isn't clipped; the clipped cell border can't show
+-> no double-up, one crisp line). Unfrozen single table unchanged. **(2) Manual row-resize (PART 2):** the FROZEN pane row
+renders a bottom-edge drag handle (`cursor-row-resize`, `absolute inset-x-0 bottom-0`) on the Excel-row gutter cell (col-0,
+made `relative`), the spreadsheet row-resize idiom, ONLY when `pane==="frozen"`. It mirrors the column-resize pointer-capture
+pattern on the Y axis via a `rowResizeRef` {rowIndex,startY,startHeight} + a new pure `clampRowHeight(px)` (floor **40px** --
+above the scrolling pane's tallest irreducible cell, the rate input ~36px, so a dragged-short row reaches the same height in
+BOTH panes and can't drift; unit-tested). The drag writes into a SEPARATE `manualRowHeights` map (keyed by row.row_index);
+the applied height = `manualRowHeights[ri] ?? rowHeights[ri]` (manual wins), passed to BOTH panes -> the dragged row resizes
+in both, aligned. The three handlers are STABLE `useCallback`s passed as memo-safe row props (added to `PricingGridRowProps`
++ `pricingRowPropsAreEqual`, reference-stable -> the row memo holds), mirroring registerCell/focusCell. **(3) Sticky manual
+heights (Option A) + column-resize re-measure (PART 3, closes the Slice-1 limitation):** the two maps make a height's origin
+unambiguous. On UNFREEZE only the captured `rowHeights` is cleared; `manualRowHeights` SURVIVES -> a re-freeze keeps the
+user's dragged rows and re-measures only the rest (the measure effect skips any row that already has a manual OR captured
+height). On a COLUMN resize / autofit WHILE frozen, `endResize`/`autofitColumn` clear `rowHeights` (captured only) ->
+`split` drops to false for one render -> the single table re-renders at NATURAL height with the new column widths -> the
+existing measure layout-effect re-reads true natural heights for the non-manual rows -> split re-commits; all inside a
+layout-effect cycle (post-layout / pre-paint) so it is **flash-free** (no invalidate-on-next-paint fallback needed). MANUAL
+rows are never re-measured, so a column resize can't clobber a dragged height. BOTH maps reset on the sheet/version remount
+(session+sheet scoped; no backend persist). Unfrozen single-table behaviour unchanged except manual heights are PRESERVED in
+state (applied only when re-frozen). SheetPricingPage NOT touched (row-resize state lives entirely in the grid). **vitest 341
+(boq-wizard; PricingGrid 131, +2 clampRowHeight)**, tsc 3175 (0 new in the two touched files), in-container build exit 0,
+2026-06-27; see plan §"Frozen-left Slice 2".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slice: Frozen-left Slice 1 of 2** -- two-pane split (frozen anchors
+docs-hygiene cleanup (git holds it). **Latest frontend slice: Frozen-left Slice 2 of 2** (COMPLETES the arc) -- manual
+row-resize (drag a frozen row's bottom edge -> `clampRowHeight` floor 40px -> `manualRowHeights`, applied to both panes via
+stable memo-safe handlers), sticky manual heights surviving unfreeze (Option A: two maps, applied = manual ?? captured),
+column-resize-while-frozen AUTO re-measure of captured rows (flash-free layout-effect cycle, manual rows untouched -- the
+Slice-1 limitation is now CLOSED), and the frozen-pane right-border fix (one `border-r` on the container; the table's clipped
+edge border was the invisible-boundary cause). **Prior frontend slice: Frozen-left Slice 1 of 2** -- two-pane split (frozen anchors
 pane + scrolling descriptors/Remarks pane, scroll-coupled) + measure-at-freeze row heights ("Fork A", `useLayoutEffect` ->
 `rowHeights` keyed by `row.row_index`, applied as a per-row `rowHeight` scalar to both panes + Description wrap/clip) +
 native `title` full-text tooltip; page-owned `frozen` toggle gated off for grid-only; unfrozen renders today's single table
-byte-for-byte; manual row-resize + column-resize-while-frozen staleness DEFERRED to Slice 2; vitest 339 (PricingGrid 129),
+byte-for-byte; vitest 339 (PricingGrid 129),
 tsc 3175 (0 new), in-container build exit 0, 2026-06-27, see the Frozen-left Slice 1 paragraph above + plan §"Frozen-left
 Slice 1". **Prior frontend slice:** Drop frozen-left, ship resize alone -- the frozen-left
 (sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
