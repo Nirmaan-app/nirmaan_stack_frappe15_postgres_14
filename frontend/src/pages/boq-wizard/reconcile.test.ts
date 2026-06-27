@@ -84,3 +84,40 @@ describe("resolveDivergence (D1 -- the single resolution rule)", () => {
     expect(r).toEqual({ diverges: true, resolved: "take_formula", value: 120 });
   });
 });
+
+describe("resolveDivergence -- DOC-0 exception (formula wins silently when document ~= 0)", () => {
+  it("doc ~= 0 + a real formula -> NOT a divergence (so no badge / strip / chooser)", () => {
+    // diverges:false makes every consumer fall through to the formula value (no per-consumer code).
+    expect(resolveDivergence(0, 120, undefined)).toEqual({ diverges: false });
+  });
+
+  it("doc ~= 0 within the epsilon (abs 0.01 floor) is treated as zero", () => {
+    expect(resolveDivergence(0.004, 120, undefined)).toEqual({ diverges: false });
+    expect(resolveDivergence(-0.004, 120, undefined)).toEqual({ diverges: false }); // negative-near-zero
+  });
+
+  it("doc ~= 0 IGNORES any stored choice -- the formula always wins on the zero case", () => {
+    // No keep-document path for doc-0: a stale keep_document must NOT pin it to 0.
+    expect(resolveDivergence(0, 120, "keep_document")).toEqual({ diverges: false });
+    expect(resolveDivergence(0, 120, "take_formula")).toEqual({ diverges: false });
+  });
+
+  it("doc ~= 0 AND formula ~= 0 -> already non-divergent (unchanged, never reaches the rule)", () => {
+    expect(resolveDivergence(0, 0, undefined)).toEqual({ diverges: false });
+  });
+
+  it("doc small but OUTSIDE the epsilon (0.5) is NOT zero -> UNCHANGED (document default, divergent)", () => {
+    const r = resolveDivergence(0.5, 120, undefined);
+    expect(r).toEqual({ diverges: true, resolved: "unset", value: 0.5 });
+  });
+
+  it("a NON-zero document divergence is UNCHANGED by the doc-0 rule", () => {
+    expect(resolveDivergence(100, 120, undefined)).toEqual({ diverges: true, resolved: "unset", value: 100 });
+    expect(resolveDivergence(100, 120, "keep_document")).toEqual({ diverges: true, resolved: "keep_document", value: 100 });
+  });
+
+  it("doc ~= 0 + null/NaN formula -> not divergent anyway (formula must be real)", () => {
+    expect(resolveDivergence(0, null, undefined)).toEqual({ diverges: false });
+    expect(resolveDivergence(0, NaN, undefined)).toEqual({ diverges: false });
+  });
+});
