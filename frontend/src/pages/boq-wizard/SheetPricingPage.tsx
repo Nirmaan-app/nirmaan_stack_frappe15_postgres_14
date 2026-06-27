@@ -77,6 +77,7 @@ import {
   isPriceableLine,
 } from "./priceability";
 import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHiddenByCollapse, type CollapseRow } from "./collapse";
+import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -332,6 +333,14 @@ const SheetPricingPage = () => {
   // (which the page has; the grid only gets the filtered displayRows). The grid receives it +
   // childrenByParent + the toggle as GRID-LEVEL props for the chevrons (NOT a row-memo prop, R6).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // Autosave-perf #1(c): the LAST merged `rows` array + the data-source signature it was built for.
+  // The merge (at the rows transform below) reuses a prior row object for any row a save did not
+  // change, so the grid memo holds and only the edited row re-renders after the inline mutate()
+  // refetch. sourceSigRef guards against merging across DIFFERENT data sources (current <-> a viewed
+  // version): on a source switch the committed base can differ, so prev is reset (no cross-source
+  // reuse). Refs (not state) -- read/written in render, like collapsedRef below; no extra render.
+  const prevRowsRef = useRef<PricedRow[]>([]);
+  const rowsSourceSigRef = useRef<string>("");
   // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
   // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
   const collapsedRef = useRef(collapsed);
@@ -476,7 +485,21 @@ const SheetPricingPage = () => {
   // (get_priced_rows). The live fetch is unchanged; this is a pure read-source swap. The history
   // payload carries editable=false, so every downstream edit gate collapses to read-only.
   const activeMessage = isViewingHistory ? historyData?.message : pricedData?.message;
-  const rows = activeMessage?.rows ?? [];
+  // Autosave-perf #1(c): IDENTITY-PRESERVING MERGE. The inline `await mutate()` after a rate save
+  // refetches the whole sheet -> a fresh `rows` array whose every row is a NEW object, defeating the
+  // grid's row memo (prev.row === next.row) -> all ~200 rows re-render on every edit. Reuse the prior
+  // row object for any row the save did not change (row_index match + overlay fields equal -- see
+  // rowMerge.ts), so the memo holds and only the edited row re-renders. CAPTURE-ONLY backend (STEP 0,
+  // pricing.py) guarantees a save changes only the edited row's returned overlay data; the
+  // field-compare is the fallback guard. Source switch (current <-> a viewed version) resets prev so
+  // a different version's committed base is never reused. (Does NOT fix the O(rows) page recomputes
+  // below -- rowFlags/pricedCount/maps -- a smaller separate cost, deliberately out of scope.)
+  const rawRows = activeMessage?.rows ?? [];
+  const rowsSourceSig = isViewingHistory ? `v:${selectedVersion}` : "current";
+  const priorRowsForMerge = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
+  const rows = mergeRowsPreservingIdentity(priorRowsForMerge, rawRows);
+  prevRowsRef.current = rows;
+  rowsSourceSigRef.current = rowsSourceSig;
   const columnDescriptors = activeMessage?.column_descriptors ?? [];
   const columnFormulas = activeMessage?.column_formulas ?? []; // F3: per-column amount formulas
   const dismissals = activeMessage?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
