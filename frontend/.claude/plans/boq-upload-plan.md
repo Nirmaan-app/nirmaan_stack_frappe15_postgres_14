@@ -10467,3 +10467,20 @@ reapplies; paste/fill 80 cells -> ONE undo reverts all; cut -> undo restores; >5
 clears redo; locked sheet -> buttons greyed + shortcuts no-op; sheet/version switch wipes history; a replay onto a
 now-non-priceable row skips that delta; an N-cell undo fires ONE network refetch (the batch's single trailing mutate).
 
+### Slice B follow-on: onHistoryChange FLIP-GATE (perf micro-opt)
+
+**STATUS: code complete, OWNER live-cert pending.** FRONTEND-ONLY, `PricingGrid.tsx` only -- one localized change to the
+`onHistoryChange` effect. The effect now fires the page callback ONLY when `canUndo`/`canRedo` actually FLIP, not on every
+history change. WHY: `history` gets a new object per edit, so the un-gated effect emitted a fresh `{canUndo,canRedo}` literal
+each keystroke-commit -> the page's `setHistoryState` re-rendered the page shell every edit even when neither boolean changed
+(the perf recon flagged it as one redundant page render per edit). HOW: a `prevHistoryFlagsRef` (init `{false,false}` =
+the page default `historyState` + the empty-history start) is compared each fire; `onHistoryChange` runs only on a difference,
+then the ref updates. **Observable button state is IDENTICAL** -- the page already shows disabled buttons at `{false,false}`,
+and every genuine enable/disable flip still emits; on a sheet/version remount the new grid starts `{false,false}` with the
+page reset matching, so nothing spurious or missed. `SheetPricingPage.tsx` UNTOUCHED. **NOT the autosave-lag fix** -- the
+per-cell `await mutate()` full-sheet refetch + ~200-row re-render is a SEPARATE later slice (rows-merge / await change); this
+slice does NOT touch `handleSaveRate` / `mutate` / `commitRate` / the rows path. Tests: NO new pure logic (effect gating) ->
+vitest UNCHANGED at 384; `PricingGrid.test.ts` 131; tsc 3175 (0 new, 0 in touched files); in-container Vite build exit 0.
+**OWNER live-cert OWED:** Undo enables after a rate edit; undo -> Redo enables; a fresh edit disables Redo; Ctrl+Z/Shift+Z
+still work; button state correct after a sheet/version switch (the render-count win itself is not visually observable).
+
