@@ -10631,3 +10631,42 @@ THE DB-vs-PANELS DISCRIMINATOR (headline ambiguity), verified in-session:
 NEXT: the scratch harness that runs `classify_line` over the committed electrical corpus +
 the AI Option-B pass (reads `categories_electrical.json`), emitting a per-sheet CSV (rules
 verdict vs AI verdict) for team review + scoring recalibration.
+
+### Classification Engine -- electrical rule tuning pass #1 (2026-06-30)
+
+Drove off the first rules-vs-AI PROVING RUN: the scratch eval harness (rules + an INDEPENDENT
+Anthropic Option-B category pass over the same line context) was run on three structurally
+distinct core-electrical BoQs from the live committed corpus -- BOQ-26-00022 (sectioned: DB /
+EARTHING / SUB PANEL / CABLE&TRAY / POINT WIRING / SUB MAINS), BOQ-26-00024 (one consolidated
+cabling sheet), BOQ-26-00007 (mixed). 657 line items; overall rules==AI agreement 66%, and --
+the key validation -- agreement tracked the rule BAND monotonically: HIGH 78%, MED 66%, LOW 48%,
+ABSTAIN 44%. So the confidence band is a working triage lever (trust HIGH, human-review LOW/
+ABSTAIN). The disagreements were mostly SYSTEMATIC RULE GAPS, not AI noise -> this tuning pass.
+
+FIVE FIXES (commit 47908443; tests 14 -> 27, all green; categories unchanged, classify_line
+signature unchanged; every knob in scoring.json):
+- FIX1 (rules): junction/pull/draw box added to cabletray_raceway (CT-TRAY) -- 49 junction-box
+  fragments were abstaining (novel) while the AI confidently called them cabletray.
+- FIX2 (rules): panels exclude_if extended (danger / sld / chart / fire extinguisher / name
+  board / notice board / mat / shock treatment / first aid) -- panel-room accessories were
+  false-friending onto Panels via 'panel'/'board'.
+- FIX3 (rules + runner): new PW-WIRINGFOR rule ('wiring for ... point(s)', fan/light/plug/loop
+  points) + a REGEX EXCLUSION on wiring_cabling (WC-EXCL-POINTWIRING) so a point-wiring lot is
+  not pulled to wiring_cabling by its quoted cable size. Runner gained regex-exclusion support
+  (exclude_tokens_by_cat + exclude_regex_by_cat; _excluded checks both).
+- FIX4 (runner + scoring): FRAGMENT INHERITANCE. When a line ABSTAINS but its ancestor chain
+  alone resolves to exactly ONE dominant category, it inherits that category DOWN-WEIGHTED
+  (score = min(inheritance_cap 0.6, dominant_ancestor_raw * inheritance_weight 0.5)) -> never
+  HIGH, reason 'inherited from parent section: <cat> -- review'. Triggers only on otherwise-
+  novel lines; can never override an own-signal. (Ancestors that say 'cable tray' are already
+  caught by the ancestor rule in normal scoring; inheritance is the fallback for item-style
+  ancestor tokens like 'perforated'.)
+- FIX5 (rules + runner + scoring): an industrial-socket line on a DB sheet no longer scores
+  db_switchgear -- DB-BREAKER-BARE.exclude_if suppresses the incidental breaker mention; plus a
+  small RANKING-ONLY direct_signal_bonus (0.05) so a direct on-the-line hit edges out an equal
+  ancestor-only competitor.
+
+Scratch harness + CSVs (NOT committed) live at /tmp/boq_category_csv/ (one CSV per sheet, the
+17-column rules-vs-AI-vs-team schema). NEXT: re-run the harness post-tuning to confirm the
+agreement lift, then widen to more electrical BoQs and let team verdicts recalibrate the
+provisional weights/bands.
