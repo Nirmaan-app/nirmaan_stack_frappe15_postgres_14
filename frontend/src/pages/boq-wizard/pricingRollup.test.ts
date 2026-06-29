@@ -564,6 +564,25 @@ describe("rollupByParent reconciliation-choice resolution (Cluster B)", () => {
     expect(root(res, 0)!.totals["F"]).toBe(80);
   });
 
+  it("DOC-0 exception: a doc-0 cell rolls up the FORMULA value, not 0 (silent, no choice needed)", () => {
+    // Same row but the committed (document) amount is 0 -> an absent/blank value. The formula
+    // computes 10 * 5 = 50, so totals roll up 50 (formula wins silently), NOT the document 0.
+    const docZeroRows: PricedRow[] = [
+      prow({ row_index: 0, source_row_number: 6, effective_parent_index: null, effective_classification: "preamble", description: "P", node_type: "Preamble" }),
+      prow({
+        row_index: 1, source_row_number: 34, effective_parent_index: 0,
+        effective_classification: "line_item", description: "i1", node_type: "Line Item",
+        qty_by_area: { "Phase 1": 10 },
+        rate_by_area: { "Phase 1": { combined_rate: 5 } } as never,
+        amount_by_area: { "Phase 1": { total: 0 } } as never,
+        priced_by_area: { "Phase 1": { combined_rate: true } } as never,
+      }),
+    ];
+    const res = rollupByParent(docZeroRows, CDS, FORMULAS, []); // no choices
+    expect(root(res, 0)!.totals["F"]).toBe(50); // formula, NOT the document 0
+    expect(res.integrityErrors).toHaveLength(0); // Option-1 == Option-2 stays balanced
+  });
+
   it("Option-1 == Option-2 stays balanced with a MIXED document/formula set (no integrity error)", () => {
     // Two diverging line items; one keep_document, one take_formula -> a mixed set. Because the
     // chosen value is resolved ONCE in rowOwnAmount (ownByIdx), both rollup routes agree.

@@ -508,6 +508,23 @@ wire types `ReconChoice`/`ReconciliationChoiceRef`/`ReconChoiceSaveArgs` + the `
 `GetPricedRowsResponse` in `boqTypes.ts`. vitest 245->264 (NEW `reconcile.test` 12 + `pricingRollup` +4 + `priceability`
 +3), tsc 3175 (0 new), in-container build exit 0, 2026-06-24.
 
+**Cluster B amendment -- DOC-0 default flip (`reconcile.ts` ONLY; frontend-only, NO migrate, 2026-06-27):** the D1 default
+gets ONE narrow exception. When the committed DOCUMENT amount is approximately ZERO (`amountsEqual(documentVal, 0)` -- the
+EXISTING shared epsilon, no new const) and the formula is a real number that diverges, the **FORMULA value wins SILENTLY** --
+no badge, not in the review strip, no chooser, no override. Rationale: we upload UNPRICED BoQs, so almost every amount cell
+is doc-0 -- a doc-0 amount is an absent/blank value, not a client-stated price, so the computed amount is the right thing to
+show + roll up. **Implementation is ONE line in the single resolver:** `resolveDivergence` returns the SAME `{ diverges:
+false }` a true non-divergence returns, placed BEFORE the choice branch -> every consumer already falls through to the
+formula value when not diverging (`pricingRollup.rowOwnAmount` -> `return formulaVal`; `PricingGrid` -> `shownAmount` stays
+`cell.value`; `priceability.buildDivergenceEntries` -> not listed), so grid display, totals, AND strip all flip identically
+with **ZERO per-consumer special-casing** (PricingGrid.tsx / pricingRollup.ts / priceability.ts UNCHANGED). Placed before the
+choice branch so the formula ALWAYS wins on doc-0 (no keep-document path for the zero case, even if a stale choice is
+stored). **NON-zero document divergences are UNCHANGED** (default document, badge, strip, chooser, overridable). The
+integrity guard stays balanced (both Option-1/Option-2 routes read the same resolved value via `ownByIdx`). **This MOVES
+TOTALS** (doc-0 divergent cells now roll up their formula value instead of 0) -- intended. Backend untouched (it only stores
+explicit choice tokens; "unset" is never persisted; export write-back is rates-only). vitest 341->349 (`reconcile` 12->19,
+`pricingRollup` 27->28), tsc 3175 (0 new), in-container build exit 0, 2026-06-27; see plan §"Cluster B amendment -- doc-0".
+
 **Toolbar Part 1 -- search + column-hide + 3 row-type filters (`SheetPricingPage.tsx` + `PricingGrid.tsx`; view-layer,
 owner-locked; full detail: plan §"Toolbar Part 1"):** the pricing-editor header now carries FIVE view-only controls
 (dropped into the existing `!isGridOnly` flex cluster; the toolbar LAYOUT rework is **Part 2, deferred until after Slice
@@ -610,9 +627,85 @@ not dropped). NO test changed (subtractive className/style removal -- no pure he
 tests stay green). **vitest 303 (PricingGrid 129, unchanged)**, tsc 3175 (0 new in PricingGrid), in-container build exit 0,
 2026-06-25; see plan §"Drop frozen-left, ship resize alone".
 
+**Frozen-left Slice 1 of 2 -- two-pane split + measure-at-freeze heights + wrap/clip/tooltip (`PricingGrid.tsx` +
+`SheetPricingPage.tsx`; frontend-only, NO migrate; REVIVES the DEFERRED frozen-left as the structural two-pane slice):**
+The reverted approach was cumulative cell-level `sticky left` (broken -- doesn't track h-scroll). This slice ships the
+**TWO-PANE split** instead. A page-owned per-sheet **`frozen` toggle** ("Freeze columns" / "Unfreeze", `Pin`/`PinOff`, loud
+sky-600 when on) sits in the `!isGridOnly` ribbon cluster (so grid-only general-specs sheets -- rendered by SheetDataGrid --
+never get it); reset on tab switch; passed as `frozen` to the PricingGrid only. **When frozen+measured the grid renders TWO
+tables in a flex row:** a FROZEN pane (the 5 anchors `a0..a4`, `overflow-hidden`, width = summed anchor `colWidths`,
+vertical scroll DRIVEN) + a SCROLLING pane (descriptors + Remarks, owns `overflow-x`+`overflow-y`, `onScroll` mirrors
+`scrollTop` to the frozen pane). **Widths come from the SAME `colWidths` map** (each pane renders its own `<col>` slice; NO
+duplicate width state). The sticky header (`sticky top-0`) works in BOTH panes (each is its own bounded scroll container).
+When **unfrozen, ONE single table renders byte-for-byte as before** (the split is gated on `split = frozen && rows.length>0
+&& rows.every(measured)`; structural decisions key on `split`, not `frozen`). **Measure-at-freeze ("Fork A"):** a
+`useLayoutEffect([frozen, rows, rowHeights])` captures each row's NATURAL single-table `<tr>` height (via the always-
+registered col-0 cell -> `.closest("tr").getBoundingClientRect()`, `Math.ceil`) into a `rowHeights` state keyed by the
+stable `row.row_index` -- it runs on the render where `frozen` flipped on (or `rows` changed under freeze) WHILE the single
+table is still mounted (split deferred until all rows measured), post-layout/pre-paint, so the user never sees an unmeasured
+split frame. **Application:** each row gets a per-row SCALAR `rowHeight` prop (NEVER the whole map -> memo-safe; added to
+`PricingGridRowProps` + `pricingRowPropsAreEqual` alongside the new `pane` discriminator), applied as `style.height` on the
+`<tr>` in BOTH panes (forces the short scrolling-pane row up to match) + the Description inner wrapper clipped to
+`rowHeight - DESC_CLIP_VPAD_PX(12)` with `overflow:hidden` (text still WRAPS via `break-words`, clips from the top via
+`align-top`) so a tall row can't push its pane past the other. **Tooltip:** the Description span gains `title={description}`
+(native `title`, the grid's idiom -- NO shadcn Tooltip) for full-text-on-hover when clipped (applied regardless of freeze).
+**Scroll/jump retarget:** `focusCell` + `jumpToRow` are split-aware (read `splitRef`) -- they `focus({preventScroll:true})`
+(so focusing a frozen-pane cell can't desync the panes) and drive the SCROLLING pane (a data cell scrolls itself; an anchor
+cell scrolls its scrolling-pane counterpart `<tr>` found by `data-rowidx`); the frozen pane mirrors via `onScroll`.
+`unfreeze` clears `rowHeights` ({}); the grid's `key={sheetName::version}` remount resets it for free on sheet/version
+switch (so collapse + version-view flow through the SAME `displayRows` into both panes; read-only history stays read-only,
+lock/override semantics unchanged). The autofit measure ref moved from the `<table>` to the outer `containerRef` div (spans
+both panes). **KNOWN LIMITATION (deferred to Slice 2 with manual row-resize):** a COLUMN resize / double-click autofit WHILE
+frozen re-wraps Description + changes natural heights but does NOT refresh the captured map -> heights can go stale until
+unfreeze/re-freeze. **Slice 1 does NOT add manual row-resize** (no `rowResizeRef`/`clampRowHeight`/drag handle -- that is
+Slice 2). NO new pure helper extracted -> NO test added; **vitest 339 (boq-wizard; PricingGrid 129, unchanged)**, tsc 3175
+(0 new in the two touched files), in-container build exit 0, 2026-06-27; see plan §"Frozen-left Slice 1".
+
+**Frozen-left Slice 2 of 2 -- manual row-resize + column-resize re-measure + frozen-pane border (`PricingGrid.tsx` +
+`PricingGrid.test.ts`; frontend-only, NO migrate; COMPLETES the frozen-left arc):** Three additions, all gated to the split
+(frozen) render. **(1) Frozen-pane right border (PART 1):** once split, the frozen table's own right edge (the Description
+`border-r`) is CLIPPED by the frozen pane's `overflow-hidden`, so the freeze boundary looked invisible -- fixed by drawing
+`border-r border-border` ONCE on the frozen-pane CONTAINER (its border-box isn't clipped; the clipped cell border can't show
+-> no double-up, one crisp line). Unfrozen single table unchanged. **(2) Manual row-resize (PART 2):** the FROZEN pane row
+renders a bottom-edge drag handle (`cursor-row-resize`, `absolute inset-x-0 bottom-0`) on the Excel-row gutter cell (col-0,
+made `relative`), the spreadsheet row-resize idiom, ONLY when `pane==="frozen"`. It mirrors the column-resize pointer-capture
+pattern on the Y axis via a `rowResizeRef` {rowIndex,startY,startHeight} + a new pure `clampRowHeight(px)` (floor **40px** --
+above the scrolling pane's tallest irreducible cell, the rate input ~36px, so a dragged-short row reaches the same height in
+BOTH panes and can't drift; unit-tested). The drag writes into a SEPARATE `manualRowHeights` map (keyed by row.row_index);
+the applied height = `manualRowHeights[ri] ?? rowHeights[ri]` (manual wins), passed to BOTH panes -> the dragged row resizes
+in both, aligned. The three handlers are STABLE `useCallback`s passed as memo-safe row props (added to `PricingGridRowProps`
++ `pricingRowPropsAreEqual`, reference-stable -> the row memo holds), mirroring registerCell/focusCell. **(3) Sticky manual
+heights (Option A) + column-resize re-measure (PART 3, closes the Slice-1 limitation):** the two maps make a height's origin
+unambiguous. On UNFREEZE only the captured `rowHeights` is cleared; `manualRowHeights` SURVIVES -> a re-freeze keeps the
+user's dragged rows and re-measures only the rest (the measure effect skips any row that already has a manual OR captured
+height). On a COLUMN resize / autofit WHILE frozen, `endResize`/`autofitColumn` clear `rowHeights` (captured only) ->
+`split` drops to false for one render -> the single table re-renders at NATURAL height with the new column widths -> the
+existing measure layout-effect re-reads true natural heights for the non-manual rows -> split re-commits; all inside a
+layout-effect cycle (post-layout / pre-paint) so it is **flash-free** (no invalidate-on-next-paint fallback needed). MANUAL
+rows are never re-measured, so a column resize can't clobber a dragged height. BOTH maps reset on the sheet/version remount
+(session+sheet scoped; no backend persist). Unfrozen single-table behaviour unchanged except manual heights are PRESERVED in
+state (applied only when re-frozen). SheetPricingPage NOT touched (row-resize state lives entirely in the grid). **vitest 341
+(boq-wizard; PricingGrid 131, +2 clampRowHeight)**, tsc 3175 (0 new in the two touched files), in-container build exit 0,
+2026-06-27; see plan §"Frozen-left Slice 2".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Drop frozen-left, ship resize alone -- the frozen-left
+docs-hygiene cleanup (git holds it). **Latest frontend change: Cluster B DOC-0 default flip** (2026-06-27) -- when the
+committed document amount is ~0 (absent/blank on an unpriced BoQ) a divergent amount cell now uses the FORMULA value
+silently (no badge / strip / chooser); ONE line in `reconcile.ts` `resolveDivergence` (returns `{diverges:false}` so all
+three consumers fall through to the formula), non-zero divergences UNCHANGED, moves totals (intended), frontend-only; see the
+"Cluster B amendment -- DOC-0" paragraph above. **Prior frontend slice: Frozen-left Slice 2 of 2** (COMPLETES the arc) -- manual
+row-resize (drag a frozen row's bottom edge -> `clampRowHeight` floor 40px -> `manualRowHeights`, applied to both panes via
+stable memo-safe handlers), sticky manual heights surviving unfreeze (Option A: two maps, applied = manual ?? captured),
+column-resize-while-frozen AUTO re-measure of captured rows (flash-free layout-effect cycle, manual rows untouched -- the
+Slice-1 limitation is now CLOSED), and the frozen-pane right-border fix (one `border-r` on the container; the table's clipped
+edge border was the invisible-boundary cause). **Prior frontend slice: Frozen-left Slice 1 of 2** -- two-pane split (frozen anchors
+pane + scrolling descriptors/Remarks pane, scroll-coupled) + measure-at-freeze row heights ("Fork A", `useLayoutEffect` ->
+`rowHeights` keyed by `row.row_index`, applied as a per-row `rowHeight` scalar to both panes + Description wrap/clip) +
+native `title` full-text tooltip; page-owned `frozen` toggle gated off for grid-only; unfrozen renders today's single table
+byte-for-byte; vitest 339 (PricingGrid 129),
+tsc 3175 (0 new), in-container build exit 0, 2026-06-27, see the Frozen-left Slice 1 paragraph above + plan §"Frozen-left
+Slice 1". **Prior frontend slice:** Drop frozen-left, ship resize alone -- the frozen-left
 (sticky-left) half of the bundle was structurally broken (cell-level multi-column sticky-left doesn't track horizontal
 scroll: frozen cells paint in place, scrolling columns clip behind + don't reset on scroll-back; the border-separate flip
 was wrong-axis + reverted; a two-pane fix fights resize's wrap-grow + doubles the row memo -- not worth it now), so the
@@ -1416,6 +1509,52 @@ lock -- removes clickable-but-dead confusion). Types: `is_locked: boolean` on `G
 on `CommittedSheetState`. vitest 323 (unchanged -- UI, owner-live-certed; no new pure leaf), tsc 3175 (0 new), in-container
 build exit 0, 2026-06-26; see root CLAUDE.md (backend) + plan §"Lock/unlock edits".
 
+**Version-view -- read-only committed-version history browser (`SheetPricingPage.tsx` + NEW `VersionRibbon.tsx` +
+`boqTypes.ts`; FULL-STACK, NO migrate, owner-locked):** a version dropdown selects an OLDER committed version of a sheet
+and shows it read-only WITH that version's own pricing. Slice 1 of 2 -- copy-forward (the write-side) is the SEPARATE next
+slice; **NO copy/write/apply built here, NO copy-forward button** (owner). **The read-only spine = the EXISTING `locked`
+choke:** `locked = editable === false || takenOver || isLocked || isViewingHistory` (one-line add) -- every `onSave*`
+(already `locked ? undefined`) + `disabled={locked}` control collapses to read-only by construction; NO parallel gate;
+**`pricingRowPropsAreEqual` UNTOUCHED**. The history payload also reports `editable=false` (server belt). **State + fetches:**
+`selectedVersion: number|null` (null = current/live; reset on sheet switch in the `[sheetName]` effect; `isViewingHistory =
+selectedVersion !== null && selectedVersion !== liveCommitVersion`). Two ADDITIVE conditional fetches --
+`commit_gate.get_sheet_versions` (dropdown list) + `pricing.get_version_priced_rows` (enabled only when viewing history);
+the live `get_priced_rows` fetch is UNCHANGED, and an `activeMessage` ternary swaps the read source (rows / descriptors /
+formulas / dismissals / recon / commitVersion / editable / lock / loading / error) to the history payload. **`VersionRibbon.tsx`
+(NEW):** the OUTERMOST band, ABOVE the top ribbon -> shows on ALL sheet types (above the `{!isGridOnly}` gate); renders only
+when **2+ versions exist** (version-COUNT gated, not type-gated -- a grid-only multi-version sheet still gets it). shadcn
+`Select` only. Pure `versionLabelParts` / `formatVersionLabel` helpers (vitest, locale-safe -- no date formatting in the
+shape decision): current -> "Current (live)" (no date, the only editable one); earlier priced -> last-change date; earlier
+never-priced -> committed_at + "never priced". An indigo read-only pill when viewing history (DISTINCT from the teal
+deliberate-lock / amber concurrency banners). **Wiring:** grid `key` extended to `${sheetName}::${selectedVersion ??
+"current"}` (clean remount on version switch); `commitVersionForGrid` tracks the viewed version (grid-only history); lock
+toggle disabled `|| isViewingHistory`; concurrency/lock banners suppressed in history (`isGridOnly || isViewingHistory ?
+null : ...` -- the ribbon's pill is the read-only surface, else editable=false would trip the holder banner); override
+banner suppressed; editor note shows a history variant. **Never-priced common case** (VRF, Electrical v1/v2) renders through
+the normal node path with an empty pricing overlay -- NOT grid-only, no special path. Types: `SheetVersionRow` +
+`GetSheetVersionsResponse` on `boqTypes.ts`; the version read reuses `GetPricedRowsResponse`. vitest 323 -> 330 (+7 NEW
+`VersionRibbon.test.ts` -- the pure label helper), tsc 3175 (0 new), in-container build exit 0, 2026-06-26; see backend doc
++ plan §"Version-view".
+
+**Copy-forward -- carry an old version's RATES into current (`SheetPricingPage.tsx` + NEW `CopyForwardDialog.tsx` +
+`VersionRibbon.tsx` + `boqTypes.ts`; FULL-STACK, NO migrate, owner-locked):** the WRITE-side of version-view (slice 2).
+RATES ONLY. **Trigger** = a "Copy rates forward" button in `VersionRibbon` (new optional `onCopyForward` prop), shown ONLY
+in read-only history mode -- the ONE write action reachable from history; it writes to the CURRENT version, not the viewed
+one, so the slice-1 read-only spine + the `locked` choke + `pricingRowPropsAreEqual` are ALL untouched. **`CopyForwardDialog.tsx`
+(NEW, self-contained like CommitDialog):** fetches `get_copy_forward_plan`, renders the per-row outcome table (clean +
+conflict selectable; the three hard-skips -- non_match / no_rate_column / non_priceable -- shown DISABLED with their
+reason; a conflict shows current->source with a per-row Keep/Overwrite + bulk "Overwrite all"/"Keep all"), collects the
+decisions, POSTs `apply_copy_forward`, hands the summary up. **Owner UX:** clean rows + conflicts pre-ticked, conflicts
+default KEEP (the destructive overwrite needs deliberate intent); Apply disabled when `!current_formulas_complete` or
+nothing selected. PURE helpers (vitest): `cellKey` (a row can carry several rate cells -- keyed `excel_row|area|rate_kind`,
+NOT bare excel_row), `isWritable`, `initialSelection`, `applyBulkOverwrite`, `buildDecisions`, `outcomeMetaKey`. **The
+server is the boundary** -- it RE-DERIVES every outcome + target column on apply, so the client cannot force a wrong write;
+the dialog is UX over a server-authored plan. `SheetPricingPage`: `copyForwardOpen`/`copyForwardMsg` state (reset on sheet
+switch); on apply -> a transient emerald summary, return to live (`setSelectedVersion(null)`), `mutate()` the live read so
+the copied rates show. Types: `CopyForwardPlanRow` / `GetCopyForwardPlanResponse` / `CopyForwardDecision` /
+`ApplyCopyForwardResponse`. vitest 330 -> 339 (+9 NEW `CopyForwardDialog.test.ts`), tsc 3175 (0 new), in-container build
+exit 0, 2026-06-26; see backend doc + plan §"Copy-forward".
+
 **Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
 `### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
 docs-hygiene cleanup (git holds it). **Latest frontend slices:** Deliberate lock/unlock (2026-06-26) -- a user-controlled,
@@ -1528,3 +1667,39 @@ formula-aware rollup + grand-total row + reconciliation guard (`pricingRollup`/`
 - **Staleness chip on `SheetCard`:** a muted amber "priced since last export" chip rendered when `committedState.pricing_changed_since_export` -- rides the EXISTING `committedState` prop (NO new prop wiring), styled like the needs-attention chip. `last_exported_at` + `pricing_changed_since_export` are ADDITIVE on `CommittedSheetState` (server-computed by `get_committed_state`, version-isolated to the current commit_version); `ExportPricedWorkbookResponse` is the NEW endpoint response type. **Completes the Slice-5 write-back arc.** vitest 303 -> 307 (+4 `base64ToBytes`), tsc 3175 (0 new). OWED live-cert: (i) VRF formula-skip live proof; (ii) unticked/grid-only-unchanged + chip flip/clear.
 
 **Hub footer toolbar conventions (toolbar-rework slice -- `BoqHubPage.tsx`; presentational):** the parse-gate footer action row was reworked from 6 buttons to **4 visible buttons + an "Export" overflow `DropdownMenu`** (it was crowding the status-line sibling). LOCKED layout: **Parse workbook (primary) / Re-parse / Commit / Tendering** stay visible, all **`size="sm"`**, gates/handlers/Tooltip-disabled-reason wrappers UNCHANGED; the **two export actions live in the "Export" menu** (a labelled "Export" + `ChevronDown` trigger -- DISTINCT from the top-of-card `MoreHorizontal` "More options" menu; reuses `@/components/ui/dropdown-menu`, mirroring the in-file header menu). **Menu-item disabled-reason rule (reusable):** a disabled Radix `DropdownMenuItem` suppresses pointer events, so a hover-tooltip is unreliable -- instead disable the item per its gate AND render a muted inline reason line (`DropdownMenuLabel`, `text-xs font-normal text-muted-foreground`) ONLY when disabled, reusing the button's old tooltip string. The menu **trigger stays always-clickable** (independent gates -- the menu must open to show which action is available). Moving a button into a menu item is PURELY PRESENTATIONAL: same gate expression, same `onClick` (the `setXDialogOpen` setters + dialogs + mounts are untouched). The export label was renamed **"Export Finalized" -> "Export Parsed BoQ"** (menu item + `ExportWorkbookDialog` title "Export Parsed BoQ to Excel" + comments; internal identifiers `ExportWorkbookDialog`/`exportReviewXlsx`/`exportEligibleSheetNames`/`setExportDialogOpen` UNCHANGED). Future footer actions: add a visible `size="sm"` button only if it is a primary flow; otherwise add an "Export"/overflow menu item with the same disabled-reason pattern.
+
+**Pricing-grid in-grid clipboard conventions (Phase 5 Slice A -- `clipboard.ts` [NEW pure leaf] + `PricingGrid.tsx` + `SheetPricingPage.tsx`; full detail: plan section "Slice A"):** copy / cut / paste / fill-down for RATE + REMARK cells. **INTERNAL clipboard only** (`clipboardRef` -- a per-instance ref, NEVER `navigator.clipboard`); cleared for free by the `key={sheetName::version}` remount. This is **Slice A of a two-slice arc** -- **undo/redo is Slice B (NOT built)**; external/system paste, click-drag rectangular select, and colour-cell clipboard are **deferred**.
+
+- **`clipboard.ts` is a PURE LEAF** (mirrors `reconcile.ts`): imports ONLY types (`CellCoord` from PricingGrid, `RateCellSaveArgs`/`RemarkSaveArgs` from boqTypes -- all erased, so NO runtime cycle even though PricingGrid imports these values back). Exports the unit-tested helpers `selectionRect` / `rowSelectionRange` / `rectDims` / `shapesMatch` / `classifyPasteTarget` (verdict `WRITE | SKIP_CROSS_KIND | SKIP_NON_PRICEABLE`) + the types `ClipKind` / `CellKind` / `ClipCell` (null = a SKIP hole) / `ClipboardBlock` / `SelRect` / `PasteVerdict` / `BatchWrite` / `BatchOutcome`. `classifyPasteTarget` takes the DISTILLED `isRateWritable` boolean (the caller resolves it from `isRateDescriptor(d) && formulasComplete && isRateEditableRow(row, override)`), so the leaf needs nothing from PricingGrid.
+- **Range selection (the net-new state):** an anchor + focus model -- `selectionAnchor` (grid state) + `activeCell` (the focus). The rectangle is `selectionRect(anchor, activeCell)`, derived ONCE per render and only when it spans >1 cell (a collapsed 1x1 selection is just the focus ring). **Shift+arrow / Shift+click ONLY** (no drag). A single `extendIntentRef` carries the "extend vs collapse" bit into the ONE place both gesture paths set the anchor (`onCellFocus`): keyboard sets it before `focusCell` (only on a real move; `e.key.startsWith("Arrow") && e.shiftKey`); a table-level `onMouseDownCapture` (`onTableMouseDown`) sets it to `e.shiftKey` (mousedown precedes focus). Plain arrow / plain click -> anchor follows focus (collapse).
+- **Memo-safe per-row surfacing (R6 / activeColIndex precedent):** the selection is surfaced to the memoized `PricingGridRow` as TWO scalars (`selLeftCol` / `selRightCol`, derived per row via `rowSelectionRange`) and the skip-flash as ONE string scalar (`skipColsCsv`, a CSV of skipped colIndices). All three are added to `pricingRowPropsAreEqual`. **NEVER hand a row the shared selection object** (it would defeat the memo). The cell ring channel `selectionRing(c)` (skip-flash amber > active blue > range sky, all `ring-inset`) is a SEPARATE channel from the priced emerald/amber BACKGROUND -- it never masks it; `cellNavClass` now wraps `selectionRing`, and the rate `<td>` + parent button (which inline their own ring) call `selectionRing` directly.
+- **Kind-match + priceability skip:** paste/fill classify each target per-cell -- rate clipboard -> rate target only, remark clipboard -> remark target only; cross-kind = SKIP_CROSS_KIND; a rate target that fails the (reused) edit gate = SKIP_NON_PRICEABLE. Skipped cells get a transient amber flash (2.5s self-clear) + a count in the status strip. **SHAPE MISMATCH (block dims != target range dims) = REJECT the whole paste, write nothing** (no Excel tiling). Single-cell paste targets the active cell (1x1).
+- **Cut** = copy + clear the source: a rate clears via the rate save path (value "" -> rate 0, the existing blank semantics), a remark clears via remark "" ; non-writable sources skip+flash.
+- **Batch write wrapper (the Q5 finding):** all paste/cut/fill writes route through ONE page-owned `onBatchWrite(writes: BatchWrite[]): Promise<BatchOutcome>` (gated by `locked`, like `onSaveRate` -- withheld -> paste/cut/fill no-op, copy still works). It fires each write through the SAME `save_cell_price` / `save_row_remark` endpoints with the per-cell `mutate()` SUPPRESSED, then does ONE trailing `mutate()`. On a mid-batch failure it STOPS, surfaces `Saved X of N`, and STILL `mutate()`s (mixed outcome -- copy-forward partial-outcome posture, NO fake client-side atomicity). **`handleSaveRate` is byte-for-byte UNCHANGED** -- `onBatchWrite` is a SEPARATE sibling (not a reshape), so the "reshape handleSaveRate" stop-condition was avoided. Each `BatchWrite` carries its resolved `{cell/args, value}` -- the single funnel a later Slice-B undo wrapper can tap. The grid sets optimistic rate drafts during a batch, cleared after the trailing mutate.
+- **Keybindings:** `Ctrl/Cmd+C/X/V/D` (modifier = `e.ctrlKey || e.metaKey`), added as their OWN branches in `handleGridKeyDown` BEFORE the nav-dir mapping, each `preventDefault`. **Z/Y are NOT bound (Slice B).** `nextCell` + the existing arrow/Tab/Enter nav are UNCHANGED. Tests: `clipboard.test.ts` (19) -- vitest 349 -> 368; PricingGrid.test.ts unchanged at 131; tsc 3175 (0 new, 0 in touched files); in-container Vite build exit 0. OWED owner live-cert: copy/paste a single rate; range copy + same-shape paste; shape-mismatch reject; cross-kind + non-priceable skip flash; fill-down a column; cut clears; locked sheet -> paste/cut/fill no-op while copy works.
+
+**Pricing-grid clipboard CONTEXT MENU (Phase 5 Slice A follow-on -- `PricingGrid.tsx` only; full detail: plan "Slice A context menu"):** a right-click menu as a SECOND trigger surface for the SAME Slice-A `doCopy`/`doCut`/`doPaste`/`doFillDown`. **NO new clipboard logic, NO new dependency, NO new per-row memo prop, NO backend.** A menu Copy is byte-for-byte a `Ctrl+C` (same `doX`, same selection semantics, same status strip / skip flash) -- ONE code path.
+
+- **Primitive (no new dep):** the house `DropdownMenu` (`@/components/ui/dropdown-menu`, already a dep) driven as a CONTROLLED menu (`open`/`onOpenChange`) anchored to a 0-size `position:fixed` `<DropdownMenuTrigger>` span at the cursor (`menu.x`/`menu.y`). CHOSEN over a self-rolled absolute `<div>` because `DropdownMenuContent` **portals to `<body>`** -- it is never clipped by a frozen/scrolling pane's `overflow`, and Esc + click-away + focus management come for free. (`@radix-ui/react-context-menu` is NOT a dep and was deliberately NOT added.)
+- **Grid-level attach (no per-row prop):** `onContextMenu={onCellContextMenu}` on ALL 3 `<table>`s (mirrors `onMouseDownCapture={onTableMouseDown}`) -- the lower-churn path vs a per-cell prop (which would breach the memo). The handler resolves the clicked cell from the DOM: the row via a NEW `data-navr={rowIndex}` on every pane's `<tr>` (distinct from the scrolling-only `data-rowidx`), the column via each cell's EXISTING `data-colkey` (`a0..a4` / `d:<col>` / `remarks`) mapped by `colIndexFromColKey`. A non-cell target (header/gutter, no `data-navr`) falls through to the native menu.
+- **Target-establish rule (Excel behavior):** if the right-clicked cell is INSIDE the current multi-cell selection -> PRESERVE it (operate on the whole range); if OUTSIDE / no selection -> COLLAPSE to the clicked cell via `focusCell` (with `extendIntentRef=false` so `onCellFocus` reduces to a 1x1, never extends from a Shift+right-click). Done BEFORE the menu opens so `activeRect()` points at the right target when a `doX` runs.
+- **Open-time enabled flags (no new reactive state):** `computeMenuFlags(rect)` runs in `onCellContextMenu` and snapshots `{canCopy,canCut,canPaste,canFill}` into a transient `menu` state. **Paste reads the non-reactive `clipboardRef.current` FRESH at open-time** -- a render-time `disabled` prop would read stale; a `hasClipboard` store was NOT lifted. Copy = any copyable cell; Cut = `onBatchWrite` + any writable cell; Paste = `onBatchWrite` + non-empty clipboard; Fill-down = `onBatchWrite` + `rect.bottom > rect.top`. Reuses the SAME `blockFromRect`/`rateWritableAt` the `doX` fns use. Read-only = `onBatchWrite` absent (Cut/Paste/Fill disabled; Copy always allowed -- internal), mirroring Slice A.
+- **Items** show the shortcut hint (`DropdownMenuShortcut` "Ctrl+C/X/V/D") -- the menu TEACHES the binding (the discoverability point); a separator before Fill down. **SCOPE:** undo/redo (the bottom-ribbon buttons) remain Slice B -- NOT in this slice. No new pure helper added (the menu is wiring) -> vitest unchanged at 368, PricingGrid.test.ts 131; tsc 3175 (0 new/0 in touched); in-container Vite build exit 0. OWED owner live-cert: right-click a cell -> menu at cursor; right-click inside a multi-cell selection preserves it / outside collapses; Paste greyed when clipboard empty; Cut/Paste/Fill greyed on a locked sheet (Copy still enabled); menu action === shortcut; Esc + click-away close; works in the frozen + scrolling panes.
+
+**Pricing-grid UNDO/REDO (Phase 5 Slice B -- `undoHistory.ts` [NEW pure leaf] + `PricingGrid.tsx` + `SheetPricingPage.tsx`; full detail: plan "Slice B"):** SESSION-ONLY, delta-based undo/redo for RATE edits. **At Slice B the editor module is functionally complete** (next = the rate-helper arc: pricing engine -> other-BoQ rates -> material/PO/margin). **SCOPE: RATE writes only** -- remark / colour / reconciliation-choice / lock-unlock / version-switch are NOT undoable; a mixed paste records only its rate deltas. In-memory, NO persistence/backend; history clears for free on the `key={sheetName::version}` remount (undoing into a different sheet is incoherent).
+
+- **`undoHistory.ts` is a PURE LEAF** (mirrors clipboard.ts -- type-only imports). Exports + unit-tests (`undoHistory.test.ts`, 16): `emptyHistory`, `pushEntry` (ring buffer `HISTORY_MAX=50`, drops oldest, CLEARS redo on a new push, no-op on an empty-delta gesture), `popUndo`/`popRedo` (return the top entry + reduced stack, null when empty, non-mutating), `canUndo`/`canRedo`, `invert` (swap old<->new, returns a new entry). Types `RateDelta {cell:RateCellSaveArgs, draftKey, oldRate, newRate}` / `HistoryEntry {deltas}` / `HistoryState {undo, redo}`. **ONE-GESTURE-ONE-ENTRY** is the core invariant (an 80-row fill-down = ONE undo entry).
+- **Capture (alongside the EXISTING save funnels -- no new save logic):** single-cell at `commitRate` -- the old value is captured BEFORE the write (past the `rawValue===saved` early-return) and pushed as a 1-delta entry only in the `.then` SUCCESS (a failed write never enters history). Batch at the `doCut`/`doPaste`/`doFillDown` build sites -- a parallel `deltas:(RateDelta|null)[]` aligned 1:1 with `writes` (null = remark), captured where `savedRateNum(targetRow,d)` is in hand (**no `BatchWrite` type change** -- the lower-churn path). **LANDED-ONLY:** `runBatch` now RETURNS the batch promise; the caller reads `outcome.written` and records only `deltas[i]` for `i < written` (handleBatchWrite applies sequentially + breaks on first failure, so the first `written` are exactly the successes -- **`BatchOutcome` already carries `written`, so no extension was needed**).
+- **Replay (through the EXISTING save path -- server-consistent for free):** `undo()` pops the top undo entry, cross-pushes it onto redo, and replays `invert(entry)` (writes the OLD rates); `redo()` pops redo, cross-pushes onto undo, replays the entry as-is (NEW rates). Replay builds `BatchWrite[]` and fires the grid's OWN `runBatch -> onBatchWrite` (ONE trailing mutate). An `isReplayingRef` guard stops the capture path from re-recording a replay (the re-record loop). Each delta is RE-GATED at replay via `isDeltaWritable` (row still present + rate descriptor + `formulasComplete` + `isRateEditableRow` -- the server-mirrored gate, over the FULL descriptor set so column-hide never blocks an undo); a now-non-priceable delta is SKIPPED (clipboard skip posture). A locked / read-only sheet (`onBatchWrite` withheld) -> undo/redo NO-OP, exactly like paste.
+- **Triggers:** keyboard in the `~3012` Ctrl/Cmd block -- `Ctrl/Cmd+Z` undo, `Ctrl/Cmd+Shift+Z` redo, `Ctrl/Cmd+Y` redo (reads `e.shiftKey`), each `preventDefault` so a mid-edit `<input>` does NOT also native-text-undo. Buttons -- two `size="sm"` `Undo2`/`Redo2` icon buttons in the `{!isGridOnly}` bottom ribbon (mirror collapse-all), `disabled={locked || !canUndo/!canRedo}`, calling `gridRef.current.undo()/redo()`.
+- **Plumbing:** `undo`/`redo` added to `PricingGridHandle` + `useImperativeHandle` (delegating to `undoRef`/`redoRef` synced each render, so the handle need not rebuild). `canUndo`/`canRedo` reach the page via a NEW `onHistoryChange?({canUndo,canRedo})` prop fired in an effect on the history stacks changing (the `onDirtyChange` precedent) -> page `historyState` -> the buttons' disabled props. History is grid-local `useState` (+ a synced `historyRef` for the imperative reads), cleared by the remount. **NO new per-row memo prop** (no per-row undo highlight this slice). Tests: vitest 368 -> 384 (+16 `undoHistory.test.ts`); PricingGrid.test.ts unchanged at 131; tsc 3175 (0 new/0 in touched); in-container Vite build exit 0. OWED owner live-cert: type a rate -> Ctrl+Z reverts it / Ctrl+Shift+Z reapplies; paste/fill-down 80 cells -> ONE undo reverts all; cut -> undo restores; undo past 50 gestures drops the oldest; a fresh edit clears redo; locked sheet -> buttons greyed + shortcuts no-op; sheet switch wipes history; a replay onto a now-non-priceable row skips that delta.
+- **`onHistoryChange` FLIP-GATE (Phase 5 perf micro-opt):** the effect now emits to the page ONLY when `canUndo`/`canRedo` actually FLIP, not on every history change. `history` gets a new object per edit, so the un-gated effect fired a fresh `{canUndo,canRedo}` literal each keystroke-commit -> `setHistoryState` re-rendered the page shell every edit even when neither boolean changed. A `prevHistoryFlagsRef` (init `{false,false}` = the page default + empty-history start) is compared each fire; `onHistoryChange` runs only on a difference. **Observable button state is identical** (the page already showed disabled buttons at the `{false,false}` default; every real flip still emits). This is ONLY the redundant-render removal -- NOT the autosave-lag fix (the per-cell `await mutate()` full-sheet refetch + 200-row re-render is a SEPARATE later slice). vitest unchanged at 384 (no new pure logic -- effect gating); tsc 3175 (0 new/0 in touched); in-container Vite build exit 0.
+
+**Autosave-lag fix #1(c) -- STRUCTURAL ROW-IDENTITY MERGE (Phase 5 perf -- `rowMerge.ts` [NEW pure leaf] + `SheetPricingPage.tsx`; full detail: plan "#1(c)"):** the proven lag was the per-cell `await mutate()` full-sheet refetch handing EVERY row a new object reference -> the grid row memo (`prev.row === next.row`) failed for all ~200 rows -> full re-render on every keystroke-commit. The fix merges the refetched rows against the prior array, REUSING the prior row OBJECT for any row a save did not change, so the memo holds and only the edited row re-renders. This is fix **(c)** (identity preserve), NOT (b) -- the refetch still happens and is still awaited; only its RESULT preserves identity.
+
+- **STEP-0 VERIFIED CAPTURE-ONLY (the justification):** `pricing.py save_cell_price` -> `_write_cell_price_record` (`pricing.py:434`) writes ONLY the edited cell's pricing record (rate + `is_filled` marker) + same-row dismissal/recon re-arms (separate doctypes, message-level); the committed tier is NOT mutated. `get_priced_rows._merge_overlays` (`pricing.py:2088`) overlays onto the IMMUTABLE committed base ONLY: per-row `rate_by_area`/`priced_by_area`, scalar `rate_supply|install|combined` + `priced_rate_*`, `remark`, `color_by_cell`. Parent rollups are CLIENT-derived (`SummaryPanel`/`buildChildrenByParent` from the full rows), never folded per-row. So within a (boq, sheet, version) the committed base can't change, and equality on the OVERLAY fields => identical display.
+- **`rowMerge.ts` (PURE leaf, type-only imports; unit-tested `rowMerge.test.ts`, 14):** `mergeRowsPreservingIdentity(prev, next)` -- key by `row_index` (the stable identity, NOT array position), reuse the prior object when present AND `rowOverlayEqual` holds; new row_index -> new object; removed -> absent; empty prev/next -> `next` as-is. `rowOverlayEqual(a, b)` compares the FULL overlay surface -- rate_by_area/priced_by_area (struct/JSON), scalar rate_*/priced_rate_*, **remark + color_by_cell** (added because `save_row_remark`/`save_cell_color` ALSO `await mutate()` the same refetch -- omitting them would show a stale remark/colour). The field-compare is the FALLBACK GUARD: a row whose visible content changed FAILS the compare and correctly re-renders even if STEP 0 missed a case. **Keep `rowOverlayEqual`'s field list in sync with `pricing.py _merge_overlays`.**
+- **The merge sits at the rows transform** (`SheetPricingPage.tsx`, `const rawRows = activeMessage?.rows ?? []` -> `mergeRowsPreservingIdentity(priorRowsForMerge, rawRows)`), with a `prevRowsRef` (last merged array) + a `rowsSourceSigRef`. **SOURCE-SWITCH RESET:** the merge is skipped (prev = `[]`) when the data source flips (current `get_priced_rows` <-> a viewed version `get_version_priced_rows`, signature `v:<n>` vs `current`) -- a different version's committed base must never be reused. Refs are read/written in render (the established `collapsedRef` pattern), no extra render. Returns a NEW array (the O(rows) page maps recompute -- cheap) but reuses unchanged row OBJECTS (the memo win). Nothing downstream relies on the SWR array identity.
+- **NOT fixed (deliberately out of scope):** the page-level O(rows) recomputes (`rowFlags`/`pricedCount`/`byRowIndex`/`displayRows`) still run each render -- a smaller separate cost. **NOT touched:** `handleSaveRate`/`mutate`/`commitRate`/await timing, the grid, the row memo, the backend. Tests: vitest 384 -> 398 (+14 `rowMerge.test.ts`, incl. the SAME-reference-for-unchanged-row identity property); PricingGrid.test.ts 131; tsc 3175 (0 new/0 in touched); in-container Vite build exit 0. OWED owner live-cert (ALL THREE BoQs 145/150/166 -- data render path): edited cell updates without a full-grid flicker; saved rate correct + persists; SummaryPanel/priced-count still update; per-area prefill still works; paste/fill all targets correct; undo/redo correct; sheet/version switch carries no stale rows.
+
+**Save-status reflow fix (Phase 5 polish -- `SheetPricingPage.tsx`, presentational):** the top-ribbon save-status label (Saving... / Saved as of HH:MM / Unsaved changes / Save failed / All changes saved) now has a FIXED FOOTPRINT (`w-40`, sized to the longest normal string "Saved as of HH:MM"), so the Saving<->Saved swap no longer changes its width. WHY: the status sits in a right-pinned status-group (`ml-auto`) inside the right-pinned, `shrink-0` action-button cluster -- so when the status text widened, the cluster grew LEFTWARD and the whole button row (Full screen / Lock / Freeze / Summary / Review / Price-any-row / Save now) shifted left on every edit. A constant-width status pins the cluster. The wrapper is `w-40 overflow-hidden`; each status `<span>` is `min-w-0` with its text in a `truncate` child + a `title=` -- so an unexpectedly-long message stays on ONE line (ellipsis-clipped, full text on hover) and still cannot wrap or shove neighbours. Icons carry `shrink-0`. REFLOW-ONLY: `deriveSaveStatus`, the strings, the timing, and `inFlight`/`lastSavedAt` are UNCHANGED (CSS/className + a title attr only). No new pure logic -> vitest unchanged at 398; tsc 3175 (0 new/0 in touched); in-container Vite build exit 0.

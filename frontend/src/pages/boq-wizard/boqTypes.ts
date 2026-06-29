@@ -1038,6 +1038,84 @@ export interface GetCommittedStateResponse {
 }
 
 /**
+ * One committed version of a sheet, from get_sheet_versions (Phase 5 version-view). The version
+ * SOURCE-OF-TRUTH is the committed grid tier, so this covers grid-only and node versions alike.
+ * Drives the read-only version-history dropdown. `last_change_at` is the max priced/colored/
+ * remarked_at on that version, or null when the version was committed but NEVER priced (a COMMON
+ * case -- the dropdown then falls back to committed_at with a "never priced" affordance).
+ */
+export interface SheetVersionRow {
+  commit_version: number;
+  is_current: boolean;
+  committed_at: string | null;
+  sheet_disposition: "grid_only" | "grid_and_nodes";
+  last_change_at: string | null;
+}
+
+/** Response shape of get_sheet_versions (Phase 5 version-view; versions sorted version-desc). */
+export interface GetSheetVersionsResponse {
+  versions: SheetVersionRow[];
+}
+
+/**
+ * One classified copy-forward plan row (Phase 5 version-view slice 2). outcome: 1 = HARD SKIP
+ * (never written, shown with `reason`), 2 = clean copy (dest empty), 3 = conflict (dest already
+ * has a rate -> the user picks overwrite/keep). `skip_reason` (outcome 1 only) is one of
+ * "non_match" | "no_rate_column" | "non_priceable". `target_col_letter` is the RE-RESOLVED current
+ * column (null on a skip). `current_rate` is the existing current rate (outcome 3 only).
+ */
+export interface CopyForwardPlanRow {
+  excel_row: number;
+  description: string | null;
+  source_rate: number | null;
+  area: string | null;
+  rate_kind: string;
+  outcome: 1 | 2 | 3;
+  skip_reason: "non_match" | "no_rate_column" | "non_priceable" | null;
+  target_col_letter: string | null;
+  current_rate: number | null;
+  reason: string | null;
+}
+
+/** Response shape of get_copy_forward_plan (Phase 5 version-view slice 2). */
+export interface GetCopyForwardPlanResponse {
+  plan: CopyForwardPlanRow[];
+  from_version: number;
+  current_version: number;
+  /** False when the current version still has amount columns without a declared formula (apply blocked). */
+  current_formulas_complete: boolean;
+  counts: {
+    clean: number;
+    conflict: number;
+    non_match: number;
+    no_rate_column: number;
+    non_priceable: number;
+  };
+}
+
+/** One user decision posted to apply_copy_forward. Presence = "copy this cell"; `overwrite` matters only for a conflict. */
+export interface CopyForwardDecision {
+  excel_row: number;
+  area: string | null;
+  rate_kind: string;
+  overwrite?: boolean;
+}
+
+/** Response shape of apply_copy_forward (Phase 5 version-view slice 2). */
+export interface ApplyCopyForwardResponse {
+  ok: boolean;
+  copied: number;
+  conflicts_overwritten: number;
+  conflicts_kept: number;
+  skipped: {
+    non_match: number;
+    no_rate_column: number;
+    non_priceable: number;
+    invalid: number;
+  };
+}
+
+/**
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
  */

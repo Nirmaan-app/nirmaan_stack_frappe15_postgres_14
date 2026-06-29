@@ -69,9 +69,24 @@ export type ReconResolution =
  * for unset):
  *   - no divergence (equal, or either side has no number) -> { diverges: false } (caller keeps
  *     its own non-divergence behavior -- the formula value);
+ *   - DOC-0 EXCEPTION (amendment to D1): the document amount is ~0 -> the FORMULA value wins
+ *     SILENTLY (see below) -> { diverges: false };
  *   - diverges + choice "take_formula" -> the FORMULA value;
  *   - diverges + unset / "keep_document" -> the DOCUMENT value (the D1 default -- document wins
  *     until the user explicitly takes the formula).
+ *
+ * DOC-0 RULE (amendment): when the committed DOCUMENT amount is approximately ZERO
+ * (|doc| within the shared epsilon, via amountsEqual(doc, 0)) it is an ABSENT/blank value, NOT a
+ * client-stated price -- we upload UNPRICED BoQs, so almost every amount cell is doc-0. So the
+ * computed FORMULA value is what should be shown + rolled up, with NO divergence UI. This is
+ * expressed by returning the SAME { diverges: false } a true non-divergence returns: every
+ * consumer already falls through to the formula value when not diverging (rollup rowOwnAmount ->
+ * `return formulaVal`; grid -> `shownAmount` stays `cell.value`; review strip -> not listed), so
+ * doc-0 silently uses the formula with no badge / no strip entry / no chooser -- ONE rule, ONE
+ * place, zero per-consumer special-casing. Placed BEFORE the choice branch so the formula ALWAYS
+ * wins on doc-0 (no keep-document path for the zero case, even if a stale choice is stored).
+ * NON-zero document divergences are UNCHANGED (badge, strip, chooser, overridable). Reaches here
+ * only when amountsDiffer is true, so both values are finite + the formula is a real number.
  */
 export function resolveDivergence(
   documentVal: number | null | undefined,
@@ -80,6 +95,7 @@ export function resolveDivergence(
 ): ReconResolution {
   if (!amountsDiffer(documentVal, formulaVal)) return { diverges: false };
   // amountsDiffer guarantees both are finite numbers here.
+  if (amountsEqual(documentVal as number, 0)) return { diverges: false }; // DOC-0 -> formula wins, silent
   if (choice === "take_formula") {
     return { diverges: true, resolved: "take_formula", value: formulaVal as number };
   }

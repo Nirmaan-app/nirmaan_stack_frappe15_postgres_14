@@ -32,7 +32,11 @@ import math
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows, _build_column_descriptors
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    get_committed_rows,
+    get_committed_rows_at_version,
+    _build_column_descriptors,
+)
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
 
 _PRICING = "BoQ Cell Pricing"
@@ -372,6 +376,111 @@ def _set_sheet_lock(boq_name, sheet_name, committed_version, locked: bool) -> di
     }
 
 
+def _node_priceable_without_override(node_type, node_name, qty) -> bool:
+    """The ASYMMETRIC priceability rule WITHOUT the override (the predicate behind the
+    save_cell_price guard, factored out so copy-forward's plan classifier and the guard share ONE
+    rule -- no drift): a Line Item is ALWAYS priceable; a Preamble is priceable ONLY when qty-bearing
+    ("qty anywhere"); any other type is non-priceable. Mirrors the frontend isRateEditableRow."""
+    if node_type == "Line Item":
+        return True
+    if node_type == "Preamble":
+        return _node_is_qty_bearing(node_name, qty)
+    return False
+
+
+def _resolve_and_guard_cell(boq_name, sheet_name, excel_row, committed_version, allow_non_priceable):
+    """Resolve the committed cell + run the THREE write-gates (deliberate lock, mandatory
+    amount-formula, priceability) -- everything save_cell_price does BEFORE the single-editor lock
+    acquire. Returns the resolved node dict ({name, node_type, qty}); throws on any gate failure
+    (reject-mutates-nothing). Factored out of save_cell_price (UNCHANGED order/behaviour) so the
+    atomic copy-forward apply reuses the IDENTICAL resolve+gate path per cell. NO lock acquire, NO
+    write, NO commit."""
+    # The cell must exist in the committed tier (also yields the node pointer + node_type).
+    node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+    node_name = node["name"]
+
+    # DELIBERATE LOCK GUARD -- a locked sheet rejects EVERY save path; placed first so the "locked"
+    # error wins precedence over the formula/priceability errors.
+    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
+
+    # MANDATORY AMOUNT-FORMULA GATE -- ABSOLUTE, override does NOT bypass it.
+    if not _sheet_formulas_complete(boq_name, sheet_name, committed_version):
+        frappe.throw(
+            "Every amount column on this sheet needs a declared formula before any rate can "
+            "be entered. Define the missing amount formulas first.",
+            title="Formulas incomplete",
+        )
+
+    # PRICEABILITY GUARD (ASYMMETRIC, owner-locked) -- shares _node_priceable_without_override with
+    # the copy-forward plan classifier so the client UX, this boundary, and the plan never drift.
+    # The override unlocks BOTH a zero-qty Preamble AND a non-priceable type.
+    if not _coerce_bool(allow_non_priceable):
+        nt = node.get("node_type")
+        if not _node_priceable_without_override(nt, node_name, node.get("qty")):
+            if nt == "Preamble":
+                frappe.throw(
+                    "This Preamble row has no quantity, so it is not priceable. "
+                    "Enable the override to price it.",
+                    title="Not priceable",
+                )
+            frappe.throw(
+                f"This row is not priceable (node type: {nt or 'unknown'}). "
+                f"Enable the override to price it.",
+                title="Not priceable",
+            )
+    return node
+
+
+def _write_cell_price_record(node_name, boq_name, sheet_name, excel_row, col_letter,
+                             committed_version, rate_val, area, rate_kind, description) -> dict:
+    """Freeze-and-supersede + insert the new current pricing record + the two re-arms -- everything
+    save_cell_price does AFTER the single-editor lock acquire, EXCEPT the trailing commit. Factored
+    out so the atomic copy-forward apply writes N cells under ONE transaction + ONE commit (this
+    NEVER commits; the caller owns the commit/rollback). is_filled is set to 1 unconditionally
+    (a rate of 0.0 is a valid filled price). Returns {name, pricing_version, froze_prior,
+    rearmed_dismissals, rearmed_choices}."""
+    # Freeze any prior current via set_value (NEVER doc.save), then insert the new current.
+    prior = _current_pricing_names(boq_name, sheet_name, excel_row, col_letter, committed_version)
+    for name in prior:
+        frappe.db.set_value(_PRICING, name, "is_current", 0)
+
+    pricing_version = _next_pricing_version(
+        boq_name, sheet_name, excel_row, col_letter, committed_version
+    )
+
+    doc = frappe.new_doc(_PRICING)
+    doc.boq = boq_name
+    doc.sheet_name = sheet_name  # VERBATIM (#152)
+    doc.excel_row = excel_row
+    doc.col_letter = col_letter
+    doc.committed_version = committed_version
+    doc.node = node_name
+    doc.area = area
+    doc.rate_kind = rate_kind
+    doc.description = description
+    doc.rate = rate_val
+    doc.is_filled = 1
+    doc.pricing_version = pricing_version
+    doc.is_current = 1
+    doc.priced_at = frappe.utils.now()
+    doc.is_finalized = 0
+    doc.insert(ignore_permissions=True)
+
+    # RE-ARM dismissals (4 computed kinds, excl. remark) + recon choices (surgical, column-aware) --
+    # a successful rate write is a MATERIAL change; both fire ONLY on the write path (here).
+    rearmed = _rearm_row_dismissals(boq_name, sheet_name, excel_row, committed_version)
+    rearmed_choices = _rearm_cell_recon_choices(
+        boq_name, sheet_name, excel_row, col_letter, committed_version
+    )
+    return {
+        "name": doc.name,
+        "pricing_version": pricing_version,
+        "froze_prior": len(prior),
+        "rearmed_dismissals": rearmed,
+        "rearmed_choices": rearmed_choices,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def save_cell_price(
     boq_name: str = None,
@@ -426,126 +535,37 @@ def save_cell_price(
     except (ValueError, TypeError):
         frappe.throw("rate must be a number.", title="Invalid rate")
 
-    # The cell must exist in the committed tier (also yields the node pointer + node_type).
-    node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
-    node_name = node["name"]
+    # Resolve the cell + run the three gates (deliberate lock, mandatory formula, priceability) --
+    # the shared resolve+guard path. Throws on any gate failure (reject-mutates-nothing) BEFORE the
+    # lock acquire, preserving the original error precedence (lock > formula > priceability).
+    node = _resolve_and_guard_cell(
+        boq_name, sheet_name, excel_row, committed_version, allow_non_priceable
+    )
 
-    # DELIBERATE LOCK GUARD -- AFTER the cell resolve, BEFORE the formula/priceability/lock
-    # gates + freeze/insert (reject-mutates-nothing). A locked sheet rejects EVERY save path;
-    # placed first so the "locked" error wins precedence over the formula/priceability errors.
-    _guard_sheet_not_locked(boq_name, sheet_name, committed_version)
-
-    # MANDATORY AMOUNT-FORMULA GATE -- ABSOLUTE, override does NOT bypass it. Placed AFTER the
-    # committed-cell check (a non-cell still throws first) and OUTSIDE / BEFORE the
-    # allow_non_priceable block below, so the override (which loosens ONLY the type/qty axis)
-    # can NEVER skip it. It sits BEFORE the lock acquire / freeze / insert, so a rejected write
-    # mutates NOTHING (same reject-mutates-nothing discipline as the priceability + lock guards).
-    # Every amount column on this sheet must have a declared formula before ANY rate is editable
-    # -- this REVERSES the F1-F4 'formula optional' property (a zero-amount-column sheet is
-    # trivially complete). Mirrors the frontend priceability.areFormulasComplete.
-    if not _sheet_formulas_complete(boq_name, sheet_name, committed_version):
-        frappe.throw(
-            "Every amount column on this sheet needs a declared formula before any rate can "
-            "be entered. Define the missing amount formulas first.",
-            title="Formulas incomplete",
-        )
-
-    # PRICEABILITY GUARD (Slice 3e + the Preamble qty-bearing gate -- ASYMMETRIC, owner-locked).
-    # Placed AFTER the committed-cell check (a non-cell still throws first) and BEFORE the lock
-    # acquire / the freeze+insert below, so a REJECTED write mutates NOTHING (mirrors the lock
-    # reject-mutates-nothing discipline). The rule:
-    #   - Line Item -> ALWAYS editable (a zero-qty Line Item is a valid rate-only line).
-    #   - Preamble  -> editable ONLY when qty-bearing ("qty anywhere": scalar qty OR any per-area
-    #                  qty non-zero); a zero-qty Preamble (nearly all Preambles) is read-only.
-    #   - any other type ("Other") -> non-priceable.
-    # The override (allow_non_priceable, HTTP-coerced) unlocks BOTH a zero-qty Preamble AND a
-    # non-priceable type -- "price ANY row, ignore the gate". The Preamble/Line-Item asymmetry is
-    # DELIBERATE (do not collapse it to uniformity). The frontend isRateEditableRow mirrors this
-    # EXACTLY so the client UX and this server boundary never drift.
-    if not _coerce_bool(allow_non_priceable):
-        nt = node.get("node_type")
-        if nt == "Line Item":
-            pass  # always priceable
-        elif nt == "Preamble":
-            if not _node_is_qty_bearing(node_name, node.get("qty")):
-                frappe.throw(
-                    "This Preamble row has no quantity, so it is not priceable. "
-                    "Enable the override to price it.",
-                    title="Not priceable",
-                )
-        else:
-            frappe.throw(
-                f"This row is not priceable (node type: {nt or 'unknown'}). "
-                f"Enable the override to price it.",
-                title="Not priceable",
-            )
-
-    # Single-editor lock (acquire-on-first-edit). Placed AFTER the committed-cell check (a
-    # non-cell still throws first) and BEFORE the freeze/insert below, so a REJECTED save
-    # (the sheet is held fresh by ANOTHER user) mutates NOTHING. The lock acquire/refresh/
-    # takeover write shares THIS request's transaction + the single trailing commit below,
-    # so the lock-touch and the price write land atomically together. Holder = session user.
+    # Single-editor lock (acquire-on-first-edit) -- AFTER resolve+guards, BEFORE the write, so a
+    # REJECTED save (the sheet is held fresh by ANOTHER user) mutates NOTHING. The lock-touch shares
+    # THIS request's transaction + the single trailing commit below. Holder = session user.
     acquire_or_refresh(
         boq_name, sheet_name, committed_version, frappe.session.user, now_datetime()
     )
 
-    # Freeze-and-supersede: freeze any prior current via set_value (NEVER doc.save), then
-    # insert the new current under the next pricing version. Mirrors the committed tier.
-    prior = _current_pricing_names(boq_name, sheet_name, excel_row, col_letter, committed_version)
-    for name in prior:
-        frappe.db.set_value(_PRICING, name, "is_current", 0)
-
-    pricing_version = _next_pricing_version(
-        boq_name, sheet_name, excel_row, col_letter, committed_version
-    )
-
-    doc = frappe.new_doc(_PRICING)
-    doc.boq = boq_name
-    doc.sheet_name = sheet_name  # VERBATIM (#152)
-    doc.excel_row = excel_row
-    doc.col_letter = col_letter
-    doc.committed_version = committed_version
-    doc.node = node_name
-    doc.area = area
-    doc.rate_kind = rate_kind
-    doc.description = description
-    doc.rate = rate_val
-    doc.is_filled = 1
-    doc.pricing_version = pricing_version
-    doc.is_current = 1
-    doc.priced_at = frappe.utils.now()
-    doc.is_finalized = 0
-    doc.insert(ignore_permissions=True)
-
-    # RE-ARM (Slice 4b-ACKNOWLEDGE): a successful rate write is a MATERIAL change, so freeze
-    # this row's current dismissals for the four COMPUTED kinds -- the user should re-see the
-    # row's computed review state. Placed AFTER the price insert + BEFORE the single trailing
-    # commit, so it fires ONLY on a successful write (every rejection path -- cell-resolve,
-    # priceability guard, lock reject -- threw earlier and mutated nothing) and lands atomically
-    # with the price under this request's single commit. EXCLUDES flag_kind="remark" (D3).
-    rearmed = _rearm_row_dismissals(boq_name, sheet_name, excel_row, committed_version)
-
-    # RE-ARM (Cluster B, D3 -- SURGICAL, PER-CELL, COLUMN-AWARE): a successful rate write moves
-    # the formula-computed amount of any amount cell whose formula references THIS rate operand,
-    # so clear the stored reconciliation choice for ONLY those cells on this row (NOT the whole
-    # row -- more surgical than the per-row dismissal re-arm). Same placement discipline: AFTER
-    # the price insert, BEFORE the single trailing commit, so it fires ONLY on success. A
-    # cleared choice reverts the cell to 'unset' -> the document value wins by default (D1).
-    rearmed_choices = _rearm_cell_recon_choices(
-        boq_name, sheet_name, excel_row, col_letter, committed_version
+    # Freeze-and-supersede + insert + the two re-arms (no commit inside the helper).
+    written = _write_cell_price_record(
+        node["name"], boq_name, sheet_name, excel_row, col_letter, committed_version,
+        rate_val, area, rate_kind, description,
     )
 
     frappe.db.commit()
 
     return {
         "ok": True,
-        "name": doc.name,
-        "pricing_version": pricing_version,
+        "name": written["name"],
+        "pricing_version": written["pricing_version"],
         "is_current": 1,
         "is_filled": 1,
-        "froze_prior": len(prior),
-        "rearmed_dismissals": rearmed,
-        "rearmed_choices": rearmed_choices,
+        "froze_prior": written["froze_prior"],
+        "rearmed_dismissals": written["rearmed_dismissals"],
+        "rearmed_choices": written["rearmed_choices"],
     }
 
 
@@ -2061,8 +2081,20 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     if not rows or commit_version is None:
         return base
 
+    _merge_overlays(boq_name, sheet_name, commit_version, rows, column_descriptors)
+    return base
+
+
+def _merge_overlays(boq_name, sheet_name, committed_version, rows, column_descriptors) -> None:
+    """Overlay current prices + per-row remarks + per-cell colors onto committed `rows` IN PLACE
+    (factored out of get_priced_rows so the version-view read reuses the IDENTICAL merge). The
+    three reads (get_sheet_pricing / _remarks / _colors) all take committed_version, so this works
+    for ANY committed version -- current OR historical. Mutates `rows`; returns None.
+
+    Behavior preserved from the inline original: in the no-content fast path it returns WITHOUT
+    stamping row["remark"], so a sheet with no overlays leaves rows untouched (no remark key)."""
     pricing = get_sheet_pricing(
-        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
     )["pricing"]
 
     # Index current, FILLED prices by the durable cell key (excel_row, col_letter). The
@@ -2077,18 +2109,18 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     remark_by_row = {
         r["excel_row"]: r["remark"]
         for r in get_sheet_remarks(
-            boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
         )["remarks"]
     }
     colors_by_row: dict = {}
     for c in get_sheet_colors(
-        boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
     )["colors"]:
         colors_by_row.setdefault(c["excel_row"], {})[c["col_letter"]] = c["color"]
 
     # Nothing to merge at all (no prices, no remarks, no colors) -> graceful passthrough.
     if not price_by_cell and not remark_by_row and not colors_by_row:
-        return base
+        return
 
     # Only RATE descriptors are eligible to receive a price (see _SCALAR_RATE_FIELDS doc).
     rate_descs = [
@@ -2122,6 +2154,85 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
                 row[field] = rate_val
                 row["priced_" + field] = True
 
+
+@frappe.whitelist()
+def get_version_priced_rows(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Read-only HISTORY twin of get_priced_rows (Phase 5 version-view). Returns an OLD committed
+    version's rows WITH that version's OWN saved pricing/annotations merged -- the data source for
+    the read-only version-history browser. DISTINCT from get_priced_rows (welded to the CURRENT
+    version -- the live editor hot path, left byte-for-byte unchanged): this is ADDITIVE and takes
+    an explicit committed_version.
+
+    Mirrors get_priced_rows' shape so the grid renders an old version with NO new render code, but
+    forces the read-only posture: editable=False, lock_info=None (a historical read NEVER touches
+    the single-editor lock -- read_lock_info / acquire are not called). column_formulas /
+    dismissals / reconciliation_choices are read for the REQUESTED version (all version-parameterized).
+
+    Graceful empty: a version with no node-tier rows (the node tier and grid tier can carry
+    different version sets) returns empty rows -- the client falls back to the faithful grid
+    (get_committed_sheet_grid, version-parameterized). sheet_name VERBATIM (#152). PURE READ.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    committed_version = _coerce_int(committed_version, "committed_version")
+
+    # Version-aware node read (additive twin; resolves the OLD BoQ Sheet by commit_version).
+    committed = get_committed_rows_at_version(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+    )
+    rows = committed.get("rows") or []
+    column_descriptors = committed.get("column_descriptors") or []
+
+    base = {
+        "rows": rows,
+        "column_descriptors": column_descriptors,
+        "commit_version": committed_version,
+        # READ-ONLY HISTORY: never editable, never touch the lock. The client also forces
+        # read-only via isViewingHistory; editable=False is the server-side belt to that suspenders.
+        "editable": False,
+        "lock_info": None,
+        # Amount formulas / dismissals / reconciliation choices for the REQUESTED version (the
+        # three reads are version-parameterized -- identical shaping to get_priced_rows).
+        "column_formulas": [
+            {
+                "target_value_field": f["target_value_field"],
+                "target_value_key": f["target_value_key"],
+                "target_rate_subkey": f["target_rate_subkey"],
+                "target_col": f["target_col"],
+                "formula": f["formula"],
+            }
+            for f in _current_formula_records(boq_name, sheet_name, committed_version)
+        ],
+        "dismissals": [
+            {"excel_row": d["excel_row"], "flag_kind": d["flag_kind"]}
+            for d in get_sheet_dismissals(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+            )["dismissals"]
+        ],
+        "reconciliation_choices": [
+            {"excel_row": c["excel_row"], "col_letter": c["col_letter"], "choice": c["choice"]}
+            for c in get_sheet_reconciliation_choices(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=committed_version
+            )["choices"]
+        ],
+        # A historical version is intrinsically read-only; is_locked reports its own stored flag
+        # (informational -- the client renders read-only via isViewingHistory regardless).
+        "is_locked": bool(_get_sheet_is_locked(boq_name, sheet_name, committed_version)),
+    }
+
+    # Overlay this version's prices/remarks/colors onto its rows (the shared merge).
+    if rows:
+        _merge_overlays(boq_name, sheet_name, committed_version, rows, column_descriptors)
     return base
 
 
@@ -2213,3 +2324,314 @@ def get_committed_sheet_grid(
         "header_row": sheet_doc.get("header_row") if sheet_doc else None,
         "header_row_count": (sheet_doc.get("header_row_count") if sheet_doc else None) or 1,
     }
+
+
+# ══ Copy-forward (version-view slice 2): carry RATES from an OLD version into CURRENT ══
+# RATES ONLY -- never structure / amount / qty. The user reviews a classified plan BEFORE any
+# write; apply is ATOMIC (one lock acquire + one commit, full rollback on any error). The exact-
+# match gate (source_row_number + description) + the rate-role column re-resolution live SERVER-
+# SIDE (the single source of truth). build-seq item 4, slice 2.
+
+# Stored rate_kind (node-field spelling) <-> scalar rate descriptor value_field. Per-area rate
+# descriptors already carry the SAME spelling as rate_kind (supply_rate/install_rate/combined_rate),
+# so only the SCALAR descriptors need this bridge (value_field rate_supply <-> rate_kind supply_rate).
+_SCALAR_RATEKIND_TO_FIELD = {
+    "supply_rate": "rate_supply",
+    "install_rate": "rate_install",
+    "combined_rate": "rate_combined",
+}
+_SCALAR_FIELD_TO_RATEKIND = {v: k for k, v in _SCALAR_RATEKIND_TO_FIELD.items()}
+
+# Copy-forward outcomes (the plan discriminator). 1 = HARD SKIP (never written, shown with a
+# reason); 2 = clean copy (dest empty); 3 = conflict (dest already filled -> user picks per row).
+_CF_SKIP, _CF_CLEAN, _CF_CONFLICT = 1, 2, 3
+
+
+def _current_rate_column_index(column_descriptors) -> dict:
+    """Build the RESTRICTED (rate-role-only) inverse {(area, rate_kind): col_letter} from a version's
+    column_descriptors -- the load-bearing CF3 safety rule. Per-area rate descriptors key on
+    (value_key=area, rate_subkey) where rate_subkey is the SAME long-form spelling as the stored
+    rate_kind (supply_rate/install_rate/combined_rate); scalar rate descriptors key on
+    (None, <rate_kind>) via _SCALAR_FIELD_TO_RATEKIND. NON-rate roles (amount/qty/append_to_notes)
+    are EXCLUDED by construction -- a GENERIC role inverse is ambiguous (append_to_notes maps one
+    role+area to several letters) but the RATE-role inverse is unambiguous. A duplicate key would
+    mean an ambiguous rate inverse (NOT seen in real data) -> throw rather than silently pick."""
+    index: dict = {}
+    for d in column_descriptors:
+        vf = d.get("value_field")
+        if vf == _PER_AREA_RATE_FIELD:
+            key = (d.get("value_key"), d.get("rate_subkey"))
+        elif vf in _SCALAR_RATE_FIELDS:
+            key = (None, _SCALAR_FIELD_TO_RATEKIND.get(vf))
+        else:
+            continue  # not a rate column -- excluded
+        if key in index:
+            frappe.throw(
+                f"Ambiguous rate column mapping for {key} in the current version "
+                f"(columns {index[key]} and {d.get('col')}). Cannot copy forward safely.",
+                title="Ambiguous rate column",
+            )
+        index[key] = d.get("col")
+    return index
+
+
+@frappe.whitelist()
+def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> dict:
+    """READ-ONLY. Classify EVERY priced cell on `from_version` for copy-forward into the CURRENT
+    committed version of (boq, sheet_name VERBATIM #152). Per cell -> a plan row:
+      {excel_row, description, source_rate, area, rate_kind,
+       outcome: 1|2|3,            # 1 HARD SKIP / 2 clean copy / 3 conflict
+       skip_reason,               # outcome 1 only: non_match | no_rate_column | non_priceable
+       target_col_letter,         # the RE-RESOLVED current column (null on a skip)
+       current_rate,              # the existing current rate (outcome 3 only; else null)
+       reason}                    # human string (outcome 1 only)
+    The exact-match (source_row_number + description vs current), the rate-role column re-resolution
+    (CF3 -- by (area, rate_kind), NEVER the bare col_letter), the priceability re-gate (the current
+    target must be priceable WITHOUT the override), and the dest empty/filled check are ALL computed
+    here (the single source of truth; apply re-derives the same). PURE READ.
+
+    Returns {plan, from_version, current_version, current_formulas_complete, counts}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.get_copy_forward_plan"""
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if from_version is None or from_version == "":
+        frappe.throw("from_version is required.", title="Missing field: from_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    from_version = _coerce_int(from_version, "from_version")
+
+    current_version = frappe.db.get_value(
+        _BOQ_SHEET, {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1}, "commit_version"
+    )
+    if current_version is None:
+        frappe.throw("This sheet has no current committed version to copy into.",
+                     title="Nothing to copy into")
+    if from_version == current_version:
+        frappe.throw("The selected version is already the current version.",
+                     title="Nothing to copy")
+
+    plan = _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version)
+    counts = {"clean": 0, "conflict": 0, "non_match": 0, "no_rate_column": 0, "non_priceable": 0}
+    for r in plan:
+        if r["outcome"] == _CF_CLEAN:
+            counts["clean"] += 1
+        elif r["outcome"] == _CF_CONFLICT:
+            counts["conflict"] += 1
+        else:
+            counts[r["skip_reason"]] += 1
+    return {
+        "plan": plan,
+        "from_version": from_version,
+        "current_version": current_version,
+        "current_formulas_complete": bool(
+            _sheet_formulas_complete(boq_name, sheet_name, current_version)
+        ),
+        "counts": counts,
+    }
+
+
+def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version) -> list:
+    """The shared classifier (get_copy_forward_plan + apply_copy_forward both call it so the plan
+    the user reviewed and the plan apply enforces are IDENTICAL -- no client trust, no drift).
+    Returns the plan rows (see get_copy_forward_plan). PURE READ (no writes)."""
+    # Current version: node descriptions (for exact-match) + the restricted rate-role inverse.
+    current = get_committed_rows(boq_name=boq_name, sheet_name=sheet_name)
+    cur_desc_by_row = {
+        r.get("source_row_number"): r.get("description") for r in (current.get("rows") or [])
+    }
+    rate_index = _current_rate_column_index(current.get("column_descriptors") or [])
+
+    # Current filled cells, by (excel_row, col_letter) -- is_filled is the authoritative signal.
+    cur_filled = {
+        (p["excel_row"], p["col_letter"]): p
+        for p in get_sheet_pricing(
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=current_version
+        )["pricing"]
+        if p.get("is_filled")
+    }
+
+    # Source version: the priced cells (the copy SOURCE) + node descriptions (for exact-match).
+    src_pricing = get_sheet_pricing(
+        boq_name=boq_name, sheet_name=sheet_name, committed_version=from_version
+    )["pricing"]
+    src_desc_by_row = {
+        r.get("source_row_number"): r.get("description")
+        for r in (
+            get_committed_rows_at_version(
+                boq_name=boq_name, sheet_name=sheet_name, committed_version=from_version
+            ).get("rows")
+            or []
+        )
+    }
+
+    plan = []
+    for p in src_pricing:
+        if not p.get("is_filled"):
+            continue
+        excel_row = p["excel_row"]
+        area = p.get("area")
+        rate_kind = p.get("rate_kind")
+        src_desc = src_desc_by_row.get(excel_row)
+        row = {
+            "excel_row": excel_row,
+            "description": src_desc,
+            "source_rate": p.get("rate"),
+            "area": area,
+            "rate_kind": rate_kind,
+            "outcome": _CF_SKIP,
+            "skip_reason": None,
+            "target_col_letter": None,
+            "current_rate": None,
+            "reason": None,
+        }
+        # (1a) EXACT-MATCH -- the current node must exist at this address AND its description match.
+        if excel_row not in cur_desc_by_row:
+            row["skip_reason"] = "non_match"
+            row["reason"] = "This row is not in the current version (moved or removed) -- not copied."
+            plan.append(row); continue
+        if (cur_desc_by_row.get(excel_row) or "") != (src_desc or ""):
+            row["skip_reason"] = "non_match"
+            row["reason"] = "This row's description changed in the current version -- not copied."
+            plan.append(row); continue
+        # (1b) RE-RESOLVE the target rate column by (area, rate_kind) -- NEVER the bare col_letter.
+        target_col = rate_index.get((area, rate_kind))
+        if not target_col:
+            row["skip_reason"] = "no_rate_column"
+            row["reason"] = "This rate column no longer exists in the current version -- not copied."
+            plan.append(row); continue
+        # (1c) PRICEABILITY RE-GATE -- the current target row must be priceable WITHOUT the override.
+        node = _resolve_committed_cell(boq_name, sheet_name, excel_row, current_version)
+        if not _node_priceable_without_override(node.get("node_type"), node["name"], node.get("qty")):
+            row["skip_reason"] = "non_priceable"
+            row["reason"] = "This row is no longer priceable in the current version -- not copied."
+            plan.append(row); continue
+        # (2 / 3) dest EMPTY (clean) vs already FILLED (conflict).
+        row["target_col_letter"] = target_col
+        dest = cur_filled.get((excel_row, target_col))
+        if dest is not None:
+            row["outcome"] = _CF_CONFLICT
+            row["current_rate"] = dest.get("rate")
+        else:
+            row["outcome"] = _CF_CLEAN
+        plan.append(row)
+    return plan
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisions=None) -> dict:
+    """WRITE, ATOMIC. Copy the user-selected source rates into the CURRENT committed version.
+    `decisions` (a JSON string or list over HTTP) = [{excel_row, area, rate_kind, overwrite}, ...]
+    -- presence in the list = "copy this cell"; `overwrite` matters ONLY for a conflict (outcome 3).
+
+    The server RE-DERIVES every row's outcome + target column + source rate via the SHARED classifier
+    (_build_copy_forward_plan) -- a client-supplied outcome / target col / rate is NEVER trusted, so a
+    crafted POST cannot write a wrong column or an outcome-1 row. Sheet-level gates (deliberate lock,
+    mandatory amount-formula) are checked ONCE up front (a failure aborts the WHOLE apply). ONE
+    single-editor-lock acquire on the current version + ONE commit; on ANY error the whole apply ROLLS
+    BACK (no half-written copy). Writes reuse _write_cell_price_record (freeze-and-supersede + re-arms).
+
+    Returns {ok, copied, conflicts_overwritten, conflicts_kept,
+             skipped: {non_match, no_rate_column, non_priceable, invalid}}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.apply_copy_forward"""
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if from_version is None or from_version == "":
+        frappe.throw("from_version is required.", title="Missing field: from_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    from_version = _coerce_int(from_version, "from_version")
+
+    if isinstance(decisions, str):
+        try:
+            decisions = json.loads(decisions or "[]")
+        except (ValueError, TypeError):
+            frappe.throw("decisions must be a JSON list.", title="Invalid decisions")
+    decisions = decisions or []
+    if not isinstance(decisions, list):
+        frappe.throw("decisions must be a list.", title="Invalid decisions")
+
+    current_version = frappe.db.get_value(
+        _BOQ_SHEET, {"boq": boq_name, "sheet_name": sheet_name, "is_current": 1}, "commit_version"
+    )
+    if current_version is None:
+        frappe.throw("This sheet has no current committed version to copy into.",
+                     title="Nothing to copy into")
+    if from_version == current_version:
+        frappe.throw("The selected version is already the current version.",
+                     title="Nothing to copy")
+
+    # The server-side plan, keyed by (excel_row, area, rate_kind) -- the cell identity each decision
+    # references. Re-derived here (NOT from the client) so apply enforces exactly what was classified.
+    plan_by_cell = {
+        (r["excel_row"], r["area"], r["rate_kind"]): r
+        for r in _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version)
+    }
+
+    summary = {
+        "copied": 0,
+        "conflicts_overwritten": 0,
+        "conflicts_kept": 0,
+        "skipped": {"non_match": 0, "no_rate_column": 0, "non_priceable": 0, "invalid": 0},
+    }
+
+    try:
+        # SHEET-LEVEL gates -- checked ONCE (a locked sheet / incomplete formulas aborts the WHOLE
+        # apply, nothing written). Inside the try so any throw rolls back uniformly.
+        _guard_sheet_not_locked(boq_name, sheet_name, current_version)
+        if not _sheet_formulas_complete(boq_name, sheet_name, current_version):
+            frappe.throw(
+                "Every amount column on the current version needs a declared formula before any "
+                "rate can be copied. Define the missing amount formulas first.",
+                title="Formulas incomplete",
+            )
+        # ONE single-editor-lock acquire on the CURRENT version for the whole batch.
+        acquire_or_refresh(
+            boq_name, sheet_name, current_version, frappe.session.user, now_datetime()
+        )
+
+        for d in decisions:
+            if not isinstance(d, dict):
+                summary["skipped"]["invalid"] += 1
+                continue
+            try:
+                excel_row = _coerce_int(d.get("excel_row"), "excel_row")
+            except Exception:
+                summary["skipped"]["invalid"] += 1
+                continue
+            key = (excel_row, d.get("area"), d.get("rate_kind"))
+            r = plan_by_cell.get(key)
+            if r is None:
+                summary["skipped"]["invalid"] += 1  # decision references no real source cell
+                continue
+            if r["outcome"] == _CF_SKIP:
+                summary["skipped"][r["skip_reason"]] += 1  # NEVER written (server-enforced)
+                continue
+            # outcome 2 (clean) or 3 (conflict). A conflict writes ONLY when overwrite is asserted.
+            if r["outcome"] == _CF_CONFLICT and not _coerce_bool(d.get("overwrite")):
+                summary["conflicts_kept"] += 1
+                continue
+            # Resolve the CURRENT node (exists -- exact-match passed) + write via the shared core
+            # (no per-cell commit). The re-resolved target col, the source rate, the source area/
+            # rate_kind. Description = the CURRENT row's (exact-match guarantees it equals source).
+            node = _resolve_committed_cell(boq_name, sheet_name, excel_row, current_version)
+            _write_cell_price_record(
+                node["name"], boq_name, sheet_name, excel_row, r["target_col_letter"],
+                current_version, float(r["source_rate"] or 0.0),
+                r["area"], r["rate_kind"], r["description"],
+            )
+            if r["outcome"] == _CF_CONFLICT:
+                summary["conflicts_overwritten"] += 1
+            else:
+                summary["copied"] += 1
+
+        frappe.db.commit()  # ONE commit for the whole batch
+    except Exception:
+        frappe.db.rollback()  # ATOMIC -- a mid-batch failure leaves NOTHING written
+        raise
+
+    summary["ok"] = True
+    return summary

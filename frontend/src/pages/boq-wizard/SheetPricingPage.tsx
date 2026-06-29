@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,8 +36,10 @@ import type {
   ColorSaveArgs,
   CommittedSheetGridResponse,
   DismissalSaveArgs,
+  ApplyCopyForwardResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
+  GetSheetVersionsResponse,
   PricedRow,
   RateCellSaveArgs,
   ReconChoiceSaveArgs,
@@ -46,6 +48,8 @@ import type {
   RowReviewFlags,
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+import { VersionRibbon } from "./VersionRibbon";
+import { CopyForwardDialog } from "./CopyForwardDialog";
 import {
   PricingGrid,
   buildSearchHits,
@@ -59,6 +63,7 @@ import {
   stepHit,
   type PricingGridHandle,
 } from "./PricingGrid";
+import type { BatchOutcome, BatchWrite } from "./clipboard";
 import {
   areFormulasComplete,
   buildDismissedKeySet,
@@ -72,6 +77,7 @@ import {
   isPriceableLine,
 } from "./priceability";
 import { buildChildrenByParent, collapsedAncestors, collapsibleParents, isHiddenByCollapse, type CollapseRow } from "./collapse";
+import { mergeRowsPreservingIdentity } from "./rowMerge";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SummaryPanel } from "./SummaryPanel";
 
@@ -154,6 +160,41 @@ const SheetPricingPage = () => {
     boqId ? undefined : null,
   );
 
+  // ── Version-view (read-only history browser) ──────────────────────────────────
+  // selectedVersion: null = the CURRENT/live version (today's editable behaviour, unchanged); a
+  // number = an EARLIER committed version shown read-only with its OWN pricing. Reset on a sheet
+  // switch (the [sheetName] effect below) so a new sheet always opens on its live version.
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  // Copy-forward (version-view slice 2): the review-before-apply dialog launched from history mode,
+  // and a transient summary line after a successful apply. Both reset on a sheet switch (below).
+  const [copyForwardOpen, setCopyForwardOpen] = useState(false);
+  const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
+  // The live read's committed version -- the single source of "which version is live".
+  const liveCommitVersion = pricedData?.message?.commit_version ?? null;
+  // History mode iff an EARLIER version than the live one is selected.
+  const isViewingHistory = selectedVersion !== null && selectedVersion !== liveCommitVersion;
+
+  // The committed versions of THIS sheet, for the version dropdown. Source-of-truth = the committed
+  // grid tier (get_sheet_versions), the existing "what versions exist" authority (covers grid-only
+  // sheets + versions the node tier may lack). Disabled until boqId + sheetName are present.
+  const { data: versionsData } = useFrappeGetCall<{ message: GetSheetVersionsResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_sheet_versions",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
+    boqId && sheetName ? undefined : null,
+  );
+
+  // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
+  // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
+  const { data: historyData } = useFrappeGetCall<{ message: GetPricedRowsResponse }>(
+    "nirmaan_stack.api.boq.wizard.pricing.get_version_priced_rows",
+    {
+      boq_name: boqId ?? "",
+      sheet_name: sheetName ?? "", // VERBATIM (#152)
+      committed_version: selectedVersion ?? 0,
+    },
+    isViewingHistory ? undefined : null,
+  );
+
   // General-specs faithful-grid fork: a GRID-ONLY (general-specs) committed sheet commits a
   // faithful grid with ZERO nodes, so the node-based get_priced_rows renders it empty. Detect
   // it via the EXPLICIT sheet_disposition discriminator (NOT by inferring "empty rows"). The
@@ -167,7 +208,11 @@ const SheetPricingPage = () => {
   // commit_version comes from get_priced_rows (it carries it for BOTH dispositions -- a
   // grid-only sheet still has a current committed BoQ Sheet). The faithful-grid fetch is
   // disabled until it's a known grid-only sheet WITH a version.
-  const commitVersionForGrid = pricedData?.message?.commit_version ?? null;
+  // In history mode the faithful grid (grid-only sheets) must read the SELECTED version; else the
+  // live current version. Both are version-parameterized reads, so this just swaps the version arg.
+  const commitVersionForGrid = isViewingHistory
+    ? selectedVersion
+    : pricedData?.message?.commit_version ?? null;
   const { data: gridData } = useFrappeGetCall<{ message: CommittedSheetGridResponse }>(
     "nirmaan_stack.api.boq.wizard.pricing.get_committed_sheet_grid",
     {
@@ -247,6 +292,13 @@ const SheetPricingPage = () => {
   const [inFlight, setInFlight] = useState(0);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [hasUnsaved, setHasUnsaved] = useState(false);
+  // Slice B (undo/redo): the grid's session-history {canUndo, canRedo}, surfaced via onHistoryChange
+  // (the onDirtyChange pattern), driving the bottom-ribbon Undo/Redo buttons' disabled state. The
+  // grid remount on a sheet/version switch re-emits {false,false}; also reset below for immediacy.
+  const [historyState, setHistoryState] = useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
   // Summary panel (parent-tree amount rollups) -- pull-in, computed page-side.
   const [summaryOpen, setSummaryOpen] = useState(false);
   // Priceability override (Slice 3e, per-sheet per-session). Default OFF: a rate cell is
@@ -268,12 +320,27 @@ const SheetPricingPage = () => {
   // sheets is the useful behaviour; the per-sheet reset effect below leaves it alone).
   const [expanded, setExpanded] = useState(false);
 
+  // Frozen-left Slice 1 ("Fork A"): pin the 5 anchor columns (through Description) into a frozen
+  // pane while the descriptor + Remarks columns scroll horizontally. Page-owned per-sheet toggle
+  // (reset on a tab switch below); default OFF = today's single table. Passed to the PricingGrid
+  // only (the grid measures heights at the freeze transition + renders the two-pane split). Gated
+  // OFF for grid-only general-specs sheets (they render via SheetDataGrid, out of scope).
+  const [frozen, setFrozen] = useState(false);
+
   // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
   // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
   // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
   // (which the page has; the grid only gets the filtered displayRows). The grid receives it +
   // childrenByParent + the toggle as GRID-LEVEL props for the chevrons (NOT a row-memo prop, R6).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  // Autosave-perf #1(c): the LAST merged `rows` array + the data-source signature it was built for.
+  // The merge (at the rows transform below) reuses a prior row object for any row a save did not
+  // change, so the grid memo holds and only the edited row re-renders after the inline mutate()
+  // refetch. sourceSigRef guards against merging across DIFFERENT data sources (current <-> a viewed
+  // version): on a source switch the committed base can differ, so prev is reset (no cross-source
+  // reuse). Refs (not state) -- read/written in render, like collapsedRef below; no extra render.
+  const prevRowsRef = useRef<PricedRow[]>([]);
+  const rowsSourceSigRef = useRef<string>("");
   // Refs synced each render (below) so the toggle + reveal callbacks stay reference-stable
   // (useCallback []) -- a stable onRevealRow keeps the grid's jumpToRow / onJumpToRow memo-safe.
   const collapsedRef = useRef(collapsed);
@@ -327,6 +394,9 @@ const SheetPricingPage = () => {
     setLastSavedAt(null);
     setTakenOver(false);
     setSummaryOpen(false);
+    setSelectedVersion(null); // version-view: a new sheet always opens on its live version
+    setCopyForwardOpen(false); // copy-forward dialog is per-sheet
+    setCopyForwardMsg(null);
     setOverride(false); // Slice 3e: the override is per-sheet per-session -- reset on switch
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
@@ -339,6 +409,8 @@ const SheetPricingPage = () => {
     setShowNotes(true);
     setShowSubtotals(true);
     setCollapsed(new Set()); // collapse/expand is per-sheet -- a tab switch starts fully expanded
+    setFrozen(false); // Frozen-left Slice 1: freeze is per-sheet -- a tab switch starts unfrozen
+    setHistoryState({ canUndo: false, canRedo: false }); // Slice B: undo history is per-sheet/version (grid remounts)
   }, [sheetName]);
 
   // Toolbar Part 1 -- search: reset the hit pointer to the first hit whenever the query changes
@@ -408,28 +480,50 @@ const SheetPricingPage = () => {
   // on it). The active tab is the current :sheetName (matched VERBATIM, #152).
   const committedSheets = orderCommittedSheets(committedStateData?.message?.committed_state ?? []);
 
-  // Data derived from the priced-rows fetch.
-  const rows = pricedData?.message?.rows ?? [];
-  const columnDescriptors = pricedData?.message?.column_descriptors ?? [];
-  const columnFormulas = pricedData?.message?.column_formulas ?? []; // F3: per-column amount formulas
-  const dismissals = pricedData?.message?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
-  const reconChoices = pricedData?.message?.reconciliation_choices ?? []; // Cluster B: per-cell choices
-  const commitVersion = pricedData?.message?.commit_version ?? null;
+  // Data derived from the ACTIVE priced-rows payload: the selected EARLIER version (read-only
+  // history, from get_version_priced_rows) when viewing history, else the live current version
+  // (get_priced_rows). The live fetch is unchanged; this is a pure read-source swap. The history
+  // payload carries editable=false, so every downstream edit gate collapses to read-only.
+  const activeMessage = isViewingHistory ? historyData?.message : pricedData?.message;
+  // Autosave-perf #1(c): IDENTITY-PRESERVING MERGE. The inline `await mutate()` after a rate save
+  // refetches the whole sheet -> a fresh `rows` array whose every row is a NEW object, defeating the
+  // grid's row memo (prev.row === next.row) -> all ~200 rows re-render on every edit. Reuse the prior
+  // row object for any row the save did not change (row_index match + overlay fields equal -- see
+  // rowMerge.ts), so the memo holds and only the edited row re-renders. CAPTURE-ONLY backend (STEP 0,
+  // pricing.py) guarantees a save changes only the edited row's returned overlay data; the
+  // field-compare is the fallback guard. Source switch (current <-> a viewed version) resets prev so
+  // a different version's committed base is never reused. (Does NOT fix the O(rows) page recomputes
+  // below -- rowFlags/pricedCount/maps -- a smaller separate cost, deliberately out of scope.)
+  const rawRows = activeMessage?.rows ?? [];
+  const rowsSourceSig = isViewingHistory ? `v:${selectedVersion}` : "current";
+  const priorRowsForMerge = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
+  const rows = mergeRowsPreservingIdentity(priorRowsForMerge, rawRows);
+  prevRowsRef.current = rows;
+  rowsSourceSigRef.current = rowsSourceSig;
+  const columnDescriptors = activeMessage?.column_descriptors ?? [];
+  const columnFormulas = activeMessage?.column_formulas ?? []; // F3: per-column amount formulas
+  const dismissals = activeMessage?.dismissals ?? []; // 4b-ACKNOWLEDGE: current dismissals
+  const reconChoices = activeMessage?.reconciliation_choices ?? []; // Cluster B: per-cell choices
+  const commitVersion = activeMessage?.commit_version ?? null;
   // RESERVED for the future single-editor-lock slice (3b) -- inert in 3a. Threaded into the
   // grid so 3b can gate inline edit on them without reshaping the contract.
-  const editable = pricedData?.message?.editable ?? true;
-  const lockInfo = pricedData?.message?.lock_info ?? null;
+  const editable = activeMessage?.editable ?? true;
+  const lockInfo = activeMessage?.lock_info ?? null;
   // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
   // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
-  const isLocked = pricedData?.message?.is_locked ?? false;
-  const pricedLoading = pricedData === undefined;
-  const pricedError = pricedData === null;
+  const isLocked = activeMessage?.is_locked ?? false;
+  // Loading/error track the ACTIVE source (the history fetch while in history mode).
+  const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
+  const pricedError = isViewingHistory ? historyData === null : pricedData === null;
   // HARD READ-ONLY when held FRESH by another user (backend editable===false), after a mid-edit
   // takeover, OR when the sheet is DELIBERATELY locked. Withholding onSaveRate collapses ALL of
   // the grid's edit gates (the single onSaveRate root gate) to the read-only render -- no per-cell
   // editable check. The deliberate lock is ABSOLUTE: it rides this same boolean, so the override
   // (which lives INSIDE isRateEditableRow, ANDed AFTER onSaveRate) can never reach past it.
-  const locked = editable === false || takenOver || isLocked;
+  // Version-view: an EARLIER version is read-only history -- it rides this SAME choke (no parallel
+  // gate), so withholding the save callbacks below collapses EVERY mutation path to read-only by
+  // construction. The history payload also reports editable=false (server belt to this suspenders).
+  const locked = editable === false || takenOver || isLocked || isViewingHistory;
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -656,6 +750,71 @@ const SheetPricingPage = () => {
     }
   };
 
+  // Slice A (clipboard): the BATCH write path for a paste / cut / fill-down gesture. Fires each
+  // write through the SAME save_cell_price / save_row_remark endpoints as the single-cell saves but
+  // with the per-cell mutate() SUPPRESSED, then does ONE trailing mutate() at the end so markers /
+  // amounts re-derive once (the Q5 finding -- N per-cell mutates would thrash). Mirrors the copy-
+  // forward partial-outcome posture: on a mid-batch failure it STOPS, surfaces which cells failed,
+  // and STILL mutate()s so the grid reflects what DID land (no fake client-side atomicity). Each
+  // write carries its resolved {cell/args, value} -- the single funnel a later Slice-B undo wrapper
+  // can tap. Does NOT reshape handleSaveRate (the inline single-cell path stays byte-for-byte). */
+  const handleBatchWrite = async (writes: BatchWrite[]): Promise<BatchOutcome> => {
+    if (commitVersion === null) {
+      setSaveError("This sheet has no committed version to write to.");
+      return { written: 0, failed: writes.length };
+    }
+    if (writes.length === 0) return { written: 0, failed: 0 };
+    setSaveError(null);
+    setInFlight((n) => n + 1);
+    let written = 0;
+    let failed = 0;
+    let failMsg: string | null = null;
+    try {
+      for (const w of writes) {
+        try {
+          if (w.kind === "rate") {
+            await saveCellPrice({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.cell.excelRow,
+              col_letter: w.cell.colLetter,
+              committed_version: commitVersion,
+              rate: w.rate,
+              area: w.cell.area, // omitted by the SDK when undefined (scalar path)
+              rate_kind: w.cell.rateKind,
+              description: w.cell.description, // copy-forward MATCH GUARD
+              allow_non_priceable: override, // Slice 3e: the asserted per-sheet override
+            });
+          } else {
+            await saveRowRemark({
+              boq_name: boqId, // VERBATIM
+              sheet_name: sheetName, // VERBATIM (#152)
+              excel_row: w.args.excelRow,
+              committed_version: commitVersion,
+              remark: w.args.remark,
+              description: w.args.description,
+            });
+          }
+          written++;
+        } catch (e: unknown) {
+          // Mid-batch failure: STOP (the rest is skipped), remember the reason, surface a takeover
+          // as the takeover banner. The single trailing mutate() below still runs in `finally`.
+          failed = writes.length - written;
+          const msg = getFrappeError(e);
+          if (isTakeoverError(msg)) setTakenOver(true);
+          failMsg = msg || "Some cells could not be saved.";
+          break;
+        }
+      }
+    } finally {
+      await mutate(); // ONE trailing refetch -- markers / amounts re-derive once
+      if (failMsg) setSaveError(`Saved ${written} of ${writes.length}. ${failMsg}`);
+      else setLastSavedAt(new Date());
+      setInFlight((n) => n - 1);
+    }
+    return { written, failed };
+  };
+
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,
   // the strip, AND the priced count. Computed page-side from the rows already in hand (no
@@ -804,6 +963,58 @@ const SheetPricingPage = () => {
           : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
       )}
     >
+      {/* ── Version ribbon (read-only history browser) -- the OUTERMOST band, ABOVE the top
+          ribbon. Shows on ALL sheet types (it sits above the {!isGridOnly} bottom-ribbon gate);
+          renders only when 2+ committed versions exist. Selecting an earlier version drops the
+          whole editor into read-only history mode via the `locked` choke above. */}
+      <VersionRibbon
+        versions={versionsData?.message?.versions ?? []}
+        currentVersion={liveCommitVersion}
+        selectedVersion={selectedVersion}
+        onSelectVersion={(v) => setSelectedVersion(v === liveCommitVersion ? null : v)}
+        isViewingHistory={isViewingHistory}
+        onCopyForward={() => setCopyForwardOpen(true)}
+      />
+
+      {/* Copy-forward review-before-apply dialog (launched from read-only history mode). Writes the
+          selected source rates into the CURRENT version; on success it returns to the live version
+          and refetches so the copied rates show, with a transient summary line. */}
+      {isViewingHistory && selectedVersion !== null && (
+        <CopyForwardDialog
+          open={copyForwardOpen}
+          boqId={boqId ?? ""}
+          sheetName={sheetName}
+          fromVersion={selectedVersion}
+          onClose={() => setCopyForwardOpen(false)}
+          onApplied={(summary: ApplyCopyForwardResponse) => {
+            const skipped =
+              summary.skipped.non_match +
+              summary.skipped.no_rate_column +
+              summary.skipped.non_priceable +
+              summary.skipped.invalid;
+            setCopyForwardMsg(
+              `Copied ${summary.copied} rate${summary.copied === 1 ? "" : "s"}` +
+                (summary.conflicts_overwritten ? `, overwrote ${summary.conflicts_overwritten}` : "") +
+                (summary.conflicts_kept ? `, kept ${summary.conflicts_kept}` : "") +
+                (skipped ? `, skipped ${skipped}` : "") +
+                " into the current version.",
+            );
+            setSelectedVersion(null); // back to the live, editable version
+            void mutate(); // refetch the live rows so the copied rates appear
+          }}
+        />
+      )}
+
+      {copyForwardMsg && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{copyForwardMsg}</span>
+          <button type="button" onClick={() => setCopyForwardMsg(null)} aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
       <div className="flex items-start gap-3">
         <Button
@@ -862,7 +1073,7 @@ const SheetPricingPage = () => {
             )}
             aria-pressed={isLocked}
             onClick={handleToggleLock}
-            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null}
+            disabled={lockToggling || pricedLoading || pricedError || commitVersion === null || isViewingHistory}
             title={
               isLocked
                 ? "This sheet is locked (read-only). Click to unlock and allow edits."
@@ -877,6 +1088,29 @@ const SheetPricingPage = () => {
               <ShieldOff className="h-4 w-4" />
             )}
             {isLocked ? "Unlock" : "Lock"}
+          </Button>
+          {/* Frozen-left Slice 1: pin the anchor columns (through Description) so the descriptor /
+              Remarks columns scroll horizontally past them. State-aware (loud when on); default
+              off. Disabled while loading / on error / with no rows (nothing to freeze). Grid-only
+              sheets never reach here (this whole cluster is gated by !isGridOnly). */}
+          <Button
+            size="sm"
+            variant={frozen ? "default" : "outline"}
+            className={cn(
+              "gap-1.5",
+              frozen && "bg-sky-600 text-white hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-800",
+            )}
+            aria-pressed={frozen}
+            onClick={() => setFrozen((v) => !v)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title={
+              frozen
+                ? "Unfreeze columns -- let every column scroll normally."
+                : "Freeze the left columns (through Description) so the rest scroll horizontally."
+            }
+          >
+            {frozen ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            {frozen ? "Unfreeze" : "Freeze columns"}
           </Button>
           <Button
             size="sm"
@@ -943,33 +1177,44 @@ const SheetPricingPage = () => {
               Moved here from before the action buttons in the two-ribbon reorg; behavior
               (the saveStatus / pricedCount reads) is byte-identical. */}
           <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs">
+          {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
+              status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
+              width -- otherwise the right-pinned status-group widens and the whole ml-auto button
+              cluster shifts left on every edit. overflow-hidden + a `truncate` text child + a
+              `title` keep an unexpectedly-long message on ONE line (clipped with an ellipsis, full
+              text on hover) so it still can't wrap or shove neighbours. Messaging itself unchanged. */}
+          <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
             {saveStatus === "saving" && (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Saving&hellip;
+              <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                <span className="truncate">Saving&hellip;</span>
               </span>
             )}
             {saveStatus === "saved" && lastSavedAt && (
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-                Saved as of {fmtSavedTime(lastSavedAt)}
+              <span
+                className="flex items-center gap-1.5 text-muted-foreground min-w-0"
+                title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
+              >
+                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
               </span>
             )}
             {saveStatus === "unsaved" && (
-              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
-                Unsaved changes
+              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
+                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span className="truncate">Unsaved changes</span>
               </span>
             )}
             {saveStatus === "failed" && (
-              <span className="flex items-center gap-1.5 text-destructive">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Save failed
+              <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Save failed</span>
               </span>
             )}
             {saveStatus === "idle" && (
-              <span className="text-muted-foreground">All changes saved</span>
+              <span className="text-muted-foreground truncate" title="All changes saved">
+                All changes saved
+              </span>
             )}
           </div>
           {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
@@ -1008,8 +1253,10 @@ const SheetPricingPage = () => {
           is VISUALLY DISTINCT from the two amber concurrency banners ("someone else is editing").
           Then: mid-edit takeover > the load-time holder banner (editable===false). A STALE lock
           returns editable===true -> neither amber banner shows. SUPPRESSED for a grid-only sheet
-          (no editing -> no lock; the lock toggle is also absent there). */}
-      {isGridOnly ? null : isLocked ? (
+          (no editing -> no lock; the lock toggle is also absent there). ALSO suppressed in read-only
+          history mode -- the version ribbon's own banner is the read-only surface there (a historical
+          payload reports editable=false, which would otherwise trip the holder banner). */}
+      {isGridOnly || isViewingHistory ? null : isLocked ? (
         <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-teal-300 dark:border-teal-800 bg-teal-50 dark:bg-teal-950/40 text-sm">
           <ShieldCheck className="h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
           <p className="text-teal-900 dark:text-teal-100 flex-1">
@@ -1145,6 +1392,36 @@ const SheetPricingPage = () => {
               <ChevronsUpDown className="h-4 w-4" />
             )}
             {collapsed.size === 0 ? "Collapse all" : "Expand all"}
+          </Button>
+
+          {/* ── Slice B (undo/redo): session history for RATE edits. Two icon buttons mirroring the
+              collapse-all pattern, calling the grid via the imperative handle; disabled from the
+              grid's onHistoryChange-fed {canUndo, canRedo} AND when the sheet is locked/read-only
+              (the grid no-ops there anyway, so greying is honest). History clears on a sheet/version
+              switch (the grid remounts). Shortcuts: Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y). ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={locked || !historyState.canUndo}
+            aria-label="Undo the last rate edit"
+            title="Undo (Ctrl+Z)"
+            onClick={() => gridRef.current?.undo()}
+          >
+            <Undo2 className="h-4 w-4" />
+            Undo
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={locked || !historyState.canRedo}
+            aria-label="Redo the last undone rate edit"
+            title="Redo (Ctrl+Shift+Z or Ctrl+Y)"
+            onClick={() => gridRef.current?.redo()}
+          >
+            <Redo2 className="h-4 w-4" />
+            Redo
           </Button>
 
           {/* ── Toolbar Part 1: description search (input + N-of-M + prev/next cycle). Stepping
@@ -1303,6 +1580,11 @@ const SheetPricingPage = () => {
             This is a general-specifications sheet -- read-only reference. There is nothing to
             price here.
           </span>
+        ) : isViewingHistory ? (
+          <span>
+            You are viewing an earlier committed version (read-only history). Switch back to
+            &ldquo;Current (live)&rdquo; in the version selector above to make changes.
+          </span>
         ) : (
           <span>
             Enter a rate in any rate cell. It auto-saves a second after you stop typing (or on
@@ -1312,8 +1594,9 @@ const SheetPricingPage = () => {
         )}
       </div>
 
-      {/* ── Slice 3e: override-on banner (loud, amber -- the override is a loaded gun). */}
-      {!isGridOnly && override && (
+      {/* ── Slice 3e: override-on banner (loud, amber -- the override is a loaded gun). Suppressed
+          in read-only history mode (the override is inert there -- the whole editor is read-only). */}
+      {!isGridOnly && !isViewingHistory && override && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-xs text-amber-900 dark:text-amber-100 flex-wrap">
           <Unlock className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
           <span>
@@ -1533,7 +1816,9 @@ const SheetPricingPage = () => {
             // Slice 3d: key on the VERBATIM sheetName so a tab switch UNMOUNTS+REMOUNTS the
             // grid -- the existing flush-on-unmount commits the OLD sheet's pending drafts to
             // the OLD sheet, and the NEW sheet gets a clean grid (empty draftRates/proposed).
-            key={sheetName}
+            // version-view: the key also carries the selected version so switching to/from a
+            // read-only historical version cleanly remounts the grid (no stale drafts/scroll).
+            key={`${sheetName}::${selectedVersion ?? "current"}`}
             ref={gridRef}
             // Slice 4b-A: "show only unpriced" filters the RENDERED rows to
             // priceable-but-not-fully-priced. Filtering page-side keeps the grid's nav/byIdx
@@ -1549,6 +1834,9 @@ const SheetPricingPage = () => {
             // Hard read-only: withhold the save fn when locked -> every grid edit gate (the
             // single onSaveRate root gate) collapses to the read-only render.
             onSaveRate={locked ? undefined : handleSaveRate}
+            // Slice A (clipboard): the batch write path for paste / cut / fill-down (ONE trailing
+            // mutate). Withheld when locked -> paste/cut/fill no-op (copy still works, it is internal).
+            onBatchWrite={locked ? undefined : handleBatchWrite}
             // Slice 4a: annotation saves gated on the SAME editability signal as rates --
             // withheld when locked/taken-over so the grid renders remarks/colors read-only.
             onSaveRemark={locked ? undefined : handleSaveRemark}
@@ -1563,6 +1851,9 @@ const SheetPricingPage = () => {
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
             onDirtyChange={setHasUnsaved}
+            // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
+            // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
+            onHistoryChange={setHistoryState}
             override={override}
             // MANDATORY amount-formula gate (per-sheet): when false the grid renders ALL rate
             // cells read-only (ANDed OUTSIDE the override -- override can't bypass it). Default
@@ -1586,6 +1877,10 @@ const SheetPricingPage = () => {
             childrenByParent={childrenByParent}
             onToggleCollapse={toggleCollapse}
             onRevealRow={revealRow}
+            // Frozen-left Slice 1: two-pane frozen-left + measure-at-freeze heights. Page-owned
+            // per-sheet toggle; the grid measures + splits. Gated off for grid-only (this branch
+            // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
+            frozen={frozen}
           />
         )}
         </div>

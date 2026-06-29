@@ -11,6 +11,57 @@
 
 ## Recent slice changelog (relocated header)
 
+**Copy-forward -- carry RATES from an old version into current (FULL-STACK, NO migrate, base tip 863dceb5, 2026-06-26):**
+the WRITE-side of version-view (slice 2). From the read-only history view, the user copies an OLD version's RATES into the
+CURRENT version (rates only; never structure/amount/qty). **Build shape = Option B: server-side plan + ATOMIC apply.**
+**Behavior-preserving extraction of `save_cell_price`** (the live write path stays byte-for-byte -- `test_pricing` 166
+unchanged): `_resolve_and_guard_cell(...)` (resolve + the three gates: deliberate lock, mandatory amount-formula,
+priceability) + `_write_cell_price_record(...)` (freeze-and-supersede + insert + the two re-arms, NO commit); the
+priceability rule is now a shared predicate `_node_priceable_without_override` used by BOTH the guard AND the plan
+classifier (no drift). **The CF3 safety rule** -- `_current_rate_column_index(column_descriptors)` builds the RESTRICTED
+rate-role-only inverse `{(area, rate_kind): col_letter}` (per-area key (area, rate_subkey) -- rate_subkey IS the stored
+rate_kind spelling supply_rate/install_rate/combined_rate; scalar key (None, <kind>) via the `rate_supply<->supply_rate`
+bridge; NON-rate roles excluded because a generic inverse is ambiguous -- append_to_notes maps one role+area to several
+letters); copy-forward re-resolves the target column by (area, rate_kind), NEVER the bare source col_letter. **Endpoints
+(`pricing.py`):** `get_copy_forward_plan(boq, sheet, from_version)` (whitelisted READ-ONLY) classifies every source
+priced cell via the SHARED `_build_copy_forward_plan` -> outcome 1 HARD SKIP (skip_reason non_match | no_rate_column |
+non_priceable) / 2 clean / 3 conflict, with the re-resolved target_col + current_rate; `apply_copy_forward(boq, sheet,
+from_version, decisions)` (whitelisted POST, ATOMIC) RE-DERIVES the plan server-side (client outcome/target/rate NOT
+trusted -- a crafted POST can't write a wrong column or an outcome-1 row), checks sheet-level gates once, does ONE lock
+acquire + ONE commit, and rolls back the WHOLE batch on any error. NO migrate (writes through existing BoQ Cell Pricing).
+`test_pricing` 166 -> 176 (+10 `TestCopyForward`: all outcomes + counts + overwrite/keep + outcome-1-never-written +
+column-drift re-resolution + atomic rollback + guards).
+
+**Version-view -- read-only committed-version history read paths (FULL-STACK, NO migrate, base tip 761c4bf3, 2026-06-26):**
+the pricing editor gains a read-only history browser; the BACKEND adds version-aware READ paths ONLY -- the live-editor hot
+path is byte-for-byte unchanged. **The hot-path problem:** `get_priced_rows`/`get_committed_rows` are welded to the CURRENT
+version (`get_committed_rows` resolves BoQ Sheet + nodes by `is_current=1`); the pricing + grid reads were ALREADY
+version-parameterized (`get_sheet_pricing`/`get_committed_sheet_grid` take `committed_version`) -- only the NODE read was
+hardwired. **`review_screen.py`:** extracted the node-read + row-assembly tail of `get_committed_rows` into a private
+`_assemble_committed_rows(boq, node_filters, column_descriptors, commit_version)` -- the CURRENT path passes
+`{boq, sheet, is_current:1}` (byte-for-byte the prior query; `test_review_screen` 232 unchanged & green). NEW
+`get_committed_rows_at_version(boq, sheet, committed_version)` (`@frappe.whitelist()` bare, READ-ONLY): resolves the BoQ
+Sheet by `commit_version` (ANY is_current -- an old version is is_current=0), rebuilds descriptors from ITS config, reads
+nodes scoped by the resolved version's BoQ Sheet name (no is_current -- that row IS the version); graceful empty (`rows:[]`)
+when the version has no node-tier row (node tier + grid tier can carry different version sets -> client falls back to the
+faithful grid). **`pricing.py`:** extracted the overlay-merge of `get_priced_rows` into `_merge_overlays(boq, sheet, version,
+rows, column_descriptors)` (behavior-preserving; `get_priced_rows` calls it -> `test_pricing` proves equivalence). NEW
+`get_version_priced_rows(boq, sheet, committed_version)` (`@frappe.whitelist()`, READ-ONLY): mirrors `get_priced_rows`' shape
+so the grid renders an old version with NO new render code, but forces the read-only posture -- `editable=False`,
+`lock_info=None` (a historical read NEVER touches the single-editor lock); `column_formulas`/`dismissals`/
+`reconciliation_choices` read for the REQUESTED version (all version-parameterized); reuses `_merge_overlays`. **`commit_gate.py`:**
+NEW `get_sheet_versions(boq, sheet)` (`@frappe.whitelist()`, READ-ONLY) -- the dropdown version list. **Version
+SOURCE-OF-TRUTH = the committed GRID tier** (`BoQ Committed Sheet Grid`, the existing "what versions exist" authority --
+covers grid-only sheets + versions the node tier lacks). Each version carries its last-pricing-change via **reuse of
+`_latest_change_by_sheet_version`** (the Slice-5b staleness helper -- one grouped call returns every version); missing key =
+never-priced -> `last_change_at=None` (the client labels by committed_at + "never priced", a COMMON case: VRF /
+Electrical v1-v2 / HVAC v1-v3). Returns `{"versions":[{commit_version,is_current,committed_at,sheet_disposition,
+last_change_at}]}` version-desc. **FINDING (reported, NOT guarded this slice -- informs copy-forward):** the WRITE endpoints
+(`save_cell_price` etc) take `committed_version` and resolve the cell WITHOUT requiring is_current, so a crafted POST could
+write an OLD version -- BY DESIGN (each version carries its own pricing lifecycle), and version-view adds no write, so no new
+exposure. NO migrate. `test_pricing` 158 -> 166 (+8 `TestGetVersionPricedRows`); `test_commit_gate` 27 -> 33 (+6
+`TestGetSheetVersions`); `test_review_screen` 232 (unchanged -- refactor byte-for-byte).
+
 **Relocated pricing-editor slices (from root CLAUDE.md, 2026-06-26 re-split — these post-2026-06-25-split slices' `docs(record)` commits had bypassed this doc and re-bloated CLAUDE.md):**
 
 **Latest slice (FULL-STACK + MIGRATE
