@@ -913,6 +913,9 @@ export interface SaveReviewEditResponse {
 
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──
 
+// `orphan` is NO LONGER emitted as a structural break (it is a soft advisory flag only);
+// this interface is retained for documentation/back-compat but is intentionally NOT in the
+// StructuralBreak union below.
 export interface StructuralBreakOrphan {
   type: "orphan";
   row_index: number;
@@ -920,11 +923,23 @@ export interface StructuralBreakOrphan {
   reason: string;
 }
 
-export interface StructuralBreakLineItemAsParent {
-  type: "line_item_as_parent";
+// S2 hard gate: the two shared commit-validator breaks (#7 / #8), replacing the retired
+// `line_item_as_parent`. `parent_row_index` is the row's effective_parent_index from the
+// errored plan entry; typed `number | null` defensively (in practice always a real int when
+// either error fires, since the validator only emits these when an in-plan parent exists).
+export interface StructuralBreakPreambleParentLevel {
+  type: "preamble_parent_level";
   row_index: number;
   source_row_number: number;
-  parent_row_index: number;
+  parent_row_index: number | null;
+  reason: string;
+}
+
+export interface StructuralBreakLineItemParentNotPreamble {
+  type: "line_item_parent_not_preamble";
+  row_index: number;
+  source_row_number: number;
+  parent_row_index: number | null;
   reason: string;
 }
 
@@ -936,8 +951,8 @@ export interface StructuralBreakCycle {
 }
 
 export type StructuralBreak =
-  | StructuralBreakOrphan
-  | StructuralBreakLineItemAsParent
+  | StructuralBreakPreambleParentLevel
+  | StructuralBreakLineItemParentNotPreamble
   | StructuralBreakCycle;
 
 /** Response shape of get_structural_breaks. */
@@ -953,17 +968,18 @@ export interface GetStructuralBreaksResponse {
 // ── Finalized marking (Slice D1; renamed A1) ──────────────────────────────────
 
 /**
- * Response shape of mark_sheet_parsed_check_done.
- *  - ok:false + breaks  -> structural issues found; caller escalates to a warn dialog
- *    and may re-POST with confirm:true.
- *  - ok:true + status + overridden -> the sheet is now "Finalized"
- *    (overridden true iff breaks existed but were confirmed past).
+ * Response shape of mark_sheet_parsed_check_done (S2: now a FULLY HARD gate).
+ *  - ok:false + breaks  -> structural breaks (#7 / #8 / cycle) exist; the sheet is NOT
+ *    finalized. There is NO override: the Finalize button is disabled whenever breaks
+ *    exist, so the caller only surfaces an error + refreshes the breaks panel. Re-POSTing
+ *    never bypasses a break -- `confirm` is retained server-side for HTTP back-compat but
+ *    is inert.
+ *  - ok:true + status   -> the sheet is now "Finalized" (only ever when breaks is empty).
  */
 export interface MarkParsedCheckDoneResponse {
   ok: boolean;
   breaks?: StructuralBreak[];
   status?: string;
-  overridden?: boolean;
 }
 
 /** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */

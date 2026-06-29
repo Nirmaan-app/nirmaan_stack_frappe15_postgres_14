@@ -471,6 +471,82 @@ def validate_node_plan(
 
 
 # ---------------------------------------------------------------------------
+# Review-screen bridge -- the SHARED structural ERRORS (#7/#8) as review breaks.
+#
+# S2 (commit-preflight): the REVIEW screen HARD-BLOCKS finalize on the SAME #7/#8 the
+# commit enforces, by reusing build_sheet_node_plan + validate_node_plan here. This is the
+# single bridge so review and commit can NEVER diverge -- both derive from one validator over
+# one human>parser effective tree (review_screen.check_structural_integrity resolves the same
+# ai_*-free field set, so this is byte-for-byte parity with the real commit).
+# ---------------------------------------------------------------------------
+
+# The two BLOCKING structural-error codes validate_node_plan emits (#7 / #8), each mapped to a
+# SHORT review-screen reason (a condensed form of the finding body + what_to_do; the row context
+# "Row N · desc" is supplied by the review tree itself, so it is not repeated here).
+_STRUCTURAL_ERROR_REASON_BY_CODE: dict[str, str] = {
+    # #7 -- a sub-heading (Preamble, level > 1) not filed under a higher-level section heading.
+    "preamble_parent_level": (
+        "This sub-heading isn't under a higher-level section heading — "
+        "re-parent it under a higher-level heading."
+    ),
+    # #8 -- an item under a non-heading row. STRICT SUPERSET of the retired line_item_as_parent:
+    # also catches an item filed under a note/subtotal, not only under another line_item.
+    "line_item_parent_not_preamble": (
+        "This item is under a non-heading row (another item or a note) — "
+        "move it under a section heading."
+    ),
+}
+
+
+def _finding_row_index(finding: dict) -> Any:
+    """Recover a per-row finding's row_index from its group_key ("{code}:{row_index}").
+
+    _row_finding (same module) builds group_key = f"{code}:{row_index}"; neither blocking
+    error code contains a colon, so the trailing segment IS the integer row_index. Returns
+    None if it can't be parsed (defensive -- never raises)."""
+    tail = (finding.get("group_key") or "").rpartition(":")[2]
+    try:
+        return int(tail)
+    except (TypeError, ValueError):
+        return None
+
+
+def structural_errors_for_sheet(boq_name: str, sheet_name: str) -> list[dict]:
+    """The BLOCKING structural ERRORS (#7 / #8) for ONE sheet, in the REVIEW break shape.
+
+    Reuses the SHARED commit validators (build_sheet_node_plan + validate_node_plan over the
+    human>parser effective tree -- the SAME tree the real commit resolves), keeps ONLY the
+    blocking ERROR findings (#7 preamble_parent_level, #8 line_item_parent_not_preamble), and
+    re-shapes each into the review break dict:
+
+      {type: <code>, row_index, source_row_number, parent_row_index, reason}
+
+    parent_row_index is the errored plan entry's parent_index (may be None). declared_areas is
+    irrelevant to #7/#8 (only the #20 area WARNING reads it) so None is passed -- the soft
+    warnings (#15/#16/#20/#22/orphan) are intentionally DROPPED here: the review screen surfaces
+    ERRORS ONLY (the soft warnings stay the commit dialog's job). sheet_name VERBATIM (#152)."""
+    plan, level_warnings = build_sheet_node_plan(boq_name, sheet_name)
+    result = validate_node_plan(plan, None, sheet_name, level_warnings)
+    by_index = {p["row_index"]: p for p in plan}
+
+    breaks: list[dict] = []
+    for finding in result["errors"]:
+        reason = _STRUCTURAL_ERROR_REASON_BY_CODE.get(finding.get("code"))
+        if reason is None:
+            continue  # not one of the two blocking structural errors
+        row_index = _finding_row_index(finding)
+        plan_entry = by_index.get(row_index, {})
+        breaks.append({
+            "type": finding.get("code"),
+            "row_index": row_index,
+            "source_row_number": finding.get("source_row_number"),
+            "parent_row_index": plan_entry.get("parent_index"),
+            "reason": reason,
+        })
+    return breaks
+
+
+# ---------------------------------------------------------------------------
 # Preflight response assembly (this module OWNS the frozen contract; phase 2 wraps it).
 # ---------------------------------------------------------------------------
 

@@ -342,23 +342,29 @@ def resolve_effective(row: Any) -> dict:
 
 def check_structural_integrity(rows: list[dict]) -> list[dict]:
     """
-    Check structural integrity of a parsed sheet using EFFECTIVE values.
+    Check the CYCLE structural break of a parsed sheet using EFFECTIVE values.
 
     Operates on a list of row dicts; each must contain at least:
       row_index, source_row_number, classification, human_classification,
       parent_index, human_parent.
 
-    Two checks (both operate on EFFECTIVE values from resolve_effective):
-      LINE_ITEM_AS_PARENT -- any row whose effective parent is itself a line_item
-                            (line_items cannot be structural parents).
-      CYCLE               -- following effective_parent_index from any row eventually
-                            loops back to that same row.
+    ONE check (operates on EFFECTIVE values from resolve_effective):
+      CYCLE -- following effective_parent_index from any row eventually loops back to
+               that same row.
+
+    The structural ERRORS #7 (a sub-heading not under a higher-level section heading)
+    and #8 (an item under a non-heading row) are NOT computed here -- they come from the
+    SHARED commit validators (commit_validation.structural_errors_for_sheet) so the review
+    screen and the real commit can never diverge (S2 commit-preflight). The old
+    LINE_ITEM_AS_PARENT check was REMOVED: the shared #8 (line_item_parent_not_preamble) is
+    a strict superset -- it also catches an item filed under a note/subtotal, not only under
+    another line_item.
 
     ORPHAN (a line_item with no effective parent group) is NOT a structural break --
     it is a soft, dismissable advisory flag only (see _compute_advisory_flags). Such a
     row simply falls through here producing no break.
 
-    Returns a list of break records (empty list = clean); does NOT modify input rows.
+    Returns a list of CYCLE break records (empty list = clean); does NOT modify input rows.
     """
     # Build effective-resolved lookup indexed by row_index
     rows_by_idx: dict[int, dict] = {}
@@ -383,28 +389,16 @@ def check_structural_integrity(rows: list[dict]) -> list[dict]:
     for entry in eff_entries:
         row_index = entry["row_index"]
         source_row_number = entry["source_row_number"]
-        eff_parent = entry["effective_parent_index"]
 
-        if eff_parent is not None:
-            # LINE_ITEM_AS_PARENT: this row's parent is a line_item.
-            parent_entry = rows_by_idx.get(eff_parent)
-            if parent_entry and parent_entry.get("effective_classification") == "line_item":
-                breaks.append({
-                    "type": "line_item_as_parent",
-                    "row_index": row_index,
-                    "source_row_number": source_row_number,
-                    "parent_row_index": eff_parent,
-                    "reason": "parent row is a line_item; line_items cannot be parents",
-                })
-
-            # CYCLE: following parent chain from this row eventually loops back to it.
-            if _chain_has_cycle(row_index, rows_by_idx):
-                breaks.append({
-                    "type": "cycle",
-                    "row_index": row_index,
-                    "source_row_number": source_row_number,
-                    "reason": "following parent chain from this row creates a cycle",
-                })
+        # CYCLE: following parent chain from this row eventually loops back to it.
+        # (_chain_has_cycle short-circuits to False for a parentless row, so no guard.)
+        if _chain_has_cycle(row_index, rows_by_idx):
+            breaks.append({
+                "type": "cycle",
+                "row_index": row_index,
+                "source_row_number": source_row_number,
+                "reason": "following parent chain from this row creates a cycle",
+            })
 
     return breaks
 
@@ -2530,6 +2524,14 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
         "flags":  [...],   (advisory observations; Slice B2a addition)
       }
 
+    breaks (S2 commit-preflight) = the SHARED structural ERRORS #7 (preamble_parent_level)
+    and #8 (line_item_parent_not_preamble) from commit_validation.structural_errors_for_sheet
+    (the SAME validators the commit runs) MERGED with the CYCLE breaks from
+    check_structural_integrity. These three are the HARD-BLOCK set the finalize gate enforces.
+    The soft advisory observations (orphan / parser / classifier) ride "flags", never "breaks".
+
+    Each break dict: {type, row_index, source_row_number, reason[, parent_row_index]}.
+    Break types: preamble_parent_level (#7), line_item_parent_not_preamble (#8), cycle.
     Each flag dict: {type, row_index, source_row_number, reason}.
     Flag types: classifier_warning, orphan, parser.
     """
@@ -2554,7 +2556,13 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]
-    breaks = check_structural_integrity(rows_as_dicts)
+    # SHARED #7/#8 (commit validators) + CYCLE -- the HARD-BLOCK set. Lazy import avoids the
+    # module-level cycle (commit_validation imports resolve_effective from THIS module at load).
+    from nirmaan_stack.api.boq.wizard.commit_validation import structural_errors_for_sheet
+    breaks = (
+        structural_errors_for_sheet(boq_name, sheet_name)
+        + check_structural_integrity(rows_as_dicts)
+    )
     flags = _compute_advisory_flags(rows_as_dicts)
     return {"breaks": breaks, "flags": flags}
 
@@ -2566,13 +2574,20 @@ def mark_sheet_parsed_check_done(
     confirm=False,
 ) -> dict:
     """
-    Advance a sheet's wizard_status to "Finalized" after an integrity check.
+    Advance a sheet's wizard_status to "Finalized" -- ONLY when it is structurally committable.
 
-    Step 1: run check_structural_integrity against this sheet's BoQ Review Rows.
-    Step 2a: if breaks exist AND confirm is falsy -> return {ok: False, breaks: [...]}.
-             The sheet status is NOT changed (caller shows warn dialog, may re-call with confirm=True).
-    Step 2b: if no breaks, OR breaks exist AND confirm is truthy -> set wizard_status =
-             "Finalized" and return {ok: True, status: "Finalized", overridden: bool}.
+    The gate is FULLY HARD (S2 commit-preflight): the sheet's structural breaks are the SHARED
+    ERRORS #7 (preamble_parent_level) + #8 (line_item_parent_not_preamble) from
+    commit_validation.structural_errors_for_sheet (the SAME validators the commit runs) MERGED
+    with the CYCLE breaks from check_structural_integrity. If ANY break exists the sheet is NOT
+    finalized -- it returns {ok: False, breaks: [...]} REGARDLESS of confirm. There is NO override
+    path: a finalized sheet is guaranteed structurally committable. Finalize happens ONLY when
+    breaks is empty -> set wizard_status = "Finalized", return {ok: True, status: "Finalized"}.
+
+    confirm is RETAINED in the signature for HTTP back-compat only -- it NO LONGER bypasses breaks
+    (the old soft "Mark anyway" override + the "overridden" response flag are RETIRED). The
+    frontend must drop its confirm-true re-call. Soft advisories (orphan / parser / classifier)
+    stay advisory flags and never reach this gate.
 
     Writing directly (NOT via set_sheet_status): set_sheet_status only allows the 5 direct-set
     statuses (Pending, Hidden, Config Done, Skip, Parse failed) -- see _DIRECT_SET_STATUSES in
@@ -2588,10 +2603,9 @@ def mark_sheet_parsed_check_done(
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
-    # Normalize confirm: HTTP POST body may deliver it as a string "true"/"1"/"false"
-    if isinstance(confirm, str):
-        confirm = confirm.lower() in ("true", "1", "yes")
-    confirm = bool(confirm)
+    # confirm is intentionally NOT consulted (S2): the gate is FULLY HARD. The param is kept in
+    # the signature only so existing HTTP callers that still post confirm don't 500 on an
+    # unexpected kwarg; it can never bypass a break.
 
     # Locate the sheet draft child row (same pattern as set_sheet_status / _set_draft_status)
     child_name = frappe.db.get_value(
@@ -2607,8 +2621,8 @@ def mark_sheet_parsed_check_done(
 
     # Slice D1 precondition: ONLY a sheet currently at "Parsed" may be marked checked.
     # Before D1 this endpoint stamped unconditionally (recon-verified); the tightening is
-    # additive -- its existing tests seed "Parsed" sheets so they stay green. Existing
-    # response shapes (ok:false+breaks / ok:true+overridden) are unchanged.
+    # additive -- its existing tests seed "Parsed" sheets so they stay green. Response shapes
+    # are now {ok:false, breaks} (any break blocks) / {ok:true, status} (S2 hard gate).
     current_status = frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")
     if current_status == _SHEET_FINALIZED:
         frappe.throw(
@@ -2632,15 +2646,20 @@ def mark_sheet_parsed_check_done(
     )
     rows_as_dicts = [dict(r) for r in rows]
 
-    breaks = check_structural_integrity(rows_as_dicts)
-    has_breaks = len(breaks) > 0
+    # SHARED #7/#8 (commit validators) + CYCLE -- the HARD-BLOCK set. Lazy import avoids the
+    # module-level cycle (commit_validation imports resolve_effective from THIS module at load).
+    from nirmaan_stack.api.boq.wizard.commit_validation import structural_errors_for_sheet
+    breaks = (
+        structural_errors_for_sheet(boq_name, sheet_name)
+        + check_structural_integrity(rows_as_dicts)
+    )
 
-    if has_breaks and not confirm:
-        # Warn-and-confirm gate: return breaks without changing status.
-        # Caller shows a warn dialog and may re-call with confirm=True.
+    if breaks:
+        # FULLY HARD gate (S2): ANY structural break (#7 / #8 / cycle) blocks finalize,
+        # REGARDLESS of confirm. No override path -- a finalized sheet must be committable.
         return {"ok": False, "breaks": breaks}
 
-    # Write "Finalized" directly -- bypasses set_sheet_status which rejects it
+    # No breaks -> finalize. Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)
     # AI-3c-2a invalidation (rule c-ii, finalize): a finalized sheet is read-only, so every
     # AI-accept revert snapshot + back-pointer on it is discarded (bulk, one filtered write).
@@ -2655,7 +2674,6 @@ def mark_sheet_parsed_check_done(
     return {
         "ok": True,
         "status": _SHEET_FINALIZED,
-        "overridden": has_breaks,
     }
 
 
