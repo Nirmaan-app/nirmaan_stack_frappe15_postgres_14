@@ -115,21 +115,21 @@ export function ApplyVendorCreditDialog({
           </DialogHeader>
 
           <div className="mt-3 flex items-center justify-between gap-4 bg-primary/[0.04] rounded-lg px-4 py-3 border border-primary/10">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                 <IndianRupee className="h-4 w-4 text-primary" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider leading-none mb-1">
                   Pending Payable
                 </p>
-                <p className="text-xl font-bold text-gray-900 leading-none tabular-nums">
+                <p className="text-lg sm:text-xl font-bold text-gray-900 leading-none tabular-nums truncate">
                   {formatToIndianRupee(payableCapacity)}
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5">
+            <div className="text-right min-w-0 shrink-0 max-w-[40%]">
+              <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wide mb-0.5 truncate">
                 {destPo}
               </p>
             </div>
@@ -179,9 +179,9 @@ export function ApplyVendorCreditDialog({
           {/* Source PO list */}
           <div className="space-y-2">
             <label className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
-              Draw credit from
+              Draw credit from{sources.length > 0 ? ` (${sources.length})` : ""}
             </label>
-            <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+            <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
               {sources.length === 0 ? (
                 <div className="text-center py-8 border border-dashed border-gray-200 rounded-lg">
                   <p className="text-gray-400 text-sm">
@@ -201,13 +201,13 @@ export function ApplyVendorCreditDialog({
                   return (
                     <div
                       key={src.po_id}
-                      className={`px-3 py-2.5 rounded-md border transition-all ${
+                      className={`px-3 py-2 sm:py-2.5 rounded-md border transition-all ${
                         isSelected
                           ? "border-primary/30 bg-primary/[0.02]"
                           : "border-gray-100 bg-white hover:border-gray-200"
                       } ${!canSelect ? "opacity-40" : ""}`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-start gap-3 sm:items-center">
                         <button
                           type="button"
                           onClick={() => canSelect && toggleSource(src)}
@@ -223,24 +223,24 @@ export function ApplyVendorCreditDialog({
                           )}
                         </button>
 
-                        <div className="grid grid-cols-3 flex-1 items-center min-w-0 gap-2">
+                        <div className="flex flex-col gap-1 flex-1 min-w-0 sm:grid sm:grid-cols-3 sm:items-center sm:gap-2">
                           <div className="min-w-0">
                             <span className="text-xs font-semibold text-gray-900 truncate block">
                               {src.po_id}
                             </span>
-                            <p className="text-[10px] text-gray-400 mt-0.5 truncate">
+                            <p className="text-[10px] text-primary font-medium mt-0.5 truncate">
                               {src.project_name || src.project}
                             </p>
                           </div>
 
-                          <div className="pl-3 border-l border-gray-100">
+                          <div className="flex items-center justify-between gap-2 sm:block sm:pl-3 sm:border-l sm:border-gray-100">
                             <p className="text-[10px] text-gray-400">Available</p>
                             <p className="text-xs font-semibold text-emerald-600 tabular-nums">
                               {formatToIndianRupee(src.available)}
                             </p>
                           </div>
 
-                          <div className="pl-3 border-l border-gray-100">
+                          <div className="flex items-center justify-between gap-2 sm:block sm:pl-3 sm:border-l sm:border-gray-100">
                             <p className="text-[10px] text-gray-400">Apply</p>
                             {isSelected ? (
                               <input
@@ -250,7 +250,7 @@ export function ApplyVendorCreditDialog({
                                 value={applied || ""}
                                 onChange={(e) => setAmount(src, e.target.value)}
                                 onClick={(e) => e.stopPropagation()}
-                                className="h-7 w-full px-1.5 text-xs font-semibold border border-gray-200 rounded tabular-nums"
+                                className="h-7 w-28 sm:w-full px-1.5 text-xs font-semibold border border-gray-200 rounded tabular-nums"
                               />
                             ) : (
                               <p className="text-xs font-semibold text-gray-300 tabular-nums">

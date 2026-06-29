@@ -64,17 +64,18 @@ export function VendorCreditSummaryCard({
   if (isLoading || !vendorCredit) return null;
   if (!vendorCredit.total_available || vendorCredit.total_available <= 0)
     return null;
+  // No pending payable on this PO (nothing owed) -> nothing to apply credit to ->
+  // hide the banner entirely rather than show a dead "Apply" button.
+  if (payableCapacity <= 0.01) return null;
 
-  const canApplyRole = !!role && APPLY_ROLES.includes(role);
-  const hasCapacity = payableCapacity > 0.01;
-  const canApply = canApplyRole && hasCapacity;
+  const canApply = !!role && APPLY_ROLES.includes(role);
 
   const applyButton = (
     <Button
       size="sm"
       onClick={() => setDialogOpen(true)}
       disabled={!canApply}
-      className="h-8 px-3 gap-1.5 shrink-0"
+      className="h-8 px-3 gap-1.5 w-full justify-center sm:w-auto"
     >
       <ArrowDownToLine className="h-3.5 w-3.5" />
       <span className="text-xs">Apply to this PO</span>
@@ -83,17 +84,17 @@ export function VendorCreditSummaryCard({
 
   return (
     <>
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-start gap-3 min-w-0">
           <div className="h-9 w-9 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
             <Wallet className="h-4 w-4 text-emerald-700" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-emerald-900 leading-tight">
+            <p className="text-sm font-semibold text-emerald-900 leading-snug">
               Adjustment credit available
               {vendorName ? ` from ${vendorName}` : ""}
             </p>
-            <p className="text-[11px] text-emerald-700/80 mt-0.5">
+            <p className="text-xs text-emerald-700/80 mt-0.5">
               {formatToIndianRupee(vendorCredit.total_available)} across{" "}
               {vendorCredit.source_count}{" "}
               {vendorCredit.source_count === 1 ? "PO" : "POs"} for this vendor
@@ -101,7 +102,7 @@ export function VendorCreditSummaryCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto sm:justify-end">
           <Badge
             variant="outline"
             className="hidden sm:inline-flex border-emerald-300 bg-white text-emerald-700 font-semibold tabular-nums"
@@ -117,12 +118,10 @@ export function VendorCreditSummaryCard({
           ) : (
             <Tooltip>
               <TooltipTrigger asChild>
-                <span tabIndex={0}>{applyButton}</span>
+                <span tabIndex={0} className="w-full sm:w-auto">{applyButton}</span>
               </TooltipTrigger>
               <TooltipContent>
-                {!canApplyRole
-                  ? "You don't have permission to apply credit."
-                  : "This PO has no pending payable to apply credit to."}
+                You don't have permission to apply credit.
               </TooltipContent>
             </Tooltip>
           )}
