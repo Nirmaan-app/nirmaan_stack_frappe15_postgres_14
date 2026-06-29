@@ -280,7 +280,13 @@ export const Projects: React.FC<ProjectsProps> = ({
   // Mirrors the "Add New Project" button gating in renderRightActionButton.
   const canSeeTenderingTab =
     user_id === "Administrator" ||
-    ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
+    [
+      "Nirmaan Admin Profile",
+      "Nirmaan PMO Executive Profile",
+      "Nirmaan Sales Executive Profile",
+      "Nirmaan Sales Lead Profile",
+      "Nirmaan Estimates Executive Profile",
+    ].includes(role);
 
   // Tab toggle: "projects" (default operational list) vs "tendering" (stub list).
   // URL-persisted via the `tab` search param so the create form can deep-link.

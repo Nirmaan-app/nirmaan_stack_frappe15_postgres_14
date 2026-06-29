@@ -197,3 +197,135 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
             term.percentage = 0.0
         else:
             term.percentage = (flt(term.amount) / new_total) * 100
+
+
+def _lock_and_assert_source_credit(source_po, amount_needed):
+    """
+    Acquire a row lock (SELECT ... FOR UPDATE) on the SOURCE PO's adjustment row and
+    assert it still holds >= `amount_needed` of overpaid credit.
+
+    The lock serializes concurrent CONSUMERS of the same source's credit (a push and a
+    pull, or two pulls, drawing from the same overpaid PO): the second transaction
+    blocks here until the first commits, then reads the *reduced* balance and is
+    rejected. This is the "don't spend the same coupon twice" guard. Must be called
+    INSIDE the request transaction, before any write, by EVERY consumer (push + pull) —
+    a lock only serializes callers that all take it.
+
+    Returns the available credit. Throws if the source has no adjustment or too little
+    credit left.
+    """
+    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name")
+    if not adj_name:
+        frappe.throw(_("No overpaid credit found on {0}.").format(source_po))
+    # FOR UPDATE lock on the adjustment row; held until the txn commits/rolls back.
+    remaining = flt(frappe.db.get_value(
+        "PO Adjustments", adj_name, "remaining_impact", for_update=True
+    ))
+    available = max(0.0, -remaining)
+    if flt(amount_needed) > available + 0.01:
+        frappe.throw(_(
+            "Only {0} credit remains on {1} (tried to use {2}). "
+            "It may have been used elsewhere — please refresh and retry."
+        ).format(flt(available, 2), source_po, flt(amount_needed, 2)))
+    return available
+
+
+def _lock_and_assert_dest_capacity(dest_po, amount_incoming):
+    """
+    Acquire a row lock on the DESTINATION PO and assert its remaining 'Created' (unpaid)
+    payment terms can still absorb `amount_incoming`.
+
+    Locking the PO row serializes concurrent FILLERS of the same PO (a push target and a
+    pull destination, or two pulls into the same PO): the second transaction blocks here
+    until the first commits, then reads the *reduced* capacity and is rejected. This is
+    the "don't pay the same bill twice" guard. The destination may have no adjustment
+    doc, so we lock the Procurement Orders row itself.
+
+    Returns the absorbable capacity. Throws if it can no longer absorb the amount.
+    """
+    # FOR UPDATE lock on the destination PO row (held until txn commit/rollback).
+    frappe.db.get_value("Procurement Orders", dest_po, "name", for_update=True)
+    capacity = frappe.db.sql("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM "tabPO Payment Terms"
+        WHERE parent = %s AND term_status = 'Created'
+    """, (dest_po,))[0][0] or 0.0
+    capacity = flt(capacity, 2)
+    if flt(amount_incoming) > capacity + 0.01:
+        frappe.throw(_(
+            "{0} can only absorb {1} more (tried to apply {2}). "
+            "Its pending payable changed — please refresh and retry."
+        ).format(dest_po, capacity, flt(amount_incoming, 2)))
+    return capacity
+
+
+def _transfer_credit(source_po, dest_po, amount, vendor):
+    """
+    Apply ₹`amount` of overpaid credit FROM `source_po` INTO `dest_po`
+    (same vendor; the two POs may belong to different projects).
+
+    One complete paired transfer:
+      - DEST leg  : incoming +amount payment + reduce dest's 'Created' terms
+                    (appends a 'Credit PO {source}' Paid term) — settles part of
+                    dest's pending payable.
+      - SOURCE leg: outgoing -amount payment + a 'RA PO {dest}' Return term — the
+                    overpaid credit leaves the source PO.
+      - Appends an 'Against PO' (+amount) child entry to the SOURCE's PO Adjustment.
+
+    Each payment leg is tagged with ITS OWN PO's project (cross-project safe — this
+    is the same paired logic as execute_adjustment's Against-po branch, but with the
+    project mis-tag fixed for this flow).
+
+    Does NOT commit and does NOT recalc amount_paid / remaining_impact / vendor
+    credit — the caller orchestrates those once. Returns the set of affected PO names.
+    """
+    amount = abs(flt(amount))
+    if amount <= 0:
+        return set()
+
+    source_project = frappe.db.get_value("Procurement Orders", source_po, "project")
+    dest_project = frappe.db.get_value("Procurement Orders", dest_po, "project")
+
+    # ── DEST leg: pull credit in (dest plays the 'target' role) ──
+    pay_in = _create_project_payment(
+        po_id=dest_po, project=dest_project, vendor=vendor,
+        amt=amount, status="Paid", utr=source_po
+    )
+    _split_target_po_term(dest_po, amount, pay_in.name, source_po)  # reloads + saves dest
+
+    # ── SOURCE leg: the credit leaves the overpaid PO as a Return ──
+    source_doc = frappe.get_doc("Procurement Orders", source_po)
+    pay_out = _create_project_payment(
+        po_id=source_po, project=source_project, vendor=vendor,
+        amt=-amount, status="Paid", utr=dest_po
+    )
+    _append_return_payment_term(source_doc, pay_out, f"RA PO {dest_po}", -amount)
+
+    # Rebalance source payment-term percentages (total_amount is item-derived, stable)
+    source_doc.calculate_totals_from_items()
+    src_total = flt(source_doc.total_amount)
+    if src_total > 0:
+        for term in source_doc.get("payment_terms", []):
+            if term.term_status == "Return":
+                term.percentage = 0.0
+            else:
+                term.percentage = flt((flt(term.amount) / src_total) * 100, 2)
+    source_doc.flags.ignore_validate_update_after_submit = True
+    source_doc.save(ignore_permissions=True)
+
+    # ── Record the 'Against PO' entry on the SOURCE's adjustment (positive —
+    #    resolves its negative remaining_impact). Caller recalculates once. ──
+    src_adj_name = frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name")
+    if src_adj_name:
+        src_adj = frappe.get_doc("PO Adjustments", src_adj_name)
+        src_adj.append("adjustment_items", {
+            "entry_type": "Against PO",
+            "amount": flt(amount),
+            "description": f"Credit applied to {dest_po}",
+            "timestamp": nowdate(),
+            "project_payment": pay_out.name,
+            "target_po": dest_po,
+        })
+        src_adj.save(ignore_permissions=True)
+
+    return {source_po, dest_po}

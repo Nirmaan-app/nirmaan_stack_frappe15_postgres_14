@@ -69,6 +69,54 @@ export function usePOAdjustment(poId: string | undefined) {
   };
 }
 
+export interface VendorCreditSource {
+  po_id: string;
+  project: string;
+  project_name: string | null;
+  available: number;
+  status: string | null;
+}
+
+export interface VendorAdjustmentCredit {
+  total_available: number;
+  source_count: number;
+  sources: VendorCreditSource[];
+}
+
+/**
+ * Fetches the vendor-wide pool of overpaid adjustment credit (across all the
+ * vendor's POs), excluding the current PO. Powers the top-of-PO summary panel.
+ */
+export function useVendorAdjustmentCredit(
+  vendor: string | undefined,
+  excludePo: string | undefined,
+  enabled = true
+) {
+  const { call } = useFrappePostCall<{ message: VendorAdjustmentCredit }>(
+    PO_ADJUSTMENT_APIS.getVendorCredit
+  );
+
+  const fetcher = useCallback(async () => {
+    if (!vendor) return null;
+    const res = await call({ vendor, exclude_po: excludePo });
+    return res?.message ?? null;
+  }, [vendor, excludePo, call]);
+
+  const { data, error, isLoading, mutate } = useSWR(
+    enabled && vendor
+      ? poAdjustmentKeys.vendorCredit(vendor, excludePo)
+      : null,
+    fetcher
+  );
+
+  return {
+    vendorCredit: data ?? null,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
 /**
  * Fetches candidate POs for "Against-PO" adjustment method.
  */
