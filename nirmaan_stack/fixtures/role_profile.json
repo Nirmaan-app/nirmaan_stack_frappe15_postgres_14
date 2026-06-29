@@ -98,7 +98,7 @@
  {
   "docstatus": 0,
   "doctype": "Role Profile",
-  "modified": "2024-11-30 12:59:30.125953",
+  "modified": "2026-06-29 18:27:09.469212",
   "name": "Nirmaan Estimates Executive Profile",
   "role_profile": "Nirmaan Estimates Executive Profile",
   "roles": [
@@ -107,6 +107,12 @@
     "parentfield": "roles",
     "parenttype": "Role Profile",
     "role": "Nirmaan Estimates Executive"
+   },
+   {
+    "parent": "Nirmaan Estimates Executive Profile",
+    "parentfield": "roles",
+    "parenttype": "Role Profile",
+    "role": "System Manager"
    }
   ]
  },

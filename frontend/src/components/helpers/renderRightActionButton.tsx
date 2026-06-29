@@ -12,6 +12,7 @@ import { useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Badge } from "../ui/badge";
 import { useDialogStore } from "@/zustand/useDialogStore";
+import { canManageTendering } from "@/pages/projects/tendering/tenderingAuth";
 
 interface RenderActionButtonProps {
   locationPath: string;
@@ -53,14 +54,11 @@ export const RenderRightActionButton = ({
   const { toggleNewInflowDialog, toggleNewItemDialog, toggleNewProjectInvoiceDialog, toggleNewNonProjectExpenseDialog, toggleNewProjectExpenseDialog, toggleNewWODialog } = useDialogStore()
 
   if (newButtonRoutes[locationPath]) {
-    // "Add New Project" is gated to Nirmaan Admin + PMO Executive (and the
-    // Administrator user). Same set as canManageTendering — only roles that
-    // can also manage Tendering / Lost / Convert flows.
+    // "Add New Project" uses the shared canManageTendering gate (Admin / PMO /
+    // Estimates Executive, plus the Administrator user) so it stays in sync with
+    // the New-Project route + tendering management. Sales stays excluded (view-only).
     if (locationPath === "/projects") {
-      const canCreateProject =
-        user_id === "Administrator" ||
-        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role);
-      if (!canCreateProject) return null;
+      if (!canManageTendering(role, user_id)) return null;
     }
     const routeInfo = newButtonRoutes[locationPath];
     return (
