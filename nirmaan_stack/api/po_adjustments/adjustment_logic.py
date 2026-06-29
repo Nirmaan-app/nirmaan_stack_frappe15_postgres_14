@@ -13,6 +13,8 @@ from ._payment_utils import (
     _append_return_payment_term,
     _split_target_po_term,
     _transfer_credit,
+    _lock_and_assert_source_credit,
+    _lock_and_assert_dest_capacity,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 
@@ -51,6 +53,21 @@ def execute_adjustment(po_id, adjustments_json):
         original_po = frappe.get_doc("Procurement Orders", po_id)
         affected_target_pos = set()
 
+        # CONCURRENCY GUARD (source side): lock this PO's adjustment row and assert it
+        # still holds enough overpaid credit to cover everything this submission resolves
+        # (Against-PO transfers + Adhoc + Vendor Refund). Prevents a stale dialog or a
+        # concurrent vendor-credit PULL from spending the same credit twice. The PULL
+        # endpoint takes the SAME lock, so the two serialize.
+        total_to_resolve = 0.0
+        for entry in adjustments:
+            if entry.get("return_type") == "Against-po":
+                for t in entry.get("target_pos", []):
+                    total_to_resolve += abs(flt(t.get("amount", 0)))
+            else:
+                total_to_resolve += abs(flt(entry.get("amount", 0)))
+        if flt(total_to_resolve, 2) > 0:
+            _lock_and_assert_source_credit(po_id, flt(total_to_resolve, 2))
+
         for entry in adjustments:
             r_type = entry.get("return_type")
             amount = abs(flt(entry.get("amount", 0)))
@@ -63,6 +80,12 @@ def execute_adjustment(po_id, adjustments_json):
                     t_po_id = target.get("po_number")
                     if not t_po_id or t_amount <= 0:
                         continue
+
+                    # CONCURRENCY GUARD (destination side): lock the target PO and assert
+                    # it can still absorb this credit. Prevents over-paying a PO that is
+                    # being filled from two directions at once (this push target + a
+                    # concurrent pull into the same PO). The PULL takes the SAME lock.
+                    _lock_and_assert_dest_capacity(t_po_id, t_amount)
 
                     # Create adjustment out payment
                     pay_out = _create_project_payment(
@@ -285,7 +308,6 @@ def apply_vendor_credit_to_po(dest_po, allocations_json):
     payment on the source. Atomic: a single commit at the end, rollback on error.
     """
     try:
-        from nirmaan_stack.api.po_revisions.revision_logic import _get_available_po_credit
         from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
 
         allocations = json.loads(allocations_json) if isinstance(allocations_json, str) else allocations_json
@@ -314,28 +336,24 @@ def apply_vendor_credit_to_po(dest_po, allocations_json):
         if not merged:
             frappe.throw(_("No valid allocations provided."))
 
-        # V3: dest 'Created'-term capacity must absorb the total (else _split_target_po_term
-        #     would over-pay the dest with nothing to reduce).
-        dest_capacity = frappe.db.sql("""
-            SELECT COALESCE(SUM(amount), 0)
-            FROM "tabPO Payment Terms"
-            WHERE parent = %s AND term_status = 'Created'
-        """, (dest_po,))[0][0] or 0.0
-        dest_capacity = flt(dest_capacity, 2)
         total_req = flt(sum(merged.values()), 2)
-        if total_req > dest_capacity + 0.01:
-            frappe.throw(_("Total credit {0} exceeds this PO's pending payable {1}.").format(
-                total_req, dest_capacity))
 
-        # V4: per-source vendor match + available-credit check.
-        for src, amt in merged.items():
-            src_vendor = frappe.db.get_value("Procurement Orders", src, "vendor")
-            if src_vendor != vendor:
+        # V3: per-source vendor match (cheap; fail fast before taking any lock).
+        for src in merged:
+            if frappe.db.get_value("Procurement Orders", src, "vendor") != vendor:
                 frappe.throw(_("Source PO {0} belongs to a different vendor.").format(src))
-            available = _get_available_po_credit(src)
-            if amt > available + 0.01:
-                frappe.throw(_("Allocation {0} exceeds available credit {1} on {2}.").format(
-                    amt, flt(available, 2), src))
+
+        # V4 — CONCURRENCY GUARD (source side): lock each source's adjustment row and
+        #     assert it still holds the credit being drawn. Serializes against a
+        #     concurrent push / another pull spending the same credit — the push takes
+        #     the SAME lock, so they can never double-spend. (Source-before-dest order.)
+        for src, amt in merged.items():
+            _lock_and_assert_source_credit(src, amt)
+
+        # V5 — CONCURRENCY GUARD (destination side): lock the destination PO and assert
+        #     it can still absorb the total. Serializes against a concurrent push target /
+        #     pull into the same PO, so this PO can never be over-paid.
+        _lock_and_assert_dest_capacity(dest_po, total_req)
 
         # ── EXECUTE ──
         affected = set()

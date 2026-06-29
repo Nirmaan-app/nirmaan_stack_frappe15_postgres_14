@@ -199,6 +199,66 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
             term.percentage = (flt(term.amount) / new_total) * 100
 
 
+def _lock_and_assert_source_credit(source_po, amount_needed):
+    """
+    Acquire a row lock (SELECT ... FOR UPDATE) on the SOURCE PO's adjustment row and
+    assert it still holds >= `amount_needed` of overpaid credit.
+
+    The lock serializes concurrent CONSUMERS of the same source's credit (a push and a
+    pull, or two pulls, drawing from the same overpaid PO): the second transaction
+    blocks here until the first commits, then reads the *reduced* balance and is
+    rejected. This is the "don't spend the same coupon twice" guard. Must be called
+    INSIDE the request transaction, before any write, by EVERY consumer (push + pull) —
+    a lock only serializes callers that all take it.
+
+    Returns the available credit. Throws if the source has no adjustment or too little
+    credit left.
+    """
+    adj_name = frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name")
+    if not adj_name:
+        frappe.throw(_("No overpaid credit found on {0}.").format(source_po))
+    # FOR UPDATE lock on the adjustment row; held until the txn commits/rolls back.
+    remaining = flt(frappe.db.get_value(
+        "PO Adjustments", adj_name, "remaining_impact", for_update=True
+    ))
+    available = max(0.0, -remaining)
+    if flt(amount_needed) > available + 0.01:
+        frappe.throw(_(
+            "Only {0} credit remains on {1} (tried to use {2}). "
+            "It may have been used elsewhere — please refresh and retry."
+        ).format(flt(available, 2), source_po, flt(amount_needed, 2)))
+    return available
+
+
+def _lock_and_assert_dest_capacity(dest_po, amount_incoming):
+    """
+    Acquire a row lock on the DESTINATION PO and assert its remaining 'Created' (unpaid)
+    payment terms can still absorb `amount_incoming`.
+
+    Locking the PO row serializes concurrent FILLERS of the same PO (a push target and a
+    pull destination, or two pulls into the same PO): the second transaction blocks here
+    until the first commits, then reads the *reduced* capacity and is rejected. This is
+    the "don't pay the same bill twice" guard. The destination may have no adjustment
+    doc, so we lock the Procurement Orders row itself.
+
+    Returns the absorbable capacity. Throws if it can no longer absorb the amount.
+    """
+    # FOR UPDATE lock on the destination PO row (held until txn commit/rollback).
+    frappe.db.get_value("Procurement Orders", dest_po, "name", for_update=True)
+    capacity = frappe.db.sql("""
+        SELECT COALESCE(SUM(amount), 0)
+        FROM "tabPO Payment Terms"
+        WHERE parent = %s AND term_status = 'Created'
+    """, (dest_po,))[0][0] or 0.0
+    capacity = flt(capacity, 2)
+    if flt(amount_incoming) > capacity + 0.01:
+        frappe.throw(_(
+            "{0} can only absorb {1} more (tried to apply {2}). "
+            "Its pending payable changed — please refresh and retry."
+        ).format(dest_po, capacity, flt(amount_incoming, 2)))
+    return capacity
+
+
 def _transfer_credit(source_po, dest_po, amount, vendor):
     """
     Apply ₹`amount` of overpaid credit FROM `source_po` INTO `dest_po`
