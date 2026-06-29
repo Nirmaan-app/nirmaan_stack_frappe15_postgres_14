@@ -309,11 +309,13 @@ const WARN_FLAG_LABELS: Record<string, string> = {
   classifier_warning: "classifier warning",
 };
 const WARN_FLAG_ORDER = ["orphan", "parser", "classifier_warning"];
-// R4: labels for the must-fix structural-break group (from check_structural_integrity).
-// `orphan` is NO LONGER a structural break (demoted to a soft advisory flag) -- it lives only
-// in WARN_FLAG_LABELS now; the must-fix group is line_item_as_parent + cycle.
+// R4 / S2: labels for the must-fix structural-break group. Breaks are now ERRORS-ONLY (the
+// HARD-BLOCK set): #7 preamble_parent_level + #8 line_item_parent_not_preamble (shared commit
+// validators, replacing the retired line_item_as_parent) + cycle. `orphan` is NO LONGER a break
+// (demoted to a soft advisory flag) -- it lives only in WARN_FLAG_LABELS now.
 const WARN_BREAK_LABELS: Record<string, string> = {
-  line_item_as_parent: "Line item used as a parent",
+  preamble_parent_level: "Sub-heading not under a higher-level heading",
+  line_item_parent_not_preamble: "Item not under a section heading",
   cycle: "Parent cycle",
 };
 
@@ -1321,7 +1323,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     <div className="space-y-3">
       {/* ── R4: Warnings panel ───────────────────────────────────────────────────
           A clickable list of rows needing attention, ONE entry per row. Structural BREAKS
-          (must-fix: line_item_as_parent, cycle, orphan) group distinctly ABOVE the softer
+          (must-fix: preamble_parent_level, line_item_parent_not_preamble, cycle) group distinctly ABOVE the softer
           advisory flags. Clicking an entry reveals + scrolls to that row (revealAndScrollToRow:
           expand collapsed ancestors, smooth scroll block:'nearest', 1.5s amber pulse -- no focus).
           The count + "– N cleared" rollup (evolved from the SheetReviewPage strip) lives in the
@@ -1401,7 +1403,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           {w.breaks.map(b => b.reason).join(" · ")}
                         </span>
                         {/* R2: advisory flags riding on a must-fix row (e.g. a classifier note on a
-                            line_item_as_parent) still surface here, in amber, so they are never hidden. */}
+                            structural-break row) still surface here, in amber, so they are never hidden. */}
                         {w.flags.length > 0 && (
                           <span className="mt-1 flex flex-col gap-0.5">
                             <span className="flex flex-wrap items-center gap-1">

@@ -579,18 +579,19 @@ class TestCheckStructuralIntegrity(unittest.TestCase):
                 self.assertEqual(check_structural_integrity(rows), [],
                                  f"{cls} with no parent must not be a structural break")
 
-    def test_line_item_as_parent_flagged(self):
+    def test_item_under_line_item_no_longer_a_pure_break(self):
+        """An item whose parent is a line_item is NO LONGER a break from
+        check_structural_integrity (S2): the old LINE_ITEM_AS_PARENT check was REMOVED.
+        Detection moved to the SHARED commit validator #8 (line_item_parent_not_preamble),
+        exercised at the DB level in TestMarkSheetParsedCheckDone / TestGetStructuralBreaks."""
         rows = [
             self._row(0, "preamble", parent=None),
             self._row(1, "line_item", parent=0),
-            self._row(2, "line_item", parent=1),  # parent is a line_item -> LINE_ITEM_AS_PARENT
+            self._row(2, "line_item", parent=1),  # parent is a line_item -> shared #8 (DB), not here
         ]
-        breaks = check_structural_integrity(rows)
-        types = [b["type"] for b in breaks]
-        self.assertIn("line_item_as_parent", types)
-        lp = next(b for b in breaks if b["type"] == "line_item_as_parent")
-        self.assertEqual(lp["row_index"], 2)
-        self.assertEqual(lp["parent_row_index"], 1)
+        self.assertEqual(check_structural_integrity(rows), [],
+                         "check_structural_integrity must no longer flag item-under-line_item "
+                         "(the shared #8 validator owns it now)")
 
     def test_cycle_detected_for_all_cycle_members(self):
         """A 2-node cycle (0->1, 1->0) produces CYCLE breaks for both nodes."""
@@ -1731,14 +1732,18 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
 
 class TestMarkSheetParsedCheckDone(FrappeTestCase):
     """
-    Verifies the confirm-gate (ok:False when breaks + confirm=False) and the
-    status transition to "Finalized" with correct overridden flag.
+    Verifies the FULLY HARD finalize gate (S2): ANY structural break blocks finalize
+    regardless of confirm -- the soft "Mark anyway" override + "overridden" flag are RETIRED.
 
-    CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
-    OrphanSheet: orphan line_item (row 0, parent=None) -> NO break (orphan is a soft
-                 advisory now, not a structural break) -> finalises without confirm.
-    BreakSheet: line_item-as-parent (row 2's parent is a line_item) -> LINE_ITEM_AS_PARENT
-                break -> still triggers the warn-and-confirm gate.
+    CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks -> finalises.
+    OrphanSheet: orphan line_item (row 0, parent=None) -> NO break (orphan is a soft advisory
+                 now, not a structural break) -> finalises.
+    BreakSheet: an item under a line_item (row 2's parent is a line_item) -> SHARED #8
+                (line_item_parent_not_preamble) break -> blocks finalize.
+    NoteParentSheet: an item under a NOTE (#8b) -> SHARED #8 break -> blocks finalize (proves
+                the shared #8 is a strict superset of the retired line_item_as_parent).
+    PreambleParentSheet: a level-3 sub-heading under a line_item (#7 preamble_parent_level) ->
+                blocks finalize.
     """
 
     @classmethod
@@ -1750,15 +1755,13 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "CheckDone Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.append("sheet_drafts", {
-            "sheet_name": "CleanSheet", "sheet_order": 1, "wizard_status": "Parsed",
-        })
-        boq.append("sheet_drafts", {
-            "sheet_name": "OrphanSheet", "sheet_order": 2, "wizard_status": "Parsed",
-        })
-        boq.append("sheet_drafts", {
-            "sheet_name": "BreakSheet", "sheet_order": 3, "wizard_status": "Parsed",
-        })
+        for i, name in enumerate((
+            "CleanSheet", "OrphanSheet", "BreakSheet",
+            "NoteParentSheet", "PreambleParentSheet",
+        ), start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
+            })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
@@ -1774,11 +1777,27 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             _minimal_row("OrphanSheet", 0, "line_item", parent_index=None),
         ])
 
-        # BreakSheet: line_item-as-parent -> a real structural break (still gates finalise)
+        # BreakSheet: item under a line_item -> SHARED #8 break (line_item_parent_not_preamble)
         _insert_rows(cls.boq_name, [
             _minimal_row("BreakSheet", 0, "preamble", parent_index=None),
             _minimal_row("BreakSheet", 1, "line_item", parent_index=0),
             _minimal_row("BreakSheet", 2, "line_item", parent_index=1),  # parent is a line_item
+        ])
+
+        # NoteParentSheet (#8b): an item filed under a NOTE -> SHARED #8 (proves the superset).
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NoteParentSheet", 0, "note", parent_index=None),
+            _minimal_row("NoteParentSheet", 1, "line_item", parent_index=0),  # parent is a note
+        ])
+
+        # PreambleParentSheet (#7): a level-3 sub-heading whose parent is a line_item (not a
+        # strictly-shallower section heading) -> SHARED #7 (preamble_parent_level).
+        pp_row = _minimal_row("PreambleParentSheet", 2, "preamble", parent_index=1)
+        pp_row["level"] = 3  # real >=1 level -> derive_node_type_and_level keeps level 3 (>1)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("PreambleParentSheet", 0, "preamble", parent_index=None),
+            _minimal_row("PreambleParentSheet", 1, "line_item", parent_index=0),
+            pp_row,
         ])
 
     @classmethod
@@ -1790,7 +1809,10 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
 
     def setUp(self):
         """Reset all sheet statuses to 'Parsed' before each test."""
-        for sheet_name in ("CleanSheet", "OrphanSheet", "BreakSheet"):
+        for sheet_name in (
+            "CleanSheet", "OrphanSheet", "BreakSheet",
+            "NoteParentSheet", "PreambleParentSheet",
+        ):
             child = frappe.db.get_value(
                 "BoQ Sheet Draft",
                 {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
@@ -1813,22 +1835,20 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "Finalized")
-        self.assertFalse(result["overridden"],
-                         "overridden must be False when there are no breaks")
+        self.assertNotIn("overridden", result,
+                         "the retired 'overridden' flag must no longer appear in the response")
         self.assertEqual(self._get_wizard_status("CleanSheet"), "Finalized",
                          "wizard_status must be written to 'Finalized'")
 
     def test_orphan_only_sheet_finalises_without_confirm(self):
         """An orphan line_item is a soft advisory now, NOT a structural break -- so a sheet
-        whose only issue is orphans has empty breaks and finalises without warn-and-confirm."""
+        whose only issue is orphans has empty breaks and finalises (no break to block on)."""
         result = mark_sheet_parsed_check_done(
             boq_name=self.boq_name, sheet_name="OrphanSheet", confirm=False,
         )
         self.assertTrue(result["ok"],
-                        "orphan-only sheet must finalise (no structural break, no confirm needed)")
+                        "orphan-only sheet must finalise (no structural break)")
         self.assertEqual(result["status"], "Finalized")
-        self.assertFalse(result["overridden"],
-                         "overridden must be False -- there were no breaks to override")
         self.assertEqual(self._get_wizard_status("OrphanSheet"), "Finalized",
                          "orphan-only sheet must reach 'Finalized' on the first call")
 
@@ -1839,22 +1859,50 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         self.assertFalse(result["ok"])
         self.assertIn("breaks", result)
         self.assertGreater(len(result["breaks"]), 0)
-        self.assertEqual(result["breaks"][0]["type"], "line_item_as_parent",
-                         "BreakSheet has a line_item-as-parent -- expect that structural break")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "BreakSheet has an item under a line_item -- expect the SHARED #8 break")
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
-                         "Status must NOT change when breaks exist and confirm=False")
+                         "Status must NOT change when breaks exist")
 
-    def test_break_confirm_true_ok_true_overridden_true(self):
-        """Calling with confirm=True overrides the integrity warning and sets the status."""
+    def test_break_confirm_true_still_hard_blocks(self):
+        """S2 HARD gate: confirm=True does NOT override a structural break. The sheet stays
+        Parsed and breaks are returned -- the old soft 'Mark anyway' override is RETIRED."""
         result = mark_sheet_parsed_check_done(
             boq_name=self.boq_name, sheet_name="BreakSheet", confirm=True,
         )
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["status"], "Finalized")
-        self.assertTrue(result["overridden"],
-                        "overridden must be True when breaks existed and user confirmed past them")
-        self.assertEqual(self._get_wizard_status("BreakSheet"), "Finalized",
-                         "wizard_status must be written to 'Finalized' when confirmed")
+        self.assertFalse(result["ok"],
+                         "confirm=True must NOT bypass a structural break under the hard gate")
+        self.assertIn("breaks", result)
+        self.assertGreater(len(result["breaks"]), 0)
+        self.assertNotIn("overridden", result,
+                         "the retired 'overridden' flag must no longer appear")
+        self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
+                         "wizard_status must remain 'Parsed' -- a break can never be confirmed past")
+
+    def test_note_parent_item_hard_blocks(self):
+        """#8b: an item filed under a NOTE is caught by the SHARED #8 (strict superset of the
+        retired line_item_as_parent) and HARD-BLOCKS finalize regardless of confirm."""
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="NoteParentSheet", confirm=True,
+        )
+        self.assertFalse(result["ok"], "an item under a note must block finalize")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "an item under a note must surface the SHARED #8 break")
+        self.assertEqual(self._get_wizard_status("NoteParentSheet"), "Parsed")
+
+    def test_preamble_parent_level_hard_blocks(self):
+        """#7: a level-3 sub-heading whose parent is not a strictly-shallower section heading
+        surfaces the SHARED #7 (preamble_parent_level) and HARD-BLOCKS finalize."""
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="PreambleParentSheet", confirm=True,
+        )
+        self.assertFalse(result["ok"], "a #7 preamble-parent error must block finalize")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("preamble_parent_level", types,
+                      "a misfiled sub-heading must surface the SHARED #7 break")
+        self.assertEqual(self._get_wizard_status("PreambleParentSheet"), "Parsed")
 
     # -- Slice D1 mark precondition (M1/M2) ----------------------------------
 
@@ -1898,6 +1946,10 @@ class TestGetStructuralBreaks(FrappeTestCase):
       CleanSheet2: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
       OrphanSheet2: orphan line_item (row 0, parent=None, source_row_number=5) -> NO break
                     (orphan is a soft advisory now) but DOES surface an orphan advisory flag.
+      PreambleParentSheet2 (#7): a level-3 sub-heading under a line_item -> surfaces the SHARED
+                    #7 (preamble_parent_level) break.
+      NoteParentSheet2 (#8b): an item under a note -> surfaces the SHARED #8
+                    (line_item_parent_not_preamble) break.
 
     Naming is distinct from TestMarkSheetParsedCheckDone fixtures (CleanSheet / BreakSheet)
     so both test classes can coexist in the same test database run without interference.
@@ -1912,12 +1964,12 @@ class TestGetStructuralBreaks(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "StructBreaks Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.append("sheet_drafts", {
-            "sheet_name": "CleanSheet2", "sheet_order": 1, "wizard_status": "Parsed",
-        })
-        boq.append("sheet_drafts", {
-            "sheet_name": "OrphanSheet2", "sheet_order": 2, "wizard_status": "Parsed",
-        })
+        for i, name in enumerate((
+            "CleanSheet2", "OrphanSheet2", "PreambleParentSheet2", "NoteParentSheet2",
+        ), start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
+            })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
@@ -1932,6 +1984,21 @@ class TestGetStructuralBreaks(FrappeTestCase):
         _insert_rows(cls.boq_name, [
             _minimal_row("OrphanSheet2", 0, "line_item", parent_index=None,
                          source_row_number=5),
+        ])
+
+        # PreambleParentSheet2 (#7): level-3 sub-heading whose parent is a line_item.
+        pp_row = _minimal_row("PreambleParentSheet2", 2, "preamble", parent_index=1)
+        pp_row["level"] = 3
+        _insert_rows(cls.boq_name, [
+            _minimal_row("PreambleParentSheet2", 0, "preamble", parent_index=None),
+            _minimal_row("PreambleParentSheet2", 1, "line_item", parent_index=0),
+            pp_row,
+        ])
+
+        # NoteParentSheet2 (#8b): an item filed under a note.
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NoteParentSheet2", 0, "note", parent_index=None),
+            _minimal_row("NoteParentSheet2", 1, "line_item", parent_index=0),
         ])
 
     @classmethod
@@ -1978,6 +2045,31 @@ class TestGetStructuralBreaks(FrappeTestCase):
         status_after = self._get_wizard_status("OrphanSheet2")
         self.assertEqual(status_before, status_after,
                          "get_structural_breaks must not write wizard_status")
+
+    def test_preamble_parent_level_surfaced_as_break(self):
+        """S2: a #7 misfiled sub-heading surfaces as a SHARED preamble_parent_level break
+        (with parent_row_index) via the merged commit validators -- not as a soft flag."""
+        result = get_structural_breaks(
+            boq_name=self.boq_name, sheet_name="PreambleParentSheet2")
+        self.assertIn("breaks", result)
+        pp = [b for b in result["breaks"] if b["type"] == "preamble_parent_level"]
+        self.assertEqual(len(pp), 1,
+                         "exactly one #7 preamble_parent_level break is expected")
+        self.assertEqual(pp[0]["row_index"], 2, "the level-3 sub-heading is row_index 2")
+        self.assertEqual(pp[0]["parent_row_index"], 1,
+                         "parent_row_index is the offending parent (the line_item at row 1)")
+        self.assertTrue(pp[0]["reason"], "a #7 break must carry a human-readable reason")
+
+    def test_item_under_note_surfaced_as_shared_8(self):
+        """#8b: an item under a note surfaces the SHARED #8 (line_item_parent_not_preamble) --
+        proving the generalized check is a strict superset of the retired line_item_as_parent."""
+        result = get_structural_breaks(
+            boq_name=self.boq_name, sheet_name="NoteParentSheet2")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "an item under a note must surface the SHARED #8 break")
+        self.assertNotIn("line_item_as_parent", types,
+                         "the retired line_item_as_parent break type must no longer appear")
 
 
 # ===========================================================================

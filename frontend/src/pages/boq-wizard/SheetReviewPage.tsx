@@ -43,19 +43,10 @@ import type {
   GetStructuralBreaksResponse,
   MarkParsedCheckDoneResponse,
   RunGeminiPassResponse,
-  StructuralBreak,
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
-
-// Slice D1: human-readable labels for structural-break types shown in the mark
-// warn-and-confirm escalation dialog.
-const BREAK_TYPE_LABELS: Record<string, string> = {
-  orphan: "Orphan line item",
-  line_item_as_parent: "Line item used as a parent",
-  cycle: "Parent cycle",
-};
 
 // AI-3a: readable messages for run_ai_pass's {ok:false, error} pre-flight rejections.
 const AI_REJECT_MSGS: Record<string, string> = {
@@ -132,10 +123,11 @@ const SheetReviewPage = () => {
     boqId && sheetName ? undefined : null,
   );
 
-  // R4: structural BREAKS for the warnings panel. Fetched alongside the advisory flags (which
-  // ride get_review_rows above). breaks are the "must-fix" group (line_item_as_parent, cycle,
-  // orphan); the panel inside ReviewTree groups them distinctly above the softer advisories.
-  // Read-only endpoint -- no write, no status change. Same disable-until-params guard.
+  // R4 / S2: structural BREAKS for the warnings panel. Fetched alongside the advisory flags (which
+  // ride get_review_rows above). breaks are the "must-fix" HARD-BLOCK group (preamble_parent_level,
+  // line_item_parent_not_preamble, cycle); the panel inside ReviewTree groups them distinctly above
+  // the softer advisories, and their presence disables the Finalize button (the server hard-blocks
+  // any break). Read-only endpoint -- no write, no status change. Same disable-until-params guard.
   const { data: breaksData, mutate: breaksMutate } = useFrappeGetCall<{ message: GetStructuralBreaksResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.get_structural_breaks",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
@@ -444,41 +436,46 @@ const SheetReviewPage = () => {
     message: UnmarkParsedCheckDoneResponse;
   }>("nirmaan_stack.api.boq.wizard.review_screen.unmark_sheet_parsed_check_done");
 
-  // Mark dialog: markBreaks === null -> light confirm; non-null -> breaks escalation.
+  // S2: Mark dialog is now a plain confirm -- the Finalize button is disabled whenever
+  // structural breaks exist (the must-fix panel shows what to fix), so there is NO
+  // "Mark anyway" escalation/override.
   const [markDialogOpen, setMarkDialogOpen] = useState(false);
-  const [markBreaks, setMarkBreaks] = useState<StructuralBreak[] | null>(null);
   const [markError, setMarkError] = useState<string | null>(null);
   const [unmarkDialogOpen, setUnmarkDialogOpen] = useState(false);
   const [unmarkError, setUnmarkError] = useState<string | null>(null);
 
   const openMarkDialog = () => {
-    setMarkBreaks(null);
     setMarkError(null);
     setMarkDialogOpen(true);
   };
   const closeMarkDialog = () => {
     setMarkDialogOpen(false);
-    setMarkBreaks(null);
     setMarkError(null);
   };
 
-  // POST mark; confirm=false on the first pass (light confirm), confirm=true to
-  // override structural breaks (escalation "Mark anyway"). ok:false+breaks -> escalate.
-  const confirmMark = async (override: boolean) => {
+  // POST mark. The server is now a FULLY HARD gate: it finalizes only when zero structural
+  // breaks exist, otherwise it returns {ok:false, breaks}. The Finalize button is already
+  // disabled whenever breaks exist, so ok:false here is only a defensive race (a break
+  // appeared between the breaks fetch and this POST). There is NO override -- on ok:false we
+  // surface an error and refresh the breaks panel so the button re-disables.
+  const confirmMark = async () => {
     setMarkError(null);
     try {
       const res = await markCall({
         boq_name: boqId ?? "",
         sheet_name: sheetName ?? "", // VERBATIM #152
-        confirm: override,
       });
       const msg = res.message;
       if (msg.ok) {
         closeMarkDialog();
         void boqMutate();
       } else {
-        // Structural issues -> switch the same dialog to the escalation view.
-        setMarkBreaks(msg.breaks ?? []);
+        // Defensive: a structural break appeared after the panel last refreshed. Keep the
+        // dialog open, explain, and re-fetch breaks so the must-fix panel + disabled gate update.
+        setMarkError(
+          "Structural issues were found on this sheet. Fix the must-fix items listed on the review screen, then try again.",
+        );
+        void breaksMutate();
       }
     } catch (e: unknown) {
       setMarkError(getFrappeError(e) || "Could not mark the sheet. Please try again.");
@@ -603,12 +600,20 @@ const SheetReviewPage = () => {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
+          {/* S2 hard gate: Finalize is DISABLED whenever any structural break exists. The
+              must-fix panel (ReviewTree warnings) lists exactly what to fix; the server
+              hard-blocks any break so there is no override. Advisory flags (orphan / parser /
+              classifier) never block Finalize. */}
           {sheetStatus === "Parsed" && (
             <Button
               size="sm"
               variant="outline"
               className="gap-1.5"
               onClick={openMarkDialog}
+              disabled={reviewLoading || breaks.length > 0}
+              title={breaks.length > 0
+                ? "Fix the must-fix structural issues listed above before finalizing."
+                : undefined}
             >
               <ShieldCheck className="h-4 w-4" />
               Mark Finalized
@@ -833,40 +838,24 @@ const SheetReviewPage = () => {
         />
       )}
 
-      {/* ── Slice D1: Mark dialog -- light confirm, escalates to breaks warn ──── */}
+      {/* ── Slice D1 (S2 hard gate): Mark dialog -- plain confirm, no override ──── */}
       <AlertDialog open={markDialogOpen} onOpenChange={(o) => { if (!o) closeMarkDialog(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {markBreaks ? "Structural issues found" : "Mark this sheet as Finalized?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Mark this sheet as Finalized?</AlertDialogTitle>
             <AlertDialogDescription>
-              {markBreaks
-                ? "These structural issues may corrupt downstream pricing. You can mark the sheet anyway, or cancel and fix them first."
-                : "This marks the sheet's parsed data as review-complete. The sheet becomes read-only until un-marked."}
+              This marks the sheet&rsquo;s parsed data as review-complete. The sheet becomes read-only until un-marked.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {markBreaks && markBreaks.length > 0 && (
-            <ul className="max-h-48 overflow-y-auto space-y-1 rounded-md border border-border bg-muted/30 p-2 text-xs">
-              {markBreaks.map((b, i) => (
-                <li key={i} className="text-foreground leading-snug">
-                  <span className="font-medium">{BREAK_TYPE_LABELS[b.type] ?? b.type}</span>
-                  <span className="text-muted-foreground"> &middot; Excel row {b.source_row_number}</span>
-                  {": "}{b.reason}
-                </li>
-              ))}
-            </ul>
-          )}
           {markError && <p className="text-sm text-destructive">{markError}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={markLoading}>Cancel</AlertDialogCancel>
-            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend
-                error or to switch to the escalation view. */}
+            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend error. */}
             <Button
               disabled={markLoading}
-              onClick={() => { void confirmMark(markBreaks !== null); }}
+              onClick={() => { void confirmMark(); }}
             >
-              {markBreaks ? "Mark anyway" : "Mark as Finalized"}
+              Mark as Finalized
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
