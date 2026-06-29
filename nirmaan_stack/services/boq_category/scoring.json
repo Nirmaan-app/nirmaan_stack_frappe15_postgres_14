@@ -1,0 +1,24 @@
+{
+  "version": "1.0-provisional",
+  "note": "The confidence model for the category runner. ALL numbers here are DATA - the runner hardcodes none of them. Provisional; recalibrate against team verdicts + AI agreement once the prompt-2 harness produces labelled samples. See runner.py docstring for the algorithm these knobs drive.",
+
+  "cap": 1.0,
+  "_cap_doc": "Per-category score ceiling. A line can pile up many rule weights; cap keeps every score in 0-1 so bands stay comparable across categories.",
+
+  "agreement_bonus": 0.15,
+  "_agreement_doc": "Added ONCE to a category's score when it is supported by >=2 DISTINCT signal_types (e.g. an item_keyword AND an ancestor section header agree). Independent kinds of evidence agreeing is stronger than two keywords of the same kind, so this nudges agreeing categories toward HIGH.",
+
+  "conflict_margin": 0.6,
+  "_conflict_margin_doc": "The runner-up is treated as a genuine competitor when its score >= top_score * conflict_margin. At 0.6 a clearly-dominant top (runner-up < 60% of it) is left alone; a close second triggers the conflict penalty below.",
+
+  "conflict_penalty": 0.3,
+  "_conflict_penalty_doc": "When a genuine competitor exists, the top category's score is multiplied by (1 - conflict_penalty). This pushes a contested two-way down a band (e.g. 0.6 -> 0.42 = LOW) and forces the reason to name both candidates for human review.",
+
+  "bands": {
+    "high": 0.75,
+    "med": 0.45
+  },
+  "_bands_doc": "Final (post-conflict) top score -> band. HIGH >= 0.75; MED >= 0.45 and < 0.75; LOW > 0 and < 0.45; ABSTAIN == 0 (no positive signal, or every candidate was excluded) -> category_id 'novel'.",
+
+  "novel_category_id": "novel"
+}
