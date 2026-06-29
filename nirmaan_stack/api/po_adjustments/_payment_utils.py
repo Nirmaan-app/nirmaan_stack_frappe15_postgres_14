@@ -197,3 +197,75 @@ def _reduce_payment_terms_lifo(original_po, reduction_needed, new_total):
             term.percentage = 0.0
         else:
             term.percentage = (flt(term.amount) / new_total) * 100
+
+
+def _transfer_credit(source_po, dest_po, amount, vendor):
+    """
+    Apply ₹`amount` of overpaid credit FROM `source_po` INTO `dest_po`
+    (same vendor; the two POs may belong to different projects).
+
+    One complete paired transfer:
+      - DEST leg  : incoming +amount payment + reduce dest's 'Created' terms
+                    (appends a 'Credit PO {source}' Paid term) — settles part of
+                    dest's pending payable.
+      - SOURCE leg: outgoing -amount payment + a 'RA PO {dest}' Return term — the
+                    overpaid credit leaves the source PO.
+      - Appends an 'Against PO' (+amount) child entry to the SOURCE's PO Adjustment.
+
+    Each payment leg is tagged with ITS OWN PO's project (cross-project safe — this
+    is the same paired logic as execute_adjustment's Against-po branch, but with the
+    project mis-tag fixed for this flow).
+
+    Does NOT commit and does NOT recalc amount_paid / remaining_impact / vendor
+    credit — the caller orchestrates those once. Returns the set of affected PO names.
+    """
+    amount = abs(flt(amount))
+    if amount <= 0:
+        return set()
+
+    source_project = frappe.db.get_value("Procurement Orders", source_po, "project")
+    dest_project = frappe.db.get_value("Procurement Orders", dest_po, "project")
+
+    # ── DEST leg: pull credit in (dest plays the 'target' role) ──
+    pay_in = _create_project_payment(
+        po_id=dest_po, project=dest_project, vendor=vendor,
+        amt=amount, status="Paid", utr=source_po
+    )
+    _split_target_po_term(dest_po, amount, pay_in.name, source_po)  # reloads + saves dest
+
+    # ── SOURCE leg: the credit leaves the overpaid PO as a Return ──
+    source_doc = frappe.get_doc("Procurement Orders", source_po)
+    pay_out = _create_project_payment(
+        po_id=source_po, project=source_project, vendor=vendor,
+        amt=-amount, status="Paid", utr=dest_po
+    )
+    _append_return_payment_term(source_doc, pay_out, f"RA PO {dest_po}", -amount)
+
+    # Rebalance source payment-term percentages (total_amount is item-derived, stable)
+    source_doc.calculate_totals_from_items()
+    src_total = flt(source_doc.total_amount)
+    if src_total > 0:
+        for term in source_doc.get("payment_terms", []):
+            if term.term_status == "Return":
+                term.percentage = 0.0
+            else:
+                term.percentage = flt((flt(term.amount) / src_total) * 100, 2)
+    source_doc.flags.ignore_validate_update_after_submit = True
+    source_doc.save(ignore_permissions=True)
+
+    # ── Record the 'Against PO' entry on the SOURCE's adjustment (positive —
+    #    resolves its negative remaining_impact). Caller recalculates once. ──
+    src_adj_name = frappe.db.get_value("PO Adjustments", {"po_id": source_po}, "name")
+    if src_adj_name:
+        src_adj = frappe.get_doc("PO Adjustments", src_adj_name)
+        src_adj.append("adjustment_items", {
+            "entry_type": "Against PO",
+            "amount": flt(amount),
+            "description": f"Credit applied to {dest_po}",
+            "timestamp": nowdate(),
+            "project_payment": pay_out.name,
+            "target_po": dest_po,
+        })
+        src_adj.save(ignore_permissions=True)
+
+    return {source_po, dest_po}

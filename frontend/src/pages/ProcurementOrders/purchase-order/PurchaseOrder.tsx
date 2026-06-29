@@ -95,6 +95,7 @@ import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
 import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
+import { VendorCreditSummaryCard } from "@/pages/POAdjustment/VendorCreditSummaryCard";
 import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
 import {
   MergePOTable,
@@ -798,6 +799,20 @@ export const PurchaseOrder = ({
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
+
+      {poId && PO?.vendor && (
+        <VendorCreditSummaryCard
+          poId={poId}
+          vendor={PO.vendor}
+          vendorName={PO.vendor_name}
+          paymentTerms={PO.payment_terms}
+          role={userData?.role}
+          onApplied={() => {
+            poMutate();
+            poPaymentsMutate();
+          }}
+        />
+      )}
 
       {MERGEPOVALIDATIONS && !isItemLocked && (
         <>
