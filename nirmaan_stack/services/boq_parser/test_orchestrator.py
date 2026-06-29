@@ -569,6 +569,89 @@ class TestPreHeaderSkip(unittest.TestCase):
 
 
 # ================================================================ #
+# ADR 0008 — Double (2-row) header: first data row no longer skipped #
+# ================================================================ #
+
+
+class TestDoubleHeaderFirstDataRowKept(unittest.TestCase):
+    """
+    ADR 0008 — for a Double header (header_row_count=2) the row at header_row + 1
+    is the FIRST DATA ROW, not a second header tier. The second tier sits ABOVE
+    header_row (named via top_header_rows_override / read by area-detection) and is
+    excluded by the `row >= header_row` guard. The orchestrator must therefore KEEP
+    header_row + 1. Regression guard for the old `skip_rows.add(header_row + 1)`
+    that silently ate the first data row for 2-row headers.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import (
+            generate_pattern_2_rate,
+            generate_simple,
+        )
+        generate_pattern_2_rate()
+        generate_simple()
+        # synthetic_pattern_2_rate.xlsx: header_row=2, header_row_count=2.
+        # Row 3 (= header_row + 1) is the 'Electrical works' data row the old code
+        # wrongly skipped; row 4 is 'Civil works' (the only one the old code kept).
+        cls._double_result = parse_boq(_p("synthetic_pattern_2_rate.xlsx"), _pattern_2_rate_config())
+        # synthetic_simple.xlsx: header_row=1, header_row_count=1 (single header).
+        cls._single_result = parse_boq(_p("synthetic_simple.xlsx"), _simple_config())
+
+    def test_double_header_first_data_row_kept(self):
+        """
+        header_row=2, header_row_count=2: the row at header_row + 1 (Excel row 3,
+        'Electrical works') is now present as a LINE_ITEM — previously skipped — so
+        data begins at header_row + 1.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        sheet = self._double_result.sheets[0]
+
+        # The formerly-skipped first data row is present at Excel row 3 = header_row + 1.
+        row_3 = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number == 3
+        ]
+        self.assertEqual(len(row_3), 1, "Row 3 (header_row + 1) must be present after the fix")
+        self.assertEqual(
+            row_3[0].classified_row.classification,
+            RowClassification.LINE_ITEM,
+            "Row 3 must classify as a LINE_ITEM data row, not be skipped",
+        )
+        self.assertEqual(row_3[0].classified_row.description, "Electrical works")
+
+        # Both data rows (Electrical works @3, Civil works @4) are now LINE_ITEMs.
+        descriptions = {
+            rr.classified_row.description
+            for rr in sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        }
+        self.assertIn("Electrical works", descriptions)
+        self.assertIn("Civil works", descriptions)
+
+    def test_single_header_data_starts_at_header_row_plus_one_unchanged(self):
+        """
+        header_row=1, header_row_count=1: data still begins at header_row + 1 (Excel
+        row 2, 'First item') exactly as before — the fix must not perturb single headers.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        sheet = self._single_result.sheets[0]
+
+        row_2 = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number == 2
+        ]
+        self.assertEqual(len(row_2), 1, "Row 2 (header_row + 1) must be present")
+        self.assertEqual(
+            row_2[0].classified_row.classification,
+            RowClassification.LINE_ITEM,
+            "Row 2 must remain a LINE_ITEM for a single header",
+        )
+        self.assertEqual(row_2[0].classified_row.description, "First item")
+
+
+# ================================================================ #
 # Phase 2b.2 Part B2c — Snitch real-fixture integration tests      #
 # ================================================================ #
 
