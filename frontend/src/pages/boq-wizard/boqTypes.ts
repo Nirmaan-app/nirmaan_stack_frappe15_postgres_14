@@ -45,6 +45,16 @@ export interface ColumnRoleEntry {
   area: string | null;
 }
 
+/**
+ * One "skip rows after header" definition (header-config redesign). The field is a structured
+ * list of these instead of a single comma-list: each entry skips EITHER one row OR an inclusive
+ * row range. Resolved to a flat row-number set by skipRows.resolveSkipDefinitions; the legacy
+ * flat skip_top_rows_after_header list round-trips via skipRows.defsFromLegacyList.
+ */
+export type SkipDefinition =
+  | { kind: "single"; row: number }
+  | { kind: "range"; start: number; end: number };
+
 export type WizardStatus =
   | ""
   | "Pending"
