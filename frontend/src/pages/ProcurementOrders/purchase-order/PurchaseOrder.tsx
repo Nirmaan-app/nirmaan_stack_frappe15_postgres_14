@@ -1143,11 +1143,11 @@ export const PurchaseOrder = ({
             <AccordionItem key="poattachments" value="poattachments">
               {/* {tab === "Delivered PO" && ( */}
               <AccordionTrigger>
-                <div className="flex items-center gap-3 pl-6">
-                  <p className="font-semibold text-lg text-red-600">
+                <div className="flex flex-col items-start gap-1 pl-2 min-w-0 lg:flex-row lg:items-center lg:gap-3 lg:pl-6">
+                  <p className="font-semibold text-base text-red-600 lg:text-lg whitespace-nowrap">
                     PO Attachments
                   </p>
-                  <div className="flex items-center gap-2 text-sm">
+                  <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs lg:text-sm">
                     {!isProjectManager && (
                       <>
                         <span className="text-gray-600">Invoices:</span>
