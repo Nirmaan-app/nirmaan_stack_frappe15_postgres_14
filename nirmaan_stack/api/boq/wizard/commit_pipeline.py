@@ -81,6 +81,20 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
     _fetch_boq_file_to_tempfile,
 )
+# The level helpers + the shared cls->node_type+level derivation + the effective-
+# classification constants are OWNED by commit_validation (so the real commit and the
+# pre-commit preflight can never diverge). _build_node_pass1 calls
+# derive_node_type_and_level; _commit_node_tree calls _compute_levelless_preamble_levels
+# (now returning (assigned, level_warnings) -- the real commit IGNORES the warnings;
+# they surface only in the preflight).
+from nirmaan_stack.api.boq.wizard.commit_validation import (
+    _PREAMBLE_CLS,
+    _LINE_ITEM_CLS,
+    _GRID_ONLY_CLASSIFICATIONS,
+    _compute_levelless_preamble_levels,
+    derive_node_type_and_level,
+    RESOLVE_EFFECTIVE_COMMIT_INPUT_FIELDS,
+)
 
 _GRID_DOCTYPE = "BoQ Committed Sheet Grid"
 _SHEET_DOCTYPE = "BoQ Sheet"
@@ -104,20 +118,18 @@ _DISPOSITION_TO_TREAT_AS = {
 # carried verbatim on row_class (the taxonomy axis, set in pass 1). SPACER stays GRID-ONLY
 # (pure layout, no semantic content -- the faithful grid preserves its position). A future
 # pricing walk stays exactly `node_type in (Preamble, Line Item)`, unchanged.
-_PREAMBLE_CLS = "preamble"
-_LINE_ITEM_CLS = "line_item"
-_SPACER_CLS = "spacer"
-# Priceable classes -> Preamble / Line Item node_type. Everything else committed -> Other.
-_PRICEABLE_CLASSIFICATIONS = frozenset({_PREAMBLE_CLS, _LINE_ITEM_CLS})
-# Classes NOT turned into nodes (grid-only). X: only spacer.
-_GRID_ONLY_CLASSIFICATIONS = frozenset({_SPACER_CLS})
+# The effective-classification constants (_PREAMBLE_CLS / _LINE_ITEM_CLS /
+# _GRID_ONLY_CLASSIFICATIONS, plus _SPACER_CLS / _PRICEABLE_CLASSIFICATIONS) are OWNED by
+# commit_validation (single source of truth); the few this module still references are
+# imported above.
 
 # BoQ Review Row fields the node body reads (the get_review_rows source-of-truth set,
 # narrowed to what the mapping needs).
 _REVIEW_ROW_FIELDS = [
     "name", "row_index", "source_row_number",
-    "classification", "level", "preamble_level_override", "parent_index",
-    "human_classification", "human_parent", "human_is_root",
+    # SHARED with the preflight (commit_validation) so resolve_effective gets identical
+    # inputs in both paths -- human > parser, NO ai_* (parity invariant; see the constant).
+    *RESOLVE_EFFECTIVE_COMMIT_INPUT_FIELDS,
     "sl_no_value", "description", "unit", "make_model",
     "is_rate_only", "is_synthetic",
     "qty_total", "qty_by_area",
@@ -628,8 +640,10 @@ def _commit_node_tree(
         eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
     # Level-less preambles: precompute their assigned level from the whole sheet's
-    # effective tree (children / shallowest-defined-level), Phase-5 guard fix.
-    assigned_levels = _compute_levelless_preamble_levels(
+    # effective tree (children / shallowest-defined-level), Phase-5 guard fix. The real
+    # commit is SILENT -- the returned level_warnings (old #22 msgprint) are DISCARDED
+    # here; they surface only in the pre-commit preflight (validate_node_plan).
+    assigned_levels, _level_warnings = _compute_levelless_preamble_levels(
         sheet_name, node_rows, eff_parent_by_idx
     )
 
@@ -687,76 +701,6 @@ def _commit_node_tree(
     return {"node_count": len(node_rows), "froze_nodes": froze_nodes}
 
 
-def _real_preamble_level(d: dict):
-    """The preamble's real >=1 level (classifier override wins over the parser level),
-    or None if the row is LEVEL-LESS (no override and no >=1 parser level)."""
-    ov = d.get("preamble_level_override")
-    if isinstance(ov, int) and ov >= 1:
-        return ov
-    lv = d.get("level")
-    if isinstance(lv, int) and lv >= 1:
-        return lv
-    return None
-
-
-def _compute_levelless_preamble_levels(
-    sheet_name: str, node_rows: list, eff_parent_by_idx: dict
-) -> dict:
-    """Assign a level to every LEVEL-LESS effective preamble (Phase 5 guard fix).
-
-    A level-less preamble (no classifier override and no >=1 parser level) gets:
-      - WITH children  -> max(0, min(child effective-level) - 1)  -- the shallowest
-        child wins, so the preamble sits one level above its shallowest child;
-        line-item children count as level 0.
-      - CHILDLESS      -> the sheet's shallowest DEFINED preamble level; if the sheet
-        has no defined levels at all (e.g. a sheet of line-items + one promoted
-        preamble) -> 0.
-    Returns {row_index: assigned_level} for level-less preambles ONLY. (The constraint
-    relaxed to allow level 0; the old flat default of 1 broke trees where a child was
-    also level 1.)
-
-    SAFETY (not exercised by current data; loud on future data): if a level-less
-    preamble has BOTH a parent and children and the computed level would not sit above
-    the parent (a squeeze), warn and still assign best-effort -- do not silently jam.
-    """
-    level_by_idx = {d["row_index"]: (d.get("level") or 0) for d, _e in node_rows}
-    # X / Q8 fix: only PRICEABLE children (preamble / line_item) count toward a level-less
-    # preamble's computed level. A note / subtotal_marker / header_repeat is not a
-    # structural child for level purposes; counting one (it carries level 0) would wrongly
-    # pull the preamble down to level 0. A preamble whose only children are non-priceable
-    # therefore has NO structural children here and falls to the childless branch.
-    child_levels: dict = {}
-    for d, e in node_rows:
-        if e["effective_classification"] not in _PRICEABLE_CLASSIFICATIONS:
-            continue
-        ep = eff_parent_by_idx.get(d["row_index"])
-        if ep is not None:
-            child_levels.setdefault(ep, []).append(level_by_idx[d["row_index"]])
-    defined = [lv for lv in level_by_idx.values() if lv >= 1]
-    sheet_min = min(defined) if defined else 0
-
-    assigned: dict = {}
-    for d, e in node_rows:
-        if e["effective_classification"] != _PREAMBLE_CLS:
-            continue
-        if _real_preamble_level(d) is not None:
-            continue  # has a real level -- not level-less
-        idx = d["row_index"]
-        kids = child_levels.get(idx, [])
-        lvl = max(0, min(kids) - 1) if kids else sheet_min
-        ep = eff_parent_by_idx.get(idx)
-        if ep is not None and kids and lvl <= level_by_idx.get(ep, 0):
-            frappe.msgprint(
-                f"Level-less preamble on sheet {sheet_name!r} (source row "
-                f"{d.get('source_row_number')}): computed level {lvl} does not sit above "
-                f"its parent (level {level_by_idx.get(ep, 0)}). Committed best-effort; "
-                f"verify the hierarchy.",
-                alert=True, indicator="orange",
-            )
-        assigned[idx] = lvl
-    return assigned
-
-
 def _build_node_pass1(
     boq_sheet_name: str,
     d: dict,
@@ -780,21 +724,15 @@ def _build_node_pass1(
 
     cls = eff["effective_classification"]
     node.row_class = cls  # X: full taxonomy axis (carried verbatim for every node)
-    if cls == _PREAMBLE_CLS:
-        node.node_type = "Preamble"
-        # A real >=1 level (override or parser) is used unchanged. A LEVEL-LESS preamble
-        # takes the precomputed assigned level (children -> max(0,min_child-1); childless
-        # -> sheet shallowest defined level, else 0). Constraint relaxed to allow 0.
-        real = _real_preamble_level(d)
-        node.level = real if real is not None else assigned_levels.get(d["row_index"], 0)
-    elif cls == _LINE_ITEM_CLS:
-        node.node_type = "Line Item"  # level must NOT be set (controller throws if it is)
-    else:
-        # X: non-priceable committed rows (note / subtotal_marker / header_repeat) -> Other.
-        # No level set; the "qty None -> 0" default below stays Line-Item-only, so these
-        # carry no qty/rate/amount (none exist on the review row). description + parent are
-        # carried like any node (a note's effective parent is a preamble, wired in pass 2).
-        node.node_type = "Other"
+    # node_type + level come from the SHARED derivation (commit_validation), so the real
+    # commit and the pre-commit preflight can never diverge. Preamble -> ("Preamble",
+    # real-or-assigned level); Line Item -> ("Line Item", None: level must NOT be set, the
+    # controller throws if it is); else (note/subtotal_marker/header_repeat) -> ("Other",
+    # None). level is set ONLY when non-None, so a Line Item / Other node stays level-less.
+    node_type, level = derive_node_type_and_level(d, eff, assigned_levels)
+    node.node_type = node_type
+    if level is not None:
+        node.level = level
 
     # Identity / content (P4-3: sl_no_value->code, row_index->sort_order).
     node.code = d.get("sl_no_value")

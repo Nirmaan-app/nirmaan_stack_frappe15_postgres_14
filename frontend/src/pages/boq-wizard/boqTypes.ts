@@ -1122,3 +1122,43 @@ export interface CommitBoqResponse {
   committed: CommittedSheetResult[];
   failed: FailedSheetResult[];
 }
+
+// ── Commit-preflight types (commit-validation slice) ───────────────────────────
+
+/**
+ * One validation finding from commit_preflight (FROZEN contract; owned by
+ * api/boq/wizard/commit_validation.py). `kind` is "error" (blocking) or "warning"
+ * (advisory, "Looks OK"-acknowledged in the dialog). `message` is plain-English and
+ * pre-formatted by the backend ("Row {n} · \"{desc}\" — {what is wrong}") -- render it
+ * verbatim. `group_key` de-dupes / keys a finding (the dialog prefixes it with the
+ * VERBATIM sheet_name #152 to build the local ack key -- ack is NOT persisted). `count`
+ * is 1 unless rows are folded into one finding (e.g. an undeclared-area group).
+ */
+export interface PreflightFinding {
+  kind: "error" | "warning";
+  code: string;
+  sheet_name: string;
+  source_row_number: number | null;
+  description: string | null;
+  message: string;
+  what_to_do: string;
+  group_key: string;
+  count: number;
+}
+
+/**
+ * One per_sheet entry of the commit_preflight response. A general-specs sheet
+ * (disposition "general_specs") always carries errors=[] / warnings=[] (no node tree).
+ * sheet_name is VERBATIM (#152) -- join to the ticked set byte-for-byte, never trim.
+ */
+export interface SheetPreflight {
+  sheet_name: string;
+  disposition: "general_specs" | "finalized";
+  errors: PreflightFinding[];
+  warnings: PreflightFinding[];
+}
+
+/** Response shape of commit_preflight (commit_validation.commit_preflight). FROZEN. */
+export interface PreflightResponse {
+  per_sheet: SheetPreflight[];
+}
