@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BoQ Sheet-Config — Header &amp; Row-Skip Analysis</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --ink: #e6e9ef;
+    --ink-dim: #9aa3b2;
+    --ink-faint: #6b7280;
+    --accent: #6ea8fe;
+    --accent-2: #8b5cf6;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --teal: #2dd4bf;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6; font-size: 15px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 48px 28px 120px; }
+  header.masthead { border-bottom: 1px solid var(--border); padding-bottom: 28px; margin-bottom: 8px; }
+  .kicker { font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 10px 0 6px; font-weight: 700; letter-spacing: -.01em; }
+  .sub { color: var(--ink-dim); font-size: 15px; max-width: 760px; }
+  .meta { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim);
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px;
+  }
+  h2 {
+    font-size: 21px; margin: 52px 0 14px; padding-top: 14px; font-weight: 700; letter-spacing: -.01em;
+    border-top: 1px solid var(--border);
+  }
+  h2 .num { color: var(--accent); font-family: var(--mono); font-size: 16px; margin-right: 10px; }
+  h3 { font-size: 16px; margin: 26px 0 8px; font-weight: 650; color: var(--ink); }
+  p { margin: 10px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .path {
+    font-family: var(--mono); font-size: 12.5px; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; color: #cdd6e4;
+    word-break: break-word;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin: 16px 0;
+  }
+  .panel.tight { padding: 14px 16px; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  .lead { color: var(--ink-dim); }
+  /* TOC */
+  nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin: 24px 0 8px; }
+  nav.toc ol { columns: 2; column-gap: 32px; margin: 4px 0 0; padding-left: 18px; }
+  nav.toc a { color: var(--ink); }
+  nav.toc li { margin: 5px 0; }
+  /* severity tags */
+  .tag { display: inline-block; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 5px; vertical-align: middle; }
+  .tag.confirmed { background: rgba(248,113,113,.14); color: var(--bad); border: 1px solid rgba(248,113,113,.4); }
+  .tag.likely { background: rgba(251,191,36,.13); color: var(--warn); border: 1px solid rgba(251,191,36,.4); }
+  .tag.verify { background: rgba(110,168,254,.14); color: var(--accent); border: 1px solid rgba(110,168,254,.4); }
+  .tag.ok { background: rgba(52,211,153,.13); color: var(--ok); border: 1px solid rgba(52,211,153,.4); }
+  /* tables */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--ink-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  td .path { font-size: 11.5px; }
+  /* code block */
+  pre {
+    background: #0c0e13; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+    overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: #cdd6e4; margin: 12px 0;
+  }
+  pre .c { color: #6b7280; }      /* comment */
+  pre .k { color: #c4b5fd; }      /* keyword */
+  pre .s { color: #86efac; }      /* string */
+  pre .hl { color: var(--warn); font-weight: 700; }  /* highlight */
+  /* callouts */
+  .callout { border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 14px 0; }
+  .callout.bad { border-left-color: var(--bad); }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); }
+  .callout .t { font-weight: 650; margin-bottom: 2px; display: block; }
+  /* the excel mock grid */
+  .xls { font-family: var(--mono); font-size: 12px; border-collapse: collapse; margin: 12px 0; }
+  .xls td, .xls th { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+  .xls th { background: var(--panel-2); color: var(--ink-dim); text-align: center; width: 42px; }
+  .xls .rownum { background: var(--panel-2); color: var(--ink-faint); text-align: center; }
+  .xls .hdr { background: rgba(110,168,254,.16); color: #cfe0ff; }
+  .xls .area { background: rgba(139,92,246,.16); color: #d9ccff; }
+  .xls .drop { background: rgba(248,113,113,.16); color: #ffd5d5; }
+  .xls .data { color: var(--ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0; font-size: 12px; color: var(--ink-dim); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid var(--border); }
+  .footer-note { color: var(--ink-faint); font-size: 12.5px; margin-top: 60px; border-top: 1px solid var(--border); padding-top: 18px; }
+  .pill-row { display:flex; gap:10px; flex-wrap: wrap; margin: 6px 0 2px;}
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } nav.toc ol { columns: 1; } }
+  .q { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent-2); border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 10px 0; }
+  .q b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <div class="kicker">BoQ Upload Wizard · Sheet-Config (Spoke) Phase</div>
+  <h1>Header Setup &amp; Row-Skipping — How It Actually Works</h1>
+  <p class="sub">A ground-truth trace of the header-row selection, the user "Skip rows after header" field, and the
+  automatic row-skipping that happens at parse time — plus a flagged list of what looks <em>wrong</em>, <em>redundant</em>,
+  or <em>confusing</em>. This is an <strong>understanding document</strong>; no code has been changed.</p>
+  <div class="meta">
+    <span class="chip">branch: boq-header-config</span>
+    <span class="chip">worktree off develop</span>
+    <span class="chip">read-only analysis</span>
+    <span class="chip">scope: SheetConfigPanel + parser orchestrator/classifier</span>
+    <span class="chip" style="border-color:rgba(52,211,153,.5);color:var(--ok)">✓ verified on live data 2026-06-29</span>
+  </div>
+</header>
+
+<div class="callout ok" style="margin-top:22px">
+  <span class="t">Verification result (added after the first pass) — no data-drop bug</span>
+  I tested the hypothesised 2-row "drops the first data row" bug (F1) against <strong>every parsed 2-row-header sheet in the
+  live DB</strong>. It <strong>does not reproduce</strong>. In all three real sheets the force-dropped <code>header_row+1</code>
+  row is a genuine <em>second header row</em> (tower / area / supply-install sub-labels), never data. Real configs set
+  <code>header_row</code> at the <em>top</em> of the header band, so the skip is correct. Details in
+  <a href="#header">§02</a> and <a href="#findings">F1</a>.
+</div>
+
+<div class="callout bad" style="margin-top:14px">
+  <span class="t">★ The REAL defect (live-confirmed on HVAC Low side) — the header model is too small for real sheets</span>
+  The "Data starts at row N is wrong sometimes" you flagged is genuine and reproduces live. Its root cause is <strong>not</strong>
+  a skip bug — it's that the config UI caps the header at <strong>1–2 rows</strong>, while real BoQ sheets stack
+  <strong>3–4 header tiers</strong> (column labels + supply/install split + area tier-1 + area tier-2), often with a title row
+  and a blank row too. The "Data starts at row" number is a naïve <code>header_row + header_row_count</code> formula that can't
+  describe this, so it's wrong; the rows it can't account for get silently auto-classified; and area auto-detection can't
+  reach the real area tiers. Full breakdown in the new <a href="#casestudy">case study</a> below — <strong>this is the
+  thing to fix.</strong>
+</div>
+
+<nav class="toc">
+  <strong style="font-size:13px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em;">Contents</strong>
+  <ol>
+    <li><a href="#map">Where this lives (data flow)</a></li>
+    <li><a href="#header">The header model (the part that "works")</a></li>
+    <li><a href="#casestudy">★ Live case study — HVAC Low side</a></li>
+    <li><a href="#twolayers">Two different kinds of "skip"</a></li>
+    <li><a href="#userskip">The user "Skip rows after header" field</a></li>
+    <li><a href="#autoskip">Automatic skipping at parse time</a></li>
+    <li><a href="#overlap">How they overlap (redundancy)</a></li>
+    <li><a href="#findings">Findings: wrong / unnecessary / confusing</a></li>
+    <li><a href="#questions">Open questions for you</a></li>
+  </ol>
+</nav>
+
+<!-- ───────────────────────────────────────── 1 ───────────────────────────────────────── -->
+<h2 id="map"><span class="num">01</span>Where this lives — the data flow</h2>
+
+<p>After upload, each sheet gets a <strong>spoke</strong> screen at <code>/upload-boq/hub/:boqId/sheet/:sheetName</code>.
+The user configures the sheet, marks it "Config Done", then the hub runs a <strong>parse</strong>. Header &amp; skip settings
+are set in the spoke but only <em>take effect</em> later, in the parser.</p>
+
+<div class="panel">
+<pre><span class="c"># Config is authored here, consumed much later. Three hops:</span>
+
+  <span class="k">SheetSpokePage.tsx</span>  ──fetch preview──►  <span class="k">get_sheet_preview</span> (sheet_preview.py)
+        │                          raw cells, 40-row window, NO skip annotation
+        ▼
+  <span class="k">SheetConfigPanel.tsx</span>  Section 1 (Rows) · 2 (Areas) · 3 (Column roles) · 4 (Work pkgs)
+        │   header_row, header_row_count, top_header_rows_override,
+        │   skip_top_rows_after_header, area_dimensions, column_role_map
+        ▼  (Save / Mark Config Done)
+  <span class="k">set_sheet_config</span> (update_sheet_draft.py)  ─►  BoQ Sheet Draft.sheet_config  <span class="c"># JSON blob</span>
+        ▼  (later — hub "Parse")
+  <span class="k">parse_run.py</span>  ─►  <span class="k">orchestrator.parse_boq()</span>  ─►  reader · classifier · hierarchy
+        ▼
+  BoQ Review Row[]   <span class="c"># what the user finally sees on the review screen</span></pre>
+</div>
+
+<div class="callout">
+  <span class="t">The single most important UX fact</span>
+  The preview grid the user stares at while configuring (<span class="path">SheetDataGrid.tsx</span>) renders
+  <strong>raw cells only</strong>. It highlights the <em>header</em> band (frozen rows) but shows <strong>no</strong> indication
+  of: which rows will be auto-dropped, which rows the Skip field targets, or even a "data starts here" line in the grid itself.
+  Every skip decision is authored <em>blind</em> and only becomes visible after a full parse.
+</div>
+
+<p>The header pre-fill is seeded once, at upload, by <code>detect_header_row()</code> +
+<code>auto_guess_sheet_config()</code> (<span class="path">reader.py:356</span>,
+<span class="path">_auto_guess.py:133</span>). Critically, auto-guess sets <code>header_row</code>,
+<code>header_row_count</code>, <code>column_role_map</code> and <code>area_dimensions</code> — but
+<strong>never</strong> <code>skip_top_rows_after_header</code>. So the Skip field is <em>always</em> blank by default,
+with no hint about when it should be used.</p>
+
+<!-- ───────────────────────────────────────── 2 ───────────────────────────────────────── -->
+<h2 id="header"><span class="num">02</span>The header model — the part that "works" (mostly)</h2>
+
+<p>Section 1 of the config panel exposes four header controls:</p>
+
+<table>
+  <thead><tr><th>UI control</th><th>config key</th><th>meaning</th></tr></thead>
+  <tbody>
+    <tr><td>Header type: Single / Double</td><td><code>header_row_count</code> (1 or 2)</td><td>how many stacked rows the header occupies</td></tr>
+    <tr><td>Header row (number)</td><td><code>header_row</code></td><td>1-based Excel row; labelled <em>"bottom header row"</em> when Double</td></tr>
+    <tr><td>Top header row: Yes / No&nbsp;→&nbsp;specify</td><td><code>top_header_rows_override</code> (list|null)</td><td>where the <em>other</em> header row is, when not adjacent</td></tr>
+    <tr><td>"Data starts at row <b>N</b>" (read-only hint)</td><td>derived: <code>header_row + header_row_count</code></td><td>SheetConfigPanel.tsx:469–470</td></tr>
+  </tbody>
+</table>
+
+<h3>Single-header (header_row_count = 1) — fully consistent ✅</h3>
+<p>Header at row <code>N</code> → parser skips <code>{N}</code>, keeps rows <code>&ge; N</code> that aren't skipped → data from
+<code>N+1</code>. The UI's "Data starts at row N+1", the frozen-row highlight on row N, and the backend all agree. This is
+the common case, and it is clean — which is almost certainly why you experience header selection as "working correctly".</p>
+
+<h3>Double-header (header_row_count = 2) — the model fractures ⚠️</h3>
+<p>Here the same number <code>header_row</code> is interpreted <strong>two different ways</strong> inside the backend:</p>
+
+<table>
+  <thead><tr><th>Logic</th><th>treats <code>header_row</code> as…</th><th>reads / skips</th><th>cite</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Row skipping</b></td>
+      <td>the <b>top</b> of a 2-row band</td>
+      <td>skips <code>header_row</code> <b>and <code>header_row + 1</code></b> (row below)</td>
+      <td><span class="path">orchestrator.py:174–176</span></td>
+    </tr>
+    <tr>
+      <td><b>Multi-area detection</b></td>
+      <td>the <b>bottom</b> of a 2-row band</td>
+      <td>reads <code>header_row - 1</code> (row above) for area names</td>
+      <td><span class="path">orchestrator.py:242–246</span></td>
+    </tr>
+    <tr>
+      <td><b>Frontend label</b></td>
+      <td>the <b>bottom</b> ("bottom header row"; "Top header will be row <code>header_row-1</code>")</td>
+      <td>—</td>
+      <td><span class="path">SheetConfigPanel.tsx:891,955–958</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Two of the three say <code>header_row</code> is the <em>bottom</em> row (with the second header <em>above</em> it). But the
+skip logic says it's the <em>top</em> (and skips the row <em>below</em>). These cannot all be right. Worked example for the
+most common 2-row layout — area names stacked above column labels:</p>
+
+<div class="legend">
+  <span><span class="sw" style="background:rgba(139,92,246,.16)"></span> top header (areas)</span>
+  <span><span class="sw" style="background:rgba(110,168,254,.16)"></span> bottom header (column labels)</span>
+  <span><span class="sw" style="background:rgba(248,113,113,.16)"></span> wrongly dropped</span>
+  <span><span class="sw" style="border-color:var(--border)"></span> data</span>
+</div>
+
+<table class="xls">
+  <tr><th>row</th><th>A</th><th>B</th><th>C</th><th>D</th><th>what it is</th></tr>
+  <tr><td class="rownum">6</td><td class="area" colspan="4">Block&nbsp;A&nbsp;&nbsp;|&nbsp;&nbsp;Block&nbsp;B (merged area names)</td><td>top header</td></tr>
+  <tr><td class="rownum">7</td><td class="hdr">Sl.No</td><td class="hdr">Description</td><td class="hdr">Qty</td><td class="hdr">Rate</td><td>bottom header ← <code>detect_header_row</code> picks this</td></tr>
+  <tr><td class="rownum">8</td><td class="drop">1</td><td class="drop">Cabling…</td><td class="drop">100</td><td class="drop">50</td><td><b>first data row — SILENTLY DROPPED</b></td></tr>
+  <tr><td class="rownum">9</td><td class="data">2</td><td class="data">Conduit…</td><td class="data">200</td><td class="data">30</td><td>data (kept)</td></tr>
+</table>
+
+<p>With the natural input <code>header_row = 7</code> (the column-label row, exactly what the UI label "bottom header row"
+and <code>detect_header_row</code> both point at) and <code>header_row_count = 2</code>:</p>
+<pre><span class="c"># orchestrator.py:172-193 (verbatim behaviour)</span>
+skip_rows = {<span class="hl">7</span>, <span class="hl">8</span>}            <span class="c"># header_row=7  AND  header_row+1=8</span>
+keep rows where (row &gt;= 7) and (row not in skip_rows)
+   row 6  ✗ dropped by (row &gt;= 7)        <span class="c"># area banner — correct to drop</span>
+   row 7  ✗ skipped (header)              <span class="c"># correct</span>
+   row 8  <span class="hl">✗ skipped (header_row+1)</span>      <span class="c"># ← BUG: this is the first DATA row</span>
+   row 9+ ✓ kept
+<span class="c"># Meanwhile area detection reads row 6 (header_row-1) correctly. So the two halves disagree.</span></pre>
+
+<div class="callout ok">
+  <span class="t">✓ Tested against live data — the bug does NOT reproduce</span>
+  I swept <strong>every parsed 2-row-header sheet in the localhost DB</strong> and compared the raw Excel rows to the parsed
+  output. In every real sheet, <code>header_row</code> is set to the <em>top</em> of the header band, so
+  <code>header_row+1</code> is a genuine <em>second header row</em> — not data. The fragility in the code is real, but real
+  configurations avoid it, and the classifier (Layer B, §03) would re-tag a stray label row as SPACER anyway. Evidence:
+</div>
+
+<table>
+  <thead><tr><th>BoQ / sheet</th><th>header_row</th><th>force-dropped <code>header_row+1</code></th><th>what it really is</th><th>data lost?</th></tr></thead>
+  <tbody>
+    <tr><td>BOQ-26-00115 / ELECTRICAL <span class="lead">(19-area)</span></td><td>3</td><td><code>T-1, T-2, T-3 …</code></td><td>tower sub-labels (header)</td><td><span class="tag ok">no</span></td></tr>
+    <tr><td>BOQ-26-00001 / HVAC Lowside</td><td>2</td><td><code>GF, 2F(Office), 2F(Cafeteria), Supply, Installation</code></td><td>area + supply/install sub-labels</td><td><span class="tag ok">no</span></td></tr>
+    <tr><td>BOQ-26-00021 / HVAC 19th Floor</td><td>5</td><td><code>Supply, Installation, Supply, Installation</code></td><td>supply/install sub-labels</td><td><span class="tag ok">no</span></td></tr>
+  </tbody>
+</table>
+<p class="lead">Row-by-row trace of ELECTRICAL: Excel rows 1–2 dropped by the <code>&ge; header_row</code> guard (title +
+column labels), rows 3–4 skipped as the header band, and the parsed output begins at Excel row 5 (the first non-header row).
+The first real line item (Excel row 8, "CIRCUIT MAINS") is present. Nothing lost.</p>
+
+<!-- ───────────────────────────────────────── case study ───────────────────────────────────────── -->
+<h2 id="casestudy"><span class="num">★</span>Live case study — HVAC Low side (the defect you flagged)</h2>
+<p class="lead">BOQ-26-00115 → sheet "HVAC Low side". Inspected live via chrome-devtools + the raw workbook on 2026-06-29.
+This is the concrete reproduction of "Data starts at row 7 is incorrect sometimes".</p>
+
+<h3>The sheet has a 4-row stacked header — the UI only models 2 rows</h3>
+<div class="legend">
+  <span><span class="sw" style="background:rgba(110,168,254,.16)"></span> header tier</span>
+  <span><span class="sw" style="background:rgba(139,92,246,.16)"></span> area tier (floors / towers)</span>
+  <span><span class="sw" style="border-color:var(--border)"></span> title / blank / data</span>
+</div>
+<table class="xls">
+  <tr><th>row</th><th>cols A–C</th><th>cols D–V</th><th>cols W–AA</th><th>role</th></tr>
+  <tr><td class="rownum">1</td><td colspan="3">BOQ - LOW SIDE HVAC WORKS</td><td>title</td></tr>
+  <tr><td class="rownum">2</td><td class="hdr">S.No / DESCRIPTION / UNIT</td><td class="hdr">QTY MDC2C …</td><td class="hdr">RATE</td><td>column labels</td></tr>
+  <tr><td class="rownum">3</td><td class="hdr"></td><td class="hdr"></td><td class="hdr">TOTAL QTY / SUPPLY / INSTALL / SITC / Total</td><td>rate split</td></tr>
+  <tr><td class="rownum">4</td><td class="area"></td><td class="area">6th floor · 7th floor · 8th …</td><td class="area"></td><td>area tier-1 (floors)</td></tr>
+  <tr><td class="rownum">5</td><td class="area"></td><td class="area">T-1 · T-2 · T-3 …</td><td class="area"></td><td>area tier-2 (towers)</td></tr>
+  <tr><td class="rownum">6</td><td colspan="3"><em>(blank)</em></td><td>spacer</td></tr>
+  <tr><td class="rownum">7</td><td class="data">A &nbsp; Sheet Metal Ducting</td><td class="data"></td><td class="data"></td><td><b>← real data starts here</b></td></tr>
+  <tr><td class="rownum">8</td><td class="data">2 &nbsp; Sheet Metal Work using …</td><td class="data"></td><td class="data"></td><td>line item</td></tr>
+</table>
+
+<h3>What the live UI actually shows (saved config: <code>header_row=2</code>, Double)</h3>
+<table>
+  <thead><tr><th>UI element (read from the live DOM)</th><th>value</th><th>verdict</th></tr></thead>
+  <tbody>
+    <tr><td>Header type</td><td>Double (2 rows)</td><td>can't express 4 tiers</td></tr>
+    <tr><td>Header row</td><td>2</td><td>only the column-label tier</td></tr>
+    <tr><td>Preview grid frozen rows</td><td>rows 2 &amp; 3 only</td><td>floors (4) &amp; towers (5) render as <em>data</em></td></tr>
+    <tr><td><b>"Data starts at row 4"</b> <span class="lead">(= header_row 2 + hrc 2)</span></td><td>4</td><td><span class="tag confirmed">WRONG — real data is row 7</span></td></tr>
+    <tr><td>area_dimensions</td><td><code>['S.No','DESCRIPTION','UNIT','QTY MDC2C','RATE']</code></td><td><span class="tag confirmed">column labels mis-entered as areas</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout bad">
+  <span class="t">The user is forced into two bad choices, neither matches the sheet</span>
+  <ul style="margin:6px 0 0">
+    <li><b>Set <code>header_row = 2</code></b> (the real column-label row): UI says "data starts row 4", but rows 4–6
+    (floors, towers, blank) then leak past the header and are silently auto-classified as spacers/junk. "Data starts" is
+    wrong by 3 rows, and area detection (which reads <code>header_row−1</code> = row 1, the title) finds nothing — so areas
+    must be hand-typed (and were typed wrong).</li>
+    <li><b>Set <code>header_row = 5</code></b> (the towers row): now <code>5 + 2 = 7</code> and "data starts row 7" is right,
+    skip <code>{5,6}</code> removes towers + blank, and area detection reads bottom=row 5 (towers) / top=row 4 (floors) —
+    which actually works. <em>But</em> calling row 5 the "bottom header row" is semantically absurd to anyone looking at the
+    sheet (the column headers are obviously on row 2), and the column-label row 2 is then silently dropped by the
+    <code>≥ header_row</code> guard. It "works" only by gaming the number.</li>
+  </ul>
+</div>
+
+<h3>Three root causes (all one knot)</h3>
+<ol>
+  <li><b>The header model is capped at 2 rows.</b> There is no way to say "the header spans rows 2–5". Real BoQs routinely
+  stack column-labels + a supply/install split + one or two area tiers.</li>
+  <li><b>"Data starts at row" is a naïve formula</b> (<code>header_row + header_row_count</code>,
+  <span class="path">SheetConfigPanel.tsx:469–470</span>). It assumes data begins immediately after exactly
+  <code>header_row_count</code> contiguous header rows. It ignores 3-4 tier headers, blank spacer rows, and title rows — so
+  it is wrong whenever the sheet isn't the simple case.</li>
+  <li><b><code>header_row</code> is overloaded with three jobs</b> that conflict on multi-tier sheets: (a) mark where column
+  labels are, (b) define the skip band <code>{header_row … header_row+hrc-1}</code>, (c) seed area detection at
+  <code>header_row−1</code>. One number can't satisfy all three when the header has &gt;2 tiers — which is exactly why "data
+  starts" is wrong and the areas come out mis-mapped.</li>
+</ol>
+
+<div class="callout">
+  <span class="t">This is also the "auto-skip" you meant</span>
+  The rows between the nominal header and the real data (floors, towers, blank — rows 4–6 here) don't get <em>dropped</em>;
+  they get silently re-labelled as spacers/junk by the classifier. That invisible re-labelling, happening in the gap the
+  header model can't describe, is the "automatic skipping" that feels opaque. Fixing the header model (so the header band
+  actually covers rows 2–5) removes the gap, and the confusion with it.
+</div>
+
+<!-- ───────────────────────────────────────── 3 ───────────────────────────────────────── -->
+<h2 id="twolayers"><span class="num">03</span>There are two completely different kinds of "skip"</h2>
+
+<p>This is, I think, the root of the conceptual confusion. The word "skip" is used for two mechanisms that live in
+different layers and behave differently:</p>
+
+<div class="twocol">
+  <div class="panel">
+    <span class="tag confirmed">layer A</span> <strong>&nbsp;Hard row-filter (a true drop)</strong>
+    <p class="lead" style="margin-top:8px">Rows are removed from the row list <em>before</em> classification. They never exist
+    downstream — not as a line item, not as a spacer, nothing.</p>
+    <ul>
+      <li>The header row(s)</li>
+      <li>The user's <code>skip_top_rows_after_header</code></li>
+      <li>Everything above <code>header_row</code> (the <code>&ge; header_row</code> guard)</li>
+    </ul>
+    <p class="lead">Lives in <span class="path">orchestrator.py:189–193</span>.</p>
+  </div>
+  <div class="panel">
+    <span class="tag likely">layer B</span> <strong>&nbsp;Soft classification (kept, but not data)</strong>
+    <p class="lead" style="margin-top:8px">Rows stay in the output but get tagged a non-line-item type. They <em>do</em> appear
+    on the review screen (as spacers / notes / subtotals), they're just not priced.</p>
+    <ul>
+      <li>Blank rows → <code>SPACER</code></li>
+      <li>Repeated header rows → <code>HEADER_REPEAT</code></li>
+      <li>Subtotal / "Grand Total" rows → <code>SUBTOTAL_MARKER</code></li>
+      <li>Empty "ghost" notes / junk-trio → <code>SPACER</code></li>
+    </ul>
+    <p class="lead">Lives in <span class="path">classifier.py</span> (see §05).</p>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="t">Plain-English takeaway</span>
+  The Skip field is the <em>only</em> "hard drop" the user controls. Everything the user probably <em>thinks</em> of as
+  "rows being skipped automatically" (blanks, subtotals, repeated headers) is actually <strong>Layer B</strong> — those rows
+  are not dropped, they're re-labelled and still shown. So the field and the auto-behaviour aren't even the same operation,
+  which makes "do I need to list this row in Skip?" genuinely hard to reason about.
+</div>
+
+<!-- ───────────────────────────────────────── 4 ───────────────────────────────────────── -->
+<h2 id="userskip"><span class="num">04</span>The user "Skip rows after header" field</h2>
+
+<p>The field (<span class="path">SheetConfigPanel.tsx:998–1017</span>) is a free-text box in Section 1:</p>
+
+<div class="panel tight">
+  <div class="pill-row">
+    <span class="chip">Label: "Skip rows after header <em>(situational)</em>"</span>
+    <span class="chip">Placeholder: "e.g. 8, 9 (usually blank)"</span>
+  </div>
+  <p style="margin:8px 0 0;color:var(--ink-dim);font-size:13.5px">Help text: <em>"Comma-separated absolute row numbers to
+  exclude. Non-numeric entries are ignored."</em></p>
+</div>
+
+<h3>What it actually does</h3>
+<p>Input is parsed by <code>parseIntList</code> (<span class="path">:203–208</span>): split on commas, <code>parseInt</code>,
+keep only <code>n &gt; 0</code>. The resulting list is stored as <code>skip_top_rows_after_header</code> and, at parse time,
+dumped straight into the skip set (<span class="path">orchestrator.py:177</span>):</p>
+<pre>skip_rows.update(sheet_config.skip_top_rows_after_header)
+<span class="c"># then, the filter:</span>
+keep row iff  (row <span class="k">not in</span> skip_rows)  <span class="k">and</span>  (row &gt;= header_row)</pre>
+
+<p>So the values are <strong>absolute 1-based Excel row numbers</strong> (matching the help text). Confirmed against the
+backend. Good — but the surrounding design produces at least five distinct ways to confuse a user:</p>
+
+<table>
+  <thead><tr><th>#</th><th>Confusion</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>C1</td>
+      <td><b>Name says "after header", behaviour says "absolute"</b></td>
+      <td>The field key (<code>skip_top_rows_<u>after_header</u></code>) and label both imply offsets relative to the header
+      ("skip the 1st &amp; 2nd rows after the header"). The help text + backend say <em>absolute Excel rows</em>. A user who
+      types <code>1, 2</code> meaning "first two rows after header" actually targets Excel rows 1–2.</td>
+    </tr>
+    <tr>
+      <td>C2</td>
+      <td><b>Anything below <code>header_row</code> silently does nothing</b></td>
+      <td>The <code>row &gt;= header_row</code> guard means a skip value less than the header row is a no-op. If header is row 7
+      and the user enters <code>3</code>, nothing happens — no error, no hint. (And C1 makes entering a too-small number
+      <em>likely</em>.)</td>
+    </tr>
+    <tr>
+      <td>C3</td>
+      <td><b>Zero preview feedback</b></td>
+      <td>The grid never highlights the rows you typed. You enter numbers, save, run a full parse, then go to the review
+      screen to discover whether you guessed right. There is no "these rows will be excluded" overlay.</td>
+    </tr>
+    <tr>
+      <td>C4</td>
+      <td><b>Mostly redundant with auto-skip</b></td>
+      <td>Blank rows, repeated headers and subtotals are already handled (Layer B). The <em>only</em> case the field
+      uniquely covers is a <em>content-bearing, non-header-like junk row</em> right after the header (e.g. a "Project: ABC"
+      banner, a units legend). For a clean BoQ it should always be blank — yet it sits prominently in Section 1.</td>
+    </tr>
+    <tr>
+      <td>C5</td>
+      <td><b>It's the wrong tool for the row it targets</b></td>
+      <td>Its one legitimate use (a stray junk row) is also fixable later, non-destructively, on the review screen (hide /
+      reclassify a row) — which is visual and reversible. The blind up-front textbox forces the decision at the least-informed
+      moment.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ───────────────────────────────────────── 5 ───────────────────────────────────────── -->
+<h2 id="autoskip"><span class="num">05</span>Automatic skipping at parse time</h2>
+
+<p>Beyond the header rows, the parser drops or re-labels rows on its own. Full enumeration, with the drop-vs-relabel
+distinction made explicit (this is the table I'd want pinned on the wall):</p>
+
+<table>
+  <thead><tr><th>Mechanism</th><th>Trigger (heuristic)</th><th>Effect</th><th>Layer</th><th>cite</th></tr></thead>
+  <tbody>
+    <tr><td><b>Above-header guard</b></td><td>row &lt; <code>header_row</code></td><td><span class="tag confirmed">drop</span></td><td>A</td><td><span class="path">orchestrator.py:192</span></td></tr>
+    <tr><td><b>Header row(s)</b></td><td>= <code>header_row</code> (+1 if hrc=2)</td><td><span class="tag confirmed">drop</span></td><td>A</td><td><span class="path">orchestrator.py:174–176</span></td></tr>
+    <tr><td><b>User skip field</b></td><td>row ∈ <code>skip_top_rows_after_header</code></td><td><span class="tag confirmed">drop</span></td><td>A</td><td><span class="path">orchestrator.py:177</span></td></tr>
+    <tr><td>Blank row</td><td><code>RawRow.is_blank()</code></td><td><span class="tag likely">relabel → SPACER</span></td><td>B</td><td><span class="path">classifier.py:759–760</span></td></tr>
+    <tr><td>Repeated header</td><td>≥3 cells match header keywords</td><td><span class="tag likely">relabel → HEADER_REPEAT</span></td><td>B</td><td><span class="path">classifier.py:790–806</span></td></tr>
+    <tr><td>Subtotal marker</td><td>desc matches "total/subtotal/grand total" <em>or</em> amount cell holds a cross-row <code>=SUM()</code></td><td><span class="tag likely">relabel → SUBTOTAL_MARKER</span></td><td>B</td><td><span class="path">classifier.py:810–839</span></td></tr>
+    <tr><td>Ghost NOTE</td><td>NOTE row with zero meaningful content</td><td><span class="tag likely">relabel → SPACER</span></td><td>B</td><td><span class="path">classifier.py:1095–1109</span></td></tr>
+    <tr><td>Junk-trio (Bug 16)</td><td>sl_no &amp; description &amp; unit all blank/junk</td><td><span class="tag likely">relabel → SPACER</span></td><td>B</td><td><span class="path">classifier.py:1070–1075</span></td></tr>
+  </tbody>
+</table>
+
+<p>There are also several <em>reclassification</em> post-passes (PREAMBLE↔LINE_ITEM demotion/promotion, section-header
+promotion) — they change a row's <em>type</em> but never drop it, so they're out of scope for "skipping" but worth knowing
+they exist (they explain why a row's classification on the review screen may not match naïve expectation).</p>
+
+<h3>How <code>detect_header_row()</code> seeds the pre-fill</h3>
+<p>(<span class="path">reader.py:356</span>) Scans the first ~15 rows, scoring each by header keywords —
+<em>strong</em> (<code>sl.no</code>, <code>description</code>) = +2/cell, <em>medium</em> (<code>item</code>,
+<code>materials</code>) = +1/cell. Guards skip rows with &lt;3 non-empty cells, rows with a long (&gt;60-char) narrative cell,
+and the last content row. Highest score wins (earliest on a tie); needs score &gt; 1 or returns <code>None</code>. Because it
+keys on <em>column-label</em> keywords, in a 2-row header it lands on the <strong>bottom</strong> (column-label) row — which
+is exactly what feeds the §02 inconsistency.</p>
+
+<!-- ───────────────────────────────────────── 6 ───────────────────────────────────────── -->
+<h2 id="overlap"><span class="num">06</span>How the two skips overlap (redundancy)</h2>
+
+<ul>
+  <li><b>They can target the same row harmlessly.</b> If a user lists row 8 in the Skip field and row 8 is also blank, it's
+  dropped by Layer A; Layer B never sees it. No double-processing, no error — just redundant.</li>
+  <li><b>No ordering dependency.</b> Layer A runs first (rows removed before classification), so Layer B only ever sees
+  survivors. The user's field always "wins" by virtue of running first.</li>
+  <li><b>The field is strictly weaker than it looks.</b> Its <em>only</em> non-redundant power is dropping a
+  content-bearing row that the classifier would otherwise treat as a real line/preamble/note. Everything else it could target
+  is already handled automatically.</li>
+</ul>
+
+<!-- ───────────────────────────────────────── 7 ───────────────────────────────────────── -->
+<h2 id="findings"><span class="num">07</span>Findings — what looks wrong, unnecessary, or confusing</h2>
+<p class="lead">Ranked by my confidence. Tags: <span class="tag confirmed">confirmed</span> = read directly in code;
+<span class="tag verify">verify</span> = needs a real-sheet test; <span class="tag likely">design</span> = a UX/clarity judgement.</p>
+
+<div class="panel" style="border-color:rgba(248,113,113,.4)">
+  <h3 style="margin-top:4px">F0 &nbsp;<span class="tag confirmed">confirmed · live</span> &nbsp;The header model can't describe real multi-tier headers → wrong "Data starts" + mis-mapped areas</h3>
+  <p>The headline defect (see <a href="#casestudy">case study</a>). The 1–2 row header cap, the naïve
+  <code>header_row + header_row_count</code> "data starts" formula, and the triple-overloaded <code>header_row</code> together
+  make 3-4 tier sheets (HVAC Low side, and likely most multi-area BoQs) impossible to configure correctly. <b>Not a data-drop
+  bug, but the source of the "data starts is wrong sometimes" + "auto-skip is confusing" experience.</b> This is the fix
+  target for this branch.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F1 &nbsp;<span class="tag ok">not reproduced</span> &nbsp;2-row header "drops first data row" — <s>verify</s> tested, no data loss</h3>
+  <p>The <code>header_row + 1</code> skip is a real <em>logical</em> fragility (skip-math treats <code>header_row</code> as the
+  band top; area-detection + UI labels treat it as the bottom). But the <strong>live-data sweep (§02) shows it does not cause
+  data loss</strong> on any real sheet — users set <code>header_row</code> at the band top, so <code>header_row+1</code> is a
+  genuine second header. <b>Downgraded from "highest-impact" to a documentation/robustness note.</b> Worth a defensive guard +
+  clearer 2-row labelling later, but it is <em>not</em> the row-dropping bug you were worried about.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F2 &nbsp;<span class="tag confirmed">confirmed</span> &nbsp;The Skip field is authored blind</h3>
+  <p>No preview feedback (C3), no validation that a value is within the sheet / above the header (C2), no echo of which rows
+  it removed. Combined with the misleading "after header" naming (C1), it's a guess-and-check control in the
+  least-informed spot in the flow.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F3 &nbsp;<span class="tag likely">design</span> &nbsp;The Skip field is largely unnecessary</h3>
+  <p>For clean BoQs it should always be blank; its one real use (a content-bearing junk row) overlaps with the review
+  screen's row-hide. Candidate outcomes: (a) <b>demote</b> it (collapse under an "Advanced" disclosure, relabel to "Exclude
+  specific Excel rows", validate &amp; preview), or (b) <b>remove</b> it and lean on auto-skip + review-screen hide. I'd lean
+  (a) until we confirm no real sheet depends on it.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F4 &nbsp;<span class="tag likely">design</span> &nbsp;"Skip" is overloaded across two layers</h3>
+  <p>The hard-drop field and the soft auto-classification share the word "skip" but are different operations (§03). Users
+  can't tell whether a blank/subtotal row "needs" listing in the field (it doesn't). Clarifying the vocabulary — "Exclude"
+  (drop) vs "auto-detected non-data" (relabel) — would remove a lot of the fog.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F5 &nbsp;<span class="tag likely">design</span> &nbsp;<code>top_header_rows_override</code> only feeds area detection</h3>
+  <p>The "Top header row: Yes / No → specify" control and its <code>&lt; header_row</code> validation exist <em>solely</em>
+  to point area-detection at the right row (<span class="path">orchestrator.py:242–246</span>); it plays no part in skipping.
+  On a single-area 2-row sheet it does nothing useful yet still adds a decision. Worth scoping down or hiding unless the sheet
+  is multi-area.</p>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:4px">F6 &nbsp;<span class="tag ok">not a bug</span> &nbsp;Single-header path is consistent</h3>
+  <p>Recording the good news: for <code>header_row_count = 1</code>, the UI hint, the frozen-row highlight, and the backend
+  skip all agree. No change needed there; the problems are concentrated in the 2-row path and the Skip field.</p>
+</div>
+
+<!-- ───────────────────────────────────────── 8 ───────────────────────────────────────── -->
+<h2 id="questions"><span class="num">08</span>Open questions &amp; what I'd verify next</h2>
+
+<p>Before proposing fixes, a few things I'd like your read on (and one thing I'd test):</p>
+
+<div class="q"><b>Q1 — Intent of the Skip field.</b> Do you have (or can you recall) a <em>real</em> sheet where a user genuinely
+needed to type into "Skip rows after header"? If it's never legitimately used in practice, F3-option-(b) "remove it" becomes
+viable.</div>
+
+<div class="q"><b>Q2 — 2-row headers in the wild.</b> Roughly what fraction of real BoQ sheets are double-header, and are they
+the "areas-above-columns" shape or the "merged rate/amount sub-labels" shape? This decides how urgent F1 is.</div>
+
+<div class="q"><b>Q3 — Scope of this branch.</b> Is the goal here to (i) fix the confusion with minimal UX changes, (ii)
+re-think the whole header/skip step (e.g. click-rows-in-the-preview-to-exclude), or (iii) just document &amp; de-risk for now?
+That sets how aggressive the proposal should be.</div>
+
+<div class="q"><b>Test I'll run (with your OK):</b> parse one known multi-area 2-row sheet, log the first 3 output rows vs the
+raw sheet, and confirm whether row <code>header_row+1</code> is a header or the first data row. That turns F1 from "verify"
+into "confirmed" or "dismissed".</div>
+
+<p class="footer-note">
+  Generated as an understanding pass on branch <code>boq-header-config</code>. No source files modified. All line numbers
+  reference the worktree at <span class="path">/Users/abhishek/work/nirmaan/worktrees/boq-header-config</span> (off
+  <code>develop</code>). Primary sources read: <span class="path">SheetConfigPanel.tsx</span>,
+  <span class="path">SheetDataGrid.tsx</span>, <span class="path">SheetSpokePage.tsx</span>,
+  <span class="path">sheet_preview.py</span>, <span class="path">update_sheet_draft.py</span>,
+  <span class="path">orchestrator.py</span>, <span class="path">config.py</span>,
+  <span class="path">_auto_guess.py</span>, plus a traced read of <span class="path">classifier.py</span> /
+  <span class="path">reader.py</span>.
+</p>
+
+</div>
+</body>
+</html>

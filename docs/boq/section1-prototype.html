@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BoQ Wizard — Section 1 (Rows) redesign prototype</title>
+<style>
+  /* shadcn/ui light-theme tokens (match the real wizard) */
+  :root{
+    --background:0 0% 100%; --foreground:222 47% 11%;
+    --card:0 0% 100%; --muted:210 40% 96.1%; --muted-foreground:215 16% 47%;
+    --border:214 32% 91%; --input:214 32% 91%;
+    --primary:222 47% 11%; --primary-foreground:210 40% 98%;
+    --ring:222 84% 5%; --destructive:0 72% 51%; --radius:.5rem;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:hsl(210 40% 97%);color:hsl(var(--foreground));
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px;line-height:1.5;padding:32px 16px}
+  .frame{max-width:760px;margin:0 auto}
+  .doc-note{font-size:12px;color:hsl(var(--muted-foreground));margin:0 auto 14px;max-width:760px}
+  .doc-note b{color:hsl(var(--foreground))}
+  /* the card = SheetConfigPanel */
+  .card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:.625rem;padding:16px}
+  .zone{border:1px solid hsl(var(--border));border-radius:.5rem;padding:12px;margin-bottom:18px}
+  .zone-kicker{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:hsl(var(--muted-foreground));margin:0 0 14px}
+  h3{font-size:14px;font-weight:600;margin:0 0 16px;display:flex;align-items:center;gap:6px}
+  .spark{color:#d97706}
+  .field{margin-bottom:16px}
+  label{display:block;font-size:13px;font-weight:500;margin-bottom:6px}
+  label .hint{font-weight:400;color:hsl(var(--muted-foreground));font-size:12px;margin-left:6px}
+  /* inputs */
+  input[type=number]{height:36px;width:96px;border:1px solid hsl(var(--input));border-radius:.5rem;
+    padding:0 10px;font:inherit;background:hsl(var(--background));outline:none}
+  input[type=number]:focus{box-shadow:0 0 0 2px hsl(var(--background)),0 0 0 4px hsl(var(--ring)/.4);border-color:hsl(var(--ring))}
+  input.err{border-color:hsl(var(--destructive))}
+  /* segmented toggle (the existing Single area / Multi area pattern) */
+  .seg{display:inline-flex;border:1px solid hsl(var(--border));border-radius:.5rem;overflow:hidden;width:fit-content}
+  .seg button{appearance:none;border:0;background:transparent;font:inherit;font-size:13px;padding:7px 14px;cursor:pointer;color:hsl(var(--foreground))}
+  .seg button+button{border-left:1px solid hsl(var(--border))}
+  .seg button.active{background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+  /* outline + ghost buttons */
+  .btn{height:32px;padding:0 12px;border-radius:.5rem;font:inherit;font-size:13px;cursor:pointer;background:transparent;border:1px solid hsl(var(--border))}
+  .btn:hover{background:hsl(var(--muted))}
+  .iconbtn{border:0;background:transparent;cursor:pointer;color:hsl(var(--muted-foreground));font-size:15px;line-height:1;padding:4px}
+  .iconbtn:hover{color:hsl(var(--destructive))}
+  .row-inline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .muted{color:hsl(var(--muted-foreground));font-size:12px}
+  .strong{font-weight:600}
+  .err-msg{color:hsl(var(--destructive));font-size:12px;margin-top:6px}
+  .skip-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px;border:1px solid hsl(var(--border));border-radius:.5rem;margin-bottom:8px;background:hsl(210 40% 98.5%)}
+  .skip-empty{font-size:12px;color:hsl(var(--muted-foreground));font-style:italic;margin:4px 0 10px}
+  /* amber summary panel (existing warning-box style) */
+  .amber{background:#fffbeb;border:1px solid #fde68a;border-radius:.5rem;padding:12px 14px;margin-top:6px}
+  .amber .t{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:#b45309;margin-bottom:8px}
+  .amber .line{font-size:13px;color:#92400e;margin:3px 0}
+  .amber .line .k{display:inline-block;width:108px;color:#a16207;font-weight:500}
+  .amber code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+  .legend{max-width:760px;margin:18px auto 0;font-size:12px;color:hsl(var(--muted-foreground))}
+  .legend b{color:hsl(var(--foreground))}
+</style>
+</head>
+<body>
+
+<p class="doc-note"><b>Interactive prototype — Section 1 (Rows) redesign.</b> Styled to match the real shadcn/ui wizard
+(light theme, existing tokens + existing patterns: the segmented toggle = "Single&nbsp;area / Multi&nbsp;area" control,
+the skip list = "+&nbsp;Add&nbsp;area" list, the yellow box = the amber warning panel). Click the toggles, edit numbers,
+add/remove skip rows — the <b>"Rows excluded from data"</b> panel updates live.</p>
+
+<div class="frame">
+<div class="card">
+  <div class="zone">
+    <p class="zone-kicker">Parsing configuration — changes here require re-parsing</p>
+
+    <h3>Section&nbsp;1 — Rows <span class="spark" title="not yet confirmed">✨</span></h3>
+
+    <!-- ── (1) HEADER BAND ─────────────────────────────────────────── -->
+    <div class="field">
+      <label>Header rows <span class="hint">which rows are the header (excluded from data)</span></label>
+      <div class="seg" id="hdrSeg">
+        <button data-mode="single" class="active">Single Row</button>
+        <button data-mode="multiple">Multiple Rows</button>
+      </div>
+
+      <div id="hdrSingle" style="margin-top:12px">
+        <label style="font-weight:400">Header row</label>
+        <input type="number" min="1" id="hdrRow" value="7" />
+      </div>
+
+      <div id="hdrMultiple" style="margin-top:12px;display:none">
+        <div class="row-inline">
+          <div>
+            <label style="font-weight:400">From row</label>
+            <input type="number" min="1" id="hdrStart" value="2" />
+          </div>
+          <div>
+            <label style="font-weight:400">To row</label>
+            <input type="number" min="1" id="hdrEnd" value="5" />
+          </div>
+        </div>
+        <div class="err-msg" id="hdrErr" style="display:none">End row must be greater than or equal to the start row.</div>
+      </div>
+
+      <p class="muted" style="margin-top:12px">
+        Data starts at row <span class="strong" id="dataStart" style="color:hsl(var(--foreground))">—</span>
+        <span class="muted"> (first row below the header)</span>
+      </p>
+    </div>
+
+    <!-- ── (2) SKIP DEFINITIONS ────────────────────────────────────── -->
+    <div class="field" style="border-top:1px solid hsl(var(--border));padding-top:16px">
+      <label>Skip rows after header <span class="hint">situational — usually blank</span></label>
+      <p class="muted" style="margin:-2px 0 10px">
+        Exclude specific rows that aren't part of the top header — e.g. a column-header that repeats mid-sheet, or a stray banner row.
+      </p>
+
+      <div id="skipList"></div>
+      <div class="skip-empty" id="skipEmpty">No rows excluded. Usually left blank.</div>
+
+      <button class="btn" id="addSkip">+ Add row to skip</button>
+    </div>
+
+    <!-- ── (3) UNIFIED YELLOW SUMMARY ──────────────────────────────── -->
+    <div class="amber">
+      <div class="t">⚠ Rows excluded from data</div>
+      <div class="line"><span class="k">Header band:</span> <code id="sumHeader">—</code></div>
+      <div class="line"><span class="k">Manual skips:</span> <code id="sumSkips">none</code></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<p class="legend">
+  <b>Interaction notes baked into this prototype:</b> switching the header toggle Single↔Multiple seeds the other mode's
+  values; <code>To&nbsp;&lt;&nbsp;From</code> shows the inline error (and would block "Mark Config Done"); each skip row has
+  its own Single/Multiple toggle; the amber panel always shows the header band and the <b>deduped, sorted</b> manual-skip
+  numbers (numbers only). Internally: header → <code>header_row=start</code>, <code>header_row_count=end−start+1</code>;
+  skips → flattened to <code>skip_top_rows_after_header</code> (back-compat) + a structured <code>skip_row_definitions</code>
+  for round-trip.
+</p>
+
+<script>
+(function(){
+  // ── header band state ───────────────────────────────────────────
+  let hdrMode = 'single';
+  const $ = id => document.getElementById(id);
+  const seg = $('hdrSeg');
+  seg.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    hdrMode = b.dataset.mode;
+    [...seg.children].forEach(x=>x.classList.toggle('active', x===b));
+    if(hdrMode==='single'){
+      $('hdrSingle').style.display=''; $('hdrMultiple').style.display='none';
+      // seed single from the start row
+      $('hdrRow').value = $('hdrStart').value || '1';
+    }else{
+      $('hdrSingle').style.display='none'; $('hdrMultiple').style.display='';
+      // seed range start from the single row
+      $('hdrStart').value = $('hdrRow').value || '1';
+      if(+$('hdrEnd').value < +$('hdrStart').value) $('hdrEnd').value = $('hdrStart').value;
+    }
+    render();
+  });
+  ['hdrRow','hdrStart','hdrEnd'].forEach(id=>$(id).addEventListener('input',render));
+
+  // ── skip definitions state ──────────────────────────────────────
+  let skips = [];        // {id, kind:'single'|'range', row, start, end}
+  let nextId = 1;
+  const list = $('skipList');
+
+  function addSkip(){ skips.push({id:nextId++, kind:'single', row:'', start:'', end:''}); renderSkips(); render(); }
+  $('addSkip').addEventListener('click', addSkip);
+
+  function renderSkips(){
+    list.innerHTML='';
+    $('skipEmpty').style.display = skips.length ? 'none':'';
+    skips.forEach(s=>{
+      const wrap=document.createElement('div'); wrap.className='skip-row';
+      wrap.innerHTML = `
+        <div class="seg" data-id="${s.id}">
+          <button data-kind="single" class="${s.kind==='single'?'active':''}">Single Row</button>
+          <button data-kind="range" class="${s.kind==='range'?'active':''}">Multiple Rows</button>
+        </div>
+        ${s.kind==='single'
+          ? `<span class="muted">Row</span><input type="number" min="1" data-f="row" value="${s.row}">`
+          : `<span class="muted">From</span><input type="number" min="1" data-f="start" value="${s.start}">
+             <span class="muted">To</span><input type="number" min="1" data-f="end" value="${s.end}">`}
+        <button class="iconbtn" title="Remove" data-del="${s.id}">✕</button>`;
+      // toggle kind
+      wrap.querySelector('.seg').addEventListener('click',e=>{
+        const b=e.target.closest('button'); if(!b) return;
+        s.kind=b.dataset.kind; renderSkips(); render();
+      });
+      wrap.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
+        s[e.target.dataset.f]=e.target.value; render();
+      }));
+      wrap.querySelector('[data-del]').addEventListener('click',()=>{
+        skips=skips.filter(x=>x.id!==s.id); renderSkips(); render();
+      });
+      list.appendChild(wrap);
+    });
+  }
+
+  // ── derive + render the summary ─────────────────────────────────
+  function headerBand(){
+    if(hdrMode==='single'){ const r=+$('hdrRow').value; return r>=1 ? {start:r,end:r,count:1}:null; }
+    const a=+$('hdrStart').value, b=+$('hdrEnd').value;
+    if(!(a>=1)|| !(b>=1)) return null;
+    if(b<a) return {invalid:true,start:a,end:b};
+    return {start:a,end:b,count:b-a+1};
+  }
+  function resolveSkips(){
+    const set=new Set();
+    skips.forEach(s=>{
+      if(s.kind==='single'){ const r=+s.row; if(r>=1) set.add(r); }
+      else { const a=+s.start, b=+s.end; if(a>=1&&b>=a) for(let i=a;i<=b;i++) set.add(i); }
+    });
+    return [...set].sort((x,y)=>x-y);
+  }
+  function render(){
+    const band=headerBand();
+    // header-band inline error
+    const err = band && band.invalid;
+    $('hdrErr').style.display = err ? '' : 'none';
+    $('hdrStart').classList.toggle('err', !!err); $('hdrEnd').classList.toggle('err', !!err);
+    // data-start
+    $('dataStart').textContent = (band && !band.invalid) ? (band.end+1) : '—';
+    // summary
+    $('sumHeader').textContent = (band && !band.invalid)
+      ? (band.count===1 ? `row ${band.start}` : `rows ${band.start}–${band.end}`) + `  (data starts at row ${band.end+1})`
+      : '—';
+    const rs=resolveSkips();
+    $('sumSkips').textContent = rs.length ? rs.join(', ') : 'none';
+  }
+
+  // seed: start in Multiple mode to mirror HVAC Low side (band 2–5)
+  seg.querySelector('[data-mode="multiple"]').click();
+  addSkip(); skips[0].kind='single'; skips[0].row='40'; renderSkips();
+  addSkip(); skips[1].kind='range'; skips[1].start='55'; skips[1].end='58'; renderSkips();
+  render();
+})();
+</script>
+</body>
+</html>
