@@ -33,6 +33,17 @@
       "plain": "Sits under a Point Wiring section header.",
       "source": "corpus preamble: 'Point Wiring', 'LIGHT POINTS DIRECTLY CONTROLLED BY SWITCH/MCB'"
     },
+    {
+      "rule_id": "PW-WIRINGFOR",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["wiring for\\b[\\s\\S]{0,80}\\bpoints?\\b", "\\bfan points?\\b", "\\blight points?\\b", "\\bplug points?\\b", "\\bpower points?\\b", "\\bloop points?\\b", "call bell points?\\b"],
+      "match_mode": "regex",
+      "weight": 0.6,
+      "plain": "A 'wiring for ... point(s)' lot (e.g. 'Wiring for fan points with 3x2.5 sq mm'): this is point wiring - the cable size quoted is just the wire used for the point, not a cable-run item.",
+      "source": "FIX3 proving-run 2026-06-30: 31 'Wiring for X points' lines mis-scored wiring_cabling",
+      "ambiguous_with": ["wiring_cabling"]
+    },
 
     {
       "rule_id": "WC-SIZE",
@@ -75,6 +86,16 @@
       "weight": 0.45,
       "plain": "Sits under an LT / EB Cables section header.",
       "source": "corpus preamble: 'LT CABLES', 'EB CABLES'"
+    },
+    {
+      "rule_id": "WC-EXCL-POINTWIRING",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["wiring for\\b[\\s\\S]{0,80}\\bpoints?\\b"],
+      "match_mode": "regex",
+      "weight": 0,
+      "plain": "FIX3 guard: a 'wiring for ... point(s)' line is point wiring, not a cable-run item, so the wiring_cabling signal from its quoted cable size is suppressed.",
+      "source": "FIX3 proving-run 2026-06-30: wiring_cabling over-fired on point-wiring lots"
     },
 
     {
@@ -151,6 +172,7 @@
       "weight": 0.5,
       "plain": "Names a loose protective device - MCB (small circuit breaker), MCCB (larger breaker), RCCB (earth-leakage breaker) or isolator. On its own this is standalone switchgear, but it could be a component inside a panel assembly - review.",
       "source": "corpus: mcb 587, rccb 100, mccb 82, isolator 80",
+      "exclude_if": ["industrial socket", "industrial type socket", "metal clad"],
       "ambiguous_with": ["panels"]
     },
     {
@@ -254,11 +276,11 @@
       "rule_id": "CT-TRAY",
       "category_id": "cabletray_raceway",
       "signal_type": "item_keyword",
-      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack"],
+      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack", "junction box", "junction-box", "j-box", "j box", "pull box", "draw box"],
       "match_mode": "any_token",
       "weight": 0.6,
-      "plain": "Cable support / containment: cable tray, ladder, raceway or trunking.",
-      "source": "corpus: cable tray 178, raceway 99, perforated 40"
+      "plain": "Cable support / containment / junction hardware: cable tray, ladder, raceway, trunking, or a junction / pull / draw box.",
+      "source": "corpus: cable tray 178, raceway 99, perforated 40; FIX1 proving-run 2026-06-30: 49 junction/box fragments abstained"
     },
     {
       "rule_id": "CT-ANC",
@@ -324,7 +346,7 @@
       "weight": 0.4,
       "plain": "Names a built panel / switch-board assembly (a fabricated enclosure that houses breakers as one unit).",
       "source": "corpus: panel 128, lt panel 27",
-      "exclude_if": ["led", "light panel", "luminaire", "downlight", "panel light", "ceiling panel", "drop down panel", "patch panel"],
+      "exclude_if": ["led", "light panel", "luminaire", "downlight", "panel light", "ceiling panel", "drop down panel", "patch panel", "danger", "sld", "chart", "fire extinguisher", "name board", "notice board", "mat", "shock treatment", "first aid"],
       "ambiguous_with": ["db_switchgear", "networking"]
     },
     {

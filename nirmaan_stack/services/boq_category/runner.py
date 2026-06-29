@@ -77,21 +77,30 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
     rules = _read_json("rules_electrical.json")["rules"]
     scoring = _read_json("scoring.json")
 
-    # Per-category exclusion tokens: union of `exclusion`-rule matches and any
-    # rule's inline `exclude_if`.
-    exclude_by_cat: dict[str, list[str]] = {}
+    # Per-category exclusion guards (false-friend suppressors). Two kinds:
+    #   token  -- whole-token match (inline `exclude_if` on any rule, and
+    #             `exclusion`-type rules whose match_mode is not 'regex').
+    #   regex  -- `exclusion`-type rules with match_mode 'regex' (e.g. the
+    #             'wiring for ... point(s)' guard that needs a span pattern).
+    # Either kind firing ZEROES that category's score.
+    exclude_tokens_by_cat: dict[str, list[str]] = {}
+    exclude_regex_by_cat: dict[str, list[str]] = {}
     for r in rules:
         cat = r["category_id"]
         if r.get("signal_type") == "exclusion":
-            exclude_by_cat.setdefault(cat, []).extend(r.get("match", []))
+            if r.get("match_mode") == "regex":
+                exclude_regex_by_cat.setdefault(cat, []).extend(r.get("match", []))
+            else:
+                exclude_tokens_by_cat.setdefault(cat, []).extend(r.get("match", []))
         for tok in r.get("exclude_if", []) or []:
-            exclude_by_cat.setdefault(cat, []).append(tok)
+            exclude_tokens_by_cat.setdefault(cat, []).append(tok)
 
     return {
         "categories": categories,
         "rules": rules,
         "scoring": scoring,
-        "exclude_by_cat": {k: tuple(v) for k, v in exclude_by_cat.items()},
+        "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
+        "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "name_by_cat": {c["category_id"]: c["name"] for c in categories},
     }
 
@@ -139,9 +148,35 @@ def _tokens_present(tokens: list[str], mode: str, blob: str) -> bool:
 
 
 def _excluded(category_id: str, ruleset: dict, desc_blob: str) -> bool:
-    """True if a false-friend exclusion token for this category is present."""
-    toks = ruleset["exclude_by_cat"].get(category_id, ())
-    return any(_contains(t, desc_blob) for t in toks)
+    """True if a false-friend exclusion guard for this category fires.
+
+    Token guards use whole-token matching; regex guards use re.search (for
+    span patterns like 'wiring for ... point(s)'). Either kind firing zeroes
+    the category.
+    """
+    toks = ruleset["exclude_tokens_by_cat"].get(category_id, ())
+    if any(_contains(t, desc_blob) for t in toks):
+        return True
+    pats = ruleset["exclude_regex_by_cat"].get(category_id, ())
+    return any(re.search(p, desc_blob, re.IGNORECASE) for p in pats)
+
+
+def _infer_from_ancestors(anc_blob: str, ruleset: dict) -> dict:
+    """FIX 4 helper: score categories using the ANCESTOR text alone.
+
+    Runs both item_keyword and ancestor rules against the ancestor blob (so a
+    parent section/line that itself names a category is detected), sums weights
+    per category, and zeroes any category whose exclusion guard fires on the
+    ancestor text. Used only when the line itself ABSTAINS, to let a fragment
+    row inherit its parent section's category. Returns {category_id: score}.
+    """
+    sums: dict[str, float] = {}
+    for r in ruleset["rules"]:
+        if r.get("signal_type") not in ("item_keyword", "ancestor"):
+            continue
+        if _tokens_present(r["match"], r.get("match_mode", "any_token"), anc_blob):
+            sums[r["category_id"]] = sums.get(r["category_id"], 0.0) + float(r["weight"])
+    return {c: v for c, v in sums.items() if v > 0 and not _excluded(c, ruleset, anc_blob)}
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +263,35 @@ def classify_line(
             s = 0.0
         scores[cat] = round(s, 6)
 
+    name_by_cat = ruleset["name_by_cat"]
+
     # 5: pick top + runner-up among positive scores
     positive = {c: v for c, v in scores.items() if v > 0}
     if not positive:
+        # FIX 4: fragment inheritance. The line itself ABSTAINED -- before routing
+        # to novel, see whether its ancestor chain alone resolves to EXACTLY ONE
+        # dominant category. If so, inherit it DOWN-WEIGHTED (never HIGH).
+        inh = _infer_from_ancestors(anc_blob, ruleset)
+        if inh:
+            ranked_inh = sorted(inh.items(), key=lambda kv: (-kv[1], kv[0]))
+            top_c, top_v = ranked_inh[0]
+            second_v = ranked_inh[1][1] if len(ranked_inh) > 1 else 0.0
+            if top_v > second_v:  # strictly one dominant ancestor category
+                inh_score = round(min(scoring["inheritance_cap"],
+                                      top_v * scoring["inheritance_weight"]), 6)
+                if inh_score > 0:
+                    inh_band = "HIGH" if inh_score >= bands["high"] else (
+                        "MED" if inh_score >= bands["med"] else "LOW")
+                    return {
+                        "category_id": top_c,
+                        "score": inh_score,
+                        "band": inh_band,
+                        "signals_fired": [],
+                        "reason": (f"no direct signal on the line; inherited from parent "
+                                   f"section: {name_by_cat.get(top_c, top_c)} -- review."),
+                        "runner_up": None,
+                        "all_scores": scores,
+                    }
         return {
             "category_id": novel_id,
             "score": 0.0,
@@ -241,7 +302,19 @@ def classify_line(
             "all_scores": scores,
         }
 
-    ranked = sorted(positive.items(), key=lambda kv: (-kv[1], kv[0]))
+    # FIX 5: rank with a tiny bonus for categories carrying a DIRECT (item_keyword)
+    # signal, so a near-tie resolves toward what the line itself names over an
+    # ancestor-only competitor. The bonus affects ORDERING only -- reported scores
+    # are unchanged (top_score/runner are read from `scores`).
+    direct_cats = {f["category_id"] for f in fired if f["signal_type"] == "item_keyword"}
+    direct_bonus = scoring.get("direct_signal_bonus", 0.0)
+
+    def _rank_key(kv):
+        cat, sc = kv
+        eff = sc + (direct_bonus if cat in direct_cats else 0.0)
+        return (-eff, cat)
+
+    ranked = sorted(positive.items(), key=_rank_key)
     top_cat, top_score = ranked[0]
     runner = ranked[1] if len(ranked) > 1 else None
 
@@ -262,7 +335,6 @@ def classify_line(
         band = "LOW"
 
     # reason: compose the winning category's fired `plain` strings
-    name_by_cat = ruleset["name_by_cat"]
     top_plains = [f["plain"] for f in fired if f["category_id"] == top_cat and f["plain"]]
     reason = " ".join(top_plains) if top_plains else f"matched {name_by_cat.get(top_cat, top_cat)}."
     if contested and runner_up_out:
