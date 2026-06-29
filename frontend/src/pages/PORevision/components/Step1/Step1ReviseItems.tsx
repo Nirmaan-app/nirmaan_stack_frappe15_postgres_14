@@ -152,6 +152,7 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
 
                     {/* Item Name */}
                     <TableCell>
+                      <div className="space-y-1.5">
                       {item.category === "Additional Charges" ? (
                         <div className="flex items-center h-9 px-3 text-xs font-medium text-gray-700 bg-gray-50 border rounded-md cursor-not-allowed w-full">
                           {item.item_name}
@@ -218,6 +219,15 @@ export const Step1ReviseItems: React.FC<Step1ReviseItemsProps> = ({
                           {item.item_name}
                         </div>
                       )}
+                        {!isDeleted && (
+                          <Input
+                            value={item.comment || ""}
+                            onChange={(e) => handleUpdateItem(idx, { comment: e.target.value })}
+                            placeholder="Add a comment (optional)..."
+                            className="text-[11px] h-7 text-gray-600 placeholder:text-gray-300 bg-white"
+                          />
+                        )}
+                      </div>
                     </TableCell>
 
                     {/* Make */}

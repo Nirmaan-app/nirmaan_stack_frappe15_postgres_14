@@ -72,6 +72,8 @@ def get_po_revision_history(po_id):
                 "original_rate",
                 "original_tax",
                 "original_amount",
+                "revision_comment",
+                "original_comment",
             ],
             order_by="idx asc",
         )

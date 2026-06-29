@@ -186,6 +186,9 @@ export const getTaskTableColumns = (
             cell: ({ row }) => (
                 <span className="text-xs truncate block max-w-[90px]">{row.original.design_category || '--'}</span>
             ),
+            // Pin a case-insensitive string sort so ordering is identical across phases
+            // (default 'auto' samples each phase's rows and can pick a case-sensitive comparator).
+            sortingFn: "text",
             enableColumnFilter: true,
             filterFn: facetedFilterFn,
             size: 100,
@@ -198,6 +201,8 @@ export const getTaskTableColumns = (
             cell: ({ row }) => (
                 <span className="font-medium text-gray-900 text-xs truncate block max-w-[140px]">{row.original.task_name}</span>
             ),
+            // Case-insensitive string sort (see Category column note) for consistent ordering.
+            sortingFn: "text",
             size: 150,
             minSize: 120,
             maxSize: 180,

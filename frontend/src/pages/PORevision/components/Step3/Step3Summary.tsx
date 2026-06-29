@@ -60,13 +60,19 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
                     const totalAmount = amount + (amount * (item.tax || 0) / 100);
                     const original = item.original_row_id ? po.items?.find(i => i.name === item.original_row_id) : null;
 
-                    const details: string[] = [];
+                    // What changed, shown in priority order: Comment → Rate → Qty → Tax → Item name
+                    const details: { text: string; tone: "default" | "comment" }[] = [];
                     if (original && (item.item_type === "Revised" || item.item_type === "Replace")) {
-                      if (item.quantity !== original.quantity) details.push(`Qty: ${original.quantity} → ${item.quantity}`);
-                      if (item.quote !== original.quote) details.push(`Rate: ${formatToIndianRupee(original.quote)} → ${formatToIndianRupee(item.quote || 0)}`);
-                      if (item.tax !== original.tax) details.push(`Tax: ${original.tax}% → ${item.tax}%`);
+                      if ((item.comment || "") !== (original.comment || "")) {
+                        details.push({ text: item.comment ? `Comment: ${item.comment}` : "Comment removed", tone: "comment" });
+                      }
+                      if (item.quote !== original.quote) details.push({ text: `Rate: ${formatToIndianRupee(original.quote)} → ${formatToIndianRupee(item.quote || 0)}`, tone: "default" });
+                      if (item.quantity !== original.quantity) details.push({ text: `Qty: ${original.quantity} → ${item.quantity}`, tone: "default" });
+                      if (item.tax !== original.tax) details.push({ text: `Tax: ${original.tax}% → ${item.tax}%`, tone: "default" });
+                      if ((item.item_name || "") !== (original.item_name || "")) details.push({ text: `Item: ${original.item_name} → ${item.item_name}`, tone: "default" });
                     } else if (item.item_type === "New") {
-                      details.push(`Qty: ${item.quantity}, Rate: ${formatToIndianRupee(item.quote || 0)}`);
+                      details.push({ text: `Qty: ${item.quantity}, Rate: ${formatToIndianRupee(item.quote || 0)}`, tone: "default" });
+                      if (item.comment) details.push({ text: `Comment: ${item.comment}`, tone: "comment" });
                     }
 
                     return (
@@ -76,8 +82,12 @@ export const Step3Summary: React.FC<Step3SummaryProps> = ({
                           {details.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {details.map((d, i) => (
-                                <span key={i} className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
-                                  {d}
+                                <span
+                                  key={i}
+                                  title={d.text}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-medium max-w-[240px] truncate ${d.tone === "comment" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"}`}
+                                >
+                                  {d.text}
                                 </span>
                               ))}
                             </div>
