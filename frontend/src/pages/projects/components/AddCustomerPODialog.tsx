@@ -377,6 +377,7 @@ import React, { useCallback, useState, ChangeEvent, useMemo, useEffect } from "r
 import { formatDate } from "@/utils/FormatDate";
 import { useCustomerPOActions } from "@/pages/projects/data/tab/financials/useCustomerPOApi";
 import { useFrappePostCall } from "frappe-react-sdk";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 // Structured payment term type
 export interface PaymentTerm {
@@ -444,10 +445,14 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
     const [isAutofilling, setIsAutofilling] = useState(false);
     const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
-    // Soft project-mismatch: the PO appears to be for a different project (non-blocking).
-    const [projectMismatch, setProjectMismatch] = useState<{ expected: string; extracted: string } | null>(null);
+    // Confirmed mismatch banner: the PO appears to be for a different project OR from
+    // a different customer. `kind` tailors the wording; both block auto-fill.
+    const [projectMismatch, setProjectMismatch] = useState<{ kind: "project" | "customer"; expected: string; extracted: string } | null>(null);
     // Full invoice-style AI provenance, persisted on the PO row for audit (set on autofill).
     const [autofillMeta, setAutofillMeta] = useState<Record<string, any> | null>(null);
+    // Attachment-first reveal gate: the PO fields stay hidden until a file has been
+    // read (success OR fail) — on the Link path they always show.
+    const [attachmentProcessed, setAttachmentProcessed] = useState(false);
 
     const clearAutofillFlag = (field: string) => {
         setAutofilledFields(prev => {
@@ -464,6 +469,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         setAutofilledFields(new Set());
         setProjectMismatch(null);
         setAutofillMeta(null);
+        setAttachmentProcessed(false); // hide the fields again until this file is read
         if (!file || !projectName) return;
 
         setIsAutofilling(true);
@@ -478,12 +484,28 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             });
             const data = res?.message ?? res;
 
+            // Confirmed mismatch ("totally mismatched") → do NOT auto-fill; leave the
+            // form blank for manual entry and warn in red. The PO is wrong for this
+            // project if EITHER it names a different project OR its issuer (buyer
+            // GSTIN/name) ≠ this project's customer.
+            const pm = data?.validation?.project_match;
+            const cm = data?.validation?.customer_match;
+            const projectMismatched = !!(pm && pm.match === false);
+            const customerMismatched = !!(cm && cm.match === false);
+            const mismatched = projectMismatched || customerMismatched;
+
             const filled = new Set<string>();
+            // Mismatch no longer blocks auto-fill — we fill, then warn (banner + toast).
             setFormData(prev => {
                 const next = { ...prev };
                 if (data?.customer_po_number) {
                     next.customer_po_number = data.customer_po_number;
                     filled.add("customer_po_number");
+                }
+                // PO Date read off the PDF (already normalized to YYYY-MM-DD by the backend).
+                if (data?.customer_po_date) {
+                    next.customer_po_creation_date = data.customer_po_date;
+                    filled.add("customer_po_creation_date");
                 }
                 const inc = parseFloat(data?.customer_po_value_inctax);
                 if (!isNaN(inc) && inc > 0) {
@@ -514,12 +536,17 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
             setAutofilledFields(filled);
 
-            // Soft project-mismatch check (non-blocking): only when the backend
-            // is confident the PO names a different project (match === false).
-            const pm = data?.validation?.project_match;
+            // Surface the confirmed mismatch in red (computed above). Prefer the
+            // customer detail (the stronger signal) when it's the one that disagreed.
             setProjectMismatch(
-                pm && pm.match === false
-                    ? { expected: pm.expected || "", extracted: pm.extracted || "" }
+                customerMismatched
+                    ? {
+                          kind: "customer",
+                          expected: cm.expected_name || cm.expected_gstin || "",
+                          extracted: cm.extracted_name || cm.extracted_gstin || "",
+                      }
+                    : projectMismatched
+                    ? { kind: "project", expected: pm.expected || "", extracted: pm.extracted || "" }
                     : null
             );
 
@@ -538,7 +565,13 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                 autofill_all_entities_json: JSON.stringify(data?.entities || []),
             });
 
-            if (filled.size > 0) {
+            if (mismatched && filled.size > 0) {
+                toast({
+                    title: customerMismatched ? "Auto-filled — check the customer" : "Auto-filled — check the project",
+                    description: "The fields were filled, but this PO may belong to a different project/customer. Please review before saving.",
+                    variant: "default",
+                });
+            } else if (filled.size > 0) {
                 toast({
                     title: "Auto-filled from PO",
                     description: `Filled ${filled.size} field${filled.size > 1 ? "s" : ""}. Please verify before saving.`,
@@ -552,13 +585,21 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                 });
             }
         } catch (e: any) {
+            // The reader (Gemini) can fail intermittently on large/complex POs —
+            // timeout, model overload, or a blocked/empty response. Degrade gracefully
+            // to manual entry instead of a hard error: the fields are revealed (blank)
+            // in `finally`, and re-uploading the file retries the read.
             toast({
-                title: "Auto-fill failed",
-                description: e?.message || "Please enter details manually.",
-                variant: "destructive",
+                title: "Couldn't read the PO automatically",
+                description:
+                    getFrappeError(e) ||
+                    "The PO reader had a temporary problem (more likely on large files). Re-upload to try again, or enter the details manually below.",
+                variant: "default",
             });
         } finally {
             setIsAutofilling(false);
+            // Reveal the fields now — filled on success, blank for manual entry on failure.
+            setAttachmentProcessed(true);
         }
     };
 
@@ -583,6 +624,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
     // Handler for radio button change
     const handleChoiceChange = useCallback((choice: LinkAttachmentChoice) => {
         setLinkOrAttachmentChoice(choice);
+        setAttachmentProcessed(false); // re-hide the fields on the attachment path until a file is read
         // Reset the input values when the choice changes to ensure only one field is sent
         setFormData(prev => ({
             ...prev,
@@ -628,12 +670,13 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
         setPaymentTerms([]);
         setNewTerm({ label: '', percentage: 0, description: '', expected_date: '' });
         setIsEditingTerm(false);
-        setLinkOrAttachmentChoice('link');
+        setLinkOrAttachmentChoice('attachment'); // attachment-first: default source
         setUploadedFileUrl(null);
         setIsAutofilling(false);
         setAutofilledFields(new Set());
         setProjectMismatch(null);
         setAutofillMeta(null);
+        setAttachmentProcessed(false); // fields hidden until the PO is read
     }, []);
 
     const isLinkAttachmentValid = useMemo(() => {
@@ -648,6 +691,52 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
             isLinkAttachmentValid
         );
     }, [formData, isLinkAttachmentValid]);
+
+    // Attachment-first reveal: on the Link path the PO fields always show; on the
+    // Attachment path they appear only after the uploaded PO has been read.
+    const showDataFields =
+        linkOrAttachmentChoice === 'link' ||
+        (linkOrAttachmentChoice === 'attachment' && attachmentProcessed);
+
+    // Soft validation warnings — surfaced for review, NEVER block saving.
+    const validationWarnings = useMemo(() => {
+        const warnings: string[] = [];
+
+        if (paymentTerms.length > 0) {
+            // Percentages should add up to exactly 100% — flag over/short with the amount.
+            const totalPct = paymentTerms.reduce((sum, t) => sum + (Number(t.percentage) || 0), 0);
+            const roundedPct = Math.round(totalPct * 100) / 100;
+            if (roundedPct > 100) {
+                const over = Math.round((roundedPct - 100) * 100) / 100;
+                warnings.push(`Payment terms add up to ${roundedPct}% — that's ${over}% over 100%.`);
+            } else if (roundedPct < 100) {
+                const short = Math.round((100 - roundedPct) * 100) / 100;
+                warnings.push(`Payment terms add up to ${roundedPct}% — ${short}% short of 100%.`);
+            }
+            // Expected dates are never auto-read — flag the ones still blank.
+            const missingDates = paymentTerms.filter(t => !t.expected_date).length;
+            if (missingDates > 0) {
+                warnings.push(
+                    `${missingDates} of ${paymentTerms.length} payment term${paymentTerms.length > 1 ? 's' : ''} ${missingDates > 1 ? 'have' : 'has'} no expected date.`
+                );
+            }
+        }
+
+        // Amounts — only after an extraction attempt, so manual/Link entry isn't nagged.
+        if (attachmentProcessed) {
+            const inc = Number(formData.customer_po_value_inctax) || 0;
+            const exc = Number(formData.customer_po_value_exctax) || 0;
+            if (inc > 0 && exc <= 0) {
+                warnings.push("Amounts partially read — only the Incl. Tax value was found. Please enter the Excl. Tax value.");
+            } else if (exc > 0 && inc <= 0) {
+                warnings.push("Amounts partially read — only the Excl. Tax value was found. Please enter the Incl. Tax value.");
+            } else if (inc > 0 && exc > 0 && exc > inc) {
+                warnings.push("Excl. Tax value is greater than Incl. Tax — please verify the amounts.");
+            }
+        }
+
+        return warnings;
+    }, [paymentTerms, attachmentProcessed, formData.customer_po_value_inctax, formData.customer_po_value_exctax]);
 
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -819,12 +908,19 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                                 </div>
                             )}
                             {projectMismatch && (
-                                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2 py-1.5">
-                                    <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
-                                    <div className="text-xs text-amber-900 leading-snug">
-                                        <p className="font-medium">This PO may be for a different project.</p>
+                                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-300 px-2 py-1.5">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-red-600 flex-shrink-0 mt-0.5" />
+                                    <div className="text-xs text-red-800 leading-snug">
+                                        <p className="font-medium">
+                                            {projectMismatch.kind === "customer"
+                                                ? "This PO may be from a different customer — please double-check."
+                                                : "This PO may be for a different project — please double-check."}
+                                        </p>
                                         <p className="mt-0.5">
-                                            The PO mentions "{projectMismatch.extracted}" but this project is "{projectMismatch.expected}". Double-check you uploaded the right file.
+                                            {projectMismatch.kind === "customer"
+                                                ? `The PO is from "${projectMismatch.extracted}" but this project's customer is "${projectMismatch.expected}".`
+                                                : `The PO mentions "${projectMismatch.extracted}" but this project is "${projectMismatch.expected}".`}{" "}
+                                            The fields were still auto-filled — double-check you uploaded the right file before saving.
                                         </p>
                                     </div>
                                 </div>
@@ -832,6 +928,23 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                         </div>
                     )}
 
+                    {/* Soft validation warnings — shown up top, right after the auto-fill note */}
+                    {validationWarnings.length > 0 && (
+                        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 space-y-1">
+                            <div className="flex items-center gap-2 text-xs font-medium text-red-800">
+                                <AlertTriangle className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />
+                                Please check before saving
+                            </div>
+                            <ul className="list-disc pl-5 text-xs text-red-800 space-y-0.5">
+                                {validationWarnings.map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {showDataFields && (
+                    <>
                     {/* Basic Fields */}
                     <div className="grid grid-cols-1 gap-4">
                         <div className="space-y-2">
@@ -852,6 +965,7 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                                 value={formData.customer_po_creation_date}
                                 onChange={handleInputChange}
                                 required
+                                className={autofilledFields.has("customer_po_creation_date") ? "bg-amber-50 border-amber-300 focus-visible:ring-amber-400" : ""}
                             />
                         </div>
                     <div className="grid grid-cols-2 gap-4">
@@ -888,13 +1002,15 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
 
                         {/* Existing terms — compact read-only rows */}
                         {paymentTerms.map((term, index) => (
-                            <div key={index} className="px-3 py-2 border rounded bg-gray-50">
+                            <div key={index} className={`px-3 py-2 border rounded ${!term.expected_date ? "bg-yellow-50 border-yellow-200" : "bg-gray-50"}`}>
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-3 text-sm">
                                         <span className="font-medium">{term.label}</span>
                                         <span className="text-blue-600 font-mono whitespace-nowrap">{term.percentage}%</span>
-                                        {term.expected_date && (
+                                        {term.expected_date ? (
                                             <span className="text-gray-500 text-xs whitespace-nowrap">Date: {formatDate(term.expected_date)}</span>
+                                        ) : (
+                                            <span className="text-yellow-700 text-xs whitespace-nowrap">No expected date</span>
                                         )}
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
@@ -984,6 +1100,8 @@ export const AddCustomerPODialog: React.FC<AddCustomerPODialogProps> = ({ projec
                             <Plus className="h-3 w-3 mr-1" /> {isEditingTerm ? 'Update Term' : 'Add Term'}
                         </Button>
                     </div>
+                    </>
+                    )}
 
                     <div className="flex gap-4">
                         <Button 

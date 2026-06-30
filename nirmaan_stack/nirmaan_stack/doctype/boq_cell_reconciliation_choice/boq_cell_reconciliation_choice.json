@@ -1,0 +1,262 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BRCC-.YY.-.#####",
+ "creation": "2026-06-24 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "col_letter",
+  "committed_version",
+  "semantic_section",
+  "choice",
+  "description",
+  "choice_version_section",
+  "choice_version",
+  "is_current",
+  "chosen_at",
+  "chosen_by",
+  "is_finalized"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Cell Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this reconciliation choice belongs to. Denormalized (mirrors BoQ Cell Pricing) so the layer is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable Excel-address identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number this choice applies to (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component.",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "description": "The Excel column letter of the AMOUNT cell this choice applies to. PER-CELL identity (this is the difference from BoQ Cell Dismissal, which is per-ROW with no col_letter). Stored VERBATIM. Identity component.",
+   "fieldname": "col_letter",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Column Letter",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet this choice annotates. Annotation is anchored to a committed version; identity component. A re-commit mints a new version, naturally orphaning old choices (no live invalidation code needed).",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "semantic_section",
+   "fieldtype": "Section Break",
+   "label": "Choice"
+  },
+  {
+   "description": "Which value wins for this divergent amount cell: keep_document (the committed/document amount from the tendering workbook) or take_formula (the formula-computed amount). 'Unset' is the ABSENCE of any current record (the default -> document wins, per the locked design D1).",
+   "fieldname": "choice",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Choice",
+   "options": "keep_document\ntake_formula",
+   "reqd": 1
+  },
+  {
+   "description": "A copy of the committed row's description at choose time -- a copy-forward MATCH GUARD (a future copy-forward slice warns when the committed description changed under a choice). NOT part of the unique key; never branched on.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "choice_version_section",
+   "fieldtype": "Section Break",
+   "label": "Choice Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name, excel_row, col_letter, committed_version) choice version. Incremented on re-choose by the write path (freeze-and-supersede, mirroring the pricing tier).",
+   "fieldname": "choice_version",
+   "fieldtype": "Int",
+   "label": "Choice Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current choice record per (boq, sheet_name, excel_row, col_letter, committed_version). The one-current invariant is enforced by the write path (pricing.py save_cell_reconciliation_choice), NOT in this controller (mirrors the pricing-tier convention). A rate save (column-aware, surgical) or a formula save/remove RE-ARMS (freezes -> is_current=0) the affected cells' choices; the read path returns only is_current=1.",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this choice record was written. Set by the write path.",
+   "fieldname": "chosen_at",
+   "fieldtype": "Datetime",
+   "label": "Chosen At",
+   "read_only": 1
+  },
+  {
+   "description": "The user who made this choice. Set by the write path.",
+   "fieldname": "chosen_by",
+   "fieldtype": "Data",
+   "label": "Chosen By",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The finalize-pricing lock for this committed version. When set, the choice for this cell is finalized (a later finalize-pricing slice enforces the lock semantics; this slice only declares the marker -- mirrors BoQ Cell Pricing.is_finalized).",
+   "fieldname": "is_finalized",
+   "fieldtype": "Check",
+   "label": "Is Finalized"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-06-24 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Cell Reconciliation Choice",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

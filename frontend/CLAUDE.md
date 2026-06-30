@@ -175,9 +175,88 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 ---
 
-## BoQ Upload Wizard -- Frontend Conventions (Module 1b onward)
+## BoQ Wizard & Pricing Editor -- Frontend Conventions
 
-**Docs discipline -- DOCS-UPDATE RULE (all three, every commit):** Every docs or feat+docs commit updates ALL THREE docs -- `frontend/.claude/plans/boq-upload-plan.md`, root `CLAUDE.md`, and `frontend/CLAUDE.md` (this file) -- with NO exceptions. A doc not substantively affected still gets a MINIMAL TOUCH (bump its last-updated/status line + a one-line note of what landed), never a skip. Rationale: "update CLAUDE.md" without naming which one let this file silently fall a full module behind (stale through all of Module 2b). Naming all three by full path removes the routing ambiguity. **This file's path: `frontend/CLAUDE.md` (NOT `frontend/.claude/CLAUDE.md`).**
+All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This section keeps ONLY the
+**stable conventions + load-bearing / owner-locked invariants**. The FULL per-slice as-built detail
+(component contracts, per-slice changelog, feat hashes) is relocated to
+**`frontend/.claude/context/domain/boq-frontend.md`** — load it before BoQ frontend work. Live status =
+`frontend/.claude/plans/boq-upload-plan.md`.
+
+**Docs discipline -- DOCS-UPDATE RULE (revised 2026-06-25, context-hygiene split):** per-slice / per-commit
+as-built detail goes into `boq-upload-plan.md` (live status) + `boq-frontend.md` (frontend) +
+`.claude/context/domain/boq-backend.md` (backend) ONLY. The always-loaded `CLAUDE.md` files get a MINIMAL
+touch ONLY when a STABLE convention or a load-bearing / owner-locked invariant changes — never a per-slice
+changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-session by the `.claude/hooks/guard_claude_md.py` PreToolUse hook** (blocks changelog-style appends + redirects to the domain docs; see `.claude/hooks/README.md`). **Frontend conventions file: `frontend/CLAUDE.md`
+(NOT `frontend/.claude/CLAUDE.md`).**
+
+### Wizard (hub / spoke / review) -- stable conventions
+
+- **Routes** (React Router v6 `lazy()`, module `export { X as Component }`): upload `/upload-boq` (`?project=<id>`);
+  hub `/upload-boq/hub/:boqId`; spoke `/upload-boq/hub/:boqId/sheet/:sheetName`; review
+  `/upload-boq/hub/:boqId/review/:sheetName`. RR v6 AUTO-decodes path params; the hub encodes with
+  `encodeURIComponent`. Back-nav ALWAYS routes by entity ID, never `navigate(-1)` (routes are deep-linkable with
+  no guaranteed history).
+- **`sheet_name` is matched VERBATIM (#152)** everywhere (React keys, every endpoint arg) — trailing/leading
+  spaces exist in real data; `.trim()` ONLY for display.
+- **General-specs badge is DERIVED** from `BOQs.general_specs_sheets` child membership (`source_sheet_name`),
+  NEVER from `wizard_status` (the backend never writes "General specs" there).
+- **State / mutations:** transient `useBoqWizardStore` (no `persist`). JSON mutations use `useFrappePostCall` +
+  `mutate()` (server is authoritative); raw `fetch` ONLY for the multipart file upload. Errors are inline, no toasts.
+- **Work-package read path:** WP assignments are GRANDCHILD rows that do NOT serialize on `useFrappeGetDoc("BOQs")`
+  — read via `get_boq_work_packages`. Never `order_by` a Frappe field literally named `order` (PG reserved word → 500).
+- **`useFrappeGetDoc` swrKey:** 3rd arg is the swrKey; use `id ? undefined : null`, never `{ enabled }`.
+- **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
+  `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
+  hub-scoped. Full detail in `boq-frontend.md`.
+
+### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
+
+- **Row-memo anti-defeat rule:** the per-row `<tr>` is a `React.memo`'d `PricingGridRow` (exhaustive comparator
+  `pricingRowPropsAreEqual`). NEVER pass a memoized row the shared `draftRates`/`proposedRates` object (a keystroke
+  makes a new ref → all rows re-render → memo silently defeated); each row gets only its own slice via
+  `groupDraftsByRow` (ref-reused). Per-sheet/grid-level props (formula map, recon map, `expanded`, `hiddenCols`,
+  search-hit booleans) must flip identically for all rows; never add an inline-arrow callback prop to a row.
+- **Read-only gating = PRESENCE of the save callback** (`onSaveRate` / `onSaveRemark` / `onSaveColor` / ...). The
+  page withholds them when locked / taken-over / grid-only. Do NOT add a second per-cell `editable` signal.
+- **Rate-edit gate is ASYMMETRIC by node_type (owner-locked):** editable iff `override || node_type === "Line Item"
+  || (node_type === "Preamble" && isRowQtyBearing(row))`. A zero-qty Line Item stays editable; a zero-qty Preamble
+  is read-only. NEVER collapse this asymmetry. Server `save_cell_price` enforces the same rule (client = UX).
+- **MANDATORY amount-formula gate (owner-locked; REVERSES "formula optional"):** every amount column needs a covering
+  formula (`priceability.areFormulasComplete`, override>wildcard via `pickFormula`) before ANY rate is editable; the
+  gate is ANDed in OUTSIDE `isRateEditableRow` so the override CANNOT bypass it. `onSaveFormula` (declaration) stays
+  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary.
+- **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
+  `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
+  formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
+  `pricingRollup.ts` / `SummaryPanel.tsx` are formula-aware too.
+- **`reconcile.ts` is a PURE LEAF** (imports only types): the SHARED `amountsEqual` epsilon + `resolveDivergence`
+  (D1 = DOCUMENT default). It exists so PricingGrid / priceability / pricingRollup share one comparison with NO cycle
+  (PricingGrid must NOT import pricingRollup). Divergence fires only on `cell.kind === "value"`.
+- **`priceability.ts` is the shared "qty-bearing priceable line" spine** — the ONE definition for flags / the N-of-M
+  count / rollup alignment. It imports PricingGrid's leaf predicates; **PricingGrid NEVER imports priceability**
+  (receives flags as a prop) — keep this one-way dependency (why `isNonZeroNum` is a self-contained copy in PricingGrid).
+- **Column resize is shipped; frozen-left is NOT** (cell-level multi-column sticky-left doesn't track horizontal
+  scroll — DEFERRED to a dedicated two-pane slice). Table is `table-fixed` + `<colgroup>`; widths are GRID-LEVEL
+  (never a per-row prop, so the row memo is untouched). Full-screen is an in-app root-`className` toggle (NO portal /
+  Dialog — ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
+- **Annotation channels coexist:** system cell BACKGROUND (priced emerald / amber), user color = LEFT BORDER, system
+  flags = col-0 GUTTER, focus = ring — never let one channel mask another.
+
+### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
+
+- **Depth / indent comes from the `effective_parent_index` chain (`computeDepths`), NEVER the stored `level`** (which
+  diverges after `human_parent` edits). `isVisible` walks from the PARENT, so a collapsed row stays visible.
+- **Description search uses the shared `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`)** — token-AND, min
+  length 2; fuzzy decides MEMBERSHIP, document order drives prev/next. ReviewTree + SheetSearchView both call it;
+  RestructureModal inherits via SheetSearchView. Never inline a second matcher.
+- **Search highlight = RINGS (`ring-inset`), never backgrounds** (a background would mask the edited-green tint).
+- **Filters gate on the FILTER axis (`classificationVisible && passesFilter`), NOT the collapse axis** — a hit can
+  never be a filtered-out row, and stepping auto-expands a collapsed-parent hit via `revealAndScrollToRow`.
+- **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES all 11 write affordances; backend
+  `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
+  options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").
+
 
 All wizard-frontend code lives in `src/pages/boq-wizard/`. Do not scatter
 wizard components into other page folders.
@@ -317,874 +396,9 @@ GST's `onClick` on the `RadioGroup` catches clicks on the pre-selected option,
 satisfying M1.30 ("clicking even the default confirms"). Confirmed flags live in the
 store.
 
-### BoQ Pricing Editor -- Frontend Conventions (live component contracts)
+### BoQ Pricing Editor -- Frontend Conventions
 
-These are the current, component-keyed contracts for the pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`).
-Full per-slice as-built detail (Slices 2 -> 4a.2) lives in `boq-upload-plan.md` under "## Phase 5 Pricing Editor --
-slice detail".
-
-**Pricing grid keyboard-nav matrix (`PricingGrid.tsx`) -- the current contract:** roving-tabindex + a per-cell ref map
-`cellRefs: useRef<Map<string,HTMLElement>>` keyed `${rowIndex}:${colIndex}`, where **`rowIndex` is the ARRAY INDEX into
-`rows`** (not `row.row_index`). `colIndex`: 0..4 = the 5 fixed anchors (`FIXED_ANCHOR_COUNT = 5`: Excel Row / Sl.No /
-Parent / Classification / Description); `FIXED_ANCHOR_COUNT + dIdx` = the descriptor columns; the trailing **Remarks**
-column is `remarksColIndex = FIXED_ANCHOR_COUNT + displayDescriptors.length` and **`colCount = remarksColIndex + 1`**
-(the +1 widens only `nextCell`'s right/Tab boundary -- it is the live post-4a.2 form; the remarks cell joined the matrix
-in 4a.2). Focus target per cell differs: a RATE cell's `<input>` carries the ref/tabIndex/onFocus (`inputFocusProps`),
-every other cell's `<td>` does (`tdFocusProps`); `onFocus` sets `activeCell`. Pure exported `nextCell(active, dir,
-rowCount, colCount)`: arrows move one cell + STOP at edges (no wrap); Tab = right then wrap to next row col 0 then STOP;
-Shift-Tab = reverse; Enter maps to "down". One `<table onKeyDown={handleGridKeyDown}>` handler maps key->dir, ALWAYS
-`preventDefault`s a nav key while activeCell is set, calls `commitActiveRate(activeCell)` (commit-on-move; `commitRate`'s
-`committedAttemptRef` dedupe absorbs the trailing onBlur -- save behaviour unchanged), then `focusCell(next)`. The rate
-`<Input>` is `type="text" inputMode="decimal"` (frees the arrows) with a `DECIMAL_IN_PROGRESS` regex guard. Enter on the
-remarks cell opens its editor (a controlled `RemarkCell`, open-state lifted to the grid as `openRemarkRowIdx`); Enter
-inside the editor = save-and-move-down via the SAME `nextCell(..., "down")` path; Esc closes. **Extend this matrix
-(colCount, focus targets) for new columns; never reshape the rate-cell nav.**
-
-**Row-level memoization contract (`PricingGrid.tsx`, editor perf fix -- the load-bearing render rule):** the per-row
-`<tr>` is a `React.memo`'d **`PricingGridRow`** (comparator `pricingRowPropsAreEqual`, both exported for unit test). The
-cursor (`activeCell`) is grid-local state, so a cursor move (arrow key / click) re-renders `PricingGrid`; without per-row
-memoization the WHOLE table (every row x every cell, an `evaluateAmountCell` at each amount cell) re-rendered per
-keystroke -- the felt lag on big sheets (Electrical 194 / VRF 121). Now a cursor move re-renders only the **2** rows
-whose active-state flipped, and a keystroke only the **1** edited row. **THE LOAD-BEARING ANTI-DEFEAT RULE: a memoized
-row must NEVER receive the shared `draftRates` / `proposedRates` object** (a keystroke makes a new reference -> all rows
-re-render -> memo silently defeated). Each row gets ONLY its own slice via **`groupDraftsByRow`** (exported, unit-tested):
-per-row sub-maps keyed by the FULL `${row_index}:${col}` key, **reference-REUSED** from the prior render (a `useRef` +
-`useMemo([draftRates])`) so an unrelated row's slice identity is stable across a keystroke. **The cursor lever** is the
-`activeColIndex: number | null` prop (= `activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null`) -- only the
-previously-active + newly-active rows see it change. The per-cell active/tabindex/className helpers (`isActiveCol`,
-`isTabStop`, `cellNavClass`, `tdFocusProps`, `inputFocusProps`) now live INSIDE `PricingGridRow`, computed from
-`activeColIndex`/`anyCellActive`; the grid keeps only the focus-ref plumbing (`registerCell`/`focusCell`/`onCellFocus`)
-and the mutation closures (`commitRate`/`scheduleAutoSave`/`setOpenRemark`), ALL `useCallback`-stable so the memo holds.
-The grid derivations (`byIdx`, `computeDepths(rows)`, `displayDescriptors`, `slNoLetter`/`descriptionLetter`) are
-`useMemo`'d on `[rows]` / `[columnDescriptors]` (NEVER on `activeCell`). The comparator is EXHAUSTIVE (returns false if
-ANY prop changed) so memoization never goes stale -- a save->`mutate()` hands fresh `row`/`flags`/slice references ->
-that row re-renders. **ZERO behaviour change** (same flags / markers / amounts / nav / lock gating, computed fewer
-times). NEVER pass the shared draft/proposed map, the whole `byIdx`, or an inline-arrow callback to a memoized row.
-
-**Read-only gating = PRESENCE of the save callback (the single root signal -- do NOT add a second):** the grid's
-editability is whether `onSaveRate` (and, for annotations, `onSaveRemark`/`onSaveColor`) is passed. The page withholds
-them (`onSaveRate={locked ? undefined : handleSaveRate}`, same for the annotation handlers) when `locked = editable ===
-false || takenOver`, and ALL edit paths (rate-cell render branch, `commitRate`, `commitActiveRate`, `scheduleAutoSave`,
-the `flush()` handle, `handleGridKeyDown`) collapse to the read-only render. A grid-only (general-specs) sheet never
-reaches PricingGrid (the `isGridOnlySheet` fork renders a read-only `SheetDataGrid`), so it is annotation-free by
-construction. **Do NOT add a per-cell `editable` check -- it duplicates the callback-presence gate.** Takeover detection:
-`isTakeoverError(msg)` = `msg.includes("BOQ_PRICING_LOCKED")` (`.includes`, since `getFrappeError` ", "-joins messages).
-
-**Cross-area prefill save-path invariant (`PricingGrid.tsx`):** proposals live in a SEPARATE `proposedRates` map, NEVER
-in `draftRates`. **No save path reads `proposedRates`** -- `commitRate`, `commitActiveRate`, `scheduleAutoSave`, the
-`flush()` handle, and the unmount-flush all read `draftRates[key] ?? savedRateStr(...)` ONLY. Anything in `draftRates` is
-committable; a cross-area proposal must never be written there until the user touches the cell (the input onChange then
-deletes the `proposedRates` entry, promoting it to a real draft). Do NOT merge the two maps.
-
-**Annotation render conventions (`PricingGrid.tsx`):** the **Remarks** column is a trailing `<th>/<td>` rendered AFTER
-the `displayDescriptors.map()` (the established trailing-column pattern), edited via a click/Enter-to-open controlled
-`RemarkCell` (shadcn Popover + Textarea, 250-char counter, Save/Clear). The **color** channel is a thick LEFT BORDER
-(`colorClassForToken(token)` -> `border-l-4 border-l-<color>`), DELIBERATELY a border NOT a background, so it never masks
-the system-owned cell BACKGROUND (emerald = priced / amber = priced-non-priceable) or the priced dot or the blue focus
-ring -- the four channels coexist. The in-app channel is the border; the Excel-export = fill mapping is a later slice.
-Apply-to-row fans out to `rowColorCells(displayDescriptors)`; the page owns the N POSTs + one `mutate()`.
-
-**Amount-formula evaluator `amountFormula.ts` (Formula Builder F2 -- PURE module, NOT a component; full detail: plan
-§"Formula Builder F2"):** the headless engine F4 calls per amount cell to compute `qty x rate` (or any +/* amount
-formula) and fix the stale-amount bug `findPairedRateDescriptor` causes. **PURE** -- no React/DOM/Frappe, does NOT read a
-row, does NOT import `resolveDescriptorValue` (types only). Entry `evaluateAmountColumn(col, columnFormulas, lookup) ->
-EvalResult` (`{ok:true,value}` | `{ok:false, reason:"not_yet"|"broken"}`; not_yet="needs a rate", broken="check formula").
-The CALLER (F4) injects `OperandLookup = (ref) => number|null|undefined` (concrete ref -> the row's value; real-0 is a
-value, absent -> undefined, MIRROR `resolveDescriptorValue`). F2 itself does area-binding (a wildcard leaf value_key=null
-on a `*_by_area` field binds to the column's area; a scalar value_field stays scalar -- the area-bind signal is the
-value_field, no extra field), amount-refs-amount recursion (a leaf whose column has a formula recurses; else lookup),
-cycle detection (-> broken), and the §0 FAIL-SAFE (ANY missing operand blanks the WHOLE formula -- no partial sum, no
-zero-substitution; broken beats not_yet; NEVER throws). Wire types (`AmountFormulaNode`/`AmountFormulaRef`/`ColumnFormula`
-+ `GetPricedRowsResponse.column_formulas`) live in `boqTypes.ts`. **F4 REPLACES `findPairedRateDescriptor`
-(PricingGrid.tsx:1277-1300) with `evaluateAmountColumn`; F2 does NOT touch PricingGrid.** `pricingRollup.ts`/`SummaryPanel`
-(the cross-row subtotal surface) is SEPARATE + untouched.
-
-**Amount-formula builder `AmountFormulaBuilder.tsx` + `formulaTokens.ts` (Formula Builder F3 -- the click-to-insert editor;
-full detail: plan §"Formula Builder F3"):** a per-amount-column shadcn Popover (ColorPicker/RemarkCell house style),
-mounted by `PricingGrid` inside each AMOUNT `<th>` (gated `isAmountDescriptor`). The user ASSEMBLES a formula by clicking
-real columns + `+ × ( )` -- NO free text, NO number input (literals barred by construction). The builder edits a flat
-TOKEN LIST; `formulaTokens.parseTokens` (PURE, unit-tested -- the F3 risk spot) parses it to the F1 tree on save
-(`×`-over-`+` precedence, brackets override, n-ary flatten; errors empty/dangling/unbalanced). **DEFAULT-as-template:**
-`tokenRefForMode(d, mode)` inserts a WILDCARD leaf (value_key null) for a default on an area-bound column (F2 binds it
-per-area) vs a CONCRETE ref for an override/scalar. The default/override toggle shows ONLY on a per-area amount column.
-Cycle check at save REUSES F2 (`wouldCreateCycle` runs `evaluateAmountColumn` with a dummy `× 1` lookup -> broken === cycle;
-NOT reimplemented). The header `ƒ = …` label reads `column_formulas` (applicable via F2 `pickFormula` precedence). Save ->
-the page's `onSaveFormula` (`SheetPricingPage.handleSaveFormula` -> `save_amount_formula` POST + mutate; tree as JSON
-string, `""` clears); **withheld when locked** -> the header renders read-only (the callback-presence gate). New wire type
-`AmountFormulaSaveArgs` in boqTypes.ts. **F3 only AUTHORS the formula -- the amount-cell COMPUTE path
-(`findPairedRateDescriptor`) is UNCHANGED; F4 owns that swap.**
-
-**Amount-cell formula compute `PricingGrid.evaluateAmountCell` (Formula Builder F4 -- the grid swap, ARC COMPLETE; full
-detail: plan §"Formula Builder F4"):** the amount-cell value now flows from the PURE exported `evaluateAmountCell(d, row,
-columnDescriptors, columnFormulas, draftRates) -> AmountCellResult` (`value` | `committed` | `blank{not_yet|broken}`);
-the render is a thin map. **Formula-wins-else-pairing:** an amount column WITH an applicable formula (F2 `pickFormula`
-precedence override>default, REUSED) computes via `evaluateAmountColumn` (F4 passes the CONCRETE column; F2 binds the
-wildcard default per-area -- F4 never pre-binds); NO formula -> the UNCHANGED `findPairedRateDescriptor`->`computeAmount`
-fallback (committed value when un-priced). The injected `lookupOperandValue` is DRAFT-AWARE per rate operand (live
-recompute as you type ANY rate the formula references -- the real change from the old single-paired read), mirroring
-`resolveDescriptorValue` (real-0 is a value; absent->undefined). `validateFormulaRefs` is the dangling-ref gate (a ref
-matching NO live descriptor -> broken, not a silent not_yet). **Fail-safe:** a formula that can't resolve renders BLANK
-(not_yet = "Needs a rate" title; broken = blank + an `AlertTriangle` marker + "Check formula") -- NEVER a stale/wrong
-number. This **fixes the supply+install->single-total stale-amount bug** (findPairedRateDescriptor couldn't pair it).
-Surfacing not_yet/broken into the review-list seam is a **4b** concern (F4 leaves the cell-marker hook). F2/F3/storage +
-rate-save/nav/color/remarks + `pricingRollup.ts`/`SummaryPanel` all UNTOUCHED. **The formula arc F1-F4 is COMPLETE.**
-
-**Summary formula-fix `pricingRollup.ts` + `SummaryPanel.tsx` (post-F4 fix; full detail: plan §"Summary fix"):** F4 swapped
-the GRID amount compute to formulas but the SUMMARY rollup still used the old `findPairedRateDescriptor` path, so
-formula-only amount columns rolled up ZERO (Alorica throughout; Electrical Phase 2). FIX: `rollupByParent(rows,
-columnDescriptors, columnFormulas=[])` + `rowOwnAmount` is now **formula-aware ONLY when a formula applies** -- `pickFormula`
-(REUSED) -> `evaluateAmountColumn` with a **saved-only** lookup (`lookupOperandValue(row, ref, descriptors, {})` -- empty
-draftRates skips the draft branch; un-priced -> not_yet -> null -> 0). **NO-formula columns are byte-for-byte unchanged**
-(the D-2 guard -- NOT routed through `evaluateAmountCell`). **SAVE-TIME** (Option A: saved values only, no `draftRates`
-threaded; the summary refreshes a beat after each auto-save's `mutate()`). Added: a **grand-total `<tfoot>` row** (Option 1
-= sum of top-level rolled totals, root orphans included, each item once) + a **reconciliation guard** (Option 1 vs Option 2
-= flat line-item sum; mismatch beyond `max(0.01, 1e-9*mag)` -> an amber integrity banner naming the column + both numbers,
-the Option-1 value still shown). New prop `columnFormulas` threaded `SheetPricingPage`->`SummaryPanel`->`rollupByParent`.
-not_yet/broken fold to 0 (the 4b incomplete-marker is deferred). No circular import (`pricingRollup`->`PricingGrid` already
-existed). The grid compute / rate-save / nav / color / remarks / backend untouched.
-
-**Prepopulated-rate fix `PricingGrid.lookupOperandValue` (RATE branch; full detail: plan §"Prepopulated-rate fix"):** a
-formula ignored a PREPOPULATED committed rate (a real non-zero tender value with no editor MARKER) because the rate read
-gated on `isCellPriced`, not value-presence -> the amount blanked until re-edited (confirmed on 150/166 by a DB peek). FIX:
-a RATE operand is usable when `isCellPriced(row, rd)` **OR the resolved committed value is a NON-ZERO finite number**.
-Three states: editor-priced (marker, any value incl. 0) -> value; committed NON-ZERO (no marker) -> value [THE FIX];
-committed 0.0 (no marker) -> undefined -> not_yet ("needs a rate"). Owner-accepted: a genuine-0 never-priced rate BLANKS
-(safer; price it 0 to set the marker). **RATE branch ONLY** -- the qty/plain-amount read is untouched (a committed qty 0
-still reads 0); `isCellPriced` itself is UNCHANGED (its 5 other consumers -- pairing fallback, prefill/cleanup, priced
-tint -- unaffected). No new storage/flag (non-zeroness is the distinguisher; the committed tier has no NULLs). The fix is
-in the SINGLE shared `lookupOperandValue`, so it flows to BOTH the grid cell AND the summary rollup (drafts={}) -- the
-rollup SOURCE was not edited.
-
-**Computed review-flag layer `priceability.ts` (Slice 4b-A, Cluster A; full detail: plan §"Slice 4b-A"):** the NEW shared
-spine `priceability.ts` is the ONE place the "qty-bearing priceable line" rule lives -- the §6 one-shared-definition. LOCKED
-owner rule: a row is a PRICEABLE LINE iff `isPriceableType(node_type)` (Preamble/Line Item) AND it is QTY-BEARING in >=1
-pricing area (a zero-qty-everywhere priceable row DROPS OUT of the population). FILLED = `isCellPriced` OR a
-prepopulated-committed-non-zero rate -- expressed as `lookupOperandValue(row, ref, descriptors, {}) !== undefined`, so it
-REUSES the editor's single source of truth (never a bare zero-check; a deliberate editor-0 counts, an unfilled 0 does not).
-FULLY PRICED = option-(i): every QTY-BEARING area's rate cell(s) filled (no-qty areas IGNORED). Per-ROW count (owner-locked).
-Every consumer routes through this module: `computeRowFlags` (the flags + F4 not_yet/broken), `computePricedCount`
-(N/M done-test), `isRowIncomplete` (the incomplete-subtotal atom), and the `pricingRollup` alignment. **No circular import:**
-`priceability` imports PricingGrid's leaf predicates (`isPriceableType`/`isCellPriced`/`isRateDescriptor`/`isAmountDescriptor`/
-`lookupOperandValue`/`evaluateAmountCell`); PricingGrid NEVER imports `priceability` -- it
-RECEIVES the flags as a `rowFlags?: Map<number, RowReviewFlags>` prop (the flag types `AreaKey`/`ReviewFlagKind`/
-`RowReviewFlags`/`ReviewEntry`/`PricedLineCount` live in `boqTypes.ts` so the grid consumes them without the cycle).
-
-The flags (all DERIVED on the fly -- no stored field): **needs_rate** (priceable line, a qty-bearing area not filled --
-per-area aware: priced in X but not qty-bearing Y still fires for Y); **qty_anomaly** (a NON-priceable node_type carrying
-qty -- the inverse guardrail). Plus F4's **broken**/**not_yet** surfaced by READING `evaluateAmountCell(d,row,...,{})`
-(saved-state; the live grid keeps its own draft-aware broken `AlertTriangle`). **broken/not_yet are GATED behind the
-priceability spine (cert fix):** they fire ONLY on (1) a PRICEABLE LINE (`isPriceableLine` -- the whole loop is skipped on a
-non-priceable row) and (2) an amount cell whose AREA is QTY-BEARING on that row (option-(i), reusing the SAME
-`isAreaQtyBearing` the `qtyBearingAreas` set is built from -- NO new qty check), SYMMETRIC with needs_rate -- so a
-notes/header/non-priceable row never flags, and a no-qty area's amount cell is ignored on a priceable row. (The same gate is
-applied to `isRowIncomplete` so the Summary message agrees with the grid.) **not_yet is also DE-DUPED against needs_rate
-(cert fix, PER-AREA):** an amount cell's not_yet is SUPPRESSED when its area is already in the row's `needsRateAreas` -- the
-amount-not-computed there is the SAME rate gap needs_rate reports (two messages for one problem = noise); the suppression is
-a membership test reusing `needsRateAreas` (no recompute, no new rate check). **broken is NEVER suppressed** (a malformed /
-cyclic formula is a different, real problem); and not_yet STILL fires for a non-needs_rate area whose formula blanks for a
-NON-rate cause (e.g. an uncomputed amount operand). `isRowIncomplete` is unaffected -- a needs_rate row is already
-`!isFullyPriced` -> incomplete before its amount loop, so the Summary stays correct. (**`wont_compute` was removed before
-push** --
-superseded by the forthcoming mandatory amount-formula-declaration gate, which makes the no-formula-at-pricing state
-impossible, so the flag could never fire.) **In-grid marker (`PricingGrid.tsx`):** a left accent + `Flag` icon
-in the Excel-Row GUTTER (col 0) -- DELIBERATELY in the gutter (which carries no priced tint / colour border) so a system flag
-never collides with the emerald/amber priced background or the user colour border (§6); rose accent = critical
-(broken/qty_anomaly), amber = attention. **Review strip (`SheetPricingPage.tsx`):** the 4a remark feed is EXTENDED IN PLACE
-(one `ReviewEntry[]` list, no fork) = remarks + `buildFlagEntries` (the incomplete-subtotal STRIP entries were removed as
-noise -- see below); each entry click-jumps via the existing `gridRef.current?.scrollToRow(excelRow)`; per-kind badge/colour
-via the module-level `REVIEW_ENTRY_META`.
-**Priced-count + filter (header):** a live "N of M priceable lines priced" readout (`computePricedCount`; "ready to finalize"
-text when N===M, NO finalize logic -- that is a later slice) + a "Show unpriced" toggle filtering `displayRows` to
-priceable-but-not-fully-priced (filtered PAGE-side; the grid's nav/byIdx stay consistent over the rendered set; `draftRates`
-keyed by `row_index` persist across the toggle -- the grid is keyed on `sheetName` only, no remount).
-
-**Incomplete-subtotal `pricingRollup.ts` + `SummaryPanel.tsx` (Slice 4b-A, STEP 7+8; strip->summary fix):** `RollupNode`
-gains `incomplete: boolean` = an OR over self + descendants of `priceability.isRowIncomplete` (a qty-bearing priceable row
-not fully priced / not_yet / broken). **Zero-qty / non-priceable descendants NEVER flag a parent** (owner: only qty-bearing
-rows count). **The per-subtotal review-STRIP entries were REMOVED as noise** (the `incompleteSubtotalEntries` fn is deleted);
-the signal now surfaces as **ONE quiet panel-level message** in `SummaryPanel` -- "Some priceable lines aren't fully priced
-yet." -- shown when `roots.some(r => r.incomplete)` (a root's `incomplete` already ORs its whole subtree), muted style, NO
-per-subtotal markers (owner option (a)). `SummaryPanel` already calls `rollupByParent` internally, so it reads
-`RollupNode.incomplete` with NO new prop / fetch. **`RollupNode.incomplete` + `ownIncompleteByIdx`/`rolledIncomplete`/
-`isRowIncomplete` are KEPT** (the message reads them). **Rollup ALIGNMENT (KEPT, owner-explicit):** the stale header comment
-(node_type "NOT on the delivered row") stays corrected -- node_type IS now on `PricedRow`, and the priceable-POPULATION
-decision (the incomplete signal) routes through the shared helper. The amount SUMMATION (`rowOwnAmount`) is INTENTIONALLY NOT
-regated (regating would change committed-amount totals); only the incompleteness SIGNAL uses the helper, so the existing
-rollup totals are byte-for-byte unchanged (the formula-aware / grand-total / reconciliation tests stay green).
-**Cluster B (the formula-vs-document reconciliation CHOICE store) is the NEXT slice -- deferred** (no choice store, no
-overlay, no rollup-source switch, no document-vs-formula mismatch flag here). Display-only; no backend / fetch / doctype.
-
-**Acknowledge dismiss layer `priceability.ts` + `SheetPricingPage.tsx` (Slice 4b-ACKNOWLEDGE; full detail: plan §"Phase 5
-Slice 4b-ACKNOWLEDGE"):** a per-entry "reviewed / looks OK" DISMISS on the review strip. A dismissal HIDES a strip entry (a
-computed flag OR a remark) from the ACTIVE view WITHOUT changing its condition (an ACKNOWLEDGMENT, not a fix -- the flag
-clears for real only when its condition clears). **The store key is (excel_row, flag_kind) -- the SAME identity a
-`ReviewEntry` carries, so `ReviewEntry` is UNCHANGED** (no shape edit). `priceability.ts` gains PURE helpers:
-`dismissalKey(excelRow, kind)` => `"<kind>:<excelRow>"` (EQUALS the strip's existing `<li>` key `${e.kind}:${e.excelRow}` --
-the membership composite is the strip key, locked by a test), `reviewEntryKey`, `buildDismissedKeySet` (from
-`get_priced_rows.dismissals`, the additive sheet-level flat list `[{excel_row, flag_kind}, ...]`), `isEntryDismissed`,
-`filterActiveReviewEntries` (ONE pass over the already-built `ReviewEntry[]` -- NO new page-level recompute). The new wire
-types `DismissalRef` / `DismissalSaveArgs` + the `dismissals` key on `GetPricedRowsResponse` live in `boqTypes.ts`.
-**`SheetPricingPage.tsx`:** `allReviewEntries` (the full sorted feed) -> `activeReviewEntries` (filtered) -> `reviewEntries`
-= `showDismissed ? all : active`; the toolbar Review-count reads the ACTIVE count; the strip header gains a "Show dismissed
-(N)" / "Hide dismissed" toggle (shown only when `dismissedCount > 0`, per-sheet, reset on tab switch); each strip row gains
-a per-entry "Looks OK" (dismiss) / "Restore" (un-dismiss) ghost button -- `stopPropagation` (the row click scroll-jumps),
-WITHHELD when `locked` (the read-only sheet has no dismiss action, mirroring the rate-save gate). `handleSaveDismiss`
-mirrors `handleSaveColor` (in-flight count, takeover detection, `mutate()`); wires `save_cell_dismissal`
-(`dismissed:false` un-dismisses). **RE-ARM is SERVER-side** (a successful `save_cell_price` freezes the row's computed
-dismissals, EXCLUDING remark) -- the frontend just re-reads via `mutate()`; there is NO client re-arm logic.
-
-**Live status + per-slice as-built detail: see `boq-upload-plan.md`** (the `## Phase 5 Pricing Editor -- slice detail`,
-`### Slice ...`, and `### Module 3 Slice ...` sections). The prepended per-slice status-block history was removed in the
-docs-hygiene cleanup (git holds it). **Latest frontend slices:** Fuzzy description search (2026-06-25) -- the
-case-insensitive SUBSTRING search in BOTH `ReviewTree.tsx` (#159 find-&-filter) and `SheetSearchView.tsx` (row-finder +
-RestructureModal parent-picker) replaced by the app-wide token-scoring matcher (`utils/tokenSearch`) via ONE shared helper
-`boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`); token AND, partial, min length 2; fuzzy = MEMBERSHIP only, hits
-re-emitted in DOCUMENT order so prev/next still steps top-to-bottom. RestructureModal inherits (no change). See the "Fuzzy
-description search" rule below. Prior: Detail-panel read views (2026-06-25) -- ADDITIVE
-`ParentChain.tsx` (ancestor breadcrumb) + `ChildrenList.tsx` (direct children + `▸N`) mounted in the EXISTING review-screen
-detail panel, clickable to drill-navigate; the ORIGINAL single-column panel design is unchanged (a two-column revamp was
-prototyped then reverted -- only the two read views were kept). See the "Detail-panel read views" rule below. Prior:
-Slice 4b-ACKNOWLEDGE -- the per-entry "reviewed / looks OK"
-review-strip DISMISS (pure `priceability.ts` filter helpers + `SheetPricingPage` active/show-all feed + "Show dismissed"
-toggle + per-entry Looks-OK/Restore action wired to `save_cell_dismissal`; `ReviewEntry` UNCHANGED; server-side re-arm,
-priceability 27->30, 2026-06-23); Slice 4b-A computed-flag layer -- the shared
-`priceability.ts` spine + the flags (needs_rate / qty_anomaly / broken / not_yet, broken/not_yet GATED behind the
-priceability spine + not_yet DE-DUPED per-area against needs_rate [cert fixes]; `wont_compute` removed before push) +
-in-grid markers + unified review strip + N/M
-priced-count & unpriced filter + the incomplete-subtotal signal as ONE quiet `SummaryPanel` message (the per-subtotal STRIP
-entries removed as noise) + rollup alignment
-(`priceability.ts`/`PricingGrid`/`SheetPricingPage`/`pricingRollup`/`SummaryPanel`,
-2026-06-23); Prepopulated-rate fix -- formula reads committed rates by
-non-zero value, not just the priced marker (`PricingGrid.lookupOperandValue`, 2026-06-23); Summary formula-fix --
-formula-aware rollup + grand-total row + reconciliation guard (`pricingRollup`/`SummaryPanel`, 2026-06-23).
-
-(Completed-arc changelog + the C-values OWED note collapsed -- the full per-slice as-built history lives in
-`boq-upload-plan.md` under the dedicated `### Slice ...` / `### Module 3 Slice ...` detail sections.)
-
-**BoQ in-project list conventions (2026-06-01):**
-- `BoqProjectTab` is the canonical in-project BoQ list component (and also reused as the **BOQs tab** on the Tendering project view -- see Tendering tabbed-view conventions below).
-- Data: single `useFrappeGetDocList("BOQs", { fields: [...], filters: [["project","=",projectId]], orderBy: {field:"uploaded_at",order:"desc"}, limit:50 }, projectId ? \`boq-list-${projectId}\` : null)`. The third arg is the swrKey; passing `null` disables the fetch until projectId is available (standard SDK gotcha -- see useFrappeGetDoc swrKey note above).
-- Status display: `wizard_state` Select field on BOQs -- ""/blank -> "Not started", "In progress", "Configured", "Parsed". No child-table reads; no sheet_drafts computation.
-- Row navigation: `onClick` on `TableRow` -> `navigate(\`/upload-boq/hub/${row.name}\`)`. boqId = `row.name` (BOQs docname from Frappe autoname). Hub route: `upload-boq/hub/:boqId` (routesConfig.tsx).
-- Date: `formatDate(row.uploaded_at || row.creation)` -- `uploaded_at` is the primary field; falls back to Frappe built-in `creation` for pre-M1 docs.
-- UI: shadcn `Table` + `Skeleton` (mirrors ProjectTransferMemosTab), NOT TanStack/DataTable.
-- BoqProjectTab is reused verbatim as the **BOQs tab** of `TenderingProjectView` (feat: tendering-project-tabs, 2026-06-16). Passed as `projectId={data.name}` where `data` is the Projects doc -- no transform.
-
-**Tendering tabbed-view conventions (feat: tendering-project-tabs, 2026-06-16) -- `projects.tsx` + `tendering/TenderingProjectView.tsx` + `tendering/TenderingOverviewTab.tsx` + `data/root/useProjectRootApi.ts`:**
-- **Admin Options -> Project Options tab rename + counts (`projects.tsx`):** the two shadcn `<Tabs>` triggers are now **"Won Projects"** (was "Projects") and **"Tendering Projects"** (was "Tendering"), each with a `bg-primary/10 text-primary` count chip. Won count reuses `useAllProjectsCount()` (`tendering_status="Won"`); tendering count is the NEW `useTenderingProjectsCount()` (`tendering_status="Tendering"` ONLY -- Lost excluded; it has its own sub-tab). Both are static `useFrappeGetDocCount` queries (NOT the table `totalCount`, which moves with in-table search) so the badges reflect the universe, not the current view. Chips show the number always (incl. `0`).
-- **`TenderingProjectView` is now a tabbed shell** (rendered by `project.tsx` whenever `tendering_status !== "Won"`). It mirrors the won-project detail page: a custom button tab-bar (active `bg-[#D03B45] text-white`, identical to `project.tsx`) synced to the `?page=` URL param via `urlStateManager` + `getUrlStringParam` (same global-store pattern as `project.tsx`, NOT `useSearchParams`). Two tabs: `overview` / `boq`. Shell header = back button + project name + mono ID (the status badge/banner/actions live INSIDE the Overview tab -- owner decision -- so the BOQs tab still has identity context). `?page=boq` deep-links behave identically to the won page.
-- **`TenderingOverviewTab` = the stub Overview body** (NEW). Styled to match `ProjectOverviewTab`'s "Project Details" card (shadcn Card + label/value grid using `CardDescription`), capped at `max-w-4xl mx-auto` so the sparse stub doesn't stretch thin. Shows only stub fields (Customer, Location=city+state, Created) in a 3-col grid that fills exactly one row; the tendering_status badge + Edit/Delete sit in the card header; the gradient banner (slate=Tendering / rose=Lost) sits above the card and EXPLAINS the minimalism; the Convert-to-Won (indigo) + Mark-as-Lost (rose-outline) action block + the inline `TenderingProjectForm` edit mode + the two confirm `AlertDialog`s all moved here verbatim from the old single-scroll `TenderingProjectView`. Lost stubs are read-only (Delete only). All tendering actions stay gated by `canManageTendering`.
-
-**Hub route (Module 2b, feat 81568df9):** `/upload-boq/hub/:boqId` -- reads boqId
-from URL param (survives refresh; not from the transient store). Module export:
-`export { BoqHubPage as Component }` for React Router v6 lazy().
-
-**Back-navigation convention (hub/spoke, Part 2 feat 2f8bf533):** All back-navigation buttons in the BoQ wizard route by entity ID -- never `navigate(-1)` or `window.history.back()`. Both the hub (`/upload-boq/hub/:boqId`) and spoke (`/upload-boq/hub/:boqId/sheet/:sheetName`) are accessible via direct URL with no guaranteed history stack, so history-based back misfires on hard refresh or deep link. Hub's "Back to project" uses `navigate(\`/projects/${boq.project}?page=boq\`)` -- routes to the project's BoQ tab by the BoQ doc's `project` field. Spoke's back button uses `navigate(\`/upload-boq/hub/${boqId}\`)` -- same principle. Apply this pattern to any future back-button added to a wizard route.
-
-**Section-grain confirmedFields keys (Slice 3e feat e60e768c; 3e-fix; extended by Slice 3f feat 793276f6):** SheetConfigPanel's `confirmedFields: Set<string>` includes four stable section-level keys alongside per-field keys: `"section:rows"`, `"section:areas"`, `"section:roles"`, `"section:workpackages"`. A section is confirmed when: (a) any field in the section is interacted with (focus or change events both call `touchS1/touchS2/touchS3` or `touchS4()` which set both the field key AND the section key), (b) the user clicks "Accept all sections as-is" (adds the full `SAVE_ALL_FIELDS` set -- all per-field keys + 4 section keys -- matching Save semantics so every sparkle clears), or (c) a Save or Mark-as-reviewed completes (all keys added via `SAVE_ALL_FIELDS`). Section h3 headings show the sparkle when their section key is unconfirmed. Section 2 and Section 3 headings also OR-check their per-field key (area_dimensions / column_role_map) -- bulk-accept must therefore add the full SAVE_ALL_FIELDS set (not just the section keys) to clear all sparkles. Layer 1 is satisfied when all four section keys are present. Section 4 (work-package assignment) is INSIDE the gate AND required non-empty: `hasWorkPackage` (selectedWorkHeaders.length > 0) is ANDed into the attestation-checkbox enable condition SEPARATELY from `parserRequiredSatisfied` -- WP assignment is config-required (a sheet must declare what work it covers), not parser-required (that gate is strictly about column-role completeness). Helper text "Assign at least one work package to enable attestation" is shown when sections are confirmed and parser-required is satisfied but no WP is assigned.
-
-**Save-then-status three-call Mark-reviewed pattern (Slice 3e feat e60e768c; extended by Slice 3f feat 793276f6):** A save-anchored "mark as reviewed" action calls three endpoints in sequence: `set_sheet_config` -> `set_sheet_work_packages` -> `set_sheet_status("Reviewed")`. Each step is gated on the prior succeeding. Plain "Save config" (handleSave) also calls both `set_sheet_config` and `set_sheet_work_packages` together. Never skip the config or work-packages save steps. If any step fails, stop and report the error inline -- subsequent steps are not called. All calls share the same `isSaving` flag; errors surface via `saveError` inline (no toasts).
-
-**wizardStatus-as-prop into SheetConfigPanel (Slice 3e feat e60e768c):** `wizardStatus?: WizardStatus` is a prop on SheetConfigPanel, passed from SheetSpokePage as `draft.wizard_status`. It is captured into a `statusAtOpenRef` (useRef) at mount for M3.12 change-event drop. The panel remounts per sheet via `key={decodedSheetName}`, so the ref always reflects the status when the sheet was opened.
-
-**Change-events-only re-edit drop rule (M3.12, Slice 3e feat e60e768c):** When a Reviewed sheet is re-opened and the user makes a genuine change (onChange on inputs, onValueChange on selects, add-row/remove-row in Section 2 or 3), the sheet is silently dropped to Pending and the attestation checkbox is cleared. Drop fires at most ONCE per spoke open (dropFiredRef guard). Focus events (onFocus, onClick on inputs, onOpenChange on dropdowns) do NOT trigger the drop -- the user can inspect without committing. Implementation: `dropIfReviewed()` helper called at the start of every genuine-change handler; onFocus/onOpenChange call only `touchS*` (confirm), not `dropIfReviewed`.
-
-**Tooltip-inside-SelectContent pattern (Part 3b feat 8943e9ce):** Placing a Tooltip icon inside a shadcn `SelectItem` causes the icon to appear in the closed trigger's selected-value display. Root cause: shadcn's `SelectItem` wraps ALL children in `SelectPrimitive.ItemText`; Radix clones `ItemText` content into `SelectValue` in the trigger. Fix: use `SelectPrimitive.Item` directly (from `@radix-ui/react-select`) for items that need a sibling icon. Structure: `<SelectPrimitive.ItemText>{label}</SelectPrimitive.ItemText>` (label only, shown in trigger) + sibling `<Tooltip>...<Info /></Tooltip>` (outside ItemText, shown only in open dropdown). The `TooltipContent` portals to body -- this does NOT conflict with the Select's `DismissableLayer` (which fires on `pointerdown`, not hover). Mount `TooltipProvider` locally around the component return, not globally. Non-confusable items continue to use shadcn's `SelectItem` unchanged.
-
-**Review screen (ReviewTree) conventions -- live component contract** (consolidated from Slices B1 / B1.1a / B1.1b-i/ii/iii / fix-B; full per-slice as-built detail in `boq-upload-plan.md` §"Slice B1...". The pricing editor's `PricingGrid` reuses these via the extracted `reviewRender.tsx` -- see Slice 2):
-
-- **Backend note (2026-06-24 parser fix, plan §17.45 -- BACKEND-ONLY, no frontend code change):** PREAMBLE rows now PRESERVE their source quantity (the parser no longer drops qty when a row is classified or Bug-19-promoted to preamble -- the owner-locked "no source attribute lost during parsing" Option-B fix in `hierarchy.py`/`orchestrator.py`/`review_screen.py`). Two ReviewTree-visible effects: (1) a preamble row can now render a real qty in its value/`qty_total` columns instead of blank/0; (2) the server `priced_preamble_no_children` advisory flag (rendered verbatim by ReviewTree, mapped in `ReviewTree.tsx` WARN_FLAG_ORDER) now ALSO fires on a carried quantity, reason text → "...price or quantity...", so a qty-bearing preamble is surfaced for reclassify.
-- **Review route:** `/upload-boq/hub/:boqId/review/:sheetName` -- lazy, exports `{ SheetReviewPage as Component }`; same `encodeURIComponent`/auto-decode convention as the config spoke. `onOpenReview?: (sheetName) => void` on SheetCard navigates to it (distinct from `onOpenSpoke`; SheetCard stays router-free). The "Review parsed sheets" hub section shows when `reviewableDrafts.length > 0`.
-- **Depth + visibility (the tree walk, in `reviewRender.computeDepths` + ReviewTree `isVisible`):** depth is computed from the `effective_parent_index` chain (memoised, visited-set cycle guard -> cycle members depth 0). **NEVER use the stored `level` field for indentation** -- it is the parser's static value and diverges after `human_parent` edits. `isVisible(row)` walks the parent chain (60-hop cap) starting from `row.effective_parent_index` (the PARENT, not the row), breaking on `cur < 0` (-1 sentinel = root) and `cur === row.row_index` (self-cycle). Net: a collapsed row stays visible; only its descendants hide. Do NOT start the loop at `collapsed.has(row.row_index)` (reintroduces the "parent disappears" bug). `collapsed` is a `Set<number>` of `row_index`. `computeDepths` pre-runs over ALL (unfiltered) rows, so depth is independent of view filters.
-- **ColumnDescriptor type (`boqTypes.ts`):** `{col, role, area: string|null, value_field, value_key: string|null, rate_subkey: string|null}` + `GetReviewRowsResponse.column_descriptors`. `resolveDescriptorValue(row, d)` (in `reviewRender.tsx`): dynamic access `(row as unknown as Record<string, unknown>)[d.value_field]` (the `as unknown` intermediate is required for TS2352), walking value_field -> value_key -> rate_subkey, `undefined` at any missing level. `renderDescriptorCell(val)`: null/undefined -> `""`, number -> `fmtNum(val)` incl. `0 -> "0"`. **Absent-vs-zero rule:** a missing key (blank) and a zero ("0") are visually distinct -- never collapse them.
-- **ClassificationPill (`reviewRender.tsx` as of Slice 2):** left-bordered pill driven by the Tailwind-class map `CLS_PILL_CLASSES` + label map `CLS_LABELS` (both in `reviewRender.tsx`). The old hex `CLS_COLORS` map no longer exists (superseded by the B2b restyle).
-- **Fixed anchor columns vs descriptor columns:** `FIXED_ROLE_DEDUPE = Set(["sl_no","description"])` excludes those roles from the descriptor-driven list; they render as fixed anchors. The fixed-anchor column order is **Excel Row / Sl.No / Parent / Classification / Description**; everything else is a descriptor column (`displayDescriptors`). The **Parent** anchor shows the parent row's `source_row_number` (Excel row number) via `effective_parent_index -> byIdx.get(pIdx)?.source_row_number`; root (null/negative) renders blank; NEVER show the internal `row_index`. The **Classification** anchor holds chevron + ClassificationPill; **Description** holds the text + the depth indent (`paddingLeft = depth * INDENT_PX`).
-- **Column-subset selector + classification toggles:** `visibleCols: useState<Set<string>>` (lazy-init all descriptor cols; re-synced via `useEffect([displayDescriptors])`); both `<th>`/`<td>` for a descriptor gate on `visibleCols.has(d.col)`; fixed anchors are never in the selector. Three independent `useState(true)` toggles `showSpacers`/`showNotes`/`showSubtotals` drive `classificationVisible(row)`, composed with `isVisible` as TWO SEPARATE `return null` gates (keep the concerns separate). Children of a toggled-off annotation render at their ORIGINAL computed depth (do NOT re-parent/re-indent).
-- **Area column tinting:** `AREA_COLORS` + `buildAreaColorMap` are re-implemented LOCALLY in ReviewTree (verbatim copy of SheetDataGrid's local constants -- do NOT export-refactor SheetDataGrid to share them). Applied to descriptor column HEADERS only.
-- **Scroll-to-parent:** `rowRefs = useRef<Map<number, HTMLElement>>` keyed by `row_index` (`<tr>` ref callback set/delete). `revealAndScrollToRow(idx)` walks the ancestor chain, removes collapsed ancestors from `collapsed`, then after `setTimeout(50ms)` (lets React commit the expand) `.scrollIntoView({behavior:"smooth", block:"nearest"})` + sets a transient `highlightedIdx` (amber row tint, cleared after 1500ms).
-
-**Hub components in `src/pages/boq-wizard/`:**
-- `boqTypes.ts` -- shared types: `BOQsDoc` + `BoQSheetDraft` + `WizardStatus` +
-  `BoQSheetWorkPackage` + `BoQGeneralSpecsSheetRow` (Slice 2c). Both `BoqUploadScreen`
-  and `BoqHubPage` import from here -- do not duplicate the type.
-  Current `BoQSheetDraft` shape (feat ba4fb738 + Slice 2b-backend):
-  `{ name, sheet_name, sheet_order, wizard_status, work_packages?: BoQSheetWorkPackage[], sheet_label?, sheet_config?, has_prior_parse?: 0 | 1, last_parsed_at?: string | null }`.
-  `BoQSheetWorkPackage = { name: string; work_header: string }` (mirrors the backend child
-  doctype "BoQ Sheet Work Package", field `work_header` Link -> "Work Headers").
-  NOTE: `work_package` (singular string) is GONE -- it was the pre-3a legacy field. The
-  array `work_packages` replaced it (feat b14e9015 backend, ba4fb738 frontend).
-  `BoQGeneralSpecsSheetRow = { name: string; source_sheet_name: string; preamble_text?: string }`.
-  `BOQsDoc.general_specs_sheet?: string` is GONE (Slice 2c). Replaced by
-  `BOQsDoc.general_specs_sheets?: BoQGeneralSpecsSheetRow[]`. This is a FIRST-LEVEL child
-  table on BOQs (not a grandchild like work_packages), so it SERIALIZES directly on the
-  parent via `useFrappeGetDoc("BOQs", ...)` -- no focused read endpoint needed.
-- `BoqHubPage.tsx` -- hub page with wired interactions (2b-ii). Four regions: header
-  strip, general-specs selector, sheet-card list, parse-gate footer.
-- `SheetCard.tsx` -- sheet card with status pill, summary line, per-card saving state,
-  inline error, and status-dependent action buttons (2b-ii). Summary-line priority:
-  `sheet_label > work_packages (comma-joined work_header values) > keyword hint`.
-  `isKeywordHint` tests `!(work_packages?.length)` (feat ba4fb738).
-
-**Mutation pattern (first wizard use of useFrappePostCall, feat 459f85ae):**
-```typescript
-const { call, loading } = useFrappePostCall("nirmaan_stack.api.boq.wizard.update_sheet_draft.<fn>");
-await call({ boq_name, sheet_name, ... });  // throws on error
-void mutate();  // SWR re-fetch from useFrappeGetDoc -- server is authoritative
-```
-`useFrappePostCall` is now the standard for JSON endpoint mutations in the wizard.
-Raw `fetch` is kept ONLY for file upload (multipart FormData). Do NOT use raw fetch
-for JSON endpoints; use `useFrappePostCall` + `mutate()`.
-
-**Per-card saving convention:**
-- `isSaving = statusLoading || labelLoading` from the card's own `useFrappePostCall` hooks.
-- While saving: spinner + ALL buttons on that card disabled. Other cards stay interactive.
-- On failure: inline `<p className="text-xs text-destructive">...</p>` on the card.
-  No toasts -- inline error is the wizard convention throughout.
-
-**Hub button set (per effective status):**
-- Pending: [Review -- stub M3] [Skip] [Mark reviewed -- interim until M3]
-- Reviewed: [Edit -- stub M3] [Set pending]
-- Skip: [Edit label] [Include]
-- Hidden: [Include]
-- Parse failed: [Review -- stub M3] [Mark reviewed -- interim] [Skip]
-- Parsed: [Edit -- navigates to per-sheet spoke] (fix 24312cab; single button only; no re-parse button -- deferred to Slice 2b)
-- General specs: hint text only (checklist governs designation, no per-card status buttons)
-- "Review" / "Edit" stubs: `onClick` no-op, Tooltip "Per-sheet configuration opens
-  in Module 3 (coming next)". DO NOT navigate from these buttons.
-- "Mark reviewed" + "Set pending": deliberately wired so parse gate is testable
-  without the Module 3 spoke. Clearly labeled; they call `set_sheet_status` directly.
-- Discard BoQ (header menu): still disabled/stubbed -- destructive, separate slice.
-- Parse workbook (footer): WIRED (Slice 2b-frontend-i, feat c9fc37fd) to the run_parse endpoint via ParseRunDialog confirm; triggers the parse-run (assemble_mapping_config -> parse_boq() -> per-sheet BoQ Review Rows). NOT the Module-5 DB-commit / deliberate-parse-to-BOQ-Nodes pass, which is still not built.
-
-**General-specs derivation rule (M2.16) -- CRITICAL (Slice 2c updated):**
-The "General specs" display badge on a card is DERIVED from set membership in
-`BOQs.general_specs_sheets` child array, NOT from `BoQSheetDraft.wizard_status`.
-The backend NEVER writes "General specs" to `wizard_status` (see backend CLAUDE.md).
-Do NOT write "General specs" to `wizard_status` in frontend code either.
-The derivation logic (Slice 2c): build `generalSpecsSheetNames = new Set(boq.general_specs_sheets
-.map(r => r.source_sheet_name))`; return "General specs" if `generalSpecsSheetNames.has(draft.sheet_name)`.
-EXACT match -- sheet_name verbatim, no trimming. The old scalar `BOQs.general_specs_sheet`
-was removed in Slice 2c; do NOT reference it. `general_specs_sheets` serializes on the
-BOQs parent (first-level child) -- no focused read endpoint needed.
-Multi-select CHECKLIST hub control (Slice 2b-frontend-ii, feat d1672c6f): candidate set = `nonHiddenDrafts` (backend rejects Hidden sheets server-side; never offer them). Ticked set seeded from `generalSpecsSheetNames`; re-synced on `boq` change via `useEffect([boq])`. Save sends the full ticked set as `sheet_names: string[]` to `set_general_specs_sheet` (list API, Slice 2b-backend-3, feat e996d097). The old `Select` + `NONE_SENTINEL` + `generalSpecsValue` single-select code is REMOVED. Set-membership derivation (above) is UNCHANGED.
-
-**EXACT sheet_name constraint (verified 2026-05-31):**
-`sheet_name` is stored and matched VERBATIM by the backend -- Frappe does NOT strip
-whitespace from BoQ Sheet Draft Data fields. "  Electrical (Rev-2) " is stored as-is.
-Rules: (1) use `draft.sheet_name` as-is for React keys and in every endpoint call;
-(2) trim ONLY for visual display (e.g. card label text); (3) each call site in hub
-code has a comment noting the exact-match requirement.
-
-**M2.23 general-specs confirm flow (Slice 2b-frontend-ii -- combined multi-warning):**
-ONE combined AlertDialog fires on Save when the ticked set NEWLY designates one or more Reviewed sheets. Names the affected sheets (1 sheet -> names it directly; 2+ -> lists them). Continue -> commits the full ticked list via `set_general_specs_sheet({ sheet_names: string[] })`; Cancel -> no write, checklist stays at current local ticks (not auto-reverted -- unlike the old controlled Select). Un-designating never warns; non-Reviewed new designations never warn. Designation NEVER calls `set_sheet_status` (M2.23 UNCHANGED: released sheets revert to their TRUE prior `wizard_status`).
-
-**Hub parse-gate (M2.11/M2.12):** Enabled when `blockingCount === 0 && reviewedCount >= 1`.
-Blocking = effective status is "Pending" or "Parse failed" on data sheets (non-hidden,
-non-skip, non-general-specs). Parse workbook button is WIRED (Slice 2b-frontend-i) -- opens `ParseRunDialog` on click.
-
-**ParseRunDialog.tsx (Slice 2b-frontend-i) -- the hub's parse confirm UX:** A FOUR-LIST summary Dialog: (1) "Will parse" -- Reviewed sheets, each a `Checkbox`, all ticked by default; (2) Skipped/Hidden -- informational; (3) Pending/parse-failed -- informational; (4) Already Parsed -- informational with `last_parsed_at`. The ticked subset is passed to `run_parse` as `sheet_names`. A two-step warn-before-reparse fires (within the same Dialog, `step` state 1 -> 2) when the ticked set includes any sheet with `has_prior_parse === 1`. This is the REFERENCE checklist component -- mirror its `useState<Set<string>>` + `toggleSheet` + Checkbox-per-row pattern for any future wizard multi-select UI. **Background note (Bucket-2 follow-up, feat 295e3881):** Both Step 1 and Step 2 show a bold-amber "runs in background ~10 min" note (`text-sm font-semibold text-amber-600 dark:text-amber-400`) -- Step 1 below the DialogDescription, Step 2 below the sheet list before the footer buttons. Reuses the existing wizard amber token (same as Section-3 unmapped-column warning). Copy: "This runs in the background and can take up to ~10 minutes. You can keep working; you'll see a summary here when it's done."
-
-**Checkbox-checklist pattern (wizard convention, Slice 2b-frontend-i + 2b-frontend-ii):** `useState<Set<string>>` for the ticked set + a `toggleX` functional updater (`next = new Set(prev); has? delete : add`) + `Checkbox` from `@/components/ui/checkbox` (`checked` + `onCheckedChange`) + `<label htmlFor>` per row. Seed/reset in a `useEffect` keyed on the relevant trigger (`[open]` for a dialog, `[boq]` for the hub checklist). ParseRunDialog seeds = all Reviewed drafts, resets on `open` change; general-specs checklist seeds = `generalSpecsSheetNames`, resets on `boq` change so `mutate()` re-syncs after Save.
-
-**Dirty-marker / parse-history fields (Slice 2b-backend + 2b-frontend-i):** `has_prior_parse: 0 | 1` and `last_parsed_at?: string | null` live on `BoQSheetDraft` (typed in `boqTypes.ts`). A Reviewed sheet with `has_prior_parse === 1` is DIRTY -- config changed since last parse, so re-parsing discards prior `BoQ Review Row` output. Frontend dirty test: `effectiveStatus === "Reviewed" && draft.has_prior_parse === 1`. `SheetCard` shows an amber "needs re-parse" badge next to the status pill on dirty Reviewed cards; Parsed cards display `last_parsed_at` via `formatDate`. The backend owns the dirty-drop (set_sheet_config drops Parsed -> Reviewed on a config change -- see backend CLAUDE.md); the frontend reads these fields but never writes them.
-
-**Hub visual conventions (Module 2b-iii, feat 57152c52):**
-- **Card list layout:** `grid grid-cols-1 sm:grid-cols-2 gap-3` for both the main card list
-  and the hidden-sheets reveal section. Use the same grid if adding more card lists.
-- **Status pills:** Solid saturated backgrounds with white text, `text-sm font-medium`,
-  rounded-full, dark: variants for all 7 wizard_status values (incl. "Parsed", fix 24312cab).
-  ONE central `STATUS_PILL` map in `SheetCard.tsx` -- do not scatter pill colors. Template:
-  `bg-<color>-500 text-white dark:bg-<color>-600 dark:text-white` (most entries);
-  "Parsed" uses `bg-green-600` / `dark:bg-green-700` (one shade darker, distinct from
-  "Reviewed" emerald). "Parsed" entry must NOT fall back to the Pending pill.
-- **Likely-skip keyword hint:** `isKeywordHint` flag (no label, no work_packages + keyword match).
-  Rendered with `AlertTriangle` (lucide-react, `h-3 w-3`, amber) + amber text
-  (`text-amber-600 dark:text-amber-400 font-medium`). Presentation-only; never changes data.
-- **Footer breakdown pattern:** Lead with data-sheet progress (`N of M data sheets reviewed`),
-  then append only non-zero counts: `· N parsed` (Bucket-1, feat f5dcfdd6), `· K general specs`,
-  `· S skipped`, `· H hidden`. Each is a conditional fragment (`count > 0 && " · N label"`).
-  Derive all counts from `getEffectiveStatus` -- same source as the gate. Do not change gate math.
-  `parsedCount` filters `dataSheets` (not `allDrafts`) because Parsed sheets are data sheets;
-  `generalSpecsCount`/`skippedCount` filter `allDrafts` (they are set-aside from the data pool).
-- **General-specs checklist layout:** `grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2`
-  (Bucket-1, feat f5dcfdd6). Matches the hub card-grid responsive pattern.
-
-**Spoke section-grouping convention (Bucket-1 Option B, feat f5dcfdd6; boxed zones follow-up feat 1ec901e7):**
-
-SheetConfigPanel's four sections are grouped into two visually distinct boxed zones inside the outer `space-y-5` card div:
-- **Zone A -- "Parsing configuration":** wraps Sections 1 (Rows), 2 (Areas), 3 (Column Roles). Caption: `<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">Parsing configuration -- changes here require re-parsing</p>`. Container: `<div className="rounded-md border border-border p-3">` (untinted, on normal card surface -- primary zone). Within-zone section dividers (`pt-3 border-t border-border` on Sections 2 and 3) are kept; they read as within-group separators inside the box and complement (not duplicate) the outer box border.
-- **Zone B -- "Sheet details":** wraps Section 4 (Work Packages). Caption same typography as Zone A. Container: `<div className="rounded-md border border-border bg-muted/30 p-3">` (tinted secondary using existing `muted` token -- calmer, lower-stakes zone). Zone B's former `border-t border-border pt-3` is REMOVED; the box border + outer `space-y-5` gap provide the visual separation. Section 4 `space-y-4` preserved.
-- **Review gate and save bar:** outside both zones, after Zone B -- apply to the whole sheet, not to either zone. Do not move them into a zone.
-- **Zone caption typography:** `text-xs font-medium uppercase tracking-wide text-muted-foreground` -- visually lighter than the section `<h3>` (`text-sm font-semibold text-foreground`), establishing "zone caption > section heading" hierarchy.
-- **Design tokens used:** `border-border`, `bg-muted/30`, `rounded-md`, `p-3` -- all existing tokens, no new values introduced.
-- **Gate logic is state-driven, not DOM-coupled:** all `confirmedFields.has("section:...")`, `allSectionsConfirmed`, `parserRequiredSatisfied`, `hasWorkPackage`, attestation `disabled` expression are purely state checks. Wrapping or reordering sections does not affect the gate.
-
-**Module 3 Slice 3b-ii -- per-sheet spoke shell + SheetDataGrid (feat 7be670d4):**
-
-- **Spoke route:** `/upload-boq/hub/:boqId/sheet/:sheetName` — sibling of the hub route in `routesConfig.tsx`. Lazy-loaded, `SheetSpokePage` exports `{ SheetSpokePage as Component }` (React Router v6 lazy convention).
-- **encode/decode:** Hub navigates using `encodeURIComponent(draft.sheet_name)`. React Router v6.22.1 `useParams()` auto-decodes path params (calls `decodeURIComponent` internally) -- `sheetName` arrives already decoded. Corrected in Slice 3c (§9 #128): the redundant manual `decodeURIComponent(sheetName)` call was removed from SheetSpokePage; the spoke now uses `sheetName ?? ""` directly. Hub `encodeURIComponent` in `handleOpenSpoke` is unchanged (still required to avoid raw special chars in the URL path).
-- **SheetSpokePage scope (this slice only):** back button → hub, header (display-trimmed sheet name + BoQ name/version + optional label), `SheetDataGrid`. NO config sections, NO work-package picker, NO mark-reviewed — Slice 3c+.
-- **SheetDataGrid:** `useFrappePostCall` for ALL fetches (initial + load-more) — avoids mixing SWR state with accumulated rows. Initial 40 rows fetched in `useEffect([boqName, sheetName])`. `useState` tracks rows, hasMore, isInitLoading, initError, isLoadingMore, loadMoreError.
-  - Column header: union of all col_letter keys across loaded rows, sorted in Excel order (shorter first, then alphabetical — A,B,...,Z,AA,AB,...). Recomputed after each load-more append.
-  - Left gutter: absolute Excel `row_number` (never re-indexed; row 41 shows "41"). `sticky left-0` for horizontal scroll.
-  - Cell values: null → blank, booleans → "TRUE"/"FALSE", others → String(). Truncated with `max-w-[180px]`, full value on hover via `title` attr. Uses shadcn `<Table>` (NOT TanStack).
-  - Load-more: `disabled={isLoadingMore}` is the single-flight guard. `setRows(prev => [...prev, ...newRows])` appends. Re-evaluates `has_more` from new response. Hidden when `has_more === false`.
-- **Review/Edit wiring:** `MODULE3_TOOLTIP` constant and `Tooltip`/`TooltipContent`/`TooltipTrigger` imports removed from `SheetCard.tsx`. Review (Pending, Parse-failed) and Edit (Reviewed) now call `onOpenSpoke?.(draft.sheet_name)` — optional so cards without a spoke callback still compile. `BoqHubPage` passes `onOpenSpoke={handleOpenSpoke}` where `handleOpenSpoke` calls `navigate(\`/upload-boq/hub/${boqId}/sheet/${encodeURIComponent(sheetName)}\`)`. All other card buttons (Mark reviewed, Set pending, Skip, Include, Edit label) are UNCHANGED.
-- **Preview types in boqTypes.ts:** `SheetPreviewRow { row_number, cells: Record<string, string|number|boolean|null> }` and `SheetPreviewResponse { sheet_name, start_row, end_row_requested, rows, returned_count, has_more }`.
-
-**SheetConfigPanel conventions** (`src/pages/boq-wizard/SheetConfigPanel.tsx`; consolidated from Slices 3c / 3c-fix --
-full per-slice as-built detail in `boq-upload-plan.md` §"Module 3 Slice 3c..."):
-
-- **sheet_config read-modify-write (CRITICAL):** `set_sheet_config` is WHOLE-BLOB REPLACE. Any write must (1) parse the
-  existing `draftConfig` blob, (2) update only the keys this component owns, (3) re-serialize the FULL merged object, (4)
-  POST that. Never POST a partial blob -- it wipes `column_role_map` and any other keys later slices own. **No
-  `data_start_row` key** exists in `SheetConfig` (it is a derived display label `header_row + header_row_count`) -- do not
-  write it. `boqTypes.ts`: `sheet_config?: Record<string, unknown> | string | null` on `BoQSheetDraft` (Frappe returns it
-  parsed; the string variant is a fallback `parseConfig()` handles).
-- **Per-sheet confirm state is LOCAL** `useState<Set<string>>` (NOT the session-scoped Zustand `confirmedFields` from
-  BoqMasterPanel); sparkle + `opacity-50` while `hasPrefill && !confirmed && hasValue`; `touch(key)` confirms. The panel
-  is mounted `<SheetConfigPanel key={decodedSheetName} ...>` so it REMOUNTS fresh per sheet (resets all local state).
-  Save is an explicit "Save config" button (single-flighted via `isSaving`, inline errors), then `onSaveSuccess ->
-  mutate()`.
-- **Select sparkle-clear (reusable):** use `onOpenChange` on `<Select>`, NEVER `onClick` on `<SelectTrigger>` (the latter
-  does not fire reliably for Radix internals when re-selecting the active value).
-- **Multi-value list entry (reusable):** a Single/Multi segmented toggle + stacked `Input` boxes, NOT chip/Enter-to-add;
-  the active toggle button's `onClick` always calls `touch(key)` so re-clicking confirms the sparkle.
-- **Grouped opacity (reusable):** apply `opacity-50` to ONE wrapper `<div>`, not per child input (avoids compounded
-  opacity on nested nodes).
-
-**Module 3 Slice 3d-i -- lifted state conventions (SheetSpokePage as the state owner):**
-
-- **Preview rows owned by SheetSpokePage.** The preview fetch (initial load + load-more) is lifted to `SheetSpokePage.tsx`. `SheetDataGrid` is a pure render component -- it accepts `rows`, `hasMore`, `isInitLoading`, `initError`, `isLoadingMore`, `loadMoreError`, `onLoadMore`, and `columnRoleMap` as props. It has no `useFrappePostCall`, no `useEffect`, no local state. All fetch state lives in SheetSpokePage.
-- **columnRoleMap owned by SheetSpokePage.** `useState<Record<string, ColumnRoleEntry>>({})` with seeding effect. `setRoleMapInitialized(true)` fires only after `rawCfg` is successfully parsed (draft absent → early return; JSON fail → rawCfg null → early return); mutate() re-fetches do NOT overwrite user edits. Seed loop (corrected by read-back fix -- see below) handles both the current `{role,area}` object shape (3d-ii onward) and legacy role-only strings defensively.
-- **ColumnRoleEntry type in boqTypes.ts.** `{ role: string; area: string | null }`. Backend blob (3d-ii onward) stores `column_role_map: Record<string, {role, area}>` objects. Convert on seed: `{role,area}` object → `ColumnRoleEntry` (or legacy string → `{role, area:null}`). Serialize on save in SheetConfigPanel.handleSave: write `{role, area}` per column with area forced null for non-area-compatible roles.
-- **SheetConfigPanel receives but doesn't consume (yet).** `columnRoleMap` is destructured and used in `handleSave` (explicit `column_role_map` key overrides the `...existing` passthrough). `setColumnRoleMap` and `rows` are in the interface for Slice 3d-ii (Section 3 UI) but not destructured in this slice.
-- **Hooks before guards in SheetSpokePage.** All hooks (useFrappePostCall, useState, useEffect, useRef) are called before any early-return guards. Computed values (`decodedSheetName`, `displaySheetName`, `draft`) use optional chaining on `boq` (may be undefined during loading) so they can be referenced by hooks that precede the `!boq` guard.
-- **Rationale for lifting both children's state together.** Slice 3d-iii (grid annotation) requires SheetDataGrid to read the same live `columnRoleMap` that SheetConfigPanel writes. Both are siblings in SheetSpokePage. Lifting to the parent is the only way to share state without a context provider or prop-drilling back up. The preview rows are lifted for the same reason: Slice 3d-ii renders a column list from them inside SheetConfigPanel, requiring rows to be available at SheetSpokePage level.
-
-**Module 3 Slice 3d-ii -- Section 3 column-role mapping conventions:**
-
-- **Role vocabulary (21 roles, `qty_by_area` excluded).** Constant `ROLES_BY_GROUP` in `SheetConfigPanel.tsx` groups roles into 6 SelectGroup blocks. Role string values are the exact parser role names (e.g. `"rate_supply_by_area"`); display labels are friendly (e.g. `"Rate Supply (per area)"`). Never invent new role names -- the 21 are the complete set.
-- **blob shape: `{role, area}` objects.** `column_role_map` in the saved blob is `dict[col -> {role, area}]` NOT `dict[col -> string]`. The 3d-i role-only shape was incorrect and is fixed in 3d-ii. Non-area-compatible roles always get `area: null` in the blob (enforced in `handleSave` via `AREA_COMPATIBLE_ROLES.has(entry.role) ? entry.area : null`).
-- **Area-compatible roles (8):** `qty`, `amount_supply`, `amount_install`, `amount_total`, `amount_by_area`, `rate_supply_by_area`, `rate_install_by_area`, `rate_combined_by_area`. Area dropdown shown only when role is one of these AND `isMulti === true` AND `activeAreas.length > 0`.
-- **Area-required roles (4):** the `*_by_area` group. Empty area flagged with `border-destructive` and `"— required —"` placeholder; save proceeds with `area: null` (no wizard-level blocking).
-- **Singleton roles (12):** `sl_no`, `description`, `unit`, `qty_total`, `rate_supply`, `rate_install`, `rate_combined`, `amount_total`, `amount_combined`, `make_model`, `row_notes`, `reference_images`. Enforced by disabling in other rows' **role** dropdowns. `usedSingletons` Map (role → col) via useMemo. This is role-level uniqueness; does NOT cover area-pair uniqueness (see below).
-- **Per-(role, area) pair uniqueness:** Parser enforces that each (role, area) pair may appear on at most one column per sheet (e.g. two columns cannot both be `qty` + "Zone A"). Enforced in the **area** dropdown: for each area option, it is disabled when another column already holds (same role, same area). Current row's own area is never disabled. `usedAreaPairs` Map (`"role|area"` → col) via useMemo alongside `usedSingletons`. Applies to all 8 area-compatible roles. Distinct from singleton enforcement: `qty` is not a singleton -- pair uniqueness is the only constraint for it. `"__none__"` sentinel is unaffected.
-- **Pending rows pattern.** `pendingRows: string[]` (local state, IDs from `pendingIdRef`). Each pending row shows only a column picker. On column selection → `commitPendingRow(id, col)` moves to `columnRoleMap` with `{role: "", area: null}`. Role + area dropdowns appear only after column is committed. This keeps the persisted state (`columnRoleMap`) always clean.
-- **Area sentinel `"__none__"`.** The area Select uses `value={entry.area || "__none__"}`. The `"__none__"` SelectItem maps back to `area: null`. `changeArea(col, "__none__")` → null.
-- **Cross-section area reconciliation.** `useEffect([validAreas])` in SheetConfigPanel clears stale area values from `columnRoleMap` whenever `areaBoxes` changes. Re-sparkles "column_role_map". Uses `eslint-disable-next-line react-hooks/exhaustive-deps` (reads `columnRoleMap` from outer scope; functional update in `setColumnRoleMap` handles staleness safely).
-- **Column picker header text.** Derived from the bottom header row (`headerRowNum` = the S1 `headerRow` field). `getColumnLabel(col)` returns `"C — Description"` or just `"C"` if blank. For 2-row headers, shows the bottom row only (the primary parser label row). Already-mapped columns are disabled in other rows' pickers (one-column-per-row constraint).
-
-(The 3d-ii Section-3 seed-shape read-back bug-fix narrative relocated to `boq-upload-plan.md` §"Module 3 Slice 3d-ii --
-read-back fix". The live rule it leaves behind -- the `column_role_map` seed loop handles BOTH the `{role,area}` object
-shape and legacy role-only strings defensively -- is already stated in the 3d-i lifted-state conventions above.)
-
-**Module 3 Slice 3d-iii -- SheetDataGrid 4 column annotations (feat 83b63b7b):**
-
-- **Shared ROLE_LABELS (boqTypes.ts):** `export const ROLE_LABELS: Record<string, string>` with 21 entries added as the single source of truth for role display labels. `SheetConfigPanel.tsx` ROLES_BY_GROUP was refactored to derive labels from ROLE_LABELS (group structure/order/behavior identical; no behavior change). `SheetDataGrid` uses `ROLE_LABELS` for badges.
-- **Live-vs-saved asymmetry (by design):** `columnRoleMap` is live lifted state → color/badge/dim update as user edits Section 3 before Save. `savedHeaderRow` / `savedHrc` / `areaList` are `useMemo`-derived from `draft?.sheet_config` → freeze and area-color-map update only after Save triggers `mutate()`. No new `useState`; no `initialized` guard; plain derived values that track the saved doc automatically.
-- **AREA_COLORS palette (2a/2b):** `const AREA_COLORS` (6-element `as const`): `bg-blue-100 dark:bg-blue-900`, `bg-emerald-100 dark:bg-emerald-900`, `bg-amber-100 dark:bg-amber-900`, `bg-rose-100 dark:bg-rose-900`, `bg-violet-100 dark:bg-violet-900`, `bg-teal-100 dark:bg-teal-900`. All fully opaque (no `/opacity` suffix) in both light and dark -- no bleed-through on scroll. `buildAreaColorMap(areas)` pure function assigns by index. Column-letter `<TableHead>` `bg-muted` REPLACED by area color when `colEntry.area !== null`. Single-area / unmapped columns keep `bg-muted`.
-- **Role badge (2c):** `text-[9px]` `<span>` below column letter inside a `flex flex-col items-center justify-center` wrapper. `bg-black/10 dark:bg-white/15` overlay works on any area tint. `max-w-full truncate` prevents overflow. Absent for unmapped columns.
-- **Dim unmapped (2d):** `isMapped = col in columnRoleMap && columnRoleMap[col].role !== ""`. Data `<TableCell>` gets `opacity-50` when `!isMapped`. Frozen rows exempt (they are header content).
-- **Freeze header rows (2e):** Fixed height `h-10` (40px) on all column-letter `<TableHead>` cells (corner + letters) makes offsets predictable. `isFrozen = headerRow !== null && row.row_number ∈ [headerRow, headerRow+headerRowCount-1]`. `frozenIdx` = 0-based position in frozen band. Frozen data cells: `sticky z-[15] bg-background h-10 top-10` (first) or `top-20` (second). Frozen gutter cell: doubly-sticky `sticky left-0 z-[17] bg-muted h-10 top-10|top-20`. `bg-background` / `bg-muted` are solid -- no bleed-through. `headerRow=null` → no frozen rows, behaves as before. **Full z-index stack:** corner z-30 (top+left); column-letter z-20 (top); frozen gutter z-[17] (top+left); frozen data z-[15] (top); body gutter z-10 (left); body data cells not sticky.
-
-**Module 3 batched UI-fixes Part 1 -- SheetConfigPanel patterns (feat bdf32e37):**
-
-- **Conditional subform pattern (Section 1 top-header):** When a form field has a default value that covers the common case, replace the free-text input with a Yes/No segmented toggle (two `<Button>` in a `flex rounded-md border border-border overflow-hidden w-fit` container, matching Section 2's Single/Multi pattern). Default = Yes (no extra input). No = reveals the specific input. This prevents the Alorica-style mistake of entering the default value explicitly. Serialization: Yes → `null`; No → `[N]` (or other typed value). Sparkle on the toggle Label when `!defaultChoice` was prefilled; sparkle on the revealed input when its value is non-empty.
-- **Derived display as inline text (data-start-row pattern):** Derived read-only values must be rendered as `<p className="text-xs text-muted-foreground">` with an inline sentence, never as a `<p>` with input-chrome classes (`rounded-md border border-border bg-muted/30 px-3 py-2`). Example: "Data starts at row **N** (derived from header row + row count)". No Label, no box, no separate helper text. Apply this pattern to all future derived/computed display values in Section 1.
-- **Save-time unmapped-column warning (preview-rows-only, non-blocking):** At Section-3 save, scan `allColumns` (the `useMemo` over loaded `rows` prop) for columns missing from `columnRoleMap` (or with empty role) that have at least one non-null, non-empty-string cell in loaded preview rows. Set `unmappedWarnings: Array<{col, exampleRow}>` state. Render as an amber callout above the Save button using `AlertTriangle` icon, amber Tailwind classes, and a bullet list of column+row pairs. Save proceeds regardless (warn-then-save, not block-then-save). Warning persists until next save recomputes. **Accepted scope:** preview rows only (up to ~40 loaded). Full-sheet coverage deferred; the dim-unmapped visual (Slice 3d-iii) covers the rest.
-
-**useFrappeGetCall vs useFrappePostCall in the wizard (convention, Slice 3b-ii):** Wizard reads use `useFrappeGetCall` by default. Accumulating/paginating reads (UI appends rows across multiple fetches) use `useFrappePostCall` + local `useState`, because SWR replace-on-fetch semantics fight row accumulation -- `useFrappeGetCall` replaces `data` on params change instead of appending. GET/POST signals read-vs-mutation intent; `useFrappePostCall` for reads is the one sanctioned exception and is limited to SheetDataGrid (Slice 3b-ii). `@frappe.whitelist()` bare (the get_sheet_preview endpoint) accepts both GET and POST.
-
-(The 3b-iii SheetDataGrid sticky-header + gridlines polish [feat 2ac4789a] is relocated to `boq-upload-plan.md` §"...Slice
-3b-iii"; its sticky/z-index stack is superseded by the fuller version in the 3d-iii block above, and its
-`decodeURIComponent` "decode fix" was itself superseded by Slice 3c [RR v6 auto-decodes -- `decodedSheetName = sheetName
-?? ""`].)
-
-**SheetSearchView conventions** (`src/pages/boq-wizard/SheetSearchView.tsx`; live component contract, post-v2 -- full per-slice as-built detail in `boq-upload-plan.md` §"Slice 1a" + the SheetSearchView-v2 changelog entry):
-
-- **Role + props:** a self-contained "find the row in the source sheet" tool -- FINDS + SHOWS rows only (no select/save/reclassify). Props `{ boqName, sheetName (VERBATIM #152 -- never `.trim()`; trailing-space sheet names exist), initialCentreRow?, onCurrentHitChange?, onRowClick?, selectedRowNumber? }`. **Future "searchable sheet view" needs extend THIS component, not SheetDataGrid** (byte-for-byte untouched -- scroll/highlight need per-row DOM access it doesn't expose).
-- **Self-contained data (two fetches it owns):** (1) rows via a SINGLE-PASS `get_sheet_preview_full` (`useFrappePostCall`, typed `{ message: SheetPreviewFullResponse }`) -- ONE call, no windowed loop (the v2 perf fix replacing the old 200-row windowed loop; `SheetPreviewFullResponse` is additive in boqTypes.ts, DISTINCT from the windowed `SheetPreviewResponse` SheetSpokePage still uses -- do NOT collapse the two); (2) role->letter map via `useFrappeGetDoc("BOQs", boqName) -> sheet_config.column_role_map` (local `parseColumnRoleMap` handles `{role,area}` + legacy string shapes).
-- **Column-trim:** render ONLY `#` (Excel row_number) + Sl.No + Description + Unit + EVERY Qty column (per-area qty = one column each, headed letter + area). Rate/Amount hidden. **Degraded mode** (no column_role_map): all letters in Excel order, search disabled with an amber note.
-- **Search + cycling hit-stepper:** case-insensitive substring over Description -> ordered `hits: number[]` of row_number; "N of M" counter, prev/next CYCLE; all hits yellow, current amber, transient flash; zero-match -> counter 0, toggles inert.
-- **Scroll/center/highlight:** `rowRefs = useRef<Map<number, HTMLElement>>` keyed by row_number; on hit-change (+ `initialCentreRow` once) `scrollIntoView({block:"center"})`.
-- **Column widths + click-to-select (v2):** `<Table className="table-fixed">`, Description `w-[360px]` / others `w-[120px]`, cells `whitespace-normal break-words`. Optional `onRowClick`/`selectedRowNumber` -> a row click + a persistent inset blue ring (`ring-2 ring-inset ring-blue-500`, a box-shadow that never collides with the yellow/amber hit-background tiers). The component ONLY emits the click + renders the tint -- it does not resolve/guard the pick.
-
-**RestructureModal conventions** (`src/pages/boq-wizard/RestructureModal.tsx`; live component contract -- full per-slice as-built detail in `boq-upload-plan.md` §"Slice 1b-beta" + the restructure changelog entries):
-
-- **Role + props:** the FRONTEND consumer of the `save_review_restructure` backend; the HEAVY (has-children) reclassify-and-place-children path. Props `{ open, onClose, boqName, sheetName (verbatim #152), row, newClassification, rows, onRestructured: (editedAt) => void }`. The response type is LOCAL to the modal/ReviewTree (boqTypes.ts not used; carries `row_moved?: boolean`).
-- **Trigger chain (ReviewTree detail panel):** the Classification line's "Change" `DropdownMenu` offers the 4 ASSIGNABLE classes (`ASSIGNABLE_CLASSIFICATIONS` = line_item/preamble/note/spacer; subtotal_marker/header_repeat parser-only, NOT offered) -> `onPickClass(row, cls)` counts children: **childless -> a light `AlertDialog` confirm** (`child_moves:{}`; a plain Button NOT `AlertDialogAction` so it stays open + shows inline errors; its "This row's position" radios route the "Move under a new parent" choice ON-SELECT into the SAME `setRestructureModal` state -- the AlertDialog is too small to host the picker); **has children -> the staged modal**. The §9 #162 "Change parent" door also opens this modal directly via a no-op same-class reclassify.
-- **The FIVE child-placement options (no silent default; radio, none pre-selected):** (1) move children up to this row's parent; (2) keep under this row (`child_moves:{}`, offered ONLY when the new class is parent-capable line_item/preamble); (3) all to ONE new parent (picker); (4) each child individually (per-child picker; a child may also go top-level -1); (5) all top-level. Save gating: 1/2/5 complete on select, 3 needs the parent picked, 4 needs EVERY child resolved.
-- **Row-own-position control (with-children path):** a "This row's position" box -- "Keep current" (DEFAULT; omits `row_new_parent`) or "Move under a new parent" (`rowPosition`/`rowParentIdx` state; `-1` = top-level). A CHILDLESS row reaches the modal ONLY via the move route, so `rowPosition` lazy-inits to "move" + the children block + 5 options are hidden (`children.length === 0` gate; with-children UNCHANGED); a with-children row opens "keep".
-- **Path A child_moves (FRONTEND computes the resolved map):** `buildChildMoves()` -> `{child_row_index: new_parent_index}` (`-1` = top-level); ONE `save_review_restructure(boq, sheet [VERBATIM], row_index, new_classification, child_moves, reason?, row_new_parent?)` call (`row_new_parent` added only on a resolved "move"; "keep" omits it). Success -> `onRestructured(edited_at)` -> the EXISTING `handleSaved` (setLastSavedAt + `mutate()`); a `frappe.throw` (e.g. batch cycle) surfaces inline + the modal STAYS OPEN. Do NOT fetch/patch the tree inside the modal.
-- **Parent picker = the certified SheetSearchView (untouched):** consumed via `onCurrentHitChange`/`onRowClick` -> `currentHit`; `hitRowIndex = rows.find(source_row_number === hit.row_number)`; a header/banner/blank row resolves to none -> "Set as parent" DISABLED ("This row isn't a selectable parent"). Pick buttons render ABOVE the picker (v2's tall wrapping cells push them below the fold otherwise). `DialogContent` is `max-w-6xl`; long child-list texts wrap.
-- **Dismiss + errors (reusable patterns):** `<DialogContent onInteractOutside={(e) => e.preventDefault()}>` makes an outside click inert while ESC/Cancel/Save/close-X still close (use `onInteractOutside`, NOT `onPointerDownOutside`, and do NOT route through `onOpenChange` -- it is shared by ESC). Apply to any wizard modal that must not dismiss-on-outside-click. All wizard catch blocks use `setX(getFrappeError(e) || "<static>")` (the house pattern -- the SDK's `.message` is a hardcoded generic; the real throw text rides `_server_messages`, decoded by `src/utils/frappeErrors.ts`; keep the `|| "<static>"` since the helper can return `""` for `_server_messages === "[]"`).
-
-**Edit-history render conventions (ReviewTree detail panel; full detail relocated to `boq-upload-plan.md` §"Slice A2"):**
-the "Edit history" block REUSES the SAME `byIdx` map the Parent column uses to render a `human_parent` entry's
-internal-row_index `from`/`to` as `row {source_row_number}` (root for null/negative; raw `String(n)` defensive fallback)
--- never build a second map. A same-value `human_classification` entry (the §9 #162 no-op reclassify that rides with a
-real `human_parent` move) is SUPPRESSED before the `.map` (type-guarded filter), not rendered blank. The stored
-`edit_log` shape `{field, from, to, by, at, reason[, area][, rate_subkey]}` is unchanged.
-
-**wizard_status literals + Finalized config-freeze conventions** (the rename migration history -- Reviewed->Config Done,
-Parsed Check Done->Finalized -- is relocated to `boq-upload-plan.md` §"Slice A1"; the live rules below remain):
-
-- **`wizard_status` is compared `===` against string LITERALS across backend AND frontend** (and is the `STATUS_PILL`
-  lookup KEY in `SheetCard.tsx`). Any future status rename must hit EVERY `===` site or a branch silently breaks / the
-  pill silently falls back to Pending. Verify with a zero-hit `grep` over the python package + `frontend/src`. **A naive
-  quoted grep MISSES the doctype options token** (`\nReviewed`, no surrounding quotes) -- edit `boq_sheet_draft.json`
-  options FIRST and read it back. The 9-value union: blank / Pending / Hidden / Config Done / Skip / General specs
-  (derived, never stored) / Parse failed / Parsed / Finalized.
-- **Finalized config-freeze = `_guard_sheet_not_finalized` (backend, all 5 config writers) + a `<fieldset disabled={isParsing
-  || finalized}>` lock (frontend, `finalized = wizardStatus === "Finalized"`).** Reversibility = an "Un-mark and edit"
-  TEAL ShieldCheck banner -> confirm `AlertDialog` -> the EXISTING `unmark_sheet_parsed_check_done` endpoint (function
-  name unchanged) -> `onSaveSuccess()` re-fetch flips back to "Parsed" + unlocks the fieldset. The AlertDialog renders
-  OUTSIDE the fieldset (portals to body). **Banner precedence: parsing amber beats finalized teal.** SheetCard's
-  Finalized branch carries an "Edit config" -> `onOpenSpoke` button so the affordance is reachable.
-
-**§9 #164 A3-frontend parse-lock conventions (`boqTypes.ts` + `SheetCard.tsx` + `SheetReviewPage.tsx` + `SheetSpokePage.tsx` + `SheetConfigPanel.tsx` + `BoqHubPage.tsx`):**
-
-The frontend parse-lifecycle lock. Backend floor (per-sheet `parse_in_progress`, double-fire guard, write
-guards, `check_parse_status`) is feat 004f80a8; this is FRONTEND ONLY (no backend, no `ReviewTree.tsx` --
-its `readOnly` gating already freezes everything).
-
-- **The signal flows for free (THE pattern).** `BoQSheetDraft.parse_in_progress?: 0 | 1` (boqTypes.ts) rides
-  the `useFrappeGetDoc("BOQs", boqId)` payload (one-level child table -- Recon #2 Q3), so every surface that
-  already fetches the BOQs doc reads it from its EXISTING draft lookup -- no new fetch, no new prop drilling
-  from a fetch. `BOQsDoc.parse_in_progress` (BoQ-level) already existed. `parse_job_id`/`parse_enqueued_at`
-  are deliberately NOT typed -- the frontend never reads them; `check_parse_status` returns a derived `state`.
-- **SheetCard: disable + indicate ONLY the parse-admissible branches.** `isParsing = draft.parse_in_progress
-  === 1`. The branches that can be superset-marked mid-parse are Reviewed / Parsed / Parsed Check Done AND
-  **Parse failed** (v5.46: Parse-failed is force-re-parse eligible, so the enqueue superset can mark it; the
-  worker reconcile clears it if assemble drops it, but the card must reflect the transient mark). Each
-  actionable control on those four branches gets `disabled={isSaving || isParsing}` (Edit/Review nav +
-  Set-pending + Re-parse + Export CSV); a compact `<Loader2 animate-spin/> Parsing...` amber chip renders by
-  the status pill. Pending/Skip/Hidden/General-specs are NEVER parse-marked -> untouched.
-- **SheetReviewPage: amber banner BEATS the teal D1 banner.** The existing `boq.sheet_drafts.find(...)` lookup
-  now captures the whole draft -> `sheetStatus` + `isParsing = draft?.parse_in_progress === 1`. `readOnly=
-  {isChecked || isParsing}` on `ReviewTree` (reuses the entire D1 freeze machinery). An AMBER parsing banner
-  (border-amber-300/bg-amber-50 + dark, Loader2 icon, one "Go to hub" button) renders when `isParsing` and
-  TAKES PRECEDENCE: the teal "Parsed Check Done" banner is gated to `isChecked && !isParsing` (parsing is the
-  transient state worth surfacing first).
-- **SheetSpokePage -> SheetConfigPanel: a `<fieldset disabled>` locks the whole panel.** The spoke derives
-  `isSheetParsing` from its `:58` draft lookup and passes `isParsing` to SheetConfigPanel. The panel accepts
-  `isParsing?: boolean`, renders an amber lock banner, and wraps ALL form content in a native `<fieldset
-  disabled={isParsing} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">` -- native fieldset
-  disabling cascades to every descendant shadcn Button/Input/Checkbox + Radix Select trigger (all `<button>`/
-  `<input>`), so ONE flag locks Sections 1-4 + Save + Mark-as-reviewed with no per-control edits. Belt-and-
-  braces: `dropIfReviewed` early-returns `if (isParsing)` so no programmatic write can fire either.
-- **BoqHubPage: one-shot self-heal on mount.** A `useFrappePostCall("...parse_run.check_parse_status")` (the
-  wizard's imperative GET-capable form -- NOT `useFrappeGetCall`, to avoid SWR re-fetch loops re-hitting a
-  self-healing endpoint) is called once in a `useEffect([boqId])`. On `state === "cleared" | "cleared_stale"`
-  -> `void mutate()` so the EXISTING `useEffect([boq])` on-mount recovery re-reads the healed BoQ + per-sheet
-  flags. `running`/`idle` -> no action. The call is NON-FATAL by contract: any failure is `console.error`-only;
-  the hub renders regardless. The `cancelled` unmount guard mirrors the upload-screen socket pattern.
-- **§9 #161 getFrappeError migration (SheetConfigPanel was the lone un-migrated wizard writer).** Import
-  `getFrappeError` from `@/utils/frappeErrors` (ReviewTree form). `handleSave` + `handleMarkReviewed`'s outer
-  catches -> `setSaveError(getFrappeError(e) || "Save failed. Please try again.")`. The two inner static-string
-  catches (work-packages step, status step) -> `${"...failed."} ${getFrappeError(e)} Click ... again.`.trim()
-  (catch param changed from bare `catch {` to `catch (e: unknown)`). `dropIfReviewed`'s `callSetStatus` gains a
-  `.catch((e) => setSaveError(getFrappeError(e) || "..."))` -- previously swallowed. Net effect: a stale-tab
-  mid-parse config write surfaces the REAL backend `frappe.throw` text (from `_server_messages`) instead of the
-  SDK's generic "There was an error." `frappeErrors.ts` is CONSUMED, not modified.
-- **STALE FILE-IN-SCOPE PATH (recorded).** The build brief listed `frontend/src/types/boqTypes.ts`; the real
-  file is `frontend/src/pages/boq-wizard/boqTypes.ts` (all wizard types live in the page folder). The correct
-  file was edited + staged.
-- **Verification.** tsc 0 new wizard-file errors (filtered `boq-wizard|boqTypes` -> only the marker, empty) +
-  in-container Vite build exit 0 (`✓ built in 3m 46s`, PWA 168 entries). No Frappe unit tests (frontend-only).
-  Manual live-cert pending Nitesh: LC1 mid-parse card buttons disabled + Parsing chip; LC2 spoke locked +
-  amber banner + dropIfReviewed inert; LC3 review screen read-only + amber banner (beats teal); LC4 post-parse
-  all three unlock via socket->mutate without manual refresh; LC5 stale-tab config save shows the REAL backend
-  message (getFrappeError proof); LC6 idle hub loads normally (check_parse_status idle, no side-effects);
-  LC7 stuck-flag self-heal on mount -> cleared -> surfaces unlock.
-
-**Review export conventions** (`exportReviewCsv.ts` + `exportReviewXlsx.ts` + `ExportWorkbookDialog.tsx`; consolidated from Slices D2 / D2b -- per-slice build history relocated to `boq-upload-plan.md` / git):
-
-- **Wizard-local writers, NOT the shared util:** `src/pages/boq-wizard/exportReviewCsv.ts` (+ `exportReviewXlsx.ts`) -- the shared `src/utils/exportToCsv.ts` is deliberately NOT used/touched (TanStack-ColumnDef-coupled, wrong shape for the descriptor payload). Any future wizard export extends THESE writers. **Reuse the tree's helpers, never copy** (`resolveDescriptorValue`/`computeDepths`/`CLS_LABELS`/`FIXED_ROLE_DEDUPE` from `ReviewTree.tsx`, `ROLE_LABELS` from `boqTypes.ts`) so depth/value-resolution/labels/dedupe stay byte-identical to the rendered tree.
-- **`buildReviewSheet` (in exportReviewCsv.ts) is the SHARED core (no csv/xlsx drift):** `{sheetName, rows, columnDescriptors} -> {headers, cells}` with **RAW TYPED cells** (numbers stay JS numbers, text string, empty null). The CSV writer maps cells -> `csvCell` (null->"", number->String); the xlsx writer feeds typed cells straight to exceljs (numbers land as real numbers). When extending the export, change `buildReviewSheet` -- never one writer alone. **Numbers RAW** (`String(val)`, NOT the display formatter -- thousands separators break Excel numeric parsing).
-- **`append_notes_raw` is a `dict[str,str]`** keyed `column_headers.get(col_letter, col_letter)` (header text when mapped, else bare Excel letter; classifier.py:983); empty columns OMITTED; values are strings. The writer flattens to `"key: value"` joined `" | "` (flat, no JSON blobs per §8); defensively handles array/string/null.
-- **CSV mechanics:** `Papa.unparse`; prepend a UTF-8 BOM so Excel renders rupee/unicode; filename a bare basename + `.csv` ONCE (the shared util's double-extension trap). Export is the sheet's DATA in row_index order, NOT the current view (filters/collapse/search ignored). The "Export CSV" button is NOT gated on status (a frozen/checked sheet is the prime export target).
-- **XLSX dependency rule (reusable):** `exceljs` is **DYNAMICALLY imported** (`(await import("exceljs")).default`) so it stays in its OWN lazy chunk (~942 kB), absent from the hub/entry chunks. The npm `xlsx` (SheetJS) is FORBIDDEN (abandoned + 2 unpatched high-severity CVEs). **Install heavy deps IN-CONTAINER** (host installs corrupt the Linux-native node_modules). One worksheet per ticked sheet, header row bold, NO BOM (xlsx needs none). **Tab-name sanitize + dedupe (`sanitizeSheetTabName`/`dedupeTabName`) is TAB-TITLE ONLY** (#152): strip `: \ / ? * [ ]`, TRIM (Excel rejects the trailing-space corpus names as tab titles -- load-bearing), truncate to 31, " (2)"/" (3)" on collision; the Sheet Name COLUMN stays verbatim.
-- **Hub vs card:** the global "Export reviewed" hub button -> `ExportWorkbookDialog` (ParseRunDialog pattern: pre-ticked Finalized sheets, sequential per-sheet `get_review_rows` fetch, abort-on-any-failure -> no partial file) -> ONE .xlsx; a per-card "Export CSV" -> the existing `buildAndDownloadReviewCsv` -> a single .csv. The hub owns all fetches; SheetCard stays fetch/router-free.
-
-**Slice D1 Parsed Check Done freeze conventions (`boqTypes.ts` + `SheetReviewPage.tsx` + `ReviewTree.tsx`):**
-
-The read-only freeze + mark/un-mark surface for the review screen. Owner-LOCKED model: a sheet at
-"Parsed Check Done" is FULLY FROZEN (no value/text/area edits, no restructure, no remarks, no flag
-dismissals); the freeze is enforced BOTH frontend (gated affordances) AND backend (write-endpoint guards --
-see root CLAUDE.md). The frontend gating is the UI line of defence; the backend `_guard_sheet_not_frozen`
-is the durable backstop.
-
-- **Status derivation from `boq.sheet_drafts` (THE pattern -- no new fetch).** `SheetReviewPage` ALREADY
-  fetches the BOQs doc via `useFrappeGetDoc("BOQs", boqId)`. `sheet_drafts` is a ONE-LEVEL child table, so it
-  serializes on that payload -- the sheet's `wizard_status` is already in hand. Derive:
-  `const sheetStatus = boq?.sheet_drafts?.find(d => d.sheet_name === (sheetName ?? ""))?.wizard_status;`
-  (sheetName VERBATIM -- no trim, #152) and `const isChecked = sheetStatus === "Parsed Check Done";`. Do NOT
-  add a status fetch. **Destructure `mutate: boqMutate`** from that same `useFrappeGetDoc` and call it after
-  every successful mark / un-mark so the banner + button react (the get_review_rows `mutate` is a DIFFERENT
-  hook -- mark/un-mark change the BOQs doc, not the rows, so they need `boqMutate`).
-- **The Mark button (header right cluster).** Rendered ONLY when `sheetStatus === "Parsed"` (a
-  Mark-and-the-banner are mutually exclusive by construction). It opens a LIGHT-CONFIRM `AlertDialog`; Confirm
-  POSTs `mark_sheet_parsed_check_done` with `confirm:false`. `ok:true` -> close + `boqMutate()`. `ok:false`
-  (breaks present) -> the SAME dialog switches to the ESCALATION view (`markBreaks` state non-null) listing
-  each break (`BREAK_TYPE_LABELS[type]` + "Excel row {source_row_number}" + reason); the action button becomes
-  "Mark anyway" which re-POSTs with `confirm:true`. A backend throw surfaces inline via `getFrappeError()`.
-  The confirm action is a PLAIN `Button` (NOT `AlertDialogAction`) so the dialog stays open to escalate or
-  show an error.
-- **The read-only banner (when `isChecked`).** A full-width strip ABOVE the flags strip, TEAL family
-  (`border-teal-300 bg-teal-50` + dark variants -- matching the "Checked" pill, NOT destructive red), with a
-  `ShieldCheck` icon, the read-only explanation, and two buttons: "Un-mark" (light-confirm AlertDialog ->
-  `unmark_sheet_parsed_check_done` -> `boqMutate()`) and "Go to hub" (reuses the Back nav `handleBack`).
-- **`readOnly` prop on ReviewTree gates ALL 11 write affordances at their render sites.** `SheetReviewPage`
-  passes `readOnly={isChecked}`. In `ReviewTree`, `readOnly?: boolean` (default false) HIDES (does not merely
-  disable): the reclassify pill DropdownMenu (the plain classification text stays), the "Change parent" door
-  (`canChangeParent && !readOnly`), the three edit blocks (`!readOnly && editable*Descriptors.length > 0`),
-  the "Looks OK" button (the dismissed "Reviewed -- looks OK" span still shows read-only), and the Remarks
-  editor -- which when `readOnly` renders the stored remark as READ-ONLY TEXT if present (else nothing),
-  hiding the Textarea + Save. With the triggers gated, the value/area confirm dialog, the childless reclassify
-  AlertDialog, and the RestructureModal become UNREACHABLE (all are state-driven and that state is set ONLY by
-  the gated triggers -- verified: RestructureModal is imported/mounted only in ReviewTree). Every VIEW
-  affordance stays fully live: expand/collapse, the detail panel (provenance, edit history, flag display),
-  search, filters, column selector, scroll-to-parent.
-- **Verification.** tsc 0 new wizard-file errors (baseline 3177 unchanged); in-container build exit 0
-  (`✓ built in 3m 36s`, PWA 166 entries). No Frappe unit tests on the frontend (backend TestParsedCheckDoneFreeze
-  / TestUnmark... + mark M1/M2 -> test_review_screen 147 green). Manual live-cert LC1 (Mark on a clean Parsed
-  sheet -> banner appears, tree frozen) / LC2 (Mark on a sheet with structural breaks -> escalation dialog lists
-  them, "Mark anyway" works) / LC3 (every edit affordance is gone when frozen; view affordances all still work) /
-  LC4 (Un-mark -> tree editable again, edits land) / LC5 (Go to hub) / LC6 (a frozen write attempted out-of-band
-  is rejected by the backend with the read-only message) / LC7 (reload a checked sheet -> banner persists from
-  the payload) / LC8 (regression: a NON-checked sheet behaves byte-for-byte as before -- edits/remarks/restructure/
-  dismissals all work) pending Nitesh.
-
-**C-flag-dismissal conventions (per-row "Looks OK" -- `boqTypes.ts` + `ReviewTree.tsx` + `SheetReviewPage.tsx`):**
-
-The per-row advisory-flag dismissal surface. Owner-LOCKED model: PER-ROW (one gesture clears ALL of a row's
-currently-computing flags, NOT per-flag); a dismissal is an ACKNOWLEDGMENT, NOT an edit. Backend detail
-(the `dismiss_row_flags` endpoint, the 3 `BoQ Review Row` fields, the `_apply_and_save_row_edit` chokepoint
-clear-on-edit) is in root CLAUDE.md.
-
-- **`flags_dismissed` is NOT an edit (THE invariant).** A dismissal must NEVER flip the row to "Edited" --
-  the `isEdited` predicate (`row.edited_at !== null || edit_log.length > 0`), the Edited/Original pill, and
-  the green tint are ALL left UNTOUCHED. The dismissal write path (`dismiss_row_flags`) mirrors
-  `save_review_remark`'s bypass: it never stamps `edited_at` / `edit_log`. The frontend refreshes via the
-  EXISTING `onRemarkSaved` (mutate only -- a dismissal, like a remark, does NOT advance the sheet-level
-  "All changes saved" edit anchor); do NOT wire it to `onSaved`/`onRestructured`.
-- **The "Looks OK" button (ReviewTree detail-panel Flags block).** Rendered in the detail panel's "Flags"
-  block header (the natural "I've reviewed this row's flags" spot), sitting IMMEDIATELY BESIDE the "Flags"
-  label on the LEFT. The header div is `flex items-center gap-2` (NOT `justify-between` -- a `justify-between`
-  header right-pushes the button off-screen on a wide sheet, the same class of problem as #158 finding-7;
-  bring the action to the eye, left-visible). It calls `useFrappePostCall("...dismiss_row_flags")` with
-  `row_index` + `sheet_name` VERBATIM (#152) + `dismissed: true`; `onClick` does `e.stopPropagation()` (the
-  table-body click dismisses the detail panel). When the row is ALREADY dismissed it reads "Reviewed — looks
-  OK" (a span, not a button) -- NO separate un-dismiss button ships (edit re-opens / re-parse wipes / the flag
-  reason stays readable cover the cases). A dedicated `dismissError` state (separate from `saveError` /
-  `remarkError`) surfaces failures inline.
-- **The dismissed visual = a NEW greyed/checked Info-marker state.** When `row.flags_dismissed` is truthy
-  the table-body Info marker switches icon to `CheckCircle2` and colour to muted/grey (NOT amber-active,
-  NOT removed -- the flags still EXIST, they're acknowledged); title "Reviewed — looks OK". The flag-reveal
-  row appends a muted "Reviewed — looks OK" line (with who/when from `flags_dismissed_by`/`_at`). `isDismissed
-  = !!row.flags_dismissed` is computed once per row alongside `hasFlags`/`flagsExpanded`.
-- **The summary strip "N <label> – C cleared" (SheetReviewPage).** The existing per-type total (over the
-  live `flags` array, which already auto-excludes resolved conditions) is kept; a per-type "cleared" count
-  is ADDED = flags of that type whose `row_index` is in `dismissedRowIdx` (= the set of `flags_dismissed`
-  rows from the row payload). Rendered as `N <label> – C cleared` when `C > 0`, else `N <label>`. Derived
-  FRONTEND-side from the row payload + the flags array -- NO new endpoint, NO new backend data (mirrors the
-  C-v2c remark-count strip's per-row-field derivation).
-- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0
-  (`✓ built in 6m 46s`). No Frappe unit tests on the frontend (backend TestDismissRowFlags +6 -> 137 green).
-  Manual live-cert LC1 (dismiss -> greyed/checked + stays Original + reload persists) / LC2 (summary "N – C
-  cleared" rose) / LC3 (edit the dismissed row -> flips Edited AND re-opens) / LC4 (remark on a dismissed row
-  -> dismissal STAYS, stays Original) / LC5 (re-parse -> dismissals gone) / LC6 (regression: #159 filter/
-  search + Edited/Original pills + green tint + detail panel + restructure modal + remarks all intact)
-  pending Nitesh.
-
-**§9 #159 ReviewTree find-&-filter conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
-
-A find & filter surface on the main review tree. Files touched: `ReviewTree.tsx` ONLY (no SheetSearchView
-edit/import -- its hit-stepper PATTERN is MIRRORED, not imported; no backend, no doctype, no `boqTypes.ts`,
-no `SheetReviewPage.tsx`). The owner-LOCKED interaction model (findings 6 + 8) -- not open to redesign.
-
-- **CLS_LABELS-6 for the filter, NOT the 4 write-targets (THE convention).** The Classification filter's
-  option source is `CLASS_FILTER_VALUES` (a module const = the 6 `CLS_LABELS` keys: `preamble, line_item,
-  note, spacer, subtotal_marker, header_repeat`), NOT `ASSIGNABLE_CLASSIFICATIONS` (the 4 restructure
-  write-targets). A FILTER reads all 6 existing classification states a row can carry; the 4-value set is
-  exclusively for restructure write-targets. Do not conflate them.
-- **Status filter predicate = the existing `isEdited` expression.** `statusFilter: "all" | "edited" |
-  "original"` (default `"all"`). `passesFilter` re-states `row.edited_at !== null || (Array.isArray(edit_log)
-  && edit_log.length > 0)` (the SAME expression as the inline `isEdited` at the render row, which is left
-  UNTOUCHED). A remark-only row is Original -- `save_review_remark` never stamps `edited_at`/`edit_log`, so
-  the predicate already encodes it; do not special-case remarks.
-- **classFilter SHOW-set semantics (stated choice).** `classFilter: Set<string>` is seeded with ALL 6 values
-  (`useState(() => new Set(CLASS_FILTER_VALUES))`). `allClassesShown = classFilter.size === 6` => no
-  narrowing (everything shows, incl. null-classification rows via short-circuit); unchecking a type hides it;
-  empty set => show none. This is "seeded-full, size-6-means-all", NOT "empty-means-all". A null
-  `effective_classification` passes only when `allClassesShown` (never matches an explicit subset).
-- **STRICT HIDE via a third return-null gate (THE compose-safe pattern).** A new
-  `if (!passesFilter(row)) return null;` joins the existing `if (!isVisible(row)) return null;` +
-  `if (!classificationVisible(row)) return null;` at the top of `rows.map`. The two filters AND-combine
-  inside `passesFilter`. This is SAFE against the render pipeline because `byIdx`/`depths`/`hasChildrenSet`
-  derive from the FULL `rows` prop in `useMemo([rows])` -- strict-hide narrows only the rendered subset,
-  never the depth/parent-resolution maps. Parent context for a hidden ancestor stays readable via the
-  Parent column (owner-accepted flat-list-of-matches).
-- **Search highlight = RINGS, never backgrounds (THE collision rule -- recon Q4c; do NOT violate).** The
-  row `cn()` block already stacks BACKGROUND tiers (`hover:bg-muted/30`, preamble `bg-muted/20`, edited
-  `bg-green-50`, the `highlightedIdx` amber scroll-flash). A search highlight added there MUST use
-  `ring-inset` (box-shadow -- a DIFFERENT CSS property), placed AFTER the background tiers, so it layers
-  OVER them without masking edit-state. As-built: all hits = `ring-1 ring-inset ring-blue-300
-  dark:ring-blue-700`; current hit = `ring-2 ring-inset ring-blue-500 dark:ring-blue-400`. The soft tier is
-  gated `searchHitSet.has(idx) && currentHitRowIdx !== idx` so the two ring WIDTHS are mutually exclusive
-  (Tailwind would otherwise have two `--tw-ring-*` widths fight). The existing single `highlightedIdx` amber
-  flash is UNTOUCHED (separate concern). **`border-collapse` caveat:** ReviewTree's `<table>` is
-  `border-collapse`; `ring-inset` is the more reliably-painted box-shadow variant on table rows -- if a
-  live-cert shows no ring, the fallback (a follow-up) is moving the ring to an inner cell, NOT switching to
-  a background.
-- **Cycling reuses `revealAndScrollToRow` (do NOT reimplement auto-expand).** `stepSearchPrev`/
-  `stepSearchNext` modulo-wrap `searchCurrentIdx` over `searchHits.length` (both directions), mirroring
-  SheetSearchView's `stepPrev`/`stepNext` (`:343-350`) PATTERN -- NOT imported. On each step they call the
-  EXISTING `revealAndScrollToRow(searchHits[ni])` (`:696-717`), which already expands collapsed ancestors +
-  scrolls + sets the amber flash. `searchCurrentIdx` resets to 0 on hit-set change (`useEffect([searchHits])`,
-  mirror of SheetSearchView `:288-290`). Prev/next disabled at 0 hits; counter `0 of 0` else
-  `${safeSearchIdx + 1} of ${searchHits.length}`.
-- **The shown-predicate compose interlock (THE resolved ambiguity).** `searchHits` (a `useMemo` over `rows`)
-  keeps a row iff `classificationVisible(row) && passesFilter(row)` AND `description` matches the query ->
-  ordered `number[]` of `row_index` (+ `searchHitSet`). It uses the SAME filter predicates the render gate
-  uses, so a hit can NEVER be a filtered-out row; clearing a filter widens the hit set. **RESOLVED:** the
-  build prompt's B3 literally listed `isVisible` in the hit predicate, but B5/LC5 require stepping to a hit
-  under a COLLAPSED parent to auto-expand it -- which is impossible if hits gate on `isVisible` (collapse).
-  So hits gate on the FILTER axis but DELIBERATELY NOT on `isVisible` (the collapse axis, which is reversible
-  and is exactly what `revealAndScrollToRow` undoes). Render and hits agree on the filter axis; they differ
-  only on collapse, by design. Any future change MUST keep the hit predicate's filter axis identical to the
-  render gate's filter axis.
-- **Filter Popovers live INSIDE the `<table>` `<th>` cells -> `stopPropagation`.** Each header `Filter`
-  trigger button calls `e.stopPropagation()` (the `<table>` body-onClick dismisses the detail/flag panels;
-  the column-selector Popover is OUTSIDE the table so it never needed this). The trigger icon turns
-  `text-blue-600 dark:text-blue-400` when its filter is narrowing (`statusFilterActive` /
-  `classFilterActive`). Popovers + Checkbox reuse the SAME primitives as the existing column-subset selector.
-- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0
-  (`✓ built in 10m 54s`, PWA 166 entries). No Frappe unit tests (frontend-only). Manual live-cert LC1 (Status
-  filter) / LC2 (Classification filter, all 6) / LC3 (AND-combine) / LC4 (search ring tiers, edited-green
-  shows THROUGH the ring) / LC5 (cycling + auto-expand of a collapsed-parent hit) / LC6 (compose: filter
-  then search, no hit on a filtered-out row) / LC7 (regression: edits still flip to Edited, detail panel +
-  #162 door + #-pill modal + column-selector/flag-toggle/annotation checkboxes all still work) pending Nitesh.
-
-**ReviewTree detail-panel layout (the live design rule; full per-pass CSS detail relocated to `boq-upload-plan.md`):**
-The inline detail panel (the `expandedDetailRow === row.row_index` block) is a NESTED BRAND-TINTED CARD, not a hovered
-row: indigo body tint (`bg-indigo-50/40 dark:bg-indigo-950/20`) + a BRAND-RED left-accent stripe `border-l-4
-border-l-primary` (the `--primary` rose/crimson token -- NOT `--destructive`, whose pure-red would collide with the
-error/re-parse-warning red on this screen) + border/radius/shadow/inset padding. Do NOT revert to a `bg-muted/30` tint
-(it equals the row-hover tint -> the panel blends in) and do NOT swap the stripe to `--destructive`. Classification/Parent
-render as a VERTICAL stack (`grid-cols-1`, avoids off-screen horizontal scroll on wide sheets); the three edit blocks
-(numeric / text / per-area) are INDEPENDENT responsive `grid-cols-1 sm:2 md:3 lg:4` grids and stay SEPARATE (each has its
-own save path). (A two-column "Context | Actions" revamp of this panel was prototyped + reverted on 2026-06-25 -- the
-ORIGINAL single-column layout above is the live one; only the two read views below were kept.)
-
-**Detail-panel read views `ParentChain.tsx` + `ChildrenList.tsx` (ADDITIVE, 2026-06-25 -- the ONLY survivor of the
-reverted revamp):** two PURE read components mounted in the EXISTING panel, in a `mb-2 space-y-2` block placed right
-after the Classification/Parent display grid and before the AI-suggestion block (no other panel change; both render in
-editable AND readOnly sheets -- read context). **Text scale MATCHES the surrounding panel:** `text-[10px]` uppercase
-section label + `text-xs` rows (not the roomier text-sm of the reverted revamp). `ParentChain` walks
-`effective_parent_index -> byIdx` (the same walk as `revealAndScrollToRow`, `HOP_CAP=60` + self/cycle guard) to a vertical
-indented ancestors→(this row) tree; ancestor crumbs are clickable. **ROOT indication (correct):** there is NO synthetic
-"Root" node -- the actual root-most ancestor is tagged "top level" (only when its own `effective_parent_index` is null/-1,
-guarding cycle/hop-cap stops), and a current row that is itself top-level renders "This row is at the top level — no
-parent." (the prior synthetic "Root" line wrongly implied a top-level row had a root parent). `ChildrenList` reads the NEW
-`childrenByParent` map (the O(n) inverse of `effective_parent_index`, built in ReviewTree's `[rows]` memo alongside
-`byIdx`/`hasChildrenSet`) -- DIRECT children only, each with a `▸N` grandchild-count marker; **descriptions HARD-capped at
-35 chars** (`capDesc`, JS slice + ellipsis -- not CSS truncate), capped `max-h-48` scroll, empty → "No children." Both
-reuse `ClassificationPill` from `reviewRender` and take `onNavigate={navigateToRow}` where `navigateToRow(idx)` =
-`setExpandedDetailRow(idx)` + `revealAndScrollToRow(idx)` (a crumb/child click OPENS that row's panel AND
-reveals+scrolls+flashes it, auto-expanding collapsed ancestors). Known limit: a target hidden by an active
-classification/status FILTER (not just collapse) is a no-op scroll -- same as the existing scroll-to-parent.
-`GeminiAcceptBlock` + the panel body are UNCHANGED from the original.
-
-**Fuzzy description search conventions (`boqDescriptionSearch.ts` + `ReviewTree.tsx` + `SheetSearchView.tsx`; full detail:
-plan §"Fuzzy description search"):** the two description search boxes in the review workflow now use the app-wide
-token-scoring matcher instead of substring `.includes()`. There are only TWO real implementations: `ReviewTree.tsx`'s
-`searchHits` memo and `SheetSearchView.tsx`'s `hits` memo -- `RestructureModal.tsx` owns NO search (it embeds SheetSearchView
-as its parent-picker, so it upgrades for free; do NOT add search to it). The other `boq-wizard/` "filters"
-(classification/status/AI/priceability toggles) are NOT text search -- leave them alone.
-
-- **ONE shared helper -- never inline a second matcher.** `boqDescriptionSearch.ts` exports the single pure
-  `fuzzyDescriptionMatchSet<T>(items, query, getText) -> Set<T>` (the matching ORIGINAL references). It wraps
-  `utils/tokenSearch` (the extracted `FuzzySearchSelect` core -- do NOT add `fuse.js`; it's an unused dep). Both surfaces
-  call THIS; if you add a third description search anywhere in the wizard, call this too.
-- **THE TRAP (load-bearing):** `tokenSearch` returns ALL items on an empty/too-short query (not an empty set). The helper
-  GUARDS this -- a `< 2`-char trimmed query, or a query whose tokens are all 1-char, returns an EMPTY set (find-semantics:
-  short query => no hits). Each call site ALSO short-circuits `query.trim().length < 2` before calling. Never feed the
-  raw `tokenSearch` output to a find-stepper.
-- **Locked config (the `/grill` decisions):** token **AND** (`minTokenMatches = tokenCount`, computed at the call site
-  with the SAME `length >= 2` filter as the config's `minTokenLength` -- they MUST agree or nothing matches);
-  `partialMatch: true`; `minSearchLength: 2` / `minTokenLength: 2`.
-- **Fuzzy = MEMBERSHIP, document = ORDER (decision A).** The helper returns a Set; each surface iterates its OWN
-  document-ordered source (`rows.filter(...)` / `allRows`) and keeps `set.has(item)`, mapping to its identity field
-  (`row_index` for ReviewTree, `row_number` for SheetSearchView). tokenSearch's relevance ranking is DELIBERATELY
-  discarded so prev/next steps top-to-bottom -- do NOT "fix" this by using the ranked order.
-- **Invariants preserved.** ReviewTree still gates candidates on the FILTER axis (`classificationVisible && passesFilter`),
-  NOT the collapse axis (`isVisible`) -- the "hit predicate's filter axis == render gate's filter axis" rule holds (only
-  the text test changed). SheetSearchView keeps its `searchEnabled`/degraded-mode guard. All steppers, ring/flash highlight
-  tiers, "N of M" counters, `revealAndScrollToRow`, and `onCurrentHitChange` are UNCHANGED.
-- **Verification.** tsc delta-0 (3181 == 3181; 0 errors in the 3 touched files -- the `@/`-alias "cannot find module" +
-  implicit-any are standalone-LSP noise, not tsc errors); in-container Vite build exit 0 (`✓ built in 1m 24s`). No Frappe
-  tests (frontend-only). Manual live-cert pending Nitesh: LC1 ReviewTree `cable 16` finds a non-contiguous match + Next
-  walks top->bottom; LC2 same in the RestructureModal parent-picker; LC3 1-char => no hits; LC4 filters still gate hits;
-  LC5 highlight/flash/counter intact.
-
-**§9 #162 standalone Change-parent door conventions (FRONTEND ONLY, `ReviewTree.tsx` only):**
-
-A SECOND front door to the EXISTING `RestructureModal`, reached WITHOUT a reclassification. Files touched:
-`ReviewTree.tsx` ONLY (no `RestructureModal.tsx`, no backend, no doctype JSON, no `boqTypes.ts`).
-
-- **The button + placement (mirror the reclassify control).** The row-detail panel's `grid grid-cols-2`
-  has a CLASSIFICATION cell (left, already hosts the "Change ▾" reclassify DropdownMenu) and a PARENT cell
-  (right, previously display-only). This slice wraps the PARENT cell's existing content in a
-  `flex items-center gap-2` and adds a "Change parent" `<button>` beside the current-parent display,
-  styled IDENTICALLY to the "Change ▾" pill (`rounded-full bg-blue-100 ... text-[10px]`). **Plain button,
-  NOT a single-item DropdownMenu** -- there is no list to pick; the single action is "open the modal", so a
-  dropdown would be a hollow one-item menu.
-- **The open call = a NO-OP reclassify (THE pattern).** On click:
-  `setRestructureModal({ row, newClassification: row.effective_classification as string })`. It uses the SAME
-  `setRestructureModal` state setter the childless AlertDialog's "Move under a new parent" radio already uses
-  -- and DIRECTLY, NOT via `onPickClass` (which would route a childless row to the light AlertDialog confirm
-  instead of the modal). `newClassification` = the row's CURRENT class, so the modal's reclassify write is a
-  no-op (same value) while the row-position picker drives the actual move. `canSave` in `RestructureModal`
-  never compares new-vs-current classification, so a same-value class is benign (verified).
-- **NON-NEGOTIABLE -- no silent reparent (why we reuse the modal, not a lighter path).** A WITH-children row
-  opened via "Change parent" STILL surfaces the five child-placement options: the `children.length > 0` gate
-  inside `RestructureModal` is left EXACTLY as is -- do NOT suppress it for a parent-only open. The reviewer
-  must decide the children's fate; the modal's batch cycle-guard + the single write-chokepoint come along. A
-  CHILDLESS row opens with the children block already suppressed (the existing childless adaptation;
-  `rowPosition` lazy-inits to "move") -> only the row's-own-position picker shows.
-- **Scope exclusion (owner-locked) -- `canChangeParent` gate.** The button does NOT render when the row's
-  CURRENT classification is `subtotal_marker` or `header_repeat`:
-  `const canChangeParent = row.effective_classification != null && (ASSIGNABLE_CLASSIFICATIONS as readonly string[]).includes(row.effective_classification);`
-  (the `as readonly string[]` cast is required -- the const is a `readonly [...]` tuple, so `.includes` of a
-  `string | null` otherwise fails TS2345). A no-op reclassify on those two parser-only detections would be
-  rejected by the backend `_ASSIGNABLE_CLASSIFICATIONS` gate, so the door must not appear there.
-- **edit_log fidelity (VERIFIED, no backend change).** The standalone reparent must appear in the row's
-  edit_log. The no-op reclassify writes a same-value `human_classification` entry (harmless), but the PARENT
-  change is captured SEPARATELY: `save_review_restructure`'s `row_new_parent` path calls
-  `_apply_and_save_row_edit(..., "human_parent", ...)`, which ALWAYS appends its own edit_log entry for the
-  field it writes -- field `human_parent`, `from` = prior effective parent, `to` = new parent (or null for
-  root), reason `"row moved: row N reclassified to <cls>"`. So the parent move is ALREADY logged; the B2
-  conditional (and its chokepoint STOP-gate) were NOT triggered -- backend untouched.
-- **Verification.** tsc 0 new wizard-file errors (project baseline 3177 unchanged); in-container build exit 0.
-  No Frappe unit tests (frontend slice; reused modal + backend already certified). Manual live-cert LC1-LC6
-  (LC2 children-prompt + LC6 cycle-block are the load-bearing no-silent-reparent proofs) pending Nitesh.
-
-**Force Re-parse FRONTEND slice conventions (two entry points + shared modal + rewritten warning):**
-
-Frontend-only. Files touched: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage.tsx` ONLY (no backend, no doctype JSON, no `boqTypes.ts` -- the dialog's new props are typed locally on `ParseRunDialogProps`). The slice builds the UI that sets `force_reparse: true` on the already-certified backend floor (`run_parse(..., force_reparse=False)` / `assemble_mapping_config`, feat 95928637).
-
-- **Two-button hub pattern (THE convention).** The hub parse-gate footer now holds TWO buttons in a `flex gap-2` cluster on the right: the existing **"Parse workbook"** (primary, UNCHANGED gate `!canParse || parseInFlight`) and a new **"Re-parse"** (`variant="outline"`). The Re-parse button sits BESIDE Parse -- it does NOT replace Parse and does NOT re-enable a greyed Parse. Each button keeps its own `Tooltip` (disabled-reason pattern). Apply this two-button shape if a future hub action needs a "destructive variant of an existing primary action" beside it.
-- **Re-parse path sends `force_reparse: true`; normal Parse does NOT (THE wire rule).** `BoqHubPage.handleParseConfirm` spreads `...(parseDialogMode === "reparse" ? { force_reparse: true } : {})` onto the EXISTING `callRunParse({ boq_name, sheet_names })` payload. Normal Parse omits the param entirely (backend default False). The SDK serializes the bool; the backend coerces `"true"/true`. NEVER send `force_reparse` on the normal Parse path.
-- **Per-card eligibility = `has_prior_parse === 1` AND effective status in {Parsed, Parsed Check Done, Reviewed} (THE eligibility convention).** Computed as `canReparse` in `SheetCard.tsx` (per-card render gate) and as `reparseEligibleDrafts` in `BoqHubPage.tsx` (global-button enable gate + the dialog's tickable source) -- the SAME predicate in both places. **"Parse failed" is DELIBERATELY EXCLUDED** (decision recorded): the backend floor does NOT widen `force_reparse` to "Parse failed" (`assemble_mapping_config` Rule 4 keeps it `not_eligible` regardless of the flag), so offering it would be a control that silently no-ops (the sheet would surface in the completion modal's "Not parsed" line). A never-parsed sheet (`has_prior_parse !== 1`) NEVER shows a Re-parse control. The per-card "Re-parse" Button (`variant="outline"`) renders inside the Parsed / Parsed Check Done / Reviewed action blocks only; on click -> `onReparse?.(draft.sheet_name)` (VERBATIM #152).
-- **Global-button enable rule: `reparseEligibleDrafts.length >= 1` (+ `parseInFlight` guard); NO blockingCount gate.** Deliberate divergence from `canParse` -- a Parse-failed sheet must NOT block re-parse of the previously-good sheets; the two concerns are independent. Greyed -> "No previously-parsed sheets to re-parse" tooltip.
-- **Shared-modal mode mechanism.** `ParseRunDialog` gains `mode?: "parse" | "reparse"` (default `"parse"`) + `reparseDrafts?: BoQSheetDraft[]` (tickable source in reparse mode) + `restrictToSheetName?: string | null` (per-card pre-filter). The PARENT owns `parseDialogMode` + `reparseRestrictSheet` state (set BEFORE `parseDialogOpen` flips true) and derives `force_reparse` from `parseDialogMode` -- so `onConfirm(sheetNames)`'s signature is UNCHANGED (smallest blast radius; the dialog needs `mode` only for rendering). `tickableDrafts = isReparse ? (restrictToSheetName ? reparseDrafts.filter(one) : reparseDrafts) : reviewedDrafts`; `tickedSheets` seeds from `tickableDrafts`; the seed `useEffect` still keys on `[open]` (reads the fresh tickable source because mode/restrict are already set). The four informational lists (General specs / Already parsed / Pending / Skipped) are gated `mode === "parse"` -- hidden in reparse mode. Title / description / confirm-button label / "Will (re-)parse" heading all branch on `isReparse`. This was the B3 PROCEED path (extend the tickable-source array feeding the EXISTING checkbox machinery; NO four-list restructure).
-- **Rewritten destructive warning (step 2 = the safety surface).** Trigger shape UNCHANGED: `if (dirtyTicked.length > 0) setStep(2)`, where `dirtyTicked` = ticked sheets with `has_prior_parse === 1` -- now catching Parsed + Parsed Check Done + dirty-Reviewed (re-targeted from dirty-Reviewed-only). Copy REWRITTEN to name specifically the parsed output AND every review-screen change -- edited values and text, REMARKS, classification changes, and parenting/restructure moves; "cannot be undone." A LOUDEST `destructive`-styled callout keyed on `checkedDoneTicked` (`dirtyTicked` filtered to `wizard_status === "Parsed Check Done"`) names the hand-reviewed+Checked sheets. In normal-parse mode the Checked callout never appears (no Checked sheet is tickable there) and a FRESH Reviewed sheet (`has_prior_parse !== 1`) still triggers nothing -- the normal Parse path is unchanged.
-- **Verification.** tsc 0 NEW wizard-file errors (project baseline unchanged) + in-container build exit 0. No Frappe unit tests (frontend slice; backend floor already test-certified). Manual live-cert LC1 (never-parsed -> no per-card control, global greyed when zero eligible) .. LC7 (normal Parse on a fresh Reviewed sheet unchanged) -- DESTRUCTIVE, pending Nitesh. #145 (all-Parsed workbook: Parse greyed but Re-parse ENABLED) is closed by this slice.
-
----
+The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
 
 ## Important Notes
 
@@ -1211,7 +425,7 @@ Frontend-only. Files touched: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage
 - **Inventory Item-Wise Page**: `src/pages/inventory/InventoryItemWisePage.tsx` — cross-project aggregation of latest submitted Remaining Items Reports with max PO quote rates for estimated cost. Virtualized expandable table with category/unit facet filters and CSV export. Sidebar access: Admin, PMO, PL, PM, Procurement.
 - **DN/CEO Hold Exemption**: Delivery Note operations (create, edit, return) are exempt from CEO Hold blocking — DNs can be managed even on held projects.
 - **Vendor Financial Dialogs**: Vendor WO/Material Orders tables show Amount Due column with clickable Total Invoiced and Amount Paid cells that open InvoiceDataDialog/PaymentsDataDialog respectively.
-- **PO Adjustments**: Decoupled payment reconciliation system (`src/pages/POAdjustment/`). Revision approval auto-creates `PO Adjustments` doc tracking financial impact; negative diffs with remaining balance show "Adjust Payments" button on PO detail. Three methods: Against-PO, Ad-hoc expense, Vendor Refund. Pending adjustments lock PO payments. See `.claude/context/domain/po-adjustments.md` for full docs.
+- **PO Adjustments**: Decoupled payment reconciliation system (`src/pages/POAdjustment/`). Revision approval auto-creates `PO Adjustments` doc tracking financial impact; negative diffs with remaining balance show "Adjust Payments" button on PO detail. Three PUSH methods: Against-PO, Ad-hoc expense, Vendor Refund. Pending adjustments lock PO payments. **PULL flow (2026-06):** a top-of-PO `VendorCreditSummaryCard` shows the vendor's overpaid-credit pool across all its POs ("₹X across N POs", vendor-scoped + cross-project) and "Apply to this PO" pulls it into the current PO (`apply_vendor_credit_to_po`); push & pull both take `FOR UPDATE` row locks (`_lock_and_assert_source_credit` / `_lock_and_assert_dest_capacity`) so the same credit can't be double-spent. See `.claude/context/domain/po-adjustments.md` for full docs + `docs/adr/0007-vendor-scoped-credit-application.md`.
 - **PO Revision simplified to 2 steps**: Item editing + Summary (Step 2 financial allocation removed). Payment reconciliation handled by PO Adjustments system post-approval. See `.claude/context/domain/po-revisions.md`.
 - **Loss Justification (high-loss items, PR + SB)**: a per-item reason required when **Loss % > 10%** (strict). Shared helper `src/utils/lossPercent.ts` (`computeLossPercent(savingLoss, benchmark)` + `isHighLoss` + `LOSS_THRESHOLD_PERCENT = 10`) is the SINGLE source of the rule — use it on every surface; never re-derive the threshold inline. **Capture (procurement enters + gate):** `VendorsSelectionSummary.tsx` (PR) + `Sent Back Requests/SBQuotesSelectionReview.tsx` (SB) — a "Reason (required)" textarea on each >10% item keyed by the `order_list` child-row `name`; Send-for-Approval disabled until all high-loss items are justified. PR sends `loss_justifications` in the `send_vendor_quotes` postcall; SB has no send endpoint so it persists the FULL `order_list` (justifications merged) via `updateDoc("Sent Back Category", ...)` — must send the whole child array (replace-all; omitting rows deletes them). **Approval (read-only display + backstop):** shared `ApproveVendorQuotes/components/VendorApprovalTable.tsx` shows Loss % in the Savings/Loss column + a light-red "Reason:" chip under the item name; both approve hooks (`useApproveRejectLogic.ts`, `useApproveSBSLogic.ts`) compute `lossPercent` with the **Target-prioritized** benchmark (NOT the `min(Target,L1)` used by the existing ₹ Savings/Loss column — see root CLAUDE.md GOTCHA 2) and block approval of a selected >10% item with no reason (Send Back is the escape hatch). `loss_justification` rides PR rows via `...prItem` spread but is mapped EXPLICITLY in the SB hook (it builds the display item field-by-field). Scope/rationale: `docs/adr/0002-loss-justification-scope.md`; terms: root `CONTEXT.md`.
 - **Vendor Hold / Credit Management**: Vendors with exhausted credit are marked "On-Hold". **Asymmetric transitions**: On-Hold → Active is real-time (via `recalculate_vendor_credit()` on 9 events); Active → On-Hold is daily cron only (10 AM IST). Credit limit standardized at 50,000. **Admin-only** credit management (PMO removed). Blocks dispatch + payment operations on "PO Approved" POs only — dispatched+ POs get informational banner. Uses `useVendorHoldGuard` (single vendor) and `useVendorHoldVendors` (bulk lookup) hooks. Guard variable: `isVendorHoldBlocked = isVendorOnHold && po?.status === "PO Approved"`. See `.claude/context/domain/vendor-hold.md` for full docs.
@@ -1221,7 +435,3 @@ Frontend-only. Files touched: `SheetCard.tsx`, `ParseRunDialog.tsx`, `BoqHubPage
 - **`order` field name (Slice 3f-fix):** Never pass order_by on a Frappe field literally named `order` -- it is a PostgreSQL reserved keyword and Frappe's REST list layer does not quote it, producing a 500. Keep `order` in the fields list and sort client-side.
 - **ITM DC & MIR**: ITMs in `Partially Delivered` or `Delivered` status can have Delivery Challans + Material Inspection Reports filed against them, parallel to the PO flow. The `PO Delivery Documents` doctype is polymorphic (`parent_doctype` Select + `parent_docname` Dynamic Link). Surfaces with PO/ITM toggle: hub `/prs&milestones/delivery-challans-and-mirs`, project `DC & MIR` tab (sub-tabs for DN > DC Report + DC + MIR), reports `DCs & MIRs` tab. ITM-only: `ITMAttachmentSection` on the ITM detail page. Hub toggle URL-persisted via `parent`; project sub-toggle via `dcmir_parent`; reports toggle via `dcmir_parent`. **PO-only by design** (do NOT mix in ITM rows): Material Usage tab, DN > DC PO report, Bulk Download wizard — all filter by `procurement_order ["is", "set"]`. Mobile cards: `ITMListCards.tsx` mirrors `POListCards.tsx`. Upload dialog `UploadDCMIRDialog` accepts optional `parentDoctype` prop ("Procurement Orders" default, "Internal Transfer Memo" for ITM). `ITMDNDCQuantityReport` is a parent-child grouped reconciliation report (mirrors `DNDCQuantityReport` exactly: parent ITM rows expand to item sub-rows, status rollup, sortable totals, source-project facet, status facet, search, CSV export, info banner, error state). Fetches ITM child items via `get_project_itms` (extended to include items array). PO/ITM toggle UI is a red-active segmented control (mirrors project tab styling). `ITMAttachmentSection` always renders the card when `canView`; only the upload buttons are gated by `canUpload` (status in delivered states) — historical DCs/MIRs never disappear if the ITM moves out of upload-eligible state.
 
-# currentDate
-Today's date is 2026-06-21.
-
-      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.

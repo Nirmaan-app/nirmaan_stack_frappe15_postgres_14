@@ -96,8 +96,6 @@ class TestOrchestrator(unittest.TestCase):
         sheet = result.sheets[0]
         self.assertIsInstance(sheet, ParsedSheet)
         self.assertEqual(sheet.sheet_name, "Sheet1")
-        self.assertEqual(sheet.validation_warnings, [])
-        self.assertEqual(result.validation_warnings, [])
         self.assertEqual(result.master_preambles, {})
 
     # ---------------------------------------------------------------- #
@@ -307,7 +305,6 @@ class TestMultiAreaPostPass(unittest.TestCase):
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.qty_by_area, {})
         self.assertEqual(row.amount_by_area, {})
-        self.assertEqual(row.validation_warnings, [])
 
     # ---------------------------------------------------------------- #
     # Test 3b — PREAMBLE rows now processed (no-attribute-loss)        #
@@ -347,95 +344,32 @@ class TestMultiAreaPostPass(unittest.TestCase):
         _apply_multi_area_post_pass([empty])
         self.assertEqual(empty.qty_by_area, {})
         self.assertEqual(empty.amount_by_area, {})
-        self.assertEqual(empty.validation_warnings, [])
 
     # ---------------------------------------------------------------- #
     # Test 4 — qty_total fallback when None + per-area populated       #
     # ---------------------------------------------------------------- #
 
-    def test_qty_total_fallback_when_none_no_warning(self):
-        """qty_total=None with populated per-area dict → computed from sum; no warning."""
+    def test_qty_total_fallback_when_none(self):
+        """qty_total=None with populated per-area dict → computed from sum."""
         row = self._line_item_row(
             qty_by_area_raw={"Floor 1": 4.0, "Floor 2": 6.0},
             qty_total=None,
         )
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.qty_total, 10.0)
-        self.assertEqual(row.validation_warnings, [])
 
     # ---------------------------------------------------------------- #
     # Test 5 — amount_total fallback when None + per-area populated    #
     # ---------------------------------------------------------------- #
 
-    def test_amount_total_fallback_when_none_no_warning(self):
-        """amount_total=None with populated per-area dict → computed from sum; no warning."""
+    def test_amount_total_fallback_when_none(self):
+        """amount_total=None with populated per-area dict → computed from sum."""
         row = self._line_item_row(
             amount_by_area_raw={"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}},
             amount_total=None,
         )
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.amount_total, 500.0)
-        self.assertEqual(row.validation_warnings, [])
-
-    # ---------------------------------------------------------------- #
-    # Test 6 — qty sum within ±1 tolerance → no warning                #
-    # ---------------------------------------------------------------- #
-
-    def test_qty_sum_within_tolerance_no_warning(self):
-        """qty per-area sum == total → no validation warning."""
-        row = self._line_item_row(
-            qty_by_area_raw={"A": 5.0, "B": 3.0},
-            qty_total=8.0,
-        )
-        _apply_multi_area_post_pass([row])
-        self.assertEqual(row.validation_warnings, [])
-
-    # ---------------------------------------------------------------- #
-    # Test 7 — qty sum outside ±1 tolerance → warning with values      #
-    # ---------------------------------------------------------------- #
-
-    def test_qty_sum_outside_tolerance_emits_warning(self):
-        """qty per-area sum differs from total by >1 → warning appended."""
-        row = self._line_item_row(
-            qty_by_area_raw={"A": 5.0, "B": 3.0},  # sum=8
-            qty_total=10.0,                          # diff=2 > ±1
-        )
-        _apply_multi_area_post_pass([row])
-        self.assertEqual(len(row.validation_warnings), 1)
-        self.assertIn("qty", row.validation_warnings[0])
-        self.assertIn("8.00", row.validation_warnings[0])
-        self.assertIn("10.00", row.validation_warnings[0])
-
-    # ---------------------------------------------------------------- #
-    # Test 8 — amount sum outside ±1 tolerance → warning               #
-    # ---------------------------------------------------------------- #
-
-    def test_amount_sum_outside_tolerance_emits_warning(self):
-        """amount per-area sum differs from total by >1 → warning appended."""
-        row = self._line_item_row(
-            amount_by_area_raw={"A": {"total": 100.0}, "B": {"total": 200.0}},  # sum=300
-            amount_total=305.0,                             # diff=5 > ±1
-        )
-        _apply_multi_area_post_pass([row])
-        self.assertEqual(len(row.validation_warnings), 1)
-        self.assertIn("amount", row.validation_warnings[0])
-
-    # ---------------------------------------------------------------- #
-    # Test 9 — both qty and amount mismatch → two separate warnings    #
-    # ---------------------------------------------------------------- #
-
-    def test_both_mismatches_produce_two_warnings(self):
-        """Both qty and amount mismatches → two warnings, one each."""
-        row = self._line_item_row(
-            qty_by_area_raw={"A": 5.0, "B": 3.0},       # sum=8
-            amount_by_area_raw={"A": {"total": 100.0}, "B": {"total": 200.0}},  # sum=300
-            qty_total=10.0,     # diff=2
-            amount_total=400.0,  # diff=100
-        )
-        _apply_multi_area_post_pass([row])
-        self.assertEqual(len(row.validation_warnings), 2)
-        self.assertTrue(any("qty" in w for w in row.validation_warnings))
-        self.assertTrue(any("amount" in w for w in row.validation_warnings))
 
 
 class TestNestedAmountTotalDerivation(unittest.TestCase):
@@ -502,9 +436,9 @@ class TestMultiAreaIntegration(unittest.TestCase):
     def test_multi_area_post_pass_full_pipeline(self):
         """
         Full parse_boq() on synthetic_multi_area.xlsx verifies post-pass outcomes:
-          Row 2 — clean: per-area dicts populated, no warnings.
-          Row 3 — qty mismatch (sum=8 vs total=10): one qty warning.
-          Row 4 — blank totals: qty_total/amount_total computed via fallback, no warnings.
+          Row 2 — clean: per-area dicts populated.
+          Row 3 — qty mismatch (sum=8 vs total=10): both retained as-is.
+          Row 4 — blank totals: qty_total/amount_total computed via fallback.
         """
         from nirmaan_stack.services.boq_parser.classifier import RowClassification
         result = parse_boq(_p("synthetic_multi_area.xlsx"), _multi_area_config())
@@ -524,24 +458,20 @@ class TestMultiAreaIntegration(unittest.TestCase):
 
         painting, tiling, plumbing = line_items
 
-        # Row 2 — clean row: dicts populated, totals match, no warnings
+        # Row 2 — clean row: dicts populated, totals match
         self.assertEqual(painting.qty_by_area, {"Floor 1": 5.0, "Floor 2": 3.0})
         self.assertEqual(painting.amount_by_area, {"Floor 1": {"total": 500.0}, "Floor 2": {"total": 300.0}})
         self.assertEqual(painting.qty_total, 8.0)
         self.assertEqual(painting.amount_total, 800.0)
-        self.assertEqual(painting.validation_warnings, [])
 
-        # Row 3 — qty mismatch: per-area sum=8, total=10, diff=2 > ±1 → one warning
+        # Row 3 — qty mismatch: per-area sum=8, explicit total=10 retained as-is
         self.assertEqual(tiling.qty_by_area, {"Floor 1": 5.0, "Floor 2": 3.0})
         self.assertEqual(tiling.qty_total, 10.0)
-        self.assertEqual(len(tiling.validation_warnings), 1)
-        self.assertIn("qty", tiling.validation_warnings[0])
 
-        # Row 4 — blank totals: fallback applied from per-area sums, no warnings
+        # Row 4 — blank totals: fallback applied from per-area sums
         self.assertEqual(plumbing.qty_by_area, {"Floor 1": 4.0, "Floor 2": 6.0})
         self.assertEqual(plumbing.qty_total, 10.0)   # fallback: 4+6
         self.assertEqual(plumbing.amount_total, 500.0)  # fallback: 200+300
-        self.assertEqual(plumbing.validation_warnings, [])
 
 
 # ================================================================ #
@@ -639,6 +569,89 @@ class TestPreHeaderSkip(unittest.TestCase):
 
 
 # ================================================================ #
+# ADR 0008 — Double (2-row) header: first data row no longer skipped #
+# ================================================================ #
+
+
+class TestDoubleHeaderFirstDataRowKept(unittest.TestCase):
+    """
+    ADR 0008 — for a Double header (header_row_count=2) the row at header_row + 1
+    is the FIRST DATA ROW, not a second header tier. The second tier sits ABOVE
+    header_row (named via top_header_rows_override / read by area-detection) and is
+    excluded by the `row >= header_row` guard. The orchestrator must therefore KEEP
+    header_row + 1. Regression guard for the old `skip_rows.add(header_row + 1)`
+    that silently ate the first data row for 2-row headers.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import (
+            generate_pattern_2_rate,
+            generate_simple,
+        )
+        generate_pattern_2_rate()
+        generate_simple()
+        # synthetic_pattern_2_rate.xlsx: header_row=2, header_row_count=2.
+        # Row 3 (= header_row + 1) is the 'Electrical works' data row the old code
+        # wrongly skipped; row 4 is 'Civil works' (the only one the old code kept).
+        cls._double_result = parse_boq(_p("synthetic_pattern_2_rate.xlsx"), _pattern_2_rate_config())
+        # synthetic_simple.xlsx: header_row=1, header_row_count=1 (single header).
+        cls._single_result = parse_boq(_p("synthetic_simple.xlsx"), _simple_config())
+
+    def test_double_header_first_data_row_kept(self):
+        """
+        header_row=2, header_row_count=2: the row at header_row + 1 (Excel row 3,
+        'Electrical works') is now present as a LINE_ITEM — previously skipped — so
+        data begins at header_row + 1.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        sheet = self._double_result.sheets[0]
+
+        # The formerly-skipped first data row is present at Excel row 3 = header_row + 1.
+        row_3 = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number == 3
+        ]
+        self.assertEqual(len(row_3), 1, "Row 3 (header_row + 1) must be present after the fix")
+        self.assertEqual(
+            row_3[0].classified_row.classification,
+            RowClassification.LINE_ITEM,
+            "Row 3 must classify as a LINE_ITEM data row, not be skipped",
+        )
+        self.assertEqual(row_3[0].classified_row.description, "Electrical works")
+
+        # Both data rows (Electrical works @3, Civil works @4) are now LINE_ITEMs.
+        descriptions = {
+            rr.classified_row.description
+            for rr in sheet.resolved_rows
+            if rr.classified_row.classification == RowClassification.LINE_ITEM
+        }
+        self.assertIn("Electrical works", descriptions)
+        self.assertIn("Civil works", descriptions)
+
+    def test_single_header_data_starts_at_header_row_plus_one_unchanged(self):
+        """
+        header_row=1, header_row_count=1: data still begins at header_row + 1 (Excel
+        row 2, 'First item') exactly as before — the fix must not perturb single headers.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        sheet = self._single_result.sheets[0]
+
+        row_2 = [
+            rr for rr in sheet.resolved_rows
+            if rr.classified_row.raw_row.row_number == 2
+        ]
+        self.assertEqual(len(row_2), 1, "Row 2 (header_row + 1) must be present")
+        self.assertEqual(
+            row_2[0].classified_row.classification,
+            RowClassification.LINE_ITEM,
+            "Row 2 must remain a LINE_ITEM for a single header",
+        )
+        self.assertEqual(row_2[0].classified_row.description, "First item")
+
+
+# ================================================================ #
 # Phase 2b.2 Part B2c — Snitch real-fixture integration tests      #
 # ================================================================ #
 
@@ -733,25 +746,6 @@ class TestSnitchIntegration(unittest.TestCase):
     def test_snitch_workbook_master_preamble_empty(self):
         """No master_preamble sheet configured; result.master_preambles must be empty dict."""
         self.assertEqual(self.result.master_preambles, {})
-
-    # ---------------------------------------------------------------- #
-    # Test 4 — no validation warnings anywhere                         #
-    # ---------------------------------------------------------------- #
-
-    def test_snitch_workbook_no_validation_warnings(self):
-        """
-        Snitch has no per-area qty columns; the sum-validation post-pass cannot fire.
-        Every resolved row must have an empty validation_warnings list.
-        """
-        self.assertEqual(self.result.validation_warnings, [])
-        for sheet in self.result.sheets:
-            self.assertEqual(sheet.validation_warnings, [], f"sheet={sheet.sheet_name}")
-            for i, row in enumerate(sheet.resolved_rows):
-                self.assertEqual(
-                    row.validation_warnings,
-                    [],
-                    f"sheet={sheet.sheet_name} resolved_idx={i}",
-                )
 
     # ---------------------------------------------------------------- #
     # Test 5 — Electrical total resolved row count + classification    #
@@ -1096,9 +1090,6 @@ class TestPattern2RateIntegration(unittest.TestCase):
         # Per-area amount (directly stored in fixture: 1000.0 and 1600.0; nested "total" kind)
         self.assertAlmostEqual(row.amount_by_area["PHASE-1"]["total"], 1000.0)
         self.assertAlmostEqual(row.amount_by_area["PHASE-2"]["total"], 1600.0)
-
-        # No spurious combined!=supply+install warnings (only combined_rate present)
-        self.assertEqual(row.validation_warnings, [])
 
 
 # ================================================================ #

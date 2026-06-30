@@ -851,7 +851,10 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 .filter(v => v !== 'Not Applicable'),
         },
     ]);
-    const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
+    const [sorting, setSorting] = useState<SortingState>([
+        { id: 'design_category', desc: false },
+        { id: 'task_name', desc: false },
+    ]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [isBulkAssignOpen, setIsBulkAssignOpen] = useState(false);

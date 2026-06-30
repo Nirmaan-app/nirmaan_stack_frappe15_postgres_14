@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 # are passed as Python dicts and auto-serialized by Frappe -- do NOT dumps those.
 _LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes",
-    "validation_warnings",
     "classifier_warnings",
     "preamble_candidate_signals",
 })
@@ -394,14 +393,14 @@ def flatten_resolved_row(
     Map a parser ResolvedRow to a flat dict of BoQ Review Row field values.
 
     JSON fields (attached_notes, qty_by_area, amount_by_area, rate_by_area,
-    validation_warnings, classifier_warnings, preamble_candidate_signals,
+    classifier_warnings, preamble_candidate_signals,
     append_notes_raw) are returned as Python objects (lists and dicts).
 
     Frappe insert behaviour for JSON fieldtype:
       - dict values: auto-serialized by Frappe (pass as-is)
       - list values: REJECTED by Frappe with "cannot be a list" unless the caller
         pre-serializes them via json.dumps() before doc.insert(). The list fields
-        are: attached_notes, validation_warnings, classifier_warnings,
+        are: attached_notes, classifier_warnings,
         preamble_candidate_signals.
 
     The 'boq' field is NOT included here; flatten_parsed_boq injects it.
@@ -451,8 +450,6 @@ def flatten_resolved_row(
         "rate_by_area": resolved_row.rate_by_area,
         "needs_classification_review": resolved_row.needs_classification_review,
         "review_reason": resolved_row.review_reason,
-        # list[str] -- sum-validation warnings on ResolvedRow (distinct from classifier warnings)
-        "validation_warnings": resolved_row.validation_warnings,
         # list[str] -- classifier-level warnings on ClassifiedRow
         "classifier_warnings": cr.warnings,
         "preamble_candidate_score": cr.preamble_candidate_score,

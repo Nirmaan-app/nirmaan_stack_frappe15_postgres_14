@@ -8,7 +8,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | Plan | Feature | Status |
 |------|---------|--------|
-| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phase 0 complete — design approved |
+| [boq-upload-plan.md](../plans/boq-upload-plan.md) | BoQ Upload & Management | Phases 1.x + 3 + 4 complete; Phase 5 (commit + pricing editor) active. Live status + full per-slice as-built detail. |
 
 ---
 
@@ -16,6 +16,7 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 | File | Domain | When to Load |
 |------|--------|--------------|
+| [domain/boq-frontend.md](./domain/boq-frontend.md) | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25). Backend: `../../.claude/context/domain/boq-backend.md` |
 | [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
 | [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
 | [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |

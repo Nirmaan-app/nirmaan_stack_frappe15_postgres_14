@@ -13,10 +13,12 @@
  *   (2d) Dim unmapped  -- data <TableCell>s for columns not in columnRoleMap (or with
  *        empty role) rendered at opacity-50. Mapped columns render normally. Frozen
  *        header rows are exempt from dim (they are header content, not data).
- *   (2e) Freeze header rows -- when headerRow is set, rows in
- *        [headerRow, headerRow + headerRowCount - 1] become sticky below the
- *        column-letter header row. Fixed h-10 (40px) on column-letter header cells
- *        makes the offset predictable: first frozen row = top-10, second = top-20.
+ *   (2e) Freeze header rows -- when headerRow is set, the header band extends UPWARD
+ *        from the column-header row through the top header row(s) above it:
+ *        [headerRow - (headerRowCount - 1), headerRow]. Those rows become sticky below
+ *        the column-letter header row; the first data row (headerRow + 1) is NOT frozen.
+ *        Fixed h-10 (40px) on column-letter header cells makes the offset predictable:
+ *        top of band (top header) = top-10, column-header row = top-20 (Double).
  *        Frozen cells use solid bg-background (no bleed-through). The gutter cell on
  *        frozen rows is doubly-sticky (left-0 + top-X) at z-[17] -- above frozen data
  *        cells (z-[15]) but below column-letter headers (z-20) and the corner (z-30).
@@ -79,6 +81,13 @@ interface SheetDataGridProps {
   headerRowCount: 1 | 2;
   /** From last-saved sheet_config.area_dimensions. Empty → no area tinting. */
   areaList: string[];
+  /**
+   * Slice 4c: full-screen editor (the grid-only / general-specs read-only fork). When TRUE,
+   * the outer wrapper + scroll container relax to flex-1 min-h-0 so the grid fills the
+   * expanded full-viewport layout (the page's expanded root is flex flex-col). Default false
+   * (embedded layout, back-compat). Layout-only.
+   */
+  expanded?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -120,6 +129,7 @@ export function SheetDataGrid({
   headerRow,
   headerRowCount,
   areaList,
+  expanded = false,
 }: SheetDataGridProps) {
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isInitLoading) {
@@ -151,15 +161,21 @@ export function SheetDataGrid({
   const areaColorMap = buildAreaColorMap(areaList);
 
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-3", expanded && "flex min-h-0 flex-1 flex-col")}>
       {/*
         Scroll container: overflow-auto + max-h bounds BOTH axes so that:
         - Wide sheets scroll horizontally.
         - Long sheets scroll vertically WITHIN the container (not the page).
         The bounded scroll ancestor is required for `sticky top-0` to fire on
         column-letter header cells and for frozen data rows.
+        Slice 4c: when expanded, drop the rem-cap and fill the flex-col space instead.
       */}
-      <div className="overflow-auto max-h-[calc(100vh-14rem)] rounded-md border border-border">
+      <div
+        className={cn(
+          "overflow-auto rounded-md border border-border",
+          expanded ? "min-h-0 flex-1" : "max-h-[calc(100vh-14rem)]",
+        )}
+      >
         <Table>
           <TableHeader>
             {/*
@@ -218,19 +234,23 @@ export function SheetDataGrid({
 
           <TableBody>
             {rows.map((row) => {
-              // Determine if this row is a frozen header row.
-              // headerRow null → nothing frozen (behaves as before this slice).
+              // Determine if this row is a frozen header row. The band extends UPWARD from the
+              // column-header row (headerRow) through the top header row(s) above it:
+              // [headerRow - (headerRowCount - 1), headerRow]. The first data row (headerRow + 1)
+              // is NOT frozen. headerRow null → nothing frozen.
+              const bandTop = headerRow !== null ? headerRow - (headerRowCount - 1) : null;
               const isFrozen =
                 headerRow !== null &&
-                row.row_number >= headerRow &&
-                row.row_number <= headerRow + headerRowCount - 1;
-              // 0-based index within the frozen band (0 = first header row).
-              const frozenIdx = isFrozen ? row.row_number - headerRow : -1;
+                bandTop !== null &&
+                row.row_number >= bandTop &&
+                row.row_number <= headerRow;
+              // 0-based index within the frozen band (0 = top of band = top header row).
+              const frozenIdx = isFrozen && bandTop !== null ? row.row_number - bandTop : -1;
 
               // Top-offset class for sticky frozen cells.
               // Column-letter header is h-10 (40px). Frozen rows are also h-10 (40px).
-              // First frozen:  top-10  = 40px (just below the column-letter header).
-              // Second frozen: top-20  = 80px (below the column-letter header + first frozen row).
+              // Band top (top header):    top-10 = 40px (just below the column-letter header).
+              // Band bottom (col header): top-20 = 80px (below the column-letter header + first frozen row).
               const frozenTopClass = frozenIdx === 0 ? "top-10" : "top-20";
 
               return (

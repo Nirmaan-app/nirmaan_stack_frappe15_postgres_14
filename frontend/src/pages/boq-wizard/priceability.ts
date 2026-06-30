@@ -33,6 +33,9 @@ import {
   isRateDescriptor,
   lookupOperandValue,
 } from "./PricingGrid";
+import { pickFormula } from "./amountFormula";
+import { resolveDescriptorValue } from "./reviewRender";
+import { buildReconChoiceMap, reconChoiceKey, resolveDivergence } from "./reconcile";
 import type {
   AmountFormulaRef,
   AreaKey,
@@ -41,6 +44,7 @@ import type {
   DismissalRef,
   PricedLineCount,
   PricedRow,
+  ReconciliationChoiceRef,
   ReviewEntry,
   RowReviewFlags,
 } from "./boqTypes";
@@ -156,6 +160,45 @@ export function hasAnyQty(row: PricedRow): boolean {
 /** A NON-priceable row type carrying a non-zero qty (the inverse guardrail). */
 export function isQtyOnNonPriceable(row: PricedRow): boolean {
   return !isPriceableType(row.node_type) && hasAnyQty(row);
+}
+
+/**
+ * The MANDATORY amount-formula gate (Phase 5) -- per-SHEET. A sheet's formulas are COMPLETE iff
+ * EVERY amount column descriptor (isAmountDescriptor) is COVERED by a declared formula, where
+ * "covered" is pickFormula's override>area-wildcard-default resolution -- so ONE wildcard
+ * default (target_value_key null) covers ALL per-area amount columns sharing its (value_field,
+ * rate_subkey). A sheet with ZERO amount columns is TRIVIALLY complete (rate editing NOT
+ * blocked). REUSES the EXACT pickFormula resolution evaluateAmountCell uses, so completeness can
+ * never drift from how amounts actually compute. A present-but-cleared record (null .formula)
+ * does NOT count as covered. Pure -- unit-tested. The server (_sheet_formulas_complete) enforces
+ * the SAME rule -- client = UX, server = the real boundary.
+ */
+export function areFormulasComplete(
+  columnDescriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
+): boolean {
+  return columnDescriptors
+    .filter(isAmountDescriptor)
+    .every((d) => isAmountColumnCovered(d, columnFormulas));
+}
+
+/**
+ * Is THIS amount column covered by a declared formula? = pickFormula's override>area-wildcard-
+ * default resolution resolves a formula with a non-null tree. The SINGLE per-column coverage
+ * predicate: `areFormulasComplete` folds `.every()` over it (so a green badge on EVERY amount
+ * column <=> the sheet is formula-complete <=> the rate gate is open, by construction), and the
+ * header status badge / pending tint color on the SAME pickFormula resolution. A present-but-
+ * cleared record (null .formula) is NOT covered. Pure -- unit-tested.
+ */
+export function isAmountColumnCovered(
+  d: ColumnDescriptor,
+  columnFormulas: ColumnFormula[],
+): boolean {
+  const f = pickFormula(
+    { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+    columnFormulas,
+  );
+  return !!(f && f.formula);
 }
 
 /**
@@ -319,6 +362,47 @@ export function buildFlagEntries(
         ...base,
         kind: "not_yet",
         text: `Amount not computed yet (cols ${f.notYetCols.join(", ")}) -- a rate is missing.`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the per-row DIVERGENCE entries for the review strip (Cluster B, D2b). A divergence
+ * fires for an amount cell when the committed (document) amount and the formula-computed amount
+ * DIFFER (and the formula yields a real number -- kind === "value") AND the user has NOT yet
+ * chosen (unset). A resolved cell (keep_document / take_formula) DROPS OUT (it is no longer
+ * unresolved). One entry per row (folding all of the row's unresolved diverging columns into one
+ * "divergence" entry), so the count = rows with >=1 unresolved divergence. Pure -- saved-state
+ * (empty draftRates), matching the rollup + the rest of the strip.
+ */
+export function buildDivergenceEntries(
+  rows: PricedRow[],
+  descriptors: ColumnDescriptor[],
+  columnFormulas: ColumnFormula[],
+  reconChoices: ReconciliationChoiceRef[],
+): ReviewEntry[] {
+  const choiceMap = buildReconChoiceMap(reconChoices);
+  const out: ReviewEntry[] = [];
+  for (const row of rows) {
+    const unresolvedCols: string[] = [];
+    for (const d of descriptors) {
+      if (!isAmountDescriptor(d)) continue;
+      const cell = evaluateAmountCell(d, row, descriptors, columnFormulas, {});
+      if (cell.kind !== "value") continue; // no computed number -> never a divergence
+      const docRaw = resolveDescriptorValue(row, d);
+      const docVal = typeof docRaw === "number" ? docRaw : null;
+      const choice = choiceMap.get(reconChoiceKey(row.source_row_number, d.col));
+      const recon = resolveDivergence(docVal, cell.value, choice);
+      if (recon.diverges && recon.resolved === "unset") unresolvedCols.push(d.col);
+    }
+    if (unresolvedCols.length > 0) {
+      out.push({
+        kind: "divergence",
+        excelRow: row.source_row_number,
+        description: row.description ?? "",
+        text: `Document vs formula amount differ (cols ${unresolvedCols.join(", ")}) -- choose which value to use.`,
       });
     }
   }

@@ -153,9 +153,11 @@ export const usePORevision = ({ po, open, onClose, onSuccess }: UsePORevisionPro
           tax: item.tax,
           category: item.category,
           procurement_package: item.procurement_package,
+          comment: item.comment,
 
           // Original Details
           original_item_id: original?.item_id,
+          original_comment: original?.comment,
           original_item_name: original?.item_name,
           original_make: original?.make,
           original_qty: original?.quantity,

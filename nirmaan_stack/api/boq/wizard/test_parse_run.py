@@ -665,31 +665,6 @@ class TestFlattenFaithfulness(unittest.TestCase):
         self.assertAlmostEqual(painting["amount_by_area"]["Floor 1"]["total"], 500.0)
         self.assertAlmostEqual(painting["amount_by_area"]["Floor 2"]["total"], 300.0)
 
-    def test_multi_area_tiling_has_validation_warning(self):
-        """
-        'Tiling works' (Excel row 3) has qty sum 8 vs total 10 (diff=2 > +/-1).
-        The validation_warning must survive into the flattened dict.
-        """
-        parsed = parse_boq(_p("synthetic_multi_area.xlsx"), _multi_area_config())
-        flat = flatten_parsed_boq(parsed, "FAKE-BOQ-002")
-        tiling = next(d for d in flat if d.get("description") == "Tiling works")
-        self.assertIsInstance(tiling["validation_warnings"], list)
-        self.assertGreater(
-            len(tiling["validation_warnings"]), 0,
-            "Expected qty mismatch warning on 'Tiling works' but got empty list",
-        )
-        self.assertTrue(
-            any("qty" in w.lower() for w in tiling["validation_warnings"]),
-            f"No qty-related warning found: {tiling['validation_warnings']}",
-        )
-
-    def test_multi_area_clean_row_has_no_validation_warnings(self):
-        """'Painting works' (row 2) is clean -- validation_warnings should be empty."""
-        parsed = parse_boq(_p("synthetic_multi_area.xlsx"), _multi_area_config())
-        flat = flatten_parsed_boq(parsed, "FAKE-BOQ-002")
-        painting = next(d for d in flat if d.get("description") == "Painting works")
-        self.assertEqual(painting["validation_warnings"], [])
-
     # ---------------------------------------------------------------- #
     # Case (iii): programmatic needs_classification_review flag        #
     # ---------------------------------------------------------------- #
@@ -798,7 +773,7 @@ class TestFlattenFaithfulness(unittest.TestCase):
         flat = flatten_parsed_boq(parsed, "FAKE-BOQ-003")
         for d in flat:
             for field_name in (
-                "attached_notes", "validation_warnings", "classifier_warnings",
+                "attached_notes", "classifier_warnings",
                 "preamble_candidate_signals",
             ):
                 self.assertIsInstance(
@@ -893,20 +868,6 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
             qty_by_area = json.loads(qty_by_area)
         self.assertIn("Floor 1", qty_by_area)
         self.assertAlmostEqual(qty_by_area["Floor 1"], 5.0)
-
-    def test_insert_row_with_validation_warning_and_read_back(self):
-        """The validation_warnings list on 'Tiling works' survives DB round-trip."""
-        parsed = parse_boq(_p("synthetic_multi_area.xlsx"), _multi_area_config())
-        flat = flatten_parsed_boq(parsed, self.boq_name)
-        tiling_dict = next(d for d in flat if d.get("description") == "Tiling works")
-        names = self._insert_rows([tiling_dict])
-
-        doc = frappe.get_doc("BoQ Review Row", names[0])
-        warnings = doc.validation_warnings
-        if isinstance(warnings, str):
-            warnings = json.loads(warnings)
-        self.assertIsInstance(warnings, list)
-        self.assertGreater(len(warnings), 0)
 
     def test_insert_flagged_row_and_read_back_review_fields(self):
         """needs_classification_review=True + review_reason survive DB round-trip."""

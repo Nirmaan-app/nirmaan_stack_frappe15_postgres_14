@@ -162,7 +162,7 @@ _CSV_SUFFIX_COLS = [
     "amount_supply_resolved", "amount_install_resolved", "amount_total_resolved",
     "row_notes_resolved",
     "qty_by_area", "amount_by_area", "rate_by_area",
-    "append_notes_raw", "validation_warnings", "needs_review",
+    "append_notes_raw", "needs_review",
 ]
 
 
@@ -312,7 +312,6 @@ def _write_csv(
                         _fmt_dict(rr.amount_by_area),
                         _fmt_dict(rr.rate_by_area),
                         _fmt_dict(cr.append_notes_raw),
-                        _fmt_list(rr.validation_warnings),
                         "True" if rr.needs_classification_review else "",
                     ]
                 )

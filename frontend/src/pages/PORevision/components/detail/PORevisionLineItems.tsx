@@ -2,7 +2,6 @@ import React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatCurrency from "@/utils/FormatPrice";
 import { List } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 interface PORevisionLineItemsProps {
     items: any[];
@@ -88,6 +87,9 @@ export default function PORevisionLineItems({ items, isCustom = false }: PORevis
                                 const amountInclGst = baseAmount + (baseAmount * (tax / 100));
                                 const originalAmountInclGst = originalBaseAmount + (originalBaseAmount * (originalTax / 100));
 
+                                const comment = (isOriginal || isDeleted) ? (item.original_comment || "") : (item.revision_comment ?? item.comment ?? item.original_comment ?? "");
+                                const originalComment = item.original_comment || "";
+
                                 return (
                                     <React.Fragment key={idx}>
                                         {/* Original Row for Revised/Replaced Items */}
@@ -122,6 +124,12 @@ export default function PORevisionLineItems({ items, isCustom = false }: PORevis
                                                         <span className="font-medium">{itemName}</span>
                                                         {isChanged && item.original_item_name && item.original_item_name !== item.revision_item_name && (
                                                             <span className="text-[10px] text-slate-400 line-through">{item.original_item_name}</span>
+                                                        )}
+                                                        {comment && (
+                                                            <span className="text-[10px] text-slate-500 italic mt-0.5">💬 {comment}</span>
+                                                        )}
+                                                        {isChanged && originalComment && originalComment !== comment && (
+                                                            <span className="text-[10px] text-slate-400 line-through">{originalComment}</span>
                                                         )}
                                                     </div>
                                                 </div>

@@ -114,11 +114,11 @@ export const PORevisionsAndAdjustments: React.FC<
       <Accordion type="multiple" className="w-full">
         <AccordionItem value="revisions-adjustments">
           <AccordionTrigger>
-            <div className="flex items-center gap-3 pl-6">
-              <p className="font-semibold text-lg text-red-600">
+            <div className="flex flex-col items-start gap-1 pl-2 min-w-0 lg:flex-row lg:items-center lg:gap-3 lg:pl-6">
+              <p className="font-semibold text-base text-red-600 lg:text-lg whitespace-nowrap">
                 Revisions & Adjustments
               </p>
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs lg:text-sm">
                 {hasRevisions && (
                   <>
                     <span className="text-gray-600">Revisions:</span>
@@ -217,14 +217,14 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <button
-            className={`w-full flex items-center justify-between px-4 py-3 bg-white border rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-200 text-left ${open ? "rounded-b-none border-b-0" : ""}`}
+            className={`w-full flex flex-col gap-1.5 lg:flex-row lg:items-center lg:justify-between px-4 py-3 bg-white border rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-200 text-left ${open ? "rounded-b-none border-b-0" : ""}`}
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <ChevronRight
                 className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${open ? "rotate-90" : ""}`}
               />
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <p className="text-xs font-semibold text-slate-800 tracking-tight">
                     {revision.name}
                   </p>
@@ -260,7 +260,7 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
               </div>
             </div>
             <div
-              className={`flex items-center gap-1.5 text-xs font-bold tabular-nums ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-500"}`}
+              className={`flex items-center gap-1.5 shrink-0 ml-6 lg:ml-2 text-xs font-bold tabular-nums ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-500"}`}
             >
               {isPositive ? (
                 <TrendingUp className="h-3.5 w-3.5" />
@@ -277,32 +277,68 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
 
         <CollapsibleContent>
           <div className="border border-t-0 rounded-b-xl bg-gradient-to-b from-white to-slate-50/50 px-4 py-4 space-y-4">
-            {/* Amount Summary Cards */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+            {/* Amount Summary — mobile/tablet: Before → After flow + Impact */}
+            <div className="lg:hidden space-y-1.5">
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+                    Before
+                  </p>
+                  <p className="text-xs font-bold text-slate-700 tabular-nums whitespace-nowrap">
+                    {formatToIndianRupee(originalTotalInclTax)}
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-slate-400 shrink-0" />
+                <div className="min-w-0 text-right">
+                  <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+                    After
+                  </p>
+                  <p className="text-xs font-bold text-slate-700 tabular-nums whitespace-nowrap">
+                    {formatToIndianRupee(revisedTotalInclTax)}
+                  </p>
+                </div>
+              </div>
+              <div
+                className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${isPositive ? "bg-emerald-50/60 border-emerald-100" : isNegative ? "bg-rose-50/60 border-rose-100" : "bg-slate-50 border-slate-100"}`}
+              >
+                <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+                  Impact (incl.GST)
+                </span>
+                <span
+                  className={`text-xs font-bold tabular-nums whitespace-nowrap ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-600"}`}
+                >
+                  {isPositive ? "+" : ""}
+                  {formatToIndianRupee(diff)}
+                </span>
+              </div>
+            </div>
+
+            {/* Amount Summary Cards — desktop (lg) only */}
+            <div className="hidden lg:grid lg:grid-cols-3 gap-2">
+              <div className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5 lg:p-2">
+                <p className="text-[8px] lg:text-[9px] font-medium text-slate-400 uppercase tracking-wider">
                   Before
                 </p>
-                <p className="text-sm font-bold text-slate-700 mt-1 tabular-nums">
+                <p className="text-[11px] lg:text-sm font-bold text-slate-700 mt-0.5 lg:mt-1 tabular-nums break-all">
                   {formatToIndianRupee(originalTotalInclTax)}
                 </p>
               </div>
-              <div className="rounded-lg bg-slate-50 border border-slate-100 p-3">
-                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+              <div className="rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5 lg:p-2">
+                <p className="text-[8px] lg:text-[9px] font-medium text-slate-400 uppercase tracking-wider">
                   After
                 </p>
-                <p className="text-sm font-bold text-slate-700 mt-1 tabular-nums">
+                <p className="text-[11px] lg:text-sm font-bold text-slate-700 mt-0.5 lg:mt-1 tabular-nums break-all">
                   {formatToIndianRupee(revisedTotalInclTax)}
                 </p>
               </div>
               <div
-                className={`rounded-lg p-3 border ${isPositive ? "bg-emerald-50/60 border-emerald-100" : isNegative ? "bg-rose-50/60 border-rose-100" : "bg-slate-50 border-slate-100"}`}
+                className={`rounded-lg px-2.5 py-1.5 lg:p-2 border ${isPositive ? "bg-emerald-50/60 border-emerald-100" : isNegative ? "bg-rose-50/60 border-rose-100" : "bg-slate-50 border-slate-100"}`}
               >
-                <p className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+                <p className="text-[8px] lg:text-[9px] font-medium text-slate-400 uppercase tracking-wider">
                   Impact (incl.GST)
                 </p>
                 <p
-                  className={`text-sm font-bold mt-1 tabular-nums ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-600"}`}
+                  className={`text-[11px] lg:text-sm font-bold mt-0.5 lg:mt-1 tabular-nums break-all ${isPositive ? "text-emerald-600" : isNegative ? "text-rose-600" : "text-slate-600"}`}
                 >
                   {isPositive ? "+" : ""}
                   {formatToIndianRupee(diff)}
@@ -345,9 +381,9 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
                         ({changedItems.length})
                       </span>
                     </p>
-                    <div className="rounded-lg border border-slate-100 overflow-hidden max-h-[200px] overflow-y-auto">
-                      <table className="w-full">
-                        <thead>
+                    <div className="max-h-[200px] overflow-y-auto lg:rounded-lg lg:border lg:border-slate-100 lg:overflow-x-auto">
+                      <table className="w-full block lg:table lg:min-w-[420px]">
+                        <thead className="hidden lg:table-header-group">
                           <tr className="bg-slate-50/80 border-b border-slate-100">
                             <th className="text-left pl-3 py-2 text-[9px] font-semibold text-slate-400 uppercase tracking-wider w-[60px]">
                               Type
@@ -363,7 +399,7 @@ const RevisionCard: React.FC<{ revision: any }> = ({ revision }) => {
                             </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-50">
+                        <tbody className="block lg:table-row-group lg:divide-y lg:divide-slate-50 space-y-2 lg:space-y-0">
                           {changedItems.map((item: any, idx: number) => (
                             <ItemChangeRow key={idx} item={item} />
                           ))}
@@ -432,9 +468,18 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
     item.item_type === "New" ||
     origRate !== revRate;
 
+  const origComment = (item.original_comment || "").toString().trim();
+  const revComment = (item.revision_comment ?? item.comment ?? "").toString().trim();
+  const commentChanged =
+    item.item_type === "Deleted"
+      ? !!origComment
+      : item.item_type === "New"
+        ? !!revComment
+        : origComment !== revComment;
+
   return (
-    <tr className="hover:bg-slate-50/50 transition-colors border-b border-slate-50 last:border-0">
-      <td className="pl-3 py-2.5">
+    <tr className="block lg:table-row rounded-md border border-slate-100 p-2 lg:p-0 lg:border-0 lg:border-b lg:border-slate-50 lg:last:border-0 hover:bg-slate-50/50 transition-colors">
+      <td className="block lg:table-cell lg:pl-3 lg:py-2.5">
         <span
           className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${typeBadge.bg} ${typeBadge.text}`}
         >
@@ -442,12 +487,24 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
         </span>
       </td>
       <td className="py-2.5 pr-2">
-        <span className="text-[11px] text-slate-700 font-medium line-clamp-1">
-          {item.revision_item_name || item.original_item_name || "--"}
-        </span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[11px] text-slate-700 font-medium line-clamp-1">
+            {item.revision_item_name || item.original_item_name || "--"}
+          </span>
+          {commentChanged && (
+            <div className="flex flex-col gap-0.5">
+              {item.item_type !== "Deleted" && revComment && (
+                <span className="text-[10px] text-slate-500 italic line-clamp-2">💬 {revComment}</span>
+              )}
+              {origComment && origComment !== revComment && (
+                <span className="text-[10px] text-slate-400 line-through line-clamp-2">{origComment}</span>
+              )}
+            </div>
+          )}
+        </div>
       </td>
-      <td className="py-2.5 text-center">
-        <div className="flex flex-col items-center gap-1">
+      <td className="block lg:table-cell mt-1 lg:mt-0 lg:py-2.5 lg:text-center">
+        <div className="flex flex-wrap lg:flex-col items-start lg:items-center gap-1">
           {qtyChanged && (
             <ChangeChip
               label="Qty"
@@ -465,11 +522,26 @@ const ItemChangeRow: React.FC<{ item: any }> = ({ item }) => {
               formatFn={formatToIndianRupee}
             />
           )}
+          {commentChanged && (
+            <div className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-50 rounded border border-slate-100/50">
+              <span className="text-[9px] font-medium text-slate-400 uppercase tracking-tighter">
+                Cmt
+              </span>
+              <span className="text-[10px] font-medium text-slate-600">
+                {item.item_type === "Deleted"
+                  ? "removed"
+                  : item.item_type === "New"
+                    ? "added"
+                    : "updated"}
+              </span>
+            </div>
+          )}
         </div>
       </td>
       <td
-        className={`text-right pr-3 py-2.5 text-[10px] font-semibold tabular-nums ${itemDiff > 0 ? "text-emerald-600" : itemDiff < 0 ? "text-rose-600" : "text-slate-400"}`}
+        className={`block lg:table-cell mt-1 lg:mt-0 text-left lg:text-right lg:pr-3 lg:py-2.5 text-[10px] font-semibold tabular-nums ${itemDiff > 0 ? "text-emerald-600" : itemDiff < 0 ? "text-rose-600" : "text-slate-400"}`}
       >
+        <span className="lg:hidden text-slate-400 font-normal mr-1">Amount:</span>
         {itemDiff !== 0
           ? (itemDiff > 0 ? "+" : "") + formatToIndianRupee(itemDiff)
           : "--"}

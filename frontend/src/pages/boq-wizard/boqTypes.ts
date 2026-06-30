@@ -45,6 +45,16 @@ export interface ColumnRoleEntry {
   area: string | null;
 }
 
+/**
+ * One "skip rows after header" definition (header-config redesign). The field is a structured
+ * list of these instead of a single comma-list: each entry skips EITHER one row OR an inclusive
+ * row range. Resolved to a flat row-number set by skipRows.resolveSkipDefinitions; the legacy
+ * flat skip_top_rows_after_header list round-trips via skipRows.defsFromLegacyList.
+ */
+export type SkipDefinition =
+  | { kind: "single"; row: number }
+  | { kind: "range"; start: number; end: number };
+
 export type WizardStatus =
   | ""
   | "Pending"
@@ -393,7 +403,6 @@ export interface ReviewRow {
   // notes / warnings
   row_notes: string | null;
   append_notes_raw: Record<string, unknown> | null;
-  validation_warnings: unknown[] | null;
   classifier_warnings: unknown[] | null;
   // human edit layer
   human_classification: string | null;
@@ -502,7 +511,7 @@ export interface ColumnDescriptor {
 /**
  * One advisory flag as returned by get_review_rows (Slice B2a single-source).
  * Computed by the backend _compute_advisory_flags helper.
- * type: "priced_preamble_no_children" | "zero_amount_line_item" | "orphan" | "parser"
+ * type: "orphan" | "parser" | "classifier_warning"
  */
 export interface AdvisoryFlag {
   type: string;
@@ -719,6 +728,21 @@ export interface GetPricedRowsResponse {
    * strip's own list key). [] when none / uncommitted.
    */
   dismissals: DismissalRef[];
+  /**
+   * Cluster B: the current per-CELL formula-vs-document reconciliation choices for this
+   * committed version, a flat PER-CELL list (carries col_letter, unlike dismissals). The grid
+   * cue + the rollup build an O(1) map keyed "<excel_row>:<col_letter>". [] when none /
+   * uncommitted. A cell NOT in this list is "unset" -> the document value wins (D1).
+   */
+  reconciliation_choices: ReconciliationChoiceRef[];
+  /**
+   * Deliberate per-sheet read-only lock (the lock/unlock slice). A SEPARATE key from `editable`
+   * (the concurrency verdict): the page ORs the two into its `locked` boolean but keeps the
+   * reason DISTINCT (a deliberate-lock teal banner vs the amber concurrency banner). false for an
+   * uncommitted / grid-only sheet. Toggled by lock_sheet / unlock_sheet; persisted on BoQ Sheet,
+   * cross-user; re-commit starts a fresh version UNLOCKED (the lock never carries forward).
+   */
+  is_locked: boolean;
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────
@@ -742,6 +766,10 @@ export type AreaKey = string | null;
  *   qty_anomaly -- qty on a NON-priceable row type (the inverse guardrail).
  *   broken     -- a priceable qty-bearing amount cell's formula can't resolve (cycle / dangling).
  *   not_yet    -- a priceable qty-bearing amount cell's formula needs a not-yet-entered operand.
+ *   divergence -- (Cluster B) a committed (document) amount and the formula-computed amount
+ *                 DIFFER for the same amount cell AND the user has NOT yet chosen which wins
+ *                 (an UNRESOLVED divergence; a resolved one drops from the active strip). Fires
+ *                 ONLY when the formula yields a real number (kind === "value").
  * (The 4b-A `wont_compute` kind was removed before push -- superseded by the forthcoming
  * mandatory amount-formula-declaration gate. The `incomplete_subtotal` kind was also removed:
  * the per-subtotal review-STRIP entries were noise; the incomplete signal now surfaces as ONE
@@ -751,7 +779,8 @@ export type ReviewFlagKind =
   | "needs_rate"
   | "qty_anomaly"
   | "broken"
-  | "not_yet";
+  | "not_yet"
+  | "divergence";
 
 /**
  * The per-row computed flags (Slice 4b-A). Booleans drive the in-grid markers + the count;
@@ -812,6 +841,41 @@ export interface DismissalSaveArgs {
   description?: string;
 }
 
+// ── Reconciliation-choice types (Cluster B: formula-vs-document per-cell choice) ──
+
+/**
+ * The two stored reconciliation choice tokens. MUST stay in sync with the Select options on
+ * the BoQ Cell Reconciliation Choice doctype + the backend _CHOICE_TOKENS. "unset" is NOT a
+ * token -- it is the ABSENCE of a current choice record (the default), and per the locked
+ * design D1 the DOCUMENT value wins while unset.
+ */
+export type ReconChoice = "keep_document" | "take_formula";
+
+/**
+ * One current per-CELL reconciliation choice, as delivered by
+ * get_priced_rows.reconciliation_choices. Identity = (excel_row, col_letter) within the
+ * committed version. PER-CELL -- it carries col_letter (unlike the per-ROW DismissalRef),
+ * because a divergence + its resolution is specific to one amount column.
+ */
+export interface ReconciliationChoiceRef {
+  excel_row: number;
+  col_letter: string;
+  choice: ReconChoice;
+}
+
+/**
+ * The args the grid hands up to the page's onSaveReconChoice (-> save_cell_reconciliation_choice).
+ * The grid supplies the cell identity; the page fills boq_name / sheet_name / committed_version +
+ * description, then POSTs. `choice` null CLEARS (revert to unset -> the document value wins).
+ */
+export interface ReconChoiceSaveArgs {
+  excelRow: number;
+  colLetter: string;
+  choice: ReconChoice | null;
+  /** row.description -- the copy-forward MATCH GUARD (optional, sent when present). */
+  description?: string;
+}
+
 /** The live priced-count readout (Slice 4b-A): N of M priceable lines fully priced. */
 export interface PricedLineCount {
   /** N -- priceable lines that are FULLY priced (every qty-bearing area's rate filled). */
@@ -859,6 +923,9 @@ export interface SaveReviewEditResponse {
 
 // ── Structural break types (from check_structural_integrity / get_structural_breaks) ──
 
+// `orphan` is NO LONGER emitted as a structural break (it is a soft advisory flag only);
+// this interface is retained for documentation/back-compat but is intentionally NOT in the
+// StructuralBreak union below.
 export interface StructuralBreakOrphan {
   type: "orphan";
   row_index: number;
@@ -866,11 +933,23 @@ export interface StructuralBreakOrphan {
   reason: string;
 }
 
-export interface StructuralBreakLineItemAsParent {
-  type: "line_item_as_parent";
+// S2 hard gate: the two shared commit-validator breaks (#7 / #8), replacing the retired
+// `line_item_as_parent`. `parent_row_index` is the row's effective_parent_index from the
+// errored plan entry; typed `number | null` defensively (in practice always a real int when
+// either error fires, since the validator only emits these when an in-plan parent exists).
+export interface StructuralBreakPreambleParentLevel {
+  type: "preamble_parent_level";
   row_index: number;
   source_row_number: number;
-  parent_row_index: number;
+  parent_row_index: number | null;
+  reason: string;
+}
+
+export interface StructuralBreakLineItemParentNotPreamble {
+  type: "line_item_parent_not_preamble";
+  row_index: number;
+  source_row_number: number;
+  parent_row_index: number | null;
   reason: string;
 }
 
@@ -882,8 +961,8 @@ export interface StructuralBreakCycle {
 }
 
 export type StructuralBreak =
-  | StructuralBreakOrphan
-  | StructuralBreakLineItemAsParent
+  | StructuralBreakPreambleParentLevel
+  | StructuralBreakLineItemParentNotPreamble
   | StructuralBreakCycle;
 
 /** Response shape of get_structural_breaks. */
@@ -899,17 +978,18 @@ export interface GetStructuralBreaksResponse {
 // ── Finalized marking (Slice D1; renamed A1) ──────────────────────────────────
 
 /**
- * Response shape of mark_sheet_parsed_check_done.
- *  - ok:false + breaks  -> structural issues found; caller escalates to a warn dialog
- *    and may re-POST with confirm:true.
- *  - ok:true + status + overridden -> the sheet is now "Finalized"
- *    (overridden true iff breaks existed but were confirmed past).
+ * Response shape of mark_sheet_parsed_check_done (S2: now a FULLY HARD gate).
+ *  - ok:false + breaks  -> structural breaks (#7 / #8 / cycle) exist; the sheet is NOT
+ *    finalized. There is NO override: the Finalize button is disabled whenever breaks
+ *    exist, so the caller only surfaces an error + refreshes the breaks panel. Re-POSTing
+ *    never bypasses a break -- `confirm` is retained server-side for HTTP back-compat but
+ *    is inert.
+ *  - ok:true + status   -> the sheet is now "Finalized" (only ever when breaks is empty).
  */
 export interface MarkParsedCheckDoneResponse {
   ok: boolean;
   breaks?: StructuralBreak[];
   status?: string;
-  overridden?: boolean;
 }
 
 /** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */
@@ -959,11 +1039,122 @@ export interface CommittedSheetState {
    * faithful-grid fork for grid-only sheets.
    */
   sheet_disposition: "grid_only" | "grid_and_nodes";
+  /**
+   * Slice 5b (ADDITIVE). The committed BoQ Sheet.last_exported_at -- when this sheet's
+   * priced workbook was last downloaded. null when never exported.
+   */
+  last_exported_at?: string | null;
+  /**
+   * Slice 5b (ADDITIVE). True iff a rate/color/remark on the sheet's CURRENT committed
+   * version was written AFTER last_exported_at (or content exists and it was never
+   * exported). Drives the per-sheet "priced since last export" staleness chip.
+   */
+  pricing_changed_since_export?: boolean;
+  /**
+   * Deliberate per-sheet read-only lock (the lock/unlock slice, ADDITIVE). true when this
+   * committed sheet is locked. Rides the SAME is_current=1 BoQ Sheet lookup last_exported_at
+   * uses. For a future hub lock indicator; the editor reads its own is_locked from get_priced_rows.
+   */
+  is_locked?: boolean;
 }
 
-/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint). */
+/** Response shape of get_committed_state (Phase 5 Slice 4a endpoint; 5b additive fields). */
 export interface GetCommittedStateResponse {
   committed_state: CommittedSheetState[];
+}
+
+/**
+ * One committed version of a sheet, from get_sheet_versions (Phase 5 version-view). The version
+ * SOURCE-OF-TRUTH is the committed grid tier, so this covers grid-only and node versions alike.
+ * Drives the read-only version-history dropdown. `last_change_at` is the max priced/colored/
+ * remarked_at on that version, or null when the version was committed but NEVER priced (a COMMON
+ * case -- the dropdown then falls back to committed_at with a "never priced" affordance).
+ */
+export interface SheetVersionRow {
+  commit_version: number;
+  is_current: boolean;
+  committed_at: string | null;
+  sheet_disposition: "grid_only" | "grid_and_nodes";
+  last_change_at: string | null;
+}
+
+/** Response shape of get_sheet_versions (Phase 5 version-view; versions sorted version-desc). */
+export interface GetSheetVersionsResponse {
+  versions: SheetVersionRow[];
+}
+
+/**
+ * One classified copy-forward plan row (Phase 5 version-view slice 2). outcome: 1 = HARD SKIP
+ * (never written, shown with `reason`), 2 = clean copy (dest empty), 3 = conflict (dest already
+ * has a rate -> the user picks overwrite/keep). `skip_reason` (outcome 1 only) is one of
+ * "non_match" | "no_rate_column" | "non_priceable". `target_col_letter` is the RE-RESOLVED current
+ * column (null on a skip). `current_rate` is the existing current rate (outcome 3 only).
+ */
+export interface CopyForwardPlanRow {
+  excel_row: number;
+  description: string | null;
+  source_rate: number | null;
+  area: string | null;
+  rate_kind: string;
+  outcome: 1 | 2 | 3;
+  skip_reason: "non_match" | "no_rate_column" | "non_priceable" | null;
+  target_col_letter: string | null;
+  current_rate: number | null;
+  reason: string | null;
+}
+
+/** Response shape of get_copy_forward_plan (Phase 5 version-view slice 2). */
+export interface GetCopyForwardPlanResponse {
+  plan: CopyForwardPlanRow[];
+  from_version: number;
+  current_version: number;
+  /** False when the current version still has amount columns without a declared formula (apply blocked). */
+  current_formulas_complete: boolean;
+  counts: {
+    clean: number;
+    conflict: number;
+    non_match: number;
+    no_rate_column: number;
+    non_priceable: number;
+  };
+}
+
+/** One user decision posted to apply_copy_forward. Presence = "copy this cell"; `overwrite` matters only for a conflict. */
+export interface CopyForwardDecision {
+  excel_row: number;
+  area: string | null;
+  rate_kind: string;
+  overwrite?: boolean;
+}
+
+/** Response shape of apply_copy_forward (Phase 5 version-view slice 2). */
+export interface ApplyCopyForwardResponse {
+  ok: boolean;
+  copied: number;
+  conflicts_overwritten: number;
+  conflicts_kept: number;
+  skipped: {
+    non_match: number;
+    no_rate_column: number;
+    non_priceable: number;
+    invalid: number;
+  };
+}
+
+/**
+ * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
+ * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
+ */
+export interface ExportPricedWorkbookResponse {
+  filename: string;
+  content_type: string;
+  content_base64: string;
+  exported_sheets: string[];
+  /** {sheetName: [colLetter, ...]} -- rate columns left untouched because they hold formulas. */
+  skipped_formula_columns: Record<string, string[]>;
+  /** {sheetName: colLetter} -- where a "Nirmaan Remarks" column was appended. */
+  remark_columns: Record<string, string>;
+  last_exported_at: string;
 }
 
 /**
@@ -1034,4 +1225,44 @@ export interface CommitBoqResponse {
   boq_name: string;
   committed: CommittedSheetResult[];
   failed: FailedSheetResult[];
+}
+
+// ── Commit-preflight types (commit-validation slice) ───────────────────────────
+
+/**
+ * One validation finding from commit_preflight (FROZEN contract; owned by
+ * api/boq/wizard/commit_validation.py). `kind` is "error" (blocking) or "warning"
+ * (advisory, "Looks OK"-acknowledged in the dialog). `message` is plain-English and
+ * pre-formatted by the backend ("Row {n} · \"{desc}\" — {what is wrong}") -- render it
+ * verbatim. `group_key` de-dupes / keys a finding (the dialog prefixes it with the
+ * VERBATIM sheet_name #152 to build the local ack key -- ack is NOT persisted). `count`
+ * is 1 unless rows are folded into one finding (e.g. an undeclared-area group).
+ */
+export interface PreflightFinding {
+  kind: "error" | "warning";
+  code: string;
+  sheet_name: string;
+  source_row_number: number | null;
+  description: string | null;
+  message: string;
+  what_to_do: string;
+  group_key: string;
+  count: number;
+}
+
+/**
+ * One per_sheet entry of the commit_preflight response. A general-specs sheet
+ * (disposition "general_specs") always carries errors=[] / warnings=[] (no node tree).
+ * sheet_name is VERBATIM (#152) -- join to the ticked set byte-for-byte, never trim.
+ */
+export interface SheetPreflight {
+  sheet_name: string;
+  disposition: "general_specs" | "finalized";
+  errors: PreflightFinding[];
+  warnings: PreflightFinding[];
+}
+
+/** Response shape of commit_preflight (commit_validation.commit_preflight). FROZEN. */
+export interface PreflightResponse {
+  per_sheet: SheetPreflight[];
 }

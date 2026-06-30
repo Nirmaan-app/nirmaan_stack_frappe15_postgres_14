@@ -313,16 +313,33 @@ class TestBOQNodes(FrappeTestCase):
             node.parent_node = wrong_parent.name
             node.insert(ignore_permissions=True)
 
-    def test_l3_preamble_parent_must_be_l2_preamble(self):
-        """L3 whose parent is an L1 preamble (skipping L2) must be rejected."""
-        l1 = self._make_preamble(level=1, description="L1 for L3 parent test")
+    def test_l3_preamble_under_shallower_l1_now_allowed_relaxed(self):
+        """RELAXED #7: an L3 directly under an L1 (skipping L2) is now ALLOWED -- the
+        parent only needs to be a STRICTLY shallower section heading, not exactly one
+        level up. (Was rejected pre-relax.)"""
+        l1 = self._make_preamble(level=1, description="L1 for relaxed L3 parent test")
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Preamble"
+        node.level = 3
+        node.description = "L3 under L1 (relaxed-OK)"
+        node.parent_node = l1.name
+        node.insert(ignore_permissions=True)
+        self.assertEqual(node.level, 3)
+        self.assertEqual(node.path, f"{l1.name}/{node.name}")
+
+    def test_l3_preamble_under_equal_level_parent_still_rejected(self):
+        """RELAXED #7 still BLOCKS a non-shallower parent: an L3 under another L3 (parent
+        not strictly shallower) must raise -- the relax only widens 'exactly one up' to
+        'any strictly shallower heading', it does NOT allow an equal/deeper parent."""
+        l3_parent = self._make_preamble(level=3, description="L3 parent (equal level)")
         with self.assertRaises(frappe.ValidationError):
             node = frappe.new_doc("BOQ Nodes")
             node.sheet = self.sheet_name
             node.node_type = "Preamble"
             node.level = 3
-            node.description = "L3 with L1 parent (wrong)"
-            node.parent_node = l1.name
+            node.description = "L3 under equal-level L3 (wrong)"
+            node.parent_node = l3_parent.name
             node.insert(ignore_permissions=True)
 
     def test_line_item_parent_must_be_a_preamble(self):

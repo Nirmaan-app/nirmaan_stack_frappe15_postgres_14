@@ -43,25 +43,38 @@
  * write-back (5), finalize/revert (6).
  */
 import {
+  createContext,
   forwardRef,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type Dispatch,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   ClassificationPill,
   computeDepths,
@@ -69,8 +82,40 @@ import {
   resolveDescriptorValue,
 } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
+import { descendantCount, rowHasDescendants } from "./collapse";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
+import {
+  buildReconChoiceMap,
+  reconChoiceKey,
+  resolveDivergence,
+  type ReconResolution,
+} from "./reconcile";
+import {
+  classifyPasteTarget,
+  rectDims,
+  rowSelectionRange,
+  selectionRect,
+  shapesMatch,
+  type BatchOutcome,
+  type BatchWrite,
+  type CellKind,
+  type ClipboardBlock,
+  type ClipCell,
+  type SelRect,
+} from "./clipboard";
+import {
+  canRedo,
+  canUndo,
+  emptyHistory,
+  invert,
+  popRedo,
+  popUndo,
+  pushEntry,
+  type HistoryEntry,
+  type HistoryState,
+  type RateDelta,
+} from "./undoHistory";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -81,6 +126,9 @@ import type {
   LockInfo,
   PricedRow,
   RateCellSaveArgs,
+  ReconChoice,
+  ReconChoiceSaveArgs,
+  ReconciliationChoiceRef,
   RemarkSaveArgs,
   RowReviewFlags,
 } from "./boqTypes";
@@ -88,6 +136,12 @@ import type {
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
 const INDENT_PX = 20;
+
+// Frozen-left Slice 1: the Description cell's vertical padding (py-1.5 = 6px top + 6px bottom).
+// When a captured row height is applied, the description's inner wrapper is clipped to
+// (rowHeight - this) so the cell box totals the captured height and cannot push the <tr> past
+// its matching row in the other pane.
+const DESC_CLIP_VPAD_PX = 12;
 
 // The two roles rendered as fixed anchor columns (Sl.No, Description), excluded from the
 // descriptor-driven column set. Mirrors ReviewTree.FIXED_ROLE_DEDUPE (kept in sync; the
@@ -133,6 +187,181 @@ export function isAmountDescriptor(d: ColumnDescriptor): boolean {
   return d.value_field === PER_AREA_AMOUNT_FIELD || SCALAR_AMOUNT_FIELDS.has(d.value_field);
 }
 
+// ── Toolbar Part 1: pure helpers (search / row-type filter / column-hide) ────────
+// SDK-free leaf logic so it is unit-tested in PricingToolbar.test.ts without rendering.
+// The PAGE owns the controls + state; the grid consumes the derived signals (a per-GRID
+// hiddenCols set + a per-row current-hit boolean). NONE of this enters the row memo except
+// the single per-row current-hit boolean (added to pricingRowPropsAreEqual).
+
+/**
+ * SEARCH MATCHER: case-insensitive substring of the query in a row's description. An empty
+ * (or whitespace-only) query matches NOTHING (no filtering/highlight at rest). A null/undefined
+ * description never matches and never throws (negative path).
+ */
+export function searchMatches(description: string | null | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === "") return false;
+  if (!description) return false;
+  return description.toLowerCase().includes(q);
+}
+
+/**
+ * SEARCH HIT-LIST: the ordered Excel row numbers (source_row_number) of rows whose description
+ * matches the query. Built over the ALREADY-RENDERED set (displayRows) so a hit is always a
+ * visible, scroll-to-able row. Empty query -> [] (no hits).
+ */
+export function buildSearchHits(rows: PricedRow[], query: string): number[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return [];
+  const out: number[] = [];
+  for (const r of rows) {
+    if (searchMatches(r.description, q)) out.push(r.source_row_number);
+  }
+  return out;
+}
+
+/** STEPPER: modulo-wrap the hit pointer in either direction (prev at 0 -> last; next at last
+ *  -> 0). Returns 0 for an empty hit list. Pure. */
+export function stepHit(idx: number, len: number, dir: "prev" | "next"): number {
+  if (len <= 0) return 0;
+  return dir === "next" ? (idx + 1) % len : (idx - 1 + len) % len;
+}
+
+/** CURRENT-HIT (per-row): true iff this row's Excel row IS the current hit. The ONE per-row
+ *  search signal -- it is added to pricingRowPropsAreEqual so the highlight repaints on step. */
+export function isCurrentHitRow(
+  rowExcelRow: number,
+  currentHitExcelRow: number | null | undefined,
+): boolean {
+  return currentHitExcelRow != null && rowExcelRow === currentHitExcelRow;
+}
+
+/** JUMP LANDING FLASH (per-row): true iff this row's Excel row is the current jump target.
+ *  Mirrors isCurrentHitRow -- a per-row signal added to pricingRowPropsAreEqual so the blue
+ *  landing flash paints/un-paints as flashExcelRow flips (set by jumpToRow, cleared after 3s). */
+export function isJumpFlashRow(
+  rowExcelRow: number,
+  flashExcelRow: number | null | undefined,
+): boolean {
+  return flashExcelRow != null && rowExcelRow === flashExcelRow;
+}
+
+// ── Column width model (frozen-left + column-resize bundle) ────────────────────
+// The grid switches to `table-fixed` + a `<colgroup>` so column widths are AUTHORITATIVE
+// (auto-layout removed). Seeds mirror the pre-bundle Tailwind hints so day-one render is
+// near-identical. Width state is GRID-LEVEL (a useState keyed by these stable keys), reset
+// per sheet by the page's key={sheetName} remount (session-only, no persistence). The frozen
+// anchor LEFT offsets derive from the SAME live widths, so a frozen-column resize stays aligned.
+const COL_MIN_PX = 48; // small floor for any column
+const RATE_COL_MIN_PX = 96; // rate columns: the w-20 (80px) input + dot + padding -- a drag must not clip it
+// Frozen-left Slice 2 -- manual row-resize floor (px). A row can't be dragged below this. Set
+// ABOVE the tallest irreducible single-line cell across BOTH panes (the scrolling pane's rate
+// input is h-7=28px + py-1=8px ~= 36px) so a dragged-short row can actually REACH the target in
+// the scrolling pane too -- otherwise the scrolling row would stay tall (content min) while the
+// frozen pane clipped shorter, drifting the two panes out of alignment.
+const ROW_MIN_PX = 40;
+const ANCHOR_WIDTH_KEYS = ["a0", "a1", "a2", "a3", "a4"] as const; // Excel Row / Sl.No / Parent / Classification / Description
+const REMARKS_WIDTH_KEY = "remarks";
+
+/** Tailwind width hint -> px (a column's seed under table-fixed). Unknown hint -> a sane default. */
+export function seedWidthPx(token: string): number {
+  switch (token) {
+    case "w-16":
+      return 64;
+    case "w-28":
+      return 112;
+    case "w-36":
+      return 144;
+    case "w-48":
+      return 192;
+    case "description":
+      return 280;
+    default:
+      return 112;
+  }
+}
+
+/** Stable width-state key for a column. Anchors key by FIXED index 0-4 (survives column-hide);
+ *  descriptors key by their Excel col letter (survives a hide+reshow); Remarks is the literal key. */
+export function columnWidthKey(
+  kind: "anchor" | "descriptor" | "remarks",
+  idOrCol: number | string,
+): string {
+  if (kind === "anchor") return `a${idOrCol}`;
+  if (kind === "descriptor") return `d:${idOrCol}`;
+  return REMARKS_WIDTH_KEY;
+}
+
+/** Seed px for a width-state key: a0/a1/a2 = w-16, a3 = w-36, a4 = Description (280), remarks =
+ *  w-48, any descriptor (d:<col>) = w-28. Mirrors the old per-cell Tailwind hints. */
+export function seedForWidthKey(key: string): number {
+  if (key === "a0" || key === "a1" || key === "a2") return seedWidthPx("w-16");
+  if (key === "a3") return seedWidthPx("w-36");
+  if (key === "a4") return seedWidthPx("description");
+  if (key === REMARKS_WIDTH_KEY) return seedWidthPx("w-48");
+  return seedWidthPx("w-28");
+}
+
+/** Clamp a dragged width up to the column's floor: rate columns can't go below the rate input's
+ *  width (D7); every other column gets a small floor. A width above the floor passes through. */
+export function clampColumnWidth(width: number, isRate: boolean): number {
+  return Math.max(isRate ? RATE_COL_MIN_PX : COL_MIN_PX, Math.round(width));
+}
+
+/** Frozen-left Slice 2: clamp a dragged ROW height UP to ROW_MIN_PX (a row can't be dragged to
+ *  0 / shorter than one usable line). A height above the floor passes through (rounded). Pure --
+ *  unit-tested, mirrors clampColumnWidth. */
+export function clampRowHeight(height: number): number {
+  return Math.max(ROW_MIN_PX, Math.round(height));
+}
+
+/** The three row-TYPE visibility toggles (default all true). */
+export interface RowTypeToggles {
+  showSpacers: boolean;
+  showNotes: boolean;
+  showSubtotals: boolean;
+}
+
+/**
+ * ROW-TYPE VISIBILITY: keys on `effective_classification` (NOT node_type, which collapses all
+ * three of these into "Other" and cannot tell them apart). The three literal tokens mirror
+ * ReviewTree.classificationVisible: "spacer" / "note" / "subtotal_marker". Any OTHER
+ * classification (line_item / preamble / header_repeat / null) is NEVER hidden by these toggles.
+ */
+export function classificationVisible(
+  cls: string | null | undefined,
+  t: RowTypeToggles,
+): boolean {
+  if (cls === "spacer" && !t.showSpacers) return false;
+  if (cls === "note" && !t.showNotes) return false;
+  if (cls === "subtotal_marker" && !t.showSubtotals) return false;
+  return true;
+}
+
+/**
+ * HIDEABLE COLUMNS: the descriptor columns the "Columns" popover may offer -- the descriptor-
+ * driven set (non fixed-anchor) MINUS amount columns. LOCKED DECISION: amount columns are NEVER
+ * hideable, so their formula-status f badge can never be hidden (hiding it would hide the only
+ * remedy for a gate-locked rate state). Reuses isAmountDescriptor -- one source of truth with
+ * the badge / amber-pending-tint render path.
+ */
+export function hideableDescriptors(columnDescriptors: ColumnDescriptor[]): ColumnDescriptor[] {
+  return columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role) && !isAmountDescriptor(d));
+}
+
+/**
+ * COLUMN VISIBILITY guard. An AMOUNT column is ALWAYS visible (the locked exclusion above), even
+ * if somehow present in hiddenCols. A non-amount column is visible unless it is in hiddenCols.
+ * An absent/undefined hiddenCols (the default) => everything visible (back-compat).
+ */
+export function isColumnVisible(
+  d: ColumnDescriptor,
+  hiddenCols: Set<string> | undefined,
+): boolean {
+  if (isAmountDescriptor(d)) return true;
+  return !hiddenCols || !hiddenCols.has(d.col);
+}
+
 /**
  * PRICEABILITY axis (Slice 3e): a rate cell is editable (and the server accepts a save
  * without the override) ONLY on a committed row whose node_type is "Preamble" or "Line Item"
@@ -142,6 +371,49 @@ export function isAmountDescriptor(d: ColumnDescriptor): boolean {
  */
 export function isPriceableType(nodeType: string | null | undefined): boolean {
   return nodeType === "Preamble" || nodeType === "Line Item";
+}
+
+/**
+ * A finite, non-zero number. SELF-CONTAINED copy of priceability.isNonZeroNum (semantics
+ * IDENTICAL) so the rate-edit gate needs NOTHING from priceability -- preserving the one-way
+ * dependency (priceability imports from PricingGrid, never the reverse; importing back would
+ * be a cycle). 0 / null / undefined / non-number / a "0" STRING -> false; a finite non-zero
+ * number, INCLUDING a negative qty -> true. Pure -- unit-tested.
+ */
+export function isNonZeroNum(v: unknown): boolean {
+  return typeof v === "number" && Number.isFinite(v) && v !== 0;
+}
+
+/**
+ * "qty anywhere" (owner-locked "Definition A") -- the row carries a non-zero, finite quantity
+ * in ANY qty column: the scalar qty_total OR any per-area qty. DELIBERATELY SIMPLER + LOOSER
+ * than priceability.isPriceableLine, which restricts qty-bearing to a RATE-COLUMN area. THIS
+ * IS AN INTENTIONAL DIVERGENCE, NOT drift: this predicate answers "can I edit this ROW at
+ * all?" (the edit gate), while isPriceableLine answers "does THIS AREA need a rate?" (the
+ * flags / priced-count / rollup). They use different definitions ON PURPOSE -- do NOT align
+ * them. Used ONLY for the Preamble branch of the gate. Pure -- unit-tested.
+ */
+export function isRowQtyBearing(row: PricedRow): boolean {
+  if (isNonZeroNum(row.qty_total)) return true;
+  const ba = row.qty_by_area;
+  return ba != null && Object.values(ba).some(isNonZeroNum);
+}
+
+/**
+ * The ASYMMETRIC rate-edit gate (owner-locked, row-level axis): a rate cell is editable iff
+ *   override  OR  node_type === "Line Item"  OR  (node_type === "Preamble" AND isRowQtyBearing).
+ * A LINE ITEM is ALWAYS editable (a zero-qty Line Item is a valid "rate-only" line -- do NOT
+ * lock it). A PREAMBLE is editable only when qty-bearing (a zero-qty Preamble -- nearly all
+ * Preambles -- is read-only). The "Price any row" override unlocks BOTH a zero-qty Preamble
+ * AND any non-priceable type. Every other case (non-priceable type, or a zero-qty Preamble
+ * without override) -> read-only. The Preamble/Line-Item asymmetry is a DELIBERATE owner-
+ * locked rule -- do NOT "fix" it into uniformity. The descriptor's is-rate-cell test is
+ * applied SEPARATELY at the call site (this is the ROW axis only). Pure -- unit-tested.
+ */
+export function isRateEditableRow(row: PricedRow, override: boolean): boolean {
+  if (override) return true;
+  if (row.node_type === "Line Item") return true;
+  return row.node_type === "Preamble" && isRowQtyBearing(row);
 }
 
 /**
@@ -485,6 +757,30 @@ export function deriveSaveStatus(s: {
 export const TAKEOVER_MARKER = "BOQ_PRICING_LOCKED";
 export function isTakeoverError(msg: string): boolean {
   return typeof msg === "string" && msg.includes(TAKEOVER_MARKER);
+}
+
+// ── Slice 4c: full-screen editor -- Esc-to-exit predicate ──────────────────────
+/**
+ * Should an Escape keypress EXIT the full-screen pricing editor? PURE -- unit-tested in
+ * PricingGrid.test.ts (the page wires it to a window keydown listener active only while
+ * expanded). The two guards keep full-screen Esc from colliding with the grid's other Esc
+ * consumers:
+ *   - `e.defaultPrevented`: the RemarkCell + AmountFormulaBuilder Radix popovers
+ *     preventDefault THEIR Escape-dismiss, so a popover-closing Esc never exits full-screen
+ *     ("Esc closed a popover" vs "Esc should exit" is exactly this bit).
+ *   - the active element being an <input>/<textarea>: a rate / remark being typed owns its
+ *     own Esc (do not yank the user out of full-screen mid-edit).
+ * Only a bare Escape on a non-input, not-already-handled, exits.
+ */
+export function shouldExitFullscreenOnEsc(
+  e: { key: string; defaultPrevented: boolean },
+  activeElement: Element | null,
+): boolean {
+  if (e.key !== "Escape") return false;
+  if (e.defaultPrevented) return false;
+  const tag = activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return false;
+  return true;
 }
 
 // ── Slice 3d: in-editor sheet tabs ─────────────────────────────────────────────
@@ -842,6 +1138,116 @@ function ColorPicker({
   );
 }
 
+// ── Cluster B: the per-cell formula-vs-document reconciliation badge + chooser ───
+/** Locale-group an amount for the chooser labels (display only -- not the stored value). */
+const fmtReconAmount = (n: number): string =>
+  n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+/**
+ * The STRONG divergence cue on a divergent amount cell (D2a) + its tiny chooser. The three
+ * existing cell channels are taken (background = priced tint; left-border = color annotation;
+ * gutter = review-flag marker), so this uses a DISTINCT channel: a solid VIOLET pill (high-
+ * contrast, not in the priced/color palette) when UNRESOLVED, a MUTED grey pill when resolved
+ * (still visible -- "was a divergence, now decided" -- without nagging). Read-only (onChoose
+ * absent) -> a static pill, no popover. Clicking opens a two-option chooser labelled with the
+ * document and formula numbers; a resolved cell also offers "Use default" (clear -> document).
+ */
+function ReconcileBadge({
+  documentVal,
+  formulaVal,
+  resolved,
+  onChoose,
+}: {
+  documentVal: number;
+  formulaVal: number;
+  resolved: ReconChoice | "unset";
+  onChoose?: (choice: ReconChoice | null) => Promise<void> | void;
+}) {
+  const [open, setOpen] = useState(false);
+  const isResolved = resolved !== "unset";
+  const title = isResolved
+    ? resolved === "take_formula"
+      ? "Reconciled: using the formula amount"
+      : "Reconciled: keeping the document amount"
+    : "Document and formula amounts differ -- choose which value to use";
+
+  const pill = (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-1 py-0.5 leading-none",
+        isResolved
+          ? "bg-muted text-muted-foreground"
+          : "bg-violet-600 text-white dark:bg-violet-500",
+      )}
+    >
+      <Scale aria-hidden className="h-3 w-3" />
+    </span>
+  );
+
+  // Read-only: a static pill (status always visible; no chooser).
+  if (!onChoose) {
+    return (
+      <span className="absolute left-0.5 top-0.5 z-10" title={title} aria-label={title}>
+        {pill}
+      </span>
+    );
+  }
+
+  const choose = (choice: ReconChoice | null) => {
+    setOpen(false);
+    void onChoose(choice);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={title}
+          aria-label={title}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0.5 top-0.5 z-10 cursor-pointer"
+        >
+          {pill}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-60 p-2 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[11px] text-muted-foreground px-1">
+          Document and formula amounts differ. Choose which value to use for this cell.
+        </p>
+        <Button
+          type="button"
+          variant={resolved === "keep_document" || resolved === "unset" ? "default" : "outline"}
+          className="h-auto w-full justify-between py-1.5 text-xs"
+          onClick={() => choose("keep_document")}
+        >
+          <span>Keep document</span>
+          <span className="tabular-nums font-medium">{fmtReconAmount(documentVal)}</span>
+        </Button>
+        <Button
+          type="button"
+          variant={resolved === "take_formula" ? "default" : "outline"}
+          className="h-auto w-full justify-between py-1.5 text-xs"
+          onClick={() => choose("take_formula")}
+        >
+          <span>Use formula</span>
+          <span className="tabular-nums font-medium">{fmtReconAmount(formulaVal)}</span>
+        </Button>
+        {isResolved && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-auto w-full py-1 text-[11px] text-muted-foreground"
+            onClick={() => choose(null)}
+          >
+            Use default (document)
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 interface PricingGridProps {
   /** Committed rows for the sheet, prices merged in (get_priced_rows). */
   rows: PricedRow[];
@@ -855,10 +1261,26 @@ interface PricingGridProps {
    */
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   /**
+   * Slice A (clipboard): the page-owned BATCH write path for a paste / cut / fill-down gesture
+   * (the Q5 finding -- the per-cell save path fires one mutate() per cell, which would thrash on
+   * an N-cell paste). The page fires each write through the SAME save_cell_price / save_row_remark
+   * endpoints with the per-cell mutate SUPPRESSED, then does ONE trailing mutate() at the end.
+   * ABSENT (locked / read-only) => paste/cut/fill no-op (copy still works -- it is internal). Kept
+   * SEPARATE from onSaveRate so the inline single-cell edit contract is byte-for-byte unchanged.
+   */
+  onBatchWrite?: (writes: BatchWrite[]) => Promise<BatchOutcome>;
+  /**
    * Slice 3c: surfaces "has uncommitted drafts" UP to the page (drives the "Unsaved
    * changes" status). Called whenever the unsaved-drafts state flips.
    */
   onDirtyChange?: (hasUnsaved: boolean) => void;
+  /**
+   * Slice B (undo/redo): surfaces the session history's {canUndo, canRedo} UP to the page so the
+   * bottom-ribbon Undo/Redo buttons can render their disabled state reactively. Fired in an effect
+   * whenever the history stacks change -- the SAME grid->page reactive pattern as onDirtyChange
+   * (an imperative-handle method is not reactive). The undo/redo ACTIONS ride PricingGridHandle.
+   */
+  onHistoryChange?: (state: { canUndo: boolean; canRedo: boolean }) => void;
   /**
    * Priceability override (Slice 3e, per-sheet per-session). Default false. When false, a
    * rate cell is editable ONLY on a priceable row (node_type Preamble / Line Item); a
@@ -867,6 +1289,16 @@ interface PricingGridProps {
    * rate saved onto a non-priceable row is marked amber ("needs review") regardless.
    */
   override?: boolean;
+  /**
+   * MANDATORY amount-formula gate (Phase 5, per-SHEET). When FALSE, NO rate cell is editable --
+   * ANDed OUTSIDE isRateEditableRow, so the `override` (which lives INSIDE isRateEditableRow)
+   * can NEVER reach past it: no declared formulas => nothing rate-editable, override or not.
+   * Default TRUE (back-compat: a sheet with zero amount columns is trivially complete, and
+   * existing callers/tests are unaffected). Computed page-side via priceability.areFormulasComplete
+   * from columnDescriptors + columnFormulas (already in hand -- no new fetch). onSaveFormula is
+   * DELIBERATELY NOT withheld by this gate (declaration must work while rates are locked).
+   */
+  formulasComplete?: boolean;
   /**
    * Slice 4a: save one row's remark (save_row_remark + mutate). ABSENT => remarks render
    * read-only (the page withholds it when locked/taken-over, mirroring onSaveRate).
@@ -909,6 +1341,73 @@ interface PricingGridProps {
    * which imports the grid -- that would be a cycle.
    */
   rowFlags?: Map<number, RowReviewFlags>;
+  /**
+   * Slice 4c: full-screen editor. When TRUE, the grid's OUTER scroll container relaxes its
+   * `max-h-[calc(100vh-14rem)]` cap to `flex-1 min-h-0` so it fills the taller full-viewport
+   * layout (the page's expanded root is `flex flex-col`). Default false (embedded layout,
+   * back-compat). LAYOUT-ONLY: it touches ONLY the outer container class -- it is NOT a per-row
+   * prop, never enters PricingGridRowProps / pricingRowPropsAreEqual, so the row memo is intact.
+   */
+  expanded?: boolean;
+  /**
+   * Cluster B: the current per-CELL formula-vs-document reconciliation choices
+   * (get_priced_rows.reconciliation_choices). The grid builds an O(1) map keyed
+   * "<excel_row>:<col_letter>" and reads it per amount cell to detect/resolve a divergence
+   * (D1 document-default). ABSENT/empty -> every cell is "unset" (document wins on divergence).
+   */
+  reconChoices?: ReconciliationChoiceRef[];
+  /**
+   * Cluster B: choose (keep_document/take_formula) or clear the reconciliation choice for one
+   * divergent amount cell (save_cell_reconciliation_choice + mutate). ABSENT => the divergence
+   * cue renders read-only (a static pill, no chooser) -- the page withholds it when
+   * locked/taken-over, mirroring onSaveRate/onSaveColor.
+   */
+  onSaveReconChoice?: (args: ReconChoiceSaveArgs) => Promise<void>;
+  /**
+   * Toolbar Part 1 -- column-hide. The set of NON-AMOUNT descriptor `col` letters the user has
+   * hidden (page-owned, per-session). The grid filters its render/nav descriptor set by it;
+   * amount columns are NEVER hidden (isColumnVisible). ABSENT/empty => all columns visible
+   * (default, back-compat). A per-GRID prop -- it changes displayDescriptors' reference for the
+   * row, so a hide re-renders all rows ONCE (like formulasComplete); it is NOT a per-row prop.
+   */
+  hiddenCols?: Set<string>;
+  /**
+   * Toolbar Part 1 -- description search. The Excel row number (source_row_number) of the
+   * CURRENT search hit, or null when there is no active search/hit. The grid derives a per-row
+   * `isCurrentHit` boolean from it (the ONE search signal that enters the row memo). The page
+   * owns the query + hit-stepper + scrollToRow jump; the grid only paints the highlight.
+   */
+  currentHitExcelRow?: number | null;
+  /**
+   * Hierarchy collapse/expand (per-GRID; NEVER a per-row prop, so the row memo is untouched --
+   * R6). `collapsed` = the set of collapsed parents' row_index (page-owned: it ALSO composes the
+   * upstream displayRows filter, so the rows handed to the grid are already collapse-filtered).
+   * `childrenByParent` is built over the FULL (unfiltered) rows so descendant/visibility math is
+   * filter-independent. `onToggleCollapse` flips one parent. These feed CollapseContext -> the
+   * chevrons; they are NOT in PricingGridRowProps / pricingRowPropsAreEqual. ABSENT => no chevrons
+   * (back-compat: a caller that omits them gets the prior flat render).
+   */
+  collapsed?: Set<number>;
+  childrenByParent?: Map<number, number[]>;
+  onToggleCollapse?: (rowIndex: number) => void;
+  /**
+   * Reveal-then-scroll (R5): expand a target row's collapsed ANCESTORS before the jump scrolls,
+   * so a jump into a collapsed parent no longer silently no-ops. The grid's `jumpToRow` (the ONE
+   * jump path -- parent-click + search-step + review-strip all route through it) calls this FIRST;
+   * the page expands the ancestors and returns TRUE iff it changed anything, so the grid defers
+   * the scroll one tick (let the reveal re-render land) only when needed. ABSENT => plain scroll.
+   */
+  onRevealRow?: (excelRow: number) => boolean;
+  /**
+   * Frozen-left Slice 1: when true, render the grid as a TWO-PANE split -- the 5 anchor columns
+   * (Excel row / Sl.No / Parent / Classification / Description) pinned in a non-horizontally-
+   * scrolling FROZEN pane; the descriptor + Remarks columns in a SCROLLING pane that owns
+   * overflow-x AND overflow-y and mirrors its vertical scroll to the frozen pane. Row heights are
+   * MEASURED at the freeze transition and applied identically to both panes so the rows stay
+   * aligned by construction. Default false = today's single table (byte-for-byte). The PAGE owns
+   * the toggle and gates it OFF for grid-only sheets (which render via SheetDataGrid, not here).
+   */
+  frozen?: boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -917,6 +1416,10 @@ export interface PricingGridHandle {
   flush: () => void;
   /** Slice 4a: scroll a row into view by its Excel row number (the review-list jump). */
   scrollToRow: (excelRow: number) => void;
+  /** Slice B: undo the most recent rate gesture (no-op when nothing to undo / read-only). */
+  undo: () => void;
+  /** Slice B: redo the most recently undone rate gesture (no-op when nothing to redo / read-only). */
+  redo: () => void;
 }
 
 // ── Editor perf fix: PricingGrid row-level memoization (recon items 1+2) ─────────
@@ -934,6 +1437,19 @@ const cellKey = (rowIndex: number, col: string) => `${rowIndex}:${col}`;
 // `${rowIndex}:${colIndex}` -- the cellRefs / nav-matrix key (ARRAY index + colIndex). A
 // SEPARATE key space from cellKey (which uses the DATA row_index). Do not conflate them.
 const navKey = (r: number, c: number) => `${r}:${c}`;
+// Parent click-to-jump: resolve a row's PARENT Excel row number from the row's
+// effective_parent_index + the row_index->row map (byIdx). A root row (effective_parent_index
+// null or the -1 sentinel) -> null (no jump target); a parent not present in the rendered set's
+// map -> null too (safe -- the click then no-ops). Pure -> module-level + unit-tested. Mirrors
+// the inline resolution the row render and the imperative scrollToRow already use (one source).
+export function parentExcelRowOf(
+  row: PricedRow,
+  byIdx: Map<number, PricedRow>,
+): number | null {
+  const pIdx = row.effective_parent_index ?? -1;
+  if (pIdx < 0) return null;
+  return byIdx.get(pIdx)?.source_row_number ?? null;
+}
 // A row's saved (committed/merged) rate as a string for the input value. Pure (only reads
 // the row via resolveDescriptorValue) -> module-level so it is reference-stable.
 const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
@@ -985,11 +1501,89 @@ export function groupDraftsByRow(
   return out;
 }
 
+// ── Hierarchy collapse/expand (the "collapse/expand" slice) ──────────────────────
+// The chevron + "+N hidden" badge live INSIDE the memoized PricingGridRow, but their state
+// (which parents are collapsed + the live descendant count) is GRID-LEVEL and changes on a
+// collapse toggle. To flip the toggled parent's chevron WITHOUT busting the row memo (R6:
+// collapse adds NOTHING to pricingRowPropsAreEqual), the chevron is a SEPARATE component
+// (`RowChevron`) that reads this CONTEXT. A context change re-renders ONLY the consumers
+// (the chevrons) -- the memoized PricingGridRow (which does NOT read the context) is skipped,
+// so a keystroke/cursor move is unaffected and a collapse toggle re-paints just the chevrons.
+// This is the "derived, not carried on the row" rule: the chevron derives its state from the
+// context, never from a per-row prop. The PAGE owns `collapsed` (it composes the upstream
+// displayRows filter); the grid receives it + `childrenByParent` (built over the FULL rows) +
+// `onToggleCollapse` as GRID-LEVEL props and exposes them here.
+interface CollapseCtx {
+  collapsed: Set<number>;
+  childrenByParent: Map<number, number[]>;
+  onToggle: (rowIndex: number) => void;
+  /** False when the sheet has no hierarchy at all (flat sheet) -> render no chevrons/spacers. */
+  anyParents: boolean;
+}
+const CollapseContext = createContext<CollapseCtx | null>(null);
+
+/**
+ * The per-row hierarchy chevron + "+N hidden" affordance, rendered at the Description indent.
+ * Reads CollapseContext (NOT props) so it re-renders on a collapse toggle while the memoized
+ * PricingGridRow is skipped. Renders:
+ *   - nothing            when the sheet is flat (no hierarchy anywhere);
+ *   - an invisible spacer for a leaf row on a hierarchical sheet (keeps description text aligned);
+ *   - a chevron toggle   for a parent (down=expanded / right=collapsed), plus a muted "+N hidden"
+ *     badge (N = whole-subtree descendant count, DERIVED live) when collapsed.
+ * tabIndex={-1}: the chevron is mouse-operable and is DELIBERATELY out of the grid's roving-
+ * tabindex matrix (it would add a second tab stop in the Description cell); nav is untouched.
+ */
+function RowChevron({ rowIndex }: { rowIndex: number }) {
+  const ctx = useContext(CollapseContext);
+  if (!ctx || !ctx.anyParents) return null;
+  if (!rowHasDescendants(ctx.childrenByParent, rowIndex)) {
+    return <span aria-hidden className="inline-block h-4 w-4 shrink-0" />;
+  }
+  const isCollapsed = ctx.collapsed.has(rowIndex);
+  const hidden = isCollapsed ? descendantCount(rowIndex, ctx.childrenByParent) : 0;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={isCollapsed ? "Expand" : "Collapse"}
+        aria-expanded={!isCollapsed}
+        title={isCollapsed ? "Expand" : "Collapse"}
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.onToggle(rowIndex);
+        }}
+        className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground outline-none hover:bg-muted hover:text-foreground"
+      >
+        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !isCollapsed && "rotate-90")} />
+      </button>
+      {isCollapsed && hidden > 0 && (
+        <span
+          className="rounded bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground whitespace-nowrap"
+          title={`${hidden} descendant row${hidden === 1 ? "" : "s"} hidden`}
+        >
+          +{hidden} hidden
+        </span>
+      )}
+    </span>
+  );
+}
+
 interface PricingGridRowProps {
   // ── per-row data (changes -> this row re-renders) ──
   row: PricedRow;
   /** ARRAY index into rows (the nav-matrix row coord), NOT row.row_index. */
   rowIndex: number;
+  /** Frozen-left Slice 1: which pane this row instance renders. undefined = the single
+   *  (unfrozen) table -> emits ALL cells (today's behaviour). "frozen" -> ONLY the 5 anchor
+   *  cells; "scrolling" -> ONLY the descriptor + Remarks cells. Constant per instance, so the
+   *  memo holds across a keystroke. */
+  pane?: "frozen" | "scrolling";
+  /** Frozen-left Slice 1: the captured px height for this row (measure-at-freeze). Applied to
+   *  the <tr> in BOTH panes so the matching rows stay aligned; the Description inner wrapper is
+   *  clipped to it. undefined when not frozen -> natural wrap-and-grow height (unchanged). A
+   *  per-row SCALAR (like depth / isCurrentHit) -> memo-safe. */
+  rowHeight?: number;
   depth: number;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
@@ -1000,18 +1594,42 @@ interface PricingGridRowProps {
   /** The active COLUMN on this row, or null when no cell of this row is active (the lever:
    *  only the previously-active + newly-active rows see this change on a cursor move). */
   activeColIndex: number | null;
+  /** Slice A (clipboard): this row's SELECTED column span (the multi-cell range highlight), as
+   *  two memo-safe scalars derived from the grid-level (anchor, focus) rectangle EXACTLY like
+   *  activeColIndex. null when the row is outside the selection (or the selection is a single
+   *  cell -- that just shows the focus ring). NEVER the shared selection object (memo anti-defeat). */
+  selLeftCol: number | null;
+  selRightCol: number | null;
+  /** Slice A (clipboard): a transient amber "skipped on paste/fill" flash for this row, as a CSV
+   *  of colIndices (e.g. "6,8") or null. A memo-safe STRING scalar (compared by value), derived
+   *  from a grid-level skip-flash map that self-clears after a few seconds. */
+  skipColsCsv: string | null;
   /** Whether ANY cell in the grid is active (drives roving-tabindex's (0,0) entry fallback). */
   anyCellActive: boolean;
   /** Whether this row's remarks editor is open. */
   openRemark: boolean;
+  /** Toolbar Part 1 -- search: whether this row is the CURRENT search hit (drives the row
+   *  highlight). Per-row by nature -> it is in pricingRowPropsAreEqual so the highlight repaints
+   *  as the user steps through hits (without it, memo'd rows would not re-render on step). */
+  isCurrentHit: boolean;
+  /** Parent-jump landing flash: whether this row is the CURRENT jump target (drives the 3s blue
+   *  row tint). Per-row like isCurrentHit -> it is in pricingRowPropsAreEqual so the flash
+   *  paints/un-paints as the grid-level flashExcelRow flips (set by jumpToRow, cleared after 3s). */
+  isJumpFlash: boolean;
   // ── stable shared values/refs (reference-stable across a keystroke -> memo holds) ──
   displayDescriptors: ColumnDescriptor[];
   columnDescriptors: ColumnDescriptor[];
   columnFormulas: ColumnFormula[];
+  /** Cluster B: per-cell reconciliation choice map (per-SHEET, reference-stable across a
+   *  keystroke -- changes only on mutate, exactly like columnFormulas). */
+  reconChoiceMap: Map<string, ReconChoice>;
   override: boolean;
+  /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
+  formulasComplete: boolean;
   onSaveRate?: (cell: RateCellSaveArgs, rate: number) => Promise<void>;
   onSaveColor?: (args: ColorSaveArgs[]) => Promise<void>;
   onSaveRemark?: (args: RemarkSaveArgs) => Promise<void>;
+  onSaveReconChoice?: (args: ReconChoiceSaveArgs) => Promise<void>;
   colCount: number;
   rowCount: number;
   remarksColIndex: number;
@@ -1023,6 +1641,16 @@ interface PricingGridRowProps {
   setDraftRates: Dispatch<SetStateAction<Record<string, string>>>;
   setProposedRates: Dispatch<SetStateAction<Record<string, string>>>;
   setOpenRemark: (rowIndex: number, open: boolean) => void;
+  /** Parent click-to-jump: scroll the grid to a row by its Excel row number. Reference-stable
+   *  (a grid-level useCallback) -> memo-safe; still listed in pricingRowPropsAreEqual below. */
+  onJumpToRow: (excelRow: number) => void;
+  /** Frozen-left Slice 2 -- manual row-resize. The FROZEN pane row renders a bottom-edge drag
+   *  handle (only when pane==="frozen") wired to these three STABLE (useCallback) handlers --
+   *  reference-stable so the row memo holds (mirrors registerCell/focusCell). pointerDown captures
+   *  (row_index, startHeight); move writes the dragged height into manualRowHeights; up releases. */
+  onRowResizePointerDown: (rowIndexData: number, startHeight: number, e: ReactPointerEvent) => void;
+  onRowResizePointerMove: (e: ReactPointerEvent) => void;
+  onRowResizePointerUp: (e: ReactPointerEvent) => void;
 }
 
 /**
@@ -1040,21 +1668,31 @@ export function pricingRowPropsAreEqual(
   return (
     prev.row === next.row &&
     prev.rowIndex === next.rowIndex &&
+    prev.pane === next.pane &&
+    prev.rowHeight === next.rowHeight &&
     prev.depth === next.depth &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
     prev.rowDraftRates === next.rowDraftRates &&
     prev.rowProposedRates === next.rowProposedRates &&
     prev.activeColIndex === next.activeColIndex &&
+    prev.selLeftCol === next.selLeftCol &&
+    prev.selRightCol === next.selRightCol &&
+    prev.skipColsCsv === next.skipColsCsv &&
     prev.anyCellActive === next.anyCellActive &&
     prev.openRemark === next.openRemark &&
+    prev.isCurrentHit === next.isCurrentHit &&
+    prev.isJumpFlash === next.isJumpFlash &&
     prev.displayDescriptors === next.displayDescriptors &&
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
+    prev.reconChoiceMap === next.reconChoiceMap &&
     prev.override === next.override &&
+    prev.formulasComplete === next.formulasComplete &&
     prev.onSaveRate === next.onSaveRate &&
     prev.onSaveColor === next.onSaveColor &&
     prev.onSaveRemark === next.onSaveRemark &&
+    prev.onSaveReconChoice === next.onSaveReconChoice &&
     prev.colCount === next.colCount &&
     prev.rowCount === next.rowCount &&
     prev.remarksColIndex === next.remarksColIndex &&
@@ -1065,7 +1703,11 @@ export function pricingRowPropsAreEqual(
     prev.focusCell === next.focusCell &&
     prev.setDraftRates === next.setDraftRates &&
     prev.setProposedRates === next.setProposedRates &&
-    prev.setOpenRemark === next.setOpenRemark
+    prev.setOpenRemark === next.setOpenRemark &&
+    prev.onJumpToRow === next.onJumpToRow &&
+    prev.onRowResizePointerDown === next.onRowResizePointerDown &&
+    prev.onRowResizePointerMove === next.onRowResizePointerMove &&
+    prev.onRowResizePointerUp === next.onRowResizePointerUp
   );
 }
 
@@ -1079,21 +1721,31 @@ export function pricingRowPropsAreEqual(
 const PricingGridRow = memo(function PricingGridRow({
   row,
   rowIndex,
+  pane,
+  rowHeight,
   depth,
   parentExcelRow,
   flags,
   rowDraftRates,
   rowProposedRates,
   activeColIndex,
+  selLeftCol,
+  selRightCol,
+  skipColsCsv,
   anyCellActive,
   openRemark,
+  isCurrentHit,
+  isJumpFlash,
   displayDescriptors,
   columnDescriptors,
   columnFormulas,
+  reconChoiceMap,
   override,
+  formulasComplete,
   onSaveRate,
   onSaveColor,
   onSaveRemark,
+  onSaveReconChoice,
   colCount,
   rowCount,
   remarksColIndex,
@@ -1105,6 +1757,10 @@ const PricingGridRow = memo(function PricingGridRow({
   setDraftRates,
   setProposedRates,
   setOpenRemark,
+  onJumpToRow,
+  onRowResizePointerDown,
+  onRowResizePointerMove,
+  onRowResizePointerUp,
 }: PricingGridRowProps) {
   const isPreamble = row.effective_classification === "preamble";
   const isLineItem = row.effective_classification === "line_item";
@@ -1116,8 +1772,24 @@ const PricingGridRow = memo(function PricingGridRow({
   // entry point so the grid is reachable by Tab from the page.
   const isTabStop = (c: number) =>
     anyCellActive ? activeColIndex === c : rowIndex === 0 && c === 0;
-  const cellNavClass = (c: number) =>
-    cn("scroll-mt-9 outline-none", isActiveCol(c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400");
+  // Slice A (clipboard): this row's selection span + the transient skip-flash columns, both
+  // derived from the memo-safe scalars (NEVER the shared selection object). isSelected paints a
+  // light range ring on non-active selected cells; isSkipFlash paints the amber paste-skip cue.
+  const isSelected = (c: number) =>
+    selLeftCol !== null && selRightCol !== null && c >= selLeftCol && c <= selRightCol;
+  const skipFlashCols = skipColsCsv ? skipColsCsv.split(",").map(Number) : null;
+  const isSkipFlash = (c: number) => !!skipFlashCols && skipFlashCols.includes(c);
+  // The cell ring channel (does NOT mask the priced emerald/amber BACKGROUND -- a ring is a
+  // separate channel, like the focus ring). Precedence: skip-flash (amber) > active (blue) >
+  // range-selection (sky). Shared by every cell type (anchors via cellNavClass; the rate <td> +
+  // parent button call it directly since they inline their own ring).
+  const selectionRing = (c: number) =>
+    cn(
+      isSkipFlash(c) && "ring-2 ring-inset ring-amber-500 dark:ring-amber-400",
+      !isSkipFlash(c) && isActiveCol(c) && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+      !isSkipFlash(c) && !isActiveCol(c) && isSelected(c) && "ring-1 ring-inset ring-sky-400/70",
+    );
+  const cellNavClass = (c: number) => cn("scroll-mt-9 outline-none", selectionRing(c));
   const tdFocusProps = (c: number) => ({
     tabIndex: isTabStop(c) ? 0 : -1,
     onFocus: () => onCellFocus(rowIndex, c),
@@ -1145,13 +1817,51 @@ const PricingGridRow = memo(function PricingGridRow({
     : undefined;
 
   return (
-    <tr className="border-b border-border hover:bg-muted/30">
-      {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). */}
+    <tr
+      className={cn(
+        "border-b border-border",
+        // Toolbar Part 1 -- search: the CURRENT hit row gets a solid yellow wash (a BACKGROUND,
+        // not a ring: the table is border-collapse, where ring-inset on a <tr> is unreliable
+        // [ReviewTree's documented caveat], and a ring would also collide with the blue
+        // active-cell ring). It shows through the anchor cells incl. Description -- exactly where
+        // the matched text is. Per-cell priced emerald/amber backgrounds on rate/amount <td>s
+        // still win on those cells (a deliberate, harmless layering). Non-hit rows keep hover.
+        // Parent-jump landing flash: a transient BLUE row wash (3s, self-clearing -- set by
+        // jumpToRow, mirrors the yellow). It WINS over search-yellow for its 3s (the jump just
+        // happened, so it's the more relevant cue); when it clears the row reverts to yellow if
+        // still the search hit. Instant on/off (NO transition) -- the calmest option, inherently
+        // reduced-motion-safe, and it leaves the hover/current-hit paint timing untouched (A2).
+        // Per-cell priced emerald/amber tints still win on their own <td>s (same as the yellow).
+        isJumpFlash
+          ? "bg-blue-100 dark:bg-blue-900/40"
+          : isCurrentHit
+            ? "bg-yellow-100 dark:bg-yellow-900/40"
+            : "hover:bg-muted/30",
+      )}
+      // Frozen-left Slice 1: the captured row height (both panes share it -> aligned). undefined
+      // when not frozen -> no attribute -> natural height (byte-for-byte). data-rowidx tags the
+      // SCROLLING pane's <tr> so the vertical-scroll retarget can find a row's counterpart.
+      style={rowHeight != null ? { height: `${rowHeight}px` } : undefined}
+      data-rowidx={pane === "scrolling" ? rowIndex : undefined}
+      // Slice A (clipboard) context menu: the row's ARRAY index, on EVERY pane's <tr>, so the
+      // grid-level onContextMenu can resolve which row was right-clicked (the column comes from
+      // the cell's existing data-colkey). Distinct from data-rowidx (scrolling-pane-only, used by
+      // the vertical-scroll retarget) so neither steps on the other.
+      data-navr={rowIndex}
+    >
+      {/* Frozen-left Slice 1: anchors render in the single table (pane undefined) and the FROZEN
+          pane; the data group (descriptors + Remarks) renders in the single table and the
+          SCROLLING pane. A React fragment adds no DOM, so the unfrozen path is unchanged. */}
+      {pane !== "scrolling" && (
+        <>
+      {/* Excel Row (col 0) -- also the 4b-A flag gutter (left accent + Flag icon). data-colkey
+          backs the autofit measure. */}
       <td
         {...tdFocusProps(0)}
+        data-colkey="a0"
         title={hasFlag ? flagTitle : undefined}
         className={cn(
-          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border tabular-nums",
+          "relative px-2 py-1.5 text-muted-foreground align-top border-r border-border tabular-nums",
           flagCritical && "border-l-4 border-l-rose-500 dark:border-l-rose-600",
           flagAttention && "border-l-4 border-l-amber-500 dark:border-l-amber-600",
           cellNavClass(0),
@@ -1171,39 +1881,103 @@ const PricingGridRow = memo(function PricingGridRow({
           )}
           {row.source_row_number}
         </span>
+        {/* Frozen-left Slice 2 -- manual row-resize handle: a thin strip at the row's BOTTOM edge,
+            on the Excel-row gutter (the spreadsheet row-resize idiom), in the FROZEN pane only.
+            The td is `relative`; the handle is absolutely positioned at its bottom. Dragging writes
+            the new height into manualRowHeights (applied to BOTH panes). The handlers are STABLE
+            grid callbacks (memo-safe). rowHeight is the row's current applied height (the drag
+            start point). */}
+        {pane === "frozen" && rowHeight != null && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            title="Drag to resize row height"
+            onPointerDown={(e) => onRowResizePointerDown(row.row_index, rowHeight, e)}
+            onPointerMove={onRowResizePointerMove}
+            onPointerUp={onRowResizePointerUp}
+            className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-row-resize touch-none select-none hover:bg-blue-400/50"
+          />
+        )}
       </td>
-      {/* Sl.No (col 1) */}
+      {/* Sl.No (col 1). */}
       <td
         {...tdFocusProps(1)}
+        data-colkey="a1"
         className={cn(
-          "px-2 py-1.5 text-muted-foreground align-top w-16 border-r border-border",
+          "px-2 py-1.5 text-muted-foreground align-top border-r border-border",
           cellNavClass(1),
         )}
       >
         {row.sl_no_value ?? ""}
       </td>
-      {/* Parent (col 2): parent's Excel row number (muted; read-only -- focus only). */}
+      {/* Parent (col 2): a CLICKABLE jump to the parent row (scrolls + focuses it). When a
+          parent exists the BUTTON is col 2's roving nav target (carries the focus props +
+          active ring, exactly like a rate <input> owns its cell) so there is no second tab
+          stop; mouse-click + Space activate natively, Enter is handled in handleGridKeyDown.
+          A ROOT row renders no button, so the <td> keeps the focus props (col 2 always has a
+          nav target) -- backwards-compatible (the cell was a read-only span before). */}
       <td
-        {...tdFocusProps(2)}
-        className={cn("px-2 py-1.5 align-top w-16 border-r border-border", cellNavClass(2))}
+        {...(parentExcelRow === null ? tdFocusProps(2) : {})}
+        data-colkey="a2"
+        className={cn(
+          "px-2 py-1.5 align-top border-r border-border",
+          parentExcelRow === null && cellNavClass(2),
+        )}
       >
         {parentExcelRow !== null ? (
-          <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">
+          <button
+            type="button"
+            tabIndex={isTabStop(2) ? 0 : -1}
+            onFocus={() => onCellFocus(rowIndex, 2)}
+            ref={(el) => registerCell(rowIndex, 2, el)}
+            onClick={() => onJumpToRow(parentExcelRow)}
+            aria-label={`Jump to parent row ${parentExcelRow}`}
+            className={cn(
+              "text-[11px] font-mono text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap outline-none rounded scroll-mt-9",
+              selectionRing(2),
+            )}
+          >
             ↑ {parentExcelRow}
-          </span>
+          </button>
         ) : null}
       </td>
       {/* Classification pill (col 3) (read-only -- no chevron / reclassify). */}
       <td
         {...tdFocusProps(3)}
-        className={cn("px-2 py-1.5 align-top w-36 border-r border-border", cellNavClass(3))}
+        data-colkey="a3"
+        className={cn(
+          "px-2 py-1.5 align-top border-r border-border",
+          cellNavClass(3),
+        )}
       >
         <ClassificationPill cls={row.effective_classification} />
       </td>
-      {/* Description (col 4): depth indent + per-classification styling. */}
-      <td {...tdFocusProps(4)} className={cn("px-2 py-1.5 align-top", cellNavClass(4))}>
-        <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+      {/* Description (col 4): depth indent + per-classification styling. A normal resizable
+          column -- dragging it re-wraps + re-grows. */}
+      <td
+        {...tdFocusProps(4)}
+        data-colkey="a4"
+        className={cn("px-2 py-1.5 align-top border-r border-border", cellNavClass(4))}
+      >
+        {/* Collapse/expand: the chevron + "+N hidden" sit at the depth indent (where the
+            hierarchy lives), before the description text, so they nest with the tree. The
+            chevron reads CollapseContext (NOT a row prop) -> the row memo is untouched (R6). */}
+        <div
+          style={{
+            paddingLeft: `${depth * INDENT_PX}px`,
+            // Frozen-left Slice 1: when a captured row height is applied, clip the (still-wrapped)
+            // description to it so a tall row cannot push this pane's <tr> past the matching row in
+            // the other pane. Text still WRAPS (break-words) then clips from the top (align-top +
+            // overflow hidden); the full text stays readable via the title below. No-op unfrozen.
+            ...(rowHeight != null
+              ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
+              : {}),
+          }}
+          className="flex items-start gap-1 min-w-0"
+        >
+          <RowChevron rowIndex={row.row_index} />
           <span
+            title={row.description ?? undefined}
             className={cn(
               "leading-snug break-words min-w-0",
               isPreamble && "font-medium text-foreground",
@@ -1217,6 +1991,10 @@ const PricingGridRow = memo(function PricingGridRow({
           </span>
         </div>
       </td>
+        </>
+      )}
+      {pane !== "frozen" && (
+        <>
       {/* Descriptor-driven data cells: editable rate inputs, live-amount cells, and read-only
           qty/other cells. */}
       {displayDescriptors.map((d, dIdx) => {
@@ -1244,10 +2022,17 @@ const PricingGridRow = memo(function PricingGridRow({
           />
         ) : null;
         // ── RATE cell: editable <Input>; focus target = the input (col-uniform). ──
+        // MANDATORY formula gate (formulasComplete): ANDed OUTSIDE isRateEditableRow, so the
+        // override (inside isRateEditableRow) can NEVER reach past it -- no declared formulas =>
+        // NOTHING rate-editable, override or not. Then the asymmetric gate (isRateEditableRow):
+        // Line Item always editable; Preamble editable only when qty-bearing; override unlocks
+        // both. A non-editable rate cell falls through to the read-only render below (its
+        // priced/anomaly marker still shows).
         if (
           onSaveRate &&
+          formulasComplete &&
           isRateDescriptor(d) &&
-          (isPriceableType(row.node_type) || override)
+          isRateEditableRow(row, override)
         ) {
           const key = cellKey(row.row_index, d.col);
           const priced = isCellPriced(row, d);
@@ -1259,6 +2044,7 @@ const PricingGridRow = memo(function PricingGridRow({
           return (
             <td
               key={d.col}
+              data-colkey={columnWidthKey("descriptor", d.col)}
               title={
                 needsReview
                   ? "Priced on a non-priceable row -- flagged for review"
@@ -1273,8 +2059,7 @@ const PricingGridRow = memo(function PricingGridRow({
                   (needsReview
                     ? "bg-amber-50 dark:bg-amber-950/30"
                     : "bg-emerald-50 dark:bg-emerald-950/30"),
-                isActiveCol(colIndex) &&
-                  "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+                selectionRing(colIndex),
               )}
             >
               {colorPicker}
@@ -1322,11 +2107,33 @@ const PricingGridRow = memo(function PricingGridRow({
           const cell = evaluateAmountCell(d, row, columnDescriptors, columnFormulas, rowDraftRates);
           const isBroken = cell.kind === "blank" && cell.reason === "broken";
           const needsRate = cell.kind === "blank" && cell.reason === "not_yet";
+          // ── Cluster B: divergence detection + resolution (D1). Only a real computed number
+          //    (kind === "value") can diverge from the committed/document amount. The SHOWN value
+          //    defaults to the DOCUMENT amount while unset/keep_document; take_formula shows the
+          //    formula value. A non-diverging cell keeps today's behavior (the formula value).
+          //    resolveDivergence + reconChoiceKey are pure leaf helpers (no priceability import). ──
+          let recon: ReconResolution = { diverges: false };
+          let shownAmount: number | null = cell.kind === "value" ? cell.value : null;
+          if (cell.kind === "value") {
+            const docRaw = resolveDescriptorValue(row, d);
+            const docVal = typeof docRaw === "number" ? docRaw : null;
+            const choice = reconChoiceMap.get(reconChoiceKey(row.source_row_number, d.col));
+            recon = resolveDivergence(docVal, cell.value, choice);
+            if (recon.diverges) shownAmount = recon.value;
+          }
+          const divergeTitle = recon.diverges
+            ? recon.resolved === "unset"
+              ? "Document and formula amounts differ -- choose which value to use"
+              : `Reconciled (${recon.resolved === "take_formula" ? "formula" : "document"})`
+            : undefined;
           return (
             <td
               key={d.col}
               {...tdFocusProps(colIndex)}
-              title={isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined}
+              data-colkey={columnWidthKey("descriptor", d.col)}
+              title={
+                divergeTitle ?? (isBroken ? "Check formula" : needsRate ? "Needs a rate" : undefined)
+              }
               className={cn(
                 "relative px-2 py-1.5 text-right align-top tabular-nums",
                 colorBorderClass,
@@ -1334,8 +2141,29 @@ const PricingGridRow = memo(function PricingGridRow({
               )}
             >
               {colorPicker}
+              {recon.diverges && cell.kind === "value" && (
+                <ReconcileBadge
+                  documentVal={(() => {
+                    const dv = resolveDescriptorValue(row, d);
+                    return typeof dv === "number" ? dv : 0;
+                  })()}
+                  formulaVal={cell.value}
+                  resolved={recon.resolved}
+                  onChoose={
+                    onSaveReconChoice
+                      ? (choice) =>
+                          onSaveReconChoice({
+                            excelRow: row.source_row_number,
+                            colLetter: d.col,
+                            choice,
+                            description: row.description ?? undefined,
+                          })
+                      : undefined
+                  }
+                />
+              )}
               {cell.kind === "value" ? (
-                renderDescriptorCell(cell.value)
+                renderDescriptorCell(shownAmount)
               ) : cell.kind === "committed" ? (
                 renderDescriptorCell(resolveDescriptorValue(row, d))
               ) : isBroken ? (
@@ -1354,6 +2182,7 @@ const PricingGridRow = memo(function PricingGridRow({
           <td
             key={d.col}
             {...tdFocusProps(colIndex)}
+            data-colkey={columnWidthKey("descriptor", d.col)}
             title={
               needsReview
                 ? "Priced on a non-priceable row -- flagged for review"
@@ -1388,8 +2217,9 @@ const PricingGridRow = memo(function PricingGridRow({
       {/* Slice 4a.2: trailing Remarks cell (per-row) -- the matrix's LAST column. */}
       <td
         {...tdFocusProps(remarksColIndex)}
+        data-colkey="remarks"
         className={cn(
-          "px-2 py-1.5 align-top border-l border-border w-48 min-w-[160px]",
+          "px-2 py-1.5 align-top border-l border-border",
           cellNavClass(remarksColIndex),
         )}
       >
@@ -1423,15 +2253,21 @@ const PricingGridRow = memo(function PricingGridRow({
           }}
         />
       </td>
+        </>
+      )}
     </tr>
   );
 }, pricingRowPropsAreEqual);
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onDirtyChange, override = false, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
+  // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
+  // -- it changes ONLY when reconChoices changes [on mutate], so the row memo holds, exactly like
+  // columnFormulas). Keyed "<excel_row>:<col_letter>".
+  const reconChoiceMap = useMemo(() => buildReconChoiceMap(reconChoices), [reconChoices]);
   // Optimistic per-rate-cell drafts (this session), keyed `${row_index}:${col}`. A draft
   // shows instantly (live amount) until the save's refetch lands, then it is dropped so the
   // cell falls back to the refetched saved rate.
@@ -1449,6 +2285,55 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // rows), colIndex} is null until the user clicks / tabs in. Roving-tabindex: the active
   // cell (or (0,0) before any focus) is the single tab stop; arrows/Enter/Tab move it.
   const [activeCell, setActiveCell] = useState<CellCoord | null>(null);
+  // Slice A (clipboard): the SELECTION anchor. The selected rectangle is (anchor, activeCell);
+  // a plain arrow / plain click COLLAPSES it (anchor follows activeCell), Shift+arrow / Shift+click
+  // EXTENDS it (anchor held). `extendIntentRef` carries the "this focus should extend, not collapse"
+  // bit from the gesture (keyboard sets it before the move; the table mousedown sets it for clicks)
+  // into onCellFocus -- the single place both paths set the anchor. Cleared for free on remount.
+  const [selectionAnchor, setSelectionAnchor] = useState<CellCoord | null>(null);
+  const extendIntentRef = useRef(false);
+  // Slice A (clipboard): the INTERNAL clipboard (a ref -- no re-render needed; a per-instance ref
+  // is cleared for free by the page's key={sheetName::version} remount, NEVER navigator.clipboard).
+  const clipboardRef = useRef<ClipboardBlock | null>(null);
+  // Slice B (undo/redo): the session history (undo/redo stacks of rate-delta gestures). useState so
+  // canUndo/canRedo can drive the onHistoryChange effect; a synced ref lets the imperative undo()/
+  // redo() read the CURRENT stacks. Cleared for free by the page's key={sheetName::version} remount
+  // (undoing into a different sheet/version is incoherent). isReplayingRef guards the capture path
+  // from re-recording a replay's writes (a re-record loop).
+  const [history, setHistory] = useState<HistoryState>(emptyHistory);
+  const historyRef = useRef<HistoryState>(history);
+  historyRef.current = history;
+  const isReplayingRef = useRef(false);
+  // Flip-gate for onHistoryChange: the last {canUndo, canRedo} emitted to the page, so the effect
+  // fires only when a boolean actually changes (init {false,false} = the page default + empty start).
+  const prevHistoryFlagsRef = useRef<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
+  // The imperative handle is built once (deps [jumpToRow]); these refs let it call the LATEST
+  // undo/redo closures (which close over the current rows/override) without rebuilding the handle.
+  const undoRef = useRef<() => void>(() => {});
+  const redoRef = useRef<() => void>(() => {});
+  // Slice A (clipboard) context menu: the controlled right-click menu's open-state + cursor anchor
+  // (x,y) + the enabled flags SNAPSHOT computed at open-time (so the non-reactive clipboardRef is
+  // read fresh for Paste, not via a stale render-time prop). Transient interaction state -- NOT a
+  // lifted "hasClipboard" store; it exists only while the menu is open.
+  const [menu, setMenu] = useState<{
+    open: boolean;
+    x: number;
+    y: number;
+    canCopy: boolean;
+    canCut: boolean;
+    canPaste: boolean;
+    canFill: boolean;
+  }>({ open: false, x: 0, y: 0, canCopy: false, canCut: false, canPaste: false, canFill: false });
+  // Slice A (clipboard): a transient per-row map (array rowIdx -> CSV of skipped colIndices) for the
+  // amber paste/fill skip flash, self-clearing after a few seconds; plus a short status message for
+  // the paste summary / shape-mismatch reject. Both surface the copy-forward partial-outcome posture.
+  const [skipFlash, setSkipFlash] = useState<Map<number, string>>(() => new Map());
+  const skipFlashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clipboardMsg, setClipboardMsg] = useState<string | null>(null);
+  const clipboardMsgTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Per-cell focusable element, keyed `${rowIndex}:${colIndex}` -- the <input> for a rate
   // cell, the <td> for every other cell. Used to .focus() the target on a keyboard move.
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -1457,6 +2342,40 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // a click. Holds the ARRAY index (rowIdx) of the open row, or null. RemarkCell's
   // draft/saving/error stay local; only open is controlled here.
   const [openRemarkRowIdx, setOpenRemarkRowIdx] = useState<number | null>(null);
+  // Parent-jump landing flash: the Excel row currently flashed blue (null = none). Set by
+  // jumpToRow, auto-cleared after 3s via flashTimeoutRef. Grid-level -- only the derived per-row
+  // boolean (isJumpFlashRow) enters the row + the memo comparator. Resets for free on a
+  // sheet-switch (the page remounts the grid key={sheetName}); also cleared on unmount below.
+  const [flashExcelRow, setFlashExcelRow] = useState<number | null>(null);
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Frozen-left + column-resize: per-column width OVERRIDES (sparse -- absent => the seed). Width
+  // is GRID-LEVEL (the colgroup + the frozen-offset CSS vars live on the table, NOT on a per-row
+  // prop) so the row memo stays intact. Session-only: reset per sheet by the key={sheetName}
+  // remount. resizeRef holds the in-flight drag; containerRef (below) backs the autofit measure.
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const resizeRef = useRef<{ key: string; startX: number; startWidth: number; isRate: boolean } | null>(null);
+  // The OUTER container ref backs the double-click autofit measure. It is on the bordered wrapper
+  // (NOT the <table>) so the [data-colkey] query spans BOTH panes when the grid is split.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Frozen-left Slice 1 ("Fork A"): captured per-row heights (px), keyed by the stable
+  // row.row_index. Populated by the measure-at-freeze layout-effect below; {} when unfrozen
+  // (rows return to natural auto-height). Resets to {} for free on a sheet/version switch (the
+  // grid remounts via key={sheetName::version}). frozenPaneRef/scrollPaneRef back the vertical-
+  // scroll coupling (the scrolling pane drives; the frozen pane mirrors its scrollTop). splitRef
+  // mirrors the render-time `split` so the stable focus/jump callbacks can read it at event time.
+  const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
+  // Frozen-left Slice 2 -- manual row-resize (Option A, owner-locked). MANUALLY-dragged heights
+  // live in a SEPARATE map (keyed by row.row_index). The two maps are distinct so the origin of a
+  // height is unambiguous: the APPLIED height for a row = manualRowHeights[ri] ?? rowHeights[ri]
+  // (manual wins). manualRowHeights SURVIVES unfreeze (only the captured `rowHeights` is cleared),
+  // so a re-freeze keeps the user's dragged rows and re-measures only the rest; a column-resize
+  // re-measure (below) refreshes captured rows WITHOUT touching manual. BOTH reset on the
+  // sheet/version remount (key={sheetName::version}) -- session+sheet scoped, no backend persist.
+  const [manualRowHeights, setManualRowHeights] = useState<Record<number, number>>({});
+  const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
+  const frozenPaneRef = useRef<HTMLDivElement | null>(null);
+  const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  const splitRef = useRef(false);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -1477,10 +2396,40 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Effective depth per row (reused helper -- single source of truth with the review tree).
   const depths = useMemo(() => computeDepths(rows), [rows]);
 
-  // Descriptor-driven columns: everything except the sl_no / description anchors.
+  // Collapse/expand context value: stable across a keystroke (only `collapsed` / the page-built
+  // `childrenByParent` / `onToggleCollapse` move it). The chevrons consume it; the memoized
+  // PricingGridRow does NOT -- so a collapse toggle re-paints only the chevrons (R6). `anyParents`
+  // is false on a flat sheet (childrenByParent empty) -> no chevrons/spacers render there.
+  const emptyChildrenMap = useMemo(() => new Map<number, number[]>(), []);
+  const collapseChildren = childrenByParent ?? emptyChildrenMap;
+  const collapseCtxValue = useMemo<CollapseCtx>(
+    () => ({
+      collapsed: collapsed ?? new Set<number>(),
+      childrenByParent: collapseChildren,
+      onToggle: onToggleCollapse ?? (() => {}),
+      anyParents: !!onToggleCollapse && collapseChildren.size > 0,
+    }),
+    [collapsed, collapseChildren, onToggleCollapse],
+  );
+
+  // Descriptor-driven columns: everything except the sl_no / description anchors. This is the
+  // FULL set -- kept for the data-fanout concerns (commitRate's cross-area prefill, autoSave
+  // lookup) so they operate over ALL columns regardless of what is hidden, AND so commitRate's
+  // useCallback dep stays stable across a column-hide (a hide must not churn commitRate's
+  // identity, which the row memo compares).
   const displayDescriptors = useMemo(
     () => columnDescriptors.filter((d) => !FIXED_ROLE_DEDUPE.has(d.role)),
     [columnDescriptors],
+  );
+  // Toolbar Part 1 -- column-hide: the RENDERED + NAV descriptor set = the full set MINUS the
+  // user-hidden non-amount columns (amount columns are NEVER hidden -- isColumnVisible). Used for
+  // the header <th> map, the per-row <td> map, and ALL nav dims (remarksColIndex / colCount), so
+  // the colIndex matrix re-indexes uniformly over the visible set -- the cursor can never land on
+  // a hidden column (the column analog of the displayRows row nav-skip). At default (nothing
+  // hidden) this === displayDescriptors content, so behaviour is byte-identical.
+  const visibleDescriptors = useMemo(
+    () => displayDescriptors.filter((d) => isColumnVisible(d, hiddenCols)),
+    [displayDescriptors, hiddenCols],
   );
   const slNoLetter = useMemo(
     () => columnDescriptors.find((d) => d.role === "sl_no")?.col ?? null,
@@ -1525,7 +2474,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     committedAttemptRef.current[key] = rawValue;
     const num = parseFloat(rawValue);
     const rate = Number.isFinite(num) ? num : 0;
-    void onSaveRate(buildRateCell(row, d), rate)
+    // Slice B (undo/redo): the OLD numeric rate, captured BEFORE the write (past the
+    // rawValue===saved early-return, so a no-op never makes an entry). Recorded as a 1-delta
+    // gesture only on SUCCESS (.then), so a failed write -- which keeps the draft -- never enters
+    // history. Skipped when this commit is itself a replay (the re-record guard).
+    const oldNum = Number.isFinite(parseFloat(saved)) ? parseFloat(saved) : 0;
+    const cellArgs = buildRateCell(row, d);
+    void onSaveRate(cellArgs, rate)
       .then(() => {
         // Success: drop the optimistic draft so the cell shows the refetched saved rate.
         setDraftRates((prev) => {
@@ -1534,6 +2489,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           return next;
         });
         delete committedAttemptRef.current[key];
+        if (!isReplayingRef.current) {
+          setHistory((h) =>
+            pushEntry(h, { deltas: [{ cell: cellArgs, draftKey: key, oldRate: oldNum, newRate: rate }] }),
+          );
+        }
         // Phase-2 prefill: on a successful PER-AREA rate save, OFFER the same value as a
         // PROPOSED (display-only) rate in the corresponding rate column of the OTHER
         // area(s) for THIS row -- but only into EMPTY cells (not priced, no user draft).
@@ -1600,7 +2560,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // includes it (+1). The +1 only widens nextCell's right/Tab boundary so arrows/Tab reach
   // the remarks cell; no other colIndex math reads colCount (descriptor cells use
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
-  const remarksColIndex = FIXED_ANCHOR_COUNT + displayDescriptors.length;
+  // Nav dims over the VISIBLE descriptor set (column-hide aware) so the matrix stays consistent
+  // with what is rendered -- a hidden column is absent from the matrix + the ref map.
+  const remarksColIndex = FIXED_ANCHOR_COUNT + visibleDescriptors.length;
   const colCount = remarksColIndex + 1;
   const anyCellActive = activeCell !== null;
 
@@ -1616,15 +2578,92 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   const onCellFocus = useCallback((r: number, c: number) => {
     setActiveCell({ rowIndex: r, colIndex: c });
+    // Slice A (clipboard): the focus IS the new selection FOCUS. extendIntentRef (set by the
+    // gesture just before focus) decides whether the anchor is HELD (Shift+arrow / Shift+click ->
+    // extend) or RESET to here (plain arrow / plain click -> collapse). Consumed once, then reset.
+    if (extendIntentRef.current) {
+      setSelectionAnchor((a) => a ?? { rowIndex: r, colIndex: c });
+    } else {
+      setSelectionAnchor({ rowIndex: r, colIndex: c });
+    }
+    extendIntentRef.current = false;
+  }, []);
+
+  // Slice A (clipboard): a Shift held at pointer-down means "extend the selection to the clicked
+  // cell" -- record it for the imminent onCellFocus (mousedown precedes focus). Table-level so it
+  // needs no per-cell prop (memo untouched); attached via onMouseDownCapture on each table.
+  const onTableMouseDown = useCallback((e: ReactMouseEvent) => {
+    extendIntentRef.current = e.shiftKey;
   }, []);
 
   const focusCell = useCallback((r: number, c: number) => {
     const el = cellRefs.current.get(navKey(r, c));
-    if (el) {
-      el.focus();
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (!el) return;
+    // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
+    // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
+    // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
+    // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
+    // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
+    if (splitRef.current) {
+      el.focus({ preventScroll: true });
+      if (c >= FIXED_ANCHOR_COUNT) {
+        el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      } else {
+        scrollPaneRef.current
+          ?.querySelector(`tr[data-rowidx="${r}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }
+      return;
     }
+    el.focus();
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, []);
+
+  // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
+  // excelRow -> array index (rowsRef is synced each render), then focuses + centers that row's
+  // col-0 cell (registered in cellRefs, a stable ref); a target not in the rendered set is a
+  // safe no-op. Reference-stable (deps []: only refs are read) -> memo-safe as a row prop. The
+  // imperative scrollToRow (search / review-strip) delegates here so there is ONE jump path.
+  const jumpToRow = useCallback((excelRow: number) => {
+    // Reveal-then-scroll (R5): if the target sits under collapsed parents, ask the page to
+    // expand them FIRST. revealed === true means the page mutated `collapsed`, so the target is
+    // not yet in the rendered rows -- defer the scroll one tick (50ms, mirroring ReviewTree) so
+    // the reveal re-render lands (rowsRef + cellRefs update) before we resolve + scroll. Nothing
+    // collapsed on the chain (the common case) -> revealed false -> scroll synchronously, exactly
+    // as before (no behaviour change when collapse is unused).
+    const revealed = onRevealRow ? onRevealRow(excelRow) : false;
+    const doScroll = () => {
+      const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
+      if (idx < 0) return;
+      const el = cellRefs.current.get(navKey(idx, 0));
+      if (el) {
+        if (splitRef.current) {
+          // Split: col-0 lives in the frozen pane. Focus it WITHOUT auto-scroll (avoids desyncing
+          // the panes), then scroll the SCROLLING pane's counterpart <tr> -- its onScroll mirrors
+          // scrollTop back to the frozen pane so both land together.
+          el.focus({ preventScroll: true });
+          scrollPaneRef.current
+            ?.querySelector(`tr[data-rowidx="${idx}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }
+      // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
+      // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
+      // latest jump's flash replaces the prior. setState updater + a timeout ref keep this
+      // useCallback reference-stable, so the onJumpToRow row prop stays memo-safe.
+      setFlashExcelRow(excelRow);
+      if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = setTimeout(() => {
+        setFlashExcelRow(null);
+        flashTimeoutRef.current = null;
+      }, 3000);
+    };
+    if (revealed) setTimeout(doScroll, 50);
+    else doScroll();
+  }, [onRevealRow]);
 
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
   // passes its own array index; open=true makes it the single open editor, false closes it.
@@ -1632,11 +2671,480 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     setOpenRemarkRowIdx(open ? rowIndexArg : null);
   }, []);
 
+  // ── Slice A: in-grid clipboard (copy / cut / paste / fill-down) ──────────────────
+  // These read CURRENT render state (rows / visibleDescriptors / override / draftRates), so they
+  // are plain render-scope fns (recreated each render, like handleGridKeyDown / commitActiveRate).
+  // The WRITE side routes EXCLUSIVELY through onBatchWrite (ONE trailing mutate -- the Q5 finding) so
+  // there is a SINGLE funnel a later Slice-B undo wrapper can tap; nothing here calls a save endpoint
+  // directly. Internal clipboard only (clipboardRef), NEVER navigator.clipboard.
+
+  // The descriptor at a grid colIndex (descriptor columns only), else null.
+  const descriptorAt = (c: number): ColumnDescriptor | null =>
+    c >= FIXED_ANCHOR_COUNT && c <= remarksColIndex - 1
+      ? (visibleDescriptors[c - FIXED_ANCHOR_COUNT] ?? null)
+      : null;
+  // A target cell's kind: remark (last col), rate (a rate descriptor), else "other" (anchor/amount/qty).
+  const cellKindAt = (c: number): CellKind => {
+    if (c === remarksColIndex) return "remark";
+    const d = descriptorAt(c);
+    return d && isRateDescriptor(d) ? "rate" : "other";
+  };
+  // Is the rate cell at (row, c) actually writable? Mirrors the inline edit gate EXACTLY: the cell
+  // axis (isRateDescriptor) + the sheet gate (formulasComplete, ANDed OUTSIDE) + the row axis
+  // (isRateEditableRow incl. the override). A paste can no more bypass these than a keystroke can.
+  const rateWritableAt = (row: PricedRow, c: number): boolean => {
+    const d = descriptorAt(c);
+    return !!d && isRateDescriptor(d) && formulasComplete && isRateEditableRow(row, override);
+  };
+  // Read one cell's copyable value (the optimistic draft when present, else the saved value). Returns
+  // a SKIP hole (null) for a non-copyable cell (anchor / amount / qty / out-of-range).
+  const readCellForCopy = (rArr: number, c: number): ClipCell => {
+    const row = rows[rArr];
+    if (!row) return null;
+    if (c === remarksColIndex) return { kind: "remark", value: row.remark ?? "" };
+    const d = descriptorAt(c);
+    if (!d || !isRateDescriptor(d)) return null;
+    const key = cellKey(row.row_index, d.col);
+    return { kind: "rate", value: draftRates[key] ?? savedRateStr(row, d) };
+  };
+  // The active gesture's target rectangle = the live selection, else the single active cell (1x1).
+  const activeRect = (): SelRect | null => {
+    if (!activeCell) return null;
+    if (selectionAnchor) return selectionRect(selectionAnchor, activeCell);
+    return {
+      top: activeCell.rowIndex,
+      bottom: activeCell.rowIndex,
+      left: activeCell.colIndex,
+      right: activeCell.colIndex,
+    };
+  };
+  // Build a clipboard block from a rectangle (copy / cut source).
+  const blockFromRect = (rect: SelRect): ClipboardBlock => {
+    const cells: ClipCell[][] = [];
+    for (let r = rect.top; r <= rect.bottom; r++) {
+      const rowCells: ClipCell[] = [];
+      for (let c = rect.left; c <= rect.right; c++) rowCells.push(readCellForCopy(r, c));
+      cells.push(rowCells);
+    }
+    const { rows: rr, cols: cc } = rectDims(rect);
+    return { rows: rr, cols: cc, cells };
+  };
+
+  // Show a transient status line (paste summary / shape-mismatch reject), auto-clearing.
+  const showClipboardMsg = (msg: string) => {
+    setClipboardMsg(msg);
+    if (clipboardMsgTimeoutRef.current) clearTimeout(clipboardMsgTimeoutRef.current);
+    clipboardMsgTimeoutRef.current = setTimeout(() => {
+      setClipboardMsg(null);
+      clipboardMsgTimeoutRef.current = null;
+    }, 4000);
+  };
+  // Flash the amber "skipped" ring on a set of (arrayRow, colIndex) cells, self-clearing (memo-safe
+  // per-row CSV scalars, NOT a shared object handed to a row).
+  const flashSkips = (skips: { r: number; c: number }[]) => {
+    const byRow = new Map<number, number[]>();
+    for (const s of skips) {
+      const a = byRow.get(s.r) ?? [];
+      a.push(s.c);
+      byRow.set(s.r, a);
+    }
+    const csv = new Map<number, string>();
+    for (const [r, cs] of byRow) csv.set(r, cs.sort((a, b) => a - b).join(","));
+    setSkipFlash(csv);
+    if (skipFlashTimeoutRef.current) clearTimeout(skipFlashTimeoutRef.current);
+    skipFlashTimeoutRef.current = setTimeout(() => {
+      setSkipFlash(new Map());
+      skipFlashTimeoutRef.current = null;
+    }, 2500);
+  };
+  const pasteSummary = (written: number, crossKind: number, nonPriceable: number): string => {
+    const head = `Wrote ${written} cell${written === 1 ? "" : "s"}`;
+    const bits: string[] = [];
+    if (nonPriceable) bits.push(`${nonPriceable} not priceable`);
+    if (crossKind) bits.push(`${crossKind} wrong type`);
+    return bits.length ? `${head}; skipped ${bits.join(", ")}.` : `${head}.`;
+  };
+
+  // Apply resolved writes optimistically (rate drafts show instantly) + fire the ONE-mutate batch.
+  // After the batch settles (its single mutate landed), drop the optimistic drafts so the cells fall
+  // back to the refetched saved values (on a partial failure the dropped draft reverts to the prior
+  // saved value -- honest, no fake atomicity). Remarks have no draft layer -> they rely on the mutate.
+  // Returns the batch promise (resolves to BatchOutcome) so a caller can read outcome.written --
+  // the LANDED count (handleBatchWrite applies sequentially + breaks on first failure, so the
+  // first `written` entries of `writes` are exactly the successes). undefined when read-only / empty.
+  const runBatch = (
+    writes: BatchWrite[],
+    optimisticDrafts: Record<string, string>,
+  ): Promise<BatchOutcome> | undefined => {
+    if (!onBatchWrite || writes.length === 0) return undefined;
+    const draftKeys = Object.keys(optimisticDrafts);
+    if (draftKeys.length > 0) {
+      setDraftRates((prev) => ({ ...prev, ...optimisticDrafts }));
+      setProposedRates((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const k of draftKeys)
+          if (next[k] !== undefined) {
+            delete next[k];
+            changed = true;
+          }
+        return changed ? next : prev;
+      });
+    }
+    return onBatchWrite(writes).finally(() => {
+      if (draftKeys.length > 0) {
+        setDraftRates((prev) => {
+          const next = { ...prev };
+          for (const k of draftKeys) delete next[k];
+          return next;
+        });
+      }
+    });
+  };
+
+  // Slice B (undo/redo): record a batch gesture's LANDED rate deltas as ONE history entry. `deltas`
+  // is aligned 1:1 with the `writes` array (null where a write was a remark -- not undoable);
+  // `written` is the outcome's landed count, so only deltas[i] for i < written (and non-null) are
+  // recorded. Skipped while replaying (the re-record guard) and when nothing landed.
+  const recordLandedBatch = (deltas: (RateDelta | null)[], written: number) => {
+    if (isReplayingRef.current) return;
+    const landed: RateDelta[] = [];
+    for (let i = 0; i < written && i < deltas.length; i++) {
+      const dlt = deltas[i];
+      if (dlt) landed.push(dlt);
+    }
+    if (landed.length > 0) setHistory((h) => pushEntry(h, { deltas: landed }));
+  };
+
+  // Slice B (undo/redo): a target cell's current SAVED rate as a number (the "old" for a delta) --
+  // mirrors commitRate's saved-value semantics (blank / non-number -> 0).
+  const savedRateNum = (row: PricedRow, d: ColumnDescriptor): number => {
+    const n = parseFloat(savedRateStr(row, d));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const doCopy = () => {
+    const rect = activeRect();
+    if (!rect) return;
+    const block = blockFromRect(rect);
+    clipboardRef.current = block;
+    const n = block.cells.reduce((s, row) => s + row.filter(Boolean).length, 0);
+    showClipboardMsg(
+      n > 0 ? `Copied ${n} cell${n === 1 ? "" : "s"}.` : "Nothing copyable in the selection.",
+    );
+  };
+
+  const doCut = () => {
+    const rect = activeRect();
+    if (!rect) return;
+    const block = blockFromRect(rect);
+    clipboardRef.current = block;
+    if (!onBatchWrite) {
+      showClipboardMsg("Copied (sheet is read-only -- source not cleared).");
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const cell = block.cells[i][j];
+        if (!cell) continue;
+        const r = rect.top + i;
+        const c = rect.left + j;
+        const row = rows[r];
+        if (!row) continue;
+        if (cell.kind === "remark") {
+          writes.push({
+            kind: "remark",
+            args: { excelRow: row.source_row_number, remark: "", description: row.description ?? undefined },
+          });
+          deltas.push(null);
+        } else {
+          const d = descriptorAt(c);
+          if (d && rateWritableAt(row, c)) {
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate: 0 });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: 0 });
+            drafts[dk] = "";
+          } else {
+            skips.push({ r, c });
+          }
+        }
+      }
+    }
+    flashSkips(skips);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
+    showClipboardMsg(
+      skips.length
+        ? `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}; skipped ${skips.length} (not writable).`
+        : `Cut ${writes.length} cell${writes.length === 1 ? "" : "s"}.`,
+    );
+  };
+
+  const doPaste = () => {
+    const block = clipboardRef.current;
+    if (!block) {
+      showClipboardMsg("Clipboard is empty -- copy cells first.");
+      return;
+    }
+    if (!onBatchWrite) return; // locked / read-only: paste no-ops
+    const rect = activeRect();
+    if (!rect) return;
+    const target = rectDims(rect);
+    if (!shapesMatch({ rows: block.rows, cols: block.cols }, target)) {
+      showClipboardMsg(
+        `Paste cancelled: the copied ${block.rows}x${block.cols} block doesn't match the ${target.rows}x${target.cols} selection. Nothing was written.`,
+      );
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    let crossKind = 0;
+    let nonPriceable = 0;
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const clip = block.cells[i][j];
+        if (!clip) continue; // a SKIP hole pastes nothing
+        const r = rect.top + i;
+        const c = rect.left + j;
+        const row = rows[r];
+        if (!row) continue;
+        const verdict = classifyPasteTarget(
+          clip.kind,
+          cellKindAt(c),
+          clip.kind === "rate" && rateWritableAt(row, c),
+        );
+        if (verdict === "WRITE") {
+          if (clip.kind === "remark") {
+            writes.push({
+              kind: "remark",
+              args: { excelRow: row.source_row_number, remark: clip.value, description: row.description ?? undefined },
+            });
+            deltas.push(null);
+          } else {
+            const d = descriptorAt(c);
+            if (!d) {
+              skips.push({ r, c });
+              continue;
+            }
+            const num = parseFloat(clip.value);
+            const rate = Number.isFinite(num) ? num : 0;
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
+            drafts[dk] = clip.value;
+          }
+        } else {
+          skips.push({ r, c });
+          if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else nonPriceable++;
+        }
+      }
+    }
+    flashSkips(skips);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
+    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+  };
+
+  const doFillDown = () => {
+    if (!onBatchWrite) return; // locked / read-only: fill no-ops
+    const rect = activeRect();
+    if (!rect || rect.bottom === rect.top) {
+      showClipboardMsg("Fill down needs a selection spanning more than one row.");
+      return;
+    }
+    const writes: BatchWrite[] = [];
+    const deltas: (RateDelta | null)[] = []; // Slice B: 1:1 with writes (null = remark, not undoable)
+    const drafts: Record<string, string> = {};
+    const skips: { r: number; c: number }[] = [];
+    let crossKind = 0;
+    let nonPriceable = 0;
+    for (let c = rect.left; c <= rect.right; c++) {
+      const top = readCellForCopy(rect.top, c);
+      if (!top) continue; // a non-copyable top cell -> skip the whole column silently
+      for (let r = rect.top + 1; r <= rect.bottom; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const verdict = classifyPasteTarget(
+          top.kind,
+          cellKindAt(c),
+          top.kind === "rate" && rateWritableAt(row, c),
+        );
+        if (verdict === "WRITE") {
+          if (top.kind === "remark") {
+            writes.push({
+              kind: "remark",
+              args: { excelRow: row.source_row_number, remark: top.value, description: row.description ?? undefined },
+            });
+            deltas.push(null);
+          } else {
+            const d = descriptorAt(c);
+            if (!d) {
+              skips.push({ r, c });
+              continue;
+            }
+            const num = parseFloat(top.value);
+            const rate = Number.isFinite(num) ? num : 0;
+            const cellArgs = buildRateCell(row, d);
+            const dk = cellKey(row.row_index, d.col);
+            writes.push({ kind: "rate", cell: cellArgs, rate });
+            deltas.push({ cell: cellArgs, draftKey: dk, oldRate: savedRateNum(row, d), newRate: rate });
+            drafts[dk] = top.value;
+          }
+        } else {
+          skips.push({ r, c });
+          if (verdict === "SKIP_CROSS_KIND") crossKind++;
+          else nonPriceable++;
+        }
+      }
+    }
+    flashSkips(skips);
+    void runBatch(writes, drafts)?.then((o) => recordLandedBatch(deltas, o.written));
+    showClipboardMsg(pasteSummary(writes.length, crossKind, nonPriceable));
+  };
+
+  // ── Slice B: undo / redo -- replay rate gestures through the EXISTING save path ────
+  // A delta-based replay: build BatchWrite[] from the entry's deltas and fire the grid's OWN
+  // runBatch -> onBatchWrite (ONE trailing mutate, server-consistent). isReplayingRef stops the
+  // capture path from re-recording the replay. Per-delta the target is RE-GATED (a now non-priceable
+  // row / hidden-irrelevant) via isDeltaWritable, mirroring the clipboard skip posture -- a replay
+  // never forces a write past a gate. A locked / read-only sheet (no onBatchWrite) -> the whole
+  // undo/redo no-ops, exactly like paste.
+
+  // Is this delta's target still a writable rate cell NOW? Resolve the row by excel row + the
+  // descriptor by col over the FULL set (column-hide must NOT block an undo), then apply the SAME
+  // server-mirrored gate (rate descriptor + formulasComplete + isRateEditableRow).
+  const isDeltaWritable = (delta: RateDelta): boolean => {
+    const row = rows.find((r) => r.source_row_number === delta.cell.excelRow);
+    if (!row) return false;
+    const dd = displayDescriptors.find((x) => x.col === delta.cell.colLetter);
+    if (!dd || !isRateDescriptor(dd)) return false;
+    return formulasComplete && isRateEditableRow(row, override);
+  };
+
+  // Replay one entry: write each still-writable delta's newRate (undo passes invert(entry), so its
+  // newRate is the OLD value). No history capture (runBatch is the low-level path; isReplayingRef is
+  // the belt-and-suspenders guard). Skipped deltas are simply not written.
+  const replayEntry = (entry: HistoryEntry) => {
+    if (!onBatchWrite) return;
+    const live = entry.deltas.filter(isDeltaWritable);
+    if (live.length === 0) return;
+    isReplayingRef.current = true;
+    try {
+      const writes: BatchWrite[] = live.map((d) => ({ kind: "rate", cell: d.cell, rate: d.newRate }));
+      const drafts: Record<string, string> = {};
+      for (const d of live) drafts[d.draftKey] = String(d.newRate);
+      void runBatch(writes, drafts);
+    } finally {
+      isReplayingRef.current = false;
+    }
+  };
+
+  const undo = () => {
+    if (!onBatchWrite) return; // read-only / locked -> no-op
+    const r = popUndo(historyRef.current);
+    if (!r) return;
+    setHistory({ undo: r.state.undo, redo: [...r.state.redo, r.entry] }); // move undo -> redo
+    replayEntry(invert(r.entry)); // write the OLD rates
+  };
+  const redo = () => {
+    if (!onBatchWrite) return;
+    const r = popRedo(historyRef.current);
+    if (!r) return;
+    setHistory({ undo: [...r.state.undo, r.entry], redo: r.state.redo }); // move redo -> undo
+    replayEntry(r.entry); // write the NEW rates again
+  };
+  // Keep refs to the latest closures so the (stable) imperative handle always calls the fresh
+  // undo/redo (which close over the current rows/override/etc.) without rebuilding the handle.
+  undoRef.current = undo;
+  redoRef.current = redo;
+
+  // ── Slice A: right-click CONTEXT MENU -- a SECOND trigger for the SAME doX fns ────
+  // A pure alternate trigger: every item calls the EXISTING doCopy/doCut/doPaste/doFillDown, so a
+  // menu action is byte-for-byte a keyboard action (same selection semantics, status strip, skip
+  // flash). The menu is GRID-LEVEL (the onContextMenu is on the 3 <table>s, like onTableMouseDown
+  // -- no per-row prop, memo untouched). It reuses the house DropdownMenu (no new dep) as a
+  // CONTROLLED menu anchored to a 0-size cursor-positioned trigger; DropdownMenuContent portals to
+  // <body>, so it is never clipped by a pane's overflow + gets Esc / click-away / focus for free.
+
+  // Resolve a clicked cell's grid colIndex from its EXISTING data-colkey (every cell carries one:
+  // a0..a4 anchors / "d:<col>" descriptors / "remarks"). No new per-cell attribute needed.
+  const colIndexFromColKey = (colkey: string | undefined): number | null => {
+    if (!colkey) return null;
+    const anchor = ANCHOR_WIDTH_KEYS.indexOf(colkey as (typeof ANCHOR_WIDTH_KEYS)[number]);
+    if (anchor >= 0) return anchor; // a0..a4 -> 0..4
+    if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
+    const idx = visibleDescriptors.findIndex((d) => columnWidthKey("descriptor", d.col) === colkey);
+    return idx >= 0 ? FIXED_ANCHOR_COUNT + idx : null;
+  };
+
+  // Compute each menu item's enabled state for a target rect NOW (open-time), reading the
+  // NON-reactive clipboardRef FRESH (a render-time disabled prop would read stale). Copy needs any
+  // copyable cell; Cut needs onBatchWrite + any writable cell; Paste needs onBatchWrite + a
+  // non-empty clipboard; Fill-down needs onBatchWrite + a >1-row rect. Reuses the SAME
+  // blockFromRect / rateWritableAt the doX fns use -- no divergent logic.
+  const computeMenuFlags = (rect: SelRect) => {
+    const block = blockFromRect(rect);
+    let copyable = false;
+    let writable = false;
+    for (let i = 0; i < block.rows; i++) {
+      for (let j = 0; j < block.cols; j++) {
+        const cell = block.cells[i][j];
+        if (!cell) continue;
+        copyable = true;
+        const row = rows[rect.top + i];
+        if (!row) continue;
+        if (cell.kind === "remark" || rateWritableAt(row, rect.left + j)) writable = true;
+      }
+    }
+    return {
+      canCopy: copyable,
+      canCut: !!onBatchWrite && writable,
+      canPaste: !!onBatchWrite && clipboardRef.current !== null,
+      canFill: !!onBatchWrite && rect.bottom > rect.top,
+    };
+  };
+
+  // Right-click a cell: suppress the native menu, ESTABLISH the target (inside the current
+  // multi-cell selection -> PRESERVE it, operate on the whole range; outside / no selection ->
+  // COLLAPSE to the clicked cell via focusCell, which onCellFocus reduces to a 1x1 selection),
+  // then OPEN the menu at the cursor with open-time enabled flags. A non-cell target (header /
+  // gutter -- no resolvable row) falls through to the native menu.
+  const onCellContextMenu = (e: ReactMouseEvent) => {
+    const target = e.target as HTMLElement;
+    const trEl = target.closest<HTMLElement>("[data-navr]");
+    const cellEl = target.closest<HTMLElement>("[data-colkey]");
+    if (!trEl || !cellEl) return; // not a grid cell -> leave the native menu
+    const r = Number(trEl.dataset.navr);
+    const c = colIndexFromColKey(cellEl.dataset.colkey);
+    if (!Number.isFinite(r) || c === null) return;
+    e.preventDefault();
+    const sel =
+      selectionAnchor && activeCell ? selectionRect(selectionAnchor, activeCell) : null;
+    const inside = !!sel && r >= sel.top && r <= sel.bottom && c >= sel.left && c <= sel.right;
+    const rect: SelRect = inside ? sel : { top: r, bottom: r, left: c, right: c };
+    if (!inside) {
+      // Collapse to the clicked cell. extendIntentRef=false so onCellFocus (fired by focusCell)
+      // reduces the selection to (r,c) -- never accidentally extends from a Shift+right-click.
+      extendIntentRef.current = false;
+      focusCell(r, c);
+    }
+    setMenu({ open: true, x: e.clientX, y: e.clientY, ...computeMenuFlags(rect) });
+  };
+
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
     if (!onSaveRate || cell.colIndex < FIXED_ANCHOR_COUNT) return;
-    const d = displayDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
+    // colIndex is over the VISIBLE descriptor set (column-hide aware) -- reverse-map through the
+    // SAME visibleDescriptors the cells render from, else a hidden column would shift the lookup.
+    const d = visibleDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
     if (!d || !isRateDescriptor(d)) return;
     const row = rows[cell.rowIndex];
     if (!row) return;
@@ -1650,6 +3158,47 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // and Tab never escapes the grid (at an edge: commit + stay put).
   const handleGridKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
     if (!activeCell) return;
+    // Slice A (clipboard): Ctrl/Cmd + C/X/V/D act on the active cell or the selection. Checked
+    // BEFORE the nav mapping; each preventDefaults. Undo/redo (Z/Y) are Slice B -- deliberately NOT
+    // bound here; any OTHER modifier combo falls through untouched (Ctrl+A etc.), and plain typing /
+    // the input's decimal guard are never reached (a modifier is held), so they stay intact.
+    if (e.ctrlKey || e.metaKey) {
+      const k = e.key.toLowerCase();
+      if (k === "c") {
+        e.preventDefault();
+        doCopy();
+        return;
+      }
+      if (k === "x") {
+        e.preventDefault();
+        doCut();
+        return;
+      }
+      if (k === "v") {
+        e.preventDefault();
+        doPaste();
+        return;
+      }
+      if (k === "d") {
+        e.preventDefault();
+        doFillDown();
+        return;
+      }
+      // Slice B (undo/redo): Ctrl/Cmd+Z = undo, Ctrl/Cmd+Shift+Z = redo, Ctrl/Cmd+Y = redo
+      // (Windows). preventDefault so a mid-edit rate <input> does NOT also do native text-undo
+      // (keydown bubbles to the table; the input has no onKeyDown). e.shiftKey distinguishes redo.
+      if (k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (k === "y") {
+        e.preventDefault();
+        redo();
+        return;
+      }
+    }
     // Slice 4a.2: Enter on the focused REMARKS cell OPENS its editor (not move-down) --
     // but only when editable (onSaveRemark present). A read-only remarks cell has nothing
     // to open, so Enter falls through to the generic Enter->down below (matching every other
@@ -1658,6 +3207,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       e.preventDefault();
       setOpenRemarkRowIdx(activeCell.rowIndex);
       return;
+    }
+    // Parent click-to-jump: Enter on the focused PARENT cell (col 2) jumps to the parent row
+    // (mirrors the remarks Enter case; mouse-click + Space already activate the button). A ROOT
+    // row has no parent -> fall through to the generic Enter->down so nav is unchanged there.
+    if (activeCell.colIndex === 2 && e.key === "Enter") {
+      const r = rows[activeCell.rowIndex];
+      const parentExcel = r ? parentExcelRowOf(r, byIdx) : null;
+      if (parentExcel !== null) {
+        e.preventDefault();
+        jumpToRow(parentExcel);
+        return;
+      }
     }
     let dir: NavDirection | null = null;
     if (e.key === "ArrowUp") dir = "up";
@@ -1670,7 +3231,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     e.preventDefault(); // own the nav keys: no caret move, no tab-escape
     commitActiveRate(activeCell);
     const next = nextCell(activeCell, dir, rows.length, colCount);
-    if (next) focusCell(next.rowIndex, next.colIndex);
+    if (next) {
+      // Slice A (clipboard): Shift+arrow EXTENDS the selection (hold the anchor, move the focus); a
+      // plain arrow / Enter / Tab collapses it. extendIntentRef is read by onCellFocus after focus
+      // lands. (Shift+Tab stays pure nav -- not a selection-extend gesture.) Set ONLY on a real move.
+      extendIntentRef.current = e.key.startsWith("Arrow") && e.shiftKey;
+      focusCell(next.rowIndex, next.colIndex);
+    }
   };
 
   // ── Slice 3c: dirty signal + force-flush handle + flush-on-unmount ───────────
@@ -1679,6 +3246,21 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   useEffect(() => {
     onDirtyChange?.(hasUnsaved);
   }, [hasUnsaved, onDirtyChange]);
+
+  // Slice B (undo/redo): surface {canUndo, canRedo} up to the page (drives the ribbon buttons'
+  // disabled state) -- the SAME grid->page reactive pattern as onDirtyChange. FLIP-GATED (perf):
+  // `history` gets a NEW object on every edit, so an un-gated effect fired a fresh literal each
+  // keystroke-commit -> a redundant page render even when canUndo/canRedo were unchanged. We emit
+  // ONLY when EITHER boolean actually flips (tracked in a ref, init {false,false} -- matching the
+  // page default + the empty-history start, so observable button state is identical).
+  useEffect(() => {
+    const next = { canUndo: canUndo(history), canRedo: canRedo(history) };
+    const prev = prevHistoryFlagsRef.current;
+    if (next.canUndo !== prev.canUndo || next.canRedo !== prev.canRedo) {
+      prevHistoryFlagsRef.current = next;
+      onHistoryChange?.(next);
+    }
+  }, [history, onHistoryChange]);
 
   // Phase-2 prefill cleanup: when the refetched data shows a cell is now priced, drop any
   // stale proposal for it (a proposal must never linger on a now-priced cell). Keyed on
@@ -1720,20 +3302,16 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           autoSaveCellRef.current(Number(k.slice(0, sep)), k.slice(sep + 1));
         });
       },
-      // Slice 4a: the review-list jump. Resolve the Excel row -> array index (rowsRef is
-      // synced each render), then focus + center the row's first cell (col 0 is registered
-      // in cellRefs, a stable ref) -- onFocus sets activeCell, giving a visible landing.
-      scrollToRow: (excelRow) => {
-        const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
-        if (idx < 0) return;
-        const el = cellRefs.current.get(`${idx}:0`);
-        if (el) {
-          el.focus();
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      },
+      // Slice 4a: the review-list jump. Delegates to the shared jumpToRow (parent click-to-jump
+      // uses the same path) -- resolve Excel row -> array index, focus + center the row's col-0
+      // cell; onFocus sets activeCell, giving a visible landing. Safe no-op if not rendered.
+      scrollToRow: (excelRow) => jumpToRow(excelRow),
+      // Slice B (undo/redo): the ribbon buttons call these; they delegate to the LATEST closures
+      // via refs (synced each render), so the handle need not rebuild when rows/override change.
+      undo: () => undoRef.current(),
+      redo: () => redoRef.current(),
     }),
-    [],
+    [jumpToRow],
   );
 
   // Flush-on-unmount: a typed-but-uncommitted value persists on navigate-away (not dropped).
@@ -1744,6 +3322,172 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     };
   }, []);
 
+  // Parent-jump landing flash: clear any pending 3s clear-timer on unmount (a sheet-switch
+  // remounts the grid key={sheetName}, so flash state resets for free; this guards a true unmount).
+  // Slice A (clipboard): also clear the skip-flash + clipboard-message self-clear timers.
+  useEffect(() => () => {
+    if (flashTimeoutRef.current !== null) clearTimeout(flashTimeoutRef.current);
+    if (skipFlashTimeoutRef.current !== null) clearTimeout(skipFlashTimeoutRef.current);
+    if (clipboardMsgTimeoutRef.current !== null) clearTimeout(clipboardMsgTimeoutRef.current);
+  }, []);
+
+  // ── Frozen-left Slice 1: measure-at-freeze row heights ("Fork A") ────────────────
+  // When freeze turns ON we must capture each row's NATURAL (single-table) height BEFORE the
+  // two-pane split is committed, then apply the SAME captured height to the matching row in both
+  // panes so they stay aligned by construction. The split is gated on rows.every(measured) (see
+  // `split` below), so the render where `frozen` first flips true -- OR where `rows` changed under
+  // freeze (collapse/filter/version) -- still paints the SINGLE table; THIS layout-effect then
+  // runs post-layout / pre-paint, reads the live <tr> heights via the always-registered col-0
+  // cell, and writes them -> the next (synchronous, pre-paint) render commits the split with
+  // heights applied, so the user never sees an unmeasured split frame. Unfreeze clears the map
+  // (rows return to natural auto-height). The grid remounts on sheet/version switch, so the map
+  // resets to {} there for free -- no manual invalidation needed. Slice 2 closed the former
+  // column-resize-while-frozen staleness limitation: a column resize / autofit clears the CAPTURED
+  // map (endResize / autofitColumn below) so this effect re-reads true natural heights for the
+  // non-manual rows -- MANUAL rows (manualRowHeights) are never re-measured here, so a column
+  // resize cannot clobber a user's dragged height (Option A).
+  useLayoutEffect(() => {
+    if (!frozen) {
+      // Unfreeze: clear ONLY the auto-CAPTURED heights; PRESERVE manualRowHeights so a re-freeze
+      // keeps the user's dragged rows (Option A). Functional no-op when already empty (no loop).
+      setRowHeights((prev) => (Object.keys(prev).length ? {} : prev));
+      return;
+    }
+    // Applied height = manual (wins) else captured. Measure only rows that have NEITHER yet -- so a
+    // manual row is never re-measured (its dragged height is authoritative) and an already-captured
+    // row is left alone. A `rows` change under freeze, OR a column-resize clearing `rowHeights` (the
+    // re-measure path), drops an applied height -> `split` goes false -> the single table re-renders
+    // at NATURAL height -> this reads the true (re-wrapped) natural height here, flash-free
+    // (post-layout / pre-paint, same as the freeze measure).
+    if (
+      rows.length > 0 &&
+      rows.every((r) => (manualRowHeights[r.row_index] ?? rowHeights[r.row_index]) != null)
+    )
+      return;
+    const next: Record<number, number> = { ...rowHeights };
+    for (let i = 0; i < rows.length; i++) {
+      const ri = rows[i].row_index;
+      if (manualRowHeights[ri] != null || rowHeights[ri] != null) continue; // already has an applied height
+      const tr = cellRefs.current.get(navKey(i, 0))?.closest("tr");
+      if (tr) next[ri] = Math.ceil(tr.getBoundingClientRect().height);
+    }
+    setRowHeights(next);
+  }, [frozen, rows, rowHeights, manualRowHeights]);
+
+  // ── Resize: live width derivations (recomputed each render from colWidths) ──
+  const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
+  const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
+  // table-fixed needs an explicit total width (NOT w-full -- w-full would let table-fixed
+  // redistribute slack and break the authoritative colgroup widths).
+  const totalWidth =
+    ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0) +
+    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
+    widthOf(REMARKS_WIDTH_KEY);
+  const tableStyle = { width: `${totalWidth}px` };
+
+  // Frozen-left Slice 1: the split is COMMITTED only when freeze is on AND every current row has a
+  // measured height (the measure-at-freeze layout-effect populates rowHeights). Until then -- the
+  // render where freeze just turned on, or where `rows` changed under freeze -- we render the
+  // SINGLE table so the effect can read true natural heights. splitRef mirrors it for the
+  // event-time scroll retarget in focusCell / jumpToRow (they read a ref, not this render var).
+  // Frozen-left Slice 2: the APPLIED height for a row = manual (wins) else captured. The split
+  // commits only when every row has one; the same value is passed to both panes (-> aligned).
+  const appliedRowHeight = (ri: number): number | undefined => manualRowHeights[ri] ?? rowHeights[ri];
+  const split = frozen && rows.length > 0 && rows.every((r) => appliedRowHeight(r.row_index) != null);
+  splitRef.current = split;
+  // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
+  // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
+  const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
+  const scrollPaneTableWidth =
+    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) + widthOf(REMARKS_WIDTH_KEY);
+
+  // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
+  // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
+  const startResize = (key: string, isRate: boolean) => (e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizeRef.current = { key, startX: e.clientX, startWidth: widthOf(key), isRate };
+  };
+  const moveResize = (e: ReactPointerEvent) => {
+    const st = resizeRef.current;
+    if (!st) return;
+    const next = clampColumnWidth(st.startWidth + (e.clientX - st.startX), st.isRate);
+    setColWidths((prev) => (prev[st.key] === next ? prev : { ...prev, [st.key]: next }));
+  };
+  const endResize = (e: ReactPointerEvent) => {
+    if (!resizeRef.current) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    resizeRef.current = null;
+    // Frozen-left Slice 2 -- column-resize re-measure: a column drag may have re-wrapped the
+    // Description, so the CAPTURED heights are now stale. Clearing them (manual heights live in a
+    // separate map, untouched) drops `split` to false for one render -> the single table re-renders
+    // at natural height with the NEW column widths -> the measure layout-effect re-reads the true
+    // natural heights -> split re-commits. All within a layout-effect cycle (pre-paint) -> no flash.
+    if (splitRef.current) setRowHeights({});
+  };
+  // Double-click autofit (D6): measure the column's natural content width. Under table-fixed the
+  // colgroup clamps a cell's CLIENT width, but scrollWidth still reports the full content extent
+  // once we force single-line; we set whiteSpace:nowrap, read scrollWidth, and restore -- all
+  // synchronously (no paint between), so there is no visible flash. data-colkey tags the cells.
+  const autofitColumn = (key: string, isRate: boolean) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const cells = container.querySelectorAll<HTMLElement>(`[data-colkey="${CSS.escape(key)}"]`);
+    let max = 0;
+    cells.forEach((el) => {
+      const prevWS = el.style.whiteSpace;
+      el.style.whiteSpace = "nowrap";
+      if (el.scrollWidth > max) max = el.scrollWidth;
+      el.style.whiteSpace = prevWS;
+    });
+    if (max > 0) {
+      setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
+      // Slice 2: autofit can re-wrap the Description -> re-measure captured rows (see endResize).
+      if (splitRef.current) setRowHeights({});
+    }
+  };
+  // The right-edge drag affordance rendered inside each header <th> (headers carry no other
+  // handlers today). Edge-only (w-1.5, right-0) so on an amount <th> it never overlaps / steals
+  // the ƒ formula-badge popover trigger's click (C4). stopPropagation keeps it off cell focus.
+  const resizeHandle = (key: string, isRate: boolean) => (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize; double-click to autofit"
+      onPointerDown={startResize(key, isRate)}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onDoubleClick={() => autofitColumn(key, isRate)}
+      className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-blue-400/50"
+    />
+  );
+
+  // Frozen-left Slice 2 -- manual row-resize handlers. STABLE (useCallback []) so the memoized row
+  // holds (they only read refs / setters). Mirror the column-resize pointer-capture pattern but on
+  // the Y axis, writing the dragged height into manualRowHeights (the Option-A source of truth that
+  // survives unfreeze). The drag start height is the row's CURRENT applied height (passed in).
+  const onRowResizePointerDown = useCallback(
+    (rowIndexData: number, startHeight: number, e: ReactPointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      rowResizeRef.current = { rowIndex: rowIndexData, startY: e.clientY, startHeight };
+    },
+    [],
+  );
+  const onRowResizePointerMove = useCallback((e: ReactPointerEvent) => {
+    const st = rowResizeRef.current;
+    if (!st) return;
+    const next = clampRowHeight(st.startHeight + (e.clientY - st.startY));
+    setManualRowHeights((prev) => (prev[st.rowIndex] === next ? prev : { ...prev, [st.rowIndex]: next }));
+  }, []);
+  const onRowResizePointerUp = useCallback((e: ReactPointerEvent) => {
+    if (!rowResizeRef.current) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    rowResizeRef.current = null;
+  }, []);
+
   if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
@@ -1752,104 +3496,375 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     );
   }
 
+  // ── Frozen-left Slice 1: shared colgroup / header fragments + the row factory. Rendered into
+  //    ONE table when unfrozen, or split across the two panes when frozen -- the SAME <col>/<th>
+  //    from the SAME colWidths map (never duplicated) and the SAME PricingGridRow props. ──
+  const anchorCols = ANCHOR_WIDTH_KEYS.map((k) => (
+    <col key={k} style={{ width: `${widthOf(k)}px` }} />
+  ));
+  const descriptorCols = visibleDescriptors.map((d) => (
+    <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
+  ));
+  const remarksCol = <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />;
+
+  // Anchor headers: vertical sticky (top-0, z-20). Width comes from the colgroup; the label
+  // truncates single-line (D4) with a title tooltip; the right-edge handle drag-resizes (D1).
+  const anchorHeaderCells = (
+    <>
+      <th
+        data-colkey="a0"
+        title="Excel Row"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Excel Row</span>
+        {resizeHandle("a0", false)}
+      </th>
+      <th
+        data-colkey="a1"
+        title="Sl.No"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">{slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}</span>
+        {resizeHandle("a1", false)}
+      </th>
+      <th
+        data-colkey="a2"
+        title="Parent"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Parent</span>
+        {resizeHandle("a2", false)}
+      </th>
+      <th
+        data-colkey="a3"
+        title="Classification"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">Classification</span>
+        {resizeHandle("a3", false)}
+      </th>
+      <th
+        data-colkey="a4"
+        title="Description"
+        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+      >
+        <span className="block truncate">
+          {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+        </span>
+        {resizeHandle("a4", false)}
+      </th>
+    </>
+  );
+
+  const descriptorHeaderCells = visibleDescriptors.map((d) => {
+    const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+    const isAmount = isAmountDescriptor(d);
+    // PENDING TINT: a subtle amber wash on an amount column with NO covering formula so a wide
+    // sheet is scannable; a covered amount column + every non-amount column keep bg-muted. The
+    // coverage check is the SAME override>wildcard pickFormula the gate + badge use (inline here,
+    // NOT priceability.isAmountColumnCovered -- importing priceability would reverse the one-way
+    // dependency into a cycle). Amber tokens mirror the gate banner.
+    const amountPending =
+      isAmount &&
+      !pickFormula(
+        { value_field: d.value_field, value_key: d.value_key, rate_subkey: d.rate_subkey },
+        columnFormulas,
+      )?.formula;
+    return (
+      <th
+        key={d.col}
+        data-colkey={columnWidthKey("descriptor", d.col)}
+        title={label}
+        className={cn(
+          "px-2 py-2 text-right font-medium text-muted-foreground border-l border-border sticky top-0 z-20 align-top",
+          amountPending ? "bg-amber-50 dark:bg-amber-950/40" : "bg-muted",
+        )}
+      >
+        {/* min-w-0 lets the label truncate (D4); the ƒ badge stays shrink-0 so the resize handle
+            never overlaps / steals its popover-trigger click (C4). */}
+        <span className="flex min-w-0 items-center justify-end gap-1">
+          {/* Formula Builder: the LEADING amber/green ƒ status badge that IS the click-to-edit
+              trigger, on AMOUNT columns only. Read-only (static glyph) when onSaveFormula is
+              withheld (locked). The amount-cell VALUE render is UNCHANGED (F4 owns the swap). */}
+          {isAmount && (
+            <AmountFormulaBuilder
+              target={d}
+              columnLabel={label}
+              descriptors={columnDescriptors}
+              columnFormulas={columnFormulas}
+              onSave={onSaveFormula}
+            />
+          )}
+          <span className="truncate">{label}</span>
+        </span>
+        {resizeHandle(columnWidthKey("descriptor", d.col), isRateDescriptor(d))}
+      </th>
+    );
+  });
+
+  // Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a descriptor;
+  // Slice 4a.2 made it the matrix's last navigable column.
+  const remarksHeaderCell = (
+    <th
+      data-colkey="remarks"
+      title="Remarks"
+      className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
+    >
+      <span className="block truncate">Remarks</span>
+      {resizeHandle("remarks", false)}
+    </th>
+  );
+
+  // Editor perf fix (item 1): the factory resolves ONLY the row's cheap, reference-stable inputs
+  // and hands them to the memoized PricingGridRow; the heavy per-cell work lives inside the row
+  // and is SKIPPED by React.memo for every unchanged row. `pane` selects which cells the row
+  // emits (undefined = all; "frozen" = anchors; "scrolling" = descriptors + Remarks); `rowHeight`
+  // is the captured scalar applied in both panes when split (undefined otherwise).
+  // Slice A (clipboard): the live selection RECTANGLE = (anchor, focus=activeCell). Only when it
+  // spans MORE than a single cell (a collapsed 1x1 selection just shows the focus ring, no extra
+  // wash). Derived once per render; each row gets only its own memo-safe column span (two scalars).
+  const selRect: SelRect | null =
+    selectionAnchor &&
+    activeCell &&
+    (selectionAnchor.rowIndex !== activeCell.rowIndex ||
+      selectionAnchor.colIndex !== activeCell.colIndex)
+      ? selectionRect(selectionAnchor, activeCell)
+      : null;
+  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => {
+    const selRange = rowSelectionRange(selRect, rowIdx);
+    return (
+    <PricingGridRow
+      key={row.row_index}
+      row={row}
+      rowIndex={rowIdx}
+      pane={pane}
+      rowHeight={split ? appliedRowHeight(row.row_index) : undefined}
+      depth={depths.get(row.row_index) ?? 0}
+      parentExcelRow={parentExcelRowOf(row, byIdx)}
+      flags={rowFlags?.get(row.row_index)}
+      rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+      rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
+      activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
+      selLeftCol={selRange ? selRange.left : null}
+      selRightCol={selRange ? selRange.right : null}
+      skipColsCsv={skipFlash.get(rowIdx) ?? null}
+      anyCellActive={anyCellActive}
+      openRemark={openRemarkRowIdx === rowIdx}
+      isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
+      isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
+      displayDescriptors={visibleDescriptors}
+      columnDescriptors={columnDescriptors}
+      columnFormulas={columnFormulas}
+      reconChoiceMap={reconChoiceMap}
+      override={override}
+      formulasComplete={formulasComplete}
+      onSaveRate={onSaveRate}
+      onSaveColor={onSaveColor}
+      onSaveRemark={onSaveRemark}
+      onSaveReconChoice={onSaveReconChoice}
+      colCount={colCount}
+      rowCount={rows.length}
+      remarksColIndex={remarksColIndex}
+      commitRate={commitRate}
+      scheduleAutoSave={scheduleAutoSave}
+      onCellFocus={onCellFocus}
+      registerCell={registerCell}
+      focusCell={focusCell}
+      setDraftRates={setDraftRates}
+      setProposedRates={setProposedRates}
+      setOpenRemark={setOpenRemark}
+      onJumpToRow={jumpToRow}
+      onRowResizePointerDown={onRowResizePointerDown}
+      onRowResizePointerMove={onRowResizePointerMove}
+      onRowResizePointerUp={onRowResizePointerUp}
+    />
+    );
+  };
+
+  // Slice A (clipboard): the transient status strip (paste summary / shape-mismatch reject /
+  // copy count), rendered ABOVE the grid in both the split + single-table returns. Dismissible;
+  // self-clears after a few seconds. Inline (no portal) so it rides the grid's own layout.
+  const clipboardNotice = clipboardMsg ? (
+    <div className="mb-2 flex items-center gap-2 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+      <span className="flex-1">{clipboardMsg}</span>
+      <button
+        type="button"
+        onClick={() => setClipboardMsg(null)}
+        aria-label="Dismiss"
+        className="shrink-0 opacity-60 hover:opacity-100"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null;
+
+  // Slice A (clipboard): the right-click context menu -- the house DropdownMenu driven as a
+  // CONTROLLED menu, anchored to a 0-size fixed element at the cursor (menu.x/menu.y). It portals
+  // to <body> (never clipped by a pane's overflow) and gives Esc + click-away + focus for free.
+  // Every item calls the EXISTING doX (same path as the keyboard shortcuts); the shortcut hint
+  // teaches the binding. Disabled flags are the open-time SNAPSHOT (Paste read clipboardRef fresh).
+  // Rendered in BOTH returns below (the portal makes its tree position irrelevant to layout).
+  const contextMenu = (
+    <DropdownMenu open={menu.open} onOpenChange={(o) => setMenu((m) => ({ ...m, open: o }))}>
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden
+          style={{ position: "fixed", left: menu.x, top: menu.y, width: 0, height: 0 }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-44"
+        onCloseAutoFocus={(e) => e.preventDefault()} // don't yank focus back to the 0-size trigger
+      >
+        <DropdownMenuItem disabled={!menu.canCopy} onSelect={() => doCopy()}>
+          Copy <DropdownMenuShortcut>Ctrl+C</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!menu.canCut} onSelect={() => doCut()}>
+          Cut <DropdownMenuShortcut>Ctrl+X</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!menu.canPaste} onSelect={() => doPaste()}>
+          Paste <DropdownMenuShortcut>Ctrl+V</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={!menu.canFill} onSelect={() => doFillDown()}>
+          Fill down <DropdownMenuShortcut>Ctrl+D</DropdownMenuShortcut>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
+  if (split) {
+    return (
+      <>
+      {clipboardNotice}
+      {contextMenu}
+      <div
+        ref={containerRef}
+        className={cn(
+          "rounded-md border border-border overflow-hidden",
+          // Full-screen: fill the expanded flex-col root; the panes carry the height cap instead.
+          expanded ? "flex flex-col flex-1 min-h-0" : "",
+        )}
+      >
+        <CollapseContext.Provider value={collapseCtxValue}>
+          <div className={cn("flex", expanded ? "flex-1 min-h-0" : "")}>
+            {/* FROZEN pane: the 5 anchors only. overflow-x hidden (no horizontal scroll); its
+                vertical scroll is DRIVEN by the scrolling pane (overflow-hidden still accepts a
+                programmatic scrollTop). Width = the anchors' summed colWidths.
+                Slice 2 PART 1 -- freeze-boundary border: the table's own right-edge (Description
+                border-r) is CLIPPED away by this pane's overflow-hidden, so the boundary looked
+                invisible once split. Draw it ONCE on the container border-box instead (border-r) --
+                not clipped, no double-up (the clipped cell border can't show), one crisp line. */}
+            <div
+              ref={frozenPaneRef}
+              className={cn(
+                "overflow-hidden shrink-0 border-r border-border",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+              )}
+              style={{ width: `${anchorPaneWidth}px` }}
+            >
+              <table
+                className="text-xs border-collapse table-fixed"
+                style={{ width: `${anchorPaneWidth}px` }}
+                onKeyDown={handleGridKeyDown}
+                onMouseDownCapture={onTableMouseDown}
+                onContextMenu={onCellContextMenu}
+              >
+                <colgroup>{anchorCols}</colgroup>
+                <thead>
+                  <tr>{anchorHeaderCells}</tr>
+                </thead>
+                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "frozen"))}</tbody>
+              </table>
+            </div>
+            {/* SCROLLING pane: descriptors + Remarks. Owns overflow-x AND overflow-y; mirrors its
+                scrollTop to the frozen pane on every scroll so the matching rows stay aligned. */}
+            <div
+              ref={scrollPaneRef}
+              onScroll={(e) => {
+                if (frozenPaneRef.current) {
+                  frozenPaneRef.current.scrollTop = e.currentTarget.scrollTop;
+                }
+              }}
+              className={cn(
+                "overflow-auto flex-1 min-w-0",
+                expanded ? "min-h-0" : "max-h-[calc(100vh-14rem)]",
+              )}
+            >
+              <table
+                className="text-xs border-collapse table-fixed"
+                style={{ width: `${scrollPaneTableWidth}px` }}
+                onKeyDown={handleGridKeyDown}
+                onMouseDownCapture={onTableMouseDown}
+                onContextMenu={onCellContextMenu}
+              >
+                <colgroup>
+                  {descriptorCols}
+                  {remarksCol}
+                </colgroup>
+                <thead>
+                  <tr>
+                    {descriptorHeaderCells}
+                    {remarksHeaderCell}
+                  </tr>
+                </thead>
+                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "scrolling"))}</tbody>
+              </table>
+            </div>
+          </div>
+        </CollapseContext.Provider>
+      </div>
+      </>
+    );
+  }
+
+  // ── Unfrozen (default): today's SINGLE table -- same div > table > colgroup / thead / tbody and
+  //    classes as before. The only inert differences: containerRef moved from the <table> to this
+  //    wrapper (refs are not DOM) and the col/th/row JSX comes from the shared fragments above. ──
   return (
-    <div className="rounded-md border border-border overflow-auto max-h-[calc(100vh-14rem)]">
-      <table className="w-full text-xs border-collapse" onKeyDown={handleGridKeyDown}>
+    <>
+    {clipboardNotice}
+    {contextMenu}
+    <div
+      ref={containerRef}
+      className={cn(
+        "rounded-md border border-border overflow-auto",
+        // Slice 4c: full-screen relaxes the viewport-rem cap to fill the expanded flex-col
+        // root (the page gives this container's slot flex-1 min-h-0). Embedded keeps the cap.
+        expanded ? "flex-1 min-h-0" : "max-h-[calc(100vh-14rem)]",
+      )}
+    >
+      {/* Resize: table-fixed makes the <colgroup> widths AUTHORITATIVE; the explicit px total
+          (not w-full) prevents table-fixed from redistributing slack. border-collapse is KEPT
+          (the cells carry border-r). CollapseContext provides the per-row chevrons' state without
+          a per-row prop (R6) -- it wraps the table so every RowChevron consumes it. */}
+      <CollapseContext.Provider value={collapseCtxValue}>
+      <table
+        className="text-xs border-collapse table-fixed"
+        style={tableStyle}
+        onKeyDown={handleGridKeyDown}
+        onMouseDownCapture={onTableMouseDown}
+        onContextMenu={onCellContextMenu}
+      >
+        <colgroup>
+          {anchorCols}
+          {descriptorCols}
+          {remarksCol}
+        </colgroup>
         <thead>
           <tr>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Excel Row
-            </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              {slNoLetter ? `Sl.No (${slNoLetter})` : "Sl.No"}
-            </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-16 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Parent
-            </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-36 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Classification
-            </th>
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
-              {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-            </th>
-            {displayDescriptors.map((d) => {
-              const label = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-              return (
-                <th
-                  key={d.col}
-                  className="px-2 py-2 text-right font-medium text-muted-foreground w-28 min-w-[112px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted align-top"
-                >
-                  <span>{label}</span>
-                  {/* Formula Builder F3: the per-column `f = ...` label + click-to-edit builder,
-                      on AMOUNT columns only. Read-only when onSaveFormula is withheld (locked).
-                      The amount-cell VALUE render is UNCHANGED (F4 owns the compute swap). */}
-                  {isAmountDescriptor(d) && (
-                    <AmountFormulaBuilder
-                      target={d}
-                      columnLabel={label}
-                      descriptors={columnDescriptors}
-                      columnFormulas={columnFormulas}
-                      onSave={onSaveFormula}
-                    />
-                  )}
-                </th>
-              );
-            })}
-            {/* Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a
-                descriptor; Slice 4a.2 made it the matrix's last navigable column. */}
-            <th className="px-2 py-2 text-left font-medium text-muted-foreground w-48 min-w-[160px] border-l border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-              Remarks
-            </th>
+            {anchorHeaderCells}
+            {descriptorHeaderCells}
+            {remarksHeaderCell}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row, rowIdx) => {
-            // Editor perf fix (item 1): the parent resolves ONLY the row's cheap, reference-
-            // stable inputs (depth, parent Excel row, its flags, its draft/proposal slices, and
-            // its activeColIndex lever) and hands them to the memoized PricingGridRow. The heavy
-            // per-cell work (evaluateAmountCell, the descriptor map, the RemarkCell) lives inside
-            // the row and is SKIPPED by React.memo for every row whose props are unchanged -- so
-            // a cursor move re-renders only the 2 rows whose active-state flipped, and a keystroke
-            // only the 1 edited row (its slice reference changed; everyone else's is reused).
-            const pIdx = row.effective_parent_index ?? -1;
-            const parentExcelRow = pIdx >= 0 ? (byIdx.get(pIdx)?.source_row_number ?? null) : null;
-            return (
-              <PricingGridRow
-                key={row.row_index}
-                row={row}
-                rowIndex={rowIdx}
-                depth={depths.get(row.row_index) ?? 0}
-                parentExcelRow={parentExcelRow}
-                flags={rowFlags?.get(row.row_index)}
-                rowDraftRates={draftSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
-                rowProposedRates={proposedSlicesByRow.get(row.row_index) ?? EMPTY_SLICE}
-                activeColIndex={activeCell?.rowIndex === rowIdx ? activeCell.colIndex : null}
-                anyCellActive={anyCellActive}
-                openRemark={openRemarkRowIdx === rowIdx}
-                displayDescriptors={displayDescriptors}
-                columnDescriptors={columnDescriptors}
-                columnFormulas={columnFormulas}
-                override={override}
-                onSaveRate={onSaveRate}
-                onSaveColor={onSaveColor}
-                onSaveRemark={onSaveRemark}
-                colCount={colCount}
-                rowCount={rows.length}
-                remarksColIndex={remarksColIndex}
-                commitRate={commitRate}
-                scheduleAutoSave={scheduleAutoSave}
-                onCellFocus={onCellFocus}
-                registerCell={registerCell}
-                focusCell={focusCell}
-                setDraftRates={setDraftRates}
-                setProposedRates={setProposedRates}
-                setOpenRemark={setOpenRemark}
-              />
-            );
-          })}
-        </tbody>
+        <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx))}</tbody>
       </table>
+      </CollapseContext.Provider>
     </div>
+    </>
   );
 });
 

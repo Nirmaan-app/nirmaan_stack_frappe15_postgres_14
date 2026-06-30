@@ -5,8 +5,7 @@ Public API (unit-testable helpers):
   resolve_effective(row) -> dict
   check_structural_integrity(rows) -> list[dict]
   append_edit_log_entry(existing_log, field, from_val, to_val, user) -> list
-  _has_price_signal(row) -> bool                           [Slice B2a]
-  _compute_advisory_flags(rows, structural_breaks) -> list [Slice B2a]
+  _compute_advisory_flags(rows) -> list [Slice B2a]
 
 Public API (endpoints):
   get_review_rows(boq_name, sheet_name) -> dict          [GET-capable]
@@ -125,13 +124,13 @@ _EDIT_LOG_FIELD = "edit_log"
 # get_valid_dict rejects Python lists for JSON fieldtype. edit_log is handled
 # separately (rebuilt in full above the save call).
 _RESAVE_LIST_JSON_FIELDS: frozenset[str] = frozenset({
-    "attached_notes", "validation_warnings", "classifier_warnings",
+    "attached_notes", "classifier_warnings",
     "preamble_candidate_signals",
 })
 
 # JSON fields returned as parsed Python objects in get_review_rows responses
 _JSON_LIST_FIELDS: frozenset[str] = frozenset({
-    "attached_notes", "validation_warnings", "classifier_warnings",
+    "attached_notes", "classifier_warnings",
     "preamble_candidate_signals", "edit_log",
 })
 _JSON_DICT_FIELDS: frozenset[str] = frozenset({
@@ -172,33 +171,20 @@ _SINGLETON_ROLE_TO_FIELD: dict[str, str] = {
 
 # Canonical reason text per flag type.  These are FIXED phrases -- do not
 # paraphrase.  The parser flag (type="parser") carries review_reason verbatim
-# instead of a canonical override.
+# instead of a canonical override, and the classifier_warning flag carries the
+# row's classifier_warnings notes joined verbatim.
 _FLAG_REASONS: dict[str, str] = {
-    "priced_preamble_no_children": (
-        "Preamble carrying a price or quantity with no sub-items — check if it's a line item."
-    ),
-    "zero_amount_line_item": (
-        "Has a rate but the amount is zero — check the quantity or amount."
-    ),
     "orphan": "Line item with no parent group — check its parenting.",
 }
 
-# Scalar price-signal fields checked for flag (i).  rate_by_area is a JSON
-# dict (not a scalar Float) and is intentionally excluded here -- a preamble
-# with only by-area rates but zero scalar amounts is an edge case that a future
-# slice can address; the three scalar rate fields are what the review screen
-# currently surfaces.
-_PRICE_SIGNAL_FIELDS: tuple[str, ...] = (
-    "amount_total", "amount_supply", "amount_install",
-    "rate_supply", "rate_install", "rate_combined",
-)
-
 # Fields required by get_structural_breaks beyond the minimal integrity set.
 # These are fetched in the extended endpoint for advisory flag computation.
+# Exactly the fields the surviving flags read: parser reads
+# needs_classification_review + review_reason; classifier_warning reads
+# classifier_warnings. Orphan now resolves effective values from the minimal
+# integrity fields (already in the base field list), so it needs no extra fields.
 _ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
-    "amount_total", "amount_supply", "amount_install",
-    "rate_supply", "rate_install", "rate_combined",
-    "qty_total", "needs_classification_review", "review_reason",
+    "needs_classification_review", "review_reason", "classifier_warnings",
 )
 
 # ---------------------------------------------------------------------------
@@ -356,21 +342,29 @@ def resolve_effective(row: Any) -> dict:
 
 def check_structural_integrity(rows: list[dict]) -> list[dict]:
     """
-    Check structural integrity of a parsed sheet using EFFECTIVE values.
+    Check the CYCLE structural break of a parsed sheet using EFFECTIVE values.
 
     Operates on a list of row dicts; each must contain at least:
       row_index, source_row_number, classification, human_classification,
       parent_index, human_parent.
 
-    Three checks (all operate on EFFECTIVE values from resolve_effective):
-      ORPHAN              -- a line_item with effective_parent_index None (no parent group).
-                            Preambles and other non-line_item rows with no parent are NOT flagged.
-      LINE_ITEM_AS_PARENT -- any row whose effective parent is itself a line_item
-                            (line_items cannot be structural parents).
-      CYCLE               -- following effective_parent_index from any row eventually
-                            loops back to that same row.
+    ONE check (operates on EFFECTIVE values from resolve_effective):
+      CYCLE -- following effective_parent_index from any row eventually loops back to
+               that same row.
 
-    Returns a list of break records (empty list = clean); does NOT modify input rows.
+    The structural ERRORS #7 (a sub-heading not under a higher-level section heading)
+    and #8 (an item under a non-heading row) are NOT computed here -- they come from the
+    SHARED commit validators (commit_validation.structural_errors_for_sheet) so the review
+    screen and the real commit can never diverge (S2 commit-preflight). The old
+    LINE_ITEM_AS_PARENT check was REMOVED: the shared #8 (line_item_parent_not_preamble) is
+    a strict superset -- it also catches an item filed under a note/subtotal, not only under
+    another line_item.
+
+    ORPHAN (a line_item with no effective parent group) is NOT a structural break --
+    it is a soft, dismissable advisory flag only (see _compute_advisory_flags). Such a
+    row simply falls through here producing no break.
+
+    Returns a list of CYCLE break records (empty list = clean); does NOT modify input rows.
     """
     # Build effective-resolved lookup indexed by row_index
     rows_by_idx: dict[int, dict] = {}
@@ -395,41 +389,16 @@ def check_structural_integrity(rows: list[dict]) -> list[dict]:
     for entry in eff_entries:
         row_index = entry["row_index"]
         source_row_number = entry["source_row_number"]
-        eff_cls = entry["effective_classification"]
-        eff_parent = entry["effective_parent_index"]
 
-        # ORPHAN: a line_item with no parent group.
-        # Preambles with no parent are valid top-level groups -- not flagged.
-        if eff_cls == "line_item" and eff_parent is None:
+        # CYCLE: following parent chain from this row eventually loops back to it.
+        # (_chain_has_cycle short-circuits to False for a parentless row, so no guard.)
+        if _chain_has_cycle(row_index, rows_by_idx):
             breaks.append({
-                "type": "orphan",
+                "type": "cycle",
                 "row_index": row_index,
                 "source_row_number": source_row_number,
-                "reason": "line_item has no parent group",
+                "reason": "following parent chain from this row creates a cycle",
             })
-            # No parent -> LINE_ITEM_AS_PARENT and CYCLE cannot apply; skip.
-            continue
-
-        if eff_parent is not None:
-            # LINE_ITEM_AS_PARENT: this row's parent is a line_item.
-            parent_entry = rows_by_idx.get(eff_parent)
-            if parent_entry and parent_entry.get("effective_classification") == "line_item":
-                breaks.append({
-                    "type": "line_item_as_parent",
-                    "row_index": row_index,
-                    "source_row_number": source_row_number,
-                    "parent_row_index": eff_parent,
-                    "reason": "parent row is a line_item; line_items cannot be parents",
-                })
-
-            # CYCLE: following parent chain from this row eventually loops back to it.
-            if _chain_has_cycle(row_index, rows_by_idx):
-                breaks.append({
-                    "type": "cycle",
-                    "row_index": row_index,
-                    "source_row_number": source_row_number,
-                    "reason": "following parent chain from this row creates a cycle",
-                })
 
     return breaks
 
@@ -492,61 +461,26 @@ def append_edit_log_entry(
 # Advisory flag helpers (Slice B2a)
 # ---------------------------------------------------------------------------
 
-def _has_price_signal(row: Any) -> bool:
-    """
-    True if row carries any non-zero value in one of the scalar price-signal
-    fields (amounts + scalar rates).  Operates on raw field values; the caller
-    is responsible for applying resolve_effective before checking classification.
-
-    rate_by_area is intentionally excluded -- it is a JSON dict, not a scalar,
-    and the B2a review screen does not surface by-area rate columns directly.
-    """
-    for field in _PRICE_SIGNAL_FIELDS:
-        v = _get(row, field)
-        if v is not None and v > 0:
-            return True
-    return False
-
-
-def _compute_advisory_flags(
-    rows: list[dict],
-    structural_breaks: list[dict],
-) -> list[dict]:
+def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
     """
     Compute advisory flags for all rows using EFFECTIVE values.
 
-    Four sources:
-      priced_preamble_no_children -- (i) preamble with no children AND a price
-          OR a quantity.  The parse-time demotion (_apply_zero_children_preamble
-          _demotion_post_pass) demotes most childless priced preambles to
-          line_items, BUT it deliberately skips promoted_from_line_item rows
-          (hierarchy.py), so Bug-19-promoted leaf preambles survive as childless
-          priced/qty-bearing preambles and this flag fires for them on a freshly
-          parsed sheet -- exactly the "is this actually a line item?" nudge.  It
-          also fires when a human reclassifies a line_item back to a childless
-          preamble (Slice C).
-      zero_amount_line_item -- (ii) line_item with amount_total==0/None
-          OR qty_total==0/None (either zero/absent triggers the flag).
-      orphan -- (iii) reused from structural_breaks input; NOT recomputed.
-      parser -- (iv) needs_classification_review is truthy; reason = review_reason
+    Three sources:
+      classifier_warning -- (i) the row's classifier_warnings notes joined into a
+          single reason verbatim.  classifier_warnings may arrive as a JSON STRING
+          (get_structural_breaks fetches rows via frappe.db.get_all, which does NOT
+          JSON-parse) or as a Python list (unit tests).  Both shapes are handled;
+          None/""/[] / bad JSON -> no flag.
+      orphan -- (ii) a line_item with no effective parent group, computed
+          INDEPENDENTLY here via resolve_effective (it is NOT a structural break --
+          it is a soft, dismissable advisory only).
+      parser -- (iii) needs_classification_review is truthy; reason = review_reason
           verbatim (no canonical override).
 
-    Canonical reasons are pinned in _FLAG_REASONS; parser reason is verbatim.
-    Returns a flat list of flag dicts (multiple flags per row are separate entries).
+    Canonical reasons are pinned in _FLAG_REASONS; parser + classifier_warning
+    reasons are verbatim.  Returns a flat list of flag dicts (multiple flags per
+    row are separate entries).
     """
-    # Derive children set from EFFECTIVE parent values (same source as check_structural_integrity).
-    children_of: set[int] = set()
-    for row in rows:
-        eff = resolve_effective(row)
-        p = eff["effective_parent_index"]
-        if p is not None:
-            children_of.add(p)
-
-    # Reuse orphan row_indexes from the already-computed structural_breaks -- do not recompute.
-    orphan_row_indexes: set[int] = {
-        b["row_index"] for b in structural_breaks if b["type"] == "orphan"
-    }
-
     flags: list[dict] = []
 
     for row in rows:
@@ -554,57 +488,38 @@ def _compute_advisory_flags(
         if row_index is None:
             continue
         source_row_number = _get(row, "source_row_number")
-        eff = resolve_effective(row)
-        eff_cls = eff["effective_classification"]
 
-        # Flag (i): childless preamble that carries a price OR a quantity.
-        # qty_total is included (no-attribute-loss, Option B): a preamble now
-        # preserves its source quantity, and a childless preamble carrying a real
-        # qty is precisely the "is this actually a line item?" case to surface.
-        qty_total = _get(row, "qty_total")
-        has_qty = qty_total is not None and qty_total > 0
-        if (
-            eff_cls == "preamble"
-            and row_index not in children_of
-            and (_has_price_signal(row) or has_qty)
-        ):
+        # Flag (i): classifier_warning -- surface the row's classifier_warnings notes.
+        # Tolerate both wire shapes: a JSON STRING (frappe.db.get_all does not parse
+        # JSON fields) or a Python list (unit tests).  Bad JSON / non-list -> skip.
+        raw_notes = _get(row, "classifier_warnings")
+        notes: list = []
+        if isinstance(raw_notes, str):
+            if raw_notes:
+                try:
+                    parsed = json.loads(raw_notes)
+                    if isinstance(parsed, list):
+                        notes = parsed
+                except (ValueError, TypeError):
+                    notes = []
+        elif isinstance(raw_notes, list):
+            notes = raw_notes
+        if notes:
             flags.append({
-                "type": "priced_preamble_no_children",
+                "type": "classifier_warning",
                 "row_index": row_index,
                 "source_row_number": source_row_number,
-                "reason": _FLAG_REASONS["priced_preamble_no_children"],
+                "reason": " · ".join(str(n) for n in notes),
             })
 
-        # Flag (ii): line item with a non-zero scalar rate but zero/missing amount.
-        # Fires only when amount_total is zero/None AND at least one scalar rate
-        # field is non-zero.  Rationale: a rate present with no amount is the
-        # meaningful signal (likely missing qty); a zero amount with no rate is
-        # a rate-only or unconfigured row and is not reliably advisory.
-        # The qty-zero trigger is intentionally removed (B2a-fix live-cert).
-        # Scalar rate fields only -- rate_by_area (JSON dict) is excluded.
-        # Multi-area zero-amount handling is deferred (see Slice B2a-fix docs).
-        if eff_cls == "line_item":
-            amount_total = _get(row, "amount_total")
-            amount_zero = amount_total is None or amount_total == 0
-            if amount_zero:
-                rate_supply = _get(row, "rate_supply")
-                rate_install = _get(row, "rate_install")
-                rate_combined = _get(row, "rate_combined")
-                has_rate = (
-                    (rate_supply is not None and rate_supply != 0)
-                    or (rate_install is not None and rate_install != 0)
-                    or (rate_combined is not None and rate_combined != 0)
-                )
-                if has_rate:
-                    flags.append({
-                        "type": "zero_amount_line_item",
-                        "row_index": row_index,
-                        "source_row_number": source_row_number,
-                        "reason": _FLAG_REASONS["zero_amount_line_item"],
-                    })
-
-        # Flag (iii): orphan -- compose from structural_breaks, do not recompute.
-        if row_index in orphan_row_indexes:
+        # Flag (ii): orphan -- a line_item with no effective parent group.
+        # Computed INDEPENDENTLY here (not a structural break); preambles/other
+        # non-line_item rows with no parent are valid top-level groups -- not flagged.
+        eff = resolve_effective(row)
+        if (
+            eff["effective_classification"] == "line_item"
+            and eff["effective_parent_index"] is None
+        ):
             flags.append({
                 "type": "orphan",
                 "row_index": row_index,
@@ -612,7 +527,7 @@ def _compute_advisory_flags(
                 "reason": _FLAG_REASONS["orphan"],
             })
 
-        # Flag (iv): parser needs_classification_review -- verbatim reason.
+        # Flag (iii): parser needs_classification_review -- verbatim reason.
         needs_review = _get(row, "needs_classification_review")
         review_reason = _get(row, "review_reason")
         if needs_review and review_reason:
@@ -1227,7 +1142,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rate_supply", "rate_install", "rate_combined", "rate_by_area",
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
         "row_notes", "append_notes_raw",
-        "validation_warnings", "classifier_warnings", "is_synthetic",
+        "classifier_warnings", "is_synthetic",
         # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
         "human_classification", "human_parent", "human_is_root",
         "edit_log", "edited_by", "edited_at",
@@ -1315,7 +1230,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     column_descriptors = _build_column_descriptors(sheet_config)
 
     breaks = check_structural_integrity(rows)
-    flags = _compute_advisory_flags(rows, breaks)
+    flags = _compute_advisory_flags(rows)
     # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
     # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
@@ -1523,10 +1438,26 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     }
     column_descriptors = _build_column_descriptors(sheet_config)
 
-    # Current nodes for this sheet (node.sheet is the BoQ Sheet Link), ordered like the draft.
+    # Current nodes + row assembly (factored into the shared tail). The CURRENT path pins
+    # is_current=1 -- byte-for-byte the prior query (the version-aware twin omits it).
+    return _assemble_committed_rows(
+        boq_name,
+        {"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        column_descriptors,
+        sheet_doc.get("commit_version"),
+    )
+
+
+def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_version) -> dict:
+    """Shared committed node-read + row-assembly tail (factored out of get_committed_rows so a
+    version-aware read can reuse it). `node_filters` selects the version's nodes: the CURRENT path
+    passes {boq, sheet, is_current:1} (byte-for-byte the prior query); the version-aware path
+    passes {boq, sheet:<that version's BoQ Sheet name>} (a version-specific BoQ Sheet row uniquely
+    scopes its own nodes, so no is_current filter is needed there). Returns the same
+    {rows, column_descriptors, commit_version} contract; empty rows when the version has no nodes."""
     nodes = frappe.db.get_all(
         "BOQ Nodes",
-        filters={"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
+        filters=node_filters,
         fields=_COMMITTED_NODE_FIELDS,
         order_by="sort_order asc",
     )
@@ -1534,7 +1465,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         return {
             "rows": [],
             "column_descriptors": column_descriptors,
-            "commit_version": sheet_doc.get("commit_version"),
+            "commit_version": commit_version,
         }
 
     # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
@@ -1558,8 +1489,71 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     return {
         "rows": rows,
         "column_descriptors": column_descriptors,
-        "commit_version": sheet_doc.get("commit_version"),
+        "commit_version": commit_version,
     }
+
+
+@frappe.whitelist()
+def get_committed_rows_at_version(
+    boq_name: str = None, sheet_name: str = None, committed_version=None
+) -> dict:
+    """Version-aware twin of get_committed_rows (read-only history browser, Phase 5 version-view).
+    Resolves the BoQ Sheet row for (boq, sheet_name VERBATIM #152, commit_version) -- WHICHEVER
+    is_current it carries (an OLD frozen version is is_current=0) -- and emits the SAME
+    {rows, column_descriptors, commit_version} contract get_committed_rows emits for the current
+    version, so the descriptor-driven grid renders an old version with NO new render code.
+
+    DISTINCT from get_committed_rows (hardwired to is_current=1 -- the LIVE EDITOR hot path, left
+    byte-for-byte unchanged): this is ADDITIVE. Nodes are scoped by the resolved version's BoQ
+    Sheet name (a version-specific row), so no is_current node filter is needed.
+
+    Graceful empty: a version that exists in the committed grid tier but has NO node-tier BoQ Sheet
+    row (the node tier and grid tier can carry different version sets) returns empty rows -- the
+    caller falls back to the faithful grid (get_committed_sheet_grid, version-parameterized).
+
+    @frappe.whitelist() bare -- GET-capable (mirrors get_committed_rows). PURE READ.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.get_committed_rows_at_version
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    try:
+        committed_version = int(committed_version)
+    except (ValueError, TypeError):
+        frappe.throw("committed_version must be an integer.", title="Invalid field")
+
+    # Resolve the requested version's BoQ Sheet (commit_version is unique per (boq, sheet_name);
+    # is_current is NOT constrained -- an old version is is_current=0). sheet_name VERBATIM (#152).
+    sheet_doc = frappe.db.get_value(
+        "BoQ Sheet",
+        {"boq": boq_name, "sheet_name": sheet_name, "commit_version": committed_version},
+        ["name", "column_role_map", "column_headers", "commit_version"],
+        as_dict=True,
+    )
+    if not sheet_doc:
+        # No node-tier BoQ Sheet at this version -> empty (grid-only fallback on the client).
+        return {"rows": [], "column_descriptors": [], "commit_version": committed_version}
+
+    sheet_config = {
+        "column_role_map": _coerce_json_obj(sheet_doc.get("column_role_map")),
+        "column_headers": _coerce_json_obj(sheet_doc.get("column_headers")),
+    }
+    column_descriptors = _build_column_descriptors(sheet_config)
+    # Nodes scoped by the resolved version's BoQ Sheet name (no is_current -- that row IS the
+    # version). A flat/degenerate parent_node shape (some versions carry one) assembles fine:
+    # _committed_node_to_row synthesizes hierarchy from sort_order + parent_node, never crashes.
+    return _assemble_committed_rows(
+        boq_name,
+        {"boq": boq_name, "sheet": sheet_doc["name"]},
+        column_descriptors,
+        sheet_doc.get("commit_version"),
+    )
 
 
 def _coerce_json_obj(v):
@@ -2609,8 +2603,16 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
         "flags":  [...],   (advisory observations; Slice B2a addition)
       }
 
+    breaks (S2 commit-preflight) = the SHARED structural ERRORS #7 (preamble_parent_level)
+    and #8 (line_item_parent_not_preamble) from commit_validation.structural_errors_for_sheet
+    (the SAME validators the commit runs) MERGED with the CYCLE breaks from
+    check_structural_integrity. These three are the HARD-BLOCK set the finalize gate enforces.
+    The soft advisory observations (orphan / parser / classifier) ride "flags", never "breaks".
+
+    Each break dict: {type, row_index, source_row_number, reason[, parent_row_index]}.
+    Break types: preamble_parent_level (#7), line_item_parent_not_preamble (#8), cycle.
     Each flag dict: {type, row_index, source_row_number, reason}.
-    Flag types: priced_preamble_no_children, zero_amount_line_item, orphan, parser.
+    Flag types: classifier_warning, orphan, parser.
     """
     if not boq_name:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
@@ -2633,8 +2635,14 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]
-    breaks = check_structural_integrity(rows_as_dicts)
-    flags = _compute_advisory_flags(rows_as_dicts, breaks)
+    # SHARED #7/#8 (commit validators) + CYCLE -- the HARD-BLOCK set. Lazy import avoids the
+    # module-level cycle (commit_validation imports resolve_effective from THIS module at load).
+    from nirmaan_stack.api.boq.wizard.commit_validation import structural_errors_for_sheet
+    breaks = (
+        structural_errors_for_sheet(boq_name, sheet_name)
+        + check_structural_integrity(rows_as_dicts)
+    )
+    flags = _compute_advisory_flags(rows_as_dicts)
     return {"breaks": breaks, "flags": flags}
 
 
@@ -2645,13 +2653,20 @@ def mark_sheet_parsed_check_done(
     confirm=False,
 ) -> dict:
     """
-    Advance a sheet's wizard_status to "Finalized" after an integrity check.
+    Advance a sheet's wizard_status to "Finalized" -- ONLY when it is structurally committable.
 
-    Step 1: run check_structural_integrity against this sheet's BoQ Review Rows.
-    Step 2a: if breaks exist AND confirm is falsy -> return {ok: False, breaks: [...]}.
-             The sheet status is NOT changed (caller shows warn dialog, may re-call with confirm=True).
-    Step 2b: if no breaks, OR breaks exist AND confirm is truthy -> set wizard_status =
-             "Finalized" and return {ok: True, status: "Finalized", overridden: bool}.
+    The gate is FULLY HARD (S2 commit-preflight): the sheet's structural breaks are the SHARED
+    ERRORS #7 (preamble_parent_level) + #8 (line_item_parent_not_preamble) from
+    commit_validation.structural_errors_for_sheet (the SAME validators the commit runs) MERGED
+    with the CYCLE breaks from check_structural_integrity. If ANY break exists the sheet is NOT
+    finalized -- it returns {ok: False, breaks: [...]} REGARDLESS of confirm. There is NO override
+    path: a finalized sheet is guaranteed structurally committable. Finalize happens ONLY when
+    breaks is empty -> set wizard_status = "Finalized", return {ok: True, status: "Finalized"}.
+
+    confirm is RETAINED in the signature for HTTP back-compat only -- it NO LONGER bypasses breaks
+    (the old soft "Mark anyway" override + the "overridden" response flag are RETIRED). The
+    frontend must drop its confirm-true re-call. Soft advisories (orphan / parser / classifier)
+    stay advisory flags and never reach this gate.
 
     Writing directly (NOT via set_sheet_status): set_sheet_status only allows the 5 direct-set
     statuses (Pending, Hidden, Config Done, Skip, Parse failed) -- see _DIRECT_SET_STATUSES in
@@ -2667,10 +2682,9 @@ def mark_sheet_parsed_check_done(
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
-    # Normalize confirm: HTTP POST body may deliver it as a string "true"/"1"/"false"
-    if isinstance(confirm, str):
-        confirm = confirm.lower() in ("true", "1", "yes")
-    confirm = bool(confirm)
+    # confirm is intentionally NOT consulted (S2): the gate is FULLY HARD. The param is kept in
+    # the signature only so existing HTTP callers that still post confirm don't 500 on an
+    # unexpected kwarg; it can never bypass a break.
 
     # Locate the sheet draft child row (same pattern as set_sheet_status / _set_draft_status)
     child_name = frappe.db.get_value(
@@ -2686,8 +2700,8 @@ def mark_sheet_parsed_check_done(
 
     # Slice D1 precondition: ONLY a sheet currently at "Parsed" may be marked checked.
     # Before D1 this endpoint stamped unconditionally (recon-verified); the tightening is
-    # additive -- its existing tests seed "Parsed" sheets so they stay green. Existing
-    # response shapes (ok:false+breaks / ok:true+overridden) are unchanged.
+    # additive -- its existing tests seed "Parsed" sheets so they stay green. Response shapes
+    # are now {ok:false, breaks} (any break blocks) / {ok:true, status} (S2 hard gate).
     current_status = frappe.db.get_value("BoQ Sheet Draft", child_name, "wizard_status")
     if current_status == _SHEET_FINALIZED:
         frappe.throw(
@@ -2711,15 +2725,20 @@ def mark_sheet_parsed_check_done(
     )
     rows_as_dicts = [dict(r) for r in rows]
 
-    breaks = check_structural_integrity(rows_as_dicts)
-    has_breaks = len(breaks) > 0
+    # SHARED #7/#8 (commit validators) + CYCLE -- the HARD-BLOCK set. Lazy import avoids the
+    # module-level cycle (commit_validation imports resolve_effective from THIS module at load).
+    from nirmaan_stack.api.boq.wizard.commit_validation import structural_errors_for_sheet
+    breaks = (
+        structural_errors_for_sheet(boq_name, sheet_name)
+        + check_structural_integrity(rows_as_dicts)
+    )
 
-    if has_breaks and not confirm:
-        # Warn-and-confirm gate: return breaks without changing status.
-        # Caller shows a warn dialog and may re-call with confirm=True.
+    if breaks:
+        # FULLY HARD gate (S2): ANY structural break (#7 / #8 / cycle) blocks finalize,
+        # REGARDLESS of confirm. No override path -- a finalized sheet must be committable.
         return {"ok": False, "breaks": breaks}
 
-    # Write "Finalized" directly -- bypasses set_sheet_status which rejects it
+    # No breaks -> finalize. Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)
     # AI-3c-2a invalidation (rule c-ii, finalize): a finalized sheet is read-only, so every
     # AI-accept revert snapshot + back-pointer on it is discarded (bulk, one filtered write).
@@ -2734,7 +2753,6 @@ def mark_sheet_parsed_check_done(
     return {
         "ok": True,
         "status": _SHEET_FINALIZED,
-        "overridden": has_breaks,
     }
 
 

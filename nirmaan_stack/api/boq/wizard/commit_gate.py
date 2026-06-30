@@ -144,6 +144,60 @@ def get_committable_sheets(boq_name: str) -> dict:
     return {"committable_sheets": committable}
 
 
+# ── Slice 5b: "pricing changed since last export" staleness signal ────────────────
+# The three overlay tiers whose latest write decides staleness, each with its own *_at.
+# Reads are scoped to the sheet's CURRENT commit_version (pricing/color/remark identities
+# carry committed_version and a record can stay is_current=1 across versions -- an OLD
+# version's timestamp must NOT make the CURRENT committed version read stale).
+_CHANGE_TIER_FIELDS = (
+    ("BoQ Cell Pricing", "priced_at"),
+    ("BoQ Cell Color", "colored_at"),
+    ("BoQ Cell Remark", "remarked_at"),
+)
+
+
+def _latest_change_by_sheet_version(boq_name: str) -> dict:
+    """Return {(sheet_name VERBATIM, committed_version): latest_change_datetime} -- the max
+    priced_at/colored_at/remarked_at across the three overlay tiers, grouped per sheet AND
+    committed_version (so the caller compares against the sheet's CURRENT version only).
+    Three grouped queries total (NOT per-sheet), is_current=1 only."""
+    out: dict = {}
+    for doctype, field in _CHANGE_TIER_FIELDS:
+        rows = frappe.db.sql(
+            f"""
+            SELECT sheet_name, committed_version, MAX(`{field}`) AS m
+            FROM `tab{doctype}`
+            WHERE boq=%s AND is_current=1
+            GROUP BY sheet_name, committed_version
+            """,
+            boq_name,
+            as_dict=True,
+        )
+        for r in rows:
+            if not r.m:
+                continue
+            key = (r.sheet_name, r.committed_version)
+            if key not in out or r.m > out[key]:
+                out[key] = r.m
+    return out
+
+
+def _is_changed_since_export(latest_change, last_exported_at) -> bool:
+    """The per-sheet staleness rule (Slice 5b):
+      - no pricing/color/remark on the current version    -> False (nothing to export)
+      - content exists but never exported                 -> True  (unexported content)
+      - latest change is strictly after the last export   -> True
+      - last export is at/after the latest change         -> False
+    """
+    if not latest_change:
+        return False
+    if not last_exported_at:
+        return True
+    # Normalize both to datetime -- get_all (Datetime field) and raw-SQL MAX can differ in
+    # type across drivers; frappe.utils.get_datetime makes the comparison robust.
+    return frappe.utils.get_datetime(latest_change) > frappe.utils.get_datetime(last_exported_at)
+
+
 @frappe.whitelist()
 def get_committed_state(boq_name: str) -> dict:
     """
@@ -173,12 +227,21 @@ def get_committed_state(boq_name: str) -> dict:
            "commit_version": int,
            "sheet_disposition": str,           # "grid_only" | "grid_and_nodes" (the
                                               # commit-time discriminator)
-           "sheet_order": int | None}, ...]}  # committed BoQ Sheet.sheet_order;
+           "sheet_order": int | None,         # committed BoQ Sheet.sheet_order;
                                               # None if no current BoQ Sheet matches
                                               # (defensive -- in practice every
                                               # committed sheet has one). Result is
                                               # sorted by sheet_order ascending, None
                                               # last, tiebroken by sheet_name.
+           "last_exported_at": str | None,    # Slice 5b (ADDITIVE): committed BoQ
+                                              # Sheet.last_exported_at; None if never
+                                              # exported. Rides the existing BoQ Sheet
+                                              # lookup -- no extra query.
+           "pricing_changed_since_export": bool}, ...]}  # Slice 5b (ADDITIVE): True iff
+                                              # max(priced/colored/remarked _at on the
+                                              # CURRENT commit_version) > last_exported_at
+                                              # (or content exists + never exported);
+                                              # False when nothing priced/colored/remarked.
 
     One row per sheet is expected (the one-current invariant). The query filters
     is_current=1 and each current row is mapped as-is -- NO dedup logic is added for
@@ -198,16 +261,25 @@ def get_committed_state(boq_name: str) -> dict:
         fields=["source_sheet_name", "committed_at", "commit_version", "sheet_disposition"],
     )
 
-    # sheet_order is on the committed "BoQ Sheet" tier, not the grid tier. Look it up by
-    # the committed sheet identity (boq + sheet_name, is_current=1). sheet_name is the
-    # join key, matched VERBATIM (#152). A committed grid row should always have a
+    # sheet_order + last_exported_at are on the committed "BoQ Sheet" tier, not the grid tier.
+    # Look them up by the committed sheet identity (boq + sheet_name, is_current=1). sheet_name
+    # is the join key, matched VERBATIM (#152). A committed grid row should always have a
     # matching current BoQ Sheet (the pipeline writes both); default None if not.
+    # last_exported_at (Slice 5b) rides this SAME existing lookup -- no extra query.
+    # is_locked (the deliberate per-sheet read-only lock) rides this SAME existing lookup --
+    # one more field, no new query (like last_exported_at). Drives the hub's lock indicator.
     order_rows = frappe.get_all(
         "BoQ Sheet",
         filters={"boq": boq_name, "is_current": 1},
-        fields=["sheet_name", "sheet_order"],
+        fields=["sheet_name", "sheet_order", "last_exported_at", "is_locked"],
     )
     order_by_sheet = {r.sheet_name: r.sheet_order for r in order_rows}
+    exported_by_sheet = {r.sheet_name: r.last_exported_at for r in order_rows}
+    locked_by_sheet = {r.sheet_name: bool(r.is_locked) for r in order_rows}
+
+    # Slice 5b -- the "pricing changed since last export" signal. Per (sheet, current version),
+    # the latest pricing/color/remark write timestamp; compared per row against last_exported_at.
+    changes_by_sheet_version = _latest_change_by_sheet_version(boq_name)
 
     committed_state = [
         {
@@ -219,6 +291,14 @@ def get_committed_state(boq_name: str) -> dict:
             # specs -> grid_only, finalized -> grid_and_nodes). Surfaced so the pricing editor
             # can fork a grid-only sheet to a read-only faithful-grid view (no node-based grid).
             "sheet_disposition": row.sheet_disposition,
+            # Slice 5b additive fields (existing keys above are UNCHANGED):
+            "last_exported_at": exported_by_sheet.get(row.source_sheet_name),
+            "pricing_changed_since_export": _is_changed_since_export(
+                changes_by_sheet_version.get((row.source_sheet_name, row.commit_version)),
+                exported_by_sheet.get(row.source_sheet_name),
+            ),
+            # Deliberate per-sheet read-only lock (this slice, ADDITIVE):
+            "is_locked": locked_by_sheet.get(row.source_sheet_name, False),
         }
         for row in rows
     ]
@@ -228,3 +308,60 @@ def get_committed_state(boq_name: str) -> dict:
         key=lambda e: (e["sheet_order"] is None, e["sheet_order"] or 0, e["sheet_name"])
     )
     return {"committed_state": committed_state}
+
+
+@frappe.whitelist()
+def get_sheet_versions(boq_name: str = None, sheet_name: str = None) -> dict:
+    """READ-ONLY. List every committed version of ONE sheet for the version-view dropdown
+    (Phase 5 version-view). The version SOURCE-OF-TRUTH is the committed GRID tier
+    (BoQ Committed Sheet Grid) -- the existing "what versions exist" authority: it is written for
+    BOTH dispositions, so it covers a grid-only sheet the node tier lacks AND a version the node
+    tier is missing (the two tiers can carry different version sets). Each version carries its
+    last-pricing-change datetime (max priced/colored/remarked_at on that version, REUSING
+    _latest_change_by_sheet_version -- one grouped call, no version filter, returns every version)
+    so the dropdown can label an earlier version by its last edit; a committed-but-never-priced
+    version has last_change_at=None and the client falls back to committed_at with a "never priced"
+    affordance (a COMMON case, not an edge). sheet_name VERBATIM (#152). Sorted version-DESC.
+
+    No DB write -- a pure read (no set_value / insert / save / commit).
+
+    Returns:
+      {"versions": [{"commit_version": int,
+                     "is_current": bool,
+                     "committed_at": str | None,
+                     "sheet_disposition": "grid_only" | "grid_and_nodes",
+                     "last_change_at": str | None}, ...]}  # version-desc
+    URL: /api/method/nirmaan_stack.api.boq.wizard.commit_gate.get_sheet_versions
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    # Every committed grid row for this sheet across versions (one per version -- the pipeline's
+    # freeze-and-supersede mints exactly one grid row per commit_version). source_sheet_name is the
+    # per-sheet key, matched VERBATIM (#152).
+    grid_rows = frappe.get_all(
+        "BoQ Committed Sheet Grid",
+        filters={"boq": boq_name, "source_sheet_name": sheet_name},
+        fields=["commit_version", "is_current", "committed_at", "sheet_disposition"],
+    )
+
+    # Last pricing/color/remark change per (sheet, version) -- the dropdown's earlier-version label.
+    # Reused as-is from the Slice-5b staleness signal; keyed (sheet_name VERBATIM, version).
+    changes = _latest_change_by_sheet_version(boq_name)
+
+    versions = [
+        {
+            "commit_version": r.commit_version,
+            "is_current": bool(r.is_current),
+            "committed_at": r.committed_at,
+            "sheet_disposition": r.sheet_disposition,
+            "last_change_at": changes.get((sheet_name, r.commit_version)),
+        }
+        for r in grid_rows
+    ]
+    versions.sort(key=lambda v: v["commit_version"], reverse=True)
+    return {"versions": versions}

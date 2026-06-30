@@ -49,7 +49,6 @@
   "row_notes",
   "append_notes_raw",
   "warnings_section",
-  "validation_warnings",
   "classifier_warnings",
   "flags_section",
   "is_synthetic",
@@ -313,11 +312,6 @@
    "fieldname": "warnings_section",
    "fieldtype": "Section Break",
    "label": "Warnings"
-  },
-  {
-   "fieldname": "validation_warnings",
-   "fieldtype": "JSON",
-   "label": "Validation Warnings"
   },
   {
    "fieldname": "classifier_warnings",

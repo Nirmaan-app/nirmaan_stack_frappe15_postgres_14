@@ -859,24 +859,6 @@ class TestLevel1StyleDetection(unittest.TestCase):
             )
 
 
-class TestResolvedRowValidationWarnings(unittest.TestCase):
-    """Phase 2b.2 Part B1 — ResolvedRow.validation_warnings field."""
-
-    def test_validation_warnings_default_is_empty_list(self):
-        """Fresh ResolvedRow has validation_warnings=[] by default."""
-        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
-        rr = ResolvedRow(classified_row=_make_line_item(0))
-        self.assertEqual(rr.validation_warnings, [])
-
-    def test_validation_warnings_accepts_non_empty_list(self):
-        """ResolvedRow accepts a list of warning strings — data shape is correct."""
-        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
-        warnings = ["sum mismatch: per-area total 105 vs file 100"]
-        rr = ResolvedRow(classified_row=_make_line_item(0), validation_warnings=warnings)
-        self.assertEqual(rr.validation_warnings, warnings)
-        self.assertEqual(len(rr.validation_warnings), 1)
-
-
 class TestResolvedRowMultiAreaFields(unittest.TestCase):
     """Phase 2b.2 Part B2a — new per-area fields on ResolvedRow."""
 

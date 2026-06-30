@@ -26,7 +26,6 @@ from nirmaan_stack.api.boq.wizard.gemini_assist import (
 from nirmaan_stack.api.boq.wizard.review_screen import (
     _build_column_descriptors,
     _compute_advisory_flags,
-    _has_price_signal,
     _row_has_override,
     append_edit_log_entry,
     check_structural_integrity,
@@ -52,7 +51,6 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 # ---------------------------------------------------------------------------
 _ALL_LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes",
-    "validation_warnings",
     "classifier_warnings",
     "preamble_candidate_signals",
     "edit_log",
@@ -135,7 +133,6 @@ def _minimal_row(
         "human_classification": human_classification,
         "human_parent": human_parent if human_parent is not None else -1,
         "attached_notes": [],
-        "validation_warnings": [],
         "classifier_warnings": [],
         "preamble_candidate_signals": [],
         "edit_log": [],
@@ -561,39 +558,40 @@ class TestCheckStructuralIntegrity(unittest.TestCase):
         ]
         self.assertEqual(check_structural_integrity(rows), [])
 
-    def test_orphan_line_item_flagged(self):
+    def test_orphan_line_item_not_a_structural_break(self):
+        """An orphan line_item (no parent) is a soft advisory flag now -- NOT a structural
+        break. check_structural_integrity must return no break for it."""
         rows = [self._row(0, "line_item", parent=None)]
-        breaks = check_structural_integrity(rows)
-        self.assertEqual(len(breaks), 1)
-        self.assertEqual(breaks[0]["type"], "orphan")
-        self.assertEqual(breaks[0]["row_index"], 0)
+        self.assertEqual(check_structural_integrity(rows), [],
+                         "an orphan line_item must NOT produce a structural break")
 
-    def test_preamble_with_no_parent_is_not_orphan(self):
-        """Root preambles (no parent) are valid top-level groups -- NOT flagged as orphans."""
+    def test_preamble_with_no_parent_is_not_a_break(self):
+        """Root preambles (no parent) are valid top-level groups -- never a structural break."""
         rows = [self._row(0, "preamble", parent=None)]
         self.assertEqual(check_structural_integrity(rows), [],
-                         "A preamble with no parent must not be flagged as an orphan")
+                         "A preamble with no parent must not be a structural break")
 
-    def test_non_line_item_with_no_parent_is_not_orphan(self):
-        """Only line_item classification triggers the orphan check."""
+    def test_non_line_item_with_no_parent_is_not_a_break(self):
+        """A row with no parent never produces a structural break (orphan demoted to advisory)."""
         for cls in ("note", "spacer", "subtotal_marker", "header_repeat"):
             with self.subTest(cls=cls):
                 rows = [self._row(0, cls, parent=None)]
                 self.assertEqual(check_structural_integrity(rows), [],
-                                 f"{cls} with no parent must not be flagged as an orphan")
+                                 f"{cls} with no parent must not be a structural break")
 
-    def test_line_item_as_parent_flagged(self):
+    def test_item_under_line_item_no_longer_a_pure_break(self):
+        """An item whose parent is a line_item is NO LONGER a break from
+        check_structural_integrity (S2): the old LINE_ITEM_AS_PARENT check was REMOVED.
+        Detection moved to the SHARED commit validator #8 (line_item_parent_not_preamble),
+        exercised at the DB level in TestMarkSheetParsedCheckDone / TestGetStructuralBreaks."""
         rows = [
             self._row(0, "preamble", parent=None),
             self._row(1, "line_item", parent=0),
-            self._row(2, "line_item", parent=1),  # parent is a line_item -> LINE_ITEM_AS_PARENT
+            self._row(2, "line_item", parent=1),  # parent is a line_item -> shared #8 (DB), not here
         ]
-        breaks = check_structural_integrity(rows)
-        types = [b["type"] for b in breaks]
-        self.assertIn("line_item_as_parent", types)
-        lp = next(b for b in breaks if b["type"] == "line_item_as_parent")
-        self.assertEqual(lp["row_index"], 2)
-        self.assertEqual(lp["parent_row_index"], 1)
+        self.assertEqual(check_structural_integrity(rows), [],
+                         "check_structural_integrity must no longer flag item-under-line_item "
+                         "(the shared #8 validator owns it now)")
 
     def test_cycle_detected_for_all_cycle_members(self):
         """A 2-node cycle (0->1, 1->0) produces CYCLE breaks for both nodes."""
@@ -606,10 +604,11 @@ class TestCheckStructuralIntegrity(unittest.TestCase):
         self.assertIn(0, cycle_row_indices)
         self.assertIn(1, cycle_row_indices)
 
-    def test_human_override_resolves_orphan(self):
+    def test_human_override_keeps_clean(self):
         """
-        A line_item that would be an orphan by parser values but has a valid
-        human_parent -> effective parent is non-None -> not flagged as orphan.
+        A line_item with a valid human_parent resolves to a non-None effective parent,
+        so it produces no structural break. (Orphan is no longer a break either way;
+        this asserts the line-item-as-parent / cycle checks stay clean here.)
         Under the -1 sentinel convention, human_parent=0 (>= 0) is unambiguously
         a real override without needing a separate flag field.
         """
@@ -618,7 +617,7 @@ class TestCheckStructuralIntegrity(unittest.TestCase):
             self._row(1, "line_item", parent=None, human_parent=0),
         ]
         self.assertEqual(check_structural_integrity(rows), [],
-                         "human_parent override must prevent the orphan flag")
+                         "human_parent override resolves the parent; no structural break")
 
     def test_empty_rows_returns_empty(self):
         self.assertEqual(check_structural_integrity([]), [])
@@ -727,7 +726,7 @@ class TestGetReviewRows(FrappeTestCase):
                          human_classification="line_item"),
             {
                 **_minimal_row(cls.sheet_name, 1, "preamble", parent_index=None),
-                "validation_warnings": ["warn_on_row1"],
+                "classifier_warnings": ["warn_on_row1"],
             },
         ])
 
@@ -756,11 +755,11 @@ class TestGetReviewRows(FrappeTestCase):
     def test_json_list_fields_returned_as_python_lists(self):
         result = get_review_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)
         row1 = next(r for r in result["rows"] if r["row_index"] == 1)
-        vw = row1.get("validation_warnings")
-        if isinstance(vw, str):
-            vw = json.loads(vw)
-        self.assertIsInstance(vw, list)
-        self.assertIn("warn_on_row1", vw)
+        cw = row1.get("classifier_warnings")
+        if isinstance(cw, str):
+            cw = json.loads(cw)
+        self.assertIsInstance(cw, list)
+        self.assertIn("warn_on_row1", cw)
 
     def test_work_packages_key_present_and_is_list(self):
         """The response must include a work_packages list (empty when none assigned)."""
@@ -1733,11 +1732,18 @@ class TestSaveReviewEditPerArea(FrappeTestCase):
 
 class TestMarkSheetParsedCheckDone(FrappeTestCase):
     """
-    Verifies the confirm-gate (ok:False when breaks + confirm=False) and the
-    status transition to "Finalized" with correct overridden flag.
+    Verifies the FULLY HARD finalize gate (S2): ANY structural break blocks finalize
+    regardless of confirm -- the soft "Mark anyway" override + "overridden" flag are RETIRED.
 
-    CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
-    BreakSheet: orphan line_item (row 0, parent=None) -> ORPHAN break.
+    CleanSheet: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks -> finalises.
+    OrphanSheet: orphan line_item (row 0, parent=None) -> NO break (orphan is a soft advisory
+                 now, not a structural break) -> finalises.
+    BreakSheet: an item under a line_item (row 2's parent is a line_item) -> SHARED #8
+                (line_item_parent_not_preamble) break -> blocks finalize.
+    NoteParentSheet: an item under a NOTE (#8b) -> SHARED #8 break -> blocks finalize (proves
+                the shared #8 is a strict superset of the retired line_item_as_parent).
+    PreambleParentSheet: a level-3 sub-heading under a line_item (#7 preamble_parent_level) ->
+                blocks finalize.
     """
 
     @classmethod
@@ -1749,12 +1755,13 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "CheckDone Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.append("sheet_drafts", {
-            "sheet_name": "CleanSheet", "sheet_order": 1, "wizard_status": "Parsed",
-        })
-        boq.append("sheet_drafts", {
-            "sheet_name": "BreakSheet", "sheet_order": 2, "wizard_status": "Parsed",
-        })
+        for i, name in enumerate((
+            "CleanSheet", "OrphanSheet", "BreakSheet",
+            "NoteParentSheet", "PreambleParentSheet",
+        ), start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
+            })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
@@ -1765,9 +1772,32 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
             _minimal_row("CleanSheet", 1, "line_item", parent_index=0),
         ])
 
-        # BreakSheet: orphan line_item (no parent)
+        # OrphanSheet: orphan line_item (no parent) -> advisory only, NO structural break
         _insert_rows(cls.boq_name, [
-            _minimal_row("BreakSheet", 0, "line_item", parent_index=None),
+            _minimal_row("OrphanSheet", 0, "line_item", parent_index=None),
+        ])
+
+        # BreakSheet: item under a line_item -> SHARED #8 break (line_item_parent_not_preamble)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("BreakSheet", 0, "preamble", parent_index=None),
+            _minimal_row("BreakSheet", 1, "line_item", parent_index=0),
+            _minimal_row("BreakSheet", 2, "line_item", parent_index=1),  # parent is a line_item
+        ])
+
+        # NoteParentSheet (#8b): an item filed under a NOTE -> SHARED #8 (proves the superset).
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NoteParentSheet", 0, "note", parent_index=None),
+            _minimal_row("NoteParentSheet", 1, "line_item", parent_index=0),  # parent is a note
+        ])
+
+        # PreambleParentSheet (#7): a level-3 sub-heading whose parent is a line_item (not a
+        # strictly-shallower section heading) -> SHARED #7 (preamble_parent_level).
+        pp_row = _minimal_row("PreambleParentSheet", 2, "preamble", parent_index=1)
+        pp_row["level"] = 3  # real >=1 level -> derive_node_type_and_level keeps level 3 (>1)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("PreambleParentSheet", 0, "preamble", parent_index=None),
+            _minimal_row("PreambleParentSheet", 1, "line_item", parent_index=0),
+            pp_row,
         ])
 
     @classmethod
@@ -1778,8 +1808,11 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         super().tearDownClass()
 
     def setUp(self):
-        """Reset both sheet statuses to 'Parsed' before each test."""
-        for sheet_name in ("CleanSheet", "BreakSheet"):
+        """Reset all sheet statuses to 'Parsed' before each test."""
+        for sheet_name in (
+            "CleanSheet", "OrphanSheet", "BreakSheet",
+            "NoteParentSheet", "PreambleParentSheet",
+        ):
             child = frappe.db.get_value(
                 "BoQ Sheet Draft",
                 {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
@@ -1802,10 +1835,22 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "Finalized")
-        self.assertFalse(result["overridden"],
-                         "overridden must be False when there are no breaks")
+        self.assertNotIn("overridden", result,
+                         "the retired 'overridden' flag must no longer appear in the response")
         self.assertEqual(self._get_wizard_status("CleanSheet"), "Finalized",
                          "wizard_status must be written to 'Finalized'")
+
+    def test_orphan_only_sheet_finalises_without_confirm(self):
+        """An orphan line_item is a soft advisory now, NOT a structural break -- so a sheet
+        whose only issue is orphans has empty breaks and finalises (no break to block on)."""
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="OrphanSheet", confirm=False,
+        )
+        self.assertTrue(result["ok"],
+                        "orphan-only sheet must finalise (no structural break)")
+        self.assertEqual(result["status"], "Finalized")
+        self.assertEqual(self._get_wizard_status("OrphanSheet"), "Finalized",
+                         "orphan-only sheet must reach 'Finalized' on the first call")
 
     def test_break_no_confirm_returns_ok_false_status_unchanged(self):
         result = mark_sheet_parsed_check_done(
@@ -1814,22 +1859,50 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         self.assertFalse(result["ok"])
         self.assertIn("breaks", result)
         self.assertGreater(len(result["breaks"]), 0)
-        self.assertEqual(result["breaks"][0]["type"], "orphan",
-                         "BreakSheet has an orphan line_item -- expect an orphan break")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "BreakSheet has an item under a line_item -- expect the SHARED #8 break")
         self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
-                         "Status must NOT change when breaks exist and confirm=False")
+                         "Status must NOT change when breaks exist")
 
-    def test_break_confirm_true_ok_true_overridden_true(self):
-        """Calling with confirm=True overrides the integrity warning and sets the status."""
+    def test_break_confirm_true_still_hard_blocks(self):
+        """S2 HARD gate: confirm=True does NOT override a structural break. The sheet stays
+        Parsed and breaks are returned -- the old soft 'Mark anyway' override is RETIRED."""
         result = mark_sheet_parsed_check_done(
             boq_name=self.boq_name, sheet_name="BreakSheet", confirm=True,
         )
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["status"], "Finalized")
-        self.assertTrue(result["overridden"],
-                        "overridden must be True when breaks existed and user confirmed past them")
-        self.assertEqual(self._get_wizard_status("BreakSheet"), "Finalized",
-                         "wizard_status must be written to 'Finalized' when confirmed")
+        self.assertFalse(result["ok"],
+                         "confirm=True must NOT bypass a structural break under the hard gate")
+        self.assertIn("breaks", result)
+        self.assertGreater(len(result["breaks"]), 0)
+        self.assertNotIn("overridden", result,
+                         "the retired 'overridden' flag must no longer appear")
+        self.assertEqual(self._get_wizard_status("BreakSheet"), "Parsed",
+                         "wizard_status must remain 'Parsed' -- a break can never be confirmed past")
+
+    def test_note_parent_item_hard_blocks(self):
+        """#8b: an item filed under a NOTE is caught by the SHARED #8 (strict superset of the
+        retired line_item_as_parent) and HARD-BLOCKS finalize regardless of confirm."""
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="NoteParentSheet", confirm=True,
+        )
+        self.assertFalse(result["ok"], "an item under a note must block finalize")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "an item under a note must surface the SHARED #8 break")
+        self.assertEqual(self._get_wizard_status("NoteParentSheet"), "Parsed")
+
+    def test_preamble_parent_level_hard_blocks(self):
+        """#7: a level-3 sub-heading whose parent is not a strictly-shallower section heading
+        surfaces the SHARED #7 (preamble_parent_level) and HARD-BLOCKS finalize."""
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="PreambleParentSheet", confirm=True,
+        )
+        self.assertFalse(result["ok"], "a #7 preamble-parent error must block finalize")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("preamble_parent_level", types,
+                      "a misfiled sub-heading must surface the SHARED #7 break")
+        self.assertEqual(self._get_wizard_status("PreambleParentSheet"), "Parsed")
 
     # -- Slice D1 mark precondition (M1/M2) ----------------------------------
 
@@ -1871,7 +1944,12 @@ class TestGetStructuralBreaks(FrappeTestCase):
 
     Fixtures:
       CleanSheet2: preamble (row 0) + line_item with parent=0 (row 1) -> no breaks.
-      OrphanSheet2: orphan line_item (row 0, parent=None, source_row_number=5) -> ORPHAN break.
+      OrphanSheet2: orphan line_item (row 0, parent=None, source_row_number=5) -> NO break
+                    (orphan is a soft advisory now) but DOES surface an orphan advisory flag.
+      PreambleParentSheet2 (#7): a level-3 sub-heading under a line_item -> surfaces the SHARED
+                    #7 (preamble_parent_level) break.
+      NoteParentSheet2 (#8b): an item under a note -> surfaces the SHARED #8
+                    (line_item_parent_not_preamble) break.
 
     Naming is distinct from TestMarkSheetParsedCheckDone fixtures (CleanSheet / BreakSheet)
     so both test classes can coexist in the same test database run without interference.
@@ -1886,12 +1964,12 @@ class TestGetStructuralBreaks(FrappeTestCase):
         boq.project = cls.test_project.name
         boq.boq_name = "StructBreaks Test BoQ"
         boq.tax_treatment = "Pre-tax"
-        boq.append("sheet_drafts", {
-            "sheet_name": "CleanSheet2", "sheet_order": 1, "wizard_status": "Parsed",
-        })
-        boq.append("sheet_drafts", {
-            "sheet_name": "OrphanSheet2", "sheet_order": 2, "wizard_status": "Parsed",
-        })
+        for i, name in enumerate((
+            "CleanSheet2", "OrphanSheet2", "PreambleParentSheet2", "NoteParentSheet2",
+        ), start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
+            })
         boq.insert(ignore_permissions=True)
         frappe.db.commit()
         cls.boq_name = boq.name
@@ -1902,10 +1980,25 @@ class TestGetStructuralBreaks(FrappeTestCase):
             _minimal_row("CleanSheet2", 1, "line_item", parent_index=0),
         ])
 
-        # OrphanSheet2: orphan line_item (no parent -> ORPHAN break)
+        # OrphanSheet2: orphan line_item (no parent) -> NO break, but an orphan advisory flag
         _insert_rows(cls.boq_name, [
             _minimal_row("OrphanSheet2", 0, "line_item", parent_index=None,
                          source_row_number=5),
+        ])
+
+        # PreambleParentSheet2 (#7): level-3 sub-heading whose parent is a line_item.
+        pp_row = _minimal_row("PreambleParentSheet2", 2, "preamble", parent_index=1)
+        pp_row["level"] = 3
+        _insert_rows(cls.boq_name, [
+            _minimal_row("PreambleParentSheet2", 0, "preamble", parent_index=None),
+            _minimal_row("PreambleParentSheet2", 1, "line_item", parent_index=0),
+            pp_row,
+        ])
+
+        # NoteParentSheet2 (#8b): an item filed under a note.
+        _insert_rows(cls.boq_name, [
+            _minimal_row("NoteParentSheet2", 0, "note", parent_index=None),
+            _minimal_row("NoteParentSheet2", 1, "line_item", parent_index=0),
         ])
 
     @classmethod
@@ -1922,17 +2015,20 @@ class TestGetStructuralBreaks(FrappeTestCase):
             "wizard_status",
         ) or ""
 
-    def test_orphan_sheet_returns_break_of_type_orphan(self):
-        """A sheet with an orphan line_item returns exactly one break of type orphan."""
+    def test_orphan_sheet_returns_no_break_but_orphan_flag(self):
+        """An orphan line_item is a soft advisory now: it produces NO structural break,
+        but it DOES surface an orphan advisory flag with the right row metadata."""
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="OrphanSheet2")
         self.assertIn("breaks", result)
-        self.assertEqual(len(result["breaks"]), 1,
-                         "expect exactly one break for the single orphan line_item")
-        brk = result["breaks"][0]
-        self.assertEqual(brk["type"], "orphan")
-        self.assertEqual(brk["row_index"], 0,
-                         "break row_index must match the inserted orphan row")
-        self.assertEqual(brk["source_row_number"], 5,
+        self.assertEqual(result["breaks"], [],
+                         "an orphan line_item must NOT produce a structural break")
+        orphan_flags = [f for f in result["flags"] if f["type"] == "orphan"]
+        self.assertEqual(len(orphan_flags), 1,
+                         "expect exactly one orphan advisory flag for the single orphan line_item")
+        flag = orphan_flags[0]
+        self.assertEqual(flag["row_index"], 0,
+                         "flag row_index must match the inserted orphan row")
+        self.assertEqual(flag["source_row_number"], 5,
                          "source_row_number must match the fixture value passed at insert")
 
     def test_clean_sheet_returns_empty_breaks(self):
@@ -1949,6 +2045,31 @@ class TestGetStructuralBreaks(FrappeTestCase):
         status_after = self._get_wizard_status("OrphanSheet2")
         self.assertEqual(status_before, status_after,
                          "get_structural_breaks must not write wizard_status")
+
+    def test_preamble_parent_level_surfaced_as_break(self):
+        """S2: a #7 misfiled sub-heading surfaces as a SHARED preamble_parent_level break
+        (with parent_row_index) via the merged commit validators -- not as a soft flag."""
+        result = get_structural_breaks(
+            boq_name=self.boq_name, sheet_name="PreambleParentSheet2")
+        self.assertIn("breaks", result)
+        pp = [b for b in result["breaks"] if b["type"] == "preamble_parent_level"]
+        self.assertEqual(len(pp), 1,
+                         "exactly one #7 preamble_parent_level break is expected")
+        self.assertEqual(pp[0]["row_index"], 2, "the level-3 sub-heading is row_index 2")
+        self.assertEqual(pp[0]["parent_row_index"], 1,
+                         "parent_row_index is the offending parent (the line_item at row 1)")
+        self.assertTrue(pp[0]["reason"], "a #7 break must carry a human-readable reason")
+
+    def test_item_under_note_surfaced_as_shared_8(self):
+        """#8b: an item under a note surfaces the SHARED #8 (line_item_parent_not_preamble) --
+        proving the generalized check is a strict superset of the retired line_item_as_parent."""
+        result = get_structural_breaks(
+            boq_name=self.boq_name, sheet_name="NoteParentSheet2")
+        types = [b["type"] for b in result["breaks"]]
+        self.assertIn("line_item_parent_not_preamble", types,
+                      "an item under a note must surface the SHARED #8 break")
+        self.assertNotIn("line_item_as_parent", types,
+                         "the retired line_item_as_parent break type must no longer appear")
 
 
 # ===========================================================================
@@ -2209,15 +2330,17 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
 
 
 # ===========================================================================
-# Group 9: _has_price_signal + _compute_advisory_flags -- pure Python (B2a)
+# Group 9: _compute_advisory_flags -- pure Python (B2a; review-warnings cleanup)
 # ===========================================================================
 
 class TestAdvisoryFlagHelpers(unittest.TestCase):
     """
-    Pure-Python unit tests for the four B2a advisory flag sources.
+    Pure-Python unit tests for the three surviving advisory flag sources:
+    classifier_warning, orphan (computed independently), and parser. The
+    priced-preamble and zero-amount flags were removed in the review-warnings cleanup.
 
     All rows are constructed as plain dicts; no DB access needed.
-    _minimal_advisory_row() provides only the fields the helpers read.
+    _row() provides only the fields the helpers read.
     """
 
     def _row(
@@ -2228,15 +2351,9 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
         human_classification=None,
         human_parent=None,
         source_row_number=None,
-        amount_total=None,
-        amount_supply=None,
-        amount_install=None,
-        rate_supply=None,
-        rate_install=None,
-        rate_combined=None,
-        qty_total=None,
         needs_classification_review=0,
         review_reason=None,
+        classifier_warnings=None,
     ):
         """Minimal row dict for advisory-flag tests."""
         return {
@@ -2246,183 +2363,113 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
             "human_classification": human_classification,
             "parent_index": parent_index if parent_index is not None else -1,
             "human_parent": human_parent if human_parent is not None else -1,
-            "amount_total": amount_total,
-            "amount_supply": amount_supply,
-            "amount_install": amount_install,
-            "rate_supply": rate_supply,
-            "rate_install": rate_install,
-            "rate_combined": rate_combined,
-            "qty_total": qty_total,
             "needs_classification_review": needs_classification_review,
             "review_reason": review_reason,
+            "classifier_warnings": classifier_warnings,
         }
 
-    # -- _has_price_signal --
+    # -- flag (i): classifier_warning --
 
-    def test_has_price_signal_amount_total(self):
-        row = self._row(0, "preamble", amount_total=100.0)
-        self.assertTrue(_has_price_signal(row))
+    def test_classifier_warning_fires_from_list(self):
+        """classifier_warnings as a Python list (unit-test shape) -> one flag whose
+        reason is the notes joined by ' · '."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings=["note A", "note B"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["row_index"], 0)
+        self.assertEqual(cw_flags[0]["source_row_number"], 2)
+        self.assertEqual(cw_flags[0]["reason"], "note A · note B")
 
-    def test_has_price_signal_rate_combined(self):
-        row = self._row(0, "preamble", rate_combined=250.0)
-        self.assertTrue(_has_price_signal(row))
+    def test_classifier_warning_fires_from_json_string(self):
+        """classifier_warnings as a JSON STRING (the get_structural_breaks/db.get_all
+        shape, which does NOT JSON-parse) -> same single flag + joined reason."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings=json.dumps(["note A", "note B"]))]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["reason"], "note A · note B")
 
-    def test_no_price_signal_all_none(self):
-        row = self._row(0, "preamble")
-        self.assertFalse(_has_price_signal(row))
+    def test_classifier_warning_single_note_reason(self):
+        rows = [self._row(0, "preamble", parent_index=None,
+                          classifier_warnings=["solo note"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["reason"], "solo note")
 
-    def test_no_price_signal_all_zero(self):
-        row = self._row(0, "preamble", amount_total=0, rate_supply=0, qty_total=0)
-        self.assertFalse(_has_price_signal(row))
+    def test_classifier_warning_does_not_fire_when_empty(self):
+        """None / "" / [] / "[]" -> no flag (all four empty shapes)."""
+        for empty in (None, "", [], "[]"):
+            rows = [self._row(0, "line_item", parent_index=0, classifier_warnings=empty)]
+            flags = _compute_advisory_flags(rows)
+            types = [f["type"] for f in flags]
+            self.assertNotIn("classifier_warning", types,
+                             f"empty classifier_warnings {empty!r} must produce no flag")
 
-    # -- flag (i): priced_preamble_no_children --
+    def test_classifier_warning_bad_json_string_skipped(self):
+        """A malformed JSON string must be tolerated -> no flag, no exception."""
+        rows = [self._row(0, "line_item", parent_index=0,
+                          classifier_warnings="{not valid json")]
+        flags = _compute_advisory_flags(rows)
+        types = [f["type"] for f in flags]
+        self.assertNotIn("classifier_warning", types)
 
-    def test_flag_i_fires_on_childless_priced_preamble(self):
+    # -- flag (ii): orphan (computed INDEPENDENTLY -- not from structural_breaks) --
+
+    def test_orphan_flag_computed_independently_for_line_item(self):
         """
-        A childless preamble with amount_total > 0 must receive flag (i).
-        NOTE: this scenario can only arise via human_classification override after
-        parse time (the parser demotes all childless priced preambles to line_items
-        during the post-pass).  The test constructs one directly to verify the
-        computation even though it is expected-dormant on real parse output.
-        """
-        rows = [self._row(0, "preamble", parent_index=None, amount_total=500.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
-
-    def test_flag_i_does_not_fire_when_preamble_has_children(self):
-        rows = [
-            self._row(0, "preamble", parent_index=None, amount_total=500.0),
-            self._row(1, "line_item", parent_index=0, amount_total=500.0),
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("priced_preamble_no_children", types)
-
-    def test_flag_i_does_not_fire_when_preamble_has_no_price(self):
-        rows = [self._row(0, "preamble", parent_index=None)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("priced_preamble_no_children", types)
-
-    def test_flag_i_fires_on_childless_preamble_with_only_qty(self):
-        """No-attribute-loss (Option B): a childless preamble carrying a quantity but
-        no price (rate/amount) still fires flag (i).  A preamble with a real qty is
-        exactly the 'is this actually a line item?' case the reviewer must confirm —
-        this is the surfacing half of the dropped-quantity fix (Bug-19 promotions)."""
-        rows = [self._row(0, "preamble", parent_index=None, qty_total=350.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
-
-    def test_flag_i_fires_via_effective_classification(self):
-        """
-        A row with parser classification=line_item but human_classification=preamble
-        (no children, has price) must be flagged -- effective_classification is used.
-        """
-        rows = [
-            self._row(0, "line_item", parent_index=None,
-                      human_classification="preamble", amount_total=100.0)
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("priced_preamble_no_children", types)
-
-    # -- flag (ii): zero_amount_line_item --
-
-    def test_flag_ii_fires_on_zero_amount_with_rate(self):
-        # New rule (B2a-fix): fires when amount_zero AND has_rate (scalar rate fields).
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_fires_when_amount_zero_and_rate_combined_present(self):
-        # Amount zero + non-zero combined rate -> fires regardless of qty.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0,
-                          qty_total=5.0, rate_combined=200.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_qty_zero_alone_does_not_fire(self):
-        # qty-zero trigger dropped (B2a-fix): amount non-zero -> no flag regardless of qty.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_zero_amount_without_rate_does_not_fire(self):
-        # No rate present -> flag does not fire even with zero/None amount.
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_does_not_fire_on_non_zero_line_item(self):
-        rows = [self._row(0, "line_item", parent_index=0, amount_total=100.0, qty_total=2.0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    def test_flag_ii_respects_effective_classification(self):
-        """
-        A preamble reclassified to line_item via human_classification=line_item with
-        zero amount AND a non-zero rate must receive flag (ii) -- effective_classification used.
-        """
-        rows = [
-            self._row(0, "preamble", parent_index=0,
-                      human_classification="line_item",
-                      amount_total=0, rate_install=100.0)
-        ]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertIn("zero_amount_line_item", types)
-
-    def test_flag_ii_not_fired_for_non_line_item(self):
-        """A preamble with zero amounts must NOT receive the zero-amount flag."""
-        rows = [self._row(0, "preamble", parent_index=None, amount_total=0, qty_total=0)]
-        flags = _compute_advisory_flags(rows, [])
-        types = [f["type"] for f in flags]
-        self.assertNotIn("zero_amount_line_item", types)
-
-    # -- flag (iii): orphan (composed from structural_breaks) --
-
-    def test_orphan_composed_not_recomputed(self):
-        """
-        Orphan flags must come from the structural_breaks input, not be recomputed.
-        Passing a synthetic orphan break must surface the flag even if rows would not
-        independently trigger it (non-line_item row used to prove composition).
-        """
-        rows = [self._row(0, "preamble", parent_index=None)]
-        # Inject a synthetic orphan break for row 0 (would not fire on a preamble normally)
-        synthetic_break = {"type": "orphan", "row_index": 0, "source_row_number": 2,
-                           "reason": "injected for test"}
-        flags = _compute_advisory_flags(rows, [synthetic_break])
-        orphan_flags = [f for f in flags if f["type"] == "orphan"]
-        self.assertEqual(len(orphan_flags), 1, "orphan flag must surface from structural_breaks")
-        self.assertEqual(orphan_flags[0]["reason"], "Line item with no parent group — check its parenting.",
-                         "orphan flag reason must use the canonical phrase, not the break reason")
-
-    def test_real_orphan_line_item_surfaces(self):
-        """
-        A genuine orphan line_item: structural_breaks will contain the orphan entry
-        (from check_structural_integrity), which _compute_advisory_flags then reuses.
+        Orphan flags are now computed INDEPENDENTLY inside _compute_advisory_flags via
+        resolve_effective: an effective line_item with no effective parent -> orphan flag.
+        The canonical reason is used (not any break reason).
         """
         rows = [self._row(0, "line_item", parent_index=None)]
-        breaks = check_structural_integrity(rows)
-        flags = _compute_advisory_flags(rows, breaks)
+        flags = _compute_advisory_flags(rows)
         orphan_flags = [f for f in flags if f["type"] == "orphan"]
-        self.assertEqual(len(orphan_flags), 1)
+        self.assertEqual(len(orphan_flags), 1, "an orphan line_item must surface an orphan flag")
+        self.assertEqual(orphan_flags[0]["row_index"], 0)
+        self.assertEqual(orphan_flags[0]["source_row_number"], 2)
+        self.assertEqual(orphan_flags[0]["reason"], "Line item with no parent group — check its parenting.",
+                         "orphan flag reason must use the canonical phrase")
+
+    def test_orphan_flag_not_fired_for_non_line_item(self):
+        """A non-line_item row with no parent (e.g. a root preamble) is NOT an orphan."""
+        rows = [self._row(0, "preamble", parent_index=None)]
+        flags = _compute_advisory_flags(rows)
+        orphan_flags = [f for f in flags if f["type"] == "orphan"]
+        self.assertEqual(len(orphan_flags), 0,
+                         "a root preamble must not produce an orphan flag")
+
+    def test_orphan_flag_not_fired_when_parent_resolves(self):
+        """A line_item with a parent (no longer an orphan) produces no orphan flag."""
+        rows = [
+            self._row(0, "preamble", parent_index=None),
+            self._row(1, "line_item", parent_index=0),
+        ]
+        flags = _compute_advisory_flags(rows)
+        orphan_flags = [f for f in flags if f["type"] == "orphan"]
+        self.assertEqual(len(orphan_flags), 0,
+                         "a parented line_item must not produce an orphan flag")
+
+    def test_orphan_flag_and_no_structural_break_for_same_row(self):
+        """The same orphan line_item yields an orphan ADVISORY flag and NO structural break."""
+        rows = [self._row(0, "line_item", parent_index=None)]
+        breaks = check_structural_integrity(rows)
+        self.assertEqual(breaks, [], "an orphan line_item must NOT be a structural break")
+        flags = _compute_advisory_flags(rows)
+        orphan_flags = [f for f in flags if f["type"] == "orphan"]
+        self.assertEqual(len(orphan_flags), 1, "but it MUST surface an orphan advisory flag")
         self.assertEqual(orphan_flags[0]["row_index"], 0)
 
-    # -- flag (iv): parser needs_classification_review --
+    # -- flag (iii): parser needs_classification_review --
 
     def test_parser_flag_surfaces_verbatim(self):
         review_text = "Scored borderline: check preamble vs line-item."
         rows = [self._row(0, "preamble", parent_index=None,
                           needs_classification_review=1, review_reason=review_text)]
-        flags = _compute_advisory_flags(rows, [])
+        flags = _compute_advisory_flags(rows)
         parser_flags = [f for f in flags if f["type"] == "parser"]
         self.assertEqual(len(parser_flags), 1)
         self.assertEqual(parser_flags[0]["reason"], review_text,
@@ -2431,51 +2478,29 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
     def test_parser_flag_does_not_fire_without_reason(self):
         rows = [self._row(0, "preamble", parent_index=None,
                           needs_classification_review=1, review_reason=None)]
-        flags = _compute_advisory_flags(rows, [])
+        flags = _compute_advisory_flags(rows)
         parser_flags = [f for f in flags if f["type"] == "parser"]
         self.assertEqual(len(parser_flags), 0, "no review_reason -> parser flag must not fire")
 
     def test_clean_sheet_no_flags(self):
-        """A structurally clean sheet with priced non-preamble rows returns no flags."""
+        """A structurally clean sheet with no warnings/review flags returns no flags."""
         rows = [
             self._row(0, "preamble", parent_index=None),
-            self._row(1, "line_item", parent_index=0, amount_total=500.0, qty_total=2.0),
+            self._row(1, "line_item", parent_index=0),
         ]
-        flags = _compute_advisory_flags(rows, [])
+        flags = _compute_advisory_flags(rows)
         self.assertEqual(flags, [], "clean sheet must return no advisory flags")
 
     # -- canonical reason text --
 
-    def test_canonical_reasons_verbatim(self):
-        """Verify the four canonical reason strings are pinned verbatim."""
-        rows = [
-            self._row(0, "preamble", parent_index=None, amount_total=100.0),
-        ]
-        breaks = check_structural_integrity(rows)
-        flags = _compute_advisory_flags(rows, breaks)
-        i_flag = next((f for f in flags if f["type"] == "priced_preamble_no_children"), None)
-        self.assertIsNotNone(i_flag)
+    def test_canonical_orphan_reason_verbatim(self):
+        """The orphan flag's canonical reason string is pinned verbatim."""
+        rows = [self._row(0, "line_item", parent_index=None)]
+        flags = _compute_advisory_flags(rows)
+        orphan_flag = next((f for f in flags if f["type"] == "orphan"), None)
+        self.assertIsNotNone(orphan_flag)
         self.assertEqual(
-            i_flag["reason"],
-            "Preamble carrying a price or quantity with no sub-items — check if it's a line item.",
-        )
-
-        rows_ii = [self._row(1, "line_item", parent_index=0, amount_total=0, rate_supply=150.0)]
-        flags_ii = _compute_advisory_flags(rows_ii, [])
-        ii_flag = next((f for f in flags_ii if f["type"] == "zero_amount_line_item"), None)
-        self.assertIsNotNone(ii_flag)
-        self.assertEqual(
-            ii_flag["reason"],
-            "Has a rate but the amount is zero — check the quantity or amount.",
-        )
-
-        rows_iii = [self._row(2, "line_item", parent_index=None)]
-        breaks_iii = check_structural_integrity(rows_iii)
-        flags_iii = _compute_advisory_flags(rows_iii, breaks_iii)
-        iii_flag = next((f for f in flags_iii if f["type"] == "orphan"), None)
-        self.assertIsNotNone(iii_flag)
-        self.assertEqual(
-            iii_flag["reason"],
+            orphan_flag["reason"],
             "Line item with no parent group — check its parenting.",
         )
 
@@ -2487,11 +2512,17 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
 class TestGetStructuralBreaksB2a(FrappeTestCase):
     """
     Verifies the Slice B2a extension of get_structural_breaks: the endpoint now
-    returns both "breaks" (unchanged) and "flags" (advisory flags).
+    returns both "breaks" (unchanged) and "flags" (advisory flags). Surviving flag
+    set (review-warnings cleanup): classifier_warning, orphan, parser.
 
-    FlagSheet: preamble (row 0, amount_total=500, no children) + orphan line_item
+    FlagSheet: preamble (row 0, classifier_warnings) + orphan line_item
                (row 1, parent=None) + parser-flagged preamble (row 2, needs_review=1).
-    CleanSheet3: preamble (row 0) + line_item with parent=0 (row 1, amount=100, qty=2).
+               The orphan is a soft advisory now -> it surfaces in "flags" only, NOT in
+               "breaks"; FlagSheet has no structural break.
+    CleanSheet3: preamble (row 0) + line_item with parent=0 (row 1).
+
+    classifier_warnings is fetched via frappe.db.get_all in get_structural_breaks,
+    which returns it as a JSON STRING -> exercises the str-shape parse path end-to-end.
     """
 
     @classmethod
@@ -2513,39 +2544,37 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         frappe.db.commit()
         cls.boq_name = boq.name
 
-        def _row_with_amounts(sheet_name, row_index, classification, parent_index,
-                              amount_total=None, qty_total=None,
-                              needs_classification_review=0, review_reason=None):
+        def _row_for_flags(sheet_name, row_index, classification, parent_index,
+                           classifier_warnings=None,
+                           needs_classification_review=0, review_reason=None):
             d = _minimal_row(sheet_name, row_index, classification,
                              parent_index=parent_index)
-            if amount_total is not None:
-                d["amount_total"] = amount_total
-            if qty_total is not None:
-                d["qty_total"] = qty_total
+            if classifier_warnings is not None:
+                d["classifier_warnings"] = classifier_warnings
             d["needs_classification_review"] = needs_classification_review
             if review_reason is not None:
                 d["review_reason"] = review_reason
             return d
 
         # FlagSheet:
-        #   row 0 -- preamble, no parent, amount_total=500, no children -> priced_preamble_no_children
-        #   row 1 -- line_item, no parent -> orphan + zero_amount_line_item
+        #   row 0 -- preamble, no parent, classifier_warnings=[...] -> classifier_warning flag
+        #   row 1 -- line_item, no parent -> orphan flag
         #   row 2 -- preamble, no parent, needs_review=1, review_reason set -> parser flag
         #   (row 2 must have parent=None so row 0 truly has no children; a root preamble
         #    is not an ORPHAN -- the orphan check is line_item-only.)
         _insert_rows(cls.boq_name, [
-            _row_with_amounts("FlagSheet", 0, "preamble", None, amount_total=500.0),
-            _row_with_amounts("FlagSheet", 1, "line_item", None),
-            _row_with_amounts("FlagSheet", 2, "preamble", None,
-                              needs_classification_review=1,
-                              review_reason="borderline preamble vs line_item"),
+            _row_for_flags("FlagSheet", 0, "preamble", None,
+                           classifier_warnings=["weak preamble signal", "ambiguous level"]),
+            _row_for_flags("FlagSheet", 1, "line_item", None),
+            _row_for_flags("FlagSheet", 2, "preamble", None,
+                           needs_classification_review=1,
+                           review_reason="borderline preamble vs line_item"),
         ])
 
         # CleanSheet3: no flags expected
         _insert_rows(cls.boq_name, [
-            _row_with_amounts("CleanSheet3", 0, "preamble", None),
-            _row_with_amounts("CleanSheet3", 1, "line_item", 0,
-                              amount_total=100.0, qty_total=2.0),
+            _row_for_flags("CleanSheet3", 0, "preamble", None),
+            _row_for_flags("CleanSheet3", 1, "line_item", 0),
         ])
 
     @classmethod
@@ -2560,17 +2589,24 @@ class TestGetStructuralBreaksB2a(FrappeTestCase):
         self.assertIn("flags", result, "'flags' key must be present in get_structural_breaks response")
         self.assertIsInstance(result["flags"], list)
 
-    def test_breaks_key_still_present_and_unchanged(self):
-        """The existing 'breaks' key must still be present and contain orphan for FlagSheet."""
+    def test_breaks_key_present_and_has_no_orphan(self):
+        """The 'breaks' key must still be present, but an orphan is no longer a structural
+        break -- FlagSheet (orphan-only structural issue) returns empty 'breaks'."""
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="FlagSheet")
         self.assertIn("breaks", result)
         orphan_breaks = [b for b in result["breaks"] if b["type"] == "orphan"]
-        self.assertGreater(len(orphan_breaks), 0, "orphan break must still surface in 'breaks'")
+        self.assertEqual(len(orphan_breaks), 0, "orphan must NOT surface as a structural break")
+        self.assertEqual(result["breaks"], [],
+                         "FlagSheet has no structural break (orphan is advisory only)")
 
-    def test_priced_preamble_no_children_flag_in_response(self):
+    def test_classifier_warning_flag_in_response(self):
+        """classifier_warnings is fetched as a JSON STRING by db.get_all -> the helper
+        parses it and joins the notes with ' · '."""
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="FlagSheet")
-        types = [f["type"] for f in result["flags"]]
-        self.assertIn("priced_preamble_no_children", types)
+        cw_flags = [f for f in result["flags"] if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1)
+        self.assertEqual(cw_flags[0]["row_index"], 0)
+        self.assertEqual(cw_flags[0]["reason"], "weak preamble signal · ambiguous level")
 
     def test_orphan_advisory_flag_in_response(self):
         result = get_structural_breaks(boq_name=self.boq_name, sheet_name="FlagSheet")
@@ -3814,7 +3850,7 @@ _CR_DRAFT_ONLY_KEYS = (
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
     "edit_log", "revert_available", "human_classification", "human_parent",
     "human_is_root", "flags_dismissed", "needs_classification_review",
-    "validation_warnings",
+    "classifier_warnings",
 )
 
 

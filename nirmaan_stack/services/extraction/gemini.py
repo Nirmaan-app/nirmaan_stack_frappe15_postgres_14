@@ -36,11 +36,13 @@ _INVOICE_FIELDS = (
 )
 _PAYMENT_FIELDS = ("utr", "payment_date", "transfer_amount")
 # Field names match the "Customer PO Child Table" doctype 1:1 (no rename layer).
-# `project_reference` is NOT a form field — it is used only to verify the PO
-# belongs to this project (soft project-mismatch warning).
+# `project_reference`, `customer_name`, `customer_gstin` are NOT form fields — they
+# are used only to verify the PO belongs to this project / customer (soft mismatch
+# warning). customer_* identify the PO's ISSUER (the buyer), never the vendor.
 _CUSTOMER_PO_FIELDS = (
-    "customer_po_number", "customer_po_value_inctax", "customer_po_value_exctax",
-    "project_reference",
+    "customer_po_number", "customer_po_date",
+    "customer_po_value_inctax", "customer_po_value_exctax",
+    "project_reference", "customer_name", "customer_gstin",
 )
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
@@ -78,10 +80,17 @@ _CUSTOMER_PO_PROMPT = (
     "Extract the listed fields from this customer Purchase Order (PO) document "
     "and return JSON only.\n"
     "- customer_po_number = the PO Number / Purchase Order No. issued by the customer.\n"
+    "- customer_po_date = the date the PO was issued (the 'Date' shown on the PO), "
+    "in YYYY-MM-DD format.\n"
     "- customer_po_value_inctax = the total PO value INCLUDING tax/GST (the grand total).\n"
     "- customer_po_value_exctax = the PO value EXCLUDING tax (the subtotal before GST).\n"
     "- project_reference = the project name, site name, or work/project description "
     "this PO is for (used to confirm the PO belongs to the right project).\n"
+    "- customer_name = the name of the company that ISSUED this Purchase Order (the "
+    "buyer / customer, usually at the top of the document). This is NOT the vendor / "
+    "supplier / 'Vendor Address' party — do NOT return the supplier's name.\n"
+    "- customer_gstin = the 15-character GSTIN of that ISSUING company (the buyer / "
+    "customer). NOT the vendor's / supplier's GSTIN.\n"
     "- payment_terms = the payment schedule as a list of milestones; for EACH milestone "
     "give label (e.g. Advance, On Delivery, On Installation), percentage (a number, no % "
     "sign), and a short description. Return an empty list if no payment terms are stated.\n"

@@ -23,19 +23,30 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.pricing import (
+    _get_sheet_is_locked,
+    _sheet_formulas_complete,
     get_committed_sheet_grid,
     get_priced_rows,
+    get_version_priced_rows,
+    get_copy_forward_plan,
+    apply_copy_forward,
     get_sheet_amount_formulas,
     get_sheet_colors,
     get_sheet_dismissals,
     get_sheet_pricing,
+    get_sheet_reconciliation_choices,
     get_sheet_remarks,
+    lock_sheet,
     save_amount_formula,
     save_cell_color,
     save_cell_dismissal,
     save_cell_price,
+    save_cell_reconciliation_choice,
     save_row_remark,
+    unlock_sheet,
 )
+from nirmaan_stack.api.boq.wizard.commit_gate import get_committed_state
+from nirmaan_stack.api.boq.wizard import pricing
 from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import (
     LOCK_STALE_SECONDS,
@@ -44,7 +55,10 @@ from nirmaan_stack.api.boq.wizard.pricing_lock import (
     acquire_or_refresh,
     read_lock_info,
 )
-from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+from nirmaan_stack.api.boq.wizard.review_screen import (
+    get_committed_rows,
+    get_committed_rows_at_version,
+)
 from nirmaan_stack.api.boq.wizard.test_review_screen import (
     _cleanup_project,
     _make_project,
@@ -58,6 +72,34 @@ _REMARK_DT = "BoQ Cell Remark"
 _COLOR_DT = "BoQ Cell Color"
 _FORMULA_DT = "BoQ Cell Amount Formula"
 _DISMISSAL_DT = "BoQ Cell Dismissal"
+_CHOICE_DT = "BoQ Cell Reconciliation Choice"
+
+
+# A minimal structurally-valid amount formula (a single leaf -- presence is what coverage needs;
+# F1 validates structure only, never the ref against descriptors).
+_FIXTURE_FORMULA_LEAF = json.dumps(
+    {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}}
+)
+
+
+def _declare_fixture_amount_formulas(boq_name, sheet_name, commit_version):
+    """Make the SHARED per-area committed fixture (build_committed_sheet_fixture: amount cols
+    F [Phase 1, rate_subkey "total"] + I [Phase 2, rate_subkey "install"]) formula-COMPLETE for
+    the MANDATORY amount-formula gate (save_cell_price -> _sheet_formulas_complete rejects ANY
+    rate write until every amount column has a declared formula).
+
+    The two amount columns carry DIFFERENT rate_subkeys (total + install), so a wildcard-DEFAULT
+    formula is declared for EACH (one (amount_by_area, value_key=None, "total") + one
+    (..., "install")); together they cover both columns via pickFormula's area-wildcard
+    resolution. This is exactly the spec's "declare formulas in-test to flip completeness", kept
+    LOCAL to test_pricing.py so neither the shared fixture nor any other test file is touched.
+    sheet_name VERBATIM (#152). save_amount_formula commits internally."""
+    for kind in ("total", "install"):
+        save_amount_formula(
+            boq_name=boq_name, sheet_name=sheet_name, committed_version=commit_version,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey=kind, formula=_FIXTURE_FORMULA_LEAF,
+        )
 
 
 class TestCellPricing(FrappeTestCase):
@@ -78,6 +120,9 @@ class TestCellPricing(FrappeTestCase):
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
         # fixture line items: source_row 34 (li[0]) + 35 (li[1]); rate cols E (Phase 1) / H (Phase 2)
         cls.li_34 = cls.fixture["line_items"][0]
+        # MANDATORY amount-formula gate: the fixture has amount cols F/I -> declare covering
+        # formulas so save_cell_price is not rejected (see _declare_fixture_amount_formulas).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -311,6 +356,10 @@ class TestGetPricedRows(FrappeTestCase):
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
         cls.scalar_sheet = "Scalar Fix "  # VERBATIM trailing space (#152)
         cls.scalar_node = _build_scalar_rate_committed_sheet(cls.boq, cls.scalar_sheet, cls.cv)
+        # MANDATORY amount-formula gate: the per-area fixture has amount cols F/I -> declare
+        # covering formulas so save_cell_price succeeds. The scalar sheet has zero amount cols
+        # (trivially complete), so it needs none.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -473,6 +522,9 @@ class TestSingleEditorLock(FrappeTestCase):
         cls.sheet = "Lock Fix "  # VERBATIM trailing space (#152)
         cls.cv = 1
         cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        # MANDATORY amount-formula gate: declare covering formulas so save_cell_price reaches the
+        # lock logic (the gate fires BEFORE the lock acquire). setUp clears the lock this leaves.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -718,6 +770,10 @@ class TestLockPerSheetIsolation(FrappeTestCase):
         # distinct names build two distinct committed sheets + node sets on the one BOQs.
         cls.fixture_a = build_committed_sheet_fixture(cls.boq, cls.sheet_a, commit_version=cls.cv)
         cls.fixture_b = build_committed_sheet_fixture(cls.boq, cls.sheet_b, commit_version=cls.cv)
+        # MANDATORY amount-formula gate: BOTH committed sheets carry amount cols F/I -> declare
+        # covering formulas on EACH so save_cell_price reaches the lock logic on either sheet.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet_a, cls.cv)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet_b, cls.cv)
         cls.me = frappe.session.user
         cls.other = frappe.db.get_value(
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
@@ -1069,6 +1125,11 @@ class TestPriceabilityGuard(FrappeTestCase):
         other.insert(ignore_permissions=True)
         cls.other_node = other.name
         frappe.db.commit()
+        # MANDATORY amount-formula gate: declare covering formulas so the sheet is formula-COMPLETE
+        # -- the formula gate fires BEFORE the priceability block, so without this the formula
+        # throw would PRE-EMPT the priceability throw and these tests would assert the wrong
+        # message. With the sheet complete, save_cell_price reaches the priceability check.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
@@ -1164,6 +1225,162 @@ class TestPriceabilityGuard(FrappeTestCase):
         priced = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
         p_by_row = {r["source_row_number"]: r for r in priced["rows"]}
         self.assertEqual(p_by_row[self.OTHER_ROW]["node_type"], "Other")
+
+
+class TestPreambleQtyBearingGuard(FrappeTestCase):
+    """The ASYMMETRIC rate-edit gate (owner-locked): on save_cell_price,
+      - a ZERO-QTY PREAMBLE is rejected (read-only) unless override;
+      - a QTY-BEARING PREAMBLE (scalar qty OR any per-area qty non-zero) is accepted;
+      - a LINE ITEM is ALWAYS accepted (a zero-qty Line Item is a valid rate-only line);
+      - a non-priceable type ("Other") is rejected unless override (unchanged);
+      - allow_non_priceable unlocks BOTH a zero-qty Preamble AND a non-priceable type.
+
+    Reuses the shared committed fixture (Preamble row 6 is ZERO-QTY; Line Items 34/35 are
+    qty-bearing) and ADDS, in THIS class's setup: a qty-bearing Preamble (scalar qty, row 7),
+    a qty-bearing-via-area Preamble (scalar qty 0 + a non-zero BOQ Node Qty By Area child,
+    row 8), a ZERO-QTY Line Item (row 51), and an 'Other' node (row 52). The shared builder is
+    untouched. sheet_name carries a trailing space (#152)."""
+
+    QTY_PREAMBLE_ROW = 7      # Preamble, scalar qty non-zero -> editable
+    AREA_PREAMBLE_ROW = 8     # Preamble, scalar qty 0 but a non-zero per-area child -> editable
+    ZERO_LINE_ITEM_ROW = 51   # Line Item, zero qty -> STILL editable (rate-only)
+    OTHER_ROW = 52            # Other -> non-priceable, rejected unless override
+    ZERO_PREAMBLE_ROW = 6     # the shared fixture's Preamble (zero-qty) -> read-only
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Preamble Qty Gate Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Qty Gate "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        bqsh = cls.fixture["bqsh"]
+        now = frappe.utils.now()
+
+        def _node(node_type, row_class, source_row, sort_order, qty=None, area_qty=None, level=None):
+            n = frappe.new_doc("BOQ Nodes")
+            n.sheet = bqsh
+            n.node_type = node_type
+            n.row_class = row_class
+            n.description = f"{node_type} @ {source_row}"
+            n.sort_order = sort_order
+            n.source_row_number = source_row
+            if qty is not None:
+                n.qty = qty
+            if level is not None:
+                n.level = level
+            n.commit_version = cls.cv
+            n.is_current = 1
+            n.committed_at = now
+            if area_qty is not None:
+                for area_name, q in area_qty.items():
+                    n.append("qty_by_area", {"area_name": area_name, "qty": q})
+            n.insert(ignore_permissions=True)
+            return n.name
+
+        # Preamble WITH a scalar qty -> editable.
+        cls.qty_preamble = _node("Preamble", "preamble", cls.QTY_PREAMBLE_ROW, 4, qty=10.0, level=1)
+        # Preamble with scalar qty 0 but a NON-ZERO per-area child -> editable (the child read).
+        cls.area_preamble = _node(
+            "Preamble", "preamble", cls.AREA_PREAMBLE_ROW, 5, qty=0.0, level=1,
+            area_qty={"Phase 1": 0.0, "Phase 2": 7.0},
+        )
+        # Line Item with ZERO qty (and a zero per-area child) -> STILL editable (rate-only).
+        cls.zero_line_item = _node(
+            "Line Item", "line_item", cls.ZERO_LINE_ITEM_ROW, 6, qty=0.0,
+            area_qty={"Phase 1": 0.0, "Phase 2": 0.0},
+        )
+        # A non-priceable 'Other' node -> rejected unless override.
+        cls.other_node = _node("Other", "note", cls.OTHER_ROW, 7)
+        frappe.db.commit()
+        # MANDATORY amount-formula gate: declare covering formulas so the sheet is formula-COMPLETE
+        # -- the formula gate fires BEFORE the qty/priceability block, so without this it would
+        # PRE-EMPT the qty-gate throws these tests assert. With the sheet complete, save_cell_price
+        # reaches the asymmetric qty gate.
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    def _price_count(self, excel_row):
+        return frappe.db.count(
+            _PRICING, {"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row}
+        )
+
+    def _lock_count(self):
+        return frappe.db.count(_LOCK_DT, {"boq": self.boq})
+
+    def _save(self, excel_row, **kw):
+        return save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=excel_row,
+            col_letter="E", committed_version=self.cv, rate=99.0, **kw,
+        )
+
+    # -- Preamble: zero-qty rejected, qty-bearing accepted ---------------------
+
+    def test_zero_qty_preamble_rejected_without_override(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(self.ZERO_PREAMBLE_ROW)
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        # A rejected write mutated NOTHING (the guard sits BEFORE acquire_or_refresh).
+        self.assertEqual(self._price_count(self.ZERO_PREAMBLE_ROW), 0, "no price row written")
+        self.assertEqual(self._lock_count(), 0, "the lock was not acquired on a rejected write")
+
+    def test_qty_bearing_preamble_accepted_scalar_qty(self):
+        res = self._save(self.QTY_PREAMBLE_ROW)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.QTY_PREAMBLE_ROW), 1)
+
+    def test_qty_bearing_preamble_accepted_via_area_child(self):
+        # scalar qty is 0 but a per-area child qty is non-zero -> the child read makes it editable.
+        res = self._save(self.AREA_PREAMBLE_ROW)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.AREA_PREAMBLE_ROW), 1)
+
+    def test_zero_qty_preamble_accepted_with_override(self):
+        res = self._save(self.ZERO_PREAMBLE_ROW, allow_non_priceable=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.ZERO_PREAMBLE_ROW), 1)
+
+    # -- Line Item: always editable, even at zero qty (rate-only) --------------
+
+    def test_zero_qty_line_item_accepted_without_override(self):
+        res = self._save(self.ZERO_LINE_ITEM_ROW)
+        self.assertTrue(res["ok"], "a zero-qty Line Item is a valid rate-only line -> editable")
+        self.assertEqual(self._price_count(self.ZERO_LINE_ITEM_ROW), 1)
+
+    def test_qty_bearing_line_item_accepted(self):
+        # the shared fixture's Line Item 34 (qty-bearing) -- unchanged behaviour.
+        res = self._save(34, area="Phase 1")
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(34), 1)
+
+    # -- non-priceable type: unchanged (rejected unless override) --------------
+
+    def test_other_type_rejected_without_override(self):
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._save(self.OTHER_ROW)
+        self.assertIn("not priceable", str(ctx.exception).lower())
+        self.assertEqual(self._price_count(self.OTHER_ROW), 0)
+
+    def test_other_type_accepted_with_override(self):
+        res = self._save(self.OTHER_ROW, allow_non_priceable=True)
+        self.assertTrue(res["ok"])
+        self.assertEqual(self._price_count(self.OTHER_ROW), 1)
 
 
 class TestRowRemark(FrappeTestCase):
@@ -1933,9 +2150,14 @@ class TestCellDismissal(FrappeTestCase):
             "User", {"name": ["not in", [cls.me, "Guest"]], "enabled": 1}, "name"
         )
         assert cls.other, "need a second real User to play the competing lock holder"
+        # MANDATORY amount-formula gate: declare covering formulas so the SUCCESS-path rate save
+        # (the re-arm proof on a Line Item) is not rejected by the gate. setUp clears the lock
+        # this leaves; the formula records persist (cleared in tearDownClass).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
 
     @classmethod
     def tearDownClass(cls):
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
         frappe.db.delete(_DISMISSAL_DT, {"boq": cls.boq})
         frappe.db.delete(_PRICING, {"boq": cls.boq})
         frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
@@ -2145,3 +2367,1360 @@ class TestCellDismissal(FrappeTestCase):
         res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
         self.assertIn("dismissals", res, "the key is always present (backwards-compat shape)")
         self.assertEqual(res["dismissals"], [], "a no-dismissal sheet returns it empty")
+
+
+class TestMandatoryFormulaGate(FrappeTestCase):
+    """The MANDATORY amount-formula gate (Phase 5): save_cell_price rejects ANY rate write until
+    every amount column on the sheet has a declared formula. The gate is ABSOLUTE -- the
+    allow_non_priceable override does NOT bypass it (it loosens ONLY the type/qty axis). The
+    predicate is _sheet_formulas_complete (per-COVERAGE: an area-wildcard default covers all its
+    per-area columns; zero amount columns -> trivially complete). Declaration (save_amount_formula)
+    stays usable while rates are locked.
+
+    Uses the SHARED per-area committed fixture (amount cols F [Phase 1, total] + I [Phase 2,
+    install]) -- INCOMPLETE by default (no formulas) -- plus a SCALAR-RATE committed sheet (zero
+    amount columns -> trivially complete). sheet_name carries a trailing space (#152)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Formula-Gate Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.cv = 1
+        cls.sheet = "Gate Fix "  # amount-bearing per-area fixture -> INCOMPLETE by default (#152)
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.noamt_sheet = "Gate NoAmt "  # scalar rate, ZERO amount cols -> trivially complete
+        cls.noamt_node = _build_scalar_rate_committed_sheet(cls.boq, cls.noamt_sheet, cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        frappe.db.delete(_PRICING, {"boq": cls.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Each test starts INCOMPLETE: clean formula layer + pricing + lock (fixture persists).
+        frappe.db.delete(_FORMULA_DT, {"boq": self.boq})
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _declare(self, rate_subkey):
+        """Declare ONE wildcard-default amount formula for the per-area fixture sheet."""
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey=rate_subkey, formula=_FIXTURE_FORMULA_LEAF,
+        )
+
+    def _price(self, **kw):
+        return save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=100.0, area="Phase 1", rate_kind="combined_rate",
+            description="cable", **kw,
+        )
+
+    # -- _sheet_formulas_complete (the predicate) ---------------------------
+
+    def test_predicate_zero_amount_cols_is_trivially_complete(self):
+        # The scalar-rate sheet has NO amount columns -> trivially complete (nothing to declare).
+        self.assertTrue(_sheet_formulas_complete(self.boq, self.noamt_sheet, self.cv))
+
+    def test_predicate_false_when_uncovered_or_partial(self):
+        # No formulas -> INCOMPLETE (two amount cols F[total] + I[install] uncovered).
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+        # Only ONE of the two distinct rate_subkeys covered -> still INCOMPLETE.
+        self._declare("total")
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+
+    def test_predicate_true_when_all_covered(self):
+        self._declare("total")
+        self._declare("install")
+        self.assertTrue(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+
+    # -- save_cell_price gate (override can NOT bypass) ----------------------
+
+    def test_save_cell_price_rejected_when_incomplete_even_with_override(self):
+        # Row 34/col E is a qty-bearing Line Item (priceable) -> the ONLY possible reject here is
+        # the formula gate. allow_non_priceable=True must NOT bypass it.
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._price(allow_non_priceable=True)
+        self.assertIn("declared formula", str(ctx.exception),
+                      "the FORMULA gate rejected it (not priceability) -- override can't bypass")
+        # Reject mutated NOTHING: no pricing row, no lock acquired (the gate is before both).
+        self.assertEqual(frappe.db.count(_PRICING, {"boq": self.boq}), 0, "no price row written")
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0, "no lock acquired")
+
+    def test_save_cell_price_succeeds_once_complete(self):
+        self._declare("total")
+        self._declare("install")
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})  # clear the lock declaration left
+        frappe.db.commit()
+        res = self._price()
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["is_filled"], 1)
+        self.assertEqual(frappe.db.count(_PRICING, {"boq": self.boq, "is_current": 1}), 1)
+
+    # -- declaration under the gate (the usability seam) --------------------
+
+    def test_declaration_works_while_sheet_is_rate_locked(self):
+        # The sheet is INCOMPLETE (rates locked). Declaring a formula MUST still succeed --
+        # save_amount_formula carries no rate-editability precondition.
+        self.assertFalse(_sheet_formulas_complete(self.boq, self.sheet, self.cv))
+        self._declare("total")  # must not raise
+        recs = get_sheet_amount_formulas(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv
+        )["formulas"]
+        self.assertEqual(len(recs), 1, "the formula was declared despite the sheet being locked")
+
+
+# A qty x rate(combined) amount formula -- references a RATE operand (rate_by_area wildcard,
+# combined_rate), so its amount column DEPENDS on the per-area combined rate. Bound per-area, a
+# wildcard rate leaf resolves to that area's combined rate (col E for Phase 1, col H for Phase 2).
+_QTY_TIMES_RATE_FORMULA = json.dumps({
+    "op": "*",
+    "operands": [
+        {"ref": {"value_field": "qty_by_area", "value_key": None, "rate_subkey": None}},
+        {"ref": {"value_field": "rate_by_area", "value_key": None, "rate_subkey": "combined_rate"}},
+    ],
+})
+
+
+class TestReconciliationChoice(FrappeTestCase):
+    """Cluster B: the per-CELL formula-vs-document reconciliation choice (BoQ Cell Reconciliation
+    Choice + save_cell_reconciliation_choice / get_sheet_reconciliation_choices + the surgical,
+    column-aware re-arm in save_cell_price / save_amount_formula).
+
+    Fixture columns (COMMITTED_FIXTURE_ROLE_MAP): E = rate Phase 1 combined; F = amount Phase 1
+    total; H = rate Phase 2 combined; I = amount Phase 2 install. Line items at rows 34 + 35.
+    Per-test formulas: total (col F) = qty x rate(combined) [references the Phase-1 combined rate
+    -> col E]; install (col I) = qty-only [references NO rate]. So a rate save on E re-arms a
+    choice on F at the SAME row only -- never col I (qty-only) nor F at a DIFFERENT row.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Recon Choice Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Recon Fix "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Clean every overlay each test, then re-declare BOTH covering formulas (so the mandatory
+        # gate passes for the rate-save re-arm test) -- total references a rate, install does not.
+        for dt in (_CHOICE_DT, _PRICING, _FORMULA_DT, _LOCK_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        frappe.db.commit()
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_QTY_TIMES_RATE_FORMULA,
+        )
+        save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="install", formula=_FIXTURE_FORMULA_LEAF,
+        )
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    # -- helpers ------------------------------------------------------------
+
+    def _current_choice(self, excel_row, col_letter):
+        return frappe.get_all(
+            _CHOICE_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "col_letter": col_letter, "committed_version": self.cv, "is_current": 1},
+            fields=["name", "choice", "choice_version"],
+        )
+
+    def _all_choice_versions(self, excel_row, col_letter):
+        return frappe.get_all(
+            _CHOICE_DT,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": excel_row,
+                     "col_letter": col_letter, "committed_version": self.cv},
+            fields=["choice_version", "is_current", "choice"],
+            order_by="choice_version asc",
+        )
+
+    def _save_choice(self, excel_row, col_letter, choice):
+        return save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=excel_row,
+            col_letter=col_letter, committed_version=self.cv, choice=choice,
+        )
+
+    # -- POSITIVE: CRUD + freeze-and-supersede ------------------------------
+
+    def test_save_creates_current_choice_v1(self):
+        res = self._save_choice(34, "F", "keep_document")
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["choice_version"], 1)
+        self.assertEqual(res["froze_prior"], 0, "first choice freezes nothing")
+        self.assertEqual(res["choice"], "keep_document")
+        cur = self._current_choice(34, "F")
+        self.assertEqual(len(cur), 1, "exactly one current choice")
+        self.assertEqual(cur[0]["choice"], "keep_document")
+
+    def test_resave_freezes_prior_and_supersedes(self):
+        self._save_choice(34, "F", "keep_document")
+        res2 = self._save_choice(34, "F", "take_formula")
+        self.assertEqual(res2["choice_version"], 2)
+        self.assertEqual(res2["froze_prior"], 1, "the prior current was frozen")
+        cur = self._current_choice(34, "F")
+        self.assertEqual(len(cur), 1, "still exactly ONE current after re-save (the invariant)")
+        self.assertEqual(cur[0]["choice"], "take_formula")
+        allv = self._all_choice_versions(34, "F")
+        self.assertEqual(len(allv), 2, "both versions retained (frozen, never deleted)")
+        self.assertEqual([v["is_current"] for v in allv], [0, 1])
+
+    def test_keep_vs_take_are_distinct_per_cell(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "take_formula")
+        f = self._current_choice(34, "F")
+        i = self._current_choice(34, "I")
+        self.assertEqual(f[0]["choice"], "keep_document")
+        self.assertEqual(i[0]["choice"], "take_formula")
+
+    def test_clear_freezes_only_no_current(self):
+        self._save_choice(34, "F", "keep_document")
+        res = save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+            committed_version=self.cv, choice="",  # blank -> CLEAR
+        )
+        self.assertEqual(res["froze_prior"], 1)
+        self.assertEqual(res["is_current"], 0)
+        self.assertIsNone(res["choice"])
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "cleared -> no current (unset)")
+        # but the frozen historical record is retained (never deleted)
+        self.assertEqual(len(self._all_choice_versions(34, "F")), 1)
+
+    # -- READ ---------------------------------------------------------------
+
+    def test_get_sheet_reconciliation_choices(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "take_formula")
+        out = get_sheet_reconciliation_choices(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+        )["choices"]
+        by_col = {c["col_letter"]: c["choice"] for c in out}
+        self.assertEqual(by_col, {"F": "keep_document", "I": "take_formula"})
+
+    def test_get_priced_rows_includes_reconciliation_choices(self):
+        self._save_choice(34, "F", "take_formula")
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertIn("reconciliation_choices", res)
+        self.assertEqual(
+            res["reconciliation_choices"],
+            [{"excel_row": 34, "col_letter": "F", "choice": "take_formula"}],
+        )
+
+    # -- NEGATIVE -----------------------------------------------------------
+
+    def test_save_to_nonexistent_cell_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._save_choice(9999, "F", "keep_document")
+
+    def test_save_to_nonexistent_sheet_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name="No Such Sheet ", excel_row=34, col_letter="F",
+                committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_save_to_nonexistent_boq_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name="NOPE-DOES-NOT-EXIST", sheet_name=self.sheet, excel_row=34,
+                col_letter="F", committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_missing_col_letter_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+                committed_version=self.cv, choice="keep_document",
+            )
+
+    def test_missing_committed_version_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            save_cell_reconciliation_choice(
+                boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+                choice="keep_document",
+            )
+
+    def test_invalid_choice_token_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._save_choice(34, "F", "bogus_choice")
+
+    # -- INVALIDATION (D3): surgical, per-cell, column-aware re-arm ----------
+
+    def test_rate_save_rearms_only_the_referencing_column_choice(self):
+        # Choices on F@34 (references E via qty x rate), I@34 (qty-only -> no rate), F@35 (refs E
+        # but a DIFFERENT row).
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(34, "I", "keep_document")
+        self._save_choice(35, "F", "keep_document")
+        # Save a rate on E (rate Phase 1 combined) at row 34.
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=125.0, area="Phase 1", rate_kind="combined_rate",
+        )
+        self.assertEqual(res["rearmed_choices"], 1, "exactly the one referencing cell re-armed")
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "F@34 references E -> re-armed")
+        self.assertEqual(len(self._current_choice(34, "I")), 1, "I@34 is qty-only -> NOT re-armed")
+        self.assertEqual(len(self._current_choice(35, "F")), 1, "F@35 is a different row -> NOT re-armed")
+
+    def test_rate_save_on_unreferenced_rate_rearms_nothing(self):
+        # H = rate Phase 2 combined. F's formula binds to Phase 1, so it references E (Phase 1),
+        # NOT H. A rate save on H@34 must re-arm NOTHING (F@34's choice survives).
+        self._save_choice(34, "F", "keep_document")
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="H",
+            committed_version=self.cv, rate=80.0, area="Phase 2", rate_kind="combined_rate",
+        )
+        self.assertEqual(res["rearmed_choices"], 0, "F binds Phase 1 -> H (Phase 2) feeds it nothing")
+        self.assertEqual(len(self._current_choice(34, "F")), 1, "F@34 choice survives")
+
+    def test_formula_remove_clears_column_choices_silently(self):
+        self._save_choice(34, "F", "keep_document")
+        self._save_choice(35, "F", "take_formula")
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula="",  # CLEAR
+        )
+        self.assertTrue(res["cleared"])
+        self.assertEqual(res["rearmed_choices"], 2, "both F rows cleared on formula remove")
+        self.assertEqual(len(self._current_choice(34, "F")), 0)
+        self.assertEqual(len(self._current_choice(35, "F")), 0)
+
+    def test_formula_save_rearms_column_choices(self):
+        self._save_choice(34, "F", "keep_document")
+        res = save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_FIXTURE_FORMULA_LEAF,  # a NEW formula
+        )
+        self.assertFalse(res["cleared"])
+        self.assertGreaterEqual(res["rearmed_choices"], 1)
+        self.assertEqual(len(self._current_choice(34, "F")), 0, "the column's choice re-armed on save")
+
+
+# ====================================================================================
+# Slice 5a -- Excel write-back backend (export_writeback)
+# ====================================================================================
+import base64 as _b64
+import os as _os
+import tempfile as _tempfile
+
+import openpyxl as _openpyxl
+
+from nirmaan_stack.api.boq.wizard.export_writeback import (
+    _COLOR_HEX,
+    _PRICED_HIGHLIGHT_HEX,
+    _apply_colors,
+    _apply_priced_highlight,
+    _assert_fidelity,
+    _col_is_empty,
+    _fidelity_snapshot,
+    _generate_priced_workbook,
+    _resolve_sheet_plan,
+    _rightmost_mapped_col_index,
+    _stamp_rates,
+    _write_remark_column,
+    export_priced_workbook,
+)
+
+# The committed fixture's role map (mirrors test_review_screen.COMMITTED_FIXTURE_ROLE_MAP):
+# A-I mapped, so the TRUE data edge is I (9) and the remark column is J (10).
+_FIX_ROLE_MAP = {
+    "A": {"role": "sl_no", "area": None},
+    "B": {"role": "description", "area": None},
+    "C": {"role": "unit", "area": None},
+    "D": {"role": "qty", "area": "Phase 1"},
+    "E": {"role": "rate_combined_by_area", "area": "Phase 1"},
+    "F": {"role": "amount_total_by_area", "area": "Phase 1"},
+    "G": {"role": "qty", "area": "Phase 2"},
+    "H": {"role": "rate_combined_by_area", "area": "Phase 2"},
+    "I": {"role": "amount_install_by_area", "area": "Phase 2"},
+}
+
+
+def _new_ws(title="S"):
+    """A fresh single-sheet workbook for pure-helper tests."""
+    wb = _openpyxl.Workbook()
+    ws = wb.active
+    ws.title = title
+    return wb, ws
+
+
+def _save_tmp(wb):
+    """Save a workbook to a throwaway temp path; caller unlinks."""
+    fd, path = _tempfile.mkstemp(suffix=".xlsx")
+    _os.close(fd)
+    wb.save(path)
+    return path
+
+
+class TestExportWritebackPureHelpers(FrappeTestCase):
+    """Pure worksheet/fidelity helpers -- hermetic, no DB, synthetic workbooks."""
+
+    def test_stamp_rates_lands_value_preserves_paired_formula(self):
+        wb, ws = _new_ws()
+        ws["D36"] = 10
+        ws["E36"] = None                  # a blank rate cell
+        ws["F36"] = "=D36*E36"            # paired amount formula
+        skipped, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 123.45}])
+        self.assertEqual(ws["E36"].value, 123.45, "rate stamped into the blank cell")
+        self.assertEqual(ws["F36"].value, "=D36*E36", "paired amount formula preserved")
+        self.assertEqual(skipped, [], "a value cell is not skipped")
+        self.assertEqual(written, [("E", 36)], "the stamped cell is reported as written")
+
+    def test_stamp_rates_skips_formula_cell(self):
+        wb, ws = _new_ws()
+        ws["E10"] = "=SUM(H10:I10)"       # the VRF combined-rate case (a formula rate cell)
+        skipped, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        self.assertEqual(ws["E10"].value, "=SUM(H10:I10)", "formula rate cell NOT overwritten")
+        self.assertEqual(skipped, [{"excel_row": 10, "col_letter": "E"}], "formula cell reported skipped")
+        self.assertEqual(written, [], "a skipped formula cell is NOT reported written (-> no highlight)")
+
+    def test_stamp_rates_distinguishes_formula_vs_value_vs_blank(self):
+        wb, ws = _new_ws()
+        ws["E1"] = "=A1+B1"   # formula -> skip
+        ws["E2"] = 500        # static value -> overwrite
+        ws["E3"] = None       # blank -> overwrite
+        skipped, written = _stamp_rates(ws, [
+            {"excel_row": 1, "col_letter": "E", "rate": 1.0},
+            {"excel_row": 2, "col_letter": "E", "rate": 2.0},
+            {"excel_row": 3, "col_letter": "E", "rate": 3.0},
+        ])
+        self.assertEqual(ws["E1"].value, "=A1+B1")
+        self.assertEqual(ws["E2"].value, 2.0)
+        self.assertEqual(ws["E3"].value, 3.0)
+        self.assertEqual(skipped, [{"excel_row": 1, "col_letter": "E"}],
+                         "only the formula cell is skipped")
+        self.assertEqual(written, [("E", 2), ("E", 3)],
+                         "only the two value/blank cells are reported written")
+
+    def test_priced_highlight_on_stamped_cell(self):
+        wb, ws = _new_ws()
+        ws["E36"] = None
+        _, written = _stamp_rates(ws, [{"excel_row": 36, "col_letter": "E", "rate": 50.0}])
+        n = _apply_priced_highlight(ws, written)
+        self.assertEqual(n, 1)
+        self.assertEqual(ws["E36"].fill.fill_type, "solid")
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E36"].fill.fgColor.rgb or "",
+                      "stamped rate cell carries the muted-teal verification fill")
+        self.assertEqual(ws["E36"].value, 50.0, "the fill does not disturb the stamped rate value")
+
+    def test_priced_highlight_excludes_skipped_formula_cell(self):
+        wb, ws = _new_ws()
+        ws["E10"] = "=SUM(H10:I10)"   # a formula rate cell -> skipped, never written
+        _, written = _stamp_rates(ws, [{"excel_row": 10, "col_letter": "E", "rate": 999.0}])
+        _apply_priced_highlight(ws, written)
+        # RULE 1: a skipped formula cell gets NO teal (no fill applied).
+        self.assertIsNone(ws["E10"].fill.fill_type, "skipped formula cell has NO highlight")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["E10"].fill.fgColor.rgb or "")
+
+    def test_priced_highlight_distinct_from_user_tokens(self):
+        # The system teal must not collide with any of the 8 user token hexes.
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, set(_COLOR_HEX.values()),
+                         "the system highlight hex is distinct from every user color token")
+
+    def test_priced_highlight_wins_collision_user_color_on_nonstamped_untouched(self):
+        # Simulate the worker's pass order: stamp -> apply_colors -> apply_priced_highlight.
+        wb, ws = _new_ws()
+        ws["E5"] = None   # will be stamped
+        _, written = _stamp_rates(ws, [{"excel_row": 5, "col_letter": "E", "rate": 7.0}])
+        _apply_colors(ws, [
+            {"excel_row": 5, "col_letter": "E", "color": "red"},   # collision: same as a stamped cell
+            {"excel_row": 5, "col_letter": "B", "color": "blue"},  # non-stamped cell
+        ])
+        _apply_priced_highlight(ws, written)
+        # RULE 2: system teal WINS on the stamped cell (overrides the user red there)...
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E5"].fill.fgColor.rgb or "",
+                      "system teal overrides the user color on a stamped rate cell")
+        self.assertNotIn(_COLOR_HEX["red"], ws["E5"].fill.fgColor.rgb or "")
+        # ...but a user color on a NON-stamped cell is untouched.
+        self.assertIn(_COLOR_HEX["blue"], ws["B5"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved")
+
+    def test_apply_colors_fills_any_cell_incl_formula(self):
+        wb, ws = _new_ws()
+        ws["B5"] = "description text"       # a NON-rate cell
+        ws["F36"] = "=D36*E36"             # a formula cell
+        applied = _apply_colors(ws, [
+            {"excel_row": 5, "col_letter": "B", "color": "red"},
+            {"excel_row": 36, "col_letter": "F", "color": "green"},
+        ])
+        self.assertEqual(applied, 2)
+        self.assertEqual(ws["B5"].fill.fill_type, "solid", "fill applied to non-rate cell")
+        self.assertIn(_COLOR_HEX["red"], ws["B5"].fill.fgColor.rgb or "")
+        self.assertEqual(ws["F36"].value, "=D36*E36", "formula intact under a color fill")
+        self.assertIn(_COLOR_HEX["green"], ws["F36"].fill.fgColor.rgb or "")
+
+    def test_apply_colors_skips_unknown_token(self):
+        wb, ws = _new_ws()
+        applied = _apply_colors(ws, [{"excel_row": 1, "col_letter": "A", "color": "chartreuse"}])
+        self.assertEqual(applied, 0, "an unknown token is skipped, never invented")
+
+    def test_rightmost_mapped_col_index(self):
+        self.assertEqual(_rightmost_mapped_col_index(_FIX_ROLE_MAP), 9, "I is the edge")
+        self.assertEqual(_rightmost_mapped_col_index({}), 0)
+        self.assertEqual(_rightmost_mapped_col_index({"A": {}, "AB": {}}), 28, "AB beyond Z")
+
+    def test_write_remark_column_at_true_edge(self):
+        wb, ws = _new_ws()
+        col = _write_remark_column(
+            ws, [{"excel_row": 34, "remark": "check with Nitesh"}], _FIX_ROLE_MAP, 3
+        )
+        self.assertEqual(col, "J", "one past the true edge (I) -- NOT inflated max_column")
+        self.assertEqual(ws["J3"].value, "Nirmaan Remarks", "header at the data header row")
+        self.assertEqual(ws["J34"].value, "check with Nitesh")
+
+    def test_write_remark_column_refuses_nonempty_target(self):
+        wb, ws = _new_ws()
+        ws["J10"] = "real data already here"   # J is the would-be remark column
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+
+    def test_col_is_empty(self):
+        wb, ws = _new_ws()
+        self.assertTrue(_col_is_empty(ws, 10))
+        ws["J7"] = 0          # a real 0 is data, not empty
+        self.assertFalse(_col_is_empty(ws, 10))
+
+    def test_fidelity_snapshot_clean_round_trip_passes(self):
+        wb, ws = _new_ws()
+        ws["F1"] = "=A1+B1"
+        ws["F2"] = "=A2+B2"
+        ws.merge_cells("A1:B1")
+        before = _fidelity_snapshot(wb)
+        path = _save_tmp(wb)
+        try:
+            wb2 = _openpyxl.load_workbook(path, data_only=False)
+            after = _fidelity_snapshot(wb2)
+            wb2.close()
+        finally:
+            _os.unlink(path)
+        self.assertEqual(before["formulas"], 2)
+        self.assertEqual(before["merges"], 1)
+        _assert_fidelity(before, after)  # must NOT raise on a clean round-trip
+
+    def test_assert_fidelity_fails_on_divergence(self):
+        base = {"formulas": 5, "merges": 2, "sheets": 3, "defined_names": 4585}
+        # Each of the four invariants must be caught (non-vacuous).
+        for k in ("formulas", "merges", "sheets", "defined_names"):
+            bad = dict(base)
+            bad[k] = base[k] - 1
+            with self.assertRaises(frappe.exceptions.ValidationError, msg=f"{k} divergence must raise"):
+                _assert_fidelity(base, bad)
+        _assert_fidelity(base, dict(base))  # identical -> no raise
+
+
+class TestExportWritebackEndToEnd(FrappeTestCase):
+    """The worker against the committed fixture + a synthetic workbook injected (bypassing
+    the S3 fetch, which is a one-line reused helper). Exercises version resolution, stamping,
+    the fidelity guard, last_exported_at, and the skipped-formula report."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Export WB Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Export Fix "          # VERBATIM trailing space (#152)
+        cls.sheet_stripped = "Export Fix"   # openpyxl tab title (Excel trims trailing space)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq})
+        frappe.db.delete(_COLOR_DT, {"boq": self.boq})
+        frappe.db.delete(_REMARK_DT, {"boq": self.boq})
+        # reset last_exported_at on the committed sheet so each test starts unstamped
+        frappe.db.set_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at", None,
+                            update_modified=False)
+        frappe.db.commit()
+
+    # -- builders -----------------------------------------------------------
+    def _add_price(self, excel_row, col_letter, rate):
+        doc = frappe.new_doc(_PRICING)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet  # VERBATIM
+        doc.excel_row = excel_row
+        doc.col_letter = col_letter
+        doc.committed_version = self.cv
+        doc.rate = rate
+        doc.is_filled = 1
+        doc.pricing_version = 1
+        doc.is_current = 1
+        doc.priced_at = frappe.utils.now()
+        doc.is_finalized = 0
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _add_color(self, excel_row, col_letter, color):
+        doc = frappe.new_doc(_COLOR_DT)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet
+        doc.excel_row = excel_row
+        doc.col_letter = col_letter
+        doc.committed_version = self.cv
+        doc.color = color
+        doc.color_version = 1
+        doc.is_current = 1
+        doc.colored_at = frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _add_remark(self, excel_row, remark):
+        doc = frappe.new_doc(_REMARK_DT)
+        doc.boq = self.boq
+        doc.sheet_name = self.sheet
+        doc.excel_row = excel_row
+        doc.committed_version = self.cv
+        doc.remark = remark
+        doc.remark_version = 1
+        doc.is_current = 1
+        doc.remarked_at = frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    def _synthetic_path(self, formula_rate=False):
+        """A workbook whose tab matches the fixture sheet (stripped title), with the role-map
+        columns + a paired amount formula (fidelity anchor) and the priced rate cells."""
+        wb = _openpyxl.Workbook()
+        ws = wb.active
+        ws.title = self.sheet_stripped
+        for r in (34, 35):
+            ws["D{}".format(r)] = 10
+            ws["E{}".format(r)] = "=H{0}:I{0}".format(r) if formula_rate else None
+            ws["F{}".format(r)] = "=D{0}*E{0}".format(r)   # amount formula -> the fidelity anchor
+        return _save_tmp(wb)
+
+    def _load_b64(self, content_base64):
+        raw = _b64.b64decode(content_base64)
+        fd, path = _tempfile.mkstemp(suffix=".xlsx")
+        _os.write(fd, raw)
+        _os.close(fd)
+        wb = _openpyxl.load_workbook(path, data_only=False)
+        _os.unlink(path)
+        return wb
+
+    # -- POSITIVE -----------------------------------------------------------
+    def test_generate_stamps_rate_and_sets_last_exported_at(self):
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["exported_sheets"], [self.sheet])
+        self.assertEqual(res["skipped_formula_columns"], {})
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        self.assertEqual(ws["E34"].value, 250.0, "rate stamped")
+        self.assertEqual(ws["F34"].value, "=D34*E34", "paired amount formula preserved")
+        wb.close()
+        # last_exported_at stamped on the committed BoQ Sheet via set_value
+        stamped = frappe.db.get_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at")
+        self.assertIsNotNone(stamped, "last_exported_at stamped on the exported sheet")
+
+    def test_generate_priced_highlight_only_on_stamped_rate_cells(self):
+        self._add_price(34, "E", 250.0)         # stamped rate cell -> teal
+        self._add_color(34, "B", "purple")      # user color on a non-stamped (description) cell
+        self._add_remark(34, "verify qty")      # remark -> Nirmaan Remarks column J
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        # stamped rate cell carries the system teal
+        self.assertIn(_PRICED_HIGHLIGHT_HEX, ws["E34"].fill.fgColor.rgb or "",
+                      "stamped rate cell highlighted teal")
+        # RULE 3: NOT on the amount/formula cell, NOT on the remark column, NOT on the user-color cell
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["F34"].fill.fgColor.rgb or "",
+                         "amount/formula cell never highlighted")
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, ws["J34"].fill.fgColor.rgb or "",
+                         "remark cell never highlighted")
+        self.assertIn(_COLOR_HEX["purple"], ws["B34"].fill.fgColor.rgb or "",
+                      "user color on a non-stamped cell is preserved (not teal)")
+        self.assertEqual(ws["E34"].value, 250.0, "the highlight did not disturb the stamped rate")
+        wb.close()
+
+    def test_generate_highlight_skips_formula_rate_cell(self):
+        self._add_price(34, "E", 999.0)
+        path = self._synthetic_path(formula_rate=True)  # E34 is a formula
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        # RULE 1: a skipped formula rate cell gets NO teal (it was never written).
+        self.assertNotIn(_PRICED_HIGHLIGHT_HEX, wb[self.sheet_stripped]["E34"].fill.fgColor.rgb or "",
+                         "skipped formula rate cell carries no highlight")
+        self.assertEqual(res["skipped_formula_columns"], {self.sheet: ["E"]})
+        wb.close()
+
+    def test_generate_reports_skipped_formula_rate_column(self):
+        self._add_price(34, "E", 999.0)
+        path = self._synthetic_path(formula_rate=True)  # E34/E35 are formulas
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["skipped_formula_columns"], {self.sheet: ["E"]},
+                         "the formula rate column is reported skipped")
+        wb = self._load_b64(res["content_base64"])
+        self.assertEqual(wb[self.sheet_stripped]["E34"].value, "=H34:I34",
+                         "formula rate cell left untouched")
+        wb.close()
+
+    def test_generate_applies_remark_column(self):
+        self._add_remark(34, "verify qty")
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertEqual(res["remark_columns"], {self.sheet: "J"})
+        wb = self._load_b64(res["content_base64"])
+        ws = wb[self.sheet_stripped]
+        self.assertEqual(ws["J3"].value, "Nirmaan Remarks")
+        self.assertEqual(ws["J34"].value, "verify qty")
+        wb.close()
+
+    def test_generate_color_fill_present_in_output(self):
+        self._add_color(34, "B", "blue")     # color on a non-rate (description) column
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        wb = self._load_b64(res["content_base64"])
+        self.assertEqual(wb[self.sheet_stripped]["B34"].fill.fill_type, "solid",
+                         "color fill survived the save round-trip")
+        wb.close()
+
+    # -- NEGATIVE -----------------------------------------------------------
+    def test_resolve_plan_throws_for_uncommitted_sheet(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            _resolve_sheet_plan(self.boq, "No Such Sheet")
+
+    def test_endpoint_unknown_boq_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name="BOQ-NOPE-99999", sheet_names=[self.sheet])
+
+    def test_endpoint_empty_sheet_names_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name=self.boq, sheet_names=[])
+
+    def test_endpoint_missing_boq_throws(self):
+        with self.assertRaises(frappe.exceptions.ValidationError):
+            export_priced_workbook(boq_name=None, sheet_names=[self.sheet])
+
+
+class TestSheetLock(FrappeTestCase):
+    """Slice (3): the DELIBERATE, per-sheet, persisted, server-enforced read-only lock --
+    the pricing twin of the review-screen "Finalized" freeze.
+
+    Covers: lock_sheet/unlock_sheet stamp+clear BoQ Sheet.is_locked/locked_by/locked_at;
+    ANY user may unlock (no role/ownership check); _guard_sheet_not_locked REJECTS all SIX
+    pricing write endpoints when locked (reject-mutates-nothing); get_priced_rows +
+    get_committed_state surface is_locked; a re-commit (a fresh BoQ Sheet row) starts UNLOCKED
+    (the lock NEVER carries forward). Reuses the shared committed fixture (Line Item row 34 is
+    qty-bearing on rate col E / amount cols F[total] + I[install]); sheet_name VERBATIM (#152)."""
+
+    _SHEET_DT = "BoQ Sheet"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Sheet Lock Test BoQ"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Lock Me "  # VERBATIM trailing space (#152)
+        cls.cv = 1
+        cls.fixture = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=cls.cv)
+        cls.bqsh = cls.fixture["bqsh"]
+        # Make the sheet formula-COMPLETE so save_cell_price reaches the lock/priceability/write
+        # (the mandatory-formula gate fires before priceability; the lock guard fires first).
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, cls.cv)
+        # get_committed_state iterates BoQ Committed Sheet Grid rows -- the shared node fixture
+        # doesn't create one, so add a minimal is_current grid row for the is_locked-surface test.
+        grid = frappe.new_doc("BoQ Committed Sheet Grid")
+        grid.boq = cls.boq
+        grid.source_sheet_name = cls.sheet  # VERBATIM (#152)
+        grid.commit_version = cls.cv
+        grid.is_current = 1
+        grid.committed_at = frappe.utils.now()
+        grid.sheet_disposition = "grid_and_nodes"
+        grid.insert(ignore_permissions=True)
+        cls.grid = grid.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Committed Sheet Grid", {"boq": cls.boq})
+        frappe.db.delete(_FORMULA_DT, {"boq": cls.boq})
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        # Clean slate: clear the overlays + the concurrency lock, and UNLOCK the sheet.
+        for dt in (_PRICING, _LOCK_DT, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            frappe.db.delete(dt, {"boq": self.boq})
+        unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.commit()
+
+    # -- lock_sheet / unlock_sheet stamp + clear the three fields ----------------
+
+    def test_lock_then_unlock_sets_and_clears_fields(self):
+        res = lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 1)
+        self.assertTrue(res["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 1)
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+        self.assertTrue(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_at"))
+        res2 = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res2["is_locked"], 0)
+        self.assertIsNone(res2["locked_by"])
+        self.assertEqual(frappe.db.get_value(self._SHEET_DT, self.bqsh, "is_locked"), 0)
+        self.assertFalse(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    def test_unlock_works_regardless_of_who_locked(self):
+        # ANY user may unlock -- there is NO ownership/role check. Lock, then forge a DIFFERENT
+        # locked_by, then unlock as the current (non-locker) user: it must still clear.
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "locked_by", "someone.else@example.com")
+        frappe.db.commit()
+        res = unlock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(res["is_locked"], 0)
+        self.assertIsNone(frappe.db.get_value(self._SHEET_DT, self.bqsh, "locked_by"))
+
+    # -- the guard: ALL SIX save_* paths rejected when locked, mutating nothing --
+
+    def test_locked_rejects_every_save_path_and_writes_nothing(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+
+        def assert_locked(thunk):
+            with self.assertRaises(frappe.ValidationError) as ctx:
+                thunk()
+            self.assertIn("locked", str(ctx.exception).lower())
+
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1"))
+        # override does NOT bypass the lock (it loosens only the priceability axis).
+        assert_locked(lambda: save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=10.0, area="Phase 1", allow_non_priceable=True))
+        assert_locked(lambda: save_cell_color(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, color="green"))
+        assert_locked(lambda: save_row_remark(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, remark="x"))
+        assert_locked(lambda: save_cell_dismissal(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34,
+            committed_version=self.cv, flag_kind="needs_rate", dismissed=True))
+        assert_locked(lambda: save_cell_reconciliation_choice(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="F",
+            committed_version=self.cv, choice="keep_document"))
+        assert_locked(lambda: save_amount_formula(
+            boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv,
+            target_value_field="amount_by_area", target_value_key=None,
+            target_rate_subkey="total", formula=_FIXTURE_FORMULA_LEAF))
+
+        # reject-mutates-nothing: no overlay rows written, and the concurrency lock never acquired
+        # (the deliberate-lock guard sits BEFORE acquire_or_refresh).
+        for dt in (_PRICING, _REMARK_DT, _COLOR_DT, _DISMISSAL_DT, _CHOICE_DT):
+            self.assertEqual(
+                frappe.db.count(dt, {"boq": self.boq, "is_current": 1}), 0,
+                f"{dt}: a locked reject wrote a record",
+            )
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), 0,
+                         "the concurrency lock was acquired on a locked reject")
+
+    def test_unlocked_allows_saves(self):
+        # After setUp (unlocked), a priceable rate save passes through byte-for-byte (regression).
+        res = save_cell_price(
+            boq_name=self.boq, sheet_name=self.sheet, excel_row=34, col_letter="E",
+            committed_version=self.cv, rate=150.0, area="Phase 1")
+        self.assertTrue(res["ok"])
+        self.assertEqual(
+            frappe.db.count(_PRICING, {"boq": self.boq, "sheet_name": self.sheet,
+                                       "excel_row": 34, "is_current": 1}), 1)
+
+    # -- the flag rides the existing reads ---------------------------------------
+
+    def test_get_priced_rows_surfaces_is_locked(self):
+        self.assertFalse(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)["is_locked"])
+
+    def test_get_committed_state_surfaces_is_locked(self):
+        def my_row():
+            state = get_committed_state(boq_name=self.boq)["committed_state"]
+            return next(r for r in state if r["sheet_name"] == self.sheet)
+        self.assertIn("is_locked", my_row())
+        self.assertFalse(my_row()["is_locked"])
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertTrue(my_row()["is_locked"])
+
+    # -- re-commit invalidates: a fresh version starts UNLOCKED ------------------
+
+    def test_recommit_starts_unlocked_lock_does_not_carry_forward(self):
+        lock_sheet(boq_name=self.boq, sheet_name=self.sheet, committed_version=self.cv)
+        self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, self.cv), 1)
+        # Simulate a re-commit (freeze-and-supersede): freeze v1, insert a FRESH is_current=1
+        # BoQ Sheet at v2 -- mirrors _write_committed_boq_sheet, which new_doc()s the row and
+        # NEVER sets is_locked, so the new version defaults is_locked=0 (no carry-forward).
+        frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 0)
+        bs = frappe.new_doc(self._SHEET_DT)
+        bs.boq = self.boq
+        bs.sheet_name = self.sheet  # VERBATIM (#152)
+        bs.sheet_order = 0
+        bs.treat_as = "data"
+        bs.commit_version = 2
+        bs.is_current = 1
+        bs.column_role_map = json.dumps({})
+        bs.column_headers = json.dumps({})
+        bs.area_dimensions = json.dumps([])
+        bs.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            # the NEW current version is UNLOCKED -- the lock did not carry forward.
+            self.assertEqual(_get_sheet_is_locked(self.boq, self.sheet, 2), 0)
+        finally:
+            # Restore the fixture: drop v2, re-mark v1 current (test isolation within the class).
+            frappe.db.delete(self._SHEET_DT, bs.name)
+            frappe.db.set_value(self._SHEET_DT, self.bqsh, "is_current", 1)
+            frappe.db.commit()
+
+
+class TestGetVersionPricedRows(FrappeTestCase):
+    """get_version_priced_rows + get_committed_rows_at_version -- the READ-ONLY version-history
+    read (Phase 5 version-view). Builds TWO committed versions of the SAME sheet: an OLD frozen
+    v1 (is_current=0) priced at 150 and a CURRENT v2 (is_current=1) priced at 999, and proves the
+    cross-version read returns EACH version's own rows + pricing, with editable forced False and no
+    lock touch. The CURRENT live read (get_priced_rows) is asserted to still see v2 only -- the hot
+    path is untouched. sheet_name carries a trailing space (#152) throughout."""
+
+    _SHEET_DT = "BoQ Sheet"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Version-View Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "Ver Fix "  # VERBATIM trailing space (#152)
+
+        # v1: build (is_current=1), declare formulas, price col E (Phase 1 combined) = 150 -> freeze.
+        cls.v1 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=1)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, 1)
+        save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
+                        committed_version=1, rate=150.0, area="Phase 1", rate_kind="combined")
+        # Freeze v1 (BoQ Sheet + its nodes) so the CURRENT path resolves v2 unambiguously.
+        frappe.db.set_value(cls._SHEET_DT, cls.v1["bqsh"], "is_current", 0)
+        frappe.db.sql("UPDATE `tabBOQ Nodes` SET is_current=0 WHERE sheet=%s", cls.v1["bqsh"])
+        frappe.db.commit()
+
+        # v2: build (is_current=1), declare formulas, price the SAME cell = 999 (a different rate).
+        cls.v2 = build_committed_sheet_fixture(cls.boq, cls.sheet, commit_version=2)
+        _declare_fixture_amount_formulas(cls.boq, cls.sheet, 2)
+        save_cell_price(boq_name=cls.boq, sheet_name=cls.sheet, excel_row=34, col_letter="E",
+                        committed_version=2, rate=999.0, area="Phase 1", rate_kind="combined")
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _row(self, res, excel_row):
+        return next((r for r in res["rows"] if r.get("source_row_number") == excel_row), None)
+
+    # -- the cross-version read returns EACH version's own pricing --------------------
+
+    def test_old_version_returns_its_own_price(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertEqual(res["commit_version"], 1)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 150.0,
+                         "the OLD version reads its OWN frozen price (150), not the current (999)")
+        self.assertTrue(self._row(res, 34)["priced_by_area"]["Phase 1"]["combined_rate"])
+
+    def test_current_version_via_version_read(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=2)
+        self.assertEqual(res["commit_version"], 2)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 999.0)
+
+    def test_live_hot_path_still_sees_only_current(self):
+        # get_priced_rows (the untouched live editor read) resolves is_current=1 -> v2 (999).
+        res = get_priced_rows(boq_name=self.boq, sheet_name=self.sheet)
+        self.assertEqual(res["commit_version"], 2)
+        self.assertEqual(self._row(res, 34)["rate_by_area"]["Phase 1"]["combined_rate"], 999.0,
+                         "the current-version hot path is unchanged and version-isolated")
+
+    # -- read-only posture: editable forced False, no lock touch ----------------------
+
+    def test_version_read_is_read_only(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertIs(res["editable"], False, "a historical read is never editable")
+        self.assertIsNone(res["lock_info"], "a historical read never surfaces a lock holder")
+
+    def test_version_read_no_concurrency_lock_acquired(self):
+        # A historical read must NOT create/touch a single-editor lock (unlike a save). The setup
+        # pricing acquired locks, so assert the count is UNCHANGED across the read, not absolute-0.
+        before = frappe.db.count(_LOCK_DT, {"boq": self.boq})
+        get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=1)
+        self.assertEqual(frappe.db.count(_LOCK_DT, {"boq": self.boq}), before,
+                         "a read-only version view changed the concurrency-lock state")
+
+    # -- the underlying node read crosses versions ------------------------------------
+
+    def test_committed_rows_at_version_reads_old_nodes(self):
+        res = get_committed_rows_at_version(boq_name=self.boq, sheet_name=self.sheet,
+                                            committed_version=1)
+        self.assertEqual(res["commit_version"], 1)
+        row = self._row(res, 34)
+        self.assertIsNotNone(row, "the OLD (is_current=0) version's nodes are still readable")
+        self.assertTrue(res["column_descriptors"], "old-version descriptors rebuild from its config")
+
+    # -- graceful empty for a version with no node-tier row ---------------------------
+
+    def test_missing_version_returns_empty_rows(self):
+        res = get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet, committed_version=99)
+        self.assertEqual(res["rows"], [], "a version with no node-tier sheet returns empty rows")
+        self.assertEqual(res["commit_version"], 99)
+        self.assertIs(res["editable"], False)
+
+    # -- arg guards -------------------------------------------------------------------
+
+    def test_missing_args_and_unknown_boq_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_version_priced_rows(boq_name=self.boq, sheet_name=self.sheet)  # no version
+        with self.assertRaises(frappe.ValidationError):
+            get_version_priced_rows(boq_name="NO_SUCH_BOQ", sheet_name=self.sheet, committed_version=1)
+
+
+class TestCopyForward(FrappeTestCase):
+    """get_copy_forward_plan + apply_copy_forward -- copy RATES from an OLD version into CURRENT
+    (version-view slice 2). Seeds a CURRENT v2 + an OLD v1 (priced) with a custom scalar role map
+    and crafted node differences to exercise ALL outcomes server-side: clean copy, conflict
+    (overwrite/keep), the THREE hard-skips (non_match / no_rate_column / non_priceable), the
+    rate-role column re-resolution (column drift), the crafted-client guard, and atomic rollback.
+    No amount columns -> the current version is trivially formula-complete. sheet_name #152."""
+
+    _SHEET_DT = "BoQ Sheet"
+    _CUR_MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+    }
+    _OLD_MAP = {
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "rate_combined", "area": None},
+        "E": {"role": "rate_supply", "area": None},
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Copy-Forward Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        cls.sheet = "CF Fix "  # VERBATIM trailing space (#152)
+
+        cls._seed_sheet(cls.boq, cls.sheet, 2, 1, cls._CUR_MAP, [
+            {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 11, "node_type": "Line Item", "description": "Item B EDITED", "qty": 5.0},
+            {"srn": 12, "node_type": "Preamble", "description": "Header", "qty": 0.0},
+            {"srn": 13, "node_type": "Line Item", "description": "Item D", "qty": 5.0},
+            {"srn": 15, "node_type": "Line Item", "description": "Item F", "qty": 5.0},
+        ])
+        cls._price(cls.boq, cls.sheet, 2, 13, "D", None, "combined_rate", 999.0)
+
+        cls._seed_sheet(cls.boq, cls.sheet, 1, 0, cls._OLD_MAP, [
+            {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+            {"srn": 12, "node_type": "Preamble", "description": "Header", "qty": 0.0},
+            {"srn": 13, "node_type": "Line Item", "description": "Item D", "qty": 5.0},
+            {"srn": 14, "node_type": "Line Item", "description": "Item E", "qty": 5.0},
+            {"srn": 15, "node_type": "Line Item", "description": "Item F", "qty": 5.0},
+        ])
+        cls._price(cls.boq, cls.sheet, 1, 10, "D", None, "combined_rate", 100.0)  # clean
+        cls._price(cls.boq, cls.sheet, 1, 11, "D", None, "combined_rate", 200.0)  # non_match desc
+        cls._price(cls.boq, cls.sheet, 1, 12, "D", None, "combined_rate", 300.0)  # non_priceable
+        cls._price(cls.boq, cls.sheet, 1, 13, "D", None, "combined_rate", 400.0)  # conflict
+        cls._price(cls.boq, cls.sheet, 1, 14, "D", None, "combined_rate", 500.0)  # non_match absent
+        cls._price(cls.boq, cls.sheet, 1, 15, "E", None, "supply_rate", 600.0)    # no_rate_column
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        cleanup_committed_fixture(cls.boq)
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.delete(_PRICING, {"boq": self.boq, "committed_version": 2})
+        self._price(self.boq, self.sheet, 2, 13, "D", None, "combined_rate", 999.0)
+        frappe.db.delete(_LOCK_DT, {"boq": self.boq})
+        frappe.db.commit()
+
+    @staticmethod
+    def _seed_sheet(boq, sheet, version, is_current, role_map, nodes):
+        bs = frappe.new_doc("BoQ Sheet")
+        bs.boq = boq
+        bs.sheet_name = sheet  # VERBATIM (#152)
+        bs.sheet_order = 1
+        bs.treat_as = "data"
+        bs.header_row = 1
+        bs.header_row_count = 1
+        bs.column_role_map = role_map
+        bs.column_headers = {}
+        bs.area_dimensions = json.dumps([])
+        bs.commit_version = version
+        bs.is_current = is_current
+        bs.committed_at = frappe.utils.now()
+        bs.insert(ignore_permissions=True)
+        for i, n in enumerate(nodes):
+            nd = frappe.new_doc("BOQ Nodes")
+            nd.sheet = bs.name  # boq auto-fetched from sheet (mirrors the shared fixture)
+            nd.node_type = n["node_type"]
+            nd.row_class = "line_item" if n["node_type"] == "Line Item" else "preamble"
+            if n["node_type"] != "Line Item":
+                nd.level = 1  # the controller forbids `level` on Line Item nodes
+            nd.description = n["description"]
+            nd.source_row_number = n["srn"]
+            nd.sort_order = i
+            nd.qty = n.get("qty", 0.0)
+            nd.commit_version = version
+            nd.is_current = is_current
+            nd.committed_at = frappe.utils.now()
+            nd.insert(ignore_permissions=True)
+        return bs.name
+
+    @staticmethod
+    def _price(boq, sheet, version, excel_row, col_letter, area, rate_kind, rate):
+        d = frappe.new_doc(_PRICING)
+        d.boq = boq
+        d.sheet_name = sheet
+        d.excel_row = excel_row
+        d.col_letter = col_letter
+        d.committed_version = version
+        d.area = area
+        d.rate_kind = rate_kind
+        d.rate = rate
+        d.is_filled = 1
+        d.pricing_version = 1
+        d.is_current = 1
+        d.priced_at = frappe.utils.now()
+        d.insert(ignore_permissions=True)
+
+    def _plan_by_row(self):
+        plan = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=1)["plan"]
+        return {r["excel_row"]: r for r in plan}
+
+    def _current_cell(self, excel_row, col_letter):
+        return frappe.db.get_value(
+            _PRICING,
+            {"boq": self.boq, "sheet_name": self.sheet, "committed_version": 2,
+             "excel_row": excel_row, "col_letter": col_letter, "is_current": 1, "is_filled": 1},
+            "rate",
+        )
+
+    def test_plan_classifies_every_outcome(self):
+        by = self._plan_by_row()
+        self.assertEqual(by[10]["outcome"], 2, "match + dest empty -> clean")
+        self.assertEqual(by[10]["target_col_letter"], "D")
+        self.assertEqual(by[13]["outcome"], 3, "match + dest filled -> conflict")
+        self.assertEqual(by[13]["current_rate"], 999.0)
+        self.assertEqual(by[11]["outcome"], 1)
+        self.assertEqual(by[11]["skip_reason"], "non_match")
+        self.assertEqual(by[14]["skip_reason"], "non_match")
+        self.assertEqual(by[12]["skip_reason"], "non_priceable")
+        self.assertEqual(by[15]["skip_reason"], "no_rate_column")
+        for srn in (11, 12, 14, 15):
+            self.assertIsNone(by[srn]["target_col_letter"])
+
+    def test_plan_counts(self):
+        res = get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=1)
+        self.assertEqual(res["counts"], {
+            "clean": 1, "conflict": 1, "non_match": 2, "no_rate_column": 1, "non_priceable": 1,
+        })
+        self.assertEqual(res["current_version"], 2)
+        self.assertTrue(res["current_formulas_complete"])
+
+    def test_apply_clean_copy(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 10, "area": None, "rate_kind": "combined_rate"}]),
+        )
+        self.assertEqual(res["copied"], 1)
+        self.assertEqual(self._current_cell(10, "D"), 100.0)
+
+    def test_apply_conflict_overwrite(self):
+        apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 13, "area": None, "rate_kind": "combined_rate",
+                                   "overwrite": True}]),
+        )
+        self.assertEqual(self._current_cell(13, "D"), 400.0)
+
+    def test_apply_conflict_keep(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 13, "area": None, "rate_kind": "combined_rate",
+                                   "overwrite": False}]),
+        )
+        self.assertEqual(res["conflicts_kept"], 1)
+        self.assertEqual(self._current_cell(13, "D"), 999.0)
+
+    def test_apply_never_writes_hard_skips(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([
+                {"excel_row": 11, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 12, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 14, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                {"excel_row": 15, "area": None, "rate_kind": "supply_rate", "overwrite": True},
+            ]),
+        )
+        self.assertEqual(res["copied"], 0)
+        self.assertEqual(res["skipped"]["non_match"], 2)
+        self.assertEqual(res["skipped"]["non_priceable"], 1)
+        self.assertEqual(res["skipped"]["no_rate_column"], 1)
+        for srn, col in ((11, "D"), (12, "D"), (14, "D"), (15, "E")):
+            self.assertIsNone(self._current_cell(srn, col))
+
+    def test_apply_invalid_decision_ignored(self):
+        res = apply_copy_forward(
+            boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+            decisions=json.dumps([{"excel_row": 999, "area": None, "rate_kind": "combined_rate"}]),
+        )
+        self.assertEqual(res["skipped"]["invalid"], 1)
+        self.assertEqual(res["copied"], 0)
+
+    def test_apply_re_resolves_drifted_column(self):
+        sheet = "CF Drift "
+        self._seed_sheet(self.boq, sheet, 2, 1,
+                         {"B": {"role": "description", "area": None},
+                          "D": {"role": "unit", "area": None},
+                          "E": {"role": "rate_combined", "area": None}},
+                         [{"srn": 20, "node_type": "Line Item", "description": "Drift A", "qty": 5.0}])
+        self._seed_sheet(self.boq, sheet, 1, 0,
+                         {"B": {"role": "description", "area": None},
+                          "C": {"role": "unit", "area": None},
+                          "D": {"role": "rate_combined", "area": None}},
+                         [{"srn": 20, "node_type": "Line Item", "description": "Drift A", "qty": 5.0}])
+        self._price(self.boq, sheet, 1, 20, "D", None, "combined_rate", 777.0)
+        frappe.db.commit()
+        try:
+            by = {r["excel_row"]: r for r in
+                  get_copy_forward_plan(boq_name=self.boq, sheet_name=sheet, from_version=1)["plan"]}
+            self.assertEqual(by[20]["target_col_letter"], "E", "re-resolved to current's rate col E")
+            apply_copy_forward(
+                boq_name=self.boq, sheet_name=sheet, from_version=1,
+                decisions=json.dumps([{"excel_row": 20, "area": None, "rate_kind": "combined_rate"}]),
+            )
+            on_e = frappe.db.get_value(_PRICING, {"boq": self.boq, "sheet_name": sheet,
+                "committed_version": 2, "excel_row": 20, "col_letter": "E", "is_current": 1}, "rate")
+            on_d = frappe.db.get_value(_PRICING, {"boq": self.boq, "sheet_name": sheet,
+                "committed_version": 2, "excel_row": 20, "col_letter": "D", "is_current": 1}, "rate")
+            self.assertEqual(on_e, 777.0, "the rate landed on the CURRENT letter E (re-resolved)")
+            self.assertIsNone(on_d, "the rate did NOT land on the source bare letter D")
+        finally:
+            frappe.db.delete(_PRICING, {"boq": self.boq, "sheet_name": sheet})
+            sheet_names = frappe.get_all("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet}, pluck="name")
+            if sheet_names:
+                frappe.db.delete("BOQ Nodes", {"sheet": ["in", sheet_names]})
+            frappe.db.delete("BoQ Sheet", {"boq": self.boq, "sheet_name": sheet})
+            frappe.db.commit()
+
+    def test_apply_rolls_back_on_mid_batch_failure(self):
+        from unittest import mock
+        calls = {"n": 0}
+        real = pricing._write_cell_price_record
+
+        def flaky(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("boom mid-batch")
+            return real(*a, **k)
+
+        with mock.patch.object(pricing, "_write_cell_price_record", side_effect=flaky):
+            with self.assertRaises(RuntimeError):
+                apply_copy_forward(
+                    boq_name=self.boq, sheet_name=self.sheet, from_version=1,
+                    decisions=json.dumps([
+                        {"excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+                        {"excel_row": 13, "area": None, "rate_kind": "combined_rate", "overwrite": True},
+                    ]),
+                )
+        self.assertIsNone(self._current_cell(10, "D"), "the first write rolled back")
+        self.assertEqual(self._current_cell(13, "D"), 999.0, "the conflict cell is unchanged")
+
+    def test_plan_missing_args_and_same_version_throw(self):
+        with self.assertRaises(frappe.ValidationError):
+            get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet)
+        with self.assertRaises(frappe.ValidationError):
+            get_copy_forward_plan(boq_name=self.boq, sheet_name=self.sheet, from_version=2)

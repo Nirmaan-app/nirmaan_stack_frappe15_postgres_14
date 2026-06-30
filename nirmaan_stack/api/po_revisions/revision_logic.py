@@ -17,12 +17,51 @@ from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 PO_REVISION_AUTO_APPROVAL_THRESHOLD = 5000.0
 
 
+def _is_comment_only_revision(rev_doc):
+    """True when the revision changes nothing financial/structural — only comments.
+
+    A comment edit on an existing line arrives as a 'Revised' item whose qty / rate /
+    tax / item / unit all equal the original (only the comment differs). New / Deleted /
+    Replace rows are structural and disqualify. Such a revision has zero money impact,
+    so it auto-approves regardless of the ₹ single + cumulative thresholds.
+    """
+    if flt(rev_doc.total_amount_difference) != 0:
+        return False
+
+    for item in rev_doc.get("revision_items", []):
+        it = item.item_type
+        if it == "Original":
+            continue
+        if it != "Revised":
+            # New / Deleted / Replace are real structural changes.
+            return False
+        # A "Revised" row qualifies only when every non-comment field is unchanged.
+        if (
+            flt(item.revision_qty) != flt(item.original_qty)
+            or flt(item.revision_rate) != flt(item.original_rate)
+            or flt(item.revision_tax) != flt(item.original_tax)
+            or (item.revision_item_id or "") != (item.original_item_id or "")
+            or (item.revision_unit or "") != (item.original_unit or "")
+        ):
+            return False
+
+    return True
+
+
 def _should_auto_approve_revision(rev_doc):
     """Returns True only if ALL three rules pass:
     1. Single Impact — abs(diff) < threshold
     2. Cumulative Impact — sum of prior approved diffs + current < threshold
     3. Rate Change — no Revised/Replace item has a different rate
+
+    A comment-only (zero-impact) revision short-circuits to True ahead of the rules,
+    so a pure comment edit never needs manual approval even on a PO that has already
+    crossed the cumulative threshold.
     """
+    # Comment-only revisions: zero financial/structural impact → always auto-approve.
+    if _is_comment_only_revision(rev_doc):
+        return True
+
     diff = flt(rev_doc.total_amount_difference)
 
     # Rule 1: Single Impact
@@ -92,6 +131,7 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "original_tax": flt(item.get("original_tax")),
                     "original_category": item.get("original_category"),
                     "original_procurement_package": item.get("original_procurement_package"),
+                    "original_comment": item.get("original_comment"),
                 })
 
             # Revision Details - Skip for "Original" and "Deleted" items
@@ -105,6 +145,7 @@ def make_po_revisions(po_id, justification, revision_items, total_amount_differe
                     "revision_rate": flt(item.get("quote")),
                     "revision_amount": flt(item.get("amount")),
                     "revision_tax": flt(item.get("tax")),
+                    "revision_comment": item.get("comment"),
                 })
 
                 cat = item.get("category") or item.get("original_category")
@@ -478,6 +519,7 @@ def sync_original_po_items(revision_doc):
             new_row.amount = flt(rev_item.revision_amount)
             new_row.tax = flt(rev_item.revision_tax)
             new_row.make = rev_item.revision_make
+            new_row.comment = rev_item.revision_comment
             new_row.tax_amount = (new_row.amount * new_row.tax) / 100
             new_row.total_amount = new_row.amount + new_row.tax_amount
             new_row.received_quantity = 0.0
@@ -513,6 +555,7 @@ def sync_original_po_items(revision_doc):
                 orig_row.amount = flt(rev_item.revision_amount)
                 orig_row.tax = flt(rev_item.revision_tax)
                 orig_row.make = rev_item.revision_make
+                orig_row.comment = rev_item.revision_comment
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
 
@@ -546,6 +589,7 @@ def sync_original_po_items(revision_doc):
                 orig_row.amount = flt(rev_item.revision_amount)
                 orig_row.tax = flt(rev_item.revision_tax)
                 orig_row.make = rev_item.revision_make
+                orig_row.comment = rev_item.revision_comment
                 orig_row.tax_amount = (orig_row.amount * orig_row.tax) / 100
                 orig_row.total_amount = orig_row.amount + orig_row.tax_amount
 

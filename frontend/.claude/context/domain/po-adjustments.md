@@ -98,16 +98,19 @@ The lock keys on the adjustment's **balance + status**, not status alone (`revis
 ### File Structure
 ```
 src/pages/POAdjustment/
-├── POAdjustmentButton.tsx         # Button on PO overview (shows when Pending adjustment exists)
-├── POAdjustmentDialog.tsx         # Main dialog for manual payment allocation
+├── POAdjustmentButton.tsx         # PUSH: "Adjust Payments" button on PO overview (Pending adjustment exists)
+├── POAdjustmentDialog.tsx         # PUSH: main dialog for manual payment allocation (source PO)
+├── VendorCreditSummaryCard.tsx    # PULL: top-of-PO banner — vendor credit pool + "Apply to this PO" (2026-06)
+├── ApplyVendorCreditDialog.tsx    # PULL: source-picker dialog (current PO = destination) (2026-06)
 ├── POAdjustmentHistory.tsx        # ⚠️ DEAD CODE — imported nowhere; live cards render in ProcurementOrders/.../PORevisionsAndAdjustments.tsx
 ├── data/
-│   ├── poAdjustment.constants.ts  # Cache keys, API endpoints, doctype names
-│   ├── usePOAdjustmentQueries.ts  # usePOAdjustment(poId), useAdjustmentCandidatePOs(vendor, po)
-│   └── usePOAdjustmentMutations.ts # useExecuteAdjustment()
+│   ├── poAdjustment.constants.ts  # Cache keys (+ vendorCredit), API endpoints, doctype names
+│   ├── usePOAdjustmentQueries.ts  # usePOAdjustment(poId), useAdjustmentCandidatePOs(vendor, po), useVendorAdjustmentCredit(vendor, excludePo)
+│   └── usePOAdjustmentMutations.ts # useExecuteAdjustment() [push], useApplyVendorCredit() [pull]
 └── hooks/
-    └── usePOAdjustment.ts         # Dialog state management, form logic, submission
+    └── usePOAdjustment.ts         # Push-dialog state management, form logic, submission
 ```
+> **PULL flow (2026-06):** `VendorCreditSummaryCard` is mounted at the TOP of `ProcurementOrders/purchase-order/PurchaseOrder.tsx` (after `PORevisionWarning`). See "Vendor Credit — Pull Flow" below.
 
 ### POAdjustmentButton
 - Renders on PO overview when a Pending adjustment with `remaining_impact != 0` exists
@@ -132,8 +135,10 @@ src/pages/POAdjustment/
 
 ### API Endpoints -- `PO_ADJUSTMENT_APIS`
 - `getAdjustment` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.get_po_adjustment`
-- `executeAdjustment` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.execute_adjustment`
+- `executeAdjustment` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.execute_adjustment`  *(push)*
 - `getCandidatePOs` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.get_adjustment_candidate_pos`
+- `getVendorCredit` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.get_vendor_adjustment_credit`  *(pull — pool read)*
+- `applyVendorCredit` -> `nirmaan_stack.api.po_adjustments.adjustment_logic.apply_vendor_credit_to_po`  *(pull — executor)*
 
 ---
 
@@ -164,6 +169,77 @@ src/pages/POAdjustment/
 
 ---
 
+## Vendor Credit — Pull Flow ("Apply to this PO") (2026-06)
+
+The **inverse** of the push flow. Everything above ("Adjust Payments") starts from the
+**overpaid** PO and pushes its credit *out*. The pull flow starts from a PO that **owes
+money** and pulls a vendor's overpaid credit *in*. Same double-entry mechanics, opposite
+entry point. **Vendor-scoped and cross-project** — credit from a PO in one project can
+settle a PO in another, as long as the vendor matches. The push flow is **unchanged**;
+this is additive. No new doctype.
+
+**Credit pool (read):** `get_vendor_adjustment_credit(vendor, exclude_po=None)` sums
+`max(0, -remaining_impact)` over the vendor's `PO Adjustments` with `remaining_impact < -1`
+(the usable-credit floor, NOT the ₹100 "Done" tolerance). Excludes the current PO and any
+source in a **pending PO Revision**. Do NOT filter via `get_all_locked_po_names()` — it
+marks Done-with-credit POs as locked, and those are exactly the sources. Returns
+`{total_available, source_count, sources:[{po_id, project, project_name, available, status}]}`.
+
+**Executor:** `apply_vendor_credit_to_po(dest_po, allocations_json)` where allocations =
+`[{source_po, amount}]`. Validation order (all before any write): V1 dest not
+payment-locked (`check_po_in_pending_revisions`); V2 coalesce duplicate sources / reject
+non-positive; V3 per-source vendor match; **V4 lock + assert each source's credit**;
+**V5 lock + assert the dest's capacity**. Then loops `_transfer_credit(src, dest, amt)`,
+recalcs `amount_paid` on dest + sources, recalcs each source adjustment's `remaining_impact`,
+recalcs vendor credit, single `frappe.db.commit()`, emits `po:payment_adjustment`
+`{po_id: dest, status: "applied", sources: [...]}`. Try/except → rollback on any error.
+
+**Per-transfer helper:** `_transfer_credit(source_po, dest_po, amount, vendor)` (in
+`_payment_utils.py`) — one complete paired transfer, **tagging each leg with its own PO's
+project** (cross-project correct, unlike the push flow's `execute_adjustment` which still
+uses `adj_doc.project` for both legs — a pre-existing mis-tag left as an optional follow-up).
+It is a STANDALONE copy of the Against-PO mechanics, deliberately NOT shared with
+`execute_adjustment` (sharing would re-introduce a double-save hazard from that function's
+body-level source rebalance).
+
+**Frontend:** `VendorCreditSummaryCard` (top-of-PO banner, hidden when `total_available<=0`,
+badge shows total + PO count, Apply gated to Admin/PMO/Procurement Executive AND dest having
+Created-term capacity) → `ApplyVendorCreditDialog` (source picker, per-source amount capped at
+`min(source.available, remaining-to-fill)`).
+
+---
+
+## Concurrency Guards — row locks on BOTH flows (2026-06)
+
+The same credit is reachable from both flows (push from the source PO, pull from a
+destination PO), and the same PO can be filled from both — so without serialization two
+overlapping/stale actions could **double-spend a credit** or **over-pay a PO**. Two shared
+guards in `_payment_utils.py`, called by **both** `execute_adjustment` (push) and
+`apply_vendor_credit_to_po` (pull):
+
+- `_lock_and_assert_source_credit(source_po, amount_needed)` — `SELECT ... FOR UPDATE` on the
+  source's `PO Adjustments` row (read `remaining_impact` with `for_update=True`) + assert
+  `available >= amount`. Locks the **coupon** (credit).
+- `_lock_and_assert_dest_capacity(dest_po, amount_incoming)` — `FOR UPDATE` on the destination
+  `Procurement Orders` row + assert its `Created`-term sum can absorb the amount. Locks the
+  **bill** (payable). (The PO row is the mutex; the dest may have no adjustment doc.)
+
+**Why both:** a lock only serializes callers that all take it — so the push had to adopt the
+same locks as the pull. This also closed a pre-existing gap: `execute_adjustment` previously
+did **no** backend credit/capacity re-check (frontend cap only).
+
+**Order:** source-before-dest in both flows (minimizes deadlocks; Postgres cleanly aborts the
+rare deadlock). **Held until commit.** Lock + re-read + assert is the complete pattern: the
+re-read closes the stale/sequential case, the lock closes the truly-simultaneous case.
+
+**Reject = no-op:** all guards run BEFORE any write, and the whole op is one transaction
+(single commit at the end, rollback on error). So a rejection leaves both POs **completely
+unchanged** — no payment, no term, no `amount_paid`/`remaining_impact` change. In a race, the
+winner commits once; the loser waits, re-reads (credit/room now reduced), and is rejected with
+a "refresh and retry" message.
+
+---
+
 ## Backend: Payment Utilities
 
 Shared utilities in `api/po_adjustments/_payment_utils.py`:
@@ -175,6 +251,9 @@ Shared utilities in `api/po_adjustments/_payment_utils.py`:
 | `_append_return_payment_term()` | Adds Return/Paid term row to PO in memory |
 | `_split_target_po_term()` | Reduces target PO's Created terms and appends Credit term |
 | `_reduce_payment_terms_lifo()` | LIFO reduction of modifiable terms for negative flow |
+| `_transfer_credit()` | (2026-06) One paired source→dest credit transfer for the PULL flow; per-leg project tagging |
+| `_lock_and_assert_source_credit()` | (2026-06) `FOR UPDATE` lock + assert on the source's credit (both flows) |
+| `_lock_and_assert_dest_capacity()` | (2026-06) `FOR UPDATE` lock + assert on the dest PO's Created-term capacity (both flows) |
 
 ### Candidate PO Filtering
 `get_adjustment_candidate_pos(vendor, current_po)`:
@@ -201,7 +280,8 @@ Shared utilities in `api/po_adjustments/_payment_utils.py`:
 
 | Event | When | Payload |
 |-------|------|---------|
-| `po:payment_adjustment` | After manual adjustment executed | `{ po_id, adjustment_id, status }` |
+| `po:payment_adjustment` | After PUSH executed (`execute_adjustment`) | `{ po_id, adjustment_id, status }` |
+| `po:payment_adjustment` | After PULL executed (`apply_vendor_credit_to_po`) | `{ po_id: dest, status: "applied", sources: [...] }` |
 
 ---
 

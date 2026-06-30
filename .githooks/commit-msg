@@ -1,0 +1,46 @@
+#!/bin/sh
+# commit-msg hook: enforce a conventional-commit heading; warn on a bodyless feature commit.
+#
+# Activate (once per clone):   git config core.hooksPath .githooks
+# Bypass for a one-off:        git commit --no-verify ...
+#
+# Rejects (exit 1) when the first line is not:
+#   type(scope): summary      where summary is >= 8 chars
+#   types: feat fix refactor docs chore test perf style build ci revert
+# Exempts merges / reverts / autosquash so normal git flow is untouched.
+# Warns (does NOT block) when a feat/fix/refactor commit has no body.
+
+msg_file="$1"
+first_line=$(head -n 1 "$msg_file")
+
+# --- exemptions: git-generated / special messages ---------------------------
+case "$first_line" in
+    "Merge "*|"Revert "*|"Reapply "*|"fixup! "*|"squash! "*|"amend! "*)
+        exit 0
+        ;;
+esac
+
+# --- heading format gate ----------------------------------------------------
+heading_re='^(feat|fix|refactor|docs|chore|test|perf|style|build|ci|revert)(\([a-z0-9._-]+\))?: .{8,}$'
+if ! printf '%s' "$first_line" | grep -Eq "$heading_re"; then
+    echo "✘ commit-msg rejected: heading must be 'type(scope): summary' (summary >= 8 chars)." >&2
+    echo "    types : feat fix refactor docs chore test perf style build ci revert" >&2
+    echo "    good  : feat(boq): add per-sheet pricing lock toggle" >&2
+    echo "    yours : $first_line" >&2
+    echo "    (bypass a one-off with: git commit --no-verify)" >&2
+    exit 1
+fi
+
+# --- bodyless feature warning (non-blocking) --------------------------------
+type=$(printf '%s' "$first_line" | sed -E 's/^([a-z]+).*/\1/')
+case "$type" in
+    feat|fix|refactor)
+        body=$(sed -n '3,$p' "$msg_file" | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$')
+        if [ -z "$body" ]; then
+            echo "⚠ commit-msg: '$type' commit has no body — consider a point-wise description" >&2
+            echo "  of what changed and where (not blocking)." >&2
+        fi
+        ;;
+esac
+
+exit 0

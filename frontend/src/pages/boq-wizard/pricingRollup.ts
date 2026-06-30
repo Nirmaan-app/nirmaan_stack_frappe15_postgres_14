@@ -49,19 +49,21 @@ import {
 import { evaluateAmountColumn, pickFormula } from "./amountFormula";
 import { computeDepths, resolveDescriptorValue } from "./reviewRender";
 import { isRowIncomplete } from "./priceability";
+import {
+  amountsEqual,
+  buildReconChoiceMap,
+  reconChoiceKey,
+  resolveDivergence,
+} from "./reconcile";
 import { ROLE_LABELS } from "./boqTypes";
 import type {
   AmountFormulaRef,
   ColumnDescriptor,
   ColumnFormula,
   PricedRow,
+  ReconChoice,
+  ReconciliationChoiceRef,
 } from "./boqTypes";
-
-// Reconciliation tolerance (Option 1 tree-total vs Option 2 flat-sum). A small ABSOLUTE
-// currency floor + a RELATIVE term so float-accumulation dust on a large sum never
-// false-fires, while a real structural divergence (whole rupees) does. Pure constants.
-const RECON_EPSILON_ABS = 0.01;
-const RECON_EPSILON_REL = 1e-9;
 
 /** One amount column in the rollup -- mirrors one amount-bearing descriptor on the sheet. */
 export interface RollupColumn {
@@ -152,6 +154,7 @@ function rowOwnAmount(
   amountD: ColumnDescriptor,
   descriptors: ColumnDescriptor[],
   columnFormulas: ColumnFormula[],
+  choiceMap: Map<string, ReconChoice>,
 ): number | null {
   // FORMULA-WINS (only when one applies) -- reuses F2's precedence + evaluator.
   const concreteCol: AmountFormulaRef = {
@@ -166,7 +169,18 @@ function rowOwnAmount(
     const res = evaluateAmountColumn(concreteCol, columnFormulas, (ref) =>
       lookupOperandValue(row, ref, descriptors, {}),
     );
-    return res.ok ? res.value : null; // not_yet / broken -> null (treat-as-0)
+    const formulaVal = res.ok ? res.value : null; // not_yet / broken -> null (treat-as-0)
+    // Cluster B (D4): resolve the chosen value ONCE here -- both Option-1 (tree) and Option-2
+    // (flat) rollup routes read THIS via ownByIdx, so the reconciliation guard stays valid by
+    // construction. D1: a divergent cell defaults to the DOCUMENT value (committed amount) while
+    // unset / keep_document; take_formula uses the formula value. A non-diverging cell (equal, or
+    // an unresolvable formula -> null) keeps today's behavior (the formula value).
+    const docRaw = resolveDescriptorValue(row, amountD);
+    const docVal = typeof docRaw === "number" ? docRaw : null;
+    const choice = choiceMap.get(reconChoiceKey(row.source_row_number, amountD.col));
+    const recon = resolveDivergence(docVal, formulaVal, choice);
+    if (recon.diverges) return recon.value;
+    return formulaVal;
   }
 
   // NO FORMULA: the original single-paired-rate path, UNCHANGED (the D-2 guard).
@@ -193,8 +207,12 @@ export function rollupByParent(
   rows: PricedRow[],
   columnDescriptors: ColumnDescriptor[],
   columnFormulas: ColumnFormula[] = [],
+  reconChoices: ReconciliationChoiceRef[] = [],
 ): RollupResult {
   const amountDescs = columnDescriptors.filter(isAmountDescriptor);
+  // Cluster B (D4): the per-cell choice map, built ONCE -> rowOwnAmount resolves the chosen value
+  // a single time per cell (document-default), so both rollup routes stay consistent.
+  const choiceMap = buildReconChoiceMap(reconChoices);
   const columns: RollupColumn[] = amountDescs.map((d) => ({
     col: d.col,
     label: columnLabel(d),
@@ -227,7 +245,8 @@ export function rollupByParent(
   const ownByIdx = new Map<number, Record<string, number | null>>();
   for (const r of rows) {
     const m: Record<string, number | null> = {};
-    for (const d of amountDescs) m[d.col] = rowOwnAmount(r, d, columnDescriptors, columnFormulas);
+    for (const d of amountDescs)
+      m[d.col] = rowOwnAmount(r, d, columnDescriptors, columnFormulas, choiceMap);
     ownByIdx.set(r.row_index, m);
   }
 
@@ -319,8 +338,9 @@ export function rollupByParent(
   for (const c of columns) {
     const o1 = grandTotals[c.col];
     const o2 = option2[c.col];
-    const tol = Math.max(RECON_EPSILON_ABS, RECON_EPSILON_REL * Math.max(Math.abs(o1), Math.abs(o2)));
-    if (Math.abs(o1 - o2) > tol) {
+    // Reuse the SHARED amountsEqual tolerance (reconcile.ts) -- one epsilon everywhere, so the
+    // guard and the divergence test never drift.
+    if (!amountsEqual(o1, o2)) {
       integrityErrors.push({ col: c.col, label: c.label, option1: o1, option2: o2 });
     }
   }
