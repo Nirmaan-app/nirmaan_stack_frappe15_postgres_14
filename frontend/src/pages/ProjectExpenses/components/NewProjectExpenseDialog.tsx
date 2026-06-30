@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import { useFrappeCreateDoc, useFrappeGetDocList, GetDocListArgs, FrappeDoc } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
-import { formatDate as formatDateFns } from "date-fns";
 import { Check, ChevronsUpDown } from "lucide-react";
 
 // --- UI Components ---
@@ -25,7 +24,6 @@ import ProjectSelect from "@/components/custom-select/project-select"; // Assumi
 // --- Types ---
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
 // --- Utils & State ---
@@ -47,8 +45,6 @@ interface FormState {
     description: string;
     comment: string;
     amount: string;
-    payment_date: string;
-    payment_by: string;
 }
 
 const AMOUNT_LIMIT = 15000;
@@ -61,8 +57,6 @@ const INITIAL_STATE: FormState = {
     description: "",
     comment: "",
     amount: "",
-    payment_date: formatDateFns(new Date(), 'yyyy-MM-dd'),
-    payment_by: ""
 };
 
 export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = ({ projectId, onSuccess }) => {
@@ -78,7 +72,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const commandListRef = useRef<HTMLDivElement>(null);
 
     const { data: vendorsData, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
-    const { data: users, isLoading: usersLoading } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", { fields: ["name", "full_name"], limit: 0 });
     const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
@@ -100,8 +93,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         if (!formState.projects) errors.projects = "Project is required.";
         if (!formState.type) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
-        if (!formState.payment_by) errors.payment_by = "Paid By user is required.";
-        if (!formState.payment_date) errors.payment_date = "Payment date is required.";
         if (formState.vendor === "") errors.vendor = "Please select a vendor or choose 'Others'.";
 
         const amountValue = parseNumber(formState.amount);
@@ -172,7 +163,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         }
     }, [formErrors]);
 
-    const isLoadingOverall = loading || vendorsLoading || usersLoading || expenseTypesLoading;
+    const isLoadingOverall = loading || vendorsLoading || expenseTypesLoading;
     const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean);
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
@@ -244,23 +235,6 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                                 <SelectContent>{vendorOptions.map(v => <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>)}</SelectContent>
                             </Select>
                             {formErrors.vendor && <p className="text-xs text-destructive mt-1">{formErrors.vendor}</p>}
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="payment_date" className="text-right">Payment Date <sup className="text-destructive">*</sup></Label>
-                        <div className="col-span-3">
-                            <Input id="payment_date" type="date" value={formState.payment_date} onChange={(e) => handleInputChange('payment_date', e.target.value)} className={formErrors.payment_date ? "border-destructive" : ""} max={formatDateFns(new Date(), 'yyyy-MM-dd')} disabled={isLoadingOverall} />
-                            {formErrors.payment_date && <p className="text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="payment_by" className="text-right">Requested By <sup className="text-destructive">*</sup></Label>
-                        <div className="col-span-3">
-                            <Select value={formState.payment_by} onValueChange={(val) => handleInputChange('payment_by', val)} disabled={isLoadingOverall}>
-                                <SelectTrigger className={formErrors.payment_by ? "border-destructive" : ""}><SelectValue placeholder="Select user..." /></SelectTrigger>
-                                <SelectContent>{users?.map(u => <SelectItem key={u.name} value={u.name}>{u.full_name}</SelectItem>)}</SelectContent>
-                            </Select>
-                            {formErrors.payment_by && <p className="text-xs text-destructive mt-1">{formErrors.payment_by}</p>}
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
