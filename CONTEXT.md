@@ -48,3 +48,14 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Credit push ("Adjust Payments")** — resolving a PO's *own* overpaid credit from that PO: sending it to other POs, writing it off (ad-hoc), or recording a vendor refund. Initiated from the overpaid (source) PO.
 
 - **Credit pull ("Apply to this PO")** — applying a Vendor's overpaid credit (held on its *other* POs) into the PO currently being viewed, which is the destination. Push and pull are two directions of the same *Apply credit* operation.
+## BoQ sheet parsing configuration
+
+- **Header row** — the single primary header row a reviewer declares for a sheet (Section 1). The **data region begins on the very next row** (`header_row + 1`). A *second* header tier sitting **above** the header row (e.g. a merged group row) is named via the "Top header row" control and is read only for area/column names — it is excluded from data by virtue of being above the header row. Extra header tiers sitting **below** the header row (a rate-split sub-label row, area-tier rows like floors/towers) are **not** auto-excluded; the reviewer removes them with *manual excluded rows*.
+
+- **First data row** — the first row of actual data: `header_row + 1`, advanced past any *manual excluded rows* that immediately follow the header. The honest answer to "where does data start". It **replaces** the old `header_row + header_row_count` estimate, which wrongly assumed any extra header rows always sit *below* the header row (they sit *above* it, per the "Top header row" control + the parser's area-detection — only the old skip logic disagreed; see [[adr-data-starts-next-row]]).
+
+- **Data region** — every row at or after the first data row that is not a manual excluded row. Individual rows in the data region may still be *classified* as spacer / subtotal marker / header-repeat by the parser — that is classification (a reversible label on a kept row), not exclusion.
+
+- **Area structure** — the mapping of a spreadsheet column to the project area it measures (e.g. column G → "7th floor / T-1"). It is carried by the sheet's *area names* (Section 2) + *column→area mapping* (Section 3), authored by the reviewer. It is **separate** from the header declaration: it is never auto-derived from the area-tier rows.
+
+- **Excluded rows (manual)** — rows the reviewer explicitly removes from the data region *in addition to* the header row, expressed as a list of **skip definitions**. Each skip definition is either a **single row** (one row number) or a **row range** (a start row + an end row, inclusive). This is the primary tool for the two cases the single header row can't cover: extra header tiers *below* the header row (rate splits, area tiers), and a column-header that *repeats mid-sheet* or a stray banner between data rows. They exclude *by position* (not by classification), anywhere in the sheet.

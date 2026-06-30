@@ -31,8 +31,9 @@ import {
   type Dispatch, type SetStateAction,
 } from "react";
 import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
-import type { ColumnRoleEntry, SheetPreviewRow, WizardStatus } from "./boqTypes";
+import type { ColumnRoleEntry, SheetPreviewRow, SkipDefinition, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
+import { resolveSkipDefinitions, firstDataRow, defsFromLegacyList } from "./skipRows";
 import { AlertTriangle, Check, CheckCircle2, Info, Loader2, ShieldCheck, X } from "lucide-react";
 import {
   AlertDialog,
@@ -200,11 +201,39 @@ function parseConfig(
   return raw;
 }
 
-function parseIntList(raw: string): number[] {
-  return raw
-    .split(",")
-    .map((s) => parseInt(s.trim(), 10))
-    .filter((n) => !isNaN(n) && n > 0);
+/**
+ * Editor row for the "Skip rows after header" structured list. A {@link SkipDefinition}
+ * (single row OR inclusive range) plus a stable local id for React keys. Number fields hold
+ * NaN while a sub-input is blank (rendered as ""); validDefs strips ids + drops NaN/invalid
+ * before persisting (so we never JSON.stringify a NaN -> null into skip_row_definitions).
+ */
+type LocalSkipDef = { id: number } & SkipDefinition;
+
+/**
+ * Per-row hard-validation message for a skip definition, or null if OK. We hard-validate ONLY
+ * row >= 1 (single) and To >= From with both >= 1 (range); a blank (NaN) sub-input is "incomplete"
+ * but NOT invalid (it simply contributes nothing). Mirrors the resolve* validity floor.
+ */
+function skipDefError(d: LocalSkipDef): string | null {
+  if (d.kind === "single") {
+    if (Number.isFinite(d.row) && d.row < 1) return "Row number must be 1 or greater.";
+    return null;
+  }
+  if (Number.isFinite(d.start) && d.start < 1) return "From row must be 1 or greater.";
+  if (Number.isFinite(d.end) && d.end < 1) return "To row must be 1 or greater.";
+  if (Number.isFinite(d.start) && Number.isFinite(d.end) && d.end < d.start)
+    return "To row must be greater than or equal to From row.";
+  return null;
+}
+
+/** Coerce one raw saved skip_row_definitions entry to a SkipDefinition, or null if malformed. */
+function normalizeSkipDef(raw: unknown): SkipDefinition | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (o.kind === "single" && typeof o.row === "number") return { kind: "single", row: o.row };
+  if (o.kind === "range" && typeof o.start === "number" && typeof o.end === "number")
+    return { kind: "range", start: o.start, end: o.end };
+  return null;
 }
 
 /** Sort column letters in Excel order: A, B, ..., Z, AA, AB, ... */
@@ -267,7 +296,10 @@ export function SheetConfigPanel({
   const [headerRow, setHeaderRow] = useState<string>("");
   const [topAdjacent, setTopAdjacent] = useState<boolean>(true);
   const [topHeaderRowNum, setTopHeaderRowNum] = useState<string>("");
-  const [skipRowsInput, setSkipRowsInput] = useState<string>("");
+  // Structured "skip rows after header" list (replaces the legacy single comma-string).
+  // Each entry is a SkipDefinition + a stable local id (mirrors pendingRows/pendingIdRef).
+  const [skipDefs, setSkipDefs] = useState<LocalSkipDef[]>([]);
+  const skipIdRef = useRef(0);
 
   // ── Section 2 state ───────────────────────────────────────────────────────
   const [isMulti, setIsMulti] = useState<boolean>(false);
@@ -324,11 +356,25 @@ export function SheetConfigPanel({
         setTopAdjacent(true);
         setTopHeaderRowNum("");
       }
-      if (Array.isArray(cfg.skip_top_rows_after_header)) {
-        setSkipRowsInput(
-          (cfg.skip_top_rows_after_header as number[]).join(", ")
-        );
+      // Skip rows: prefer the structured skip_row_definitions; fall back to the legacy flat
+      // skip_top_rows_after_header list. Assign fresh local ids to each seeded row.
+      let seedDefs: SkipDefinition[] = [];
+      if (Array.isArray(cfg.skip_row_definitions) && cfg.skip_row_definitions.length > 0) {
+        seedDefs = (cfg.skip_row_definitions as unknown[])
+          .map(normalizeSkipDef)
+          .filter((d): d is SkipDefinition => d !== null);
+      } else if (
+        Array.isArray(cfg.skip_top_rows_after_header) &&
+        (cfg.skip_top_rows_after_header as number[]).length > 0
+      ) {
+        seedDefs = defsFromLegacyList(cfg.skip_top_rows_after_header as number[]);
       }
+      setSkipDefs(
+        seedDefs.map((d) => {
+          skipIdRef.current += 1;
+          return { id: skipIdRef.current, ...d };
+        })
+      );
       const detectedAreas = Array.isArray(cfg.area_dimensions)
         ? (cfg.area_dimensions as string[])
         : [];
@@ -467,7 +513,92 @@ export function SheetConfigPanel({
   // ── Derived values ────────────────────────────────────────────────────────
 
   const headerRowNum = parseInt(headerRow, 10);
-  const dataStartRow = !isNaN(headerRowNum) ? headerRowNum + hrc : null;
+
+  // ── Skip-rows derivations ─────────────────────────────────────────────────
+  // validDefs: skipDefs with ids stripped + invalid/blank rows dropped (so the persisted
+  // skip_row_definitions never carries a NaN -> null). resolvedSkips: flat sorted set.
+  const validDefs = useMemo<SkipDefinition[]>(() => {
+    const out: SkipDefinition[] = [];
+    for (const d of skipDefs) {
+      if (d.kind === "single") {
+        if (Number.isInteger(d.row) && d.row >= 1) out.push({ kind: "single", row: d.row });
+      } else if (
+        Number.isInteger(d.start) && Number.isInteger(d.end) &&
+        d.start >= 1 && d.end >= d.start
+      ) {
+        out.push({ kind: "range", start: d.start, end: d.end });
+      }
+    }
+    return out;
+  }, [skipDefs]);
+  const resolvedSkips = useMemo(() => resolveSkipDefinitions(validDefs), [validDefs]);
+  // The true first data row (header_row + 1 stepped past leading contiguous skips). NaN if
+  // headerRowNum is not a valid row -> rendered as "—".
+  const firstData = firstDataRow(headerRowNum, resolvedSkips);
+  // Top header row number for the summary panel (Double headers only).
+  const topHeaderRow = useMemo(() => {
+    if (hrc !== 2) return null;
+    const v = topAdjacent ? headerRowNum - 1 : parseInt(topHeaderRowNum, 10);
+    return Number.isInteger(v) && v >= 1 ? v : null;
+  }, [hrc, topAdjacent, headerRowNum, topHeaderRowNum]);
+  // Any skip row with a HARD-invalid value (row < 1, To < From). Blocks "Mark as Config Done".
+  const hasInvalidSkip = useMemo(
+    () => skipDefs.some((d) => skipDefError(d) !== null),
+    [skipDefs]
+  );
+
+  // ── Skip-rows handlers ────────────────────────────────────────────────────
+  // Every mutation drops a Config Done sheet to Pending + touches section:rows (same
+  // bookkeeping the other Section-1 controls use). Number sub-inputs store parseInt(raw)
+  // (NaN when blank). The skip section keeps the legacy "skip_top_rows_after_header" confirm key.
+  const addSkipDef = () => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    skipIdRef.current += 1;
+    setSkipDefs((prev) => [...prev, { id: skipIdRef.current, kind: "single", row: NaN }]);
+  };
+  const removeSkipDef = (id: number) => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    setSkipDefs((prev) => prev.filter((d) => d.id !== id));
+  };
+  // Flip a row's kind, carrying the leading value across (single.row <-> range.from).
+  const setSkipKind = (id: number, kind: "single" | "range") => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    setSkipDefs((prev) =>
+      prev.map((d): LocalSkipDef => {
+        if (d.id !== id || d.kind === kind) return d;
+        return d.kind === "single"
+          ? { id, kind: "range", start: d.row, end: NaN }
+          : { id, kind: "single", row: d.start };
+      })
+    );
+  };
+  const setSkipSingleRow = (id: number, raw: string) => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    const n = parseInt(raw, 10);
+    setSkipDefs((prev) =>
+      prev.map((d) => (d.id === id && d.kind === "single" ? { ...d, row: n } : d))
+    );
+  };
+  const setSkipRangeStart = (id: number, raw: string) => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    const n = parseInt(raw, 10);
+    setSkipDefs((prev) =>
+      prev.map((d) => (d.id === id && d.kind === "range" ? { ...d, start: n } : d))
+    );
+  };
+  const setSkipRangeEnd = (id: number, raw: string) => {
+    dropIfConfigDone();
+    touchS1("skip_top_rows_after_header");
+    const n = parseInt(raw, 10);
+    setSkipDefs((prev) =>
+      prev.map((d) => (d.id === id && d.kind === "range" ? { ...d, end: n } : d))
+    );
+  };
 
   // All column letters present in loaded preview rows, Excel-sorted.
   const allColumns = useMemo(() => {
@@ -672,7 +803,9 @@ export function SheetConfigPanel({
       header_row_count: hrc,
       header_row: !isNaN(headerRowNum) ? headerRowNum : null,
       top_header_rows_override: topRows.length > 0 ? topRows : null,
-      skip_top_rows_after_header: parseIntList(skipRowsInput),
+      // Flat list (BACKEND contract, unchanged shape) + the structured list for round-trip.
+      skip_top_rows_after_header: resolveSkipDefinitions(validDefs),
+      skip_row_definitions: validDefs,
       area_dimensions: isMulti ? areaBoxes.filter((s) => s.trim() !== "") : [],
       column_role_map: Object.fromEntries(
         Object.entries(columnRoleMap)
@@ -987,34 +1120,146 @@ export function SheetConfigPanel({
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          Data starts at row{" "}
-          <span className="font-medium text-foreground">
-            {dataStartRow !== null ? dataStartRow : "—"}
-          </span>
-          {" "}(derived from header row + row count)
-        </p>
-
-        <div className="space-y-1.5">
+        {/* ── Skip rows after header (structured list of single-row / range exclusions) ── */}
+        <div className="space-y-2">
           <Label className="flex items-center gap-1">
             Skip rows after header
             <span className="text-xs font-normal text-muted-foreground ml-1">(situational)</span>
-            {isUnconfirmed("skip_top_rows_after_header", skipRowsInput !== "") && (
+            {isUnconfirmed("skip_top_rows_after_header", skipDefs.length > 0) && (
               <span className="ml-0.5 text-sm" aria-label="Pre-filled -- click to confirm">✨</span>
             )}
           </Label>
-          <Input
-            value={skipRowsInput}
-            placeholder="e.g. 8, 9 (usually blank)"
-            className={cn("w-64", isUnconfirmed("skip_top_rows_after_header", skipRowsInput !== "") && "opacity-50")}
-            onFocus={() => touchS1("skip_top_rows_after_header")}
-            onClick={() => touchS1("skip_top_rows_after_header")}
-            onChange={(e) => { dropIfConfigDone(); touchS1("skip_top_rows_after_header"); setSkipRowsInput(e.target.value); }}
-          />
-          <p className="text-xs text-muted-foreground">
-            Comma-separated absolute row numbers to exclude. Non-numeric entries are ignored.
+          <p className="text-xs text-muted-foreground -mt-0.5">
+            Exclude specific rows that aren&apos;t part of the top header — e.g. a column-header that
+            repeats mid-sheet, or a stray banner row.
           </p>
+
+          <div
+            className={cn(
+              "space-y-2",
+              isUnconfirmed("skip_top_rows_after_header", skipDefs.length > 0) && "opacity-50"
+            )}
+          >
+            {skipDefs.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">
+                No rows excluded. Usually left blank.
+              </p>
+            )}
+
+            {skipDefs.map((d) => {
+              const err = skipDefError(d);
+              return (
+                <div key={d.id} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Single / Multiple toggle (same segmented pattern as Section 2) */}
+                    <div className="flex rounded-md border border-border overflow-hidden w-fit">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={d.kind === "single" ? "default" : "ghost"}
+                        className="rounded-none"
+                        onClick={() => setSkipKind(d.id, "single")}
+                      >
+                        Single Row
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={d.kind === "range" ? "default" : "ghost"}
+                        className="rounded-none border-l border-border"
+                        onClick={() => setSkipKind(d.id, "range")}
+                      >
+                        Multiple Rows
+                      </Button>
+                    </div>
+
+                    {d.kind === "single" ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">Row</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={Number.isFinite(d.row) ? d.row : ""}
+                          placeholder="e.g. 8"
+                          className={cn("w-24", err && "border-destructive")}
+                          onFocus={() => touchS1("skip_top_rows_after_header")}
+                          onChange={(e) => setSkipSingleRow(d.id, e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">From</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={Number.isFinite(d.start) ? d.start : ""}
+                          placeholder="e.g. 8"
+                          className={cn("w-24", err && "border-destructive")}
+                          onFocus={() => touchS1("skip_top_rows_after_header")}
+                          onChange={(e) => setSkipRangeStart(d.id, e.target.value)}
+                        />
+                        <span className="text-xs text-muted-foreground">To</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={Number.isFinite(d.end) ? d.end : ""}
+                          placeholder="e.g. 11"
+                          className={cn("w-24", err && "border-destructive")}
+                          onFocus={() => touchS1("skip_top_rows_after_header")}
+                          onChange={(e) => setSkipRangeEnd(d.id, e.target.value)}
+                        />
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive focus:outline-none"
+                      aria-label="Remove skip row"
+                      onClick={() => removeSkipDef(d.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                  {err && <p className="text-xs text-destructive pl-1">{err}</p>}
+                </div>
+              );
+            })}
+
+            <Button type="button" variant="outline" size="sm" onClick={addSkipDef}>
+              + Add row to skip
+            </Button>
+          </div>
         </div>
+
+        {/* ── Unified "rows excluded from data" summary (numbers only) ──────────
+            Shown once a header row is set. Header row (+ top header when Double),
+            the deduped/sorted manual skips, and the derived first data row. ── */}
+        {headerRow.trim() !== "" && (
+          <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Rows excluded from data
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <span className="inline-block w-24 text-amber-600/90 dark:text-amber-500">Header row:</span>
+              <span className="font-medium">
+                {Number.isInteger(headerRowNum) && headerRowNum >= 1 ? headerRowNum : "—"}
+              </span>
+              {hrc === 2 && topHeaderRow !== null && (
+                <span className="text-amber-600 dark:text-amber-500"> (+ top header: {topHeaderRow})</span>
+              )}
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <span className="inline-block w-24 text-amber-600/90 dark:text-amber-500">Skipped rows:</span>
+              <span className="font-medium">
+                {resolvedSkips.length > 0 ? resolvedSkips.join(", ") : "none"}
+              </span>
+            </p>
+            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+              → First data row: {Number.isInteger(firstData) ? firstData : "—"}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ── Section 2: Areas ────────────────────────────────────────────── */}
@@ -1454,7 +1699,7 @@ export function SheetConfigPanel({
             <Checkbox
               id="attest-checkbox"
               checked={attestChecked}
-              disabled={!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles}
+              disabled={!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles || hasInvalidSkip}
               onCheckedChange={(checked) => setAttestChecked(checked === true)}
               className="mt-0.5"
             />
@@ -1462,7 +1707,7 @@ export function SheetConfigPanel({
               htmlFor="attest-checkbox"
               className={cn(
                 "text-sm leading-snug cursor-pointer select-none",
-                (!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles)
+                (!allSectionsConfirmed || !parserRequiredSatisfied || !hasWorkPackage || hasStrandedRoles || hasInvalidSkip)
                   ? "text-muted-foreground opacity-60"
                   : "text-foreground"
               )}
@@ -1470,6 +1715,12 @@ export function SheetConfigPanel({
               I&apos;ve reviewed this — the columns are mapped correctly.
             </label>
           </div>
+          {/* Hard-invalid skip row blocks attestation -- shown first (most urgent). */}
+          {hasInvalidSkip && (
+            <p className="text-xs text-destructive pl-6">
+              Fix the highlighted skip row(s) above — a row number must be 1 or greater, and a range&apos;s To must be ≥ its From.
+            </p>
+          )}
           {/* Slice 3 (Strand A): stranded per-area role blocks attestation -- shown first
               (most urgent), unconditional on section state so the user knows why. */}
           {hasStrandedRoles && (
@@ -1522,7 +1773,7 @@ export function SheetConfigPanel({
           </Button>
           <Button
             size="sm"
-            disabled={isSaving || !attestChecked}
+            disabled={isSaving || !attestChecked || hasInvalidSkip}
             className="text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-950"
             variant="outline"
             onClick={() => void handleMarkConfigDone()}
