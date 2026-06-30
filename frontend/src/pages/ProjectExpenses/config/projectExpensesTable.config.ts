@@ -11,6 +11,7 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "name",
     "creation",
     "owner",
+    "status",
     "projects",
     "type",
     "vendor",
