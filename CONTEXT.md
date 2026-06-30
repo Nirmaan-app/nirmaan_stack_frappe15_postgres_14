@@ -36,3 +36,15 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Provider** — an LLM backend that produces AI suggestions. Two exist: *Claude* (Anthropic; a **corrector** — it sees the parser's verdict and returns only the rows it would change) and *Gemini* (Google; an **independent second opinion** — it never sees the parser's verdict and re-classifies every row from raw facts).
 
 - **Assignable classification** — the subset of classifications a human (or an accepted suggestion) may *set* on a row: *line item*, *preamble*, *note*, *spacer*. *Subtotal marker* and *header repeat* are **detection-only** — the parser (or a Provider) may *detect* them and they display as such, but they cannot be hand-assigned or accepted onto a row. A Provider suggestion of a detection-only class is informational, never acceptable.
+
+## Vendor credit & adjustment application
+
+- **Overpaid credit (of a PO)** — money already paid on a Purchase Order beyond its current (revised) value, held on that PO's adjustment as a negative balance. It is real, reusable credit — not a written-off loss.
+
+- **Vendor adjustment credit** — the total overpaid credit a *Vendor* holds across all of its Purchase Orders (the sum of each PO's overpaid credit). It is scoped to the **Vendor** and spans **Projects**: credit earned on a PO in one project may be applied to a PO in another, provided the Vendor is the same.
+
+- **Apply credit** — moving overpaid credit onto a PO that still owes money, reducing what that PO owes. The PO giving up credit is the **source**; the PO receiving it is the **destination**. Source and destination must share the same Vendor; they need not share a Project. Recorded as a *Return* payment on the source and a *Credit* term on the destination (the money nets to zero across the two).
+
+- **Credit push ("Adjust Payments")** — resolving a PO's *own* overpaid credit from that PO: sending it to other POs, writing it off (ad-hoc), or recording a vendor refund. Initiated from the overpaid (source) PO.
+
+- **Credit pull ("Apply to this PO")** — applying a Vendor's overpaid credit (held on its *other* POs) into the PO currently being viewed, which is the destination. Push and pull are two directions of the same *Apply credit* operation.

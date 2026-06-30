@@ -442,6 +442,16 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
         </TabsList>
       </Tabs>
 
+      <div
+        className={cn(
+          "flex flex-col gap-2 overflow-hidden",
+          totalCount > 5
+            ? "h-[calc(100vh-220px)]"
+            : totalCount > 0
+              ? "h-auto"
+              : ""
+        )}
+      >
       {isLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
@@ -466,6 +476,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
           }
         />
       )}
+      </div>
     </div>
   );
 };

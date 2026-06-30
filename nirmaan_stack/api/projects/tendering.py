@@ -21,6 +21,11 @@ from nirmaan_stack.api.projects._project_population import apply_full_project_de
 TENDERING_MANAGER_ROLES = {
     "Nirmaan Admin Profile",
     "Nirmaan PMO Executive",
+    # Estimates may create + manage tendering projects. The underlying Role is
+    # "Nirmaan Estimates Executive" (no "Profile"); the Profile variant is added
+    # defensively against this app's inconsistent role/role-profile naming.
+    "Nirmaan Estimates Executive",
+    "Nirmaan Estimates Executive Profile",
 }
 
 
