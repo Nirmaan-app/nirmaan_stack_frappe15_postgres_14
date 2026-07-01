@@ -380,11 +380,11 @@
       "rule_id": "LF-KW",
       "category_id": "light_fixtures",
       "signal_type": "item_keyword",
-      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light"],
+      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlight", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light", "led strip", "strip light"],
       "match_mode": "any_token",
       "weight": 0.5,
-      "plain": "A luminaire / light fixture: LED light, LED panel, panel light, downlighter, batten, cove / street / flood / decorative light. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture.",
-      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Build 2b: added 'led panel' so a '2X2 LED panel' reads light_fixtures (panels PNL-ASSEMBLY already excludes led/panel light/luminaire, so it never reads panels)."
+      "plain": "A luminaire / light fixture: LED light, LED panel/strip, panel light, down light / downlight(er), batten, cove / street / flood / decorative light. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture.",
+      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Build 2b: added 'led panel'. residual-43 tuning: added one-word 'downlight' + 'led strip'/'strip light' (DOWNLIGHT/LED STRIP LIGHT product lines abstained)."
     },
     {
       "rule_id": "MISC-KW",
@@ -395,6 +395,16 @@
       "weight": 0.3,
       "plain": "A genuine electrical miscellaneous item (fixing accessory, GI frame, RCC cutting / chasing for electrical work). POSITIVE placement only - deliberately LOW weight and few tokens so it never becomes an uncertainty catch-all (blank remains the uncertainty outcome).",
       "source": "Build 2a: new category seed, CONSERVATIVE. Kept minimal on purpose per Rebuild Spec v2.0 - miscellaneous is a positive read, NOT a fallback."
+    },
+    {
+      "rule_id": "MISC-SAFETY",
+      "category_id": "miscellaneous",
+      "signal_type": "item_keyword",
+      "match": ["first aid", "hume pipe", "shock treatment", "danger notice", "danger board", "fire bucket", "insulating mat", "rubber mat", "shock chart", "single line diagram", "sld chart", "name board", "notice board"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "Electrical safety-accessory / site-overhead misc items (danger boards, insulating/rubber mats, shock-treatment & first-aid charts/kits, fire buckets, SLD charts, name/notice boards). POSITIVE placement - these mirror the panels false-friend exclude_if set, so a row panels already refuses now reads miscellaneous instead of abstaining/mis-firing.",
+      "source": "residual-43 tuning: collision-verified misc-only across the Set-1 corpus (0 non-misc hits). Recovers the panels->misc false-friends + the safety-item abstains."
     },
 
     {

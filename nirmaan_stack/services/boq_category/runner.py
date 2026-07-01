@@ -125,8 +125,23 @@ def _token_re(token: str):
     'panel' must not fire on 'patch panel', 'dia' must not fire on 'media'. The
     boundary is alphanumeric-aware (not Python's \\b) so tokens with internal
     punctuation/spaces ('sq.mm', 'cable tray', 'c-channel') still match cleanly.
+
+    CONSERVATIVE PLURAL-AWARENESS: a singular token also matches a regular s/es
+    plural of its FINAL word in the text -- so 'junction box' hits 'junction boxes',
+    'cable tray' hits 'cable trays', 'socket' hits 'sockets'. This is the pattern
+    fix (generic over tokens, no category or plural list hardcoded). GUARDED against
+    false positives: the optional suffix is added only when the final word is >= 3
+    chars and does NOT already end in 's' -- so words like gas/bus/class/glass/status/
+    access/process/plus/cross (and 2-char units like 'mm') are never mis-stripped, and
+    an already-plural token (ending in 's', e.g. 'light points', 'socket outlets') is
+    left exact. The suffix is OPTIONAL so the singular still matches (backward-compatible).
+    Applies wherever _token_re is used: item_keyword + ancestor + exclusion matching.
     """
-    return re.compile(r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])")
+    body = re.escape(token)
+    last = token.split(" ")[-1] if token else token
+    if len(last) >= 3 and not last.endswith("s"):
+        body += r"(?:es|s)?"
+    return re.compile(r"(?<![a-z0-9])" + body + r"(?![a-z0-9])")
 
 
 def _contains(token: str, blob: str) -> bool:

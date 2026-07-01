@@ -12,7 +12,7 @@ not copied verbatim from any one BoQ.
 """
 import unittest
 
-from nirmaan_stack.services.boq_category.runner import classify_line, load_ruleset
+from nirmaan_stack.services.boq_category.runner import classify_line, load_ruleset, _token_re
 
 
 class TestPerCategory(unittest.TestCase):
@@ -379,6 +379,86 @@ class TestMergeAndRemovalBuild2b(unittest.TestCase):
     def test_networking_vocab_only_is_blank(self):
         r = classify_line("CAT6 UTP with RJ45 jack and patch panel", [])
         self.assertEqual(r["category_id"], "")
+
+
+class TestPluralMatcher(unittest.TestCase):
+    """Residual-43 tuning: conservative s/es plural-awareness in the token matcher."""
+
+    def test_plural_junction_boxes(self):
+        r = classify_line("Providing 225 x 225 GI junction boxes", [])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+
+    def test_plural_raceways(self):
+        r = classify_line("300mm ceiling raceways with cover", [])
+        self.assertEqual(r["category_id"], "cabletray_raceway")
+
+    def test_plural_cable_trays(self):
+        r = classify_line("GI cable trays 300mm wide", [])
+        self.assertEqual(r["category_id"], "cabletray_raceway")
+
+    def test_plural_popup_boxes(self):
+        r = classify_line("floor adaptor, pop-up boxes with housing", [])
+        self.assertEqual(r["category_id"], "popup_boxes")
+
+    def test_plural_cables(self):
+        r = classify_line("3 Core 2.5 sqmm flexible copper cables for lighting", [])
+        self.assertEqual(r["category_id"], "wiring_cabling")
+
+    def test_plural_sockets(self):
+        r = classify_line("6/16A modular switch sockets with face plate", [])
+        self.assertEqual(r["category_id"], "switches_sockets")
+
+    def test_singular_still_matches(self):
+        # backward-compat: the optional suffix must not break singular matching
+        r = classify_line("100 x 100 GI junction box", [])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+
+    def test_ss_and_short_word_guard(self):
+        # words ending in 's'/'ss' and 2-char units get NO plural suffix (no mis-strip)
+        for w in ("gas", "bus", "class", "glass", "status", "access", "process", "plus", "cross", "mm"):
+            self.assertNotIn("(?:es|s)?", _token_re(w).pattern, msg=f"{w!r} wrongly pluralized")
+        # real tokens DO get the suffix
+        for w in ("box", "tray", "socket", "cable", "raceway", "panel"):
+            self.assertIn("(?:es|s)?", _token_re(w).pattern, msg=f"{w!r} missing plural suffix")
+
+    def test_guard_words_do_not_misclassify(self):
+        # a line of only ss-guard words must not spuriously classify
+        r = classify_line("class A gas filled status access process", [])
+        self.assertEqual(r["category_id"], "")
+
+
+class TestMiscAndLightKeywords(unittest.TestCase):
+    """Residual-43 tuning: miscellaneous safety-item positives + light one-word tokens."""
+
+    def test_first_aid_is_misc(self):
+        self.assertEqual(classify_line("Supplying of First Aid Kit", [])["category_id"], "miscellaneous")
+
+    def test_danger_boards_is_misc(self):
+        self.assertEqual(classify_line("Danger Boards 11000 V. with all language", [])["category_id"], "miscellaneous")
+
+    def test_rubber_mats_is_misc(self):
+        self.assertEqual(classify_line("Rubber mats of 1.1 KV grade 1.8 Mtrs", [])["category_id"], "miscellaneous")
+
+    def test_shock_and_first_aid_charts_is_misc(self):
+        self.assertEqual(classify_line("Shock and First Aid charts in T/W frame", [])["category_id"], "miscellaneous")
+
+    def test_hume_pipe_is_misc(self):
+        self.assertEqual(classify_line("300 mm Dia RCC Hume pipe", [])["category_id"], "miscellaneous")
+
+    def test_panels_false_friend_now_misc(self):
+        # an insulating mat is excluded from panels AND now positively read as miscellaneous
+        r = classify_line("Providing & fixing in position 1000 mm wide Electrical Insulating Mats", [])
+        self.assertEqual(r["category_id"], "miscellaneous")
+        self.assertEqual(r["all_scores"].get("panels", 0.0), 0.0)
+
+    def test_downlight_oneword_is_light_fixtures(self):
+        self.assertEqual(classify_line("DOWNLIGHT RECESSED MOON V2 DIFFUSED 18W", [])["category_id"], "light_fixtures")
+
+    def test_led_strip_is_light_fixtures(self):
+        self.assertEqual(classify_line("LED STRIP LIGHT aluminium channel", [])["category_id"], "light_fixtures")
+
+    def test_strip_light_is_light_fixtures(self):
+        self.assertEqual(classify_line("Flexi strip light 10W/M", [])["category_id"], "light_fixtures")
 
 
 if __name__ == "__main__":
