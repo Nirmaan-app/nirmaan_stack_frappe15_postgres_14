@@ -503,7 +503,8 @@ def parse_ai_response(text: str, idx_map: dict, allowed_parent_excels: set | Non
         (the model hallucinated a row) + warn.
       - suggested_classification not in {line_item, preamble, note, spacer} ->
         classification suggestion dropped (None) + warn, parent suggestion kept.
-    ai_suggested_level is NOT computed here -- the caller derives it at write-back.
+    ai_suggested_level is NOT produced -- the pass no longer outputs a level; the write-back
+    stores the -1 "no suggestion" sentinel and commit derives the real level.
 
     R2 / ADR-0005 decision 7 -- FORWARD-REFERENCE GUARD: when allowed_parent_excels is
     given (the chunked path), a suggested parent excel_row that resolves via the

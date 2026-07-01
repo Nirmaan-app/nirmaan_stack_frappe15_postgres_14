@@ -1172,10 +1172,11 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # the frontend AI Rec badges never rendered. They must be in all_fields.
         "ai_suggestion_status", "ai_suggested_classification",
         "ai_suggested_parent", "ai_suggested_is_root",
-        # The remaining four (confidence x2, level, explanation) are display-only -- NOT read
-        # by resolve_effective, so they only ever arrived via all_fields.
+        # The remaining three (confidence x2, explanation) are display-only -- NOT read by
+        # resolve_effective, so they only ever arrived via all_fields. (ai_suggested_level is
+        # no longer surfaced -- the AI pass stopped emitting a level; commit derives it.)
         "ai_classification_confidence", "ai_parent_confidence",
-        "ai_suggested_level", "ai_explanation",
+        "ai_explanation",
         # AI-3c-2a: fetched ONLY to derive the revert_available boolean below. The raw blob
         # (pre-accept internal state) is DROPPED from the payload -- never shipped to the client.
         "ai_accept_snapshot",
@@ -1185,7 +1186,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "gemini_suggestion_status", "gemini_suggested_classification",
         "gemini_suggested_parent", "gemini_suggested_is_root",
         "gemini_classification_confidence", "gemini_parent_confidence",
-        "gemini_suggested_level", "gemini_explanation",
+        "gemini_explanation",
         # chosen_source -- the audit-only "winning" Source (parser/claude/gemini/manual).
         "chosen_source",
         # Fetched ONLY to derive gemini_revert_available below; the raw blob is DROPPED

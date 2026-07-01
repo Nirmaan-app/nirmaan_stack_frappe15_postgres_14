@@ -11,7 +11,7 @@ Anthropic API call is made anywhere in this suite.
   T3  endpoint rejects when no API key is configured             (no_api_key)
   T4  endpoint enqueues + sets ai_in_progress=1 after enqueue
   T5  worker writes back classification + real-parent suggestions (status Pending)
-  T6  worker derives ai_suggested_level for a real-parent / NO_CHANGE suggestion
+  T6  worker stores the -1 sentinel level (the pass no longer outputs a level)
   T7  worker clears stale prior suggestions before applying new ones
   T8  publish clears ai_in_progress on success
   T9  publish clears ai_in_progress on error + worker re-raises
@@ -262,22 +262,24 @@ class TestAIAssist(FrappeTestCase):
         self.assertEqual(r2["ai_parent_confidence"], "Medium")
         self.assertEqual(r2["ai_suggestion_status"], "Pending")
 
-    def test_worker_derives_level_for_real_parent(self):
+    def test_worker_stores_sentinel_level_for_every_suggestion(self):
+        # The pass no longer OUTPUTS a level -- ai_suggested_level is the -1 "no suggestion"
+        # sentinel for both a NO_CHANGE and a real-parent suggestion (commit derives the real
+        # level via derive_effective_levels). The parent/root write-back is unaffected.
         suggestions = [
-            # NO_CHANGE parent -> level = this row's current effective level (root -> 1)
             {"row_index": 1, "ai_suggested_classification": "preamble",
              "ai_classification_confidence": "High", "ai_suggested_parent": None,
              "ai_parent_confidence": None, "ai_explanation": "x"},
-            # real parent row 0 (a root preamble, level 1) -> child level = 2
             {"row_index": 2, "ai_suggested_classification": None,
              "ai_classification_confidence": None, "ai_suggested_parent": 0,
              "ai_parent_confidence": "Medium", "ai_explanation": "y"},
         ]
         self._run_worker_with(suggestions)
-        self.assertEqual(self._row(1)["ai_suggested_level"], 1,
-                         "NO_CHANGE parent -> the row's current effective level (root=1)")
-        self.assertEqual(self._row(2)["ai_suggested_level"], 2,
-                         "real parent (root preamble level 1) -> child level 2")
+        r1, r2 = self._row(1), self._row(2)
+        self.assertEqual(r1["ai_suggested_level"], -1, "NO_CHANGE -> sentinel level -1")
+        self.assertEqual(r1["ai_suggested_parent"], -1, "NO_CHANGE -> parent stays -1")
+        self.assertEqual(r2["ai_suggested_level"], -1, "real-parent -> sentinel level -1")
+        self.assertEqual(r2["ai_suggested_parent"], 0, "real parent (row 0) is stored")
 
     def test_classification_only_suggestion_leaves_parent_default(self):
         suggestions = [
@@ -291,9 +293,9 @@ class TestAIAssist(FrappeTestCase):
         self.assertEqual(r1["ai_suggested_parent"], -1,
                          "a NO_CHANGE (classification-only) suggestion leaves parent at -1")
 
-    def test_writeback_root_suggestion_sets_flag_and_level(self):
-        # AI_A1 (AI-2d): a root suggestion is now fully represented -- the flag is
-        # stored, parent stays the -1 no-index sentinel, level is the genuine root 1.
+    def test_writeback_root_suggestion_sets_flag(self):
+        # AI_A1 (AI-2d): a root suggestion is fully represented -- the flag is stored and
+        # parent stays the -1 no-index sentinel. The pass no longer outputs a level.
         suggestions = [
             {"row_index": 2, "ai_suggested_classification": "preamble",
              "ai_classification_confidence": "High", "ai_suggested_parent": -1,
@@ -306,8 +308,8 @@ class TestAIAssist(FrappeTestCase):
                          "the root flag must be stored as 1")
         self.assertEqual(r2["ai_suggested_parent"], -1,
                          "ai_suggested_parent stays -1 (no parent-index suggestion)")
-        self.assertEqual(r2["ai_suggested_level"], 1,
-                         "a root suggestion's level is 1 (genuine root level)")
+        self.assertEqual(r2["ai_suggested_level"], -1,
+                         "the pass no longer outputs a level -- sentinel -1")
         self.assertEqual(r2["ai_suggested_classification"], "preamble",
                          "the classification suggestion is preserved")
         self.assertEqual(r2["ai_suggestion_status"], "Pending")
