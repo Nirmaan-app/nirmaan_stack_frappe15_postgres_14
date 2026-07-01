@@ -17,6 +17,21 @@ import type { ReviewRow } from "./boqTypes";
 const HOP_CAP = 60;
 const INDENT_PX = 14;
 
+/**
+ * A small muted "L{n}" chip showing a preamble's DERIVED nesting depth (effective_level).
+ * Rendered for preamble crumbs ONLY -- non-preambles carry effective_level === null and get
+ * no chip. Null-safe (renders nothing) so the call site's classification gate is the source
+ * of truth. Token classes only (no hardcoded color).
+ */
+function LevelChip({ level }: { level: number | null }) {
+  if (level === null || level === undefined) return null;
+  return (
+    <span className="text-[10px] font-medium text-muted-foreground border border-border rounded px-1 tabular-nums shrink-0">
+      L{level}
+    </span>
+  );
+}
+
 export function ParentChain({
   row,
   byIdx,
@@ -71,6 +86,7 @@ export function ParentChain({
                 {i > 0 && <span className="text-muted-foreground shrink-0">└</span>}
                 <span className="font-medium tabular-nums shrink-0">r{a.source_row_number}</span>
                 <ClassificationPill cls={a.effective_classification} />
+                {a.effective_classification === "preamble" && <LevelChip level={a.effective_level} />}
                 <span className="truncate text-foreground group-hover:underline">{a.description ?? "—"}</span>
                 {i === 0 && rootMostIsTopLevel && (
                   <span className="ml-auto shrink-0 text-[10px] text-muted-foreground italic">top level</span>
@@ -84,6 +100,8 @@ export function ParentChain({
           >
             <span className="text-muted-foreground shrink-0">└</span>
             <span className="font-medium tabular-nums shrink-0">r{row.source_row_number}</span>
+            <ClassificationPill cls={row.effective_classification} />
+            {row.effective_classification === "preamble" && <LevelChip level={row.effective_level} />}
             <span className="text-muted-foreground italic">(this row)</span>
           </li>
         </ol>

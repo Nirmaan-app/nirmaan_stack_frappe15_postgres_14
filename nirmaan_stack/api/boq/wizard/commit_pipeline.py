@@ -81,17 +81,19 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
     _fetch_boq_file_to_tempfile,
 )
-# The level helpers + the shared cls->node_type+level derivation + the effective-
+# The level derivation + the shared cls->node_type+level derivation + the effective-
 # classification constants are OWNED by commit_validation (so the real commit and the
 # pre-commit preflight can never diverge). _build_node_pass1 calls
-# derive_node_type_and_level; _commit_node_tree calls _compute_levelless_preamble_levels
-# (now returning (assigned, level_warnings) -- the real commit IGNORES the warnings;
-# they surface only in the preflight).
+# derive_node_type_and_level; _commit_node_tree calls derive_effective_levels, which
+# computes every node's level from the EFFECTIVE tree (ADR-0009: level = nesting depth,
+# preamble >=1 / non-preamble level-less None -- NOT the frozen parser level). It returns
+# (levels_by_idx, consistency_warnings); the real commit IGNORES the warnings (a tripwire
+# that never fires under correct derivation -- they surface only in the preflight).
 from nirmaan_stack.api.boq.wizard.commit_validation import (
     _PREAMBLE_CLS,
     _LINE_ITEM_CLS,
     _GRID_ONLY_CLASSIFICATIONS,
-    _compute_levelless_preamble_levels,
+    derive_effective_levels,
     derive_node_type_and_level,
     RESOLVE_EFFECTIVE_COMMIT_INPUT_FIELDS,
 )
@@ -639,13 +641,12 @@ def _commit_node_tree(
         node_rows.append((d, eff))
         eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
-    # Level-less preambles: precompute their assigned level from the whole sheet's
-    # effective tree (children / shallowest-defined-level), Phase-5 guard fix. The real
-    # commit is SILENT -- the returned level_warnings (old #22 msgprint) are DISCARDED
-    # here; they surface only in the pre-commit preflight (validate_node_plan).
-    assigned_levels, _level_warnings = _compute_levelless_preamble_levels(
-        sheet_name, node_rows, eff_parent_by_idx
-    )
+    # Levels: derive every node's level from the WHOLE sheet's effective tree (ADR-0009:
+    # level = nesting depth -- preamble >=1, non-preamble level-less None). Re-parenting a preamble in
+    # review cascades the derived level of that row AND every descendant. The real commit
+    # is SILENT -- the returned consistency_warnings (a tripwire that never fires under
+    # correct derivation) are DISCARDED here; they surface only in the pre-commit preflight.
+    levels_by_idx, _consistency_warnings = derive_effective_levels(node_rows)
 
     # 2. PASS 1 -- insert every node PARENT-LESS, with NO list-valued JSON field set
     #    (attached_notes / edit_log deferred to pass 3 so pass-2 doc.save() is safe).
@@ -653,7 +654,7 @@ def _commit_node_tree(
     name_by_idx: dict[int, str] = {}
     for d, eff in node_rows:
         node = _build_node_pass1(
-            boq_sheet_name, d, eff, commit_version, committed_at, assigned_levels
+            boq_sheet_name, d, eff, commit_version, committed_at, levels_by_idx
         )
         node.insert(ignore_permissions=True)
         docs_by_idx[d["row_index"]] = node
@@ -707,7 +708,7 @@ def _build_node_pass1(
     eff: dict,
     commit_version: int,
     committed_at: str,
-    assigned_levels: dict,
+    levels_by_idx: dict,
 ) -> Any:
     """Build a parent-less BOQ Nodes doc from a resolved review row (pass 1).
 
@@ -716,8 +717,8 @@ def _build_node_pass1(
     ids + versioning, and the per-area child explosion. Does NOT set the list-valued
     JSON fields (attached_notes / edit_log) -- those land in pass 3.
 
-    assigned_levels: {row_index: level} for level-less preambles, precomputed by
-    _compute_levelless_preamble_levels (needs the whole sheet's children/min-level).
+    levels_by_idx: {row_index: level} for EVERY node, derived from the effective tree by
+    derive_effective_levels (ADR-0009: preamble = nesting depth >=1, non-preamble = None).
     """
     node = frappe.new_doc(_NODE_DOCTYPE)
     node.sheet = boq_sheet_name  # boq auto-fills from the sheet (P4-2 sync-guard)
@@ -726,10 +727,11 @@ def _build_node_pass1(
     node.row_class = cls  # X: full taxonomy axis (carried verbatim for every node)
     # node_type + level come from the SHARED derivation (commit_validation), so the real
     # commit and the pre-commit preflight can never diverge. Preamble -> ("Preamble",
-    # real-or-assigned level); Line Item -> ("Line Item", None: level must NOT be set, the
-    # controller throws if it is); else (note/subtotal_marker/header_repeat) -> ("Other",
-    # None). level is set ONLY when non-None, so a Line Item / Other node stays level-less.
-    node_type, level = derive_node_type_and_level(d, eff, assigned_levels)
+    # derived level >=1, the effective-tree nesting depth, ADR-0009); Line Item ->
+    # ("Line Item", None: level must NOT be set, the controller throws if it is); else
+    # (note/subtotal_marker/header_repeat) -> ("Other", None). level is set ONLY when
+    # non-None, so a Line Item / Other node stays level-less (system convention).
+    node_type, level = derive_node_type_and_level(d, eff, levels_by_idx)
     node.node_type = node_type
     if level is not None:
         node.level = level

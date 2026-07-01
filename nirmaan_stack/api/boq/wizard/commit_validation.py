@@ -101,96 +101,111 @@ _PLAN_REVIEW_ROW_FIELDS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Level derivation (MOVED verbatim from commit_pipeline -- single source of truth).
+# Level derivation (ADR-0009: level is DERIVED from the effective tree -- single
+# source of truth shared by the #7 plan validator, the committed BOQ Nodes.level,
+# and the review screen's effective_level, so validation/commit/display cannot disagree).
 # ---------------------------------------------------------------------------
 
-def _real_preamble_level(d: dict):
-    """The preamble's real >=1 level (classifier override wins over the parser level),
-    or None if the row is LEVEL-LESS (no override and no >=1 parser level)."""
-    ov = d.get("preamble_level_override")
-    if isinstance(ov, int) and ov >= 1:
-        return ov
-    lv = d.get("level")
-    if isinstance(lv, int) and lv >= 1:
-        return lv
-    return None
+def derive_effective_levels(node_rows) -> tuple[dict, list]:
+    """Derive each node row's level from the EFFECTIVE (human-edited) tree (ADR-0009).
 
+    `level` is NO LONGER the frozen parser-era absolute depth -- it is the nesting depth
+    over the effective-parent chain, so re-parenting a preamble CASCADES the level of that
+    row AND every descendant (they shift in lockstep). This is the single derivation feeding
+    (a) the #7 preamble-parent check, (b) the committed BOQ Nodes.level (commit pipeline),
+    and (c) the review screen's effective_level -- they can never diverge.
 
-def _compute_levelless_preamble_levels(
-    sheet_name: str, node_rows: list, eff_parent_by_idx: dict
-) -> tuple[dict, list]:
-    """Assign a level to every LEVEL-LESS effective preamble (Phase 5 guard fix).
+    node_rows: the existing list of (d, eff) pairs where eff carries
+    effective_classification + effective_parent_index, and d carries row_index (the
+    parent-pointer space; effective_parent_index is the PARENT row's row_index, or None).
 
-    A level-less preamble (no classifier override and no >=1 parser level) gets:
-      - WITH children  -> max(0, min(child effective-level) - 1)  -- the shallowest
-        child wins, so the preamble sits one level above its shallowest child;
-        line-item children count as level 0.
-      - CHILDLESS      -> the sheet's shallowest DEFINED preamble level; if the sheet
-        has no defined levels at all -> 0.
+    For EACH row, walk UP the effective_parent_index chain (hop-cap 60 + seen-set cycle
+    guard, mirroring _chain_has_cycle / the frontend ParentChain walk), counting how many
+    ANCESTORS are preambles:
+        preamble row        -> level = 1 + (preamble-ancestor count)  (root preamble = 1,
+                               +1 per nesting tier)
+        any non-preamble    -> level = None  (line_item / note / subtotal_marker / ... carry
+                               NO level -- the system convention is that only preambles have
+                               a level; a non-preamble is level-less)
 
-    RETURNS (assigned_levels, level_warnings) -- a DATA pair (no side effects):
-      assigned_levels: {row_index: assigned_level} for level-less preambles ONLY.
-      level_warnings:  list of {row_index, source_row_number, computed_level,
-        parent_level} -- one per level-less preamble whose computed level would NOT
-        sit above its parent (a "squeeze"). This REPLACES the old #22 frappe.msgprint:
-        the finding is returned as data and surfaced by validate_node_plan instead.
+    The walk is ORDER-INDEPENDENT (it counts ancestors, never reading a pre-computed parent
+    level) and identical for every call site. levels_by_idx carries an entry for EVERY node
+    (None for non-preambles) so callers can look up any row's level uniformly.
 
-    sheet_name is retained in the signature for call-site stability (the commit
-    pipeline passes it) but is no longer used inside (the old msgprint that used it
-    is now a returned finding).
+    Also build consistency_warnings -- a TRIPWIRE (owner instruction: KEEP all checks): for
+    a preamble whose effective parent is ITSELF a preamble, if the derived level !=
+    parent_level + 1, emit a warning dict shaped like the OLD level_warnings entry
+    ({row_index, source_row_number, computed_level, parent_level}) so validate_node_plan's
+    existing #22 branch consumes it UNCHANGED. Under correct derivation this NEVER fires (a
+    preamble child of a preamble always derives parent_level + 1); a future regression that
+    produced an inconsistent level would trip it loudly.
+
+    Returns (levels_by_idx, consistency_warnings).
     """
-    level_by_idx = {d["row_index"]: (d.get("level") or 0) for d, _e in node_rows}
-    # Only PRICEABLE children (preamble / line_item) count toward a level-less preamble's
-    # computed level. A note / subtotal_marker / header_repeat is not a structural child
-    # for level purposes (counting one -- it carries level 0 -- would wrongly pull the
-    # preamble down to level 0). A preamble whose only children are non-priceable
-    # therefore has NO structural children here and falls to the childless branch.
-    child_levels: dict = {}
-    for d, e in node_rows:
-        if e["effective_classification"] not in _PRICEABLE_CLASSIFICATIONS:
-            continue
-        ep = eff_parent_by_idx.get(d["row_index"])
-        if ep is not None:
-            child_levels.setdefault(ep, []).append(level_by_idx[d["row_index"]])
-    defined = [lv for lv in level_by_idx.values() if lv >= 1]
-    sheet_min = min(defined) if defined else 0
+    eff_by_idx = {d["row_index"]: e for d, e in node_rows}
 
-    assigned: dict = {}
-    level_warnings: list = []
+    levels_by_idx: dict = {}
+    for d, e in node_rows:
+        idx = d["row_index"]
+        if e["effective_classification"] != _PREAMBLE_CLS:
+            levels_by_idx[idx] = None  # any non-preamble is level-less (convention)
+            continue
+        # Count PREAMBLE ancestors up the effective-parent chain (cycle-safe).
+        preamble_ancestors = 0
+        seen: set = {idx}
+        cur = e.get("effective_parent_index")
+        hops = 0
+        while cur is not None and hops < 60:
+            if cur in seen:
+                break  # cycle guard (mirrors _chain_has_cycle)
+            seen.add(cur)
+            anc = eff_by_idx.get(cur)
+            if anc is None:
+                break  # parent points outside the node set -> chain ends
+            if anc["effective_classification"] == _PREAMBLE_CLS:
+                preamble_ancestors += 1
+            cur = anc.get("effective_parent_index")
+            hops += 1
+        levels_by_idx[idx] = 1 + preamble_ancestors
+
+    # Consistency tripwire -- a preamble under a preamble must derive parent_level + 1.
+    consistency_warnings: list = []
     for d, e in node_rows:
         if e["effective_classification"] != _PREAMBLE_CLS:
             continue
-        if _real_preamble_level(d) is not None:
-            continue  # has a real level -- not level-less
+        ep = e.get("effective_parent_index")
+        if ep is None:
+            continue
+        parent_eff = eff_by_idx.get(ep)
+        if parent_eff is None or parent_eff["effective_classification"] != _PREAMBLE_CLS:
+            continue  # only a preamble-under-preamble has a comparable parent level
         idx = d["row_index"]
-        kids = child_levels.get(idx, [])
-        lvl = max(0, min(kids) - 1) if kids else sheet_min
-        ep = eff_parent_by_idx.get(idx)
-        if ep is not None and kids and lvl <= level_by_idx.get(ep, 0):
-            level_warnings.append({
+        if levels_by_idx[idx] != levels_by_idx[ep] + 1:
+            consistency_warnings.append({
                 "row_index": idx,
                 "source_row_number": d.get("source_row_number"),
-                "computed_level": lvl,
-                "parent_level": level_by_idx.get(ep, 0),
+                "computed_level": levels_by_idx[idx],
+                "parent_level": levels_by_idx[ep],
             })
-        assigned[idx] = lvl
-    return assigned, level_warnings
+    return levels_by_idx, consistency_warnings
 
 
-def derive_node_type_and_level(d: dict, eff: dict, assigned_levels: dict) -> tuple[str, Any]:
+def derive_node_type_and_level(d: dict, eff: dict, levels_by_idx: dict) -> tuple[str, Any]:
     """SHARED cls -> (node_type, level) derivation. Called by BOTH the real-commit
     builder (_build_node_pass1) AND the preflight plan-builder so they cannot diverge.
 
-      preamble  -> ("Preamble", real-or-assigned level)   (real >=1 wins; else the
-                   precomputed level-less assignment, defaulting to 0)
-      line_item -> ("Line Item", None)                    (level MUST NOT be set)
-      other     -> ("Other", None)                        (note/subtotal_marker/header_repeat)
+      preamble  -> ("Preamble", derived level)   (>=1, the effective-tree nesting depth
+                   from derive_effective_levels, ADR-0009)
+      line_item -> ("Line Item", None)           (a non-preamble carries NO level -- system
+                   convention; the controller throws if a Line Item has a level set)
+      other     -> ("Other", None)               (note/subtotal_marker/header_repeat)
+
+    The Preamble level is the DERIVED effective-tree depth (ADR-0009), NOT the frozen parser
+    level. Non-preambles stay level-less (None), exactly as before.
     """
     cls = eff["effective_classification"]
     if cls == _PREAMBLE_CLS:
-        real = _real_preamble_level(d)
-        level = real if real is not None else assigned_levels.get(d.get("row_index"), 0)
-        return "Preamble", level
+        return "Preamble", levels_by_idx.get(d.get("row_index"), 1)
     if cls == _LINE_ITEM_CLS:
         return "Line Item", None
     return "Other", None
@@ -230,15 +245,17 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
 
     Reads the review rows (sheet_name VERBATIM #152, ordered by row_index), resolves
     effective values (resolve_effective), DROPS grid-only classifications (spacer),
-    computes level-less-preamble levels, and emits one plan dict per node:
+    derives each node's level from the effective tree (derive_effective_levels, ADR-0009),
+    and emits one plan dict per node:
 
       {row_index, source_row_number, node_type, level, parent_index, description,
        qty, supply_rate, install_rate, combined_rate,
        qty_by_area: [{area_name, qty}, ...], row_class}
 
     NO frappe doc is built and NOTHING is inserted -- this is the read-only derivation
-    the preflight validates. Returns (plan, level_warnings); level_warnings feeds the
-    #22 finding inside validate_node_plan.
+    the preflight validates. Returns (plan, consistency_warnings); consistency_warnings
+    feeds the #22 finding inside validate_node_plan (a TRIPWIRE -- never fires under correct
+    derivation).
     """
     raw_rows = frappe.db.get_all(
         "BoQ Review Row",
@@ -248,7 +265,6 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
     )
 
     node_rows: list[tuple[dict, dict]] = []
-    eff_parent_by_idx: dict[int, Any] = {}
     for r in raw_rows:
         d = dict(r)
         # qty_by_area arrives from db.get_all as a JSON string -- parse to a flat dict.
@@ -262,15 +278,12 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
         if eff["effective_classification"] in _GRID_ONLY_CLASSIFICATIONS:
             continue  # spacer -> grid-only (no node)
         node_rows.append((d, eff))
-        eff_parent_by_idx[d["row_index"]] = eff["effective_parent_index"]
 
-    assigned_levels, level_warnings = _compute_levelless_preamble_levels(
-        sheet_name, node_rows, eff_parent_by_idx
-    )
+    levels_by_idx, consistency_warnings = derive_effective_levels(node_rows)
 
     plan: list[dict] = []
     for d, eff in node_rows:
-        node_type, level = derive_node_type_and_level(d, eff, assigned_levels)
+        node_type, level = derive_node_type_and_level(d, eff, levels_by_idx)
         qba = d.get("qty_by_area")
         qty_by_area: list[dict] = []
         if isinstance(qba, dict):
@@ -290,7 +303,7 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
             "qty_by_area": qty_by_area,
             "row_class": eff["effective_classification"],
         })
-    return plan, level_warnings
+    return plan, consistency_warnings
 
 
 # ---------------------------------------------------------------------------
