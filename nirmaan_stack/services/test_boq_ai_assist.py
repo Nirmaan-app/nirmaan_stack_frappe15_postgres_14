@@ -14,6 +14,8 @@ from unittest import mock
 
 from nirmaan_stack.services.boq_ai_assist import (
     _NonRetryable,
+    _build_row_payload,
+    _effective_level_for_payload,
     build_rows_payload,
     parse_ai_response,
     run_ai_pass,
@@ -71,12 +73,55 @@ class TestBuildRowsPayload(unittest.TestCase):
         self.assertEqual(child["classification"], "line_item")
         self.assertEqual(child["sl_no"], "1.1")
         self.assertEqual(child["unit"], "m")
-        self.assertEqual(root["level"], 1)
+        # R1 (Approach C): the per-row `level` is an INTERNAL spine signal -- STRIPPED
+        # from the model wire. build_rows_payload returns the wire form (no `level`).
+        self.assertNotIn("level", root, "the model no longer receives a per-row level")
+        self.assertNotIn("level", child)
 
     def test_build_rows_payload_idx_map(self):
         _, idx_map = build_rows_payload(_rows())
         self.assertEqual(idx_map, {5: 0, 6: 1},
                          "idx_map maps excel_row (source_row_number) -> internal row_index")
+
+
+class TestEffectiveLevelPayload(unittest.TestCase):
+    """R1 (Approach C): the payload `level` is the EFFECTIVE (edit-aware) nesting depth,
+    kept as an INTERNAL spine signal and stripped from the model wire."""
+
+    def test_effective_level_preferred_over_parser(self):
+        # effective_level present (worker-enriched) -> used; parser `level` IGNORED.
+        row = {"row_index": 0, "source_row_number": 5, "classification": "preamble",
+               "effective_classification": "preamble", "effective_parent_index": None,
+               "level": 9, "effective_level": 2}
+        p = _build_row_payload(row, {0: 5})
+        self.assertEqual(p["level"], 2,
+                         "the INTERNAL payload carries the EFFECTIVE level, not parser 9")
+
+    def test_parser_level_fallback_when_no_effective_key(self):
+        # No effective_level key (service called standalone) -> fall back to parser level.
+        row = {"row_index": 0, "source_row_number": 5, "classification": "preamble",
+               "level": 3}
+        self.assertEqual(_effective_level_for_payload(row), 3)
+
+    def test_effective_level_none_is_honoured(self):
+        # A non-preamble derives effective_level None -> that None is used (NOT the parser
+        # fallback): the key is PRESENT, so a line_item is level-less on the wire's spine.
+        row = {"row_index": 1, "source_row_number": 6, "classification": "line_item",
+               "level": 7, "effective_level": None}
+        self.assertIsNone(_effective_level_for_payload(row),
+                          "present effective_level=None wins over the parser fallback")
+
+    def test_internal_level_present_but_wire_strips_it(self):
+        rows = [{
+            "row_index": 0, "source_row_number": 5, "classification": "preamble",
+            "effective_classification": "preamble", "effective_parent_index": None,
+            "level": 1, "effective_level": 1, "sl_no_value": "1",
+            "description": "LT CABLES", "unit": None,
+        }]
+        # Internal element keeps level (spine fuel); the wire (build_rows_payload) drops it.
+        self.assertEqual(_build_row_payload(rows[0], {0: 5})["level"], 1)
+        json_str, _ = build_rows_payload(rows)
+        self.assertNotIn("level", json.loads(json_str)[0])
 
 
 class TestParseAIResponse(unittest.TestCase):
