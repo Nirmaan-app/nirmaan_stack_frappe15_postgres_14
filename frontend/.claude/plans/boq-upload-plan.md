@@ -10697,6 +10697,38 @@ bands/direct_signal_bonus/inheritance_weight/inheritance_cap all untouched).
   env/bin/python -m unittest ... ; the bare-`python` interpreter lacks firebase_admin and fails
   at package import -- use the bench-env python or `bench run-tests`).
 - runner.py still has NO frappe imports; classify_line signature unchanged.
+
+BUILD 2a -- rules for the 5 new categories + FIX-1 reversal (local, NOT pushed; branch
+feature/boq-phase-5 tip 088ee99f; Rebuild Spec v2.0 §3.2/§3.3/§3.6, Design doc §20). ADDITIVE
+half of the rules rewrite: only rules_electrical.json + tests changed. scoring.json (confidence
+model) and runner.py (algorithm) UNCHANGED; point_wiring / termination / networking rules
+UNTOUCHED (Build 2b owns those). Rule count 35 -> 40.
+- FIX-1 REVERSED: the junction/pull/draw box vocabulary ("junction box", "junction-box",
+  "j-box", "j box", "pull box", "draw box") was removed from the cabletray_raceway rule CT-TRAY
+  and moved into a NEW junction_box_raceway rule (JB-BOX). CT-TRAY now carries ONLY
+  tray/raceway/trunking/ladder vocabulary; a plain cable-tray line still resolves
+  cabletray_raceway (verified). A junction/pull/draw box line now resolves junction_box_raceway.
+- 5 NEW item_keyword rules (weights on the existing 0.3-0.6 scale):
+  JB-BOX (junction_box_raceway, 0.6, exclude_if floor box/pop up/popup),
+  PU-BOX (popup_boxes, 0.55: pop up/floor/flip-flop/table box, floor outlet),
+  LMS-KW (lighting_mgmt_system, 0.55: lighting management/control, DALI, occupancy/daylight
+  sensor, lighting processor, scene controller),
+  LF-KW (light_fixtures, 0.5: luminaire, led light, panel light, down light, batten,
+  cove/street/flood/decorative light),
+  MISC-KW (miscellaneous, 0.3 CONSERVATIVE: fixing accessory, gi frame for electrical,
+  rcc cutting, chasing for electrical). miscellaneous is a POSITIVE placement only, deliberately
+  low weight + few tokens so it never becomes an uncertainty catch-all -- blank ("") stays the
+  uncertainty outcome (verified by test).
+- No strong existing category regressed (db_switchgear / earthing / ups / industrial_sockets /
+  switches_sockets / conduit_piping / panels / wiring_cabling / cabletray all still green).
+- KNOWN GAP (owner note): LF-KW seed tokens are "led light" / "panel light" (adjacent), so a
+  REVERSED phrasing like "2X2 LED panel" is NOT caught by light_fixtures and still ABSTAINs to
+  blank -- this is intentional for 2a (it preserves the existing led-panel-excluded tests); if
+  LED panels should read as light_fixtures, add "led panel" in a tuning pass and update those
+  two tests.
+- Tests: was 27 (Build 1) -> 34; all green in-container (env/bin/python -m unittest). Added:
+  2 FIX-1-reversal tests + 6 new-category tests (5 positive + 1 no-signal-stays-blank guard);
+  the old test_fix1_junction_box_is_cabletray was rewritten to the reversal contract.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
