@@ -74,9 +74,9 @@ class TestDbVsPanels(unittest.TestCase):
         self.assertEqual(r["category_id"], "db_switchgear")
         self.assertEqual(r["band"], "MED")
 
-    def test_led_panel_excluded_to_novel(self):
+    def test_led_panel_excluded_to_blank(self):
         r = classify_line("2X2 LED panel, CRCA housing, recessed mounted", [])
-        self.assertEqual(r["category_id"], "novel")
+        self.assertEqual(r["category_id"], "")  # novel retired -> blank on ABSTAIN
         self.assertEqual(r["band"], "ABSTAIN")
         self.assertEqual(r["all_scores"].get("panels", 0.0), 0.0)
 
@@ -106,15 +106,15 @@ class TestConflict(unittest.TestCase):
 
 
 class TestAbstain(unittest.TestCase):
-    """No signal -> ABSTAIN -> novel."""
+    """No signal -> ABSTAIN -> blank category (novel retired, Build 1)."""
 
     def test_no_signal_abstains(self):
         r = classify_line("Providing all labour and supervision as per general conditions", [])
-        self.assertEqual(r["category_id"], "novel")
+        self.assertEqual(r["category_id"], "")
         self.assertEqual(r["band"], "ABSTAIN")
         self.assertEqual(r["score"], 0.0)
         self.assertEqual(r["signals_fired"], [])
-        self.assertIn("novel", r["reason"].lower())
+        self.assertIn("review", r["reason"].lower())
 
 
 class TestContract(unittest.TestCase):
@@ -162,16 +162,21 @@ class TestContract(unittest.TestCase):
 
 
 class TestAssetsWellFormed(unittest.TestCase):
-    """The 12 categories + novel are present and rules reference valid categories."""
+    """The frozen 15 (+ 2 transitional) are present; novel retired; rules valid."""
 
-    def test_thirteen_categories(self):
+    def test_frozen_category_set(self):
         cats = {c["category_id"] for c in load_ruleset()["categories"]}
         expected = {
-            "point_wiring", "wiring_cabling", "switches_sockets", "db_switchgear",
-            "networking", "ups", "conduit_piping", "industrial_sockets",
-            "cabletray_raceway", "termination", "earthing", "panels", "novel",
+            # frozen 15
+            "switches_sockets", "db_switchgear", "cabletray_raceway", "wiring_cabling",
+            "junction_box_raceway", "earthing", "conduit_piping", "industrial_sockets",
+            "point_wiring", "popup_boxes", "ups", "lighting_mgmt_system",
+            "miscellaneous", "light_fixtures", "panels",
+            # transitional (retained so Build-1 rules resolve; removed/merged in Build 2)
+            "termination", "networking",
         }
         self.assertEqual(cats, expected)
+        self.assertNotIn("novel", cats)
 
     def test_every_rule_targets_a_known_category(self):
         rs = load_ruleset()
@@ -220,9 +225,9 @@ class TestTuningFixes(unittest.TestCase):
         self.assertIn("inherited", r["reason"].lower())
 
     def test_fix4_no_inheritance_without_ancestor_signal(self):
-        # truly novel line with no category-bearing ancestor stays novel
+        # a line with no category-bearing ancestor stays ABSTAIN -> blank category
         r = classify_line("supervision and general conditions", ["Electrical"])
-        self.assertEqual(r["category_id"], "novel")
+        self.assertEqual(r["category_id"], "")
         self.assertEqual(r["band"], "ABSTAIN")
 
     # FIX 5a -- an industrial socket on a DB sheet beats db_switchgear (breaker excluded)
@@ -263,7 +268,7 @@ class TestNoRegression(unittest.TestCase):
 
     def test_led_panel_still_excluded(self):
         r = classify_line("2X2 LED panel, CRCA housing, recessed mounted", [])
-        self.assertEqual(r["category_id"], "novel")
+        self.assertEqual(r["category_id"], "")  # excluded -> ABSTAIN -> blank
 
 
 if __name__ == "__main__":
