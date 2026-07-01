@@ -504,7 +504,11 @@ def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
                     notes = []
         elif isinstance(raw_notes, list):
             notes = raw_notes
-        if notes:
+        # Suppress the parser-derived classifier_warning once a human has reclassified
+        # the row: classifier_warnings is a STORED field a human edit does NOT rewrite
+        # (only a re-parse does), so it becomes stale noise after an override. A blank
+        # human_classification ("" / None) leaves the flag live -- 'not _get(...)' covers both.
+        if notes and not _get(row, "human_classification"):
             flags.append({
                 "type": "classifier_warning",
                 "row_index": row_index,
@@ -528,9 +532,16 @@ def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
             })
 
         # Flag (iii): parser needs_classification_review -- verbatim reason.
+        # Suppress once a human has reclassified the row: needs_classification_review +
+        # review_reason are STORED parser fields a human edit does NOT rewrite (only a
+        # re-parse does), so they become stale noise after a classification override. A
+        # blank human_classification ("" / None) leaves the flag live -- 'not _get(...)'
+        # covers both. NOTE: only a CLASSIFICATION override suppresses; a parenting-only
+        # override (human_parent / human_is_root) does NOT set human_classification, so
+        # it correctly leaves this flag live.
         needs_review = _get(row, "needs_classification_review")
         review_reason = _get(row, "review_reason")
-        if needs_review and review_reason:
+        if needs_review and review_reason and not _get(row, "human_classification"):
             flags.append({
                 "type": "parser",
                 "row_index": row_index,

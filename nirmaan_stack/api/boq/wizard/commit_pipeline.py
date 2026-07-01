@@ -87,14 +87,15 @@ from nirmaan_stack.api.boq.wizard.sheet_preview import (
 # derive_node_type_and_level; _commit_node_tree calls derive_effective_levels, which
 # computes every node's level from the EFFECTIVE tree (ADR-0009: level = nesting depth,
 # preamble >=1 / non-preamble level-less None -- NOT the frozen parser level). It returns
-# (levels_by_idx, consistency_warnings); the real commit IGNORES the warnings (a tripwire
-# that never fires under correct derivation -- they surface only in the preflight).
+# (levels_by_idx, consistency_warnings); the warnings are the #22 regression tripwire --
+# NEVER surfaced to users (Option A), logged internally via _log_levelless_squeeze_tripwire.
 from nirmaan_stack.api.boq.wizard.commit_validation import (
     _PREAMBLE_CLS,
     _LINE_ITEM_CLS,
     _GRID_ONLY_CLASSIFICATIONS,
     derive_effective_levels,
     derive_node_type_and_level,
+    _log_levelless_squeeze_tripwire,
     RESOLVE_EFFECTIVE_COMMIT_INPUT_FIELDS,
 )
 
@@ -643,10 +644,12 @@ def _commit_node_tree(
 
     # Levels: derive every node's level from the WHOLE sheet's effective tree (ADR-0009:
     # level = nesting depth -- preamble >=1, non-preamble level-less None). Re-parenting a preamble in
-    # review cascades the derived level of that row AND every descendant. The real commit
-    # is SILENT -- the returned consistency_warnings (a tripwire that never fires under
-    # correct derivation) are DISCARDED here; they surface only in the pre-commit preflight.
-    levels_by_idx, _consistency_warnings = derive_effective_levels(node_rows)
+    # review cascades the derived level of that row AND every descendant. The commit stays
+    # SILENT to the user -- the returned consistency_warnings (the #22 tripwire that never
+    # fires under correct derivation) are NOT surfaced; instead we log them internally
+    # (frappe.logger + Sentry) so a future regression trips loudly (Option A).
+    levels_by_idx, consistency_warnings = derive_effective_levels(node_rows)
+    _log_levelless_squeeze_tripwire(consistency_warnings)
 
     # 2. PASS 1 -- insert every node PARENT-LESS, with NO list-valued JSON field set
     #    (attached_notes / edit_log deferred to pass 3 so pass-2 doc.save() is safe).

@@ -132,13 +132,17 @@ def derive_effective_levels(node_rows) -> tuple[dict, list]:
     level) and identical for every call site. levels_by_idx carries an entry for EVERY node
     (None for non-preambles) so callers can look up any row's level uniformly.
 
-    Also build consistency_warnings -- a TRIPWIRE (owner instruction: KEEP all checks): for
-    a preamble whose effective parent is ITSELF a preamble, if the derived level !=
-    parent_level + 1, emit a warning dict shaped like the OLD level_warnings entry
-    ({row_index, source_row_number, computed_level, parent_level}) so validate_node_plan's
-    existing #22 branch consumes it UNCHANGED. Under correct derivation this NEVER fires (a
-    preamble child of a preamble always derives parent_level + 1); a future regression that
-    produced an inconsistent level would trip it loudly.
+    Also build consistency_warnings -- an INTERNAL regression TRIPWIRE (Option A; ADR-0009's
+    "keep all checks as tripwires" is relaxed for #22 ONLY): for a preamble whose effective
+    parent is ITSELF a preamble, if the derived level != parent_level + 1, append a warning
+    dict ({row_index, source_row_number, computed_level, parent_level}). This is NO LONGER
+    surfaced to users -- the un-actionable "levelless_preamble_squeeze" preflight warning was
+    removed because the inequality child == parent + 1 is now mathematically guaranteed for a
+    well-formed tree (its only live triggers -- parent cycles / chains past the 60-hop cap --
+    are already hard-blocked or capped elsewhere). Callers instead feed a NON-EMPTY list to
+    _log_levelless_squeeze_tripwire (frappe.logger + Sentry via frappe.log_error). Under
+    correct derivation this NEVER fires (a preamble child of a preamble always derives
+    parent_level + 1); a future regression that produced an inconsistent level trips the log.
 
     Returns (levels_by_idx, consistency_warnings).
     """
@@ -188,6 +192,31 @@ def derive_effective_levels(node_rows) -> tuple[dict, list]:
                 "parent_level": levels_by_idx[ep],
             })
     return levels_by_idx, consistency_warnings
+
+
+def _log_levelless_squeeze_tripwire(consistency_warnings: list | None) -> None:
+    """Internal regression TRIPWIRE for the (now un-surfaced) #22 levelless_preamble_squeeze.
+
+    Option A (owner-approved, reverses ADR-0009's "keep all checks as tripwires" for #22 ONLY):
+    #22 is un-actionable noise as a USER preflight warning -- after the level-derivation fix its
+    inequality (child == parent + 1) is guaranteed for a well-formed tree; the only ways to trip
+    it are a parent cycle (already hard-blocked by check_structural_integrity) or a chain deeper
+    than the 60-hop cap. So we STOP surfacing it but KEEP the invariant as an INTERNAL tripwire:
+    when derive_effective_levels reports an inconsistent preamble-under-preamble level, log it to
+    frappe.logger + Sentry (frappe.log_error). It NEVER surfaces to the user and NEVER raises --
+    a logging failure must not break the preflight or the irreversible commit."""
+    if not consistency_warnings:
+        return
+    try:
+        frappe.logger("boq").warning(
+            f"levelless_preamble_squeeze tripwire fired: {consistency_warnings}"
+        )
+        frappe.log_error(
+            title="boq_levelless_preamble_squeeze",
+            message=str(consistency_warnings),
+        )
+    except Exception:  # noqa: BLE001 -- a tripwire log must never break the caller.
+        pass
 
 
 def derive_node_type_and_level(d: dict, eff: dict, levels_by_idx: dict) -> tuple[str, Any]:
@@ -253,9 +282,9 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
        qty_by_area: [{area_name, qty}, ...], row_class}
 
     NO frappe doc is built and NOTHING is inserted -- this is the read-only derivation
-    the preflight validates. Returns (plan, consistency_warnings); consistency_warnings
-    feeds the #22 finding inside validate_node_plan (a TRIPWIRE -- never fires under correct
-    derivation).
+    the preflight validates. Returns (plan, consistency_warnings); consistency_warnings is
+    the INTERNAL derivation tripwire (never surfaced to users -- callers feed a non-empty
+    list to _log_levelless_squeeze_tripwire; never fires under correct derivation).
     """
     raw_rows = frappe.db.get_all(
         "BoQ Review Row",
@@ -352,7 +381,6 @@ def validate_node_plan(
     plan: list,
     declared_areas: Any,
     sheet_name: str,
-    level_warnings: list | None = None,
 ) -> dict:
     """Validate a node plan, returning blocking errors + advisory warnings.
 
@@ -368,11 +396,15 @@ def validate_node_plan(
       #20 a qty_by_area area name not in declared_areas -- identical area names across
           rows are folded into ONE finding with a row count (only checked when the BoQ
           declares areas at all).
-      #22 the level-less-preamble "squeeze" findings carried in from build_sheet_node_plan.
       orphan -- an item with no in-plan parent group.
 
-    declared_areas may be a list/set/None. level_warnings is the second element of the
-    build_sheet_node_plan return (defaults to none).
+    NOTE: #22 ("levelless_preamble_squeeze") is NO LONGER emitted here (Option A). It is
+    mathematically unreachable for a well-formed tree after the level-derivation fix and was
+    un-actionable noise as a user warning; the derivation still computes the inconsistency,
+    but callers now feed it to _log_levelless_squeeze_tripwire (internal log) instead of
+    surfacing a finding -- so this validator no longer takes a level_warnings argument.
+
+    declared_areas may be a list/set/None.
     """
     errors: list[dict] = []
     warnings: list[dict] = []
@@ -459,26 +491,10 @@ def validate_node_plan(
                 "count": count,
             })
 
-    # --- WARNING #22: level-less-preamble squeeze findings carried in from build ---
-    for lw in (level_warnings or []):
-        p = by_index.get(lw.get("row_index"), {})
-        desc = _truncate(p.get("description"))
-        n = lw.get("source_row_number")
-        warnings.append({
-            "kind": "warning",
-            "code": "levelless_preamble_squeeze",
-            "sheet_name": sheet_name,
-            "source_row_number": n,
-            "description": desc,
-            "message": (
-                f"Row {n} · “{desc}” — this section heading's computed "
-                f"position (level {lw.get('computed_level')}) doesn't sit above its parent "
-                f"(level {lw.get('parent_level')})."
-            ),
-            "what_to_do": "Verify the heading hierarchy in review.",
-            "group_key": f"levelless_preamble_squeeze:{lw.get('row_index')}",
-            "count": 1,
-        })
+    # NOTE: the old #22 "levelless_preamble_squeeze" warning is intentionally NOT emitted
+    # here anymore (Option A). Its inconsistency is captured by derive_effective_levels'
+    # consistency_warnings and logged via _log_levelless_squeeze_tripwire by the callers
+    # (evaluate_sheet / commit_pipeline._commit_node_tree) -- never surfaced to the user.
 
     return {"errors": errors, "warnings": warnings}
 
@@ -536,10 +552,14 @@ def structural_errors_for_sheet(boq_name: str, sheet_name: str) -> list[dict]:
 
     parent_row_index is the errored plan entry's parent_index (may be None). declared_areas is
     irrelevant to #7/#8 (only the #20 area WARNING reads it) so None is passed -- the soft
-    warnings (#15/#16/#20/#22/orphan) are intentionally DROPPED here: the review screen surfaces
-    ERRORS ONLY (the soft warnings stay the commit dialog's job). sheet_name VERBATIM (#152)."""
-    plan, level_warnings = build_sheet_node_plan(boq_name, sheet_name)
-    result = validate_node_plan(plan, None, sheet_name, level_warnings)
+    warnings (#15/#16/#20/orphan) are intentionally DROPPED here: the review screen surfaces
+    ERRORS ONLY (the soft warnings stay the commit dialog's job). sheet_name VERBATIM (#152).
+
+    The derivation's consistency_warnings (the un-surfaced #22 tripwire) are discarded on this
+    review-bridge path -- the tripwire log fires on the preflight + commit paths (evaluate_sheet
+    / _commit_node_tree), which is where an inconsistency would matter."""
+    plan, _consistency_warnings = build_sheet_node_plan(boq_name, sheet_name)
+    result = validate_node_plan(plan, None, sheet_name)
     by_index = {p["row_index"]: p for p in plan}
 
     breaks: list[dict] = []
@@ -601,8 +621,11 @@ def evaluate_sheet(
     """
     if disposition != "finalized":
         return make_preflight_entry(sheet_name, disposition, [], [])
-    plan, level_warnings = build_sheet_node_plan(boq_name, sheet_name)
-    result = validate_node_plan(plan, declared_areas, sheet_name, level_warnings)
+    plan, consistency_warnings = build_sheet_node_plan(boq_name, sheet_name)
+    # #22 tripwire (Option A): the derivation inconsistency is logged internally, NEVER
+    # surfaced as a user preflight warning (unreachable for a well-formed tree).
+    _log_levelless_squeeze_tripwire(consistency_warnings)
+    result = validate_node_plan(plan, declared_areas, sheet_name)
     return make_preflight_entry(
         sheet_name, disposition, result["errors"], result["warnings"]
     )

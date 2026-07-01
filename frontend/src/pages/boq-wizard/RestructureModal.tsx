@@ -11,10 +11,10 @@
  * Row-own-position (Slice 1b-beta2): a separate "This row's position" control lets the
  * user ALSO place the reclassified ROW itself -- (1) "Keep current position" (DEFAULT,
  * pre-selected; sends NO row_new_parent -> backwards-compat) or (2) "Move under a new
- * parent" which reveals the SAME SheetSearchView picker + hitRowIndex resolution +
- * no-match guard the child pickers use (a picked row_index, or "Top level" -> -1).
- * Save is gated until a chosen "move" is resolved. A backend cycle throw caused by the
- * row's own move (e.g. moving it under its own child) surfaces inline like any other.
+ * parent" which reveals the SAME ReviewRowParentPicker the child pickers use (a picked
+ * row_index, or "Top level" -> -1). Save is gated until a chosen "move" is resolved. A
+ * backend cycle throw caused by the row's own move (e.g. moving it under its own child)
+ * surfaces inline like any other.
  *
  * Staged, gated, atomic:
  *   - The user actively chooses one of FIVE child-placement options (no silent default).
@@ -26,13 +26,13 @@
  *     closes + refreshes). Cancel / close / Escape writes nothing.
  *   - A backend frappe.throw (e.g. a batch cycle) surfaces inline; the modal stays open.
  *
- * Parent picker (options 3 + 4): mounts the CERTIFIED SheetSearchView (Slice 1a,
- * byte-for-byte untouched) as the find-and-pick surface, consuming its
- * onCurrentHitChange callback. A SheetPreviewRow carries only the Excel row_number --
- * NOT row_index -- so the current hit is resolved to a review-row row_index by matching
- * source_row_number against the rows list. If a hit resolves to no review row (a
- * header/banner/blank band row), "Set as parent" is DISABLED with a short reason
- * (the no-match guard). sheet_name is VERBATIM everywhere (#152).
+ * Parent picker (row-own-position + options 3 + 4): mounts ReviewRowParentPicker, which
+ * renders straight from the in-memory `rows` prop (the CURRENT effective tree) with ZERO
+ * fetch and emits a review-row row_index DIRECTLY via onSelect. No Excel-row_number ->
+ * row_index resolution and no no-match guard are needed anymore (every candidate is a
+ * real review row); cycle-invalid candidates (self + descendants) are greyed out inside
+ * the picker instead. The backend batch cycle-guard + classification validity remain the
+ * authoritative correctness boundary. sheet_name is VERBATIM everywhere (#152).
  */
 import { useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
@@ -49,8 +49,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { SheetSearchView } from "./SheetSearchView";
-import type { ReviewRow, SheetPreviewRow } from "./boqTypes";
+import { ReviewRowParentPicker } from "./ReviewRowParentPicker";
+import type { ReviewRow } from "./boqTypes";
 
 // Mirror of ReviewTree's CLS_LABELS (the assignable subset + the two parser-only
 // detections, which can still be a FROM state shown in the summary line).
@@ -99,7 +99,7 @@ interface RestructureModalProps {
    * AI-3b-2 / R3b (children-only mode). When provided, the row's parent is PRE-APPLIED from
    * an accepted AI suggestion: rowPosition is forced to "move" + rowParentIdx is seeded to
    * this value (-1 = root, >=0 = an internal row_index), and the keep/move radio + the
-   * SheetSearchView picker are REPLACED by a DISABLED-BUT-VISIBLE control (the "move" radio
+   * ReviewRowParentPicker are REPLACED by a DISABLED-BUT-VISIBLE control (the "move" radio
    * selected + disabled, a read-only target chip showing the AI-chosen parent) plus an
    * AI-lock modal title -- the row's own position is locked and cannot be changed here.
    * The 5 child-placement options stay fully active. Undefined => the modal behaves exactly
@@ -151,8 +151,9 @@ export function RestructureModal({
   const [perChild, setPerChild] = useState<Record<number, number>>({});
   // option 4: which child's picker is currently open (null = none).
   const [activeChildPicker, setActiveChildPicker] = useState<number | null>(null);
-  // The current search hit held from SheetSearchView's onCurrentHitChange.
-  const [currentHit, setCurrentHit] = useState<SheetPreviewRow | null>(null);
+  // The row_index currently picked in ReviewRowParentPicker (null = nothing picked).
+  // Emitted DIRECTLY by the picker's onSelect -- no row_number->row_index resolution.
+  const [currentSelIdx, setCurrentSelIdx] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   // This row's OWN position (Slice 1b-beta2). "keep" (DEFAULT) = leave the row's
@@ -184,14 +185,6 @@ export function RestructureModal({
     [rows],
   );
 
-  // Resolve the current hit's Excel row_number -> a review-row row_index. A hit on a
-  // header/banner/blank row matches no review row -> null (drives the no-match guard).
-  const hitRowIndex = useMemo(() => {
-    if (!currentHit) return null;
-    const match = rows.find((r) => r.source_row_number === currentHit.row_number);
-    return match ? match.row_index : null;
-  }, [currentHit, rows]);
-
   const parentCapable = PARENT_CAPABLE.has(newClassification);
 
   // Label a target row_index for display ("row N" / "top-level").
@@ -214,7 +207,7 @@ export function RestructureModal({
     setBlockParentIdx(null);
     setPerChild({});
     setActiveChildPicker(null);
-    setCurrentHit(null);
+    setCurrentSelIdx(null);
     setSaveError(null);
   };
 
@@ -224,7 +217,7 @@ export function RestructureModal({
   const selectRowPosition = (pos: "keep" | "move") => {
     setRowPosition(pos);
     setRowParentIdx(null);
-    setCurrentHit(null);
+    setCurrentSelIdx(null);
     setSaveError(null);
   };
 
@@ -410,8 +403,8 @@ export function RestructureModal({
           </div>
         ) : (
           /* This row's OWN position (Slice 1b-beta2) -- keep (default) or move under a
-             new parent. Reuses the SAME SheetSearchView picker + hitRowIndex resolution
-             + no-match guard as the child pickers (no duplication). */
+             new parent. Reuses the SAME ReviewRowParentPicker as the child pickers (no
+             duplication); the row's own subtree is greyed out (cycle hint). */
           <div className="rounded-md border border-border p-2 space-y-1.5">
             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               This row&rsquo;s position
@@ -446,7 +439,7 @@ export function RestructureModal({
                     <button
                       type="button"
                       className="text-blue-600 dark:text-blue-400 hover:underline"
-                      onClick={() => { setRowParentIdx(null); setCurrentHit(null); }}
+                      onClick={() => { setRowParentIdx(null); setCurrentSelIdx(null); }}
                     >
                       change
                     </button>
@@ -454,17 +447,17 @@ export function RestructureModal({
                 ) : (
                   <>
                     <p className="text-xs text-muted-foreground">
-                      Search the sheet, land on the row you want as this row&rsquo;s new
+                      Search the tree, click the row you want as this row&rsquo;s new
                       parent, then Set as parent &mdash; or send this row to the top level.
                     </p>
                     {/* Finding-7 (§9 #158, Path 1): pick-action row sits ABOVE the
                         picker grid so it's reachable without scrolling past the tall
-                        wrapping sheet. Buttons + handlers moved verbatim. */}
+                        wrapping table. */}
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        disabled={hitRowIndex === null}
-                        onClick={() => setRowParentIdx(hitRowIndex)}
+                        disabled={currentSelIdx === null}
+                        onClick={() => setRowParentIdx(currentSelIdx)}
                       >
                         Set as parent
                       </Button>
@@ -475,18 +468,13 @@ export function RestructureModal({
                       >
                         Top level
                       </Button>
-                      {currentHit !== null && hitRowIndex === null && (
-                        <span className="text-xs text-muted-foreground">
-                          This row isn&rsquo;t a selectable parent
-                        </span>
-                      )}
                     </div>
-                    <SheetSearchView
-                      boqName={boqName}
-                      sheetName={sheetName}
-                      onCurrentHitChange={setCurrentHit}
-                      onRowClick={setCurrentHit}
-                      selectedRowNumber={currentHit?.row_number ?? null}
+                    <ReviewRowParentPicker
+                      rows={rows}
+                      excludeSubtreeRoots={[row.row_index]}
+                      selectedRowIndex={currentSelIdx}
+                      onSelect={setCurrentSelIdx}
+                      initialCentreRowIndex={row.row_index}
                     />
                   </>
                 )}
@@ -556,7 +544,7 @@ export function RestructureModal({
                 <button
                   type="button"
                   className="text-blue-600 dark:text-blue-400 hover:underline"
-                  onClick={() => { setBlockParentIdx(null); setCurrentHit(null); }}
+                  onClick={() => { setBlockParentIdx(null); setCurrentSelIdx(null); }}
                 >
                   change
                 </button>
@@ -564,31 +552,26 @@ export function RestructureModal({
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">
-                  Search the sheet, land on the row you want as the new parent, then Set as
+                  Search the tree, click the row you want as the new parent, then Set as
                   parent.
                 </p>
                 {/* Finding-7 (§9 #158, Path 1): pick-action row ABOVE the picker grid
-                    (reachable without scrolling). Button + handler moved verbatim. */}
+                    (reachable without scrolling). */}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    disabled={hitRowIndex === null}
-                    onClick={() => setBlockParentIdx(hitRowIndex)}
+                    disabled={currentSelIdx === null}
+                    onClick={() => setBlockParentIdx(currentSelIdx)}
                   >
                     Set as parent
                   </Button>
-                  {currentHit !== null && hitRowIndex === null && (
-                    <span className="text-xs text-muted-foreground">
-                      This row isn&rsquo;t a selectable parent
-                    </span>
-                  )}
                 </div>
-                <SheetSearchView
-                  boqName={boqName}
-                  sheetName={sheetName}
-                  onCurrentHitChange={setCurrentHit}
-                  onRowClick={setCurrentHit}
-                  selectedRowNumber={currentHit?.row_number ?? null}
+                <ReviewRowParentPicker
+                  rows={rows}
+                  excludeSubtreeRoots={children.map((c) => c.row_index)}
+                  selectedRowIndex={currentSelIdx}
+                  onSelect={setCurrentSelIdx}
+                  initialCentreRowIndex={row.row_index}
                 />
               </>
             )}
@@ -613,7 +596,7 @@ export function RestructureModal({
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 shrink-0"
-                      onClick={() => { setActiveChildPicker(c.row_index); setCurrentHit(null); }}
+                      onClick={() => { setActiveChildPicker(c.row_index); setCurrentSelIdx(null); }}
                     >
                       Pick parent
                     </Button>
@@ -639,11 +622,11 @@ export function RestructureModal({
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    disabled={hitRowIndex === null}
+                    disabled={currentSelIdx === null}
                     onClick={() => {
-                      setPerChild((prev) => ({ ...prev, [activeChildPicker]: hitRowIndex as number }));
+                      setPerChild((prev) => ({ ...prev, [activeChildPicker]: currentSelIdx as number }));
                       setActiveChildPicker(null);
-                      setCurrentHit(null);
+                      setCurrentSelIdx(null);
                     }}
                   >
                     Set as parent
@@ -651,22 +634,17 @@ export function RestructureModal({
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => { setActiveChildPicker(null); setCurrentHit(null); }}
+                    onClick={() => { setActiveChildPicker(null); setCurrentSelIdx(null); }}
                   >
                     Cancel pick
                   </Button>
-                  {currentHit !== null && hitRowIndex === null && (
-                    <span className="text-xs text-muted-foreground">
-                      This row isn&rsquo;t a selectable parent
-                    </span>
-                  )}
                 </div>
-                <SheetSearchView
-                  boqName={boqName}
-                  sheetName={sheetName}
-                  onCurrentHitChange={setCurrentHit}
-                  onRowClick={setCurrentHit}
-                  selectedRowNumber={currentHit?.row_number ?? null}
+                <ReviewRowParentPicker
+                  rows={rows}
+                  excludeSubtreeRoots={[activeChildPicker]}
+                  selectedRowIndex={currentSelIdx}
+                  onSelect={setCurrentSelIdx}
+                  initialCentreRowIndex={activeChildPicker}
                 />
               </div>
             )}

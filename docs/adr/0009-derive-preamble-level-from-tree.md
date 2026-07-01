@@ -58,3 +58,22 @@ Changing the parser would alter the classification/numbering axis that drives ot
 - **Relation to ADR-0007:** ADR-0007 relaxed #7's equality constraint to strictly-shallower; this ADR ensures the levels being compared are always consistent with the human-edited tree. The two changes are complementary: ADR-0007 handles numbering-gap re-parents; ADR-0009 handles level-staleness after any re-parent.
 - **Relation to ADR-0008:** The fully-hard finalize gate (ADR-0008) means any persistent #7 block prevents finalize. Without this ADR the HVAC BOQ case would be permanently stuck. With derivation, the gate becomes passable without any data edits.
 - Review-phase `path` and its potential inconsistency after re-parent are **not addressed here** — left as a separate future cleanup.
+
+## Amendment (2026-07-01): #22 demoted from a user-facing warning to an internal tripwire
+
+Decision #4 kept #15 and #22 as user-visible pre-commit warnings. On review, **#22
+(`levelless_preamble_squeeze`) proved unreachable for any well-formed tree** — the derivation guarantees
+`child_level == parent_level + 1` for a direct preamble-under-preamble, so the inequality that feeds #22 is
+unsatisfiable. Its only remaining triggers are a parent **cycle** (already hard-blocked by
+`check_structural_integrity` at the review gate) and a chain **deeper than the 60-hop cap** — neither
+actionable by a user, and the commit pipeline discarded the warning anyway.
+
+**Amendment:** #22 is **no longer surfaced as a user-facing preflight warning.** `derive_effective_levels`
+still computes `consistency_warnings`; when non-empty they are routed to an internal regression tripwire
+(`_log_levelless_squeeze_tripwire` → `frappe.logger("boq")` + Sentry `frappe.log_error`, in a try/except so
+it can never raise) at the preflight (`evaluate_sheet`) and commit (`commit_pipeline._commit_node_tree`)
+paths — never to the user. The `level_warnings` parameter of `validate_node_plan` is removed. **#7 and #15
+are unchanged** (#7 still uniquely guards a preamble filed under a non-heading parent — not redundant; a
+state the derivation does not prevent and the `boq_nodes.py` controller backstop still hard-`throw`s on).
+This narrows decision #4 for #22 only; the tripwire intent is preserved, minus the un-actionable user noise.
+See `frontend/.claude/plans/boq-review-refinements.md`.

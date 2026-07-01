@@ -2651,6 +2651,96 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
             "Line item with no parent group — check its parenting.",
         )
 
+    # -- classification-override suppression (stale parser / classifier noise) --
+    #
+    # After a human reclassifies a row, the STORED parser fields
+    # (needs_classification_review / review_reason / classifier_warnings) are NOT
+    # rewritten -- only a re-parse does -- so they become STALE noise. Both the
+    # 'parser' and 'classifier_warning' advisories are suppressed once
+    # human_classification is set. Only a CLASSIFICATION override suppresses -- a
+    # parenting-only override (human_parent / human_is_root) does NOT. The 'orphan'
+    # advisory recomputes live from the effective tree and is UNCHANGED by the override.
+
+    def test_parser_flag_suppressed_when_human_reclassified(self):
+        """Reference case (row 143, BOQ-26-00023): parser said preamble +
+        needs_classification_review=1 / review_reason, human set line_item -> the
+        stale 'parser' advisory must be suppressed."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="line_item",
+                          needs_classification_review=1,
+                          review_reason="priced_preamble_with_children")]
+        flags = _compute_advisory_flags(rows)
+        parser_flags = [f for f in flags if f["type"] == "parser"]
+        self.assertEqual(len(parser_flags), 0,
+                         "a human classification override must suppress the stale parser flag")
+
+    def test_classifier_warning_suppressed_when_human_reclassified(self):
+        """A human classification override suppresses the stale classifier_warning advisory
+        (classifier_warnings is a stored parser field a human edit does not rewrite)."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="line_item",
+                          classifier_warnings=["weak preamble signal", "ambiguous level"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 0,
+                         "a human classification override must suppress the stale classifier_warning flag")
+
+    def test_parser_flag_not_suppressed_by_parenting_only_override(self):
+        """Only a CLASSIFICATION override suppresses. A parenting-only override
+        (human_parent set, human_classification unset) must leave the parser flag LIVE."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_parent=3,
+                          needs_classification_review=1,
+                          review_reason="borderline preamble vs line_item")]
+        flags = _compute_advisory_flags(rows)
+        parser_flags = [f for f in flags if f["type"] == "parser"]
+        self.assertEqual(len(parser_flags), 1,
+                         "a parenting-only override must NOT suppress the parser flag")
+
+    def test_classifier_warning_not_suppressed_by_parenting_only_override(self):
+        """A parenting-only override (human_parent set, human_classification unset) must
+        leave the classifier_warning flag LIVE."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_parent=3,
+                          classifier_warnings=["weak preamble signal"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1,
+                         "a parenting-only override must NOT suppress the classifier_warning flag")
+
+    def test_empty_string_human_classification_does_not_suppress(self):
+        """An empty-string human_classification ("" -- falsy, not an override) must NOT
+        suppress: 'not _get(...)' treats "" and None identically as 'not overridden'."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="",
+                          needs_classification_review=1,
+                          review_reason="borderline",
+                          classifier_warnings=["weak signal"])]
+        flags = _compute_advisory_flags(rows)
+        types = [f["type"] for f in flags]
+        self.assertIn("parser", types,
+                      "empty-string human_classification must not suppress the parser flag")
+        self.assertIn("classifier_warning", types,
+                      "empty-string human_classification must not suppress the classifier_warning flag")
+
+    def test_orphan_flag_fires_regardless_of_human_classification(self):
+        """The 'orphan' advisory recomputes live from the effective tree and is UNCHANGED
+        by a classification override: a row reclassified to line_item with no effective
+        parent still yields the orphan flag, even while its stale parser +
+        classifier_warning advisories are suppressed on the SAME row."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_classification="line_item",
+                          needs_classification_review=1,
+                          review_reason="priced_preamble_with_children",
+                          classifier_warnings=["weak preamble signal"])]
+        flags = _compute_advisory_flags(rows)
+        types = [f["type"] for f in flags]
+        self.assertIn("orphan", types,
+                      "orphan must fire regardless of a classification override")
+        self.assertNotIn("parser", types, "the stale parser flag must be suppressed")
+        self.assertNotIn("classifier_warning", types,
+                         "the stale classifier_warning flag must be suppressed")
+
 
 # ===========================================================================
 # Group 10: get_structural_breaks extended (flags key) -- DB (Slice B2a)
