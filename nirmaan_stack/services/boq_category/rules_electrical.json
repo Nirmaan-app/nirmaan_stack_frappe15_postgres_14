@@ -1,7 +1,7 @@
 {
   "discipline": "Electrical",
-  "version": "1.0-provisional",
-  "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain.",
+  "version": "2.0-build2b",
+  "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain. Build 2b: POINT WIRING FULL PRECEDENCE -- a point-frame (light/fan/plug/power point, points controlled, controlled by mcb/switch, mcb-to-first-light) zeroes conduit_piping / switches_sockets / wiring_cabling via point-frame exclusion rules so the bundled point line reads point_wiring even when it names conduit/switch/cable. DB-TO-FIRST-POINT SEAM: a bare 'DB to first point' sized feeder with NO named load is suppressed (WC-EXCL-DBFIRSTPOINT) and 'first point' is deliberately NOT a point_wiring positive token, so it lands blank/review, not a confident label. TERMINATION MERGED into wiring_cabling (TERM-* re-pointed). NETWORKING removed (NW-DATA deleted); data vocab is suppressed from wiring_cabling (WC-EXCL-NETWORKING) so cat6/rj45/patch-panel lines route to blank (cross-discipline).",
   "rules": [
     {
       "rule_id": "PW-POINT",
@@ -43,6 +43,17 @@
       "plain": "A 'wiring for ... point(s)' lot (e.g. 'Wiring for fan points with 3x2.5 sq mm'): this is point wiring - the cable size quoted is just the wire used for the point, not a cable-run item.",
       "source": "FIX3 proving-run 2026-06-30: 31 'Wiring for X points' lines mis-scored wiring_cabling",
       "ambiguous_with": ["wiring_cabling"]
+    },
+    {
+      "rule_id": "PW-FIRSTLIGHT",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "An 'MCB -> first light / low-power device' point run: a named load (first LIGHT) makes this point wiring. NOTE: a bare 'first point' with no named load is deliberately NOT matched here - that is the DB-to-first-point review seam (see WC-EXCL-DBFIRSTPOINT).",
+      "source": "Build 2b owner ruling: MCB->first light = point_wiring; bare DB->first point (no load) = review.",
+      "ambiguous_with": ["wiring_cabling", "db_switchgear"]
     },
 
     {
@@ -97,6 +108,36 @@
       "plain": "FIX3 guard: a 'wiring for ... point(s)' line is point wiring, not a cable-run item, so the wiring_cabling signal from its quoted cable size is suppressed.",
       "source": "FIX3 proving-run 2026-06-30: wiring_cabling over-fired on point-wiring lots"
     },
+    {
+      "rule_id": "WC-EXCL-POINTFRAME",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: when a point-frame (a named point / controlled-by / mcb-to-first-light) is present, the cable size quoted is just the wire used for the point - suppress the wiring_cabling read so point_wiring wins.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
+    },
+    {
+      "rule_id": "WC-EXCL-DBFIRSTPOINT",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["db to first point", "to first point"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b DB-to-first-point seam: a bare 'DB to first point' sized feeder with NO named load must NOT read a confident wiring_cabling - suppress it so the line lands blank -> human review (the load is unknown; do not force a label).",
+      "source": "Build 2b owner ruling: bare DB->first point (no load) = review, not a confident category."
+    },
+    {
+      "rule_id": "WC-EXCL-NETWORKING",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["cat6", "cat 6", "cat6a", "rj45", "patch cord", "patch panel", "jack panel", "data jack", "i/o jack", "utp"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b networking removal: structured-data vocab (CAT6/RJ45/patch panel/UTP) is cross-discipline (Data & Networking), NOT power wiring_cabling - suppress the generic 'cable' read so these lines route to blank/review instead of being mislabelled power cabling.",
+      "source": "Build 2b / Design doc §20.3: networking excluded -> blank."
+    },
 
     {
       "rule_id": "SS-ACC",
@@ -131,6 +172,16 @@
       "weight": 0.4,
       "plain": "Sits under a Socket Outlets / Power Receptacles section header.",
       "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'"
+    },
+    {
+      "rule_id": "SS-EXCL-POINTFRAME",
+      "category_id": "switches_sockets",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: a point-frame line ('point controlled by switch') is point wiring, not a loose switch/socket accessory - suppress the switches_sockets read.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
     },
 
     {
@@ -187,17 +238,6 @@
     },
 
     {
-      "rule_id": "NW-DATA",
-      "category_id": "networking",
-      "signal_type": "item_keyword",
-      "match": ["cat6", "cat 6", "cat6a", "rj45", "patch cord", "patch panel", "jack panel", "data jack", "i/o jack", "utp"],
-      "match_mode": "any_token",
-      "weight": 0.55,
-      "plain": "Structured-data cabling (CAT6, RJ45, patch panel) - electrical-side networking.",
-      "source": "corpus: data 63, patch 7, cat6 3 (rare in Electrical - data lives under Data & Networking)"
-    },
-
-    {
       "rule_id": "UPS-UNIT",
       "category_id": "ups",
       "signal_type": "item_keyword",
@@ -249,6 +289,16 @@
       "weight": 0.4,
       "plain": "Sits under a Conduit / Conduiting section header.",
       "source": "corpus preamble: 'Supply and laying of PVC conduit'"
+    },
+    {
+      "rule_id": "CP-EXCL-POINTFRAME",
+      "category_id": "conduit_piping",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: a point-frame line that also names conduit ('light points ... with 25mm conduit') is point wiring as a unit - the conduit is part of the point run - so suppress the conduit_piping read.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
     },
 
     {
@@ -330,11 +380,11 @@
       "rule_id": "LF-KW",
       "category_id": "light_fixtures",
       "signal_type": "item_keyword",
-      "match": ["light fixture", "luminaire", "led light", "panel light", "down light", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light"],
+      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light"],
       "match_mode": "any_token",
       "weight": 0.5,
-      "plain": "A luminaire / light fixture: LED light, panel light, downlighter, batten, cove / street / flood / decorative light. (A LIGHT POINT is point_wiring, not a fixture - that boundary is Build 2b.)",
-      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Note: panels PNL-ASSEMBLY already excludes led/panel light/luminaire, so those land here positively."
+      "plain": "A luminaire / light fixture: LED light, LED panel, panel light, downlighter, batten, cove / street / flood / decorative light. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture.",
+      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Build 2b: added 'led panel' so a '2X2 LED panel' reads light_fixtures (panels PNL-ASSEMBLY already excludes led/panel light/luminaire, so it never reads panels)."
     },
     {
       "rule_id": "MISC-KW",
@@ -349,23 +399,23 @@
 
     {
       "rule_id": "TERM-END",
-      "category_id": "termination",
+      "category_id": "wiring_cabling",
       "signal_type": "item_keyword",
       "match": ["endterminations", "end termination", "end terminations", "termination", "terminations", "lug", "gland", "cable jointing", "heat shrink", "thimble", "ferrule"],
       "match_mode": "any_token",
       "weight": 0.6,
-      "plain": "Cable end-work: terminations, lugs, glands or jointing. Often a child sub-line under a cable line - the tree walk inherits the cable context; this rule just recognises the term.",
-      "source": "corpus: termination 459, endterminations 315, gland 57"
+      "plain": "Cable end-work: terminations, lugs, glands or jointing. Build 2b merged the former 'termination' category into 'Wiring, Cabling & Termination' (wiring_cabling).",
+      "source": "corpus: termination 459, endterminations 315, gland 57. Build 2b: re-pointed from termination -> wiring_cabling (merge)."
     },
     {
       "rule_id": "TERM-ANC",
-      "category_id": "termination",
+      "category_id": "wiring_cabling",
       "signal_type": "ancestor",
       "match": ["end termination", "terminal joints", "making of end termination"],
       "match_mode": "any_token",
       "weight": 0.4,
-      "plain": "Sits under an end-termination section header.",
-      "source": "corpus preamble: 'Supplying and making of end termination', 'terminal joints'"
+      "plain": "Sits under an end-termination section header (part of Wiring, Cabling & Termination after the Build 2b merge).",
+      "source": "corpus preamble: 'Supplying and making of end termination', 'terminal joints'. Build 2b: re-pointed from termination -> wiring_cabling (merge)."
     },
 
     {
@@ -401,7 +451,7 @@
       "plain": "Names a built panel / switch-board assembly (a fabricated enclosure that houses breakers as one unit).",
       "source": "corpus: panel 128, lt panel 27",
       "exclude_if": ["led", "light panel", "luminaire", "downlight", "panel light", "ceiling panel", "drop down panel", "patch panel", "danger", "sld", "chart", "fire extinguisher", "name board", "notice board", "mat", "shock treatment", "first aid"],
-      "ambiguous_with": ["db_switchgear", "networking"]
+      "ambiguous_with": ["db_switchgear"]
     },
     {
       "rule_id": "PNL-ENCLOSURE",

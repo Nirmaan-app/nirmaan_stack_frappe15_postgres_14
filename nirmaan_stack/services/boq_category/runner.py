@@ -226,7 +226,7 @@ def classify_line(
     scoring = ruleset["scoring"]
     cap = scoring["cap"]
     bands = scoring["bands"]
-    novel_id = scoring["novel_category_id"]
+    abstain_category_id = scoring["novel_category_id"]
 
     desc_blob = _norm((description or "") + " " + " ".join(notes or []))
     anc_blob = _norm(" ".join(ancestor_texts or []))
@@ -293,7 +293,7 @@ def classify_line(
                         "all_scores": scores,
                     }
         return {
-            "category_id": novel_id,
+            "category_id": abstain_category_id,
             "score": 0.0,
             "band": "ABSTAIN",
             "signals_fired": [],

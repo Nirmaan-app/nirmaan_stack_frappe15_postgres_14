@@ -28,8 +28,6 @@ class TestPerCategory(unittest.TestCase):
          "switches_sockets", {"HIGH"}),
         ("Outgoing : 36 Nos. 16A SP MCB of 'D' curve", [],
          "db_switchgear", {"HIGH"}),
-        ("CAT6 UTP data cable with RJ45 jack and patch panel", [],
-         "networking", {"HIGH", "MED"}),
         ("Supply of 30 KVA online UPS with SMF battery", ["UPS SYSTEM"],
          "ups", {"HIGH"}),
         ("25mm dia MS conduit with flexible conduit", ["CONDUITING"],
@@ -38,8 +36,9 @@ class TestPerCategory(unittest.TestCase):
          ["INDUSTRIAL SOCKETS"], "industrial_sockets", {"HIGH"}),
         ("300mm perforated GI cable tray with cover", ["CABLE TRAY"],
          "cabletray_raceway", {"HIGH"}),
+        # Build 2b: termination merged into wiring_cabling ("Wiring, Cabling & Termination")
         ("End termination with lug and gland", ["END TERMINATION"],
-         "termination", {"HIGH"}),
+         "wiring_cabling", {"HIGH"}),
         ("GI earth strip 25x3mm laid in earth pit", ["EARTHING"],
          "earthing", {"HIGH"}),
         ("Supply of LT Panel, CRCA floor mounted, with bus bar and feeder", [],
@@ -74,11 +73,12 @@ class TestDbVsPanels(unittest.TestCase):
         self.assertEqual(r["category_id"], "db_switchgear")
         self.assertEqual(r["band"], "MED")
 
-    def test_led_panel_excluded_to_blank(self):
+    def test_led_panel_is_light_fixtures(self):
+        # Build 2b: an LED panel is a light fixture, NOT a switchgear panel.
         r = classify_line("2X2 LED panel, CRCA housing, recessed mounted", [])
-        self.assertEqual(r["category_id"], "")  # novel retired -> blank on ABSTAIN
-        self.assertEqual(r["band"], "ABSTAIN")
-        self.assertEqual(r["all_scores"].get("panels", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "light_fixtures")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+        self.assertEqual(r["all_scores"].get("panels", 0.0), 0.0)  # 'panel' false-friend stays excluded
 
 
 class TestFalseFriends(unittest.TestCase):
@@ -162,21 +162,21 @@ class TestContract(unittest.TestCase):
 
 
 class TestAssetsWellFormed(unittest.TestCase):
-    """The frozen 15 (+ 2 transitional) are present; novel retired; rules valid."""
+    """Exactly the frozen 15 (Build 2b removed termination + networking); rules valid."""
 
     def test_frozen_category_set(self):
         cats = {c["category_id"] for c in load_ruleset()["categories"]}
         expected = {
-            # frozen 15
             "switches_sockets", "db_switchgear", "cabletray_raceway", "wiring_cabling",
             "junction_box_raceway", "earthing", "conduit_piping", "industrial_sockets",
             "point_wiring", "popup_boxes", "ups", "lighting_mgmt_system",
             "miscellaneous", "light_fixtures", "panels",
-            # transitional (retained so Build-1 rules resolve; removed/merged in Build 2)
-            "termination", "networking",
         }
         self.assertEqual(cats, expected)
+        self.assertEqual(len(cats), 15)
         self.assertNotIn("novel", cats)
+        self.assertNotIn("termination", cats)   # Build 2b: merged into wiring_cabling
+        self.assertNotIn("networking", cats)    # Build 2b: removed (cross-discipline -> blank)
 
     def test_every_rule_targets_a_known_category(self):
         rs = load_ruleset()
@@ -275,9 +275,11 @@ class TestNoRegression(unittest.TestCase):
         self.assertEqual(r["category_id"], "wiring_cabling")
         self.assertEqual(r["band"], "HIGH")
 
-    def test_led_panel_still_excluded(self):
+    def test_led_panel_is_light_fixtures_not_panels(self):
+        # Build 2b: LED panel now reads light_fixtures; panels stays excluded (false-friend).
         r = classify_line("2X2 LED panel, CRCA housing, recessed mounted", [])
-        self.assertEqual(r["category_id"], "")  # excluded -> ABSTAIN -> blank
+        self.assertEqual(r["category_id"], "light_fixtures")
+        self.assertEqual(r["all_scores"].get("panels", 0.0), 0.0)
 
 
 class TestNewCategoriesBuild2a(unittest.TestCase):
@@ -314,6 +316,69 @@ class TestNewCategoriesBuild2a(unittest.TestCase):
         self.assertEqual(r["category_id"], "")
         self.assertEqual(r["band"], "ABSTAIN")
         self.assertNotEqual(r["category_id"], "miscellaneous")
+
+
+class TestPointWiringPrecedenceBuild2b(unittest.TestCase):
+    """Build 2b: a point-frame overrides component words -> point_wiring wins."""
+
+    # POSITIVE: precedence fires (a bundled point line reads point_wiring)
+    def test_point_with_conduit_and_switch_is_point_wiring(self):
+        r = classify_line(
+            "Wiring for light points with 25mm conduit controlled by 6A switch", [])
+        self.assertEqual(r["category_id"], "point_wiring")
+        self.assertEqual(r["all_scores"].get("conduit_piping", 0.0), 0.0)
+        self.assertEqual(r["all_scores"].get("switches_sockets", 0.0), 0.0)
+        self.assertEqual(r["all_scores"].get("wiring_cabling", 0.0), 0.0)
+
+    def test_points_controlled_by_mcb_is_point_wiring(self):
+        r = classify_line("Set of light points controlled by MCB", [])
+        self.assertEqual(r["category_id"], "point_wiring")
+
+    def test_mcb_to_first_light_is_point_wiring(self):
+        r = classify_line("First point controlled by MCB (from MCB to first light)", [])
+        self.assertEqual(r["category_id"], "point_wiring")
+
+    # NEGATIVE blast-radius guards: a plain component line must NOT read point_wiring
+    def test_plain_conduit_not_point_wiring(self):
+        r = classify_line("PVC conduit 25mm concealed", [])
+        self.assertEqual(r["category_id"], "conduit_piping")
+        self.assertNotEqual(r["category_id"], "point_wiring")
+
+    def test_plain_switch_socket_not_point_wiring(self):
+        r = classify_line("Modular switch socket 6A", [])
+        self.assertEqual(r["category_id"], "switches_sockets")
+        self.assertNotEqual(r["category_id"], "point_wiring")
+
+    def test_plain_cable_not_point_wiring(self):
+        r = classify_line("3C x 2.5 sqmm XLPE cable", [])
+        self.assertEqual(r["category_id"], "wiring_cabling")
+        self.assertNotEqual(r["category_id"], "point_wiring")
+
+    # DB-TO-FIRST-POINT SEAM: a bare sized feeder with NO named load -> review
+    def test_db_to_first_point_stays_low_or_blank(self):
+        r = classify_line("2 x 2.5 sqmm FRLS wire DB to first point", [])
+        self.assertTrue(
+            r["band"] in ("LOW", "ABSTAIN") or r["category_id"] == "",
+            msg=f"expected review-level, got {r['category_id']} band={r['band']} ({r['all_scores']})")
+        self.assertNotEqual(r["band"], "HIGH")
+
+
+class TestMergeAndRemovalBuild2b(unittest.TestCase):
+    """Build 2b: termination merged into wiring_cabling; networking removed -> blank."""
+
+    def test_termination_line_is_wiring_cabling(self):
+        r = classify_line("Cable lugs and glands, end termination", [])
+        self.assertEqual(r["category_id"], "wiring_cabling")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_networking_line_is_blank(self):
+        r = classify_line("CAT6 cable with RJ45", [])
+        self.assertEqual(r["category_id"], "")  # networking removed -> cross-discipline blank
+        self.assertEqual(r["band"], "ABSTAIN")
+
+    def test_networking_vocab_only_is_blank(self):
+        r = classify_line("CAT6 UTP with RJ45 jack and patch panel", [])
+        self.assertEqual(r["category_id"], "")
 
 
 if __name__ == "__main__":

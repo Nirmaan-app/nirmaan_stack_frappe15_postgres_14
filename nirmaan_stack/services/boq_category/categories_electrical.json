@@ -1,7 +1,7 @@
 {
   "discipline": "Electrical",
-  "version": "2.0-frozen15-build1",
-  "note": "Build 1 re-base (Rebuild Spec v2.0 / Design doc §20): the frozen 15 electrical pricing categories. 'novel' is RETIRED as a category -- ABSTAIN now returns a BLANK category_id (\"\"), see scoring.json novel_category_id + runner.py. 'termination' and 'networking' are TRANSITIONAL: retained ONLY so the Build-1 (unchanged) rule set still resolves; Build 2 merges termination -> wiring_cabling and removes networking (cross-discipline -> blank). category_id is stable; descriptions are the human/AI reference (the prompt-2 harness reads this file).",
+  "version": "2.0-frozen15-build2b",
+  "note": "The frozen 15 electrical pricing categories (Rebuild Spec v2.0 / Design doc §20). 'novel' is RETIRED -- ABSTAIN returns a BLANK category_id (\"\"), see scoring.json novel_category_id + runner.py. Build 2b removed the two transitional categories: 'termination' was MERGED into wiring_cabling ('Wiring, Cabling & Termination') and 'networking' was REMOVED (cross-discipline -> data lines route to blank). This list is now exactly the frozen 15. category_id is stable; descriptions are the human/AI reference (the prompt-2 harness reads this file).",
   "categories": [
     {
       "category_id": "switches_sockets",
@@ -91,18 +91,6 @@
       "category_id": "panels",
       "name": "Panels",
       "description": "LT/MCC/APFC/control panels and panel boards.",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "termination",
-      "name": "Termination (pending Build 2 merge into Wiring, Cabling & Termination)",
-      "description": "TRANSITIONAL: retained so existing rules resolve; Build 2 merges into wiring_cabling.",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "networking",
-      "name": "Networking (pending Build 2 removal -> cross-discipline blank)",
-      "description": "TRANSITIONAL: retained so existing rules resolve; Build 2 removes (networking is cross-discipline -> blank).",
       "discipline": "Electrical"
     }
   ]
