@@ -87,6 +87,9 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
     const validate = () => {
         const errors: Partial<InvoiceFormState> = {};
         if (!formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+        // An invoice attachment (kept existing or newly staged) requires an Invoice Ref.
+        const hasAttachment = !!newAttachmentFile || (attachmentAction !== "remove" && !!existingAttachmentUrl);
+        if (hasAttachment && !formState.invoice_ref.trim()) errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -184,7 +187,8 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="invoice_ref_update_id" className="text-right col-span-1">Invoice Ref</Label>
-                        <Input id="invoice_ref_update_id" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className="col-span-3" />
+                        <Input id="invoice_ref_update_id" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className={cn("col-span-3", formErrors.invoice_ref && "border-destructive")} />
+                        {formErrors.invoice_ref && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_ref}</p>}
                     </div>
 
                     <div className="grid grid-cols-4 items-start gap-3">
