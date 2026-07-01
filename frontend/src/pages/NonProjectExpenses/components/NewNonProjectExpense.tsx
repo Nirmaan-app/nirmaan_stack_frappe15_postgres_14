@@ -66,9 +66,9 @@ const INITIAL_FORM_STATE: NewExpenseFormState = {
     description: "",
     comment: "",
     amount: "",
-    payment_date: formatDateFns(new Date(), "yyyy-MM-dd"),
+    payment_date: "", // empty by default — user picks it (mandatory only when Paid)
     payment_ref: "",
-    invoice_date: formatDateFns(new Date(), "yyyy-MM-dd"),
+    invoice_date: "", // empty by default — user picks it (mandatory only when Paid)
     invoice_ref: "",
 };
 
@@ -216,21 +216,6 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         }
     }, [runPaymentAutofill]);
 
-    // Wrap the checkbox toggle so unchecking Record Payment Details also
-    // invalidates any in-flight extraction and clears autofill state.
-    // Checking it back ON starts fresh at the upload stage.
-    const handleRecordPaymentDetailsChange = useCallback((checked: boolean) => {
-        extractionSessionRef.current++;
-        if (!checked) {
-            setAutofilledFields(new Set());
-            setIsAutofilling(false);
-            setUploadedPaymentUrl(null);
-            setPaymentAttachmentFile(null);
-        }
-        setPaymentStage("upload");
-        setRecordPaymentDetails(checked);
-    }, []);
-
     // Handler for Expense Type selection from CommandItem
     const handleExpenseTypeSelect = useCallback((currentValue: string) => {
         setFormState(prev => ({ ...prev, type: currentValue === formState.type ? "" : currentValue }));
@@ -255,15 +240,19 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         if (!formState.description.trim()) errors.description = "Description is required.";
         if (!formState.amount || parseNumber(formState.amount) === 0) errors.amount = "Amount cannot be zero. Use negative for refunds.";
 
+        // Marking Paid (Record Payment Details) makes BOTH dates mandatory.
         if (recordPaymentDetails) {
             if (!formState.payment_date) errors.payment_date = "Payment date is required.";
+            if (!formState.invoice_date) errors.invoice_date = "Invoice date is required.";
         }
         if (recordInvoiceDetails) {
             if (!formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+            // Uploading an invoice attachment requires an Invoice Ref.
+            if (invoiceAttachmentFile && !formState.invoice_ref.trim()) errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
         }
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
-    }, [formState, recordPaymentDetails, recordInvoiceDetails]);
+    }, [formState, recordPaymentDetails, recordInvoiceDetails, invoiceAttachmentFile]);
 
     const handleSubmit = useCallback(async () => {
         if (!validateForm()) {
@@ -296,6 +285,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                 description: formState.description.trim(),
                 comment: formState.comment.trim() || undefined,
                 amount: parseNumber(formState.amount),
+                status: "Requested", // enters the approval workflow at Requested
                 ...(recordPaymentDetails && { payment_date: formState.payment_date, payment_ref: formState.payment_ref.trim() || undefined, payment_attachment: paymentAttachmentUrl }),
                 ...(recordInvoiceDetails && { invoice_date: formState.invoice_date, invoice_ref: formState.invoice_ref.trim() || undefined, invoice_attachment: invoiceAttachmentUrl }),
             };
@@ -337,7 +327,9 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             extractionSessionRef.current++;
             setFormState(INITIAL_FORM_STATE);
             setFormErrors({});
-            setRecordPaymentDetails(true);
+            // Payment is the Accountant's step (via Mark as Paid) and invoice details are
+            // optional at creation, so default BOTH sections OFF (unchecked).
+            setRecordPaymentDetails(false);
             setRecordInvoiceDetails(false);
             setPaymentAttachmentFile(null);
             setInvoiceAttachmentFile(null);
@@ -350,7 +342,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     }, [newNonProjectExpenseDialog]);
 
     const isLoadingOverall = createLoading || uploadLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || isAutofilling || !formState.type || !formState.description.trim() || !formState.amount || !formState.payment_date;
+    const isSubmitDisabled = isLoadingOverall || isAutofilling || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && !!invoiceAttachmentFile && !formState.invoice_ref.trim());
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
@@ -427,13 +419,8 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         </p>
                     </div>
 
-                    <Separator className="my-4" />
-
-                    {/* Payment Details */}
-                    <div className="flex items-center space-x-2">
-                        <Checkbox id="recordPaymentDetails_new_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => handleRecordPaymentDetailsChange(Boolean(checked))} disabled={isLoadingOverall} />
-                        <Label htmlFor="recordPaymentDetails_new_npe" className="font-medium">Record Payment Details</Label>
-                    </div>
+                    {/* Payment is recorded later by the Accountant (Mark as Paid), so the
+                        payment section is intentionally not shown in the create dialog. */}
                     {recordPaymentDetails && (
                         <div className="pl-6 space-y-3 border-l-2 ml-2 mt-2 border-dashed">
                             {paymentStage === "upload" ? (
@@ -530,8 +517,9 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                                 {formErrors.invoice_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_date}</p>}
                             </div>
                             <div className="grid grid-cols-4 items-center gap-3">
-                                <Label htmlFor="invoice_ref_new_npe" className="text-right col-span-1">Invoice Ref</Label>
-                                <Input id="invoice_ref_new_npe" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
+                                <Label htmlFor="invoice_ref_new_npe" className="text-right col-span-1">Invoice Ref{invoiceAttachmentFile && <sup className="text-destructive"> *</sup>}</Label>
+                                <Input id="invoice_ref_new_npe" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className={cn("col-span-3", formErrors.invoice_ref && "border-destructive")} disabled={isLoadingOverall} />
+                                {formErrors.invoice_ref && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_ref}</p>}
                             </div>
                             <div className="grid grid-cols-4 items-start gap-3">
                                 <Label className="text-right col-span-1 pt-2">Invoice Attachment</Label>
