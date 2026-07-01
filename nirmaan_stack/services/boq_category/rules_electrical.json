@@ -276,11 +276,11 @@
       "rule_id": "CT-TRAY",
       "category_id": "cabletray_raceway",
       "signal_type": "item_keyword",
-      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack", "junction box", "junction-box", "j-box", "j box", "pull box", "draw box"],
+      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack"],
       "match_mode": "any_token",
       "weight": 0.6,
-      "plain": "Cable support / containment / junction hardware: cable tray, ladder, raceway, trunking, or a junction / pull / draw box.",
-      "source": "corpus: cable tray 178, raceway 99, perforated 40; FIX1 proving-run 2026-06-30: 49 junction/box fragments abstained"
+      "plain": "Cable support / containment: cable tray, ladder, raceway or trunking.",
+      "source": "corpus: cable tray 178, raceway 99, perforated 40. Build 2a reversed FIX1: junction/pull/draw box vocabulary moved OUT to its own junction_box_raceway category (JB-BOX)."
     },
     {
       "rule_id": "CT-ANC",
@@ -291,6 +291,60 @@
       "weight": 0.4,
       "plain": "Sits under a Cable Tray / Raceway section header.",
       "source": "corpus preamble: 'Hot Dip-galvanised Ladder Type trays', 'Perforated type cable tray'"
+    },
+
+    {
+      "rule_id": "JB-BOX",
+      "category_id": "junction_box_raceway",
+      "signal_type": "item_keyword",
+      "match": ["junction box", "junction-box", "j-box", "j box", "pull box", "draw box", "jb for raceway", "junction box for raceway"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A junction / pull / draw box for the raceway / cable system - its own priced category (a box, not the tray/raceway run itself).",
+      "source": "Build 2a: reversal of FIX1 - junction/pull/draw box vocabulary moved here out of cabletray_raceway (CT-TRAY). corpus: 49 junction/box fragments.",
+      "exclude_if": ["floor box", "pop up", "popup"],
+      "ambiguous_with": ["cabletray_raceway", "popup_boxes"]
+    },
+    {
+      "rule_id": "PU-BOX",
+      "category_id": "popup_boxes",
+      "signal_type": "item_keyword",
+      "match": ["pop up box", "popup box", "pop-up box", "floor box", "flip flop box", "flip-flop box", "floor socket box", "table box", "floor outlet"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A pop-up / floor socket box (flip-flop / table / floor outlet unit) - a socket enclosure sunk into a floor or desk.",
+      "source": "Build 2a: new category seed. corpus preamble: 'POP-UP BOXES', 'FLOOR OUTLET'.",
+      "ambiguous_with": ["switches_sockets", "junction_box_raceway"]
+    },
+    {
+      "rule_id": "LMS-KW",
+      "category_id": "lighting_mgmt_system",
+      "signal_type": "item_keyword",
+      "match": ["lighting management", "lighting control", "dali", "occupancy sensor", "daylight sensor", "lighting processor", "scene controller", "relay module for lighting"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A lighting management / control system: DALI, occupancy/daylight sensors, lighting processor or scene controller.",
+      "source": "Build 2a: new category seed. corpus: DALI / lighting control / occupancy sensor lines."
+    },
+    {
+      "rule_id": "LF-KW",
+      "category_id": "light_fixtures",
+      "signal_type": "item_keyword",
+      "match": ["light fixture", "luminaire", "led light", "panel light", "down light", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "A luminaire / light fixture: LED light, panel light, downlighter, batten, cove / street / flood / decorative light. (A LIGHT POINT is point_wiring, not a fixture - that boundary is Build 2b.)",
+      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Note: panels PNL-ASSEMBLY already excludes led/panel light/luminaire, so those land here positively."
+    },
+    {
+      "rule_id": "MISC-KW",
+      "category_id": "miscellaneous",
+      "signal_type": "item_keyword",
+      "match": ["fixing accessory", "gi frame for electrical", "rcc cutting", "chasing for electrical"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "A genuine electrical miscellaneous item (fixing accessory, GI frame, RCC cutting / chasing for electrical work). POSITIVE placement only - deliberately LOW weight and few tokens so it never becomes an uncertainty catch-all (blank remains the uncertainty outcome).",
+      "source": "Build 2a: new category seed, CONSERVATIVE. Kept minimal on purpose per Rebuild Spec v2.0 - miscellaneous is a positive read, NOT a fallback."
     },
 
     {

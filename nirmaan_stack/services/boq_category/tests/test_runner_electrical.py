@@ -191,9 +191,18 @@ class TestAssetsWellFormed(unittest.TestCase):
 class TestTuningFixes(unittest.TestCase):
     """The five fixes from the 2026-06-30 proving-run findings."""
 
-    # FIX 1 -- junction box now reads as cabletray_raceway (was ABSTAIN -> novel)
-    def test_fix1_junction_box_is_cabletray(self):
+    # FIX 1 REVERSED (Build 2a) -- junction box now reads as its own
+    # junction_box_raceway category, NOT cabletray_raceway; a plain cable
+    # tray must still resolve cabletray_raceway (the reversal did not break it).
+    def test_fix1_reversed_junction_box_is_own_category(self):
         r = classify_line("100 x 100 x 60mm junction box with 2 mm thick cover", [])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+        self.assertNotEqual(r["category_id"], "cabletray_raceway")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+        self.assertEqual(r["all_scores"].get("cabletray_raceway", 0.0), 0.0)
+
+    def test_fix1_reversed_plain_cable_tray_still_cabletray(self):
+        r = classify_line("300mm wide perforated GI cable tray with cover", [])
         self.assertEqual(r["category_id"], "cabletray_raceway")
         self.assertNotEqual(r["band"], "ABSTAIN")
 
@@ -269,6 +278,42 @@ class TestNoRegression(unittest.TestCase):
     def test_led_panel_still_excluded(self):
         r = classify_line("2X2 LED panel, CRCA housing, recessed mounted", [])
         self.assertEqual(r["category_id"], "")  # excluded -> ABSTAIN -> blank
+
+
+class TestNewCategoriesBuild2a(unittest.TestCase):
+    """Build 2a: the 5 previously rule-less categories now resolve positively."""
+
+    def test_junction_box_is_junction_box_raceway(self):
+        r = classify_line("100 x 100 x 60mm pull box with 2 mm thick cover", [])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_popup_box_is_popup_boxes(self):
+        r = classify_line("Pop up box with flip flop cover, 6 module", [])
+        self.assertEqual(r["category_id"], "popup_boxes")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_lighting_control_is_lighting_mgmt_system(self):
+        r = classify_line("DALI lighting control with occupancy sensor", [])
+        self.assertEqual(r["category_id"], "lighting_mgmt_system")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_luminaire_is_light_fixtures(self):
+        r = classify_line("Recessed LED down light 12W with driver", [])
+        self.assertEqual(r["category_id"], "light_fixtures")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_misc_item_is_miscellaneous(self):
+        r = classify_line("GI frame for electrical equipment support", [])
+        self.assertEqual(r["category_id"], "miscellaneous")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_no_signal_is_blank_not_miscellaneous(self):
+        # the uncertainty outcome stays BLANK; miscellaneous is a positive read only
+        r = classify_line("Providing all labour and supervision as per general conditions", [])
+        self.assertEqual(r["category_id"], "")
+        self.assertEqual(r["band"], "ABSTAIN")
+        self.assertNotEqual(r["category_id"], "miscellaneous")
 
 
 if __name__ == "__main__":
