@@ -221,7 +221,7 @@
   },
   {
    "fieldname": "make_model",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Make / Model"
   },
   {

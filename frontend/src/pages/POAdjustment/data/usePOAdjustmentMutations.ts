@@ -37,3 +37,37 @@ export function useExecuteAdjustment() {
 
   return { execute, loading, error };
 }
+
+export interface VendorCreditAllocation {
+  source_po: string;
+  amount: number;
+}
+
+interface ApplyVendorCreditResult {
+  status: string;
+  dest_po: string;
+  applied: Record<string, number>;
+  total_applied: number;
+}
+
+/**
+ * Hook to pull overpaid vendor credit INTO a destination PO.
+ */
+export function useApplyVendorCredit() {
+  const { call, loading, error } = useFrappePostCall<{
+    message: ApplyVendorCreditResult;
+  }>(PO_ADJUSTMENT_APIS.applyVendorCredit);
+
+  const apply = async (
+    destPo: string,
+    allocations: VendorCreditAllocation[]
+  ) => {
+    const res = await call({
+      dest_po: destPo,
+      allocations_json: JSON.stringify(allocations),
+    });
+    return res?.message;
+  };
+
+  return { apply, loading, error };
+}

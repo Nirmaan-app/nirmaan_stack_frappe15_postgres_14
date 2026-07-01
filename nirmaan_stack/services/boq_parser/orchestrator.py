@@ -172,8 +172,12 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
         skip_rows: set[int] = set()
         if header_row is not None:
             skip_rows.add(header_row)
-            if sheet_config.header_row_count == 2:
-                skip_rows.add(header_row + 1)
+            # The header band is the single declared header_row; any SECOND header tier
+            # sits ABOVE it (named via top_header_rows_override / read by area-detection)
+            # and is excluded by the `row >= header_row` guard below. Data therefore starts
+            # at header_row + 1. Extra header tiers BELOW header_row are removed by the user
+            # via skip_top_rows_after_header. (Was: also skipped header_row+1 for count==2 —
+            # that wrongly removed the first data row. See ADR 0008.)
         skip_rows.update(sheet_config.skip_top_rows_after_header)
 
         # Bug 17: derive text-role column letters for display-string formatting

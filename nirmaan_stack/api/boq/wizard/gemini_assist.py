@@ -103,7 +103,7 @@ _GEMINI_FETCH_FIELDS = [
     "name", "row_index", "source_row_number", "description", "sl_no_value", "unit",
     "qty_total", "rate_supply", "rate_install", "rate_combined",
     "amount_total", "amount_supply", "amount_install",
-    "preamble_candidate_score", "level", "is_rate_only", "is_synthetic",
+    "preamble_candidate_score", "is_rate_only", "is_synthetic",
     "gemini_suggestion_status", "chosen_source",
 ]
 

@@ -265,6 +265,32 @@ class TestBOQNodes(FrappeTestCase):
                                     description="Zero qty line item")
         self.assertEqual(node.qty, 0)
 
+    def test_line_item_with_zero_level_saves_treated_as_unset(self):
+        """ADR-0009: a non-preamble is level-less. The commit pipeline leaves a Line Item's
+        level unset (None), but the controller's `if doc.level:` guard treats an explicit 0
+        as falsy too -- so a Line Item with level 0 SAVES (0 == 'no level set'). Only a
+        truthy (>=1) level is rejected (test_line_item_with_level_set_is_rejected)."""
+        node = frappe.new_doc("BOQ Nodes")
+        node.sheet = self.sheet_name
+        node.node_type = "Line Item"
+        node.level = 0
+        node.description = "Line Item with explicit zero level"
+        node.parent_node = self.default_preamble
+        node.qty = 5
+        node.supply_rate = 100
+        node.insert(ignore_permissions=True)
+        self.assertIsNotNone(node.name)
+
+    def test_derived_preamble_chain_saves(self):
+        """ADR-0009: a committed Preamble's level is the DERIVED tree depth (>=1). A
+        consistent L1 -> L2 -> L3 chain (each parent strictly shallower) saves through the
+        controller's #7 backstop -- this is the shape the commit pipeline now produces."""
+        l1 = self._make_preamble(level=1, description="Derived L1")
+        l2 = self._make_preamble(level=2, parent_node=l1.name, description="Derived L2")
+        l3 = self._make_preamble(level=3, parent_node=l2.name, description="Derived L3")
+        self.assertEqual([l1.level, l2.level, l3.level], [1, 2, 3])
+        self.assertEqual(l3.path, f"{l1.name}/{l2.name}/{l3.name}")
+
     # ------------------------------------------------------------------ #
     # is_rate_only auto-computation                                        #
     # ------------------------------------------------------------------ #

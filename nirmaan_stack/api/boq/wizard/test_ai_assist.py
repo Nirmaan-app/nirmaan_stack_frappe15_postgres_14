@@ -1055,6 +1055,19 @@ class TestRunAiPassChunking(FrappeTestCase):
         self.assertEqual(out[0]["row_index"], 1)             # excel 3 -> row_index 1
         self.assertEqual(out[0]["ai_suggested_classification"], "preamble")
 
+    def test_wire_rows_carry_no_per_row_level(self):
+        # R1 (Approach C): the model-facing ROWS_JSON must NOT include a per-row `level`
+        # (an internal spine signal only). The static prompt + OPEN SECTIONS still mention
+        # "level", so assert on the ROWS_JSON block specifically (tail after "Rows (JSON):").
+        rows = self._rows(3)
+        _, msgs = self._run(rows, ["[]"])
+        rows_json = msgs.calls[0].split("Rows (JSON):", 1)[1].strip()
+        arr = json.loads(rows_json)
+        self.assertEqual(len(arr), 3)
+        for el in arr:
+            self.assertNotIn("level", el,
+                             "the model wire must not include a per-row level")
+
     def test_multi_chunk_accumulates_suggestions(self):
         # 250 rows with a preamble at index 130 -> 2 chunks. Each chunk returns one
         # suggestion; run_ai_pass must MERGE both into the returned list.

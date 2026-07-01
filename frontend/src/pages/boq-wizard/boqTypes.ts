@@ -45,6 +45,16 @@ export interface ColumnRoleEntry {
   area: string | null;
 }
 
+/**
+ * One "skip rows after header" definition (header-config redesign). The field is a structured
+ * list of these instead of a single comma-list: each entry skips EITHER one row OR an inclusive
+ * row range. Resolved to a flat row-number set by skipRows.resolveSkipDefinitions; the legacy
+ * flat skip_top_rows_after_header list round-trips via skipRows.defsFromLegacyList.
+ */
+export type SkipDefinition =
+  | { kind: "single"; row: number }
+  | { kind: "range"; start: number; end: number };
+
 export type WizardStatus =
   | ""
   | "Pending"
@@ -419,6 +429,12 @@ export interface ReviewRow {
   // effective values (computed by resolve_effective on backend)
   effective_classification: string | null;
   effective_parent_index: number | null;
+  // Derived preamble nesting depth (boq-level-derivation fix). A PREAMBLE's effective_level
+  // is 1 + (count of preamble ancestors in the effective-parent chain); root preamble = 1,
+  // +1 per nesting tier. ANY non-preamble is null (system convention -- computed, never 0).
+  // Whole-sheet-derived on every get_review_rows read, so re-parenting cascades to descendants.
+  // ParentChain reads it to render an L{n} chip on preamble crumbs only.
+  effective_level: number | null;
   // AI suggestion layer (AI-1 / AI-2d). Written by the AI pass (run_ai_pass worker)
   // + the accept/reject endpoint; never by the parser or human edit layer. Applied by
   // resolve_effective ONLY when ai_suggestion_status === "Accepted" and no human override

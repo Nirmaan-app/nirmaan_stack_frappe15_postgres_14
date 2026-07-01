@@ -184,7 +184,7 @@
   {
    "description": "Brand and model identifier for this line item. Used in procurement reference.",
    "fieldname": "make_model",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "label": "Make / Model"
   },
   {
