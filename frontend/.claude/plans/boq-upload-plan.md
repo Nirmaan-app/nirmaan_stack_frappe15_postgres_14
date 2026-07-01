@@ -10670,6 +10670,33 @@ Scratch harness + CSVs (NOT committed) live at /tmp/boq_category_csv/ (one CSV p
 17-column rules-vs-AI-vs-team schema). NEXT: re-run the harness post-tuning to confirm the
 agreement lift, then widen to more electrical BoQs and let team verdicts recalibrate the
 provisional weights/bands.
+
+BUILD 1 -- category re-base to the frozen 15 + novel retired -> blank ABSTAIN (local, NOT
+pushed; branch feature/boq-phase-5 tip c8226842; Rebuild Spec v2.0 §§1-3.1/6, Design doc §20):
+STRUCTURAL re-base only -- rules_electrical.json UNCHANGED (Build 2 rewrites the rules), and the
+confidence/scoring model is UNCHANGED (cap/agreement_bonus/conflict_margin/conflict_penalty/
+bands/direct_signal_bonus/inheritance_weight/inheritance_cap all untouched).
+- categories_electrical.json rewritten to the FROZEN 15: switches_sockets, db_switchgear,
+  cabletray_raceway, wiring_cabling (now "Wiring, Cabling & Termination"), junction_box_raceway
+  (NEW), earthing, conduit_piping, industrial_sockets, point_wiring, popup_boxes (NEW), ups,
+  lighting_mgmt_system (NEW), miscellaneous (NEW, positive placement -- NOT an uncertainty
+  fallback), light_fixtures (NEW), panels. PLUS 2 TRANSITIONAL ids retained ONLY so the
+  unchanged Build-1 rules still resolve: termination (Build 2 merges -> wiring_cabling) and
+  networking (Build 2 removes -> cross-discipline blank). version bumped to 2.0-frozen15-build1.
+- "novel" is RETIRED as a category (removed from the list). ABSTAIN now returns a BLANK
+  category_id (""), band still "ABSTAIN", reason "no category signal matched; routed to review
+  (blank)." Wired in three places: scoring.json "novel_category_id":"" (data-driven; runner
+  hardcodes nothing), runner.py abstain-return reason string + docstrings, tests. The FIX-4
+  fragment-inheritance path is UNCHANGED -- it still returns its real inherited category (never
+  blanked).
+- No orphaned rule: all 12 category_ids referenced by the (untouched) rules resolve against the
+  new list (10 frozen + termination + networking). The 5 new frozen ids carry no rules yet
+  (Build 2 adds them).
+- Tests: tests/test_runner_electrical.py contract tests updated to blank-on-abstain + the new
+  frozen id set; count UNCHANGED at 27, all green (run in-container via
+  env/bin/python -m unittest ... ; the bare-`python` interpreter lacks firebase_admin and fails
+  at package import -- use the bench-env python or `bench run-tests`).
+- runner.py still has NO frappe imports; classify_line signature unchanged.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
