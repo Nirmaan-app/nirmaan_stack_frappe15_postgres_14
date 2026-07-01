@@ -10771,6 +10771,33 @@ thresholds. Rule count 40 -> 45; categories 17 -> 15 (exactly the frozen 15). Te
   networking suppression means a line literally saying "CAT6 cable" now goes to blank (review),
   not wiring_cabling -- this is the intended cross-discipline routing. (3) "first point" is a
   reserved review trigger; do not add it as a strong positive token without revisiting the seam.
+
+RESIDUAL-43 TUNING -- plural-aware matcher + misc/light keywords (local, NOT pushed; branch
+feature/boq-phase-5; feat c9b843a4). From the tree-fed Set-1 re-run (baseline rule 75.9% /
+AI 89.8%, 43 abstains): two additive changes to the classification module, confidence model +
+runner algorithm otherwise unchanged.
+- (a) CONSERVATIVE PLURAL-AWARE MATCHER (runner.py _token_re -- the pattern fix, NOT a hardcoded
+  plural list): a singular token now also matches a regular s/es plural of its FINAL word, so
+  'junction box' hits 'junction boxes', 'cable tray' hits 'cable trays', 'raceway' hits
+  'raceways', 'socket' hits 'sockets', 'cable' hits 'cables'. GUARDED: the optional (?:es|s)?
+  suffix is added only when the final word is >= 3 chars and does NOT already end in 's' -- so
+  gas/bus/class/glass/status/access/process/plus/cross and 2-char units ('mm') are never
+  mis-stripped, and an already-plural token ('light points', 'socket outlets') stays exact. The
+  suffix is optional so singular still matches (backward-compatible). Applies wherever _token_re
+  runs: item_keyword + ancestor + exclusion matching alike (so plural exclusions like 'cable
+  trays' also suppress wiring_cabling correctly). Recovers ~80 plural rows from the recon.
+- (b) rules_electrical.json: NEW rule MISC-SAFETY (miscellaneous, weight 0.3) = first aid /
+  hume pipe / shock treatment / danger notice / danger board / fire bucket / insulating mat /
+  rubber mat / shock chart / single line diagram / sld chart / name board / notice board --
+  collision-verified misc-only across the Set-1 corpus (0 non-misc hits); these mirror the panels
+  exclude_if false-friend set, so a row panels already refuses now reads miscellaneous instead of
+  abstaining/mis-firing. LF-KW gained one-word 'downlight' + 'led strip' / 'strip light' (the
+  DOWNLIGHT / LED STRIP LIGHT product lines that abstained).
+- DEFERRED (riskier recon items, NOT added): the DALI-vs-fixture guard and the
+  socket-outlet-point point-frame token -- both ambiguous; left for a later, measured pass.
+- Tests: runner suite 44 -> 62 green (18 new: plural forms, ss/short-word guards, misc + light
+  keywords, panels->misc false-friend). Additive; no strong-category regression
+  (db_switchgear/point_wiring/wiring_cabling/earthing/conduit_piping all still pass).
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
