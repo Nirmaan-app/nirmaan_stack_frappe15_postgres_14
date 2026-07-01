@@ -403,8 +403,8 @@ class TestValidateNodePlanPure(unittest.TestCase):
 
     SHEET = "Pure Plan "  # VERBATIM trailing space (#152)
 
-    def _validate(self, plan, declared_areas=None, level_warnings=None):
-        return validate_node_plan(plan, declared_areas, self.SHEET, level_warnings)
+    def _validate(self, plan, declared_areas=None):
+        return validate_node_plan(plan, declared_areas, self.SHEET)
 
     # -- the shared relaxed-#7 predicate, in isolation ----------------------
 
@@ -552,25 +552,20 @@ class TestValidateNodePlanPure(unittest.TestCase):
         self.assertEqual(len(warns), 1)
         self.assertEqual(warns[0]["source_row_number"], 2)
 
-    # -- WARNING #22 (level-less squeeze, fed via level_warnings) -----------
+    # -- #22 (level-less squeeze) is NO LONGER surfaced to users (Option A) --
 
-    def test_warning22_levelless_squeeze_from_level_warnings(self):
+    def test_warning22_levelless_squeeze_not_surfaced(self):
+        """#22 ('levelless_preamble_squeeze') was removed as an un-actionable user warning
+        (Option A). validate_node_plan no longer accepts level_warnings and NEVER emits a
+        'levelless_preamble_squeeze' finding -- even for a plan that would have squeezed
+        under the old code. The inconsistency is kept ONLY as an internal derivation
+        tripwire (logged via _log_levelless_squeeze_tripwire), never a user finding."""
         plan = [_node(1, "Preamble", level=0, parent_index=0, description="squeezed head")]
-        level_warnings = [{
-            "row_index": 1, "source_row_number": 3,
-            "computed_level": 0, "parent_level": 2,
-        }]
-        warns = _by_code(
-            self._validate(plan, level_warnings=level_warnings)["warnings"],
-            "levelless_preamble_squeeze",
+        res = self._validate(plan)
+        self.assertEqual(
+            _by_code(res["warnings"], "levelless_preamble_squeeze"), [],
+            "no user-facing #22 squeeze warning is produced",
         )
-        self.assertEqual(len(warns), 1)
-        w = warns[0]
-        self.assertEqual(w["source_row_number"], 3)
-        self.assertEqual(w["count"], 1)
-        self.assertIn("level 0", w["message"])
-        self.assertIn("level 2", w["message"])
-        self.assertEqual(w["description"], "squeezed head")
 
     # -- finding shape contract ---------------------------------------------
 
@@ -698,7 +693,7 @@ class TestBuildSheetNodePlan(FrappeTestCase):
         plan, consistency_warnings = build_sheet_node_plan(self.boq, sheet)
         by_row = self._by_row(plan)
         self.assertEqual(by_row[1]["level"], 2, "stored L3 overridden to the derived L2")
-        res = validate_node_plan(plan, [], sheet, consistency_warnings)
+        res = validate_node_plan(plan, [], sheet)
         self.assertEqual(
             _by_code(res["errors"], "preamble_parent_level"), [],
             "the derived (consistent) tree validates clean end-to-end",
@@ -725,7 +720,7 @@ class TestBuildSheetNodePlan(FrappeTestCase):
         self.assertEqual(by_row[1]["level"], 2, "mid preamble -> 2 (stored 0 ignored)")
         self.assertEqual(consistency_warnings, [], "no squeeze: the derived tree is consistent")
 
-        res = validate_node_plan(plan, [], sheet, consistency_warnings)
+        res = validate_node_plan(plan, [], sheet)
         self.assertEqual(
             _by_code(res["warnings"], "levelless_preamble_squeeze"), [],
             "no #22 squeeze warning surfaces",
