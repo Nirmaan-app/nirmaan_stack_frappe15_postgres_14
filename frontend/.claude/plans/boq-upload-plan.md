@@ -10729,6 +10729,48 @@ UNTOUCHED (Build 2b owns those). Rule count 35 -> 40.
 - Tests: was 27 (Build 1) -> 34; all green in-container (env/bin/python -m unittest). Added:
   2 FIX-1-reversal tests + 6 new-category tests (5 positive + 1 no-signal-stays-blank guard);
   the old test_fix1_junction_box_is_cabletray was rewritten to the reversal contract.
+
+BUILD 2b -- Point Wiring full precedence + termination merge + networking removal + cleanup
+(local, NOT pushed; branch feature/boq-phase-5 tip 4164534f; Rebuild Spec v2.0 §3.4/§3.5/§2,
+Design doc §20.3, owner rulings this session). BEHAVIORAL half of the rules rewrite -- changes
+how existing lines resolve. scoring.json (confidence model) + the runner ALGORITHM UNCHANGED;
+the DB-to-first-point seam is handled by LETTING those lines score low/blank, NOT by moving
+thresholds. Rule count 40 -> 45; categories 17 -> 15 (exactly the frozen 15). Tests 34 -> 44.
+- POINT WIRING FULL PRECEDENCE (owner: the point-frame overrides component words). Added three
+  point-frame EXCLUSION rules -- WC-EXCL-POINTFRAME (wiring_cabling), SS-EXCL-POINTFRAME
+  (switches_sockets), CP-EXCL-POINTFRAME (conduit_piping) -- each carrying the same point-frame
+  token set (light/fan/plug/power/call-bell/loop point(s), point(s) controlled, controlled by
+  mcb/switch, first light / to first light / mcb to first light). When a point-frame is present
+  those three categories are ZEROED (exclusion machinery), so the surviving point_wiring wins a
+  bundled line that also names conduit/switch/cable. Added PW-FIRSTLIGHT positive rule
+  (first light / to first light / mcb to first light, 0.5) for the 'MCB -> first light' case.
+- DB-TO-FIRST-POINT SEAM (owner: bare feeder, no named load -> review, not forced). Implemented
+  by (a) DELIBERATELY NOT adding 'first point' as a point_wiring positive token, and (b)
+  WC-EXCL-DBFIRSTPOINT ("db to first point"/"to first point") zeroing wiring_cabling. Net: a bare
+  "DB to first point" sized feeder -> blank/ABSTAIN -> human review (verified: band != HIGH). A
+  load-bearing "first light point" still reads point_wiring (the exact phrase "to first point"
+  does not appear when a load word sits between).
+- TERMINATION MERGED into wiring_cabling: TERM-END + TERM-ANC re-pointed termination ->
+  wiring_cabling (tokens kept: lug/gland/end termination); "termination" category removed. A
+  "Cable lugs and glands, end termination" line now reads wiring_cabling.
+- NETWORKING REMOVED: NW-DATA rule deleted; "networking" category removed; PNL-ASSEMBLY
+  ambiguous_with cleaned. Added WC-EXCL-NETWORKING (cat6/rj45/utp/patch panel/... ) so a data
+  line's generic "cable" word does NOT read wiring_cabling -- these cross-discipline lines route
+  to blank/review (Design doc §20.3). No rule references termination/networking as a category.
+- LED PANEL -> LIGHT FIXTURES: added "led panel"/"led panel light" to LF-KW; PNL-ASSEMBLY still
+  excludes led/panel light/luminaire, so "2X2 LED panel" reads light_fixtures and never panels.
+  The two former led-panel-excluded tests now assert light_fixtures.
+- CLEANUP: runner.py identifier novel_id -> abstain_category_id (both occurrences; it holds ""
+  from scoring.json). No logic change; still NO frappe imports; classify_line behavior unchanged.
+- Blast-radius NEGATIVE guards all green: plain "PVC conduit" -> conduit_piping, "Modular switch
+  socket" -> switches_sockets, "3C x 2.5 sqmm XLPE cable" -> wiring_cabling (none read
+  point_wiring). Strong existing categories (db/earthing/ups/industrial/panels/cabletray/conduit/
+  switches/wiring) unchanged.
+- OWNER NOTES: (1) the point-frame token set is intentionally the same list on all three
+  competitor categories -- tune in one place per category if it over/under-reaches. (2) The
+  networking suppression means a line literally saying "CAT6 cable" now goes to blank (review),
+  not wiring_cabling -- this is the intended cross-discipline routing. (3) "first point" is a
+  reserved review trigger; do not add it as a strong positive token without revisiting the seam.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
