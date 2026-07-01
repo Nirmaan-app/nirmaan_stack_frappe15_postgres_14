@@ -567,35 +567,37 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(len(node_names), 1)
 
     # ================================================================== #
-    # Level-less preamble guard (Phase 5 post-dogfood fix)               #
+    # Level derivation from the effective tree (ADR-0009)                #
     # ================================================================== #
+    # level is now DERIVED (nesting depth: preamble = 1 + preamble-ancestor count;
+    # any non-preamble is level-less / None). The frozen parser `level` is IGNORED.
+    # Re-parenting a preamble cascades the level of that row AND every descendant.
 
     def _nodes_by_sort(self, boq_sheet_name):
         return {n.sort_order: n for n in self._nodes_for_sheet(boq_sheet_name)}
 
-    def test_levelless_preamble_with_children_assigns_min_child_minus_one(self):
-        """Electrical row-18 shape: a level-less preamble (root) whose children are all
-        level 1 -> max(0, min_child(1) - 1) = 0 (NOT the old buggy flat 1, which would
-        equal its children's level and break the tree)."""
-        self._seed_review_row("HVAC", 0, "preamble", level=0, description="Note:")
+    def test_derived_levels_ignore_stored_parser_level(self):
+        """A root preamble + two preamble children commit at the DERIVED depths (root 1,
+        children 2) -- the stored parser levels (0 / 1) are IGNORED."""
+        self._seed_review_row("HVAC", 0, "preamble", level=0, description="root")
         self._seed_review_row("HVAC", 1, "preamble", level=1, parent_index=0,
-                              description="L1 child A", sl_no_value="1")
+                              description="child A", sl_no_value="1")
         self._seed_review_row("HVAC", 2, "preamble", level=1, parent_index=0,
-                              description="L1 child B", sl_no_value="2")
+                              description="child B", sl_no_value="2")
         self._seed_review_row("HVAC", 3, "line_item", level=0, parent_index=1,
                               description="item", sl_no_value="1.1", qty_total=5.0)
         res = self._commit("HVAC", "finalized")
         n = self._nodes_by_sort(res["boq_sheet_name"])
         self.assertEqual(n[0].node_type, "Preamble")
-        self.assertEqual(n[0].level, 0)   # level-less -> 0
-        self.assertEqual(n[1].level, 1)   # real level preserved
-        self.assertEqual(n[2].level, 1)
+        self.assertEqual(n[0].level, 1)   # root preamble -> derived 1 (stored 0 ignored)
+        self.assertEqual(n[1].level, 2)   # preamble under a preamble -> 2 (stored 1 ignored)
+        self.assertEqual(n[2].level, 2)
         self.assertEqual(n[3].node_type, "Line Item")
+        self.assertIn(n[3].level, (None, 0), "a line_item node is level-less (None)")
 
-    def test_levelless_preamble_mixed_children_uses_shallowest(self):
-        """low side row-191 shape: a level-less preamble (root) with level-0 line-item
-        children AND a level-1 preamble child -> min child level 0 -> max(0, -1) = 0
-        (shallowest child wins)."""
+    def test_derived_levels_skip_non_preamble_ancestors(self):
+        """A level-less root preamble with line-item children AND a preamble child:
+        the line items don't affect the preamble depths -> root 1, sub-preamble 2."""
         self._seed_review_row("HVAC", 0, "preamble", level=0, description="DX UNIT")
         self._seed_review_row("HVAC", 1, "line_item", level=0, parent_index=0,
                               description="li a", sl_no_value="a", qty_total=1.0)
@@ -605,12 +607,12 @@ class TestCommitPipeline(FrappeTestCase):
                               description="sub preamble", sl_no_value="1")
         res = self._commit("HVAC", "finalized")
         n = self._nodes_by_sort(res["boq_sheet_name"])
-        self.assertEqual(n[0].level, 0)   # min child 0 -> 0
-        self.assertEqual(n[3].level, 1)
+        self.assertEqual(n[0].level, 1)   # root preamble -> 1
+        self.assertEqual(n[3].level, 2)   # preamble under the root -> 2
 
-    def test_levelless_preamble_childless_no_defined_levels_zero(self):
-        """Fire Fitting row-8 shape: a CHILDLESS level-less preamble on a sheet with NO
-        defined levels (only line items + this lone promoted preamble) -> 0."""
+    def test_childless_root_preamble_derives_level_one(self):
+        """A CHILDLESS root preamble (no ancestors) derives level 1 (root), regardless of
+        any line items elsewhere on the sheet."""
         self._seed_review_row("HVAC", 0, "line_item", level=0, description="li",
                               sl_no_value="1", qty_total=1.0)
         self._seed_review_row("HVAC", 1, "preamble", level=0, description="promoted",
@@ -618,11 +620,12 @@ class TestCommitPipeline(FrappeTestCase):
         res = self._commit("HVAC", "finalized")
         n = self._nodes_by_sort(res["boq_sheet_name"])
         self.assertEqual(n[1].node_type, "Preamble")
-        self.assertEqual(n[1].level, 0)   # childless, no defined levels -> 0
+        self.assertEqual(n[1].level, 1)   # childless root preamble -> 1
 
     def test_normal_multilevel_preamble_levels_unchanged(self):
-        """Control / regression: a real multi-level preamble tree commits with its
-        levels unchanged (the guard only touches level-less preambles)."""
+        """Control / regression: a real, consistent multi-level preamble tree (L1 -> L2)
+        derives the SAME levels it was stored with -- derivation is a no-op when the stored
+        levels already match the tree depth."""
         self._seed_review_row("HVAC", 0, "preamble", level=1, description="L1", sl_no_value="1")
         self._seed_review_row("HVAC", 1, "preamble", level=2, parent_index=0,
                               description="L2", sl_no_value="1.1")
@@ -633,6 +636,26 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(n[0].level, 1)
         self.assertEqual(n[1].level, 2)
         self.assertEqual(n[2].node_type, "Line Item")
+
+    def test_deep_four_tier_preamble_chain_derives_increasing_levels(self):
+        """A 4-tier preamble chain (the VALVES repro shape) commits with strictly
+        increasing derived levels 1->2->3->4, and the committed tree passes the controller
+        #7 backstop at every tier (no frappe.throw)."""
+        self._seed_review_row("HVAC", 0, "preamble", level=1, description="CHILLD WATER",
+                              sl_no_value="A")
+        self._seed_review_row("HVAC", 1, "preamble", level=1, parent_index=0,
+                              description="VALVES", sl_no_value="A.1")
+        self._seed_review_row("HVAC", 2, "preamble", level=1, parent_index=1,
+                              description="BTU METER", sl_no_value="A.1.1")
+        self._seed_review_row("HVAC", 3, "preamble", level=1, parent_index=2,
+                              description="Ultrasonic BTUH", sl_no_value="A.1.1.1")
+        self._seed_review_row("HVAC", 4, "line_item", parent_index=3,
+                              description="meter item", sl_no_value="1", qty_total=2.0)
+        res = self._commit("HVAC", "finalized")
+        n = self._nodes_by_sort(res["boq_sheet_name"])
+        self.assertEqual([n[i].level for i in range(4)], [1, 2, 3, 4])
+        self.assertEqual(n[4].node_type, "Line Item")
+        self.assertIn(n[4].level, (None, 0), "the line item is level-less")
 
     # ================================================================== #
     # X -- commit ALL classified rows except spacer as semantic nodes    #
@@ -711,20 +734,20 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(len(note_nodes), 1)
         self.assertEqual(note_nodes[0].description, "Aluminium Cables")
 
-    def test_levelless_preamble_ignores_note_child_for_level(self):
-        """Q8: a level-less preamble whose children are a level-2 preamble AND a note ->
-        only the priceable child counts -> level = max(0, min(2) - 1) = 1. The note (level
-        0) is IGNORED; counting it would have pulled the preamble to 0 (the X regression
-        this guards)."""
-        self._seed_review_row("HVAC", 0, "preamble", level=0, description="level-less")
+    def test_preamble_with_note_child_derives_levels_from_depth(self):
+        """ADR-0009: a root preamble whose children are a sub-preamble AND a note derives
+        its level from TREE DEPTH (root -> 1), not from its children. The note is level-less
+        (None) and never affects the preamble depths; the sub-preamble derives 2."""
+        self._seed_review_row("HVAC", 0, "preamble", level=0, description="root")
         self._seed_review_row("HVAC", 1, "preamble", level=2, parent_index=0,
-                              description="L2 child", sl_no_value="1")
+                              description="sub", sl_no_value="1")
         self._seed_review_row("HVAC", 2, "note", parent_index=0, description="a note")
         res = self._commit("HVAC", "finalized")
         n = self._nodes_by_sort(res["boq_sheet_name"])
         self.assertEqual(n[0].node_type, "Preamble")
-        self.assertEqual(n[0].level, 1, "note child excluded; min priceable child 2 -> 1")
-        self.assertEqual(n[1].level, 2)
+        self.assertEqual(n[0].level, 1, "root preamble -> derived 1")
+        self.assertEqual(n[1].level, 2, "sub preamble under the root -> 2")
+        self.assertIn(n[2].level, (None, 0), "the note node is level-less")
 
     # ================================================================== #
     # Slice 2 -- commit round-trip reconciliation (output-fidelity)

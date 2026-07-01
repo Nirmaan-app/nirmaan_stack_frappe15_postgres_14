@@ -11,6 +11,23 @@
 
 ## Recent slice changelog (relocated header)
 
+**Preamble `level` derived from effective tree (2026-06-30, local, NOT committed, NOT deployed. ADR-0009 pending Nitesh sign-off):**
+Root cause: `level` is written by the parser from the heading numbering/styling axis (written once, never updated). The review screen's `human_parent`/`effective_parent_index` re-parenting NEVER touches `level`. After a legitimate re-parent the two axes diverge and #7 (`preamble_parent_ok`) hard-blocks Finalize on a structurally-valid tree. Confirmed on BOQ-26-00023 / "HVAC BOQ " (11 must-fix `preamble_parent_level` breaks). Full analysis: `docs/boq/preamble-level-reparent-block.html`.
+
+**`derive_effective_levels(node_rows)` (new, `commit_validation.py`):** replaces `_real_preamble_level` + `_compute_levelless_preamble_levels`. For each row: walks up `effective_parent_index` (hop-cap 60, cycle-guard via seen-set) counting **preamble-classified ancestors**; preamble → `level = 1 + preamble_ancestor_count` (root=1, +1/tier); any non-preamble → `None` (the system convention — maintained exactly). Order-independent (counts ancestors, never reuses stored parent level). **Cascade invariant:** runs whole-sheet on every read, so re-parenting a preamble recomputes that row AND every descendant in lockstep (the non-cascade gap in the old `_compute_levelless_preamble_levels` is eliminated).
+
+**Three consumers (single source of truth):** (a) `validate_node_plan` — drives #7/#15/#22 validators (bodies UNCHANGED — now validate derived levels); (b) `commit_pipeline.py` — replaces the `_compute_levelless_preamble_levels` call at `:646`, writes derived `BOQ Nodes.level` at commit; (c) `review_screen.py get_review_rows` — via lazy function-level import (same pattern as `structural_errors_for_sheet`, avoids the existing module cycle), attaches `effective_level` (preamble → derived; non-preamble → `None`) to each row dict. Validation, commit, and display can never disagree.
+
+**Parser `level` becomes vestigial:** the parser continues to write it (not changed, per owner instruction); all consumers downstream of the review screen now ignore it in favour of the derived value. Same position as `path`.
+
+**Checks kept as defensive tripwires (owner instruction):** `preamble_parent_ok` (#7) survives in both `validate_node_plan` AND the `boq_nodes.py` controller backstop. #15 (deep-nesting) and #22 (level-squeeze) re-pointed at derived levels. Under correct derivation these always pass; a future regression trips them loudly.
+
+**No migration:** committed `level` on existing `BOQ Nodes` rows is not recomputed. Applies to new commits and re-commits only.
+
+**Tests (all in-container green):** test_commit_validation 51, test_commit_pipeline 50, test_boq_nodes 77, test_review_screen 241. New `derive_effective_levels` unit tests: root=1, nesting, non-preamble=None, reclassify preamble→line-item=None, VALVES 4-tier, cycle-safety. CASCADE test: 4-deep preamble subtree → re-parent middle node → row AND all descendants shift in lockstep. Tripwire test: injected inconsistent level → #7 fires.
+
+**Empirical confirmation (localhost DB):** 1554 review rows + 1994 committed nodes, ZERO non-preamble rows with level≥1. The 11 `preamble_parent_level` breaks on BOQ-26-00023/HVAC BOQ  clear: VALVES→L2, PN-16 Butterfly Valves→L3 (parent L2 < L3 ✓), BTU METER→L3, Ultrasonic BTUH→L4. Cascade verified through the real `save_review_edit` endpoint + `mutate()` refetch. ADR-0009 ref: `docs/adr/0009-derive-preamble-level-from-tree.md`. Frontend: see `frontend/.claude/context/domain/boq-frontend.md` (ParentChain `effective_level` chip section).
+
 **Copy-forward -- carry RATES from an old version into current (FULL-STACK, NO migrate, base tip 863dceb5, 2026-06-26):**
 the WRITE-side of version-view (slice 2). From the read-only history view, the user copies an OLD version's RATES into the
 CURRENT version (rates only; never structure/amount/qty). **Build shape = Option B: server-side plan + ATOMIC apply.**

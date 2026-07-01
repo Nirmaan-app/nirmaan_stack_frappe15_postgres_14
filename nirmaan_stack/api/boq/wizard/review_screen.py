@@ -1107,7 +1107,9 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": [
           {<all BoQ Review Row fields>,
            "effective_classification": ...,
-           "effective_parent_index": ...},
+           "effective_parent_index": ...,
+           "effective_level": ...},   # ADR-0009: derived preamble nesting depth;
+                                      # None (JSON null) for every non-preamble.
           ...
         ],
         "work_packages": ["WH-001", ...],   # list for this sheet only
@@ -1203,6 +1205,26 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # has_override and shows the unified "Revert to parser"; revert_to_parser clears it.
         d["has_override"] = _row_has_override(d)
         rows.append(d)
+
+    # ADR-0009: ship the DERIVED preamble level (effective_level) so the client ParentChain
+    # can render level chips. This is the SAME whole-sheet derivation that feeds the #7
+    # validator + the commit pipeline, so validation/commit/display can never disagree.
+    # Lazy (function-level) import avoids the module-level cycle -- commit_validation imports
+    # resolve_effective from THIS module at load (same pattern as get_structural_breaks'
+    # structural_errors_for_sheet import).
+    from nirmaan_stack.api.boq.wizard.commit_validation import derive_effective_levels
+    # Each row dict already carries effective_classification + effective_parent_index (merged
+    # from resolve_effective above) + row_index + source_row_number, so it serves as BOTH the
+    # `d` and the `eff` of the (d, eff) pair derive_effective_levels expects. Built over ALL
+    # rows (no spacer drop) so every row_index has a levels_by_idx entry. consistency_warnings
+    # are ignored here -- validation owns them.
+    node_rows = [(d, d) for d in rows]
+    levels_by_idx, _consistency_warnings = derive_effective_levels(node_rows)
+    for d in rows:
+        # COMPUTED value: preamble -> derived nesting depth (>=1); any non-preamble -> None
+        # (JSON null). Do NOT coerce to 0 -- the stored Int `level` column is 0 for a
+        # non-preamble, but effective_level is the computed value, which is None.
+        d["effective_level"] = levels_by_idx.get(d.get("row_index"))
 
     # Work-package join: reuse get_boq_work_packages and pick this sheet.
     # Calling the Python function directly (not via HTTP) -- the @whitelist decorator
