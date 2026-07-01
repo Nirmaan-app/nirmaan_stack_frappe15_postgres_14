@@ -49,6 +49,7 @@ from nirmaan_stack.api.boq.wizard.commit_validation import (
     PREFLIGHT_RESPONSE_SHAPE,
     build_sheet_node_plan,
     commit_preflight,
+    derive_effective_levels,
     evaluate_sheet,
     make_preflight_entry,
     preamble_parent_ok,
@@ -108,6 +109,35 @@ def _node(
 
 def _by_code(findings, code):
     return [f for f in findings if f["code"] == code]
+
+
+def _nr(row_index, cls, parent_index=None, source_row_number=None):
+    """Build ONE (d, eff) node_rows pair in the shape derive_effective_levels reads.
+
+    eff is a FRESH mutable dict so a test can re-parent a node (flip
+    effective_parent_index) and re-derive to prove the cascade."""
+    d = {
+        "row_index": row_index,
+        "source_row_number": source_row_number if source_row_number is not None else row_index + 2,
+    }
+    eff = {"effective_classification": cls, "effective_parent_index": parent_index}
+    return (d, eff)
+
+
+def _plan_from_rows(node_rows, levels_by_idx):
+    """Project (d, eff) node_rows + derived levels into validate_node_plan's plan shape."""
+    nt = {"preamble": "Preamble", "line_item": "Line Item"}
+    return [
+        _node(
+            d["row_index"],
+            nt.get(e["effective_classification"], "Other"),
+            level=levels_by_idx[d["row_index"]],
+            parent_index=e["effective_parent_index"],
+            source_row_number=d["source_row_number"],
+            row_class=e["effective_classification"],
+        )
+        for d, e in node_rows
+    ]
 
 
 def _seed_review_row(boq_name, sheet, row_index, classification, **kw):
@@ -219,6 +249,153 @@ class TestPreflightResponseShapeConstant(FrappeTestCase):
 
 
 # ===========================================================================
+# (B0) derive_effective_levels -- PURE Python level derivation (ADR-0009, no DB).
+# ===========================================================================
+
+class TestDeriveEffectiveLevels(unittest.TestCase):
+    """The heart of the fix: level is DERIVED from the effective tree (nesting depth),
+    not the frozen parser level. A preamble's level = 1 + (preamble ancestors); any
+    non-preamble is level-less (None). Order-independent, cycle-safe, and -- crucially --
+    re-parenting CASCADES to every descendant."""
+
+    def test_root_preamble_is_level_one(self):
+        levels, warns = derive_effective_levels([_nr(0, "preamble")])
+        self.assertEqual(levels[0], 1)
+        self.assertEqual(warns, [])
+
+    def test_nesting_adds_one_per_tier(self):
+        rows = [
+            _nr(0, "preamble"),
+            _nr(1, "preamble", parent_index=0),
+            _nr(2, "preamble", parent_index=1),
+        ]
+        levels, warns = derive_effective_levels(rows)
+        self.assertEqual([levels[0], levels[1], levels[2]], [1, 2, 3])
+        self.assertEqual(warns, [], "a consistent nested tree trips no tripwire")
+
+    def test_non_preamble_is_levelless_none(self):
+        rows = [
+            _nr(0, "preamble"),
+            _nr(1, "line_item", parent_index=0),
+            _nr(2, "note", parent_index=0),
+        ]
+        levels, _ = derive_effective_levels(rows)
+        self.assertIsNone(levels[1], "a line_item carries NO level (None, not 0)")
+        self.assertIsNone(levels[2], "a note carries NO level (None, not 0)")
+
+    def test_reclassified_preamble_to_line_item_is_none(self):
+        # A row whose EFFECTIVE classification is line_item (e.g. the human reclassified a
+        # parser preamble) derives level None and stops counting as a preamble ancestor.
+        rows = [
+            _nr(0, "preamble"),
+            _nr(1, "line_item", parent_index=0),   # was a preamble, now reclassified
+            _nr(2, "preamble", parent_index=1),
+        ]
+        levels, _ = derive_effective_levels(rows)
+        self.assertIsNone(levels[1], "reclassified-to-line_item -> level None")
+        self.assertEqual(levels[2], 2, "row 1 no longer counts as a preamble ancestor")
+
+    def test_preamble_under_line_item_counts_only_preamble_ancestors(self):
+        # A preamble whose parent is a line_item still counts the line_item's own preamble
+        # ancestors (so #7 can correctly flag it -- see the validate test below).
+        rows = [
+            _nr(0, "preamble"),
+            _nr(1, "line_item", parent_index=0),
+            _nr(2, "preamble", parent_index=1),
+        ]
+        levels, _ = derive_effective_levels(rows)
+        self.assertEqual(levels[2], 2, "1 preamble ancestor (row 0); the line_item is skipped")
+
+    def test_valves_four_tier_passes_relaxed_7(self):
+        """The live repro shape: CHILLD WATER=1 -> VALVES=2 -> PN-16 Butterfly=3 /
+        BTU METER=3 -> Ultrasonic BTUH=4. Derived levels are internally consistent, so
+        #7 passes at EVERY edge (the bug clears honestly, not by weakening the rule)."""
+        rows = [
+            _nr(0, "preamble"),                  # CHILLD WATER -> 1
+            _nr(1, "preamble", parent_index=0),  # VALVES -> 2
+            _nr(2, "preamble", parent_index=1),  # PN-16 Butterfly valves -> 3
+            _nr(3, "preamble", parent_index=1),  # BTU METER -> 3
+            _nr(4, "preamble", parent_index=3),  # Ultrasonic BTUH -> 4
+            _nr(5, "line_item", parent_index=2), # item under PN-16 -> None
+        ]
+        levels, warns = derive_effective_levels(rows)
+        self.assertEqual([levels[i] for i in range(5)], [1, 2, 3, 3, 4])
+        self.assertIsNone(levels[5])
+        self.assertEqual(warns, [], "derivation is internally consistent -> no tripwire")
+
+        plan = _plan_from_rows(rows, levels)
+        res = validate_node_plan(plan, None, "VALVES ")
+        self.assertEqual(
+            _by_code(res["errors"], "preamble_parent_level"), [],
+            "every derived sub-heading sits under a strictly-shallower heading -> #7 clean",
+        )
+        self.assertEqual(_by_code(res["errors"], "line_item_parent_not_preamble"), [])
+
+    def test_cascade_reparent_shifts_descendants_in_lockstep(self):
+        """LOAD-BEARING cascade: A>B>C>D>E preamble chain. Re-parenting the MIDDLE node C
+        from B(L2) up to A(L1) drops C AND every descendant (D, E) one level in lockstep;
+        B is untouched. The symmetric move back restores the original levels."""
+        A, B, C, D, E = 0, 1, 2, 3, 4
+        rows = [
+            _nr(A, "preamble"),
+            _nr(B, "preamble", parent_index=A),
+            _nr(C, "preamble", parent_index=B),
+            _nr(D, "preamble", parent_index=C),
+            _nr(E, "preamble", parent_index=D),
+        ]
+        before, _ = derive_effective_levels(rows)
+        self.assertEqual([before[i] for i in (A, B, C, D, E)], [1, 2, 3, 4, 5])
+
+        # Re-parent C: B(L2) -> A(L1). rows[C] is (d, eff); flip eff's parent pointer.
+        rows[C][1]["effective_parent_index"] = A
+        after, warns = derive_effective_levels(rows)
+        self.assertEqual(
+            [after[i] for i in (A, B, C, D, E)], [1, 2, 2, 3, 4],
+            "C and ALL its descendants (D, E) shift in lockstep; B untouched",
+        )
+        self.assertEqual(warns, [], "the re-parented tree is still internally consistent")
+
+        # Symmetric move back.
+        rows[C][1]["effective_parent_index"] = B
+        back, _ = derive_effective_levels(rows)
+        self.assertEqual([back[i] for i in (A, B, C, D, E)], [1, 2, 3, 4, 5])
+
+    def test_cycle_is_safe(self):
+        # A 2-node parent cycle (0<->1) must terminate (seen-set guard), not hang.
+        rows = [
+            _nr(0, "preamble", parent_index=1),
+            _nr(1, "preamble", parent_index=0),
+        ]
+        levels, _ = derive_effective_levels(rows)  # must return, not loop forever
+        # Each preamble counts the OTHER once before the guard halts the walk.
+        self.assertEqual(levels[0], 2)
+        self.assertEqual(levels[1], 2)
+
+    def test_hop_cap_terminates_on_very_deep_chain(self):
+        # A 70-deep preamble chain exceeds the hop-cap (60); the walk must still terminate.
+        rows = [_nr(0, "preamble")]
+        for i in range(1, 70):
+            rows.append(_nr(i, "preamble", parent_index=i - 1))
+        levels, _ = derive_effective_levels(rows)  # must return
+        self.assertEqual(levels[10], 11, "a row within the cap derives its exact depth")
+        # The deepest row's walk is capped at 60 hops -> at most 60 ancestors -> level 61.
+        self.assertEqual(levels[69], 61)
+
+    def test_tripwire_inconsistent_level_still_fires_7(self):
+        """Derivation always produces consistent levels, but #7 is KEPT as a defensive
+        tripwire: if a future regression injected an inconsistent level (here a preamble
+        manually stamped L3 directly under an L3 parent), #7 must STILL fire."""
+        plan = [
+            _node(0, "Preamble", level=3),
+            _node(1, "Preamble", level=3, parent_index=0),  # injected inconsistency
+        ]
+        errs = _by_code(
+            validate_node_plan(plan, None, "Tripwire ")["errors"], "preamble_parent_level"
+        )
+        self.assertEqual(len(errs), 1, "the #7 backstop fires on an inconsistent level")
+
+
+# ===========================================================================
 # (B1) validate_node_plan + preamble_parent_ok -- PURE Python (no DB).
 # ===========================================================================
 
@@ -226,8 +403,8 @@ class TestValidateNodePlanPure(unittest.TestCase):
 
     SHEET = "Pure Plan "  # VERBATIM trailing space (#152)
 
-    def _validate(self, plan, declared_areas=None, level_warnings=None):
-        return validate_node_plan(plan, declared_areas, self.SHEET, level_warnings)
+    def _validate(self, plan, declared_areas=None):
+        return validate_node_plan(plan, declared_areas, self.SHEET)
 
     # -- the shared relaxed-#7 predicate, in isolation ----------------------
 
@@ -375,25 +552,20 @@ class TestValidateNodePlanPure(unittest.TestCase):
         self.assertEqual(len(warns), 1)
         self.assertEqual(warns[0]["source_row_number"], 2)
 
-    # -- WARNING #22 (level-less squeeze, fed via level_warnings) -----------
+    # -- #22 (level-less squeeze) is NO LONGER surfaced to users (Option A) --
 
-    def test_warning22_levelless_squeeze_from_level_warnings(self):
+    def test_warning22_levelless_squeeze_not_surfaced(self):
+        """#22 ('levelless_preamble_squeeze') was removed as an un-actionable user warning
+        (Option A). validate_node_plan no longer accepts level_warnings and NEVER emits a
+        'levelless_preamble_squeeze' finding -- even for a plan that would have squeezed
+        under the old code. The inconsistency is kept ONLY as an internal derivation
+        tripwire (logged via _log_levelless_squeeze_tripwire), never a user finding."""
         plan = [_node(1, "Preamble", level=0, parent_index=0, description="squeezed head")]
-        level_warnings = [{
-            "row_index": 1, "source_row_number": 3,
-            "computed_level": 0, "parent_level": 2,
-        }]
-        warns = _by_code(
-            self._validate(plan, level_warnings=level_warnings)["warnings"],
-            "levelless_preamble_squeeze",
+        res = self._validate(plan)
+        self.assertEqual(
+            _by_code(res["warnings"], "levelless_preamble_squeeze"), [],
+            "no user-facing #22 squeeze warning is produced",
         )
-        self.assertEqual(len(warns), 1)
-        w = warns[0]
-        self.assertEqual(w["source_row_number"], 3)
-        self.assertEqual(w["count"], 1)
-        self.assertIn("level 0", w["message"])
-        self.assertIn("level 2", w["message"])
-        self.assertEqual(w["description"], "squeezed head")
 
     # -- finding shape contract ---------------------------------------------
 
@@ -488,53 +660,70 @@ class TestBuildSheetNodePlan(FrappeTestCase):
         self.assertEqual(note["parent_index"], 0)
         self.assertEqual(note["row_class"], "note")
 
-    # -- level-less preamble assignment -------------------------------------
+    # -- level derived from the tree, stored parser level ignored (ADR-0009) ---
 
-    def test_build_assigns_levelless_preamble_min_child_minus_one(self):
-        sheet = "Build Levelless "
-        self._seed(sheet, 0, "preamble", level=0, description="Note:")          # level-less root
-        self._seed(sheet, 1, "preamble", level=1, parent_index=0, description="L1 child")
+    def test_build_derives_levels_from_tree_ignoring_stored_parser_level(self):
+        """ADR-0009: the stored parser `level` is IGNORED -- level is the effective-tree
+        nesting depth. A root preamble derives 1 and its preamble child derives 2,
+        regardless of the (here deliberately mismatched) stored levels."""
+        sheet = "Build Derive "
+        self._seed(sheet, 0, "preamble", level=0, description="root")                  # stored 0
+        self._seed(sheet, 1, "preamble", level=1, parent_index=0, description="child")  # stored 1
         self._seed(sheet, 2, "line_item", level=0, parent_index=1, qty_total=5.0)
 
-        plan, _ = build_sheet_node_plan(self.boq, sheet)
+        plan, warns = build_sheet_node_plan(self.boq, sheet)
         by_row = self._by_row(plan)
-        self.assertEqual(by_row[0]["level"], 0,
-                         "level-less root with an L1 child -> max(0, 1-1) = 0")
-        self.assertEqual(by_row[1]["level"], 1, "real level preserved")
+        self.assertEqual(by_row[0]["level"], 1, "root preamble -> derived 1 (stored 0 ignored)")
+        self.assertEqual(by_row[1]["level"], 2, "preamble under a preamble -> derived 2 (stored 1 ignored)")
+        self.assertIsNone(by_row[2]["level"], "a line_item carries no level (None)")
+        self.assertEqual(warns, [], "a consistent derived tree trips no tripwire")
 
-    # -- the relaxed #7 happy build -> validate is clean --------------------
+    # -- the fix: an inconsistent stored level is overridden -> #7 clean -----
 
-    def test_build_then_validate_l3_under_l1_clean(self):
-        sheet = "Build Relax7 "
+    def test_build_overrides_inconsistent_stored_level_and_validates_clean(self):
+        """The bug this fix closes: a preamble stored with an INCONSISTENT parser level
+        (here 3, directly under an L1) used to trip #7. Derivation now recomputes it to 2
+        (parent depth + 1), so the built tree validates CLEAN -- not by weakening #7, but
+        because the level is honest."""
+        sheet = "Build Override "
         self._seed(sheet, 0, "preamble", level=1, description="L1 HEAD")
-        self._seed(sheet, 1, "preamble", level=3, parent_index=0, description="L3 SUB")
+        self._seed(sheet, 1, "preamble", level=3, parent_index=0, description="SUB (stored L3)")
         self._seed(sheet, 2, "line_item", parent_index=1, qty_total=5.0)
 
-        plan, level_warnings = build_sheet_node_plan(self.boq, sheet)
-        res = validate_node_plan(plan, [], sheet, level_warnings)
+        plan, consistency_warnings = build_sheet_node_plan(self.boq, sheet)
+        by_row = self._by_row(plan)
+        self.assertEqual(by_row[1]["level"], 2, "stored L3 overridden to the derived L2")
+        res = validate_node_plan(plan, [], sheet)
         self.assertEqual(
             _by_code(res["errors"], "preamble_parent_level"), [],
-            "a built L3-under-L1 tree validates clean (relaxed #7 end-to-end)",
+            "the derived (consistent) tree validates clean end-to-end",
+        )
+        self.assertEqual(
+            _by_code(res["warnings"], "levelless_preamble_squeeze"), [],
+            "no squeeze tripwire under correct derivation",
         )
 
-    # -- the #22 squeeze surfaces as a level_warning then a warning ---------
+    # -- the old #22 squeeze cannot arise under derivation ------------------
 
-    def test_build_surfaces_levelless_squeeze(self):
-        sheet = "Build Squeeze "
-        # A level-less preamble (idx 1) under a real L2 parent (idx 0) whose own child
-        # (idx 2, L1) drags its computed level to 0 -> 0 <= parent level 2 -> squeeze.
-        self._seed(sheet, 0, "preamble", level=2, description="L2 PARENT")
-        self._seed(sheet, 1, "preamble", level=0, parent_index=0, description="level-less mid")
+    def test_build_no_squeeze_warning_under_derivation(self):
+        """The old 'level-less squeeze' #22 cannot arise under derivation: the same inputs
+        that used to squeeze (a level-less mid preamble) now derive a consistent depth, so
+        the consistency tripwire stays empty."""
+        sheet = "Build NoSqueeze "
+        self._seed(sheet, 0, "preamble", level=2, description="PARENT")               # stored 2
+        self._seed(sheet, 1, "preamble", level=0, parent_index=0, description="mid")  # stored 0
         self._seed(sheet, 2, "line_item", level=1, parent_index=1, qty_total=5.0)
 
-        plan, level_warnings = build_sheet_node_plan(self.boq, sheet)
-        self.assertTrue(level_warnings, "the level-less squeeze is returned as data")
-        self.assertEqual(level_warnings[0]["row_index"], 1)
+        plan, consistency_warnings = build_sheet_node_plan(self.boq, sheet)
+        by_row = self._by_row(plan)
+        self.assertEqual(by_row[0]["level"], 1, "root preamble -> 1 (stored 2 ignored)")
+        self.assertEqual(by_row[1]["level"], 2, "mid preamble -> 2 (stored 0 ignored)")
+        self.assertEqual(consistency_warnings, [], "no squeeze: the derived tree is consistent")
 
-        res = validate_node_plan(plan, [], sheet, level_warnings)
+        res = validate_node_plan(plan, [], sheet)
         self.assertEqual(
-            len(_by_code(res["warnings"], "levelless_preamble_squeeze")), 1,
-            "the squeeze data becomes a #22 warning",
+            _by_code(res["warnings"], "levelless_preamble_squeeze"), [],
+            "no #22 squeeze warning surfaces",
         )
 
     def test_build_empty_sheet_returns_empty_plan(self):

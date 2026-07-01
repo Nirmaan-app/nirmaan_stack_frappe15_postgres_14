@@ -781,6 +781,149 @@ class TestGetReviewRows(FrappeTestCase):
 
 
 # ===========================================================================
+# Group 4b: get_review_rows -- DERIVED effective_level (ADR-0009)
+# ===========================================================================
+
+class TestGetReviewRowsEffectiveLevel(FrappeTestCase):
+    """
+    Verifies get_review_rows ships a DERIVED `effective_level` per row (ADR-0009):
+      - the key is present on EVERY row;
+      - a nested preamble chain derives root=1, +1 per nesting tier;
+      - any non-preamble carries None (JSON null) -- NEVER coerced to 0;
+      - a preamble reclassified -> line_item (via human_classification) loses its level;
+      - re-parenting a middle preamble CASCADES the level of that row AND every descendant
+        (they shift in lockstep), via the real save_review_edit edit path + refetch.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Effective Level Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        for i, name in enumerate(("LevelChain", "Reclass", "Cascade"), start=1):
+            boq.append("sheet_drafts", {
+                "sheet_name": name, "sheet_order": i, "wizard_status": "Parsed",
+            })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+
+        # LevelChain: a 3-deep preamble chain + a leaf line_item.
+        #   0 preamble (root)        -> level 1
+        #   1 preamble (parent 0)    -> level 2
+        #   2 preamble (parent 1)    -> level 3
+        #   3 line_item (parent 2)   -> level None (non-preamble convention)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("LevelChain", 0, "preamble", parent_index=None),
+            _minimal_row("LevelChain", 1, "preamble", parent_index=0),
+            _minimal_row("LevelChain", 2, "preamble", parent_index=1),
+            _minimal_row("LevelChain", 3, "line_item", parent_index=2),
+        ])
+
+        # Reclass: a preamble (row 1, parent 0) reclassified -> line_item via
+        # human_classification -> its effective_level must drop to None.
+        _insert_rows(cls.boq_name, [
+            _minimal_row("Reclass", 0, "preamble", parent_index=None),
+            _minimal_row("Reclass", 1, "preamble", parent_index=0,
+                         human_classification="line_item"),
+        ])
+
+        # Cascade: a 4-deep preamble subtree. Re-parenting the MIDDLE node (row 2) up one
+        # level (from row 1 to row 0) must shift row 2 AND its descendant row 3 in lockstep.
+        #   0 preamble (root)        -> level 1
+        #   1 preamble (parent 0)    -> level 2
+        #   2 preamble (parent 1)    -> level 3   (MIDDLE)
+        #   3 preamble (parent 2)    -> level 4   (descendant)
+        _insert_rows(cls.boq_name, [
+            _minimal_row("Cascade", 0, "preamble", parent_index=None),
+            _minimal_row("Cascade", 1, "preamble", parent_index=0),
+            _minimal_row("Cascade", 2, "preamble", parent_index=1),
+            _minimal_row("Cascade", 3, "preamble", parent_index=2),
+        ])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    @staticmethod
+    def _levels_by_index(result: dict) -> dict:
+        return {r["row_index"]: r["effective_level"] for r in result["rows"]}
+
+    def test_effective_level_key_present_on_every_row(self):
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="LevelChain")
+        for r in result["rows"]:
+            self.assertIn("effective_level", r,
+                          "every row must carry an effective_level key")
+
+    def test_nested_preamble_chain_derives_levels(self):
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="LevelChain")
+        levels = self._levels_by_index(result)
+        self.assertEqual(levels[0], 1, "root preamble -> level 1")
+        self.assertEqual(levels[1], 2, "preamble under the root -> level 2")
+        self.assertEqual(levels[2], 3, "preamble two tiers deep -> level 3")
+
+    def test_non_preamble_effective_level_is_none_not_zero(self):
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="LevelChain")
+        levels = self._levels_by_index(result)
+        self.assertIsNone(levels[3],
+                          "a line_item must carry effective_level None, NEVER 0")
+
+    def test_reclassified_preamble_to_line_item_loses_level(self):
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="Reclass")
+        levels = self._levels_by_index(result)
+        self.assertEqual(levels[0], 1, "untouched root preamble stays level 1")
+        self.assertIsNone(
+            levels[1],
+            "a preamble reclassified -> line_item (human_classification) must "
+            "derive effective_level None (effective classification drives the level)",
+        )
+
+    def test_reparent_middle_preamble_cascades_to_descendants(self):
+        # Baseline: the 4-deep chain derives 1 / 2 / 3 / 4.
+        before = self._levels_by_index(
+            get_review_rows(boq_name=self.boq_name, sheet_name="Cascade")
+        )
+        self.assertEqual(before[2], 3, "middle preamble starts at level 3")
+        self.assertEqual(before[3], 4, "its descendant starts at level 4")
+
+        # Re-parent the MIDDLE node (row 2) up one tier: from row 1 (level 2) to row 0
+        # (level 1), via the real human-edit path. mutate()'s refetch is modelled by the
+        # second get_review_rows call.
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name="Cascade",
+            row_index=2, field="human_parent", value=0,
+        )
+        after = self._levels_by_index(
+            get_review_rows(boq_name=self.boq_name, sheet_name="Cascade")
+        )
+        self.assertEqual(after[2], 2,
+                         "re-parented middle preamble shifts 3 -> 2")
+        self.assertEqual(after[3], 3,
+                         "its descendant shifts 4 -> 3 IN LOCKSTEP (whole-sheet re-derive)")
+        self.assertEqual(after[0], 1, "the untouched root stays level 1")
+        self.assertEqual(after[1], 2, "the untouched sibling chain stays level 2")
+
+        # Symmetric move back: clearing the override restores the parser parent (row 1),
+        # so the levels return to the baseline in lockstep.
+        save_review_edit(
+            boq_name=self.boq_name, sheet_name="Cascade",
+            row_index=2, field="human_parent", value=None,
+        )
+        restored = self._levels_by_index(
+            get_review_rows(boq_name=self.boq_name, sheet_name="Cascade")
+        )
+        self.assertEqual(restored[2], 3, "clearing the re-parent restores level 3")
+        self.assertEqual(restored[3], 4, "the descendant restores level 4 in lockstep")
+
+
+# ===========================================================================
 # Group 5: save_review_edit -- DB
 # ===========================================================================
 
@@ -1793,7 +1936,11 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
         # PreambleParentSheet (#7): a level-3 sub-heading whose parent is a line_item (not a
         # strictly-shallower section heading) -> SHARED #7 (preamble_parent_level).
         pp_row = _minimal_row("PreambleParentSheet", 2, "preamble", parent_index=1)
-        pp_row["level"] = 3  # real >=1 level -> derive_node_type_and_level keeps level 3 (>1)
+        # ADR-0009: the stored `level` is now IGNORED -- level is DERIVED from the effective
+        # tree (derive_effective_levels). Row 2's derived level is 2 (one preamble ancestor:
+        # row 0, via row 1), but its effective parent is a line_item (row 1), so #7
+        # (preamble under a non-heading) fires regardless of any stored level value.
+        pp_row["level"] = 3
         _insert_rows(cls.boq_name, [
             _minimal_row("PreambleParentSheet", 0, "preamble", parent_index=None),
             _minimal_row("PreambleParentSheet", 1, "line_item", parent_index=0),
@@ -2503,6 +2650,96 @@ class TestAdvisoryFlagHelpers(unittest.TestCase):
             orphan_flag["reason"],
             "Line item with no parent group — check its parenting.",
         )
+
+    # -- classification-override suppression (stale parser / classifier noise) --
+    #
+    # After a human reclassifies a row, the STORED parser fields
+    # (needs_classification_review / review_reason / classifier_warnings) are NOT
+    # rewritten -- only a re-parse does -- so they become STALE noise. Both the
+    # 'parser' and 'classifier_warning' advisories are suppressed once
+    # human_classification is set. Only a CLASSIFICATION override suppresses -- a
+    # parenting-only override (human_parent / human_is_root) does NOT. The 'orphan'
+    # advisory recomputes live from the effective tree and is UNCHANGED by the override.
+
+    def test_parser_flag_suppressed_when_human_reclassified(self):
+        """Reference case (row 143, BOQ-26-00023): parser said preamble +
+        needs_classification_review=1 / review_reason, human set line_item -> the
+        stale 'parser' advisory must be suppressed."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="line_item",
+                          needs_classification_review=1,
+                          review_reason="priced_preamble_with_children")]
+        flags = _compute_advisory_flags(rows)
+        parser_flags = [f for f in flags if f["type"] == "parser"]
+        self.assertEqual(len(parser_flags), 0,
+                         "a human classification override must suppress the stale parser flag")
+
+    def test_classifier_warning_suppressed_when_human_reclassified(self):
+        """A human classification override suppresses the stale classifier_warning advisory
+        (classifier_warnings is a stored parser field a human edit does not rewrite)."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="line_item",
+                          classifier_warnings=["weak preamble signal", "ambiguous level"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 0,
+                         "a human classification override must suppress the stale classifier_warning flag")
+
+    def test_parser_flag_not_suppressed_by_parenting_only_override(self):
+        """Only a CLASSIFICATION override suppresses. A parenting-only override
+        (human_parent set, human_classification unset) must leave the parser flag LIVE."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_parent=3,
+                          needs_classification_review=1,
+                          review_reason="borderline preamble vs line_item")]
+        flags = _compute_advisory_flags(rows)
+        parser_flags = [f for f in flags if f["type"] == "parser"]
+        self.assertEqual(len(parser_flags), 1,
+                         "a parenting-only override must NOT suppress the parser flag")
+
+    def test_classifier_warning_not_suppressed_by_parenting_only_override(self):
+        """A parenting-only override (human_parent set, human_classification unset) must
+        leave the classifier_warning flag LIVE."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_parent=3,
+                          classifier_warnings=["weak preamble signal"])]
+        flags = _compute_advisory_flags(rows)
+        cw_flags = [f for f in flags if f["type"] == "classifier_warning"]
+        self.assertEqual(len(cw_flags), 1,
+                         "a parenting-only override must NOT suppress the classifier_warning flag")
+
+    def test_empty_string_human_classification_does_not_suppress(self):
+        """An empty-string human_classification ("" -- falsy, not an override) must NOT
+        suppress: 'not _get(...)' treats "" and None identically as 'not overridden'."""
+        rows = [self._row(0, "preamble", parent_index=0,
+                          human_classification="",
+                          needs_classification_review=1,
+                          review_reason="borderline",
+                          classifier_warnings=["weak signal"])]
+        flags = _compute_advisory_flags(rows)
+        types = [f["type"] for f in flags]
+        self.assertIn("parser", types,
+                      "empty-string human_classification must not suppress the parser flag")
+        self.assertIn("classifier_warning", types,
+                      "empty-string human_classification must not suppress the classifier_warning flag")
+
+    def test_orphan_flag_fires_regardless_of_human_classification(self):
+        """The 'orphan' advisory recomputes live from the effective tree and is UNCHANGED
+        by a classification override: a row reclassified to line_item with no effective
+        parent still yields the orphan flag, even while its stale parser +
+        classifier_warning advisories are suppressed on the SAME row."""
+        rows = [self._row(0, "preamble", parent_index=None,
+                          human_classification="line_item",
+                          needs_classification_review=1,
+                          review_reason="priced_preamble_with_children",
+                          classifier_warnings=["weak preamble signal"])]
+        flags = _compute_advisory_flags(rows)
+        types = [f["type"] for f in flags]
+        self.assertIn("orphan", types,
+                      "orphan must fire regardless of a classification override")
+        self.assertNotIn("parser", types, "the stale parser flag must be suppressed")
+        self.assertNotIn("classifier_warning", types,
+                         "the stale classifier_warning flag must be suppressed")
 
 
 # ===========================================================================

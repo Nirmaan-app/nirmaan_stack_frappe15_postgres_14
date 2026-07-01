@@ -258,7 +258,6 @@ def build_row_payload(row: dict) -> dict:
         "has_rate": _nonzero(g("rate_supply")) or _nonzero(g("rate_install")) or _nonzero(g("rate_combined")),
         "has_amount": _nonzero(g("amount_total")) or _nonzero(g("amount_supply")) or _nonzero(g("amount_install")),
         "preamble_candidate_score": g("preamble_candidate_score"),
-        "level": g("level"),
         "is_rate_only": 1 if g("is_rate_only") else 0,
         "is_synthetic": 1 if g("is_synthetic") else 0,
     }

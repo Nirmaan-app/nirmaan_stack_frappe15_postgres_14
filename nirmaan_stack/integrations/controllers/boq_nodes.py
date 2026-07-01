@@ -34,10 +34,12 @@ def validate(doc, method):
         frappe.throw(_("Description is required"))
 
     if doc.node_type == "Preamble":
-        # Level 0 is allowed (Phase 5 level-less-preamble guard fix): a preamble whose
-        # source carries no level commits at the level the commit pipeline computes
-        # (max(0, min child level - 1), or the sheet's shallowest defined level, else 0).
-        # Only None / negative levels are rejected.
+        # ADR-0009: level is now DERIVED from the effective tree (level = nesting depth),
+        # not the frozen parser level. A committed Preamble's derived level is therefore
+        # always >= 1 (root preamble = 1, +1 per tier); a non-preamble stays level-less
+        # (None -- system convention). Level 0 stays ALLOWED here (the guard only rejects
+        # None / negative) as a defensive backstop, but the derivation no longer produces a
+        # 0-level Preamble.
         # (The soft "level > 5" and "non-leaf preamble has qty/rate" advisories were moved
         # out of this durable backstop into the pre-commit preflight -- validate_node_plan
         # warnings #15 / #16 -- so the real commit is SILENT.)
@@ -45,6 +47,8 @@ def validate(doc, method):
             frappe.throw(_("Level must be a non-negative integer for Preamble nodes"))
 
     elif doc.node_type == "Line Item":
+        # ADR-0009: a non-preamble carries NO level (None, system convention), so this
+        # guard passes. Only a truthy (>=1) level is rejected.
         if doc.level:
             frappe.throw(_("Level must not be set for Line Item nodes"))
         if doc.qty is None:

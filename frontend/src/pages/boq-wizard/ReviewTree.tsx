@@ -2724,7 +2724,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                   ALL of this row's flags at once (per-row). NOT an edit (the row stays
                                   "Original"). stopPropagation so the table-body click that closes the
                                   detail panel doesn't fire. */}
-                              <div className="mt-2 flex items-center justify-end border-t border-amber-200/50 dark:border-amber-900/30 pt-1.5">
+                              <div className="mt-2 flex items-center justify-start border-t border-amber-200/50 dark:border-amber-900/30 pt-1.5">
                                 {isDismissed ? (
                                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                                     <CheckCircle2 className="h-3 w-3" /> Reviewed — looks OK

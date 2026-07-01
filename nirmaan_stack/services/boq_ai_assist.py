@@ -198,6 +198,26 @@ def _effective_parent_internal(row: Any):
     return None if rp in (None, -1) else rp
 
 
+def _effective_level_for_payload(row: Any) -> Any:
+    """Effective (edit-aware) nesting level when the caller enriched the row, else the
+    raw parser level.
+
+    The AI-2c worker attaches `effective_level` via derive_effective_levels (ADR-0009 --
+    the SAME derivation feeding the review screen + the commit pipeline), so a re-parented
+    row's level is correct rather than the frozen parser value. When the key is absent
+    (the service called standalone, e.g. a unit test) fall back to the raw parser `level`
+    so the service stays independently testable. Mirrors _effective_parent_internal's
+    "present -> effective, else parser" shape. This level is an INTERNAL spine signal --
+    it is STRIPPED from the model wire by _wire_element (the model no longer receives a
+    per-row level; only preambles carry a level, surfaced in the OPEN SECTIONS context).
+    """
+    if (isinstance(row, dict) and "effective_level" in row) or (
+        not isinstance(row, dict) and hasattr(row, "effective_level")
+    ):
+        return _get(row, "effective_level")
+    return _get(row, "level")
+
+
 # ---------------------------------------------------------------------------
 # Input serialisation
 # ---------------------------------------------------------------------------
@@ -223,11 +243,17 @@ def _build_excel_maps(review_rows: list) -> tuple[dict, dict]:
 
 
 def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
-    """Serialise ONE review row into the model's input element.
+    """Serialise ONE review row into the INTERNAL payload element.
 
-    The element shape is UNCHANGED from the original build_rows_payload: excel_row
-    (= source_row_number), classification (effective), level, parent_excel_row (the
-    PARENT row's excel row, or None for a root row), sl_no, description, unit.
+    Element keys: excel_row (= source_row_number), classification (effective), level
+    (EFFECTIVE nesting depth; see below), parent_excel_row (the PARENT row's excel row,
+    or None for a root row), sl_no, description, unit.
+
+    `level` is an INTERNAL spine signal ONLY -- it feeds update_spine / render_context
+    (the carried OPEN SECTIONS block). It is the EFFECTIVE level (edit-aware, ADR-0009),
+    NOT the frozen parser value. `_wire_element` STRIPS it before the element reaches the
+    model, so the model no longer receives a per-row level (recomputed at commit; only
+    preambles carry a level, shown in OPEN SECTIONS).
     """
     eff_parent = _effective_parent_internal(row)
     if eff_parent is None:
@@ -238,7 +264,7 @@ def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
     return {
         "excel_row": _get(row, "source_row_number"),
         "classification": _effective_classification(row),
-        "level": _get(row, "level"),
+        "level": _effective_level_for_payload(row),
         "parent_excel_row": parent_excel,
         "sl_no": _get(row, "sl_no_value"),
         "description": _get(row, "description"),
@@ -246,12 +272,23 @@ def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
     }
 
 
+def _wire_element(payload: dict) -> dict:
+    """The per-row element AS THE MODEL SEES IT: the internal payload minus `level`.
+
+    `level` is an internal spine signal (see _build_row_payload) -- the model is never
+    shown a per-row level. The single definition of "what goes on the wire", used by BOTH
+    the single-call build_rows_payload path and the chunked _classify_chunk path.
+    """
+    return {k: v for k, v in payload.items() if k != "level"}
+
+
 def build_rows_payload(review_rows: list) -> tuple[str, dict]:
     """Serialise review rows into the model's input array + an excel->internal map.
 
     Returns (json_str, idx_map) where:
-      - json_str is a JSON array; each element has excel_row (= source_row_number),
-        classification, level, parent_excel_row, sl_no, description, unit.
+      - json_str is the JSON array AS THE MODEL SEES IT: each element has excel_row
+        (= source_row_number), classification, parent_excel_row, sl_no, description, unit.
+        There is NO per-row `level` (an internal spine signal, stripped by _wire_element).
         parent_excel_row is the PARENT row's source_row_number (excel row), or None
         for a root row (translated from the effective internal parent_index).
       - idx_map maps excel_row (source_row_number) -> internal row_index, for
@@ -265,7 +302,7 @@ def build_rows_payload(review_rows: list) -> tuple[str, dict]:
     """
     rowidx_to_excel, idx_map = _build_excel_maps(review_rows)
     payload = [_build_row_payload(row, rowidx_to_excel) for row in review_rows]
-    return json.dumps(payload), idx_map
+    return json.dumps([_wire_element(p) for p in payload]), idx_map
 
 
 # ---------------------------------------------------------------------------
@@ -660,7 +697,10 @@ def _classify_chunk(
     forward-reference parent (an excel_row in a not-yet-seen later chunk) is dropped +
     logged by parse_ai_response -- the model can only name a parent it was shown (this
     chunk) or one carried in OPEN SECTIONS (an earlier chunk)."""
-    rows_json = json.dumps(chunk)
+    # Strip the internal spine-only `level` from every row: the model receives NO per-row
+    # level. update_spine still reads `level` off the original `chunk` dicts in run_ai_pass
+    # (the OPEN SECTIONS {CONTEXT} carries the effective preamble level). See _wire_element.
+    rows_json = json.dumps([_wire_element(p) for p in chunk])
     prompt = (
         _AI_PASS_PROMPT_TEMPLATE
         .replace("{SHEET_NAME}", sheet_name or "")

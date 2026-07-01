@@ -144,6 +144,8 @@ class TestGeminiAssistPure(FrappeTestCase):
         self.assertTrue(p["has_rate"])
         self.assertNotIn("classification", p, "the parser verdict must NOT leak into the payload")
         self.assertNotIn("parent_index", p)
+        self.assertNotIn("level", p, "parser `level` is dropped -- unused by Gemini, "
+                         "recomputed at commit; Gemini derives its own suggested level")
 
 
 # ===========================================================================

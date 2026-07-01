@@ -158,7 +158,8 @@ def _get_last_parsed_at(boq_name: str, sheet_name: str):
 
 def _fetch_review_rows_for_ai(boq_name: str, sheet_name: str) -> list[dict]:
     """Fetch this sheet's review rows (explicit ai_* field list) and merge in the
-    resolve_effective values so build_rows_payload + level derivation see effective_*."""
+    resolve_effective values + the derived effective_level, so the payload builder sees
+    the EFFECTIVE classification / parent / level (never the stale parser values)."""
     raw_rows = frappe.db.get_all(
         _REVIEW_ROW,
         filters={"boq": boq_name, "sheet_name": sheet_name},
@@ -170,6 +171,19 @@ def _fetch_review_rows_for_ai(boq_name: str, sheet_name: str) -> list[dict]:
         d = dict(r)
         d.update(resolve_effective(d))
         rows.append(d)
+
+    # Attach the DERIVED preamble level (effective_level) -- the SAME whole-sheet
+    # derivation that feeds the #7 validator + the commit pipeline + the review screen
+    # (derive_effective_levels, ADR-0009). So the AI pass reasons about the edit-aware
+    # nesting depth (a re-parented preamble CASCADES its level), never the frozen parser
+    # `level`. Each row already carries effective_classification + effective_parent_index
+    # + row_index, so it serves as BOTH the `d` and the `eff` of the (d, eff) pair.
+    # Lazy import avoids the module cycle (commit_validation imports resolve_effective
+    # from review_screen at load); consistency_warnings are validation's concern, ignored.
+    from nirmaan_stack.api.boq.wizard.commit_validation import derive_effective_levels
+    levels_by_idx, _consistency = derive_effective_levels([(d, d) for d in rows])
+    for d in rows:
+        d["effective_level"] = levels_by_idx.get(d.get("row_index"))
     return rows
 
 
