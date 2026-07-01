@@ -10798,6 +10798,32 @@ runner algorithm otherwise unchanged.
 - Tests: runner suite 44 -> 62 green (18 new: plural forms, ss/short-word guards, misc + light
   keywords, panels->misc false-friend). Additive; no strong-category regression
   (db_switchgear/point_wiring/wiring_cabling/earthing/conduit_piping all still pass).
+
+AI CATEGORY PROMPT -> TRACKED + v1.1 (local, NOT pushed; branch feature/boq-phase-5). The canonical
+Option-B AI voter prompt was moved OUT of scratch into a version-controlled module location and
+bumped to v1.1.
+- LOCATION: now tracked at `nirmaan_stack/services/boq_category/prompts/electrical_ai_category_prompt.md`
+  (single source of truth). The filename is version-FREE (stable path); the version lives in the
+  file header ("v1.1 (2026-07-02) -- supersedes v1.0"). The prior scratch copy
+  (_classification_review/BoQ_AI_Category_Prompt_v1_0.md) was deleted; the scratch harnesses
+  (rerun_harness.py + rerun_harness_committed.py) were repointed to the tracked path. NOTE:
+  `_classification_review/` is untracked scratch, so the harness repoint + scratch deletion are
+  on-disk only (not committed) -- the ONLY tracked artifact is the new prompt file.
+- v1.1 EDITS (surgical; frozen-15 categories + descriptions, the {category_id in 15 or "",
+  confidence 0-1, brief_reason} output contract, and Option-B independence all preserved VERBATIM):
+  (a) TREE-READING instruction -- the AI is told it receives each line WITHIN its full ancestor
+  tree (sheet-name root -> section preambles -> parent, indented, with attached/append notes shown
+  per node) and must read TOP-DOWN: the section/parent context governs a bare child ("300 X 40mm
+  size" under a "CABLE TRAYS"/"JUNCTION BOXES"/"EARTHING" heading takes that category); the sheet
+  name is context. Matches how the committed-tree harness now feeds the structured tree.
+  (b) SWITCHES vs POINT-WIRING tightening -- a new boundary bullet: Point-Wiring precedence applies
+  to a point/circuit framed as a unit, NOT to a line naming the SOCKET ACCESSORY itself (modular
+  socket / socket outlet / spike-guard / switch-socket plate -> switches_sockets; IP-rated /
+  3-phase / interlocked -> industrial_sockets). Fixes the one place the AI underperformed the
+  rules (over-applying point-wiring precedence to socket lines). DALI-vs-fixture guard still
+  DEFERRED.
+- Not re-run here (that is the next AI re-run). Load-verified: both harnesses resolve PROMPT_PATH
+  to the tracked file (7518 bytes, v1.1 header). No push, no migrate.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
