@@ -90,6 +90,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   urlContext = "npe_default",
   DisableAction = false,
 }) => {
+  // Standalone page grows to natural height for a single page scroll; the report
+  // embed (DisableAction) keeps the fixed-height internal table scroll.
+  const autoHeight = !DisableAction;
   const {
     setEditNonProjectExpenseDialog, // NEW
     deleteConfirmationDialog, // NEW
@@ -475,11 +478,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-80px)]"
-          : totalCount > 0
-            ? "h-auto"
-            : ""
+        autoHeight
+          ? "h-auto"
+          : totalCount > 10
+            ? "h-[calc(100vh-80px)]"
+            : totalCount > 0
+              ? "h-auto"
+              : ""
       )}
     >
       <StandaloneDateFilter

@@ -77,6 +77,10 @@ const PE_STATUS_TAB_PARAM = "pe_status";
 export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   projectId,
 }) => {
+  // Standalone list (no projectId) grows to natural height for a single page
+  // scroll; the embedded project tab (projectId set) keeps the fixed-height
+  // internal table scroll.
+  const autoHeight = !projectId;
   const { setEditProjectExpenseDialog } = useDialogStore();
   const { toast } = useToast();
   const { role } = useUserData();
@@ -529,11 +533,13 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-80px)]"
-          : totalCount > 0
-            ? "h-auto"
-            : ""
+        autoHeight
+          ? "h-auto"
+          : totalCount > 10
+            ? "h-[calc(100vh-80px)]"
+            : totalCount > 0
+              ? "h-auto"
+              : ""
       )}
     >
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
