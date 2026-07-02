@@ -41,6 +41,9 @@ export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
   projectId?: string;
   role?: string;
+  // When true, never render the Actions column (used by the read-only embedded
+  // project view).
+  disableActions?: boolean;
   getProjectName: (id?: string) => string;
   getVendorName: (id?: string) => string;
   getUserName: (id?: string) => string;
@@ -60,6 +63,7 @@ export const getProjectExpenseColumns = ({
   statusTab,
   projectId,
   role,
+  disableActions = false,
   getProjectName,
   getVendorName,
   getUserName,
@@ -92,8 +96,9 @@ export const getProjectExpenseColumns = ({
   //   - Paid tab: Edit/Delete are Admin-only, so only Admin sees it.
   //   - All tab:  Admin, plus Accountant (who can Mark as Paid the Approved rows).
   // Requested/Approved tabs are left unchanged (column always present).
-  const canSeeActionsColumn =
-    statusTab === "Paid"
+  const canSeeActionsColumn = disableActions
+    ? false
+    : statusTab === "Paid"
       ? isAdmin
       : statusTab === "All"
         ? isAdmin

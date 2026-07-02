@@ -326,10 +326,14 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   };
 
   // Status workflow tab -> base filter (combined with the date-range filter).
-  // In report mode (DisableAction) the status filter is not applied.
+  // Report mode (DisableAction) = the Outflow (Non-Project) report -> settled
+  // cash-out only, so force status = Paid. The standalone page uses the active
+  // status tab instead (All tab = no status filter).
   const additionalFilters = useMemo(() => {
     const filters: any[] = [...dateFilters];
-    if (!DisableAction && statusTab !== "All") {
+    if (DisableAction) {
+      filters.push(["status", "=", "Paid"]);
+    } else if (statusTab !== "All") {
       filters.push(["status", "=", statusTab]);
     }
     return filters;

@@ -431,7 +431,9 @@ export const getNonProjectExpenseColumns = ({
 
   return [
     typeColumn,
-    ...(statusTab === "All" ? [statusColumn] : []),
+    // Status column only on the standalone All tab; report mode (disableActions)
+    // is Paid-only, so the column would be redundant.
+    ...(statusTab === "All" && !disableActions ? [statusColumn] : []),
     descriptionColumn,
     commentColumn,
     amountColumn,

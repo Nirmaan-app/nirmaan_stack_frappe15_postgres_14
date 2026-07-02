@@ -133,3 +133,4 @@ nirmaan_stack.patches.v3_0.remove_commission_report_zones
 
 nirmaan_stack.patches.v3_0.backfill_project_expenses_status
 nirmaan_stack.patches.v3_0.backfill_non_project_expenses_status #v2
+nirmaan_stack.patches.v3_0.normalize_project_expense_types

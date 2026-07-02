@@ -121,13 +121,19 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   } | null>(null);
   const [markPaidMode, setMarkPaidMode] = useState(false);
 
+  // Embedded in a project (projectId present) = Paid-only view with NO status tabs;
+  // the standalone list keeps the full tabbed Requested/Approved/Paid/All workflow.
+  const isEmbedded = !!projectId;
+  const effectiveStatusTab = isEmbedded ? "Paid" : statusTab;
+
   // --- Keep the active status tab in sync with the URL (deep-link + back/forward) ---
   // Persist tab -> URL (replaceState, so it doesn't pollute browser history).
   useEffect(() => {
+    if (isEmbedded) return; // embedded view is fixed to Paid; don't sync to the URL
     if (urlStateManager.getParam(PE_STATUS_TAB_PARAM) !== statusTab) {
       urlStateManager.updateParam(PE_STATUS_TAB_PARAM, statusTab);
     }
-  }, [statusTab]);
+  }, [statusTab, isEmbedded]);
   // React to URL -> tab changes (back/forward navigation, external deep links).
   useEffect(() => {
     const unsubscribe = urlStateManager.subscribe(
@@ -277,9 +283,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const columns = useMemo<ColumnDef<ProjectExpenses>[]>(
     () =>
       getProjectExpenseColumns({
-        statusTab,
+        statusTab: effectiveStatusTab,
         projectId,
         role,
+        disableActions: isEmbedded,
         getProjectName,
         getVendorName,
         getUserName,
@@ -289,8 +296,9 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         onDelete: handleOpenDeleteDialog,
       }),
     [
-      statusTab,
+      effectiveStatusTab,
       projectId,
+      isEmbedded,
       role,
       getProjectName,
       getVendorName,
@@ -306,9 +314,9 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const baseFilters = useMemo(() => {
     const filters: any[] = [];
     if (projectId) filters.push(["projects", "=", projectId]);
-    if (statusTab !== "All") filters.push(["status", "=", statusTab]);
+    if (effectiveStatusTab !== "All") filters.push(["status", "=", effectiveStatusTab]);
     return filters;
-  }, [projectId, statusTab]);
+  }, [projectId, effectiveStatusTab]);
 
   // --- Per-status counts for the tab badges (project-scoped) ---
   const { data: requestedCount, mutate: mutateRequested } = useFrappeGetDocCount(
@@ -370,7 +378,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       "type.expense_name as expense_type_name",
     ], // Ensure display name is fetched
     searchableFields: PE_SEARCHABLE_FIELDS,
-    urlSyncKey: `project_expenses_list_${projectId || "all"}_${statusTab.toLowerCase()}`,
+    urlSyncKey: `project_expenses_list_${projectId || "all"}_${effectiveStatusTab.toLowerCase()}`,
     // Project scope + active status tab
     additionalFilters: baseFilters,
     aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config
@@ -542,6 +550,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
               : ""
       )}
     >
+      {!isEmbedded && (
       <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
         <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
           {statusTabs.map((sTab) => {
@@ -570,6 +579,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
           })}
         </div>
       </div>
+      )}
       <DataTable
         table={table}
         columns={columns}
