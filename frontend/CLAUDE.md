@@ -175,6 +175,18 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 ---
 
+## Module Residence (ADR-0010 — Proposed)
+
+A concept has **one owning module**, never scattered across components (full set incl. backend B1–B5 in [ADR-0010](../docs/adr/0010-module-residence-rules.md)):
+
+- **F1** — a domain rule has one home, pinned to the backend's via a parity test (FE↔BE), like boq `reconcile.ts` / `priceability.ts`.
+- **F2** — backend shapes are parsed at **one typed accessor** (like itm `useITM()`); grep for inline parses.
+- **F3** — near-twin flows are **one parametric module**, not a copy (the PR/SB approval twin is the anti-pattern).
+- **F4** — pages/hooks stay **thin over pure logic** in `utils/<domain>`; the pure rule is unit-testable without React.
+- **F5** — writes go through **one safety seam** (`useEditingLock`, extend it); grep for raw `updateDoc`.
+
+---
+
 ## BoQ Wizard & Pricing Editor -- Frontend Conventions
 
 All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This section keeps ONLY the
