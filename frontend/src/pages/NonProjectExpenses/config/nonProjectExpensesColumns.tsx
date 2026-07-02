@@ -101,7 +101,11 @@ export const getNonProjectExpenseColumns = ({
     ? false
     : statusTab === "Paid" || statusTab === "All"
       ? isAdmin
-      : true;
+      // Approved tab: Procurement/HR have no available action here (Mark-as-Paid
+      // is Admin/Accountant), so hide the empty Actions column for them.
+      : statusTab === "Approved" && (isProcurement || isHR)
+        ? false
+        : true;
 
   // Invoice Ref opens the invoice attachment — only on the Paid and All tabs.
   const invoiceRefClickable = statusTab === "Paid" || statusTab === "All";

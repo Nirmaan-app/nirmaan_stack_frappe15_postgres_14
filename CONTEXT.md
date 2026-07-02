@@ -60,6 +60,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Excluded rows (manual)** — rows the reviewer explicitly removes from the data region *in addition to* the header row, expressed as a list of **skip definitions**. Each skip definition is either a **single row** (one row number) or a **row range** (a start row + an end row, inclusive). This is the primary tool for the two cases the single header row can't cover: extra header tiers *below* the header row (rate splits, area tiers), and a column-header that *repeats mid-sheet* or a stray banner between data rows. They exclude *by position* (not by classification), anywhere in the sheet.
 
+## Expense workflow & settlement
+
+- **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
+
+- **Expense status** — the single field describing where an Expense sits in its lifecycle. It advances in one direction: *Requested* → *Approved* → *Paid*. An Expense holds exactly one at a time.
+  - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
+  - **Approved** — sanctioned to spend, but the money has **not** yet left. A staging state, not settled spend.
+  - **Paid** — the cash has actually gone out. The **final** state and the **only** one that counts as real spend.
+
+- **Settled spend (outflow)** — expense money that has actually left, i.e. an Expense at status *Paid*. **Only** *Paid* Expenses are included in any financial rollup — project outflow, the cashflow gap / CEO-Hold, project Financials totals, the Outflow reports, and the 30-day payment dashboard. *Requested* and *Approved* Expenses are commitments, not settled spend, and are excluded from every such number.
+
+- **Auto-approval (of a small Expense)** — a positive Expense below ₹5,000 is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount of ₹5,000 or more follows the full *Requested → Approved → Paid* path.
+
 ## Module residence
 
 - **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).

@@ -102,7 +102,11 @@ export const getProjectExpenseColumns = ({
       ? isAdmin
       : statusTab === "All"
         ? isAdmin
-        : true;
+        // Approved tab: Procurement/HR have no available action here (Mark-as-Paid
+        // is Admin/Accountant), so hide the empty Actions column for them.
+        : statusTab === "Approved" && (isProcurement || isHR)
+          ? false
+          : true;
 
   const projectColumn: ColumnDef<ProjectExpenses> = {
     accessorKey: "projects",
