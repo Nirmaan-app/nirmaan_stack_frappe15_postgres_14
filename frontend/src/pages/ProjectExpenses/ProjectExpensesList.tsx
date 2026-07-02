@@ -1,9 +1,8 @@
 // src/pages/ProjectExpenses/ProjectExpensesList.tsx
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { Link } from "react-router-dom";
-import { useFrappeDeleteDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDocCount, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
@@ -12,13 +11,10 @@ import {
   useServerDataTable,
   AggregationConfig,
   GroupByConfig,
+  getUrlStringParam,
 } from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
-import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
+import { urlStateManager } from "@/utils/urlStateManager";
 import memoize from "lodash/memoize";
 import { cn } from "@/lib/utils";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
@@ -37,14 +33,13 @@ import {
   PE_DATE_COLUMNS,
   DOCTYPE,
 } from "./config/projectExpensesTable.config";
+import { getProjectExpenseColumns } from "./config/projectExpensesColumns";
 import { NewProjectExpenseDialog } from "./components/NewProjectExpenseDialog";
 import { EditProjectExpenseDialog } from "./components/EditProjectExpenseDialog";
 import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCard";
 
 // UI Components
 import { DataTable } from "@/components/data-table/new-data-table";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import {
   AlertDialog,
@@ -56,13 +51,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Edit2, MoreHorizontal, PlusCircle, Trash2 } from "lucide-react";
 
 interface ProjectExpensesListProps {
   projectId?: string; // Optional: To filter by a specific project
@@ -81,14 +69,23 @@ const PE_GROUP_BY_CONFIG: GroupByConfig = {
   limit: 5,
 };
 
+// URL param key for the active status workflow tab. Namespaced ("pe_status") so
+// it never collides with the project page's own ?tab=/?page= params when this
+// list is embedded as a project tab.
+const PE_STATUS_TAB_PARAM = "pe_status";
+
 export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   projectId,
 }) => {
-  const { toggleNewProjectExpenseDialog, setEditProjectExpenseDialog } =
-    useDialogStore();
+  // Standalone list (no projectId) grows to natural height for a single page
+  // scroll; the embedded project tab (projectId set) keeps the fixed-height
+  // internal table scroll.
+  const autoHeight = !projectId;
+  const { setEditProjectExpenseDialog } = useDialogStore();
   const { toast } = useToast();
   const { role } = useUserData();
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc();
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
   const { ceoHoldProjectIds } = useCEOHoldProjects();
 
   // CEO Hold row highlighting
@@ -109,6 +106,45 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const [expenseToDelete, setExpenseToDelete] =
     useState<ProjectExpenses | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  // Default tab is role-based: Accountant (and Lead) land on "Approved", everyone
+  // else (Admin included) on "Requested". A URL param (deep link / reload) overrides it.
+  const isAccountantUser =
+    role === "Nirmaan Accountant Profile" ||
+    role === "Nirmaan Accountant Lead Profile";
+  const defaultStatusTab = isAccountantUser ? "Approved" : "Requested";
+  const [statusTab, setStatusTab] = useState<string>(() =>
+    getUrlStringParam(PE_STATUS_TAB_PARAM, defaultStatusTab)
+  );
+  const [statusAction, setStatusAction] = useState<{
+    expense: ProjectExpenses;
+    next: "Approved" | "Paid";
+  } | null>(null);
+  const [markPaidMode, setMarkPaidMode] = useState(false);
+
+  // Embedded in a project (projectId present) = Paid-only view with NO status tabs;
+  // the standalone list keeps the full tabbed Requested/Approved/Paid/All workflow.
+  const isEmbedded = !!projectId;
+  const effectiveStatusTab = isEmbedded ? "Paid" : statusTab;
+
+  // --- Keep the active status tab in sync with the URL (deep-link + back/forward) ---
+  // Persist tab -> URL (replaceState, so it doesn't pollute browser history).
+  useEffect(() => {
+    if (isEmbedded) return; // embedded view is fixed to Paid; don't sync to the URL
+    if (urlStateManager.getParam(PE_STATUS_TAB_PARAM) !== statusTab) {
+      urlStateManager.updateParam(PE_STATUS_TAB_PARAM, statusTab);
+    }
+  }, [statusTab, isEmbedded]);
+  // React to URL -> tab changes (back/forward navigation, external deep links).
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe(
+      PE_STATUS_TAB_PARAM,
+      (_, value) => {
+        const next = value || defaultStatusTab;
+        setStatusTab((prev) => (prev !== next ? next : prev));
+      }
+    );
+    return unsubscribe;
+  }, [defaultStatusTab]);
 
   // --- Supporting Data for Lookups ---
   const { data: projects, isLoading: projectsLoading } =
@@ -172,6 +208,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   const handleOpenEditDialog = useCallback(
     (expense: ProjectExpenses) => {
       setExpenseToEdit(expense);
+      setMarkPaidMode(false);
       setEditProjectExpenseDialog(true);
     },
     [setEditProjectExpenseDialog]
@@ -180,6 +217,20 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     setExpenseToDelete(expense);
     setIsDeleteDialogOpen(true);
   }, []);
+  const handleOpenStatusDialog = useCallback(
+    (expense: ProjectExpenses, next: "Approved" | "Paid") => {
+      setStatusAction({ expense, next });
+    },
+    []
+  );
+  const handleOpenMarkPaid = useCallback(
+    (expense: ProjectExpenses) => {
+      setExpenseToEdit(expense);
+      setMarkPaidMode(true);
+      setEditProjectExpenseDialog(true);
+    },
+    [setEditProjectExpenseDialog]
+  );
 
   const confirmDelete = async () => {
     if (!expenseToDelete) return;
@@ -203,166 +254,102 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     }
   };
 
-  const columns = useMemo<ColumnDef<ProjectExpenses>[]>(
-    () => [
-      // --- (Indicator) MODIFIED: Project column is now conditional ---
-      ...(!projectId
-        ? [
-          {
-            accessorKey: "projects",
-            header: ({ column }) => (
-              <DataTableColumnHeader column={column} title="Project" />
-            ),
-            cell: ({ row }) => (
-              <Link
-                to={`/projects/${row.original.projects}`}
-                className="text-blue-600 hover:underline"
-              >
-                {getProjectName(row.original.projects)}
-              </Link>
-            ),
-            enableColumnFilter: true,
-            meta: { exportValue: (row) => getProjectName(row.projects) },
-          } as ColumnDef<ProjectExpenses>,
-        ]
-        : []),
-      {
-        accessorKey: "payment_date",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Payment Date" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium">
-            {formatDate(row.original.payment_date)}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "type",
-        header: "Expense Type",
-        cell: ({ row }) => (
-          <div
-            className="truncate"
-            title={row.original.expense_type_name || row.original.type}
-          >
-            {row.original.expense_type_name || row.original.type}
-          </div>
-        ),
-        meta: { exportValue: (row) => row.expense_type_name || row.type },
-        enableColumnFilter: true,
-      },
-      {
-        accessorKey: "description",
-        header: "Description",
-        cell: ({ row }) => (
-          <div className="truncate max-w-xs" title={row.original.description}>
-            {row.original.description}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "comment",
-        header: "Comment",
-        cell: ({ row }) => (
-          <div className="truncate max-w-xs" title={row.original.comment}>
-            {row.original.comment}
-          </div>
-        ),
-      },
-      {
-        accessorKey: "vendor",
-        header: "Vendor",
-        cell: ({ row }) => (
-          <div className="truncate" title={getVendorName(row.original.vendor)}>
-            {getVendorName(row.original.vendor)}
-          </div>
-        ),
-        meta: { exportValue: (row) => getVendorName(row.vendor) },
-        enableColumnFilter: true,
-      },
-      {
-        accessorKey: "amount",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Amount"
-            className="justify-center"
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium pr-2">
-            {formatToRoundedIndianRupee(row.original.amount)}
-          </div>
-        ),
-        meta: { exportValue: (row) => formatForReport(row.amount) },
-      },
-      {
-        accessorKey: "payment_by",
-        header: "Payment By",
-        cell: ({ row }) => (
-          <div
-            className="truncate"
-            title={getUserName(row.original.payment_by)}
-          >
-            {getUserName(row.original.payment_by)}
-          </div>
-        ),
-        meta: { exportValue: (row) => getUserName(row.payment_by) },
-        enableColumnFilter: true,
-      },
+  const confirmStatusChange = async () => {
+    if (!statusAction) return;
+    try {
+      await updateDoc(DOCTYPE, statusAction.expense.name, {
+        status: statusAction.next,
+      });
+      toast({
+        title: "Success",
+        description: `Expense marked ${statusAction.next}.`,
+        variant: "success",
+      });
+      refetch();
+      mutateRequested();
+      mutateApproved();
+      mutatePaid();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update status.",
+        variant: "destructive",
+      });
+    } finally {
+      setStatusAction(null);
+    }
+  };
 
-      {
-        id: "actions",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Actions"
-            className="text-center"
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="h-8 w-8 p-0">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => handleOpenEditDialog(row.original)}
-                >
-                  <Edit2 className="mr-2 h-4 w-4" />
-                  Edit
-                </DropdownMenuItem>
-                {(role === "Nirmaan Admin Profile" ||
-                  role === "Nirmaan PMO Executive Profile") && (
-                    <DropdownMenuItem
-                      onClick={() => handleOpenDeleteDialog(row.original)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </DropdownMenuItem>
-                  )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        ),
-        meta: {
-          excludeFromExport: true, // Exclude actions column from export
-        },
-      },
-    ],
+  const columns = useMemo<ColumnDef<ProjectExpenses>[]>(
+    () =>
+      getProjectExpenseColumns({
+        statusTab: effectiveStatusTab,
+        projectId,
+        role,
+        disableActions: isEmbedded,
+        getProjectName,
+        getVendorName,
+        getUserName,
+        onEdit: handleOpenEditDialog,
+        onApprove: (expense) => handleOpenStatusDialog(expense, "Approved"),
+        onMarkPaid: handleOpenMarkPaid,
+        onDelete: handleOpenDeleteDialog,
+      }),
     [
+      effectiveStatusTab,
       projectId,
+      isEmbedded,
+      role,
       getProjectName,
       getVendorName,
       getUserName,
-      getExpenseTypeName,
       handleOpenEditDialog,
+      handleOpenStatusDialog,
+      handleOpenMarkPaid,
       handleOpenDeleteDialog,
     ]
+  );
+
+  // --- Status workflow tab → base filters (project scope + active status tab) ---
+  const baseFilters = useMemo(() => {
+    const filters: any[] = [];
+    if (projectId) filters.push(["projects", "=", projectId]);
+    if (effectiveStatusTab !== "All") filters.push(["status", "=", effectiveStatusTab]);
+    return filters;
+  }, [projectId, effectiveStatusTab]);
+
+  // --- Per-status counts for the tab badges (project-scoped) ---
+  const { data: requestedCount, mutate: mutateRequested } = useFrappeGetDocCount(
+    DOCTYPE,
+    projectId
+      ? [["projects", "=", projectId], ["status", "=", "Requested"]]
+      : [["status", "=", "Requested"]]
+  );
+  const { data: approvedCount, mutate: mutateApproved } = useFrappeGetDocCount(
+    DOCTYPE,
+    projectId
+      ? [["projects", "=", projectId], ["status", "=", "Approved"]]
+      : [["status", "=", "Approved"]]
+  );
+  const { data: paidCount, mutate: mutatePaid } = useFrappeGetDocCount(
+    DOCTYPE,
+    projectId
+      ? [["projects", "=", projectId], ["status", "=", "Paid"]]
+      : [["status", "=", "Paid"]]
+  );
+  const { data: allCount } = useFrappeGetDocCount(
+    DOCTYPE,
+    projectId ? [["projects", "=", projectId]] : undefined
+  );
+
+  const statusTabs = useMemo(
+    () => [
+      { label: "Requested", value: "Requested", count: requestedCount ?? 0 },
+      { label: "Approved", value: "Approved", count: approvedCount ?? 0 },
+      { label: "Paid", value: "Paid", count: paidCount ?? 0 },
+      { label: "All", value: "All", count: allCount ?? 0 },
+    ],
+    [requestedCount, approvedCount, paidCount, allCount]
   );
 
   // --- Data Table Hook (MOVED UP) ---
@@ -391,18 +378,14 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       "type.expense_name as expense_type_name",
     ], // Ensure display name is fetched
     searchableFields: PE_SEARCHABLE_FIELDS,
-    urlSyncKey: `project_expenses_list_${projectId || "all"}`,
-    // --- (Indicator) Static filter is now conditional ---
-    additionalFilters: projectId ? [["projects", "=", projectId]] : [],
+    urlSyncKey: `project_expenses_list_${projectId || "all"}_${effectiveStatusTab.toLowerCase()}`,
+    // Project scope + active status tab
+    additionalFilters: baseFilters,
     aggregatesConfig: PE_AGGREGATES_CONFIG, // NEW: Pass the aggregation config
     groupByConfig: PE_GROUP_BY_CONFIG, // NEW: Pass the group by config
   });
 
-  // --- Dynamic Facet Values ---
-  const staticFilters = useMemo(
-    () => (projectId ? [["projects", "=", projectId]] : []),
-    [projectId]
-  );
+  // --- Dynamic Facet Values (scoped to project + active status tab via baseFilters) ---
 
   const {
     facetOptions: projectFacetOptions,
@@ -413,7 +396,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     currentFilters: columnFilters,
     searchTerm,
     selectedSearchField,
-    additionalFilters: staticFilters,
+    additionalFilters: baseFilters,
     enabled: !projectId,
   });
 
@@ -424,7 +407,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
-      additionalFilters: staticFilters,
+      additionalFilters: baseFilters,
       enabled: true,
     });
 
@@ -435,7 +418,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       currentFilters: columnFilters,
       searchTerm,
       selectedSearchField,
-      additionalFilters: staticFilters,
+      additionalFilters: baseFilters,
       enabled: true,
     });
 
@@ -448,18 +431,35 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     currentFilters: columnFilters,
     searchTerm,
     selectedSearchField,
-    additionalFilters: staticFilters,
+    additionalFilters: baseFilters,
     enabled: true,
   });
+
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "status",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters: baseFilters,
+      enabled: statusTab === "All",
+    });
+
+  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "owner",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters: baseFilters,
+      enabled: statusTab !== "Paid",
+    });
 
   // --- (2) NEW: Define the facet filter configurations ---
   const facetFilterOptions = useMemo(() => {
     const filters: any = {
-      payment_by: {
-        title: "Requested By",
-        options: userFacetOptions,
-        isLoading: isUserFacetLoading,
-      },
       vendor: {
         title: "Vendor",
         options: vendorFacetOptions,
@@ -471,6 +471,33 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         isLoading: isExpenseTypeFacetLoading,
       },
     };
+
+    // Payment By column (and filter) shows on the Paid and All tabs
+    if (statusTab === "Paid" || statusTab === "All") {
+      filters.payment_by = {
+        title: "Payment By",
+        options: userFacetOptions,
+        isLoading: isUserFacetLoading,
+      };
+    }
+
+    // Status filter only in the All tab (other tabs are already status-scoped)
+    if (statusTab === "All") {
+      filters.status = {
+        title: "Status",
+        options: statusFacetOptions,
+        isLoading: isStatusFacetLoading,
+      };
+    }
+
+    // Created By filter wherever the Created By column shows (non-Paid tabs)
+    if (statusTab !== "Paid") {
+      filters.owner = {
+        title: "Created By",
+        options: ownerFacetOptions,
+        isLoading: isOwnerFacetLoading,
+      };
+    }
 
     // Conditionally add the project filter only if we are on the main list view
     if (!projectId) {
@@ -489,9 +516,14 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     isVendorFacetLoading,
     expenseTypeFacetOptions,
     isExpenseTypeFacetLoading,
+    statusFacetOptions,
+    isStatusFacetLoading,
+    ownerFacetOptions,
+    isOwnerFacetLoading,
     projectFacetOptions,
     isProjectFacetLoading,
     projectId,
+    statusTab,
   ]);
 
   // --- (2) NEW: Define the facet filter configurations ---
@@ -509,13 +541,45 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-80px)]"
-          : totalCount > 0
-            ? "h-auto"
-            : ""
+        autoHeight
+          ? "h-auto"
+          : totalCount > 10
+            ? "h-[calc(100vh-80px)]"
+            : totalCount > 0
+              ? "h-auto"
+              : ""
       )}
     >
+      {!isEmbedded && (
+      <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+        <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+          {statusTabs.map((sTab) => {
+            const isActive = statusTab === sTab.value;
+            return (
+              <button
+                key={sTab.value}
+                type="button"
+                onClick={() => setStatusTab(sTab.value)}
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                  isActive
+                    ? "bg-sky-500 text-white"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                {sTab.label}
+                <span
+                  className={`text-xs font-bold ${
+                    isActive ? "opacity-90" : "opacity-70"
+                  }`}
+                >
+                  {sTab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      )}
       <DataTable
         table={table}
         columns={columns}
@@ -531,16 +595,6 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         isExporting={isExporting}
         exportFileName={`Project_Expenses_${projectId ? getProjectName(projectId) : "All"}`}
         getRowClassName={getRowClassName}
-        toolbarActions={
-          (role === "Nirmaan Admin Profile" ||
-            role === "Nirmaan PMO Executive Profile" ||
-            role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile") && (
-            <Button onClick={toggleNewProjectExpenseDialog} size="sm">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              Add Project Expense
-            </Button>
-          )
-        }
         // --- (Indicator) FIX: Explicitly pass the required props with the correct names ---
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
@@ -563,8 +617,12 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
       {expenseToEdit && (
         <EditProjectExpenseDialog
           expenseToEdit={expenseToEdit}
+          markAsPaid={markPaidMode}
           onSuccess={() => {
             refetch();
+            mutateRequested();
+            mutateApproved();
+            mutatePaid();
             setEditProjectExpenseDialog(false);
           }}
         />
@@ -595,6 +653,41 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
                 className="bg-destructive hover:bg-destructive/90"
               >
                 {deleteLoading ? "Deleting..." : "Confirm"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {statusAction && (
+        <AlertDialog
+          open={!!statusAction}
+          onOpenChange={(open) => !open && setStatusAction(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {statusAction.next === "Approved"
+                  ? "Approve this expense?"
+                  : "Mark this expense as Paid?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {statusAction.next === "Approved"
+                  ? "This moves the expense from Requested to Approved."
+                  : "This moves the expense from Approved to Paid."}{" "}
+                <span className="font-semibold">
+                  {statusAction.expense.description}
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setStatusAction(null)}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmStatusChange}
+                disabled={updateLoading}
+              >
+                {updateLoading ? "Updating..." : "Confirm"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

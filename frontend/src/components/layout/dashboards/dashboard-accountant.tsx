@@ -94,14 +94,14 @@ const QUICK_ACCESS_SECTIONS: { title: string; items: QuickAccessItem[] }[] = [
         id: "project-expenses",
         title: "Project Expenses",
         description: "Miscellaneous expenses",
-        linkTo: "/project-expenses",
+        linkTo: "/expense/project",
         Icon: Landmark,
       },
       {
         id: "non-project-expenses",
         title: "Non-Project Expenses",
         description: "Company-wide expenses",
-        linkTo: "/non-project",
+        linkTo: "/expense/non-project",
         Icon: Banknote,
       },
       {

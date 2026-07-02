@@ -2,38 +2,22 @@
 
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { ColumnDef } from "@tanstack/react-table";
-import {
-  Download,
-  Edit2,
-  FileText,
-  MoreHorizontal,
-  Trash2,
-  DollarSign,
-} from "lucide-react";
 import { DateRange } from "react-day-picker";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import memoize from "lodash/memoize";
 
-import { useFrappeDeleteDoc } from "frappe-react-sdk"; // For delete
-import { useToast } from "@/components/ui/use-toast"; // For delete feedback
+import {
+  useFrappeDeleteDoc,
+  useFrappeUpdateDoc,
+  useFrappeGetDocCount,
+  useFrappeGetDocList,
+} from "frappe-react-sdk";
+import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
-import {
-  DataTable,
-  SearchFieldOption,
-} from "@/components/data-table/new-data-table"; // Assuming DataTable is correctly imported
+import { DataTable } from "@/components/data-table/new-data-table";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { useSharedReportDateRange } from "@/pages/reports/store/useReportDateStore";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
-import SITEURL from "@/constants/siteURL";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,42 +27,44 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"; // For delete confirmation
+} from "@/components/ui/alert-dialog";
 
 // --- Hooks & Utils ---
 import {
   useServerDataTable,
   AggregationConfig,
   GroupByConfig,
-} from "@/hooks/useServerDataTable"; // Your hook
+  getUrlStringParam,
+} from "@/hooks/useServerDataTable";
 import { useFacetValues } from "@/hooks/useFacetValues";
-import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { urlStateManager } from "@/utils/urlStateManager";
+import { useUserData } from "@/hooks/useUserData";
 import { parse, formatISO, startOfDay, endOfDay } from "date-fns";
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
+import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 // --- Config ---
 import {
   DEFAULT_NPE_FIELDS_TO_FETCH,
   NPE_SEARCHABLE_FIELDS,
   NPE_DATE_COLUMNS,
 } from "./config/nonProjectExpensesTable.config";
+import { getNonProjectExpenseColumns } from "./config/nonProjectExpensesColumns";
 
 // --- Child Components ---
 import { NewNonProjectExpense } from "./components/NewNonProjectExpense";
-import { EditNonProjectExpense } from "./components/EditNonProjectExpense"; // NEW
+import { EditNonProjectExpense } from "./components/EditNonProjectExpense";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
-import { useUserData } from "@/hooks/useUserData";
 
 const DOCTYPE = "Non Project Expenses";
+
+// URL param key for the active status workflow tab (namespaced to avoid collision
+// with the page's own date-range params).
+const NPE_STATUS_TAB_PARAM = "npe_status";
 
 // NEW: Configuration for the summary card aggregations
 const NPE_AGGREGATES_CONFIG: AggregationConfig[] = [
@@ -104,8 +90,10 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   urlContext = "npe_default",
   DisableAction = false,
 }) => {
+  // Standalone page grows to natural height for a single page scroll; the report
+  // embed (DisableAction) keeps the fixed-height internal table scroll.
+  const autoHeight = !DisableAction;
   const {
-    toggleNewNonProjectExpenseDialog,
     setEditNonProjectExpenseDialog, // NEW
     deleteConfirmationDialog, // NEW
     setDeleteConfirmationDialog, // NEW
@@ -113,6 +101,65 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   const { toast } = useToast();
   const { role } = useUserData();
   const { deleteDoc, loading: deleteLoading } = useFrappeDeleteDoc(); // For delete operation
+  const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
+
+  // --- Status workflow tab (URL-synced, role-based default) ---
+  // Accountant lands on Approved (their action = Record Payment + Mark as Paid);
+  // everyone else on Requested. A ?npe_status= param overrides it.
+  const isAccountantUser =
+    role === "Nirmaan Accountant Profile" ||
+    role === "Nirmaan Accountant Lead Profile";
+  const defaultStatusTab = isAccountantUser ? "Approved" : "Requested";
+  const [statusTab, setStatusTab] = useState<string>(() =>
+    getUrlStringParam(NPE_STATUS_TAB_PARAM, defaultStatusTab)
+  );
+  useEffect(() => {
+    if (urlStateManager.getParam(NPE_STATUS_TAB_PARAM) !== statusTab) {
+      urlStateManager.updateParam(NPE_STATUS_TAB_PARAM, statusTab);
+    }
+  }, [statusTab]);
+  useEffect(() => {
+    const unsubscribe = urlStateManager.subscribe(
+      NPE_STATUS_TAB_PARAM,
+      (_, value) => {
+        const next = value || defaultStatusTab;
+        setStatusTab((prev) => (prev !== next ? next : prev));
+      }
+    );
+    return unsubscribe;
+  }, [defaultStatusTab]);
+
+  // --- Users lookup for the "Created By" column ---
+  const { data: users } = useFrappeGetDocList<NirmaanUsers>("Nirmaan Users", {
+    fields: ["name", "full_name"],
+    limit: 0,
+  });
+  const getUserName = useCallback(
+    memoize(
+      (id?: string) =>
+        users?.find((u) => u.name === id)?.full_name || id || "--"
+    ),
+    [users]
+  );
+
+  // --- Per-status counts for the tab badges (whole dataset, not date-scoped) ---
+  const { data: requestedCount, mutate: mutateRequested } =
+    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Requested"]]);
+  const { data: approvedCount, mutate: mutateApproved } =
+    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Approved"]]);
+  const { data: paidCount, mutate: mutatePaid } =
+    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Paid"]]);
+  const { data: allCount } = useFrappeGetDocCount(DOCTYPE, undefined);
+
+  const statusTabs = useMemo(
+    () => [
+      { label: "Requested", value: "Requested", count: requestedCount ?? 0 },
+      { label: "Approved", value: "Approved", count: approvedCount ?? 0 },
+      { label: "Paid", value: "Paid", count: paidCount ?? 0 },
+      { label: "All", value: "All", count: allCount ?? 0 },
+    ],
+    [requestedCount, approvedCount, paidCount, allCount]
+  );
 
   const urlSyncKey = useMemo(() => `npe_${urlContext}`, [urlContext]);
 
@@ -179,16 +226,25 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     useState<NonProjectExpensesType | null>(null); // NEW
   const [expenseToDelete, setExpenseToDelete] =
     useState<NonProjectExpensesType | null>(null); // NEW for delete context
+  const [markPaidMode, setMarkPaidMode] = useState(false);
+  const [statusAction, setStatusAction] = useState<{
+    expense: NonProjectExpensesType;
+    next: "Approved" | "Paid";
+  } | null>(null);
 
   // Define handlers (these are dependencies for `columnsDefinition`)
-  const handleOpenPaymentUpdateDialog = useCallback(
+  // Accountant "Mark as Paid" -> opens the payment dialog in mark-paid mode, which
+  // records the payment details AND sets status = "Paid" on submit.
+  const handleOpenMarkPaid = useCallback(
     (expense: NonProjectExpensesType) => {
       setSelectedExpenseForUpdate(expense);
+      setMarkPaidMode(true);
       setIsPaymentUpdateDialogOpen(true);
     },
     []
   );
 
+  // Creator "Record Invoice" -> opens the invoice-details dialog.
   const handleOpenInvoiceUpdateDialog = useCallback(
     (expense: NonProjectExpensesType) => {
       setSelectedExpenseForUpdate(expense);
@@ -196,6 +252,11 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     },
     []
   );
+
+  // Admin "Approve" -> confirm dialog that moves Requested -> Approved.
+  const handleOpenApprove = useCallback((expense: NonProjectExpensesType) => {
+    setStatusAction({ expense, next: "Approved" });
+  }, []);
 
   const handleOpenEditDialog = useCallback(
     (expense: NonProjectExpensesType) => {
@@ -238,289 +299,70 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     }
   };
 
-  const actionColumn: ColumnDef<NonProjectExpensesType> = {
-    id: "actions",
-    header: () => <div className="text-right">Actions</div>, // Added text-right for alignment
-    cell: ({ row }) => {
-      const expense = row.original;
-      return (
-        <div className="text-right">
-          {" "}
-          {/* Ensure parent div is also text-right */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {(role === "Nirmaan Admin Profile" ||
-                role === "Nirmaan PMO Executive Profile") && (
-                  <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
-                    <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
-                  </DropdownMenuItem>
-                )}
-              <DropdownMenuItem
-                onClick={() => handleOpenPaymentUpdateDialog(expense)}
-              >
-                <DollarSign className="mr-2 h-4 w-4" /> Update Payment
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleOpenInvoiceUpdateDialog(expense)}
-              >
-                <FileText className="mr-2 h-4 w-4" /> Update Invoice
-              </DropdownMenuItem>
-              {(role === "Nirmaan Admin Profile" ||
-                role === "Nirmaan PMO Executive Profile") && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => handleOpenDeleteConfirmation(expense)}
-                      className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
-                    </DropdownMenuItem>
-                  </>
-                )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      );
-    },
-    meta: { excludeFromExport: true },
+  const confirmStatusChange = async () => {
+    if (!statusAction) return;
+    try {
+      await updateDoc(DOCTYPE, statusAction.expense.name, {
+        status: statusAction.next,
+      });
+      toast({
+        title: "Success",
+        description: `Expense marked ${statusAction.next}.`,
+        variant: "success",
+      });
+      refetch();
+      mutateRequested();
+      mutateApproved();
+      mutatePaid();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update status.",
+        variant: "destructive",
+      });
+    } finally {
+      setStatusAction(null);
+    }
   };
 
-  // Now define columns, using the handlers
-  // This `columnsDefinition` will be passed to both useServerDataTable and DataTable
-  const columnsDefinition = useMemo<ColumnDef<NonProjectExpensesType>[]>(
-    () => [
-      {
-        accessorKey: "payment_date",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Payment Date" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium ">
-            {row.original.payment_date
-              ? formatDate(row.original.payment_date)
-              : "--"}
-          </div>
-        ),
+  // Status workflow tab -> base filter (combined with the date-range filter).
+  // Report mode (DisableAction) = the Outflow (Non-Project) report -> settled
+  // cash-out only, so force status = Paid. The standalone page uses the active
+  // status tab instead (All tab = no status filter).
+  const additionalFilters = useMemo(() => {
+    const filters: any[] = [...dateFilters];
+    if (DisableAction) {
+      filters.push(["status", "=", "Paid"]);
+    } else if (statusTab !== "All") {
+      filters.push(["status", "=", statusTab]);
+    }
+    return filters;
+  }, [dateFilters, statusTab, DisableAction]);
 
-        meta: {
-          exportHeaderName: "Payment Date",
-          exportValue: (row) =>
-            row.payment_date ? formatDate(row.payment_date) : "--",
-        },
-      },
-      {
-        accessorKey: "invoice_date",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Invoice Date" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium ">
-            {row.original.invoice_date
-              ? formatDate(row.original.invoice_date)
-              : "--"}
-          </div>
-        ),
-
-        meta: {
-          exportHeaderName: "Invoice Date",
-          exportValue: (row) =>
-            row.invoice_date ? formatDate(row.invoice_date) : "--",
-        },
-      },
-      {
-        accessorKey: "type",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Expense Type" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium " title={row.original.type}>
-            {row.original.type}
-          </div>
-        ),
-        enableColumnFilter: true, // UPDATED: Explicitly enable filtering for clarity
-        meta: {
-          exportHeaderName: "Expense Type",
-          exportValue: (row) => row.type,
-        },
-      },
-      {
-        accessorKey: "description",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Description" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium " title={row.original.description}>
-            {row.original.description || "--"}
-          </div>
-        ),
-
-        meta: {
-          exportHeaderName: "Description",
-          exportValue: (row) => row.description || "--",
-        },
-      },
-      {
-        accessorKey: "comment",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Comment" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium " title={row.original.comment}>
-            {row.original.comment || "--"}
-          </div>
-        ),
-
-        meta: {
-          exportHeaderName: "Comment",
-          exportValue: (row) => row.comment || "--",
-        },
-      },
-      {
-        accessorKey: "amount",
-        header: ({ column }) => (
-          <DataTableColumnHeader
-            column={column}
-            title="Amount"
-            className="justify-end"
-          />
-        ),
-        cell: ({ row }) => {
-          const amount = row.original.amount;
-          return (
-            <div className={cn(
-              "font-medium",
-              amount < 0 && "text-green-600 dark:text-green-400"
-            )}>
-              {formatToRoundedIndianRupee(amount)}
-            </div>
-          );
-        },
-
-        meta: {
-          exportHeaderName: "Amount",
-          exportValue: (row) => formatForReport(row.amount),
-        },
-      },
-      {
-        accessorKey: "payment_ref",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Payment Ref" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium">{row.original.payment_ref || "--"}</div>
-        ),
-
-        meta: {
-          exportHeaderName: "Payment Ref",
-          exportValue: (row) => row.payment_ref || "--",
-        },
-      },
-      {
-        accessorKey: "invoice_ref",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Invoice Ref" />
-        ),
-        cell: ({ row }) => (
-          <div className="font-medium">{row.original.invoice_ref || "--"}</div>
-        ),
-
-        meta: {
-          exportHeaderName: "Invoice Ref",
-          exportValue: (row) => row.invoice_ref || "--",
-        },
-      },
-      {
-        id: "attachments",
-        header: "Attachments",
-        cell: ({ row }) => {
-          const data = row.original;
-          return (
-            <div className="flex items-center space-x-2">
-              {row.original.payment_attachment && (
-                <a
-                  href={SITEURL + data.payment_attachment}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Payment Proof"
-                >
-                  <Download className="h-4 w-4 text-blue-600 hover:text-blue-800" />
-                </a>
-              )}
-              {row.original.invoice_attachment && (
-                <a
-                  href={SITEURL + data.invoice_attachment}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Invoice Document"
-                >
-                  <FileText className="h-4 w-4 text-green-600 hover:text-green-800" />
-                </a>
-              )}
-              {!row.original.payment_attachment &&
-                !row.original.invoice_attachment && (
-                  <span className="text-xs text-muted-foreground">None</span>
-                )}
-            </div>
-          );
-        },
-
-        enableSorting: false,
-        meta: { excludeFromExport: true },
-      },
-      ...(!DisableAction ? [actionColumn] : []),
-      // {
-      //     id: "actions",
-      //     header: () => <div>Actions</div>,
-      //     cell: ({ row }) => {
-      //         const expense = row.original;
-      //         return (
-      //             <div> {/* Ensure parent div is also text-right */}
-      //                 <DropdownMenu>
-      //                     <DropdownMenuTrigger asChild>
-      //                         <Button variant="ghost" className="h-8 w-8 p-0">
-      //                             <span className="sr-only">Open menu</span>
-      //                             <MoreHorizontal className="h-4 w-4" />
-      //                         </Button>
-      //                     </DropdownMenuTrigger>
-      //                     <DropdownMenuContent align="end">
-      //                         {role === "Nirmaan Admin Profile" && <DropdownMenuItem onClick={() => handleOpenEditDialog(expense)}>
-      //                             <Edit2 className="mr-2 h-4 w-4" /> Edit Expense
-      //                         </DropdownMenuItem>}
-      //                         <DropdownMenuItem onClick={() => handleOpenPaymentUpdateDialog(expense)}>
-      //                             <DollarSign className="mr-2 h-4 w-4" /> Update Payment
-      //                         </DropdownMenuItem>
-      //                         <DropdownMenuItem onClick={() => handleOpenInvoiceUpdateDialog(expense)}>
-      //                             <FileText className="mr-2 h-4 w-4" /> Update Invoice
-      //                         </DropdownMenuItem>
-      //                         {role === "Nirmaan Admin Profile" &&
-      //                             <>
-      //                                 <DropdownMenuSeparator />
-      //                                 <DropdownMenuItem
-      //                                     onClick={() => handleOpenDeleteConfirmation(expense)}
-      //                                     className="text-destructive focus:text-destructive focus:bg-destructive/10"
-      //                                 >
-      //                                     <Trash2 className="mr-2 h-4 w-4" /> Delete Expense
-      //                                 </DropdownMenuItem>
-      //                             </>
-      //                         }
-      //                     </DropdownMenuContent>
-      //                 </DropdownMenu>
-      //             </div>
-      //         );
-      //     },
-      //     meta: { excludeFromExport: true }
-      // },
-    ],
+  // Columns live in ./config/nonProjectExpensesColumns (tab-aware + role-gated).
+  // In report mode (DisableAction) show the full "All" column set with no actions.
+  const columnsDefinition = useMemo(
+    () =>
+      getNonProjectExpenseColumns({
+        statusTab: DisableAction ? "All" : statusTab,
+        role,
+        getUserName,
+        disableActions: DisableAction,
+        onEdit: handleOpenEditDialog,
+        onApprove: handleOpenApprove,
+        onRecordInvoice: handleOpenInvoiceUpdateDialog,
+        onMarkPaid: handleOpenMarkPaid,
+        onDelete: handleOpenDeleteConfirmation,
+      }),
     [
-      handleOpenPaymentUpdateDialog,
-      handleOpenInvoiceUpdateDialog,
+      statusTab,
+      DisableAction,
+      role,
+      getUserName,
       handleOpenEditDialog,
+      handleOpenApprove,
+      handleOpenInvoiceUpdateDialog,
+      handleOpenMarkPaid,
       handleOpenDeleteConfirmation,
     ]
   );
@@ -553,7 +395,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     enableRowSelection: false, // Or true if actions on rows are needed
     aggregatesConfig: NPE_AGGREGATES_CONFIG, // NEW: Pass the config
     groupByConfig: NPE_GROUP_BY_CONFIG, // NEW: Pass the group by config
-    additionalFilters: dateFilters, // NEW: Apply date filters
+    additionalFilters: additionalFilters, // date range + active status tab
   });
 
   // --- Dynamic Facet Values ---
@@ -566,22 +408,67 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     currentFilters: columnFilters,
     searchTerm,
     selectedSearchField,
-    additionalFilters: dateFilters,
+    additionalFilters,
     enabled: true,
   });
 
+  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "owner",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters,
+      enabled: !DisableAction,
+    });
+
+  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
+    useFacetValues({
+      doctype: DOCTYPE,
+      field: "status",
+      currentFilters: columnFilters,
+      searchTerm,
+      selectedSearchField,
+      additionalFilters,
+      enabled: !DisableAction && statusTab === "All",
+    });
+
   // --- (4) NEW: Define the facet filter configuration object ---
-  const facetFilterOptions = useMemo(
-    () => ({
+  const facetFilterOptions = useMemo(() => {
+    const filters: any = {
       type: {
         // This key 'type' MUST match the column's accessorKey
         title: "Expense Type",
         options: expenseTypeFacetOptions,
         isLoading: isExpenseTypeFacetLoading,
       },
-    }),
-    [expenseTypeFacetOptions, isExpenseTypeFacetLoading]
-  );
+    };
+    if (!DisableAction) {
+      filters.owner = {
+        title: "Created By",
+        options: ownerFacetOptions,
+        isLoading: isOwnerFacetLoading,
+      };
+    }
+    if (!DisableAction && statusTab === "All") {
+      filters.status = {
+        title: "Status",
+        options: statusFacetOptions,
+        isLoading: isStatusFacetLoading,
+      };
+    }
+    return filters;
+  }, [
+    expenseTypeFacetOptions,
+    isExpenseTypeFacetLoading,
+    ownerFacetOptions,
+    isOwnerFacetLoading,
+    statusFacetOptions,
+    isStatusFacetLoading,
+    DisableAction,
+    statusTab,
+  ]);
 
   const handleClearDateFilter = useCallback(() => {
     onDateClear(); // Reset to "ALL" (no date filtering)
@@ -595,11 +482,13 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     <div
       className={cn(
         "flex flex-col gap-2 overflow-hidden",
-        totalCount > 10
-          ? "h-[calc(100vh-80px)]"
-          : totalCount > 0
-            ? "h-auto"
-            : ""
+        autoHeight
+          ? "h-auto"
+          : totalCount > 10
+            ? "h-[calc(100vh-80px)]"
+            : totalCount > 0
+              ? "h-auto"
+              : ""
       )}
     >
       <StandaloneDateFilter
@@ -607,7 +496,36 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         onChange={onDateChange}
         onClear={handleClearDateFilter}
       />
-      {/* <span>(PAYMENT DATE)</span> */}
+      {!DisableAction && (
+        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0 scrollbar-thin">
+          <div className="flex gap-1.5 sm:flex-wrap pb-1 sm:pb-0">
+            {statusTabs.map((sTab) => {
+              const isActive = statusTab === sTab.value;
+              return (
+                <button
+                  key={sTab.value}
+                  type="button"
+                  onClick={() => setStatusTab(sTab.value)}
+                  className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                    isActive
+                      ? "bg-sky-500 text-white"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  {sTab.label}
+                  <span
+                    className={`text-xs font-bold ${
+                      isActive ? "opacity-90" : "opacity-70"
+                    }`}
+                  >
+                    {sTab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <DataTable<NonProjectExpensesType>
         table={table} // This table instance is now created with columns
         columns={columnsDefinition} // Pass the same columns definition for export/etc.
@@ -639,13 +557,23 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         }
       // errorMessage="Could not load expenses. Please try again." // Already handled by main error display
       />
-      <NewNonProjectExpense refetchList={refetch} />
+      <NewNonProjectExpense
+        refetchList={() => {
+          refetch();
+          mutateRequested();
+          mutateApproved();
+          mutatePaid();
+        }}
+      />
 
       {selectedExpenseForEdit && ( // NEW: Render Edit Dialog
         <EditNonProjectExpense
           expenseToEdit={selectedExpenseForEdit}
           onSuccess={() => {
             refetch();
+            mutateRequested();
+            mutateApproved();
+            mutatePaid();
             setEditNonProjectExpenseDialog(false); // Close dialog on success
           }}
         />
@@ -657,13 +585,24 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             isOpen={isPaymentUpdateDialogOpen}
             setIsOpen={setIsPaymentUpdateDialogOpen}
             expense={selectedExpenseForUpdate}
-            onSuccess={refetch}
+            markAsPaid={markPaidMode}
+            onSuccess={() => {
+              refetch();
+              mutateRequested();
+              mutateApproved();
+              mutatePaid();
+            }}
           />
           <UpdateInvoiceDetailsDialog
             isOpen={isInvoiceUpdateDialogOpen}
             setIsOpen={setIsInvoiceUpdateDialogOpen}
             expense={selectedExpenseForUpdate}
-            onSuccess={refetch}
+            onSuccess={() => {
+              refetch();
+              mutateRequested();
+              mutateApproved();
+              mutatePaid();
+            }}
           />
         </>
       )}
@@ -695,6 +634,36 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
                 className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
               >
                 {deleteLoading ? "Deleting..." : "Yes, delete expense"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {/* Approve confirmation (Requested -> Approved) */}
+      {statusAction && (
+        <AlertDialog
+          open={!!statusAction}
+          onOpenChange={(open) => !open && setStatusAction(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Approve this expense?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This moves the expense from Requested to Approved.
+                <span className="font-semibold mx-1">
+                  {statusAction.expense.description || statusAction.expense.name}
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setStatusAction(null)}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmStatusChange}
+                disabled={updateLoading}
+              >
+                {updateLoading ? "Updating..." : "Confirm"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

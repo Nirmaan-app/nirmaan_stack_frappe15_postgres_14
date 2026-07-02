@@ -108,6 +108,7 @@ export const useProjectReportCalculations = (params: ProjectReportParams = {}): 
     const { data: projectExpensesData, isLoading: isLoadingProjectExpenses, error: errorProjectExpenses, mutate: mutateProjectExpenses } =
         useFrappeGetDocList<ProjectExpenses>('Project Expenses', {
             fields: ['projects', 'amount', 'payment_date'], // Only fields needed for this calculation
+            filters: [["status", "=", "Paid"]], // Only Paid expenses count toward the per-project outflow.
             limit: 0,
         }, 'AllProjectExpensesForReports');
 

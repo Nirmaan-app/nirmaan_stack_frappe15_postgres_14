@@ -23,7 +23,6 @@ import {
   ClipboardMinus,
   HandCoins,
   ReceiptText, FileUp,
-  Banknote,
   CreditCard,
   Dices,
   FileSpreadsheet,
@@ -520,21 +519,14 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan HR Executive Profile"].includes(role as string)
       ? [
         {
-          key: '/project-expenses',
+          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
+          // default (Misc Project) tab; the tab strip handles switching.
+          key: '/expense/project',
           icon: Landmark,
-          label: 'Misc. Project Expenses',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/non-project',
-          icon: Banknote,
-          label: 'Non Project Expenses',
+          label: 'Expense',
         },
       ]
       : []),
@@ -698,8 +690,7 @@ export function NewSidebar() {
     "in-flow-payments",
     'invoice-reconciliation',
     'project-invoices',
-    'project-expenses',
-    'non-project',
+    'expense',
     'reports',
     'design-tracker',
     'critical-po-tracker',
@@ -741,8 +732,7 @@ export function NewSidebar() {
     "/in-flow-payments": ["in-flow-payments"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
-    "/project-expenses": ["project-expenses"],
-    "/non-project": ["non-project"],
+    "/expense/project": ["expense"],
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
@@ -857,8 +847,7 @@ export function NewSidebar() {
                     "Material Plan Tracker",
                     "Cashflow Plan Tracker",
                     "Project Invoices",
-                    "Misc. Project Expenses",
-                    "Non Project Expenses",
+                    "Expense",
                     "Users",
                     "Assets",
                     "Vendors",

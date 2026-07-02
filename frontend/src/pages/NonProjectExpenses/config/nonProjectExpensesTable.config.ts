@@ -8,6 +8,7 @@ export const DEFAULT_NPE_FIELDS_TO_FETCH: (keyof NonProjectExpenses | 'name' | '
     "creation",
     "modified",
     "owner",
+    "status",
     "type",
     "description",
     "comment",

@@ -331,8 +331,25 @@ def on_project_payment(doc, method=None):
 
 
 def on_project_expense(doc, method=None):
-	# Project Expenses uses 'projects' (plural) as the link field.
-	trigger_check(doc.projects)
+	"""
+	Cashflow gap counts only Paid expenses (see _compute_cashflow_gap), so — like
+	on_project_payment — only re-evaluate the CEO Hold when a row enters or leaves
+	Paid. Adding / editing a Requested or Approved expense does NOT touch the gap
+	and is skipped.
+
+	Fires only when:
+	  * a row enters Paid (status flipped to 'Paid', incl. created directly as Paid)
+	  * a row leaves  Paid (status flipped away from 'Paid')
+	  * a Paid row is deleted (wired to after_delete — NOT on_trash — so the gap
+	    query runs after the DB row is gone and reflects the deletion)
+	Project Expenses uses 'projects' (plural) as the link field.
+	"""
+	if not doc.has_value_changed("status"):
+		return
+
+	prev_status = (doc.get_doc_before_save() or {}).get("status") if not doc.is_new() else None
+	if doc.status == "Paid" or prev_status == "Paid":
+		trigger_check(doc.projects)
 
 
 def on_project_inflow(doc, method=None):
@@ -362,7 +379,9 @@ def _compute_cashflow_gap(project_id: str) -> float:
 	)
 	expenses = frappe.get_all(
 		"Project Expenses",
-		filters=[["projects", "=", project_id]],  # 'projects' (plural) is correct
+		# Only Paid expenses count as outflow (mirrors the Paid-only Project Payments
+		# filter above); Requested/Approved-but-unpaid expenses don't affect the gap.
+		filters=[["projects", "=", project_id], ["status", "=", "Paid"]],  # 'projects' (plural) is correct
 		fields=["amount"],
 	)
 	outflow = sum(flt(p.amount) for p in paid_payments) + sum(flt(e.amount) for e in expenses)

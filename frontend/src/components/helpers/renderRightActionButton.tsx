@@ -146,21 +146,21 @@ export const RenderRightActionButton = ({
         Add <span className="hidden md:flex pl-1">New Project Invoice</span>
       </Button>
     );
-  } else if (locationPath === "/non-project") {
+  } else if (locationPath === "/expense/non-project") {
     return (
       <Button onClick={toggleNewNonProjectExpenseDialog} className="sm:mr-4 mr-2">
         <CirclePlus className="w-5 h-5 pr-1" />
         Add <span className="hidden md:flex pl-1">New Expense</span>
       </Button>
     );
-  } else if (locationPath === "/project-expenses") {
+  } else if (locationPath === "/expense/project") {
+    // Same access as the Non-Project button: no role gate, shown to everyone
+    // with Expense-module access.
     return (
-      (role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile") ? (
-        <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
-          <CirclePlus className="w-5 h-5 pr-1" />
-          Add <span className="hidden md:flex pl-1">New Project Expense</span>
-        </Button>
-      ) : null
+      <Button onClick={toggleNewProjectExpenseDialog} className="sm:mr-4 mr-2">
+        <CirclePlus className="w-5 h-5 pr-1" />
+        Add <span className="hidden md:flex pl-1">New Project Expense</span>
+      </Button>
     );
   } else {
     return (

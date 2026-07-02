@@ -10,7 +10,7 @@ import {
 } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { formatDate as formatDateFns } from "date-fns";
-import { Check, ChevronsUpDown, Paperclip, Download as DownloadIcon, X as XIcon, AlertTriangle } from "lucide-react";
+import { Check, ChevronsUpDown, Download as DownloadIcon, X as XIcon, AlertTriangle } from "lucide-react";
 
 // --- UI Components ---
 import {
@@ -100,14 +100,18 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                 description: expenseToEdit.description || "",
                 comment: expenseToEdit.comment || "",
                 amount: expenseToEdit.amount?.toString() || "",
-                payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+                // Prefill from the saved value, otherwise leave EMPTY (no auto-today).
+                payment_date: expenseToEdit.payment_date ? formatDateFns(new Date(expenseToEdit.payment_date), "yyyy-MM-dd") : "",
                 payment_ref: expenseToEdit.payment_ref || "",
-                invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), "yyyy-MM-dd") : formatDateFns(new Date(), "yyyy-MM-dd"),
+                invoice_date: expenseToEdit.invoice_date ? formatDateFns(new Date(expenseToEdit.invoice_date), "yyyy-MM-dd") : "",
                 invoice_ref: expenseToEdit.invoice_ref || "",
             });
             // Determine if sections should be initially open
-            setRecordPaymentDetails(!!(expenseToEdit.payment_date || expenseToEdit.payment_ref || expenseToEdit.payment_attachment));
-            setRecordInvoiceDetails(!!(expenseToEdit.invoice_date || expenseToEdit.invoice_ref || expenseToEdit.invoice_attachment));
+            const hasPayment = !!(expenseToEdit.payment_date || expenseToEdit.payment_ref || expenseToEdit.payment_attachment);
+            const hasInvoice = !!(expenseToEdit.invoice_date || expenseToEdit.invoice_ref || expenseToEdit.invoice_attachment);
+            setRecordPaymentDetails(hasPayment);
+            // A Paid expense (has payment) also requires its invoice, so keep both open.
+            setRecordInvoiceDetails(hasInvoice || hasPayment);
 
             setExistingPaymentAttachmentUrl(expenseToEdit.payment_attachment);
             setExistingInvoiceAttachmentUrl(expenseToEdit.invoice_attachment);
@@ -156,11 +160,15 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         if (!formState.type) errors.type = "Expense Type is required.";
         if (!formState.description.trim()) errors.description = "Description is required.";
         if (!formState.amount || parseNumber(formState.amount) === 0) errors.amount = "Amount cannot be zero. Use negative for refunds.";
+        // Marking Paid (Record Payment Details) makes BOTH dates mandatory.
         if (recordPaymentDetails && !formState.payment_date) errors.payment_date = "Payment date is required.";
-        if (recordInvoiceDetails && !formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+        if ((recordPaymentDetails || recordInvoiceDetails) && !formState.invoice_date) errors.invoice_date = "Invoice date is required.";
+        // An invoice attachment (kept existing or newly staged) requires an Invoice Ref.
+        const hasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
+        if (recordInvoiceDetails && hasInvoiceAttachment && !formState.invoice_ref.trim()) errors.invoice_ref = "Invoice reference is required when an invoice is attached.";
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
-    }, [formState, recordPaymentDetails, recordInvoiceDetails]);
+    }, [formState, recordPaymentDetails, recordInvoiceDetails, newInvoiceAttachmentFile, invoiceAttachmentAction, existingInvoiceAttachmentUrl]);
 
     // Attachment Handlers (similar to UpdatePayment/InvoiceDetailsDialog)
     const handleNewPaymentFileSelected = (file: File | null) => {
@@ -258,7 +266,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
 
     const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount;
+    const editHasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
+    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
 
@@ -272,41 +281,38 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         onRemoveExisting: () => void,
         labelPrefix: string
     ) => {
-        let currentAttachmentDisplayNode: React.ReactNode = null;
         const effectiveExistingUrl = (action === "keep" || action === "replace") && existingUrl;
-
-        if (newFile) {
-            currentAttachmentDisplayNode = ( /* ... New file display ... */
-                <div className="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/30 rounded-md text-sm border border-blue-200 dark:border-blue-700">
-                    <div className="flex items-center gap-2 min-w-0"><Paperclip className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" /><span className="truncate" title={newFile.name}>{newFile.name}</span><span className="text-xs text-blue-500 dark:text-blue-500 ml-1 whitespace-nowrap">(New)</span></div>
-                </div>
-            );
-        } else if (effectiveExistingUrl) {
-            currentAttachmentDisplayNode = ( /* ... Existing file display ... */
-                <div className="flex items-center justify-between p-2 bg-muted/60 rounded-md text-sm">
-                    <div className="flex items-center gap-2 min-w-0"><DownloadIcon className="h-4 w-4 text-primary flex-shrink-0" /><a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a></div>
-                    <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10"><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>
-                </div>
-            );
-        } else if (action === "remove" && existingUrl) {
-            currentAttachmentDisplayNode = ( /* ... Marked for removal ... */
-                <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/30 rounded-md text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0" /><span>Attachment will be removed.</span>
-                </div>
-            );
-        }
 
         return (
             <div className="grid grid-cols-4 items-start gap-3">
                 <Label className="text-right col-span-1 pt-2">{labelPrefix} Attachment</Label>
                 <div className="col-span-3 space-y-2">
-                    {currentAttachmentDisplayNode}
-                    {(!newFile && (action === "remove" || !existingUrl)) && (
-                        <CustomAttachment label={`Upload New ${labelPrefix} Attachment`} selectedFile={newFile} onFileSelect={onNewFileSelected} onError={handleAttachmentError} maxFileSize={5 * 1024 * 1024} acceptedTypes={ATTACHMENT_ACCEPTED_TYPES} disabled={isLoadingOverall} />
+                    {/* Existing saved file — hidden once a replacement is staged. */}
+                    {effectiveExistingUrl && !newFile && (
+                        <div className="flex items-center justify-between p-2 bg-muted/60 rounded-md text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <DownloadIcon className="h-4 w-4 text-primary flex-shrink-0" />
+                                <a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={onRemoveExisting} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><XIcon className="h-4 w-4" /><span className="sr-only">Remove existing</span></Button>
+                        </div>
                     )}
-                    {!newFile && existingUrl && action === "keep" && (
-                        <CustomAttachment label={`Replace ${labelPrefix} Attachment`} selectedFile={null} onFileSelect={onNewFileSelected} onError={handleAttachmentError} maxFileSize={5 * 1024 * 1024} acceptedTypes={ATTACHMENT_ACCEPTED_TYPES} disabled={isLoadingOverall} />
+                    {action === "remove" && existingUrl && !newFile && (
+                        <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/30 rounded-md text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
+                            <AlertTriangle className="h-4 w-4 flex-shrink-0" /><span>Attachment will be removed.</span>
+                        </div>
                     )}
+                    {/* Same uploader format as the create dialog — CustomAttachment shows the
+                        staged file (with its own remove) exactly like creation. */}
+                    <CustomAttachment
+                        label={effectiveExistingUrl ? `Replace ${labelPrefix} Attachment` : `Upload ${labelPrefix} Attachment`}
+                        selectedFile={newFile}
+                        onFileSelect={onNewFileSelected}
+                        onError={handleAttachmentError}
+                        maxFileSize={5 * 1024 * 1024}
+                        acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
+                        disabled={isLoadingOverall}
+                    />
                 </div>
             </div>
         );
@@ -371,11 +377,14 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                         </p>
                     </div>
 
+                    {/* Payment Details are recorded via "Mark as Paid"; only expose this
+                        section when editing an already-Paid expense (e.g. Admin corrections). */}
+                    {expenseToEdit.status === "Paid" && (
+                    <>
                     <Separator className="my-4" />
-                    {/* Payment Details Section */}
                     <div className="flex items-center space-x-2">
-                        <Checkbox id="recordPaymentDetails_edit_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => setRecordPaymentDetails(Boolean(checked))} disabled={isLoadingOverall} />
-                        <Label htmlFor="recordPaymentDetails_edit_npe" className="font-medium">Payment Details</Label>
+                        <Checkbox id="recordPaymentDetails_edit_npe" checked={recordPaymentDetails} onCheckedChange={(checked) => { setRecordPaymentDetails(Boolean(checked)); if (checked) setRecordInvoiceDetails(true); }} disabled={isLoadingOverall} />
+                        <Label htmlFor="recordPaymentDetails_edit_npe" className="font-medium">Payment Details (Paid)</Label>
                     </div>
                     {recordPaymentDetails && (
                         <div className="pl-6 space-y-3 border-l-2 ml-2 mt-2 border-dashed">
@@ -391,11 +400,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                             {renderAttachmentSection("payment", existingPaymentAttachmentUrl, newPaymentAttachmentFile, paymentAttachmentAction, handleNewPaymentFileSelected, handleRemoveExistingPaymentAttachment, "Payment")}
                         </div>
                     )}
+                    </>
+                    )}
 
                     <Separator className="my-4" />
                     {/* Invoice Details Section */}
                     <div className="flex items-center space-x-2">
-                        <Checkbox id="recordInvoiceDetails_edit_npe" checked={recordInvoiceDetails} onCheckedChange={(checked) => setRecordInvoiceDetails(Boolean(checked))} disabled={isLoadingOverall} />
+                        <Checkbox id="recordInvoiceDetails_edit_npe" checked={recordInvoiceDetails} onCheckedChange={(checked) => setRecordInvoiceDetails(Boolean(checked))} disabled={isLoadingOverall || recordPaymentDetails} />
                         <Label htmlFor="recordInvoiceDetails_edit_npe" className="font-medium">Invoice Details</Label>
                     </div>
                     {recordInvoiceDetails && (
@@ -406,8 +417,9 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                                 {formErrors.invoice_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_date}</p>}
                             </div>
                             <div className="grid grid-cols-4 items-center gap-3"> {/* Ref */}
-                                <Label htmlFor="invoice_ref_edit_npe" className="text-right col-span-1">Invoice Ref</Label>
-                                <Input id="invoice_ref_edit_npe" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className="col-span-3" disabled={isLoadingOverall} />
+                                <Label htmlFor="invoice_ref_edit_npe" className="text-right col-span-1">Invoice Ref{editHasInvoiceAttachment && <sup className="text-destructive"> *</sup>}</Label>
+                                <Input id="invoice_ref_edit_npe" name="invoice_ref" value={formState.invoice_ref} onChange={handleInputChange} className={cn("col-span-3", ((editHasInvoiceAttachment && !formState.invoice_ref.trim()) || formErrors.invoice_ref) && "border-destructive")} disabled={isLoadingOverall} />
+                                {((editHasInvoiceAttachment && !formState.invoice_ref.trim()) || formErrors.invoice_ref) && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.invoice_ref || "Invoice Ref is required because an invoice is attached."}</p>}
                             </div>
                             {renderAttachmentSection("invoice", existingInvoiceAttachmentUrl, newInvoiceAttachmentFile, invoiceAttachmentAction, handleNewInvoiceFileSelected, handleRemoveExistingInvoiceAttachment, "Invoice")}
                         </div>
