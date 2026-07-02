@@ -269,6 +269,7 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/` (snake_case files; 
 | Projects | `.claude/context/domain/projects.md` |
 | Service Requests | `.claude/context/domain/service-requests.md` |
 | Internal Transfer Memos | `.claude/context/domain/internal-transfer-memos.md` |
+| Expenses (approval workflow, Paid-only, unified module) | `.claude/context/domain/expenses.md` |
 | Invoice Autofill | `.claude/context/domain/invoice-autofill.md` |
 | Vendor Hold | `frontend/.claude/context/domain/vendor-hold.md` |
 | Frontend domain context (full) | `frontend/.claude/context/_index.md` |
