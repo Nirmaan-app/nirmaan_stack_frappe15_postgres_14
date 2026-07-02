@@ -10824,6 +10824,30 @@ bumped to v1.1.
   DEFERRED.
 - Not re-run here (that is the next AI re-run). Load-verified: both harnesses resolve PROMPT_PATH
   to the tracked file (7518 bytes, v1.1 header). No push, no migrate.
+
+CLASSIFICATION HARNESS -> TRACKED (behavior-preserving move; local, NOT pushed; feat abdf5faf).
+The committed-tree classification harness (previously scratch-only in _classification_review/) is
+now version-controlled in the module, so it is not lost and other disciplines reuse the SAME
+mechanism later.
+- LOCATION: nirmaan_stack/services/boq_category/harness/ -- electrical_classification_harness.py
+  (canonical name; moved from scratch rerun_harness_committed.py -- THE harness now) +
+  classification_analysis.py (moved from analyze_rerun.py). The whole classification mechanism is
+  now tracked in services/boq_category/: engine (runner.py) + rules_electrical.json +
+  categories_electrical.json + scoring.json + prompts/electrical_ai_category_prompt.md + harness/.
+- MINIMAL move: only file location + rename + internal-path repoints. NO logic/tree-walk/join/
+  measurement change. Prompt resolved from the module (../prompts/); rules/categories/scoring are
+  read by the runner (load_ruleset), not the harness. INPUT (env BOQ_HARNESS_INPUT) + OUTPUT (CLI
+  arg) stay LOCAL and default OUTSIDE the repo -- a tracked harness never writes CSVs into the repo.
+- DROPPED (not tracked): the superseded xlsx-input rerun_harness.py + the throwaway diagnostics
+  (dbcheck/parentcheck/rootcheck/recon*.py) -- left in scratch.
+- BEHAVIOR-PRESERVING PROOF: code diff scratch-vs-tracked = docstring + 4 path lines only; a fresh
+  tracked-harness run over the 5 Set-1 BoQs reconciles row-math (2333 = 1296 LI + 305 Preamble +
+  732 Other) and diffs ZERO on ALL structural columns + notes vs the tree-fed output (identical
+  classify_line inputs). The rule-column diffs vs that older output are 100% the Prompt-2 committed
+  runner tuning (plural matcher + misc/light keywords), NOT the move. Runner suite 62 green.
+- DEFERRED: discipline-parameterisation (electrical BOQS + prompt hardcoded for now); the
+  durable-address verdict re-join in classification_analysis.py (it currently reads a verdict-bearing
+  CSV). No push, no migrate.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
