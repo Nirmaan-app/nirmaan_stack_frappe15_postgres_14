@@ -437,7 +437,7 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             }
         },
-        ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
+        ...([PO_TABS.ALL_POS, PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
                 id: "invoice_amount",
                 header: ({ column }) => {

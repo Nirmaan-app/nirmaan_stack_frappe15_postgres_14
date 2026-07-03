@@ -87,7 +87,7 @@ export const PendingTasksTable: React.FC = () => {
 
     const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
     const { getAmount } = useOrderPayments();
-    const { getTotalInvoiced } = useTotalInvoicedByDocument();
+    const { getTotalInvoiced, getInvoicesFor } = useTotalInvoicedByDocument();
 
     // --- Column Definitions ---
     const columns = React.useMemo(
@@ -101,7 +101,8 @@ export const PendingTasksTable: React.FC = () => {
                 getAmount,
                 getDeliveredAmount,
                 getVendorName,
-                getTotalInvoiced
+                getTotalInvoiced,
+                getInvoicesFor
             ),
         [
             openConfirmationDialog,
@@ -113,6 +114,7 @@ export const PendingTasksTable: React.FC = () => {
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,
+            getInvoicesFor,
         ]
     );
 

@@ -201,7 +201,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   } = useFrappeGetDocList<VendorInvoice>(
     "Vendor Invoices",
     {
-      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", "status", "reconciliation_status", "uploaded_by"],
+      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", "status", "reconciliation_status", "uploaded_by", "autofill_used"],
       filters: [
         ["document_type", "=", docType],
         ["document_name", "=", docName],
@@ -597,7 +597,7 @@ export const DocumentAttachments = <T extends DocumentType>({
               </div>
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-0">
             {" "}
             {/* Remove padding to let table control it */}
             <div className="overflow-x-auto">
@@ -612,6 +612,7 @@ export const DocumentAttachments = <T extends DocumentType>({
                 canDeleteEntry={canDeleteInvoice}
                 getUserName={getUserName}
                 hideActions={isEstimatesExecutive}
+                poName={isPO ? docName : undefined}
               />
             </div>
           </CardContent>
