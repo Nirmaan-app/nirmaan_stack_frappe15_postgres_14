@@ -76,6 +76,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
+from nirmaan_stack.api.boq.wizard import directional_guard
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
@@ -292,7 +293,7 @@ def _commit_advisory_key(boq_name: str) -> int:
 
 
 @frappe.whitelist(methods=["POST"])
-def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
+def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=None) -> dict:
     """Commit a subset of a BoQ's sheets into the committed schema (Phase 5 Slice 3a/3b).
 
     For each requested sheet (under ONE shared commit_version): build + persist its
@@ -352,6 +353,26 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
             f"{ineligible}. Eligible sheets: {sorted(disposition_by_sheet)}.",
             title="Not commit-eligible",
         )
+
+    # C0 / ADR-0011 directional guard: re-committing a sheet that has pricing on its CURRENT
+    # committed version orphans that pricing onto the frozen version (only rates are partially
+    # recoverable via copy-forward). Surface it explicitly -- reject (marker BOQ_DOWNSTREAM_ORPHAN
+    # + the per-sheet counts) UNLESS confirm_orphan. A first commit (no current version) or an
+    # unpriced sheet has count 0 -> free forward progress, no guard. Runs BEFORE the advisory lock
+    # + any write, so a rejected commit acquires nothing and mutates nothing.
+    if not directional_guard._truthy(confirm_orphan):
+        orphaning = [
+            (s, n) for s in subset
+            if (n := directional_guard.downstream_priced_count(boq_name, s))
+        ]
+        if orphaning:
+            detail = ", ".join(f"'{s}' ({n})" for s, n in orphaning)
+            frappe.throw(
+                f"{directional_guard.ORPHAN_MARKER}: re-committing will orphan priced cells on the "
+                f"current version of {detail} -- they stay on the frozen version but are NOT carried "
+                f"forward. Confirm to proceed.",
+                title="This will orphan priced cells",
+            )
 
     # Draft lookup (verbatim sheet_name) for the column-config snapshot.
     drafts_by_name = {d.sheet_name: d for d in boq_doc.sheet_drafts}

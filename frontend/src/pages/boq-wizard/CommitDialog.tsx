@@ -28,6 +28,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertCircle, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -97,6 +107,9 @@ export function CommitDialog({
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // C0 / ADR-0011: when commit_boq reports it would orphan downstream pricing, hold the message
+  // + the subset to retry so the user can explicitly confirm (re-submit with confirm_orphan).
+  const [orphanPrompt, setOrphanPrompt] = useState<{ message: string; subset: string[] } | null>(null);
 
   // commit_preflight (READ-ONLY) + commit_boq (the destructive write) -- both POST.
   const { call: callPreflight } = useFrappePostCall(
@@ -180,22 +193,34 @@ export function CommitDialog({
   const commitEnabled = committableNames.length > 0 && allWarningsAcked && !busy;
 
   // Fire the actual commit with an EXPLICIT subset (the committable, non-errored sheets).
-  const fireCommit = async (subset: string[]) => {
+  const fireCommit = async (subset: string[], confirmOrphan = false) => {
     if (subset.length === 0) return;
     setError(null);
+    setOrphanPrompt(null);
     setRunning(true);
     try {
       // VERBATIM sheet names (#152). The backend re-checks the gate before any write.
-      const res = await callCommitBoq({ boq_name: boqName, sheet_subset: subset });
+      const res = await callCommitBoq({
+        boq_name: boqName,
+        sheet_subset: subset,
+        confirm_orphan: confirmOrphan, // C0: acknowledged orphaning of downstream pricing
+      });
       const result = res.message as CommitBoqResponse;
       setRunning(false);
       onCommitted(result);
       onOpenChange(false);
     } catch (e: unknown) {
-      // A WHOLE-CALL precondition failure (gate re-check / missing boq / file fetch)
-      // throws; per-sheet failures arrive in result.failed, not here.
+      // A WHOLE-CALL precondition failure (gate re-check / missing boq / file fetch) throws;
+      // per-sheet failures arrive in result.failed, not here.
       setRunning(false);
-      setError(`${getFrappeError(e) || "Commit failed. Please try again."} Nothing was committed.`);
+      const msg = getFrappeError(e) || "";
+      if (msg.includes("BOQ_DOWNSTREAM_ORPHAN")) {
+        // C0 / ADR-0011: re-committing would orphan downstream pricing. Surface an explicit
+        // confirm (strip the marker prefix), then retry with confirm_orphan=true.
+        setOrphanPrompt({ message: msg.replace(/^.*?BOQ_DOWNSTREAM_ORPHAN:\s*/, ""), subset });
+      } else {
+        setError(`${msg || "Commit failed. Please try again."} Nothing was committed.`);
+      }
     }
   };
 
@@ -236,6 +261,7 @@ export function CommitDialog({
   };
 
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={(isOpen) => {
@@ -509,5 +535,32 @@ export function CommitDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* C0 / ADR-0011: explicit confirm when a re-commit would orphan downstream pricing. The
+        backend threw BOQ_DOWNSTREAM_ORPHAN; on confirm we retry with confirm_orphan=true. */}
+    <AlertDialog
+      open={!!orphanPrompt}
+      onOpenChange={(isOpen) => { if (!isOpen && !running) setOrphanPrompt(null); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            This will orphan priced cells
+          </AlertDialogTitle>
+          <AlertDialogDescription>{orphanPrompt?.message}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={running}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={running}
+            onClick={() => { if (orphanPrompt) void fireCommit(orphanPrompt.subset, true); }}
+          >
+            Re-commit anyway
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
