@@ -41,7 +41,9 @@ import json
 from typing import Any
 
 import frappe
+from frappe.utils import now_datetime
 
+from nirmaan_stack.api.boq.wizard import draft_lock
 from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
     get_boq_ai_settings,
@@ -469,6 +471,10 @@ def accept_ai_suggestion(
     _guard_sheet_not_frozen(boq_name, sheet_name)
     _guard_sheet_not_parsing(boq_name, sheet_name)
 
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
     try:
         row_index = int(row_index)
     except (ValueError, TypeError):
@@ -642,6 +648,10 @@ def reject_ai_suggestion(
     _guard_sheet_not_frozen(boq_name, sheet_name)
     _guard_sheet_not_parsing(boq_name, sheet_name)
 
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
     try:
         row_index = int(row_index)
     except (ValueError, TypeError):
@@ -737,6 +747,10 @@ def revert_ai_acceptance(
     # A revert WRITES the human layer -> respect the same read-only backstops as the accept.
     _guard_sheet_not_frozen(boq_name, sheet_name)
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     try:
         row_index = int(row_index)

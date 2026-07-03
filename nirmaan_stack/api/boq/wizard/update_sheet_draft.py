@@ -1,6 +1,9 @@
 import json
 
 import frappe
+from frappe.utils import now_datetime
+
+from nirmaan_stack.api.boq.wizard import draft_lock
 
 # Statuses settable directly via set_sheet_status.
 # "General specs" is intentionally excluded -- use set_general_specs_sheet instead.
@@ -277,6 +280,13 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
     # A1: reject config writes to a Finalized sheet (un-mark to edit).
     _guard_sheet_not_finalized(boq_name, sheet_name)
 
+    # Draft-tier single-editor lock (B1 / ADR-0011): after the freeze guards, before the
+    # write. Rejects (BOQ_DRAFT_LOCKED) if ANOTHER user is editing this sheet's draft (config
+    # or review) fresh; refreshes/acquires for the holder. Shares this request's transaction
+    # (the trailing commit covers the lock touch). The spoke/review screens acquire on first
+    # edit-intent + broadcast; this is the durable server backstop.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
     # Read current state for dirty-marker detection.
     current = frappe.db.get_value(
         "BoQ Sheet Draft",
@@ -375,6 +385,10 @@ def set_sheet_work_packages(boq_name: str = None, sheet_name: str = None, work_h
     _guard_sheet_not_parsing(boq_name, sheet_name)
     # A1: reject config writes to a Finalized sheet (un-mark to edit).
     _guard_sheet_not_finalized(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     # Replace-all: clear existing, insert new
     frappe.db.delete("BoQ Sheet Work Package", {

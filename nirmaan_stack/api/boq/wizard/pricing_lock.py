@@ -118,8 +118,15 @@ def _is_stale(lock: dict | None, now) -> bool:
     return (now - get_datetime(lock["last_edit_at"])).total_seconds() > LOCK_STALE_SECONDS
 
 
-def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> str:
+def acquire_or_refresh(
+    boq: str, sheet_name: str, version, user: str, now,
+    marker: str = _LOCK_HELD_MARKER, activity: str = "priced",
+) -> str:
     """Acquire / refresh / reject / takeover -- the CORE single-editor decision.
+
+    `marker` / `activity` let the DRAFT tier (draft_lock.py, version=0) reuse this exact
+    engine but reject with its own BOQ_DRAFT_LOCKED marker + "edited" wording. Pricing
+    callers keep the defaults (BOQ_PRICING_LOCKED / "priced") -- behaviour unchanged.
 
     Returns the ACTION taken (existing save-path callers may ignore it; the realtime
     endpoints use it to decide whether to broadcast boq:lock_changed):
@@ -181,7 +188,7 @@ def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> st
     # -- Branch 3: OTHER + FRESH -> reject (writes nothing) ----------------------------
     holder_name = _get_user_full_name(lock["locked_by"])
     frappe.throw(
-        f"{_LOCK_HELD_MARKER}: This sheet is being priced by {holder_name}. "
+        f"{marker}: This sheet is being {activity} by {holder_name}. "
         f"Your change was not saved. Reload once they finish to continue.",
         title="Sheet locked",
     )

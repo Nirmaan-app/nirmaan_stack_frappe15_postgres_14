@@ -25,6 +25,9 @@ import json
 from typing import Any
 
 import frappe
+from frappe.utils import now_datetime
+
+from nirmaan_stack.api.boq.wizard import draft_lock
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
@@ -1669,6 +1672,11 @@ def save_review_edit(
     # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
     _guard_sheet_not_parsing(boq_name, sheet_name)
 
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft (config or review) fresh; refresh/acquire for the holder. After the freeze
+    # guards, before the write; shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
     # Slice C-v2d: a non-empty `area` routes to the per-area JSON write path; otherwise
     # this is exactly the flat-field path. An empty-string area is treated as no area.
     area_provided = area is not None and area != ""
@@ -1951,6 +1959,11 @@ def save_review_restructure(
     _guard_sheet_not_frozen(boq_name, sheet_name)
     # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): a restructure rewrites parent pointers
+    # across MANY rows -- reject if another user is editing this sheet's draft fresh; refresh/
+    # acquire for the holder. After the freeze guards, before the batch cycle-guard/write.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     try:
         row_index = int(row_index)
@@ -2343,6 +2356,10 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     # A revert WRITES the human layer -> respect the same read-only backstops as the accept.
     _guard_sheet_not_frozen(boq_name, sheet_name)
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     try:
         row_index = int(row_index)
