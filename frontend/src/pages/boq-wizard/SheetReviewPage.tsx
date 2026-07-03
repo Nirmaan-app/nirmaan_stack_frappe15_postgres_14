@@ -26,6 +26,7 @@ import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, RefreshCw, Sh
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -583,6 +584,9 @@ const SheetReviewPage = () => {
   const [markError, setMarkError] = useState<string | null>(null);
   const [unmarkDialogOpen, setUnmarkDialogOpen] = useState(false);
   const [unmarkError, setUnmarkError] = useState<string | null>(null);
+  // C0 / ADR-0011: when un-finalize reports it would orphan downstream pricing, hold the
+  // stripped message so the user can explicitly confirm (re-submit with confirm_orphan=true).
+  const [orphanPrompt, setOrphanPrompt] = useState<{ message: string } | null>(null);
 
   const openMarkDialog = () => {
     setMarkError(null);
@@ -622,17 +626,27 @@ const SheetReviewPage = () => {
     }
   };
 
-  const handleUnmark = async () => {
+  const handleUnmark = async (confirmOrphan = false) => {
     setUnmarkError(null);
+    setOrphanPrompt(null);
     try {
       await unmarkCall({
         boq_name: boqId ?? "",
         sheet_name: sheetName ?? "", // VERBATIM #152
+        confirm_orphan: confirmOrphan, // C0 / ADR-0011: acknowledged orphaning of downstream pricing
       });
       setUnmarkDialogOpen(false);
+      setOrphanPrompt(null);
       void boqMutate();
     } catch (e: unknown) {
-      setUnmarkError(getFrappeError(e) || "Could not un-mark the sheet. Please try again.");
+      const msg = getFrappeError(e) || "";
+      if (msg.includes("BOQ_DOWNSTREAM_ORPHAN")) {
+        // C0 / ADR-0011: un-finalizing would orphan downstream priced cells. Surface an explicit
+        // confirm (strip the marker prefix), then retry with confirm_orphan=true.
+        setOrphanPrompt({ message: msg.replace(/^.*?BOQ_DOWNSTREAM_ORPHAN:\s*/, "") });
+      } else {
+        setUnmarkError(msg || "Could not un-mark the sheet. Please try again.");
+      }
     }
   };
 
@@ -1090,6 +1104,32 @@ const SheetReviewPage = () => {
             <Button disabled={unmarkLoading} onClick={() => { void handleUnmark(); }}>
               Un-mark
             </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── C0 / ADR-0011: explicit confirm when un-finalizing would orphan downstream priced
+          cells. The backend threw BOQ_DOWNSTREAM_ORPHAN; on confirm we retry with confirm_orphan=true. */}
+      <AlertDialog
+        open={!!orphanPrompt}
+        onOpenChange={(o) => { if (!o && !unmarkLoading) setOrphanPrompt(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              This will orphan priced cells
+            </AlertDialogTitle>
+            <AlertDialogDescription>{orphanPrompt?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unmarkLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unmarkLoading}
+              onClick={() => { void handleUnmark(true); }}
+            >
+              Un-finalize anyway
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

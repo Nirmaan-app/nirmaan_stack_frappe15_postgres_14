@@ -2811,6 +2811,7 @@ def mark_sheet_parsed_check_done(
 def unmark_sheet_parsed_check_done(
     boq_name: str = None,
     sheet_name: str = None,
+    confirm_orphan=None,
 ) -> dict:
     """
     Revert a "Finalized" sheet back to "Parsed" (Slice D1 Un-mark).
@@ -2818,6 +2819,14 @@ def unmark_sheet_parsed_check_done(
     The inverse of mark_sheet_parsed_check_done: it lifts the read-only freeze so the
     review screen becomes editable again. There is NO integrity check -- moving a sheet
     BACKWARD is always allowed.
+
+    Directional state-floor guard (Phase C0 / ADR-0011): un-finalizing re-opens this sheet
+    for editable review (it is also the ONLY way to reach the "Parsed" reviewer window of a
+    committed sheet). If the CURRENT committed version already carries priced cells, those
+    edits will desync/orphan the committed pricing on the next re-commit. So when downstream
+    pricing exists this endpoint throws with ORPHAN_MARKER + the count UNLESS `confirm_orphan`
+    is truthy. The guard runs AFTER the precondition check but BEFORE the wizard_status write,
+    so a rejected un-finalize mutates nothing.
 
     Precondition: the sheet must currently be at "Finalized" (else frappe.throw).
 
@@ -2858,6 +2867,16 @@ def unmark_sheet_parsed_check_done(
             f"Current status: {current_status}.",
             title="Cannot un-mark",
         )
+
+    # Phase C0 / ADR-0011 directional state-floor guard: throw (with the orphan count +
+    # ORPHAN_MARKER) UNLESS confirmed, when un-finalizing would orphan priced cells on the
+    # current committed version. Placed AFTER validation, BEFORE any write -- a rejected
+    # un-finalize mutates nothing (count 0 -> no-op). Lazy import (module imports only frappe;
+    # kept local to this endpoint for a minimal, isolated diff).
+    from nirmaan_stack.api.boq.wizard import directional_guard
+    directional_guard.guard_no_downstream_orphan(
+        boq_name, sheet_name, confirm_orphan, "un-finalize"
+    )
 
     # Write "Parsed" directly -- bypasses set_sheet_status which rejects "Parsed".
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Parsed")

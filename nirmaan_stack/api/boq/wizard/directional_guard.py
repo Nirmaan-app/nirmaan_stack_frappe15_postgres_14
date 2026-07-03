@@ -57,6 +57,13 @@ def downstream_priced_count(boq: str, sheet_name: str) -> int:
     )
 
 
+def boq_downstream_priced_count(boq: str) -> int:
+    """Total CURRENT priced cells across ALL sheets of a BoQ -- the work a BoQ-ROOT metadata
+    change (tax_treatment / version, which every committed sheet snapshotted) would desync.
+    Used by the per-BoQ update_boq_draft guard (D18)."""
+    return frappe.db.count(_PRICING, {"boq": boq, "is_current": 1})
+
+
 def guard_no_downstream_orphan(boq: str, sheet_name: str, confirm, action: str) -> int:
     """C0 state floor: throw (with the orphan count + ORPHAN_MARKER) UNLESS `confirm` when
     `action` on (boq, sheet_name) would orphan downstream pricing. `action` is a short human
