@@ -19,9 +19,10 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -261,6 +262,34 @@ const SheetPricingPage = () => {
   );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
+
+  // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
+  // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
+  // (the grid's onDirtyChange), heartbeat ~30s while holding it, release on leave (sendBeacon
+  // + unmount), and listen for boq:lock_changed to flip read-only / free the instant ANOTHER
+  // user acquires / releases. The server throw (BOQ_PRICING_LOCKED in every save_* endpoint)
+  // stays the durable enforcement; this is only the UX accelerator.
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  const { user_id: currentUser } = useUserData();
+  const { call: acquirePricingLock } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
+  );
+  // committed_version this client currently HOLDS the lock for (null = none). A ref so the
+  // heartbeat + socket handler read the latest without re-registering.
+  const heldVersionRef = useRef<number | null>(null);
+  // Break-glass CLIENT override (dev/testing). The server site_config flag is the real prod
+  // switch (D13); this just lets a developer disable the lock calls locally.
+  const locksDisabledClient =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
+  // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  const lockCtxRef = useRef<{
+    boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
+  }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
+  lockCtxRef.current = {
+    boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
+  };
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -434,6 +463,100 @@ const SheetPricingPage = () => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded]);
 
+  // Realtime lock updates (A2): flip read-only / free the instant ANOTHER user acquires or
+  // releases this sheet's lock. Screen-scoped listener (BoqHubPage pattern): register on the
+  // stable FrappeContext socket, read changing identity from lockCtxRef, off() on cleanup,
+  // + a reconnect self-heal (re-fetch authoritative lock_info on (re)connect).
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      boq?: string; sheet_name?: string; committed_version?: number | string;
+      action?: string; locked_by?: string | null;
+    }) => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled) return;
+      if (!payload || payload.boq !== ctx.boqId) return;
+      if (payload.sheet_name !== ctx.sheetName) return; // VERBATIM (#152)
+      if (ctx.version === null || Number(payload.committed_version) !== Number(ctx.version)) return;
+      if (payload.locked_by && payload.locked_by === ctx.currentUser) return; // suppress own events
+      if (payload.action === "acquired" || payload.action === "took_over") {
+        // Another user now holds this sheet -> we no longer do; flip to read-only.
+        const wasHolding = heldVersionRef.current !== null;
+        heldVersionRef.current = null;
+        if (wasHolding) {
+          // We were the editor and got displaced -> the takeover banner (we may have an
+          // unsaved draft the grid keeps).
+          setTakenOver(true);
+        } else {
+          // We were only viewing -> re-read authoritative state so the precise
+          // "being priced by <name>" holder banner shows (editable=false + lock_info).
+          void mutate();
+        }
+      } else if (payload.action === "released") {
+        // Freed by another -> re-read authoritative editable/lock_info (the [pricedData]
+        // effect clears takenOver when the fresh payload reports the sheet editable).
+        void mutate();
+      }
+    };
+    const onReconnect = () => { void mutate(); };
+    socket.on("boq:lock_changed", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:lock_changed", handler);
+      socket.off("connect", onReconnect);
+    };
+  }, [socket, mutate]);
+
+  // Heartbeat (A2): while we HOLD the lock, refresh it every ~30s so an active editor is never
+  // taken over mid-session (the 120s edit-driven TTL would otherwise lapse without saves). A
+  // rejected refresh (another user took over) flips us to read-only.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || ctx.version === null || heldVersionRef.current !== ctx.version) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      void acquirePricingLock({
+        boq_name: ctx.boqId, sheet_name: ctx.sheetName, committed_version: ctx.version,
+      }).catch((e) => {
+        if (isTakeoverError(getFrappeError(e))) {
+          heldVersionRef.current = null;
+          setTakenOver(true);
+        }
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [acquirePricingLock]);
+
+  // Release-on-leave (A2): free the lock the INSTANT the editor closes, so no colleague waits
+  // out the TTL. beforeunload + unmount both fire navigator.sendBeacon (a normal POST would be
+  // cancelled on unload). Guarded on actually holding the lock; idempotent + tolerant server-side.
+  useEffect(() => {
+    const beacon = () => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || heldVersionRef.current === null || ctx.version === null) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      try {
+        const fd = new FormData();
+        fd.append("boq_name", ctx.boqId);
+        fd.append("sheet_name", ctx.sheetName);
+        fd.append("committed_version", String(ctx.version));
+        const csrf = (window as unknown as { frappe?: { csrf_token?: string } })?.frappe?.csrf_token;
+        if (csrf) fd.append("csrf_token", csrf);
+        navigator.sendBeacon(
+          "/api/method/nirmaan_stack.api.boq.wizard.pricing.release_pricing_lock", fd,
+        );
+      } catch {
+        /* best-effort: the lock ages out via the TTL if this fails */
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      beacon(); // release on unmount (SPA navigate-away) too
+      heldVersionRef.current = null;
+    };
+  }, []);
+
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
   const displaySheetName = decodedSheetName.trim() || decodedSheetName;
@@ -524,6 +647,34 @@ const SheetPricingPage = () => {
   // gate), so withholding the save callbacks below collapses EVERY mutation path to read-only by
   // construction. The history payload also reports editable=false (server belt to this suspenders).
   const locked = editable === false || takenOver || isLocked || isViewingHistory;
+
+  // Acquire the single-editor lock on FIRST edit-intent (A2 / ADR-0011). Called from the grid's
+  // onDirtyChange (fires when the user first modifies a cell, BEFORE any save), so a second
+  // viewer flips read-only within a socket round-trip -- not on a failed save. Idempotent per
+  // version (heldVersionRef). A rejected acquire (someone else holds it fresh) flips us to
+  // read-only via the same takeover banner. The save_* endpoints still enforce server-side.
+  const ensureLockAcquired = () => {
+    if (locksDisabledClient) return;
+    if (locked) return; // read-only (history / deliberate lock / already taken over)
+    if (!boqId || !sheetName || commitVersion === null) return;
+    if (heldVersionRef.current === commitVersion) return; // already hold it for this version
+    heldVersionRef.current = commitVersion; // optimistic (prevents a double-fire)
+    void acquirePricingLock({
+      boq_name: boqId, sheet_name: sheetName, committed_version: commitVersion,
+    }).catch((e) => {
+      const msg = getFrappeError(e);
+      heldVersionRef.current = null; // failed -> we do NOT hold it
+      if (isTakeoverError(msg)) setTakenOver(true); // someone else holds it fresh -> read-only
+      // else: transient error -> a retry on the next edit will re-attempt.
+    });
+  };
+
+  // The grid's dirty signal doubles as first-edit-intent: keep the existing hasUnsaved wiring
+  // AND acquire the lock the moment the sheet becomes dirty.
+  const handleDirtyChange = (dirty: boolean) => {
+    setHasUnsaved(dirty);
+    if (dirty) ensureLockAcquired();
+  };
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -1850,7 +2001,7 @@ const SheetPricingPage = () => {
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
-            onDirtyChange={setHasUnsaved}
+            onDirtyChange={handleDirtyChange}
             // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
             // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
             onHistoryChange={setHistoryState}

@@ -14,14 +14,20 @@ exactly one INSERT wins and the loser re-reads the winning row and is routed to 
 reject / takeover branch. This is the app's idiomatic atomicity primitive (a unique
 identity enforced at the DB, mirroring the invariant-by-write-path convention).
 
-EXPIRY is edit-driven (no heartbeat): the lock is STALE when now - last_edit_at exceeds
-LOCK_STALE_SECONDS (300s = 5 min). Each successful holder save refreshes last_edit_at.
-A DIFFERENT user may take over a STALE lock.
+EXPIRY (A2 / ADR-0011): the lock is STALE when now - last_edit_at exceeds
+LOCK_STALE_SECONDS (~2 min). A holder save OR a periodic client heartbeat
+(acquire_pricing_lock, ~30s) refreshes last_edit_at; a DIFFERENT user may take over a
+STALE lock. A clean leave releases immediately (release_pricing_lock via sendBeacon);
+a crash frees within the TTL.
+
+REALTIME (A2 / ADR-0011): acquire / takeover / release broadcast `boq:lock_changed`
+(broadcast_lock_changed) so every OPEN pricing screen flips read-only / free live -- the
+server throw stays the durable enforcement, the event is the UX accelerator.
 
 The reject (held-by-another, fresh) raises a decodable error prefixed with the stable
-marker _LOCK_HELD_MARKER so the frontend (slice B) can switch on it. The reject path
-WRITES NOTHING -- save_cell_price gates on this BEFORE any freeze/insert, so a rejected
-save mutates no pricing state.
+marker _LOCK_HELD_MARKER so the frontend can switch on it. The reject path WRITES NOTHING
+-- save_cell_price gates on this BEFORE any freeze/insert, so a rejected save mutates no
+pricing state.
 """
 from __future__ import annotations
 
@@ -36,8 +42,11 @@ from nirmaan_stack.api.pr_editing_lock import _get_user_full_name
 
 _LOCK = "BoQ Sheet Pricing Lock"
 
-# Edit-driven expiry: STALE when (now - last_edit_at) > this. No heartbeat.
-LOCK_STALE_SECONDS = 300  # 5 minutes
+# Expiry: STALE when (now - last_edit_at) > this. A holder save OR a client heartbeat
+# (~30s) refreshes last_edit_at; a DIFFERENT user may take over a STALE lock. ~2 min so a
+# crashed holder (no sendBeacon release) frees the sheet fast while an active editor's
+# ~30s heartbeat keeps it alive (~4x margin). (D4 / ADR-0011)
+LOCK_STALE_SECONDS = 120  # 2 minutes (heartbeat-driven)
 
 # Stable token at the START of the reject message so the frontend (slice B) can detect a
 # lock-rejection distinctly from any other save error.
@@ -47,6 +56,36 @@ _LOCK_HELD_MARKER = "BOQ_PRICING_LOCKED"
 # savepoint (Postgres aborts the in-flight statement), so the request transaction stays
 # usable for the re-read after we roll back to it.
 _ACQUIRE_SAVEPOINT = "boq_pricing_lock_acquire"
+
+
+def _locks_enabled() -> bool:
+    """Break-glass off-switch (D13 / ADR-0011). Lock ENFORCEMENT is ON unless a server-side
+    flag disables it (site_config "boq_locks_disabled": 1) -- lets an admin kill all BoQ
+    lock enforcement in one place during a prod incident, no deploy. Default = enforcing."""
+    return not frappe.conf.get("boq_locks_disabled")
+
+
+def broadcast_lock_changed(boq: str, sheet_name: str, version, action: str, locked_by) -> None:
+    """Broadcast a `boq:lock_changed` event so every open pricing screen updates live.
+
+    COMMIT-BEFORE-PUBLISH: the CALLING endpoint must frappe.db.commit() BEFORE calling this
+    (so a re-reading client sees the committed lock state). BROADCAST -- no user/doctype/
+    docname targeting (like commission editing_lock): the set of other users viewing this
+    sheet is unknown, so screen-scoped listeners filter on (boq, sheet_name,
+    committed_version) and suppress their own events (locked_by === currentUser). sheet_name
+    rides VERBATIM (#152)."""
+    frappe.publish_realtime(
+        event="boq:lock_changed",
+        message={
+            "boq": boq,
+            "sheet_name": sheet_name,
+            "committed_version": int(version),
+            "action": action,  # "acquired" | "released" | "taken_over"
+            "locked_by": locked_by,
+            "locked_by_name": _get_user_full_name(locked_by) if locked_by else None,
+            "timestamp": now_datetime().isoformat(),
+        },
+    )
 
 
 def _lock_identity(boq: str, sheet_name: str, version) -> str:
@@ -79,21 +118,28 @@ def _is_stale(lock: dict | None, now) -> bool:
     return (now - get_datetime(lock["last_edit_at"])).total_seconds() > LOCK_STALE_SECONDS
 
 
-def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> None:
+def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> str:
     """Acquire / refresh / reject / takeover -- the CORE single-editor decision.
 
-    Four branches:
-      1. FREE (no lock row)        -> INSERT the lock (the atomic step). A concurrent
-                                      first-edit collides on the deterministic PK; we
-                                      catch DuplicateEntryError, re-read the winner, and
-                                      fall through to branch 2/3/4 with that row.
-      2. MINE                      -> refresh last_edit_at = now, proceed.
-      3. OTHER, NOT stale          -> REJECT (frappe.throw, marker + holder name). No write.
-      4. OTHER, STALE              -> TAKEOVER (locked_by = user, last_edit_at = now), proceed.
+    Returns the ACTION taken (existing save-path callers may ignore it; the realtime
+    endpoints use it to decide whether to broadcast boq:lock_changed):
+      "disabled"  -- break-glass off-switch engaged; enforcement skipped, nothing written.
+      "acquired"  -- FREE -> we won the atomic insert and now hold the lock.
+      "refreshed" -- MINE -> last_edit_at bumped (idempotent keep-alive / heartbeat).
+      "took_over" -- OTHER + STALE -> we reclaimed a stale lock.
+    OTHER + FRESH throws (marker + holder name) and WRITES NOTHING.
 
-    Writes go through frappe.db within the CALLER's transaction; the caller owns the
-    single commit (save_cell_price). The reject branch writes NOTHING (so a rejected save
-    mutates no pricing state)."""
+    Four branches (writes go through the CALLER's transaction; the caller owns the commit):
+      1. FREE (no lock row)  -> INSERT (atomic; a concurrent first-edit collides on the
+                                deterministic PK -> caught, re-read, fall through).
+      2. MINE                -> refresh last_edit_at = now.
+      3. OTHER, NOT stale     -> REJECT (frappe.throw). No write.
+      4. OTHER, STALE         -> TAKEOVER (locked_by = user, last_edit_at = now)."""
+    # Break-glass: skip ALL enforcement when disabled server-side (D13). Nothing is
+    # written, so the caller's save proceeds unguarded (pre-lock last-write-wins fallback).
+    if not _locks_enabled():
+        return "disabled"
+
     name = _lock_identity(boq, sheet_name, version)
     lock = _read_lock(boq, sheet_name, version)
 
@@ -108,7 +154,7 @@ def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> No
             doc.locked_by = user
             doc.last_edit_at = now
             doc.insert(ignore_permissions=True)
-            return  # we won the insert -> we are the holder
+            return "acquired"  # we won the insert -> we are the holder
         except frappe.exceptions.DuplicateEntryError:
             # A concurrent first-edit beat us to this PK. Roll back ONLY the failed
             # insert (keeps the request transaction usable), then re-read the winner and
@@ -123,14 +169,14 @@ def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> No
     # -- Branch 2: MINE -> refresh expiry ----------------------------------------------
     if lock["locked_by"] == user:
         frappe.db.set_value(_LOCK, name, "last_edit_at", now, update_modified=False)
-        return
+        return "refreshed"
 
     # -- Branch 4: OTHER + STALE -> takeover -------------------------------------------
     if _is_stale(lock, now):
         frappe.db.set_value(
             _LOCK, name, {"locked_by": user, "last_edit_at": now}, update_modified=False
         )
-        return
+        return "took_over"
 
     # -- Branch 3: OTHER + FRESH -> reject (writes nothing) ----------------------------
     holder_name = _get_user_full_name(lock["locked_by"])
@@ -139,6 +185,27 @@ def acquire_or_refresh(boq: str, sheet_name: str, version, user: str, now) -> No
         f"Your change was not saved. Reload once they finish to continue.",
         title="Sheet locked",
     )
+
+
+def release(boq: str, sheet_name: str, version, user: str, is_admin: bool = False) -> str | None:
+    """Release the single-editor lock (A2 / ADR-0011). Returns:
+      "released"          -- the holder released their own lock,
+      "released_by_admin" -- an admin force-released another user's lock (D5),
+      None                -- no lock, or held by another non-admin (no-op).
+    Idempotent + tolerant (safe for a sendBeacon on tab close): deletes the lock row so
+    the identity is free again. Enforcement-gated: a no-op when the break-glass is off."""
+    if not _locks_enabled():
+        return None
+    lock = _read_lock(boq, sheet_name, version)
+    if lock is None:
+        return None
+    if lock["locked_by"] == user:
+        frappe.db.delete(_LOCK, {"name": _lock_identity(boq, sheet_name, version)})
+        return "released"
+    if is_admin:
+        frappe.db.delete(_LOCK, {"name": _lock_identity(boq, sheet_name, version)})
+        return "released_by_admin"
+    return None
 
 
 def read_lock_info(boq: str, sheet_name: str, version, user: str, now) -> dict | None:
