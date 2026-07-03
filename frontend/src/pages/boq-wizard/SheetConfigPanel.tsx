@@ -181,6 +181,19 @@ interface SheetConfigPanelProps {
    * dropIfConfigDone is short-circuited -- no config write may fire mid-parse.
    */
   isParsing?: boolean;
+  /**
+   * B1 (draft-tier lock): true when the sheet's draft is held FRESH by ANOTHER user (or after a
+   * mid-edit takeover). Folds into the existing <fieldset disabled> so the WHOLE panel renders
+   * read-only; the page (SheetSpokePage) owns the "being edited by {holder}" banner. Backward-
+   * compatible default false (absent prop => unchanged behaviour).
+   */
+  locked?: boolean;
+  /**
+   * B1 (draft-tier lock): fired on the FIRST genuine value-change (via dropIfConfigDone, which
+   * is invoked only from real value-change handlers -- never onFocus/onOpenChange). The page uses
+   * it to acquire the draft lock on first edit-intent; the page-side acquire is idempotent.
+   */
+  onEditIntent?: () => void;
   onSaveSuccess: () => void;
 }
 
@@ -285,6 +298,8 @@ export function SheetConfigPanel({
   wizardStatus,
   workPackages,
   isParsing = false,
+  locked = false,
+  onEditIntent,
   onSaveSuccess,
 }: SheetConfigPanelProps) {
   const parsedConfig = useMemo(() => parseConfig(draftConfig), [draftConfig]);
@@ -497,6 +512,12 @@ export function SheetConfigPanel({
   // Fires at most once per spoke open (dropFiredRef). Change events only -- NOT
   // onFocus/onClick/onOpenChange (those do not represent a value edit).
   const dropIfConfigDone = () => {
+    // B1 (draft-tier lock): a genuine value-change is FIRST edit-intent. dropIfConfigDone is
+    // called ONLY from real value-change handlers (never onFocus/onClick/onOpenChange), so it is
+    // the panel's single first-edit signal. Fire onEditIntent up-front (before the Config-Done /
+    // parse guards below, which govern the unrelated status-drop) so the page acquires the draft
+    // lock on the very first edit regardless of wizard_status. The page-side acquire is idempotent.
+    onEditIntent?.();
     // #164: never fire a write while the sheet is parsing (belt-and-braces -- the
     // controls are disabled by the fieldset, but guard the programmatic path too).
     if (isParsing) return;
@@ -970,10 +991,10 @@ export function SheetConfigPanel({
         </div>
       )}
 
-      {/* #164 + A1: native <fieldset disabled> cascades to every descendant button/
-          input/select, so one flag (parsing OR finalized) locks Sections 1-4 + Save +
-          Mark-as-reviewed. */}
-      <fieldset disabled={isParsing || finalized} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">
+      {/* #164 + A1 + B1: native <fieldset disabled> cascades to every descendant button/
+          input/select, so one flag (parsing OR finalized OR the B1 draft lock held by another
+          user) locks Sections 1-4 + Save + Mark-as-reviewed. */}
+      <fieldset disabled={isParsing || finalized || locked} className="space-y-5 border-0 p-0 m-0 min-w-0 disabled:opacity-60">
 
       {/* ── Zone A: Parsing configuration ────────────────────────────────── */}
       <div className="rounded-md border border-border p-3">

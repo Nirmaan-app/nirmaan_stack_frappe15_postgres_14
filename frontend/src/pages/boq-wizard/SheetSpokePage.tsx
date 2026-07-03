@@ -14,20 +14,42 @@
  * useParams is the verbatim original string -- passed to the endpoint as-is
  * (the backend does VERBATIM sheet_name matching with no trim).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetCall,
+  useFrappeGetDoc,
+  useFrappePostCall,
+} from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
+import { ArrowLeft, Loader2, Lock, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   BOQsDoc,
   ColumnRoleEntry,
+  LockInfo,
   SheetPreviewResponse,
   SheetPreviewRow,
   WorkPackageMap,
 } from "./boqTypes";
 import { SheetDataGrid } from "./SheetDataGrid";
 import { SheetConfigPanel } from "./SheetConfigPanel";
+
+// B1 (draft-tier lock): the PURE-read get_draft_lock_info shape (mirrors the pricing tier's
+// editable/lock_info payload with a DRAFT sentinel committed_version=0). Typed locally so no
+// shared file is touched -- reuses the exported LockInfo type.
+interface DraftLockInfoResponse {
+  lock_info: LockInfo | null;
+  editable: boolean;
+}
+
+// B1 reject marker: a failed acquire / write throws a message CONTAINING this when the draft is
+// held FRESH by another user. Distinct from the pricing tier's BOQ_PRICING_LOCKED so a draft
+// reject is never confused with a pricing reject (detect with .includes, per the A2 convention).
+const DRAFT_LOCK_MARKER = "BOQ_DRAFT_LOCKED";
 
 const SheetSpokePage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
@@ -50,6 +72,44 @@ const SheetSpokePage = () => {
     { boq_name: boqId ?? "" },
     boqId ? undefined : null
   );
+
+  // ── Draft-tier single-editor lock -- realtime layer (B1 / ADR-0011) ──────────
+  // Mirrors the A2 pricing lock (SheetPricingPage) adapted to the DRAFT tier: acquire on FIRST
+  // edit-intent (the config panel's onEditIntent), heartbeat ~30s while holding, release on
+  // leave (sendBeacon + unmount), and listen for boq:lock_changed to flip read-only the instant
+  // ANOTHER user acquires / releases this sheet's draft. committed_version is the fixed sentinel
+  // 0 everywhere. The server throw (BOQ_DRAFT_LOCKED in every draft WRITE endpoint) stays the
+  // durable enforcement; this is only the UX accelerator.
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  const { user_id: currentUser } = useUserData();
+  const { call: acquireDraftLock } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.draft_lock.acquire_draft_lock",
+  );
+  // PURE read of the draft lock state (editable + holder). Disabled until boqId + sheetName are
+  // present (swrKey gotcha: null, not {enabled}). Refetched on boq:lock_changed / reconnect.
+  const { data: draftLockData, mutate: mutateLock } = useFrappeGetCall<{ message: DraftLockInfoResponse }>(
+    "nirmaan_stack.api.boq.wizard.draft_lock.get_draft_lock_info",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" }, // sheet_name VERBATIM (#152)
+    boqId && sheetName ? undefined : null,
+  );
+  // Whether THIS client currently holds the draft lock (draft version is the fixed sentinel 0, so
+  // a boolean suffices -- there is no version axis). A ref so the heartbeat + socket handler read
+  // the latest without re-registering.
+  const heldRef = useRef(false);
+  // Mid-edit takeover: a save/acquire rejected with BOQ_DRAFT_LOCKED, OR a socket acquire by
+  // another user while we were holding -> read-only + the takeover banner until a fresh editable
+  // payload arrives (the [draftLockData] effect clears it).
+  const [takenOver, setTakenOver] = useState(false);
+  // Break-glass CLIENT override (dev/testing) -- skip all lock calls.
+  const locksDisabledClient =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
+  // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
+  // WITHOUT recreating them (the A2 ref-for-changing-values pattern). Updated each render.
+  const lockCtxRef = useRef<{
+    boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
+  }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });
+  lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
 
   // Derived values -- computed BEFORE guards so the effects below can reference `draft`.
   // Uses optional chaining since boq may be undefined during the initial loading phase.
@@ -234,7 +294,121 @@ const SheetSpokePage = () => {
       ? (parsedSavedCfg.area_dimensions as string[])
       : [];
 
+  // B1: clear takenOver whenever a FRESH get_draft_lock_info payload reports the sheet editable
+  // (a Reload re-read found it free / mine / stale). Keyed on the payload identity so it fires on
+  // EVERY refetch -- an [editable] dep would miss a true->true no-change.
+  useEffect(() => {
+    if (draftLockData?.message && (draftLockData.message.editable ?? true)) {
+      setTakenOver(false);
+    }
+  }, [draftLockData]);
+
+  // B1 defensive: the page element is shared across the spoke route, so a :sheetName change must
+  // not carry stale lock state into the new sheet. In practice the config spoke has no in-page
+  // sheet switcher (Back returns to the hub -> the page remounts), but reset the transient flags
+  // for correctness parity with the A2 tab-based page. The draft-lock read refetches on the new
+  // SWR key; the config panel remounts via key=.
+  useEffect(() => {
+    setTakenOver(false);
+    heldRef.current = false;
+  }, [sheetName]);
+
+  // B1 realtime: flip read-only / free the instant ANOTHER user acquires or releases this sheet's
+  // DRAFT lock. Screen-scoped listener (BoqHubPage pattern): register on the stable FrappeContext
+  // socket, read changing identity from lockCtxRef, off() on cleanup, + a reconnect self-heal
+  // (re-fetch authoritative lock_info on (re)connect). GUARD: boq + sheet_name VERBATIM (#152) +
+  // committed_version===0 (the draft sentinel) + suppress our own events.
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      boq?: string; sheet_name?: string; committed_version?: number | string;
+      action?: string; locked_by?: string | null;
+    }) => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled) return;
+      if (!payload || payload.boq !== ctx.boqId) return;
+      if (payload.sheet_name !== ctx.sheetName) return; // VERBATIM (#152)
+      if (Number(payload.committed_version) !== 0) return; // draft sentinel only
+      if (payload.locked_by && payload.locked_by === ctx.currentUser) return; // suppress own
+      if (payload.action === "acquired" || payload.action === "took_over") {
+        // Another user now holds this sheet's draft -> we no longer do; flip to read-only.
+        const wasHolding = heldRef.current;
+        heldRef.current = false;
+        if (wasHolding) {
+          // We were the editor and got displaced -> the takeover banner (the panel keeps any
+          // in-progress local edits; they just can't be saved).
+          setTakenOver(true);
+        } else {
+          // We were only viewing -> re-read authoritative state so the precise "being edited by
+          // <name>" holder banner shows (editable=false + lock_info).
+          void mutateLock();
+        }
+      } else if (payload.action === "released") {
+        // Freed by another -> re-read authoritative editable/lock_info (the [draftLockData]
+        // effect clears takenOver when the fresh payload reports the sheet editable).
+        void mutateLock();
+      }
+    };
+    const onReconnect = () => { void mutateLock(); };
+    socket.on("boq:lock_changed", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:lock_changed", handler);
+      socket.off("connect", onReconnect);
+    };
+  }, [socket, mutateLock]);
+
+  // B1 heartbeat: while we HOLD the lock, refresh it every ~30s so an active editor is never taken
+  // over mid-session (the edit-driven TTL would otherwise lapse without saves). A rejected refresh
+  // (another user took over) flips us to read-only.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || !heldRef.current) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      void acquireDraftLock({ boq_name: ctx.boqId, sheet_name: ctx.sheetName }).catch((e) => {
+        if (getFrappeError(e).includes(DRAFT_LOCK_MARKER)) {
+          heldRef.current = false;
+          setTakenOver(true);
+        }
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [acquireDraftLock]);
+
+  // B1 release-on-leave: free the lock the INSTANT the editor closes, so no colleague waits out
+  // the TTL. beforeunload + unmount both fire navigator.sendBeacon (a normal POST would be
+  // cancelled on unload). Guarded on actually holding the lock; idempotent + tolerant server-side.
+  useEffect(() => {
+    const beacon = () => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || !heldRef.current) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      try {
+        const fd = new FormData();
+        fd.append("boq_name", ctx.boqId);
+        fd.append("sheet_name", ctx.sheetName); // VERBATIM (#152)
+        const csrf = (window as unknown as { frappe?: { csrf_token?: string } })?.frappe?.csrf_token;
+        if (csrf) fd.append("csrf_token", csrf);
+        navigator.sendBeacon(
+          "/api/method/nirmaan_stack.api.boq.wizard.draft_lock.release_draft_lock", fd,
+        );
+      } catch {
+        /* best-effort: the lock ages out via the TTL if this fails */
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      beacon(); // release on unmount (SPA navigate-away, e.g. Back to hub) too
+      heldRef.current = false;
+    };
+  }, []);
+
   const handleBack = () => navigate(`/upload-boq/hub/${boqId ?? ""}`);
+  // B1: the lock banners' Reload re-reads get_draft_lock_info IN PLACE (refreshes editable/
+  // lock_info + resets takenOver via the effect above).
+  const handleReload = () => { void mutateLock(); };
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
@@ -275,6 +449,32 @@ const SheetSpokePage = () => {
     );
   }
 
+  // ── B1 draft-lock derived state (after the guards -- plain consts) ──────────
+  // editable=false ONLY when held FRESH by ANOTHER user (server computation). HARD READ-ONLY on
+  // that OR a mid-edit takeover; folded into the config panel's <fieldset disabled> via `locked`.
+  const draftEditable = draftLockData?.message?.editable ?? true;
+  const draftLockInfo = draftLockData?.message?.lock_info ?? null;
+  const locked = draftEditable === false || takenOver;
+
+  // Acquire the draft lock on FIRST edit-intent (the panel's onEditIntent, fired on the first
+  // genuine value-change BEFORE any save), so a second viewer flips read-only within a socket
+  // round-trip -- not on a failed save. Idempotent (heldRef). A rejected acquire (someone else
+  // holds it fresh) flips us to read-only via the same takeover banner. The draft WRITE endpoints
+  // still enforce server-side.
+  const ensureLockAcquired = () => {
+    if (locksDisabledClient) return;
+    if (locked) return; // already read-only (held by another / taken over)
+    if (!boqId || !sheetName) return;
+    if (heldRef.current) return; // already hold it
+    heldRef.current = true; // optimistic (prevents a double-fire)
+    void acquireDraftLock({ boq_name: boqId, sheet_name: sheetName }).catch((e) => {
+      const msg = getFrappeError(e);
+      heldRef.current = false; // failed -> we do NOT hold it
+      if (msg.includes(DRAFT_LOCK_MARKER)) setTakenOver(true); // someone else holds it fresh
+      // else: transient error -> a retry on the next edit will re-attempt.
+    });
+  };
+
   return (
     <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
 
@@ -306,6 +506,34 @@ const SheetSpokePage = () => {
         </div>
       </div>
 
+      {/* ── B1 draft-lock banners -- takeover > holder-held. The config panel itself renders
+          read-only via the `locked` prop (folded into its <fieldset disabled>); this is the
+          holder-naming surface. Reload re-reads get_draft_lock_info in place. ── */}
+      {takenOver ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet was taken over by another user. Your latest change may not be saved.
+            Reload to continue.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+        </div>
+      ) : draftEditable === false ? (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+          <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <p className="text-amber-900 dark:text-amber-100 flex-1">
+            This sheet is being edited by{" "}
+            <span className="font-medium">{draftLockInfo?.locked_by_name ?? "another user"}</span>.
+            It is read-only until they finish.
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReload}>
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </Button>
+        </div>
+      ) : null}
+
       {/* ── Config panel (Slice 3c) ────────────────────────────────────────── */}
       {/*
         Keyed by decodedSheetName so the component remounts fresh on sheet
@@ -328,6 +556,8 @@ const SheetSpokePage = () => {
           wizardStatus={draft.wizard_status}
           workPackages={sheetWorkHeaders}
           isParsing={isSheetParsing}
+          locked={locked}
+          onEditIntent={ensureLockAcquired}
           onSaveSuccess={() => { void mutate(); void mutateWpMap(); }}
         />
       )}

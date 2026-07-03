@@ -22,7 +22,7 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { ArrowLeft, Check, Download, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useUserData } from "@/hooks/useUserData";
 import type {
   AiPassDonePayload,
   BOQsDoc,
@@ -41,6 +42,7 @@ import type {
   GeminiStatusResponse,
   GetReviewRowsResponse,
   GetStructuralBreaksResponse,
+  LockInfo,
   MarkParsedCheckDoneResponse,
   RunGeminiPassResponse,
   UnmarkParsedCheckDoneResponse,
@@ -83,6 +85,13 @@ const GEMINI_FAIL_MSGS: Record<string, string> = {
   gemini_failed: "The Gemini pass failed — the model could not be reached or returned an unusable response. Try again.",
   internal: "The Gemini pass hit an unexpected error. Try again.",
 };
+
+// B1 (ADR-0011): the DRAFT single-editor lock sentinel version + reject marker. Real committed
+// versions start at 1, so version 0 is the disjoint draft-tier identity (mirrors the backend
+// draft_lock.DRAFT_LOCK_VERSION / _DRAFT_MARKER). getFrappeError preserves the message verbatim
+// and ", "-joins multiple server messages, so detect the reject with `includes` (NOT startsWith).
+const DRAFT_LOCK_VERSION = 0;
+const DRAFT_MARKER = "BOQ_DRAFT_LOCKED";
 
 // AI-3a: get_ai_pass_status response -- the cached terminal payload OR the idle shape.
 type AiStatusResponse =
@@ -173,6 +182,136 @@ const SheetReviewPage = () => {
   // never human/parser data), so it does NOT feed ReviewTree's readOnly.
   const aiInProgress = sheetDraft?.ai_in_progress === 1;
   const { socket } = useContext(FrappeContext) as FrappeConfig;
+
+  // ── B1: draft-tier single-editor lock -- realtime layer (ADR-0011) ────────────
+  // Mirrors SheetPricingPage's A2 pricing lock, adapted to the DRAFT tier (committed_version = 0,
+  // the draft_lock.* endpoints, the BOQ_DRAFT_LOCKED marker). Acquire on FIRST edit-intent
+  // (ReviewTree's onEditIntent, funneled from every real edit), heartbeat ~30s while holding,
+  // release on leave (sendBeacon + unmount), and listen for boq:lock_changed to flip read-only /
+  // free the instant ANOTHER user acquires / releases. The server acquires the SAME draft lock
+  // inside every write endpoint (durable enforcement); this is only the UX accelerator.
+  const { user_id: currentUser } = useUserData();
+  const { call: acquireDraftLock } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.draft_lock.acquire_draft_lock",
+  );
+  // Break-glass CLIENT override (dev/testing): skip ALL lock calls when set.
+  const locksDisabledClient =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
+  // PURE read of the draft lock state (holder + editable). editable=false ONLY when held FRESH by
+  // ANOTHER user. Re-fetched on mount, after a boq:lock_changed, and on reconnect. Disabled under
+  // break-glass (skips the call). sheet_name VERBATIM (#152).
+  const { data: draftLockData, mutate: draftLockMutate } = useFrappeGetCall<{
+    message: { lock_info: LockInfo | null; editable: boolean };
+  }>(
+    "nirmaan_stack.api.boq.wizard.draft_lock.get_draft_lock_info",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
+    boqId && sheetName && !locksDisabledClient ? undefined : null,
+  );
+  // DRAFT_LOCK_VERSION (0) this client currently HOLDS (null = none). A ref so the heartbeat +
+  // socket handler read the latest without re-registering.
+  const heldVersionRef = useRef<number | null>(null);
+  // A mid-edit takeover (another user acquired) flips this true -> read-only + banner until a
+  // fresh editable get_draft_lock_info payload arrives.
+  const [takenOver, setTakenOver] = useState(false);
+  // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
+  // WITHOUT recreating them (the pricing lockCtxRef pattern). Updated each render.
+  const lockCtxRef = useRef<{
+    boqId?: string; sheetName?: string; currentUser: string; disabled: boolean;
+  }>({ boqId, sheetName, currentUser, disabled: locksDisabledClient });
+  lockCtxRef.current = { boqId, sheetName, currentUser, disabled: locksDisabledClient };
+
+  // Clear the takeover flag whenever a FRESH get_draft_lock_info payload reports editable (a
+  // Reload / released event re-read found it free / mine / stale). Keyed on the payload identity
+  // so it fires on EVERY refetch (an [editable] dep would miss a true->true no-change).
+  useEffect(() => {
+    if (draftLockData?.message && (draftLockData.message.editable ?? true)) {
+      setTakenOver(false);
+    }
+  }, [draftLockData]);
+
+  // Realtime lock updates: flip read-only / free the instant ANOTHER user acquires or releases
+  // this sheet's DRAFT lock. Mirrors the boq:ai_pass_done listener above (screen-scoped on the
+  // stable FrappeContext socket) + the pricing lock handler: read changing identity from
+  // lockCtxRef, guard on (boq, sheet_name VERBATIM, committed_version === 0, suppress own), off()
+  // on cleanup, + a reconnect self-heal (re-read authoritative lock_info).
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      boq?: string; sheet_name?: string; committed_version?: number | string;
+      action?: string; locked_by?: string | null;
+    }) => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled) return;
+      if (!payload || payload.boq !== ctx.boqId) return;
+      if (payload.sheet_name !== ctx.sheetName) return; // VERBATIM (#152)
+      if (Number(payload.committed_version) !== DRAFT_LOCK_VERSION) return;
+      if (payload.locked_by && payload.locked_by === ctx.currentUser) return; // suppress own
+      if (payload.action === "acquired" || payload.action === "took_over") {
+        const wasHolding = heldVersionRef.current !== null;
+        heldVersionRef.current = null;
+        if (wasHolding) setTakenOver(true); // we were the editor and got displaced
+        else void draftLockMutate(); // we were only viewing -> re-read the holder banner
+      } else if (payload.action === "released") {
+        void draftLockMutate(); // freed -> re-read authoritative editable/lock_info
+      }
+    };
+    const onReconnect = () => { void draftLockMutate(); };
+    socket.on("boq:lock_changed", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:lock_changed", handler);
+      socket.off("connect", onReconnect);
+    };
+  }, [socket, draftLockMutate]);
+
+  // Heartbeat: while we HOLD the draft lock, refresh it every ~30s so an active editor is never
+  // taken over mid-session (the edit-driven TTL would otherwise lapse). A rejected refresh
+  // (another user took over) flips us to read-only.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || heldVersionRef.current !== DRAFT_LOCK_VERSION) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      void acquireDraftLock({ boq_name: ctx.boqId, sheet_name: ctx.sheetName }).catch((e) => {
+        if (getFrappeError(e).includes(DRAFT_MARKER)) {
+          heldVersionRef.current = null;
+          setTakenOver(true);
+        }
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [acquireDraftLock]);
+
+  // Release-on-leave: free the draft lock the INSTANT the reviewer closes, so no colleague waits
+  // out the TTL. beforeunload + unmount both fire navigator.sendBeacon (a normal POST would be
+  // cancelled on unload). Guarded on actually holding the lock; idempotent + tolerant server-side.
+  // (Draft release takes no committed_version.)
+  useEffect(() => {
+    const beacon = () => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || heldVersionRef.current === null) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      try {
+        const fd = new FormData();
+        fd.append("boq_name", ctx.boqId);
+        fd.append("sheet_name", ctx.sheetName);
+        const csrf = (window as unknown as { frappe?: { csrf_token?: string } })?.frappe?.csrf_token;
+        if (csrf) fd.append("csrf_token", csrf);
+        navigator.sendBeacon(
+          "/api/method/nirmaan_stack.api.boq.wizard.draft_lock.release_draft_lock", fd,
+        );
+      } catch {
+        /* best-effort: the lock ages out via the TTL if this fails */
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      beacon(); // release on unmount (SPA navigate-away) too
+      heldVersionRef.current = null;
+    };
+  }, []);
 
   // Trigger + status-poll endpoints.
   const { call: runAiCall, loading: aiRunLoading } = useFrappePostCall<{
@@ -541,6 +680,42 @@ const SheetReviewPage = () => {
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
+  // ── B1: draft-lock read-only gate + first-edit-intent acquire ────────────────
+  // draftEditable=false ONLY when the draft is held FRESH by ANOTHER user (get_draft_lock_info).
+  // draftLockedByAnother folds that with a mid-edit takeover; it ORs into the ReviewTree readOnly
+  // ALONGSIDE the existing Finalized (isChecked) + parsing (isParsing) freezes -- ONE boolean,
+  // reusing ReviewTree's existing readOnly mechanism (which HIDES all 11 write affordances). Never
+  // read-only under break-glass.
+  const draftEditable = draftLockData?.message?.editable ?? true;
+  const draftLockInfo = draftLockData?.message?.lock_info ?? null;
+  const draftLockedByAnother = !locksDisabledClient && (takenOver || draftEditable === false);
+  const readOnly = isChecked || isParsing || draftLockedByAnother;
+
+  // Acquire the draft lock on FIRST edit-intent (ReviewTree threads this as onEditIntent, called
+  // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens, AI
+  // accept, revert; NOT the annotation-only remark/dismiss paths). Idempotent (heldVersionRef).
+  // A rejected acquire (someone else holds it fresh) flips us read-only via the takeover banner.
+  // The write endpoints still enforce server-side.
+  const ensureLockAcquired = () => {
+    if (locksDisabledClient) return;
+    if (readOnly) return; // finalized / parsing / already taken over / held by another
+    if (!boqId || !sheetName) return;
+    if (heldVersionRef.current === DRAFT_LOCK_VERSION) return; // already hold it
+    heldVersionRef.current = DRAFT_LOCK_VERSION; // optimistic (prevents a double-fire)
+    void acquireDraftLock({ boq_name: boqId, sheet_name: sheetName }).catch((e) => {
+      heldVersionRef.current = null; // failed -> we do NOT hold it
+      if (getFrappeError(e).includes(DRAFT_MARKER)) setTakenOver(true);
+    });
+  };
+
+  // Lock-banner Reload: re-read the draft lock + rows + BOQs doc in place (refreshes editable/
+  // lock_info + resets takenOver via the [draftLockData] effect above).
+  const handleReloadLock = () => {
+    void draftLockMutate();
+    void mutate();
+    void boqMutate();
+  };
+
   // R4: the OBS-2 advisory-flag count strip + its "– N cleared" rollup moved INTO ReviewTree's
   // warnings panel header (ReviewTree owns revealAndScrollToRow + flags + rows.flags_dismissed,
   // so the clickable panel and its rollup live together there). The FLAG_LABELS / FLAG_ORDER /
@@ -802,6 +977,38 @@ const SheetReviewPage = () => {
         </div>
       )}
 
+      {/* ── B1: draft-lock read-only banner (another user is editing) ─────────
+          Shown when the draft is held FRESH by another user (or after a mid-edit takeover).
+          Mirrors the pricing-lock banners: takenOver = generic "your change was not saved";
+          held-by-another = names the holder. Reload re-reads the authoritative lock state. */}
+      {draftLockedByAnother && (
+        takenOver ? (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <p className="text-amber-900 dark:text-amber-100 flex-1">
+              This sheet was taken over by another user. Your latest change was not saved. Reload to continue.
+            </p>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReloadLock}>
+              <RefreshCw className="h-3.5 w-3.5" /> Reload
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleBack}>Go to hub</Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+            <Lock className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+            <p className="text-amber-900 dark:text-amber-100 flex-1">
+              This sheet is being edited by{" "}
+              <span className="font-medium">{draftLockInfo?.locked_by_name ?? "another user"}</span>.
+              It is read-only until they finish.
+            </p>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleReloadLock}>
+              <RefreshCw className="h-3.5 w-3.5" /> Reload
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleBack}>Go to hub</Button>
+          </div>
+        )
+      )}
+
       {/* ── Review rows tree ──────────────────────────────────────────────── */}
       {reviewLoading && (
         <div className="flex items-center justify-center py-16">
@@ -832,7 +1039,11 @@ const SheetReviewPage = () => {
           onRestructured={handleSaved}
           // Slice D1: a checked sheet freezes ALL write affordances in the tree.
           // #164: a sheet under active parse is likewise read-only (transient).
-          readOnly={isChecked || isParsing}
+          // B1: the draft is held FRESH by ANOTHER user -> read-only too (one boolean,
+          // reusing the SAME readOnly mechanism -- no second per-row editable signal).
+          readOnly={readOnly}
+          // B1: acquire the draft lock on FIRST real edit-intent (funneled inside ReviewTree).
+          onEditIntent={ensureLockAcquired}
           // DUAL-AI (ADR-0003): mount the Gemini provider column + accept block when enabled.
           geminiEnabled={geminiEnabled}
         />

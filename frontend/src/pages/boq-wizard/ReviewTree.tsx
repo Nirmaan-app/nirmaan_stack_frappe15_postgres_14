@@ -393,6 +393,12 @@ interface ReviewTreeProps {
   // panel display, search, filters, column selector, scroll-to-parent) stays live. The
   // backend enforces the same freeze, so this is the UI line of defence, not the only one.
   readOnly?: boolean;
+  // B1 (ADR-0011): acquire the draft single-editor lock on FIRST edit-intent. Called at the top of
+  // every REAL-edit funnel (value/text edits, reclassify/restructure opens, AI/Gemini accept,
+  // revert) -- NOT the annotation-only paths (saveRemark, dismissFlags). Idempotent on the page
+  // side (heldVersionRef), so firing it from multiple funnels is harmless. Optional: every existing
+  // caller that omits it renders exactly as before.
+  onEditIntent?: () => void;
   // DUAL-AI (ADR-0003 sec 8A): gates the second provider ("Gemini") column + detail-panel accept
   // block. Sourced from get_review_rows.gemini_enabled (Document AI Settings.boq_ai_enabled). When
   // false/undefined the Gemini column + block are NOT mounted -- the layout is byte-identical to
@@ -401,7 +407,7 @@ interface ReviewTreeProps {
   geminiEnabled?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -501,6 +507,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Childless rows take the light 1-click confirm; rows with children open the staged modal.
   // children = review rows whose effective_parent_index === this row's row_index.
   const onPickClass = (row: ReviewRow, newClassification: string) => {
+    onEditIntent?.(); // B1: reclassify is a real edit -> acquire the draft lock on intent
     setRestructureError(null);
     const childCount = rows.filter(r => r.effective_parent_index === row.row_index).length;
     if (childCount === 0) {
@@ -514,6 +521,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // failure the dialog stays open with an inline error (no AlertDialogAction auto-close).
   const confirmChildlessReclassify = async () => {
     if (!childlessConfirm) return;
+    onEditIntent?.(); // B1: acquire the draft lock before the restructure write
     setRestructureError(null);
     try {
       const res = await restructureCall({
@@ -563,6 +571,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Otherwise (classification-only, or a CHILDLESS parent) the AI-3b-1 accept endpoint
   // path runs unchanged.
   const handleApplyAi = async (row: ReviewRow) => {
+    onEditIntent?.(); // B1: accepting an AI suggestion writes -> acquire the draft lock
     setAiActionError(null);
     const ai = aiSuggestionInfo(row);
     const clsIsChange = aiAcceptCls && ai.hasClass &&
@@ -645,6 +654,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // AI acceptance (either provider) or a manual edit. mutate-only refresh (no edited_at; the
   // re-fetch re-renders the row clean so the Revert button disappears and AI Apply re-enables).
   const handleRevertToParser = async (row: ReviewRow) => {
+    onEditIntent?.(); // B1: revert-to-parser rewrites the row -> acquire the draft lock
     setAiActionError(null);
     try {
       await revertToParserCall({
@@ -668,6 +678,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     presetRowParent?: number | null;
     presetParentMessage?: string;
   }) => {
+    onEditIntent?.(); // B1: a with-children Gemini accept opens the restructure modal -> acquire
     setRestructureModal({
       row: args.row,
       newClassification: args.newClassification,
@@ -904,6 +915,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
   const confirmValueSave = async () => {
     if (!pendingEdit) return;
+    onEditIntent?.(); // B1: a value edit writes -> acquire the draft lock before the save
     const { rowIndex, field, to, area, rateSubkey } = pendingEdit;
     setSaveError(null);
     try {
@@ -932,6 +944,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // On success advances the anchor + refreshes via onSaved (row flips to "Edited"
   // exactly like a numeric edit); failure surfaces inline in the still-open panel.
   const saveTextField = async (rowIndex: number, field: string, value: string) => {
+    onEditIntent?.(); // B1: a text edit writes -> acquire the draft lock before the save
     setSaveError(null);
     try {
       const res = await saveCall({
@@ -2291,7 +2304,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               {canChangeParent && !readOnly && (
                                 <button
                                   type="button"
-                                  onClick={() => setRestructureModal({ row, newClassification: row.effective_classification as string })}
+                                  onClick={() => { onEditIntent?.(); setRestructureModal({ row, newClassification: row.effective_classification as string }); }}
                                   className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
                                 >
                                   Change parent
