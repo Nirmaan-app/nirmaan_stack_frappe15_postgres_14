@@ -300,26 +300,38 @@ def get_facet_values_impl(
                 params["limit"] = limit_int
             results = frappe.db.sql(sql, params, as_dict=True)
         
+        # --- Resolve Link labels in ONE query, not per value (ADR-0010: a lookup over
+        # many rows resides in the DB, not a Python loop). Preserves the previous
+        # per-value behaviour exactly: an unresolved or empty label falls back to the
+        # raw value, and a Link whose title field is "name" is left unresolved.
+        _label_map = {}
+        _target_doctype = _label_field = None
+        if field in LINK_FIELD_MAP:
+            _target_doctype = LINK_FIELD_MAP[field]["doctype"]
+            _label_field = LINK_FIELD_MAP[field]["label_field"]
+        elif field_meta and field_meta.fieldtype == "Link":
+            try:
+                _title_field = frappe.get_meta(field_meta.options).get_title_field()
+                if _title_field and _title_field != "name":
+                    _target_doctype = field_meta.options
+                    _label_field = _title_field
+            except Exception:
+                pass
+        _values = [row.get("value") for row in results if row.get("value")]
+        if _target_doctype and _label_field and _values:
+            try:
+                _rows = frappe.db.sql(
+                    f"SELECT name, `{_label_field}` AS label FROM `tab{_target_doctype}` WHERE name IN %(names)s",
+                    {"names": tuple(_values)}, as_dict=True,
+                )
+                _label_map = {r["name"]: r["label"] for r in _rows}
+            except Exception:
+                traceback.print_exc()
+                _label_map = {}
+
         for row in results:
             value = row.get("value")
-            label = value
-            if value:
-                # Priority 1: Check if we have a custom mapping in LINK_FIELD_MAP
-                if field in LINK_FIELD_MAP:
-                    try:
-                        target_doctype = LINK_FIELD_MAP[field]["doctype"]
-                        label_field = LINK_FIELD_MAP[field]["label_field"]
-                        label = frappe.db.get_value(target_doctype, value, label_field) or value
-                    except: pass
-                # Priority 2: Fallback to standard Frappe title field
-                elif field_meta and field_meta.fieldtype == "Link":
-                    try:
-                        link_meta = frappe.get_meta(field_meta.options)
-                        title_field = link_meta.get_title_field()
-                        if title_field and title_field != "name":
-                            label = frappe.db.get_value(field_meta.options, value, title_field) or value
-                    except: pass
-            
+            label = (_label_map.get(value) or value) if value else value
             facet_values.append({"value": value, "label": label, "count": row.get("count", 0)})
         
         return {"values": facet_values}
