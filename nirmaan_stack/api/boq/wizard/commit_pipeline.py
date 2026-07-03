@@ -274,6 +274,23 @@ def _next_commit_version(boq: str, sheet_name: str) -> int:
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
+def _commit_advisory_key(boq_name: str) -> int:
+    """A stable 64-bit key for the per-BoQ commit advisory lock (A1b / ADR-0011).
+
+    Serializes concurrent commit_boq calls for the SAME boq so the version race
+    (_next_commit_version reads max+1 with NO lock, then freeze-then-inserts) cannot
+    even be attempted concurrently. The partial unique index on
+    (boq, sheet_name) WHERE is_current=1 (patch boq_commit_current_unique_guard) is the
+    DURABLE corruption backstop; this advisory lock is the graceful-serialization layer
+    on top (a losing concurrent commit gets a clean retryable message instead of a
+    caught unique-violation in failed[]). Session-level (NOT xact) so it survives the
+    per-sheet frappe.db.commit()s; auto-released on connection close if the request dies.
+    """
+    return frappe.db.sql(
+        "SELECT hashtextextended(%s, 0)", (f"boq_commit:{boq_name}",)
+    )[0][0]
+
+
 @frappe.whitelist(methods=["POST"])
 def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
     """Commit a subset of a BoQ's sheets into the committed schema (Phase 5 Slice 3a/3b).
@@ -344,6 +361,20 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
         frappe.throw(
             f"BOQs '{boq_name}' has no source_file_url set.",
             title="Missing source file",
+        )
+
+    # SERIALIZE concurrent commits of the SAME boq (A1b / ADR-0011). Non-blocking
+    # session-level advisory lock: atomic, survives the per-sheet commits below, and
+    # auto-releases if the request dies (no stale flag to clean up). Acquired AFTER the
+    # cheap validation/gate (so a rejected call holds nothing) and released in the
+    # finally. The DB partial unique index is the durable backstop; this only turns a
+    # concurrent double-commit into a clean, retryable message.
+    _commit_lock_key = _commit_advisory_key(boq_name)
+    if not frappe.db.sql("SELECT pg_try_advisory_lock(%s)", (_commit_lock_key,))[0][0]:
+        frappe.throw(
+            "A commit is already running for this BoQ. "
+            "Please wait for it to finish, then retry.",
+            title="Commit already in progress",
         )
 
     tempfile_path = None
@@ -417,6 +448,9 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
                 os.unlink(tempfile_path)
             except OSError:
                 pass
+        # Release the per-boq commit advisory lock (A1b). Always runs on normal AND
+        # exception exit; a hard process kill instead auto-releases on connection close.
+        frappe.db.sql("SELECT pg_advisory_unlock(%s)", (_commit_lock_key,))
 
     return {"boq_name": boq_name, "committed": committed, "failed": failed}
 
