@@ -85,6 +85,14 @@ const PODataTableWrapper: React.FC<{
 
         const { columnFilters, searchTerm, selectedSearchField, exportAllRows, isExporting } = serverDataTable;
 
+        // Facets fetch LAZILY — only after their popover is first opened (ADR-0010 F4:
+        // the fetch trigger lives at the seam). Once touched, a facet stays enabled so it
+        // still refreshes on filter/search changes and its options aren't cleared on close.
+        const [touchedFacets, setTouchedFacets] = React.useState<Set<string>>(new Set());
+        const handleFacetOpen = React.useCallback((facetField: string) => {
+            setTouchedFacets(prev => prev.has(facetField) ? prev : new Set(prev).add(facetField));
+        }, []);
+
         // --- Dynamic Facet Values ---
         const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
             doctype: DOCTYPE,
@@ -93,7 +101,7 @@ const PODataTableWrapper: React.FC<{
             searchTerm,
             selectedSearchField,
             additionalFilters: staticFiltersForTab,
-            enabled: true
+            enabled: touchedFacets.has('project')
         });
 
         const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
@@ -103,7 +111,7 @@ const PODataTableWrapper: React.FC<{
             searchTerm,
             selectedSearchField,
             additionalFilters: staticFiltersForTab,
-            enabled: true
+            enabled: touchedFacets.has('vendor')
         });
 
         const dynamicFacetFilterOptions = React.useMemo(() => ({
@@ -139,6 +147,7 @@ const PODataTableWrapper: React.FC<{
                 searchTerm={serverDataTable.searchTerm}
                 onSearchTermChange={serverDataTable.setSearchTerm}
                 facetFilterOptions={dynamicFacetFilterOptions}
+                onFacetOpen={handleFacetOpen}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}

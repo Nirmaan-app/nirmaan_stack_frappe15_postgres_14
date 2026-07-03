@@ -34,6 +34,8 @@ interface DataTableFacetedFilterProps<TData, TValue> {
     // urlSyncKey: string;
     /** Optional base key if using nested URL state (e.g., 'items') */
     // urlBaseKey?: string;
+    /** Optional: fires when the popover opens/closes. Lets a parent lazily fetch options on first open. */
+    onOpenChange?: (open: boolean) => void;
 }
 
 export function DataTableFacetedFilter<TData, TValue>({
@@ -41,6 +43,7 @@ export function DataTableFacetedFilter<TData, TValue>({
     title,
     options,
     isLoading = false,
+    onOpenChange,
     // urlSyncKey,
     // urlBaseKey,
 }: DataTableFacetedFilterProps<TData, TValue>) {
@@ -120,7 +123,7 @@ export function DataTableFacetedFilter<TData, TValue>({
     //  };
 
     return (
-        <Popover>
+        <Popover onOpenChange={onOpenChange}>
             <PopoverTrigger asChild>
                 <div
                     className={`cursor-pointer ${selectedValues.size > 0 && "bg-gray-200"

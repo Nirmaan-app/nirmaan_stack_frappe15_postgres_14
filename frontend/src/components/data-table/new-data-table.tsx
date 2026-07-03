@@ -48,6 +48,8 @@ export interface DataTableProps<T> {
 
   /* filters */
   facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[]; isLoading?: boolean }>;
+  /** Optional: called with a column id when its faceted-filter popover first opens (enables lazy option fetching). */
+  onFacetOpen?: (field: string) => void;
   dateFilterColumns?: string[];
 
   /* export */
@@ -88,7 +90,7 @@ export function DataTable<T>({
   isLoading, error, totalCount,
   searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
   searchTerm, onSearchTermChange,
-  facetFilterOptions = {}, dateFilterColumns = [],
+  facetFilterOptions = {}, dateFilterColumns = [], onFacetOpen,
   showExportButton = false, onExport, exportFileName = "data", onExportAll, isExporting = false,
   toolbarActions, className,
   summaryCard, // NEW
@@ -302,6 +304,7 @@ export function DataTable<T>({
                               title={facetFilterOptions[h.column.id]!.title}
                               options={facetFilterOptions[h.column.id]!.options}
                               isLoading={facetFilterOptions[h.column.id]!.isLoading}
+                              onOpenChange={(open) => { if (open) onFacetOpen?.(columnInstance.id); }}
                             />
                           )}
                           {canShowDateFilter && (
