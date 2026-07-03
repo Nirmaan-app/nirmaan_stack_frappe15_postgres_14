@@ -23,7 +23,10 @@ import { Info } from "lucide-react";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import {
+  FacetDeclaration,
+  FacetOverrides,
+} from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
@@ -346,6 +349,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ServiceRequests) => {
             const project = projectOptions.find((p) => p.value === row.project);
@@ -369,6 +373,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
           exportHeaderName: "Vendor",
           exportValue: (row: ServiceRequests) => {
             return getVendorName(row.vendor);
@@ -567,7 +572,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ServiceRequests>({
@@ -584,52 +588,22 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     // requirePendingItems: false, // Not applicable for "Approved" SR list
   });
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: !for_vendor, // Disable dynamic fetch if vendor is already fixed
-    });
-
   // --- Faceted Filter Options ---
+  // project + vendor facets self-fetch (facetDoctype + meta.facet); gst stays a static-options facet.
   const facetFilterOptions = useMemo(
     () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      }, // Filter by vendor ID
       gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
     }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      vendorFacetOptions,
-      isVendorFacetLoading,
-    ]
+    []
+  );
+
+  // --- Facet render-scope overrides (self-fetching project + vendor) ---
+  const facetOverrides = useMemo<FacetOverrides>(
+    () => ({
+      project: { additionalFilters: staticFilters },
+      vendor: { additionalFilters: staticFilters, enabled: !for_vendor },
+    }),
+    [staticFilters, for_vendor]
   );
 
   // --- Faceted Filter Options ---
@@ -707,6 +681,8 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
             //     label: "Service Item Search"
             // }}
             facetFilterOptions={facetFilterOptions}
+            facetDoctype={DOCTYPE}
+            facetOverrides={facetOverrides}
             dateFilterColumns={dateColumns}
             showExportButton={true}
             onExport={"default"}

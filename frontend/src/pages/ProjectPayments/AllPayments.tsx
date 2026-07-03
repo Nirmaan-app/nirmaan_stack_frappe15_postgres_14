@@ -16,7 +16,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useFacetValues } from '@/hooks/useFacetValues';
+import { FacetDeclaration } from '@/components/data-table/facetConfig';
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -310,6 +310,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             },
             enableColumnFilter: true, size: 200,
             meta: {
+                facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
                 exportHeaderName: "Vendor",
                 exportValue: (row: ProjectPayments) => {
                     return getVendorName(row.vendor);
@@ -324,6 +325,7 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
             },
             enableColumnFilter: true, size: 180,
             meta: {
+                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
                 exportHeaderName: "Project",
                 exportValue: (row: ProjectPayments) => {
                     return projectMap.get(row.project) || row.project;
@@ -426,7 +428,10 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     </div>
                 );
             },
-            enableColumnFilter: true, size: 100
+            enableColumnFilter: true, size: 100,
+            meta: {
+                facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+            }
         } as ColumnDef<ProjectPayments>] : []),
 
     ], [tab, projectId, notifications, projectOptions, projectMap, vendorOptions, userList, getVendorName, getDocumentTotal, getPoAmountDelivered, handleSeenNotification, isAdmin, handleOpenEditDialog]);
@@ -443,7 +448,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         setSelectedSearchField,
         searchTerm,
         setSearchTerm,
-        columnFilters,
         exportAllRows,
         isExporting,
     } = useServerDataTable<ProjectPayments>({
@@ -456,54 +460,6 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         enableRowSelection: false,
         additionalFilters: staticFilters,
     });
-
-    // --- Dynamic Facet Values ---
-    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
-        doctype: DOCTYPE,
-        field: 'project',
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: !projectId // Only fetch if not already filtered by project
-    });
-
-    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-        doctype: DOCTYPE,
-        field: 'vendor',
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
-        doctype: DOCTYPE,
-        field: 'status',
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: ["Payments Pending", "All Payments"].includes(tab)
-    });
-
-    // --- Faceted Filter Options ---
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => {
-        const opts: any = {
-            vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
-        };
-        if (!projectId) { // Only show project facet if not already filtered by a specific project
-            opts.project = { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading };
-        }
-        if (["Payments Pending", "All Payments"].includes(tab)) {
-            opts.status = { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading };
-        }
-        return opts;
-    }, [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, statusFacetOptions, isStatusFacetLoading, projectId, tab]);
-
-    // --- (Indicator) FIX: Move useServerDataTable hook here, into the parent component ---
 
     // --- CEO Hold Row Highlighting ---
     const getRowClassName = useCallback(
@@ -544,7 +500,12 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     onSelectedSearchFieldChange={setSelectedSearchField}
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
-                    facetFilterOptions={facetFilterOptions}
+                    facetDoctype={DOCTYPE}
+                    facetOverrides={{
+                        project: { additionalFilters: staticFilters, enabled: !projectId },
+                        vendor: { additionalFilters: staticFilters },
+                        status: { additionalFilters: staticFilters, enabled: ["Payments Pending", "All Payments"].includes(tab) },
+                    }}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={'default'}
