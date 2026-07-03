@@ -21,7 +21,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -284,6 +284,11 @@ export const ApproveSelectVendor: React.FC = () => {
         enableColumnFilter: true,
         size: 200, // Enable faceted filter
         meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+            requirePendingItems: true,
+          } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ProcurementRequest) => {
             const project = projectOptions.find((i) => i.value === row.project);
@@ -302,6 +307,11 @@ export const ApproveSelectVendor: React.FC = () => {
         enableColumnFilter: true,
         size: 150,
         meta: {
+          facet: {
+            field: "tag_header",
+            title: "Header",
+            requirePendingItems: true,
+          } satisfies FacetDeclaration,
           exportHeaderName: "Headers",
           exportValue: (row: ProcurementRequest) => {
             const tags = (row as any).pr_tag_list || [];
@@ -376,7 +386,6 @@ export const ApproveSelectVendor: React.FC = () => {
     searchTerm,
     setSearchTerm,
     isRowSelectionActive,
-    columnFilters, // Extract columnFilters
     exportAllRows,
     isExporting,
   } = useServerDataTable<ProcurementRequest>({
@@ -396,51 +405,6 @@ export const ApproveSelectVendor: React.FC = () => {
     apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
     // ------------------------------------------------------
   });
-
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-    requirePendingItems: true,
-  });
-
-  const {
-    facetOptions: tagFacetOptions,
-    isLoading: isTagFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "tag_header",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-    requirePendingItems: true,
-  });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      "PR Tag Child Table.tag_header": {
-        title: "Header",
-        options: tagFacetOptions,
-        isLoading: isTagFacetLoading,
-      },
-    }),
-    [projectFacetOptions, isProjectFacetLoading, tagFacetOptions, isTagFacetLoading]
-  );
 
   // --- Combined Loading State ---
   const isLoading = projectsLoading || userListLoading;
@@ -479,7 +443,13 @@ export const ApproveSelectVendor: React.FC = () => {
           //     toggle: toggleItemSearch,
           //     label: "Item Search"
           // }}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: { additionalFilters: staticFilters },
+            "PR Tag Child Table.tag_header": {
+              additionalFilters: staticFilters,
+            },
+          }}
           dateFilterColumns={PR_DATE_COLUMNS} // Enable date filters for creation/modified
           showExportButton={true} // Disable export if not needed
           onExport={"default"}

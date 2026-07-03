@@ -15,7 +15,7 @@ import {
 import { Ellipsis } from "lucide-react";
 
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useVendorHoldVendors } from "@/hooks/useVendorHoldVendors";
 import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
@@ -107,6 +107,12 @@ export default function VendorsPage() {
         ),
         size: 180,
         enableColumnFilter: true,
+        meta: {
+          facet: {
+            field: "vendor_type",
+            title: "Vendor Type",
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "vendor_status",
@@ -132,6 +138,12 @@ export default function VendorsPage() {
         },
         size: 120,
         enableColumnFilter: true,
+        meta: {
+          facet: {
+            field: "vendor_status",
+            title: "Status",
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "vendor_category",
@@ -228,7 +240,6 @@ export default function VendorsPage() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters,
   } = useServerDataTable<VendorsType>({
     doctype: VENDOR_DOCTYPE,
     columns: columns,
@@ -239,47 +250,6 @@ export default function VendorsPage() {
     enableRowSelection: false,
     shouldCache: true,
   });
-
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: vendorTypeFacetOptions,
-    isLoading: isVendorTypeFacetLoading,
-  } = useFacetValues({
-    doctype: VENDOR_DOCTYPE,
-    field: "vendor_type",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    enabled: true,
-  });
-
-  const {
-    facetOptions: vendorStatusFacetOptions,
-    isLoading: isVendorStatusFacetLoading,
-  } = useFacetValues({
-    doctype: VENDOR_DOCTYPE,
-    field: "vendor_status",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    enabled: true,
-  });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      vendor_type: {
-        title: "Vendor Type",
-        options: vendorTypeFacetOptions,
-        isLoading: isVendorTypeFacetLoading,
-      },
-      vendor_status: {
-        title: "Status",
-        options: vendorStatusFacetOptions,
-        isLoading: isVendorStatusFacetLoading,
-      },
-    }),
-    [vendorTypeFacetOptions, isVendorTypeFacetLoading, vendorStatusFacetOptions, isVendorStatusFacetLoading]
-  );
 
   return (
     <div
@@ -305,7 +275,7 @@ export default function VendorsPage() {
         onSelectedSearchFieldChange={setSelectedSearchField}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype={VENDOR_DOCTYPE}
         dateFilterColumns={VENDOR_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}

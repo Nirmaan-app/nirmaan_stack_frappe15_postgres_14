@@ -140,6 +140,46 @@ hydrated per call, on every page.
 - The ten rules are **Proposed** until owner sign-off; the `sidebar_counts` proof proceeds as
   their first instance regardless.
 
+## Second proof — self-fetching facet component (`meta.facet`)
+
+Chosen as the second proof because facet fetching was the clearest F2/F4 violation on the
+frontend: `useFacetValues` was hand-wired at ~95 call sites across **38 pages**, each firing an
+eager `get_facet_values` POST **on mount** (an unbounded name-match + `GROUP BY`), whether or not
+the user ever opens the filter; and the one lazy adopter (`release-po-select`'s `touchedFacets`)
+re-implemented the gate inline. The fetch pattern was copied, not owned.
+
+**Decision.** One **self-fetching component** owns the fetch (F2/F4):
+
+1. **`SelfFetchingFacetFilter`** (`components/data-table/`) is the single home for the
+   `useFacetValues` call + a **sticky lazy gate** — first popover-open flips fetching on, it stays
+   on and refetches cross-filter-correct. It reuses the presentational `DataTableFacetedFilter`
+   unchanged, and `getColumnFacet` is the one typed accessor for the stored shape (F2).
+2. **Config is declared, not fetched.** A column carries its STATIC facet identity in `meta.facet`
+   (`{field, title, requirePendingItems?, decoupled?}`, co-located in `*.config.ts`, F4); the
+   RENDER-scope bits (`additionalFilters`, an `enabled` render-gate) ride a `facetOverrides` prop.
+   `facetDoctype` on `<DataTable>` is the **per-page opt-in** switch.
+3. **Laziness is universal + automatic.** The eager-on-mount fetch is gone for every migrated
+   facet; `release-po-select`'s hand-rolled `touchedFacets` machinery is deleted (subsumed by the
+   internal gate). Runtime-verified: **0** `get_facet_values` on mount → exactly **1** on first
+   popover-open.
+4. **Dual-path, incremental** (see Migration & sunset). `<DataTable>` supports both the new
+   `meta.facet` path and the legacy pre-fetched `facetFilterOptions`; a column uses the new path
+   only when it declares `meta.facet` **and** the page passes `facetDoctype`, so an un-migrated
+   sibling sharing a config is never broken.
+
+**Worked coverage.** 8 pages migrated — one per distinct config-shape (search-coupled+static,
+no-filters, route/tab-gated, decoupled-from-search, `requirePendingItems`, dynamic item-search,
+and the lazy touched-gate). Each verified for **parity** (old-vs-new `useFacetValues` args
+identical, adversarial), **tsc delta-0**, and **runtime** (0 mount fetches; one on open).
+
+### Migration & sunset (the dual-path is transitional)
+
+The `facetFilterOptions` prop + the page-level `useFacetValues` pattern are **scheduled for
+removal**. The remaining **~28 pages** migrate incrementally to `meta.facet` (each a mechanical,
+parity-checkable diff); once the last lands, delete the legacy `facetFilterOptions` branch in
+`new-data-table.tsx` and the direct `useFacetValues` call sites. Until then the dual path is the
+**intended, safe state** — do not treat the legacy branch as dead code.
+
 ## Deferred backlog (future implementation, in residence-rule order)
 
 1. **Mutate-bridge freshness residence** — `invalidateSidebarCounts()` fired inline with
@@ -148,8 +188,12 @@ hydrated per call, on every page.
 2. **Candidate 6 — PR/SB state deriver** — `deriveState(items, linkedSBs)` for `workflow_state`
    (rule B3), rewiring the 7 writers; reuses `services/procurement_approval.py`. Correctness bug:
    a PR can read "Vendor Approved" with work still open in a linked SB.
-3. **#2 facets** (`get_facet_values`) — label resolution as one SQL join (query residence, not N
-   `get_value`s) + **lazy** fetch gated on popover-open (F4) + drop the `key={tab}` remount.
+3. **Facets — finish the migration + backend bound.** The self-fetching component (second proof,
+   above) is **shipped and lazy**; label resolution is already one SQL `IN` join. Remaining:
+   migrate the **~28 pages** still on the legacy path to `meta.facet`, then delete the legacy
+   branch (see *Migration & sunset*); and bound the `matching_names` unbounded fetch
+   (`facets.py:188`, `reportview_execute(limit_page_length=0)`) by pushing name-matching into SQL.
+   `key={tab}` remount (#6) still resets per-tab laziness.
 4. **#4 over-fetch** — a server **PO-summary endpoint** (B4) owning per-PO paid/invoice totals
    (replaces two `limit:0` whole-table pulls) + **one shared lookup accessor** (F2/B2) for
    Projects / Nirmaan Users / Vendors (fetched 7–13× per navigation today).

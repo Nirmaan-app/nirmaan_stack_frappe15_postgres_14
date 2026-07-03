@@ -18,7 +18,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -261,6 +261,11 @@ export const ApproveSelectSentBack: React.FC = () => {
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+            requirePendingItems: true,
+          } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: SentBackCategory) => {
             const project = projectOptions.find((i) => i.value === row.project);
@@ -329,7 +334,6 @@ export const ApproveSelectSentBack: React.FC = () => {
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    columnFilters, // Extract columnFilters
     exportAllRows,
     isExporting,
   } = useServerDataTable<SentBackCategory>({
@@ -347,33 +351,6 @@ export const ApproveSelectSentBack: React.FC = () => {
     // --- NEW: Add the specific filter flag ---
     requirePendingItems: true, // Filter for items with status="Pending"
   });
-
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-    requirePendingItems: true,
-  });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      // Add type if needed: type: { title: "Type", options: [...] },
-    }),
-    [projectFacetOptions, isProjectFacetLoading]
-  );
 
   // --- CEO Hold Row Highlighting ---
   const getRowClassName = useCallback(
@@ -421,7 +398,8 @@ export const ApproveSelectSentBack: React.FC = () => {
           //     toggle: toggleItemSearch,
           //     label: "Item Search" // Or specific label if needed
           // }}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{ project: { additionalFilters: staticFilters } }}
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}
