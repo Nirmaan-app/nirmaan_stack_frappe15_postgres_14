@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { BoqPresence } from "./BoqPresence";
+import { getFrappeError } from "@/utils/frappeErrors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -701,10 +702,15 @@ const BoqHubPage = () => {
       await callSpecs({
         boq_name: boq.name,
         sheet_names: sheetNamesList,
+        // B3 / D11 (compare-and-set): the general-specs set this client LOADED. The server
+        // rejects if the designation changed since (a concurrent edit by another user) instead
+        // of silently clobbering it -- the hub then surfaces the conflict + the user reloads.
+        expected_current: [...generalSpecsSheetNames],
       });
       void mutate();
-    } catch (_e) {
+    } catch (e) {
       setSpecsError(
+        getFrappeError(e) ||
         "Failed to update general specifications sheets. Please try again."
       );
     }
