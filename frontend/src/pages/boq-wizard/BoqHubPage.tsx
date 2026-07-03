@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
+import { BoqPresence } from "./BoqPresence";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -789,6 +790,8 @@ const BoqHubPage = () => {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
+          {/* B2: BoQ-level "who else is here" presence (soft awareness; sheet locks own correctness). */}
+          <BoqPresence boqId={boqId} />
           {/* Autosave placeholder -- no real autosave in 2b; changes save on each action */}
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Check className="h-3 w-3" />

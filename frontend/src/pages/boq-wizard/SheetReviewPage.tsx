@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
+import { BoqPresence } from "./BoqPresence";
 import type {
   AiPassDonePayload,
   BOQsDoc,
@@ -755,6 +756,8 @@ const SheetReviewPage = () => {
             C-v2 save-status anchor. The Mark button and the read-only banner below are
             mutually exclusive by construction (status-driven). */}
         <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+          {/* B2: BoQ-level "who else is here" presence (soft awareness; the draft lock owns correctness). */}
+          <BoqPresence boqId={boqId} />
           {/* Slice D2: per-sheet CSV export. STATUS-INDEPENDENT (a frozen/checked
               sheet exports too) and VIEW-INDEPENDENT (filters/collapse/search do
               not affect it). Disabled while loading or when there are no rows. */}

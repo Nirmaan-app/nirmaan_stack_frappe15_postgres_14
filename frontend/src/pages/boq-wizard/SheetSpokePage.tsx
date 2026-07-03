@@ -24,6 +24,7 @@ import {
   useFrappePostCall,
 } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { BoqPresence } from "./BoqPresence";
 import { ArrowLeft, Loader2, Lock, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -504,6 +505,9 @@ const SheetSpokePage = () => {
             )}
           </h1>
         </div>
+
+        {/* B2: BoQ-level "who else is here" presence (soft awareness; the draft lock owns correctness). */}
+        <BoqPresence boqId={boqId} className="ml-auto shrink-0 self-start mt-0.5" />
       </div>
 
       {/* ── B1 draft-lock banners -- takeover > holder-held. The config panel itself renders

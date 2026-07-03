@@ -23,6 +23,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { BoqPresence } from "./BoqPresence";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1196,6 +1197,8 @@ const SheetPricingPage = () => {
             unconditionally so the maximize toggle is reachable on a read-only / grid-only
             sheet too -- full-screen is orthogonal to editability. */}
         <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+          {/* B2: BoQ-level "who else is here" presence (soft awareness; the pricing lock owns correctness). */}
+          <BoqPresence boqId={boqId} />
           <Button
             size="sm"
             variant="outline"
