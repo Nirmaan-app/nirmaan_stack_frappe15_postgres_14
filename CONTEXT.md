@@ -59,3 +59,15 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Area structure** — the mapping of a spreadsheet column to the project area it measures (e.g. column G → "7th floor / T-1"). It is carried by the sheet's *area names* (Section 2) + *column→area mapping* (Section 3), authored by the reviewer. It is **separate** from the header declaration: it is never auto-derived from the area-tier rows.
 
 - **Excluded rows (manual)** — rows the reviewer explicitly removes from the data region *in addition to* the header row, expressed as a list of **skip definitions**. Each skip definition is either a **single row** (one row number) or a **row range** (a start row + an end row, inclusive). This is the primary tool for the two cases the single header row can't cover: extra header tiers *below* the header row (rate splits, area tiers), and a column-header that *repeats mid-sheet* or a stray banner between data rows. They exclude *by position* (not by classification), anywhere in the sheet.
+
+## Module residence
+
+- **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
+
+- **Deep module** — a module whose interface is much smaller than its implementation: it owns a concept behind a narrow seam, so callers depend on the seam, not the internals. A *shallow* module (interface nearly as large as its implementation) leaks its concept to every caller. The codebase spans both: BoQ / ITM / PO-Adjustments are deep; Service Requests / Procurement are shallow.
+
+- **Residence map** — the one-screen table (in ADR-0010) that answers "where does this go?" before code is written: calculations → a pure module; JSON/child-table shapes → one accessor; `workflow_state` → one deriver; endpoints → thin orchestrators; counts/aggregates → the database; mutations → the write-safety seam.
+
+## Procurement approval
+
+- **Awaiting approval (of a PR or Sent Back)** — a Procurement Request or Sent Back Category ready for line-item approval: its `workflow_state` is *Vendor Selected* or *Partially Approved* **and** at least one of its order-list items is still *Pending*. It is the single rule behind the sidebar "Approve" count and the approval screens; a PR and an SB share it (they share the order-list child table). Its one home is a single pure module (ADR-0010, rule B1) — replacing the copy of this rule that was scattered across the sidebar-count and approval endpoints.
