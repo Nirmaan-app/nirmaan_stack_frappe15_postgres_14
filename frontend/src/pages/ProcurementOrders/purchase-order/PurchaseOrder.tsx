@@ -1224,6 +1224,7 @@ export const PurchaseOrder = ({
                     {["Partially Delivered", "Delivered"].includes(PO?.status) && (
                       <th className="text-center py-3">Delivered Qty</th>
                     )}
+                    <th className="text-center py-3">Invoice Qty</th>
                     {!isProjectManager && <th className="text-center py-3">Rate</th>}
                     {!isProjectManager && <th className="text-center py-3">Tax</th>}
                     {!isProjectManager && <th className="text-center py-3">Amount</th>}
@@ -1261,6 +1262,7 @@ export const PurchaseOrder = ({
                           {item?.received_quantity || 0}
                         </td>
                       )}
+                      <td className="text-center py-3 align-top">{item?.invoice_qty || 0}</td>
                       {!isProjectManager && <td className="text-center py-3 align-top">{formatToIndianRupee(item?.quote)}</td>}
                       {!isProjectManager && <td className="text-center py-3 align-top">{item?.tax}%</td>}
                       {!isProjectManager && <td className="text-center py-3 align-top font-medium">{formatToIndianRupee(item?.amount)}</td>}
@@ -1313,6 +1315,10 @@ export const PurchaseOrder = ({
                   <div className="flex justify-between">
                     <span className="text-gray-500">Qty:</span>
                     <span className="font-medium text-gray-900">{item.quantity}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Invoice Qty:</span>
+                    <span className="font-medium text-gray-900">{item?.invoice_qty || 0}</span>
                   </div>
 
                   {["Partially Delivered", "Delivered"].includes(PO?.status) && (

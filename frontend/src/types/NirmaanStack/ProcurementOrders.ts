@@ -19,6 +19,7 @@ export interface PurchaseOrderItem {
 	unit: string;
 	quantity: number;
 	received_quantity?: number;
+	invoice_qty?: number;
 	is_dispatched?: 0 | 1;
 	category: string;
 	procurement_package?: string;

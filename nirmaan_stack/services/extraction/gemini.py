@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import INVOICE, Entity, LineItem
+from .base import CUSTOMER_PO, INVOICE, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -224,15 +224,14 @@ class GeminiExtractor:
             fields = _CUSTOMER_PO_FIELDS + ("payment_terms",)
             prompt = _CUSTOMER_PO_PROMPT
             schema = _customer_po_schema()
+            is_invoice = False
         else:
             is_invoice = doc_kind == INVOICE
             fields = _INVOICE_FIELDS if is_invoice else _PAYMENT_FIELDS
             prompt = _INVOICE_PROMPT if is_invoice else _PAYMENT_PROMPT
             schema = _schema(fields)
-
-        schema = _schema(fields)
-        if is_invoice:
-            schema["properties"]["line_items"] = _line_items_schema()
+            if is_invoice:
+                schema["properties"]["line_items"] = _line_items_schema()
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
