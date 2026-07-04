@@ -22,6 +22,8 @@ This document contains detailed page-level role access control mappings for the 
 **Note:** PMO Executive Profile mirrors Admin Profile access in all areas **except**:
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments or edit fulfilled payments
+- **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
+- **New-item creation in the PR flow** *(2026-07-04 access review)*: PMO is treated like a Project Manager — in `new_items="false"` categories they can only **request** an item (ephemeral `REQ-…`), not create a master Item. The Admin/PMO category-restriction bypass was removed (Admin still bypasses). Does not affect the Items master table (PMO already could not create there; only edit).
 
 ---
 
@@ -131,13 +133,15 @@ Roles that don't require `has_project === "true"`:
 
 | Feature | Admin | PMO | Proj Lead | Procurement | Others |
 |---------|:-----:|:---:|:---------:|:-----------:|:------:|
-| Approve PR Tab | Y | Y | Y | - | - |
+| Approve PR Tab | Y | - | Y | - | - |
 | New PR/In Progress Tabs | Y | Y | Y | Y | - |
 | Sent Back Tabs | Y | Y | Y | Y | - |
 | Delete PR | Y | Y | Y | - | - |
-| Create New Item (bypass category restriction) | Y | Y | - | - | - |
+| Create New Item (bypass category restriction) | Y | - | - | - | - |
 
-**Key files:** `procurement-requests.tsx:117,177,181,186,351`, `NewItemDialog.tsx:83`
+> **PMO note (2026-07-04):** PMO removed from `PR_ADMIN_ROLES`, so no "Approve PR" tab and the approve view/list are guarded against direct-URL access. The new-item create bypass now excludes PMO (Admin-only), so PMO is request-only in `new_items="false"` categories like a Project Manager.
+
+**Key files:** `config/prTabs.constants.ts` (`PR_ADMIN_ROLES` — approver set), `render-procurement-requests.tsx` (approve-view URL guard → redirect), `procurement-requests.tsx` (tab visibility + pending-list guard), `NewPR/components/NewItemDialog.tsx` + `NewPR/components/ItemSelectorControls.tsx` (`newItemsDisabled` create-vs-request gate)
 
 ---
 
@@ -269,6 +273,8 @@ Roles that don't require `has_project === "true"`:
 | Action | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
 |--------|:-----:|:---:|:---------:|:--------:|:-----------:|:----------:|
 | Create New PR | Y | Y | Y | - | Y | - |
+| Approve/Reject PR | Y | - | Y | - | - | - |
+| Create Item from PR (bypass category restriction) | Y | - | - | - | - | - |
 | Create New Work Order | Y | Y | Y | - | Y | Y |
 | Create Project/User/Vendor | Y | Y | - | - | - | - |
 | Delete Project Expense | Y | Y | - | - | - | - |
@@ -283,7 +289,7 @@ Roles that don't require `has_project === "true"`:
 
 **Design Tracker specific:** Design Lead can edit structure; Design Executive can only edit assigned tasks; Project Manager is view-only.
 
-**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject or edit fulfilled payments. In all other areas, PMO mirrors Admin.
+**PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject or edit fulfilled payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. In all other areas, PMO mirrors Admin.
 
 ---
 

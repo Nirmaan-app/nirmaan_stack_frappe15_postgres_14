@@ -148,7 +148,7 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 **Roles:** Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive, HR Executive
 
-**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access **except** TDS Approval (view-only, cannot approve/reject) and Payment Approval (no Approve tab, no edit fulfilled). HR Executive has Admin Options sidebar access.
+**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access **except** TDS Approval (view-only, cannot approve/reject), Payment Approval (no Approve tab, no edit fulfilled), PR Approval (no "Approve PR" tab, blocked from the approve view even by direct URL — approvers are Admin + Project Lead, `PR_ADMIN_ROLES`), and PR-flow new-item creation (request-only like a Project Manager in `new_items="false"` categories — no category-restriction bypass). HR Executive has Admin Options sidebar access.
 
 **Key files:** `src/hooks/useUserData.ts`, `src/utils/auth/ProtectedRoute.tsx`, `src/components/layout/NewSidebar.tsx`
 
