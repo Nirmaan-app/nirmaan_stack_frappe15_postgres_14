@@ -201,7 +201,7 @@ export const DocumentAttachments = <T extends DocumentType>({
   } = useFrappeGetDocList<VendorInvoice>(
     "Vendor Invoices",
     {
-      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", "status", "reconciliation_status", "uploaded_by", "autofill_used"],
+      fields: ["name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", "status", "reconciliation_status", "uploaded_by", "autofill_used", "is_credit_note"],
       filters: [
         ["document_type", "=", docType],
         ["document_name", "=", docName],

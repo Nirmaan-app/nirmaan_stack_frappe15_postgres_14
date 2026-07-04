@@ -26,6 +26,8 @@ export interface VendorInvoice {
   invoice_date: string;
   invoice_amount: number;
   invoice_attachment?: string;
+  /** 1 if this invoice is a credit note — EXCLUDED from Purchase Order Item.invoice_qty. */
+  is_credit_note?: 0 | 1;
 
   /** Approval workflow */
   status: "Pending" | "Approved" | "Rejected";

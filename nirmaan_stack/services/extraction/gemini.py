@@ -79,6 +79,9 @@ _INVOICE_PROMPT = (
     "Do NOT include header rows, sub-totals, tax rows, or charge rows (freight/round-off) "
     "as line_items — those belong in the scalar fields above. If the invoice has no "
     "itemised table, return an empty array.\n"
+    "- is_credit_note = true if this document is a CREDIT NOTE or credit memo (it says "
+    "'Credit Note' / 'Credit Memo', or otherwise reverses / refunds a prior invoice); "
+    "false for a normal tax invoice.\n"
     "- Dates in YYYY-MM-DD format.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess and do "
     'NOT output the string "null".'
@@ -232,6 +235,8 @@ class GeminiExtractor:
             schema = _schema(fields)
             if is_invoice:
                 schema["properties"]["line_items"] = _line_items_schema()
+                # Document-type classification: did the file itself declare it a credit note?
+                schema["properties"]["is_credit_note"] = {"type": "boolean", "nullable": True}
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -253,7 +258,15 @@ class GeminiExtractor:
 
         data = self._generate(client, model, [part, prompt], config)
         line_items = self._to_line_items(data.get("line_items")) if is_invoice else []
-        return "", self._to_entities(data, fields), line_items
+        entities = self._to_entities(data, fields)
+        # Surface the credit-note classification as a flat entity (only when the model
+        # actually flagged it true), so the (text, entities) contract stays flat.
+        if is_invoice and data.get("is_credit_note") is True:
+            entities.append(
+                {"type": "is_credit_note", "mention_text": "1",
+                 "normalized_text": "1", "confidence": 1.0}
+            )
+        return "", entities, line_items
 
     def _build_client(self, settings):
         mode = "api_key" if "api" in (settings.get("auth_mode") or "").lower() else "vertex"
