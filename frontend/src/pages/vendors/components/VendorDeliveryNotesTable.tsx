@@ -2,11 +2,11 @@ import React, { useCallback, useMemo } from "react";
 import { ColumnDef, Row as TanRow } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import {
   DataTable,
   SearchFieldOption,
 } from "@/components/data-table/new-data-table";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -71,29 +71,6 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
     return map;
   }, [projectsData]);
 
-  // --- Dynamic Facet Values ---
-  const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } =
-    useFacetValues({
-      doctype: "Delivery Notes",
-      field: "project",
-      currentFilters: [],
-      searchTerm: "",
-      selectedSearchField: "name",
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-    }),
-    [projectFacetOptions, isProjectFacetLoading]
-  );
-
   // --- Columns ---
   const columns = useMemo<ColumnDef<DeliveryNote>[]>(
     () => [
@@ -155,6 +132,11 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
           exportHeaderName: "Project",
           exportValue: (row: DeliveryNote) =>
             projectMap.get(row.project) || row.project || "--",
+          facet: {
+            field: "project",
+            title: "Project",
+            decoupled: true,
+          } satisfies FacetDeclaration,
         },
       },
       {
@@ -266,7 +248,10 @@ export const VendorDeliveryNotesTable: React.FC<VendorDeliveryNotesTableProps> =
       onSelectedSearchFieldChange={setSelectedSearchField}
       searchTerm={searchTerm}
       onSearchTermChange={setSearchTerm}
-      facetFilterOptions={facetFilterOptions}
+      facetDoctype="Delivery Notes"
+      facetOverrides={{
+        project: { additionalFilters: staticFilters },
+      }}
       dateFilterColumns={["delivery_date", "creation"]}
       showExportButton={true}
       onExport={"default"}

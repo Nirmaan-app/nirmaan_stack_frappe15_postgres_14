@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 
 interface VendorQuotesTableProps {
   vendorId: string;
@@ -111,6 +111,10 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
           );
         },
         meta: {
+          facet: {
+            field: "owner",
+            title: "Created By",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Created By",
           exportValue: (row: NirmaanAttachment) => {
             return userMap.get(row.owner) || row.owner || "--";
@@ -140,6 +144,12 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
             {row.getValue("associated_docname")}
           </div>
         ),
+        meta: {
+          facet: {
+            field: "associated_docname",
+            title: "PR ID",
+          } satisfies FacetDeclaration,
+        },
         size: 180,
       },
       {
@@ -156,6 +166,10 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
           );
         },
         meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: NirmaanAttachment) => {
             return projectMap.get(row.project || "") || row.project || "--";
@@ -203,7 +217,6 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters,
   } = useServerDataTable<NirmaanAttachment>({
     doctype: "Nirmaan Attachments",
     columns: columns,
@@ -214,90 +227,6 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
     enableRowSelection: false,
     additionalFilters: staticFilters,
   });
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } =
-    useFacetValues({
-      doctype: "Nirmaan Attachments",
-      field: "project",
-      currentFilters: columnFilters,
-      searchTerm: searchTerm,
-      selectedSearchField: selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
-    useFacetValues({
-      doctype: "Nirmaan Attachments",
-      field: "owner",
-      currentFilters: columnFilters,
-      searchTerm: searchTerm,
-      selectedSearchField: selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: prFacetOptions, isLoading: isPrFacetLoading } =
-    useFacetValues({
-      doctype: "Nirmaan Attachments",
-      field: "associated_docname",
-      currentFilters: columnFilters,
-      searchTerm: searchTerm,
-      selectedSearchField: selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions.map(opt => {
-          // Parse "ProjectID (count)" from the default hook's label
-          const match = opt.label.match(/(.*) \((\d+)\)$/);
-          if (match) {
-            const projectId = match[1];
-            const count = match[2];
-            return {
-              ...opt,
-              label: `${projectMap.get(projectId) || projectId} (${count})`
-            };
-          }
-          return {
-            ...opt,
-            label: projectMap.get(opt.value) || opt.label
-          };
-        }),
-        isLoading: isProjectFacetLoading || projectsLoading,
-      },
-      owner: {
-        title: "Created By",
-        options: ownerFacetOptions.map(opt => {
-          const match = opt.label.match(/(.*) \((\d+)\)$/);
-          if (match) {
-            const userId = match[1];
-            const count = match[2];
-            return {
-              ...opt,
-              label: `${userMap.get(userId) || userId} (${count})`
-            };
-          }
-          return {
-            ...opt,
-            label: userMap.get(opt.value) || opt.label
-          };
-        }),
-        isLoading: isOwnerFacetLoading || usersLoading,
-      },
-      associated_docname: {
-        title: "PR ID",
-        options: prFacetOptions,
-        isLoading: isPrFacetLoading,
-      }
-    }),
-    [projectFacetOptions, isProjectFacetLoading, projectsLoading, projectMap, ownerFacetOptions, isOwnerFacetLoading, usersLoading, userMap, prFacetOptions, isPrFacetLoading]
-  );
 
   if (tableError) return <AlertDestructive error={tableError} />;
 
@@ -313,7 +242,12 @@ export const VendorQuotesTable: React.FC<VendorQuotesTableProps> = ({ vendorId, 
       searchTerm={searchTerm}
       onSearchTermChange={setSearchTerm}
       dateFilterColumns={["creation"]}
-      facetFilterOptions={facetFilterOptions}
+      facetDoctype="Nirmaan Attachments"
+      facetOverrides={{
+        project: { additionalFilters: staticFilters },
+        owner: { additionalFilters: staticFilters },
+        associated_docname: { additionalFilters: staticFilters },
+      }}
       showExportButton={true}
       onExport={"default"}
       onExportAll={exportAllRows}

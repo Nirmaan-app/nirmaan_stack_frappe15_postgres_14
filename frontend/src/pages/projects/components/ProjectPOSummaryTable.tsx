@@ -35,7 +35,7 @@ import {
   SimpleAggregationConfig,
   CustomAggregationConfig,
 } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -500,6 +500,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 180,
         meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
           exportHeaderName: "Vendor",
           exportValue: (row: ProcurementOrder) => {
             return getVendorName(row.vendor);
@@ -523,6 +524,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 150,
         meta: {
+          facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
           exportValue: (row: ProcurementOrder) => {
             return row.status;
           },
@@ -543,6 +545,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 130,
         meta: {
+          facet: { field: "billing_status", title: "Billing" } satisfies FacetDeclaration,
           exportHeaderName: "Billing",
           exportValue: (row: ProcurementOrder) =>
             row.billing_status === "Non-Billable" ? "Non-Billable" : "Billable",
@@ -600,6 +603,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 180,
         meta: {
+          facet: { field: "owner", title: "Approved By" } satisfies FacetDeclaration,
           exportHeaderName: "Approved By",
           exportValue: (row: ProcurementOrder) => {
             const ownerUser = userList?.find(
@@ -722,6 +726,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
               enableColumnFilter: true,
               size: 150,
               meta: {
+                facet: { field: "payment_type", title: "Payment Type" } satisfies FacetDeclaration,
                 exportHeaderName: "Payment Type",
                 exportValue: (row: ProcurementOrder) => row.payment_type || "N/A",
               },
@@ -775,108 +780,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     aggregatesConfig: POS_AGGREGATES_CONFIG, // NEW: Pass the config
     groupByConfig: POS_GROUP_BY_CONFIG, // NEW: Pass the group by config
   });
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "status",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: dynamicFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: dynamicFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "owner",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: dynamicFilters,
-      enabled: true,
-    });
-
-  const {
-    facetOptions: paymentTypeFacetOptions,
-    isLoading: isPaymentTypeFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "payment_type",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: dynamicFilters,
-    enabled: true,
-  });
-
-  const {
-    facetOptions: billingFacetOptions,
-    isLoading: isBillingFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "billing_status",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: dynamicFilters,
-    enabled: true,
-  });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      },
-      status: {
-        title: "Status",
-        options: statusFacetOptions,
-        isLoading: isStatusFacetLoading,
-      },
-      owner: {
-        title: "Approved By",
-        options: ownerFacetOptions,
-        isLoading: isOwnerFacetLoading,
-      },
-      payment_type: {
-        title: "Payment Type",
-        options: paymentTypeFacetOptions,
-        isLoading: isPaymentTypeFacetLoading,
-      },
-      billing_status: {
-        title: "Billing",
-        options: billingFacetOptions,
-        isLoading: isBillingFacetLoading,
-      },
-    }),
-    [
-      statusFacetOptions,
-      isStatusFacetLoading,
-      vendorFacetOptions,
-      isVendorFacetLoading,
-      ownerFacetOptions,
-      isOwnerFacetLoading,
-      paymentTypeFacetOptions,
-      isPaymentTypeFacetLoading,
-      billingFacetOptions,
-      isBillingFacetLoading,
-    ]
-  );
 
   const isLoadingOverall =
     vendorsLoading ||
@@ -1133,7 +1036,14 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            status: { additionalFilters: dynamicFilters },
+            vendor: { additionalFilters: dynamicFilters },
+            owner: { additionalFilters: dynamicFilters },
+            payment_type: { additionalFilters: dynamicFilters },
+            billing_status: { additionalFilters: dynamicFilters },
+          }}
           dateFilterColumns={PO_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}

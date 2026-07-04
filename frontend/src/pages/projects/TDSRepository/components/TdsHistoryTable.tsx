@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { ColumnDef } from "@tanstack/react-table";
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useFacetValues } from '@/hooks/useFacetValues';
+import { FacetDeclaration, FacetOverrides } from '@/components/data-table/facetConfig';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,6 +93,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             ),
             size: 100,
             enableSorting: true,
+            meta: {
+                facet: { field: "tds_request_id", title: "TDS ID" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_work_package",
@@ -101,6 +104,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             size: 150,
             enableSorting: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                facet: { field: "tds_work_package", title: "Work Package" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_category",
@@ -109,6 +115,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             size: 120,
             enableSorting: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                facet: { field: "tds_category", title: "Category" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_item_id",
@@ -116,6 +125,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             cell: ({ row }) => <div className="font-medium whitespace-nowrap">{row.getValue("tds_item_id")}</div>,
             size: 100,
             enableSorting: true,
+            meta: {
+                facet: { field: "tds_item_id", title: "Item ID" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_item_name",
@@ -123,6 +135,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             cell: ({ row }) => <div className="font-medium" title={row.getValue("tds_item_name")}>{row.getValue("tds_item_name")}</div>,
             size: 150,
             enableSorting: true,
+            meta: {
+                facet: { field: "tds_item_name", title: "Item Name" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_description",
@@ -147,6 +162,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 </span>
             ),
             size: 120,
+            meta: {
+                facet: { field: "tds_make", title: "Make" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_status",
@@ -187,6 +205,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             },
             size: 100,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
+            meta: {
+                facet: { field: "tds_status", title: "Status" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "tds_attachment",
@@ -265,7 +286,6 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         setSelectedSearchField,
         searchTerm,
         setSearchTerm,
-        columnFilters,
         refetch: refetchTable,
         exportAllRows,
         isExporting,
@@ -279,107 +299,18 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         urlSyncKey: `tds_history_${projectId}_${refreshTrigger}`
     });
 
-    // --- Facet Filters ---
-    const { facetOptions: wpOptions, isLoading: wpLoading, refetch: refetchWp } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_work_package",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: catOptions, isLoading: catLoading, refetch: refetchCat } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_category",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: statusOptions, isLoading: statusLoading, refetch: refetchStatus } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_status",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: makeOptions, isLoading: makeLoading, refetch: refetchMake } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_make",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: reqIdOptions, isLoading: reqIdLoading, refetch: refetchReqId } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_request_id",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: itemIdOptions, isLoading: itemIdLoading, refetch: refetchItemId } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_item_id",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: itemNameOptions, isLoading: itemNameLoading, refetch: refetchItemName } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "tds_item_name",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    const { facetOptions: ownerOptions, isLoading: ownerLoading, refetch: refetchOwner } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "owner",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-        enabled: true
-    });
-
-    // Map owner facet options
-    const mappedOwnerOptions = useMemo(() => {
-        if (!ownerOptions) return [];
-        return ownerOptions.map(opt => {
-            const fullName = userMap.get(opt.value);
-            return fullName ? { ...opt, label: opt.label.replace(opt.value, fullName) } : opt;
-        });
-    }, [ownerOptions, userMap]);
-
-
-    const facetFilterOptions = useMemo(() => ({
-        tds_work_package: { title: "Work Package", options: wpOptions, isLoading: wpLoading },
-        tds_category: { title: "Category", options: catOptions, isLoading: catLoading },
-        tds_item_id: { title: "Item ID", options: itemIdOptions, isLoading: itemIdLoading },
-        tds_item_name: { title: "Item Name", options: itemNameOptions, isLoading: itemNameLoading },
-        tds_make: { title: "Make", options: makeOptions, isLoading: makeLoading },
-        tds_request_id: { title: "TDS ID", options: reqIdOptions, isLoading: reqIdLoading },
-        owner: { title: "Created By", options: mappedOwnerOptions, isLoading: ownerLoading },
-        tds_status: { title: "Status", options: statusOptions, isLoading: statusLoading }
-    }), [wpOptions, wpLoading, catOptions, catLoading, statusOptions, statusLoading, makeOptions, makeLoading, mappedOwnerOptions, ownerLoading, reqIdOptions, reqIdLoading, itemIdOptions, itemIdLoading, itemNameOptions, itemNameLoading]);
+    // --- Facet Filters (self-fetching: ADR-0010 "Option 2") ---
+    // Every facet is scoped to the current project via `staticFilters`. Column ids match the
+    // faceted field names, so the override keys are the TanStack column ids verbatim.
+    const facetOverrides = useMemo<FacetOverrides>(() => ({
+        tds_request_id: { additionalFilters: staticFilters },
+        tds_work_package: { additionalFilters: staticFilters },
+        tds_category: { additionalFilters: staticFilters },
+        tds_item_id: { additionalFilters: staticFilters },
+        tds_item_name: { additionalFilters: staticFilters },
+        tds_make: { additionalFilters: staticFilters },
+        tds_status: { additionalFilters: staticFilters },
+    }), [staticFilters]);
 
 
     // --- Handlers ---
@@ -418,16 +349,10 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         if (refreshTrigger > 0 && refreshTrigger !== prevRefreshTrigger.current) {
             prevRefreshTrigger.current = refreshTrigger;
             refetchTable();
-            refetchWp();
-            refetchCat();
-            refetchStatus();
-            refetchMake();
-            refetchItemId();
-            refetchItemName();
-            refetchReqId();
-            refetchOwner();
+            // Self-fetching facets refetch internally on filter/search change + first popover open;
+            // there is no external facet-refetch handle in the Option-2 model.
         }
-    }, [refreshTrigger, refetchTable, refetchWp, refetchCat, refetchStatus, refetchMake, refetchOwner, refetchReqId, refetchItemId, refetchItemName]);
+    }, [refreshTrigger, refetchTable]);
 
     return (
         <>
@@ -442,7 +367,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetFilterOptions}
+                facetDoctype={DOCTYPE}
+                facetOverrides={facetOverrides}
                 showExportButton={true}
                 onExport="default"
                 onExportAll={exportAllRows}
