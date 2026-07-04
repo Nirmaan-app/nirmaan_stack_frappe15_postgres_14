@@ -21,7 +21,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -245,6 +245,10 @@ export const ApproveSelectAmendSR: React.FC = () => {
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ServiceRequests) => {
             const project = projectOptions.find((p) => p.value === row.project);
@@ -268,6 +272,10 @@ export const ApproveSelectAmendSR: React.FC = () => {
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: {
+            field: "vendor",
+            title: "Vendor",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Vendor",
           exportValue: (row: ServiceRequests) => getVendorName(row.vendor),
         },
@@ -386,7 +394,6 @@ export const ApproveSelectAmendSR: React.FC = () => {
     setSearchTerm,
     isRowSelectionActive,
     refetch,
-    columnFilters, // NEW
     exportAllRows,
     isExporting,
   } = useServerDataTable<ServiceRequests>({
@@ -401,57 +408,6 @@ export const ApproveSelectAmendSR: React.FC = () => {
     enableRowSelection: false, // For bulk approval
     additionalFilters: staticFilters,
   });
-
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      },
-    }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      vendorFacetOptions,
-      isVendorFacetLoading,
-    ]
-  );
-
-  // --- Faceted Filter Options ---
-
-  // --- Use the Server Data Table Hook ---
 
   // --- Combined Loading & Error States ---
   const isLoading = projectsLoading || vendorsLoading || userListLoading;
@@ -507,7 +463,11 @@ export const ApproveSelectAmendSR: React.FC = () => {
           //     toggle: toggleItemSearch,
           //     label: "Service Item Search"
           // }}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: { additionalFilters: staticFilters },
+            vendor: { additionalFilters: staticFilters },
+          }}
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}

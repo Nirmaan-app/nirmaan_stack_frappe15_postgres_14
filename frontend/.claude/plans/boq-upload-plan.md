@@ -10573,6 +10573,103 @@ DESIGN (locked Q1-Q3): hard-block #7/#8 at finalize (H); the gate becomes FULLY 
 
 BUILT + GREEN: commit_validation.structural_errors_for_sheet; review_screen check_structural_integrity (cycle only) + get_structural_breaks/mark_sheet_parsed_check_done merge + fully-hard gate (lazy import dodges the circular dep); boqTypes union + ReviewTree labels + SheetReviewPage disable-Finalize/remove-override. Tests: test_review_screen 236, test_commit_validation 41 (all green); tsc 0 new. ADVERSARIAL REVIEW CLEAN (parity structural, lazy-import cycle-free, gate never reads confirm, no finalize bypass; one stale ai_assist.py comment fixed). Browser-verified on BOQ-26-00115: commit dialog -> clean silent commit ("Committed 2 sheets", no warning toasts); review renders post-S2 (advisories shown, no false breaks). ADR-0008 (fully-hard gate). As-built: `.claude/context/domain/boq-backend.md` + `frontend/.claude/context/domain/boq-frontend.md`. S1 = e02599e1; S2 local (pending its own commit).
 
+
+---
+
+## Classification Engine -- electrical category rule set + signal-agreement runner (2026-06-29)
+
+NEW TRACKED MODULE: `nirmaan_stack/services/boq_category/` -- a pure-Python, framework-free
+(NO frappe imports) rules layer that classifies a committed BoQ Line Item into one of the 12
+electrical pricing categories (or `novel` = route-to-human). This is the deterministic RULES
+half of the two-stage classification arc; the AI pass is a separate harness (NEXT), not in
+this module.
+
+WHY RULES-FIRST + EXPLAINABLE: every verdict carries a human-readable `reason` composed from
+the fired rules' `plain` strings (abbreviations spelled out via a glossary -- MCB = small
+circuit breaker, CRCA = cold-rolled steel panel body, etc.), so a non-technical reviewer can
+see WHY a line landed in a category and WHY it is uncertain.
+
+FILES:
+- `categories_electrical.json` -- the 12 categories + `novel` (category_id / name / description /
+  discipline). Descriptions are the signed-off Option-B reference; the AI harness reads this
+  same file.
+- `rules_electrical.json` -- the rule set. Each rule: rule_id (stable) + category_id +
+  signal_type (item_keyword | ancestor | exclusion) + match[] + match_mode (any_token | phrase
+  | regex) + weight + `plain` (human explanation) + optional exclude_if / ambiguous_with +
+  `source` (provenance: live-corpus token doc-frequencies). Seeded from REAL committed
+  electrical vocabulary mined 2026-06-29 (work_header='Electrical', is_current=1,
+  node_type='Line Item', n=4282) -- NOT invented. Token freqs e.g. mcb 587, sq.mm 745,
+  cable 649, termination 459, earthing 322, outgoing 175, panel 128, bus bar 42, crca 30.
+- `scoring.json` -- the confidence model as DATA (nothing hardcoded in the runner): cap 1.0,
+  agreement_bonus 0.15 (>=2 distinct signal_types agree), conflict_margin 0.6 + conflict_penalty
+  0.30 (a close runner-up suppresses the top score and surfaces both), bands HIGH>=0.75 /
+  MED>=0.45 / LOW>0 / ABSTAIN==0 -> novel. All numbers documented inline with rationale;
+  PROVISIONAL -- to be recalibrated against team verdicts + AI agreement.
+- `runner.py` -- the runner. Entry point:
+    `classify_line(description: str, ancestor_texts: list[str], notes: list[str], *, discipline: str = "Electrical") -> dict`
+  returns {category_id, score (0-1), band, signals_fired[], reason, runner_up, all_scores}.
+  Deterministic + side-effect-free; loads JSON once (cached) via `load_ruleset()`; whole-token
+  (alphanumeric-boundary) matching so short tokens do not fire inside longer words ('mcc' !=
+  'mccb', 'panel' != 'patch panel').
+- `tests/test_runner_electrical.py` -- fixture-backed unittest (boq_parser style, no live
+  site). 14 tests GREEN in-session via
+  `python -m unittest nirmaan_stack.services.boq_category.tests.test_runner_electrical`.
+
+SIGNAL-AGREEMENT SCORING MODEL: rule weights sum per category; independent signal kinds
+agreeing (item_keyword + ancestor section header) earn an agreement bonus; a genuinely close
+runner-up triggers a conflict penalty (pushes the contested result down a band and names both
+candidates in the reason); a false-friend exclusion zeroes a category. Final top score -> band.
+
+THE DB-vs-PANELS DISCRIMINATOR (headline ambiguity), verified in-session:
+- "Outgoing : 36 Nos. 16A SP MCB of 'D' curve" -> db_switchgear HIGH (schedule + curve + breaker).
+- "LT Panel CRCA floor mounted with bus bar" -> panels HIGH (assembly noun + enclosure language).
+- "63A 4P MCCB" (bare breaker) -> db_switchgear MED (single weak signal, review).
+- "MCCB in panel" -> db_switchgear LOW + runner_up=panels, reason names both -- contested.
+- "2X2 LED panel, CRCA housing" -> novel/ABSTAIN (LED/patch-panel exclusion -> NOT switchgear).
+- earthing false-friend "...socket... 3 pin and earth" -> earthing zeroed (pin/socket exclusion).
+
+NEXT: the scratch harness that runs `classify_line` over the committed electrical corpus +
+the AI Option-B pass (reads `categories_electrical.json`), emitting a per-sheet CSV (rules
+verdict vs AI verdict) for team review + scoring recalibration.
+
+### Classification Engine -- electrical rule tuning pass #1 (2026-06-30)
+
+Drove off the first rules-vs-AI PROVING RUN: the scratch eval harness (rules + an INDEPENDENT
+Anthropic Option-B category pass over the same line context) was run on three structurally
+distinct core-electrical BoQs from the live committed corpus -- BOQ-26-00022 (sectioned: DB /
+EARTHING / SUB PANEL / CABLE&TRAY / POINT WIRING / SUB MAINS), BOQ-26-00024 (one consolidated
+cabling sheet), BOQ-26-00007 (mixed). 657 line items; overall rules==AI agreement 66%, and --
+the key validation -- agreement tracked the rule BAND monotonically: HIGH 78%, MED 66%, LOW 48%,
+ABSTAIN 44%. So the confidence band is a working triage lever (trust HIGH, human-review LOW/
+ABSTAIN). The disagreements were mostly SYSTEMATIC RULE GAPS, not AI noise -> this tuning pass.
+
+FIVE FIXES (commit 47908443; tests 14 -> 27, all green; categories unchanged, classify_line
+signature unchanged; every knob in scoring.json):
+- FIX1 (rules): junction/pull/draw box added to cabletray_raceway (CT-TRAY) -- 49 junction-box
+  fragments were abstaining (novel) while the AI confidently called them cabletray.
+- FIX2 (rules): panels exclude_if extended (danger / sld / chart / fire extinguisher / name
+  board / notice board / mat / shock treatment / first aid) -- panel-room accessories were
+  false-friending onto Panels via 'panel'/'board'.
+- FIX3 (rules + runner): new PW-WIRINGFOR rule ('wiring for ... point(s)', fan/light/plug/loop
+  points) + a REGEX EXCLUSION on wiring_cabling (WC-EXCL-POINTWIRING) so a point-wiring lot is
+  not pulled to wiring_cabling by its quoted cable size. Runner gained regex-exclusion support
+  (exclude_tokens_by_cat + exclude_regex_by_cat; _excluded checks both).
+- FIX4 (runner + scoring): FRAGMENT INHERITANCE. When a line ABSTAINS but its ancestor chain
+  alone resolves to exactly ONE dominant category, it inherits that category DOWN-WEIGHTED
+  (score = min(inheritance_cap 0.6, dominant_ancestor_raw * inheritance_weight 0.5)) -> never
+  HIGH, reason 'inherited from parent section: <cat> -- review'. Triggers only on otherwise-
+  novel lines; can never override an own-signal. (Ancestors that say 'cable tray' are already
+  caught by the ancestor rule in normal scoring; inheritance is the fallback for item-style
+  ancestor tokens like 'perforated'.)
+- FIX5 (rules + runner + scoring): an industrial-socket line on a DB sheet no longer scores
+  db_switchgear -- DB-BREAKER-BARE.exclude_if suppresses the incidental breaker mention; plus a
+  small RANKING-ONLY direct_signal_bonus (0.05) so a direct on-the-line hit edges out an equal
+  ancestor-only competitor.
+
+Scratch harness + CSVs (NOT committed) live at /tmp/boq_category_csv/ (one CSV per sheet, the
+17-column rules-vs-AI-vs-team schema). NEXT: re-run the harness post-tuning to confirm the
+agreement lift, then widen to more electrical BoQs and let team verdicts recalibrate the
+provisional weights/bands.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.

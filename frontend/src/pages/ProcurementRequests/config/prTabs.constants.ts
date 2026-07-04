@@ -40,9 +40,13 @@ export const PR_ALL_TAB_OPTIONS: PRTabOption[] = [
     { label: "All PRs", value: PR_TABS.ALL_PRS, countKey: "pr.all" },
 ];
 
+// PR approval authority — drives the "Approve PR" tab (procurement-requests.tsx) AND the
+// approve-view URL guard (render-procurement-requests.tsx). PMO Executive was intentionally
+// REMOVED on 2026-07-04 (PMO access review): PMO can no longer approve/reject PRs. PMO keeps
+// New PR Request / In Progress / Sent Back visibility via PR_EXEC_ROLES below.
+// Do NOT re-add PMO here without owner sign-off.
 export const PR_ADMIN_ROLES = [
     "Nirmaan Admin Profile",
-    "Nirmaan PMO Executive Profile",
     "Nirmaan Project Lead Profile",
 ];
 

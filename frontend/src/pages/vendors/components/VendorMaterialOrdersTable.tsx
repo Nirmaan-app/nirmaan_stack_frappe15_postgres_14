@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import {
   DataTable,
   SearchFieldOption,
 } from "@/components/data-table/new-data-table";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
@@ -125,52 +125,6 @@ export const VendorMaterialOrdersTable: React.FC<
       .reduce((sum, p) => sum + parseNumber(p.amount), 0);
   }, [projectPayments]);
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: "Procurement Orders",
-    field: "project",
-    currentFilters: [],
-    searchTerm: "",
-    selectedSearchField: "name",
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
-    useFacetValues({
-      doctype: "Procurement Orders",
-      field: "status",
-      currentFilters: [],
-      searchTerm: "",
-      selectedSearchField: "name",
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      status: {
-        title: "Status",
-        options: statusFacetOptions?.filter(opt => !["Merged", "Inactive"].includes(opt.value)),
-        isLoading: isStatusFacetLoading,
-      },
-    }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      statusFacetOptions,
-      isStatusFacetLoading,
-    ]
-  );
-
   // const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
   //     let items: PurchaseOrderItem[] = [];
   //     if (typeof orderListJson === 'string') {
@@ -227,6 +181,13 @@ export const VendorMaterialOrdersTable: React.FC<
         ),
         size: 130,
         enableColumnFilter: true,
+        meta: {
+          facet: {
+            field: "status",
+            title: "Status",
+            decoupled: true,
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "creation",
@@ -281,6 +242,13 @@ export const VendorMaterialOrdersTable: React.FC<
           </div>
         ),
         size: 180,
+        meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+            decoupled: true,
+          } satisfies FacetDeclaration,
+        },
       },
       // {
       //     id: "categories",
@@ -537,7 +505,11 @@ export const VendorMaterialOrdersTable: React.FC<
         onSelectedSearchFieldChange={setSelectedSearchField}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype="Procurement Orders"
+        facetOverrides={{
+          project: { additionalFilters: staticFilters },
+          status: { additionalFilters: staticFilters },
+        }}
         dateFilterColumns={["modified", "creation", "expected_delivery_date", "latest_delivery_date"]}
         showExportButton={true}
         onExport={"default"}
@@ -613,7 +585,6 @@ export const VendorMaterialOrdersTable: React.FC<
       <InvoiceDataDialog
         open={!!selectedInvoicePO}
         onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-        vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
         project={selectedInvoicePO?.project_name}
         poNumber={selectedInvoicePO?.name}
         vendor={selectedInvoicePO?.vendor_name}
@@ -622,7 +593,6 @@ export const VendorMaterialOrdersTable: React.FC<
       <PaymentsDataDialog
         open={!!selectedPaymentPO}
         onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
-        payments={projectPayments}
         data={selectedPaymentPO}
         isPO
       />

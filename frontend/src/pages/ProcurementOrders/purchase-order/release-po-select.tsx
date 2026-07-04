@@ -4,7 +4,6 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
@@ -35,7 +34,7 @@ import { PaymentsDataDialog } from "../../ProjectPayments/PaymentsDataDialog";
 import { InvoiceDataDialog } from "./components/InvoiceDataDialog";
 import { PORemarksPopover } from "./components/PORemarksPopover";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUsersList } from '../../ProcurementRequests/ApproveNewPR/hooks/useUsersList';
 import { useVendorsList } from '../../ProcurementRequests/VendorQuotesSelection/hooks/useVendorsList';
@@ -83,34 +82,12 @@ const PODataTableWrapper: React.FC<{
             additionalFilters: staticFiltersForTab,
         });
 
-        const { columnFilters, searchTerm, selectedSearchField, exportAllRows, isExporting } = serverDataTable;
+        const { exportAllRows, isExporting } = serverDataTable;
 
-        // --- Dynamic Facet Values ---
-        const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'project',
-            currentFilters: columnFilters,
-            searchTerm,
-            selectedSearchField,
-            additionalFilters: staticFiltersForTab,
-            enabled: true
-        });
-
-        const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'vendor',
-            currentFilters: columnFilters,
-            searchTerm,
-            selectedSearchField,
-            additionalFilters: staticFiltersForTab,
-            enabled: true
-        });
-
-        const dynamicFacetFilterOptions = React.useMemo(() => ({
-            ...facetFilterOptions,
-            project: { ...facetFilterOptions.project, options: projectFacetOptions, isLoading: isProjectFacetLoading },
-            vendor: { ...facetFilterOptions.vendor, options: vendorFacetOptions, isLoading: isVendorFacetLoading },
-        }), [facetFilterOptions, projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
+        // Project & Vendor facets now self-fetch LAZILY inside <SelfFetchingFacetFilter> (ADR-0010
+        // "Option 2"): the DataTable `facetDoctype` opt-in + per-column `facetOverrides` drive them,
+        // and the internal sticky open-once gate replaces the old touchedFacets / useFacetValues /
+        // dynamicFacetFilterOptions machinery. The static Status facet stays on the legacy path.
 
         // --- CEO Hold Row Highlighting ---
         const { ceoHoldProjectIds } = useCEOHoldProjects();
@@ -138,7 +115,12 @@ const PODataTableWrapper: React.FC<{
                 onSelectedSearchFieldChange={serverDataTable.setSelectedSearchField}
                 searchTerm={serverDataTable.searchTerm}
                 onSearchTermChange={serverDataTable.setSearchTerm}
-                facetFilterOptions={dynamicFacetFilterOptions}
+                facetFilterOptions={facetFilterOptions}
+                facetDoctype={DOCTYPE}
+                facetOverrides={{
+                    project: { additionalFilters: staticFiltersForTab },
+                    vendor: { additionalFilters: staticFiltersForTab },
+                }}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
@@ -193,11 +175,6 @@ export const ReleasePOSelect: React.FC = () => {
         return unsubscribe; // Cleanup subscription
     }, [initialTab]); // Depend on `tab` to avoid stale closures
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-        fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
-        limit: 0
-    })
-
     // Fetch Vendor Invoices for all POs to calculate invoice totals
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
@@ -239,10 +216,6 @@ export const ReleasePOSelect: React.FC = () => {
     const { data: vendorsList, isLoading: vendorsListLoading, error: vendorsError } = useVendorsList()
 
     const { data: userList, isLoading: userListLoading, error: userError } = useUsersList()
-
-    const vendorOptions = useMemo(() => vendorsList?.map((ven) => ({ label: ven.vendor_name, value: ven.name })) || [], [vendorsList])
-
-    const projectOptions = useMemo(() => projects?.map((item) => ({ label: `${item.project_name}`, value: `${item.name}` })) || [], [projects])
 
     // const getAmountPaid = useMemo(() => memoize((id: string) => {
     //     const payments = projectPayments?.filter((payment) => payment?.document_name === id && payment?.status === "Paid") || [];
@@ -374,7 +347,8 @@ export const ReleasePOSelect: React.FC = () => {
                     return row.project_name;
                 },
                 enableFacet: true,
-                facetTitle: "Project"
+                facetTitle: "Project",
+                facet: { field: 'project', title: 'Project' } satisfies FacetDeclaration
             }
         },
         {
@@ -390,7 +364,8 @@ export const ReleasePOSelect: React.FC = () => {
                     return row.vendor_name;
                 },
                 enableFacet: true,
-                facetTitle: "Vendor"
+                facetTitle: "Vendor",
+                facet: { field: 'vendor', title: 'Vendor' } satisfies FacetDeclaration
             }
         },
 
@@ -584,12 +559,12 @@ export const ReleasePOSelect: React.FC = () => {
     ],[tab, userList, vendorsList, projects, invoiceTotalsMap]);
     // [tab, userList, getAmountPaid, vendorsList, projects, getPOTotal, posMap, invoiceTotalsMap]);
 
+    // Legacy static facet path — Status is a curated list (PO_STATUS_OPTIONS), not a useFacetValues
+    // aggregation, so it stays here. Project & Vendor migrated to the self-fetching facet path
+    // (see their column meta.facet + the DataTable facetDoctype/facetOverrides in PODataTableWrapper).
     const facetFilterOptions = useMemo(() => ({
-        // Use the 'accessorKey' or 'id' of the column
-        project: { title: "Project", options: projectOptions }, // Or use 'project' if filtering by ID
-        vendor: { title: "Vendor", options: vendorOptions }, // Or use 'vendor' if filtering by ID
         status: { title: "Status", options: PO_STATUS_OPTIONS },
-    }), [projectOptions, vendorOptions]);
+    }), []);
 
 
     // --- useServerDataTable Hook Instantiation ---
@@ -642,7 +617,7 @@ export const ReleasePOSelect: React.FC = () => {
         if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
-            if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
+            if (projectsLoading || vendorsListLoading || userListLoading) {
                 return <TableSkeleton />;
             }
             if (!projects || !vendorsList || !userList) {
@@ -670,7 +645,7 @@ export const ReleasePOSelect: React.FC = () => {
     };
     // --- End Render View Logic ---
 
-    const combinedErrorOverall = projectsError || vendorsError || projectPaymentsError || userError;
+    const combinedErrorOverall = projectsError || vendorsError || userError;
 
     if (combinedErrorOverall) { // Show prominent error if main list fails
         return <AlertDestructive error={combinedErrorOverall} />
@@ -710,7 +685,6 @@ export const ReleasePOSelect: React.FC = () => {
             <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-                vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
                 project={selectedInvoicePO?.project_name}
                 poNumber={selectedInvoicePO?.name}
                 vendor={selectedInvoicePO?.vendor_name}
@@ -719,7 +693,6 @@ export const ReleasePOSelect: React.FC = () => {
             <PaymentsDataDialog
                 open={!!selectedPaymentPO}
                 onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
-                payments={projectPayments}
                 data={selectedPaymentPO}
                 projects={projects}
                 vendors={vendorsList}

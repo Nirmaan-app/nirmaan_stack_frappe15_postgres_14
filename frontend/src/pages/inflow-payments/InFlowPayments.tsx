@@ -48,7 +48,7 @@ import {
   useServerDataTable,
   AggregationConfig,
 } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -348,6 +348,10 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
               enableColumnFilter: true, // Only enable if not already filtered by a project
               size: 200,
               meta: {
+                facet: {
+                  field: "project",
+                  title: "Project",
+                } satisfies FacetDeclaration,
                 exportHeaderName: "Project",
                 exportValue: (row: ProjectInflows) => {
                   return getProjectName(row.project);
@@ -387,6 +391,10 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
               enableColumnFilter: true,
               size: 200,
               meta: {
+                facet: {
+                  field: "customer",
+                  title: "Customer",
+                } satisfies FacetDeclaration,
                 exportHeaderName: "Customer",
                 exportValue: (row: ProjectInflows) => {
                   return getCustomerName(row.customer);
@@ -596,64 +604,6 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
     setMapVersion((v) => v + 1);
   }, [invoiceMetaRows]);
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: !projectId, // Only if not already pre-filtered to a project
-  });
-
-  const {
-    facetOptions: customerFacetOptions,
-    isLoading: isCustomerFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "customer",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: !customerId, // Only if not already pre-filtered to a customer
-  });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(() => {
-    const opts: any = {};
-    if (!projectId) {
-      opts.project = {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      };
-    }
-    if (!customerId) {
-      opts.customer = {
-        title: "Customer",
-        options: customerFacetOptions,
-        isLoading: isCustomerFacetLoading,
-      };
-    }
-    return opts;
-  }, [
-    projectFacetOptions,
-    isProjectFacetLoading,
-    customerFacetOptions,
-    isCustomerFacetLoading,
-    projectId,
-    customerId,
-  ]);
-
-  // --- Faceted Filter Options ---
-
-  // --- Use the Server Data Table Hook ---
-
   // --- Combined Loading & Error States ---
   const isLoadingOverall = projectsLoading || customersLoading;
   const combinedErrorOverall = projectsError || customersError || listError;
@@ -693,7 +643,17 @@ export const InFlowPayments: React.FC<InFlowPaymentsProps> = ({
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: {
+              additionalFilters: staticFilters,
+              enabled: !projectId,
+            },
+            customer: {
+              additionalFilters: staticFilters,
+              enabled: !customerId,
+            },
+          }}
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"} // Use default CSV export

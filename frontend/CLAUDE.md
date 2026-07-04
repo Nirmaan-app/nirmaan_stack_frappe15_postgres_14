@@ -148,7 +148,7 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 
 **Roles:** Admin, PMO Executive, Project Lead, Project Manager, Procurement Executive, Accountant, Estimates Executive, Design Lead, Design Executive, HR Executive
 
-**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access **except** TDS Approval (view-only, cannot approve/reject) and Payment Approval (no Approve tab, no edit fulfilled). HR Executive has Admin Options sidebar access.
+**Special:** `Administrator` user (user_id) has hardcoded Admin access. PMO Executive mirrors Admin access **except** TDS Approval (view-only, cannot approve/reject), Payment Approval (no Approve tab, no edit fulfilled), PR Approval (no "Approve PR" tab, blocked from the approve view even by direct URL — approvers are Admin + Project Lead, `PR_ADMIN_ROLES`), and PR-flow new-item creation (request-only like a Project Manager in `new_items="false"` categories — no category-restriction bypass). HR Executive has Admin Options sidebar access.
 
 **Key files:** `src/hooks/useUserData.ts`, `src/utils/auth/ProtectedRoute.tsx`, `src/components/layout/NewSidebar.tsx`
 
@@ -172,6 +172,26 @@ The system uses 10 role profiles for access control. Role checks use `useUserDat
 **React Effects:** Never use objects/arrays as useEffect deps. Never use TanStack `table` as dep. Put user-action side effects in handlers, not effects.
 
 **Full reference:** See `.claude/context/coding-standards.md` and `.claude/context/react-patterns.md`
+
+---
+
+## Module Residence (ADR-0010 — Proposed)
+
+A concept has **one owning module**, never scattered across components (full set incl. backend B1–B5 in [ADR-0010](../docs/adr/0010-module-residence-rules.md)):
+
+- **F1** — a domain rule has one home, pinned to the backend's via a parity test (FE↔BE), like boq `reconcile.ts` / `priceability.ts`.
+- **F2** — backend shapes are parsed at **one typed accessor** (like itm `useITM()`); grep for inline parses.
+- **F3** — near-twin flows are **one parametric module**, not a copy (the PR/SB approval twin is the anti-pattern).
+- **F4** — pages/hooks stay **thin over pure logic** in `utils/<domain>`; the pure rule is unit-testable without React.
+- **F5** — writes go through **one safety seam** (`useEditingLock`, extend it); grep for raw `updateDoc`.
+
+**Faceted filters self-fetch (F2/F4 worked example).** A DataTable column declares its facet in
+`meta.facet` (`{field, title, requirePendingItems?, decoupled?}` in `*.config.ts`); render-scope
+bits (`additionalFilters`, an `enabled` render-gate) go in the `facetOverrides` prop; the page
+passes `facetDoctype` to opt in. `<DataTable>` then renders a lazy `SelfFetchingFacetFilter`
+(fetches on first popover-open, not on mount). **Do NOT hand-roll `useFacetValues` + a
+`facetFilterOptions` memo in new pages** — that legacy path is dual-supported but scheduled for
+sunset (ADR-0010 "Second proof" + Migration & sunset). `getColumnFacet` is the one typed reader.
 
 ---
 

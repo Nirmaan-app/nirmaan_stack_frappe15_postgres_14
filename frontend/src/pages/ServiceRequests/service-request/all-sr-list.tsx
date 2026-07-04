@@ -23,6 +23,7 @@ import { Info } from "lucide-react";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -276,6 +277,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ServiceRequests) => {
             const project = projectOptions.find((p) => p.value === row.project);
@@ -295,7 +297,11 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         ),
         enableColumnFilter: true,
         size: 200,
-        meta: { exportHeaderName: "Vendor", exportValue: (row: ServiceRequests) => getVendorName(row.vendor) },
+        meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
+          exportHeaderName: "Vendor",
+          exportValue: (row: ServiceRequests) => getVendorName(row.vendor),
+        },
       },
       {
         accessorKey: "service_category_list",
@@ -347,10 +353,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         ),
         enableColumnFilter: true,
         size: 120,
-        meta: {
-          enableFacet: true,
-          facetTitle: "Status",
-        }
       },
       {
         accessorKey: "total_amount",
@@ -453,11 +455,11 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    columnFilters,
     selectedSearchField,
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ServiceRequests>({
@@ -471,26 +473,11 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     additionalFilters: staticFilters,
   });
 
-  const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "vendor",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: !for_vendor,
-  });
-
+  // project / vendor facets migrated to the self-fetching facet interface (ADR-0010 "Option 2")
+  // via `meta.facet` + `facetOverrides` below. is_finalized stays on the LEGACY facet path: its
+  // option labels are a display rename (Check 0/1 -> Approved/Finalized) the self-fetching
+  // interface intentionally does not carry (ADR-0010 owner decision) — a legacy island. gst is
+  // static-options, also legacy.
   const { facetOptions: finalizedFacetOptions, isLoading: isFinalizedFacetLoading } = useFacetValues({
     doctype: DOCTYPE,
     field: "is_finalized",
@@ -508,25 +495,24 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     ];
     return baseOptions.map((baseOpt) => {
       const facetOpt = (finalizedFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
-      return {
-        ...baseOpt,
-        count: facetOpt?.count ?? 0,
-      };
+      return { ...baseOpt, count: facetOpt?.count ?? 0 };
     });
   }, [finalizedFacetOptions]);
 
   const facetFilterOptions = useMemo(
     () => ({
-      vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
-      project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
-      is_finalized: {
-        title: "Status",
-        options: memoizedStatusOptions,
-        isLoading: isFinalizedFacetLoading,
-      },
+      is_finalized: { title: "Status", options: memoizedStatusOptions, isLoading: isFinalizedFacetLoading },
       gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
     }),
-    [vendorFacetOptions, isVendorFacetLoading, projectFacetOptions, isProjectFacetLoading, memoizedStatusOptions, isFinalizedFacetLoading]
+    [memoizedStatusOptions, isFinalizedFacetLoading]
+  );
+
+  const facetOverrides = useMemo(
+    () => ({
+      project: { additionalFilters: staticFilters },
+      vendor: { additionalFilters: staticFilters, enabled: !for_vendor },
+    }),
+    [staticFilters, for_vendor]
   );
 
   const isLoadingOverall = projectsLoading || vendorsLoading || listIsLoading;
@@ -570,6 +556,8 @@ export const AllSRList: React.FC<AllSRListProps> = ({
               searchTerm={searchTerm}
               onSearchTermChange={setSearchTerm}
               facetFilterOptions={facetFilterOptions}
+              facetDoctype={DOCTYPE}
+              facetOverrides={facetOverrides}
               dateFilterColumns={SR_DATE_COLUMNS}
               showExportButton={true}
               onExport={"default"}

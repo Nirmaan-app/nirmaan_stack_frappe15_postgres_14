@@ -15,8 +15,8 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { getRoleColors, ROLE_OPTIONS } from "@/utils/roleColors";
 import { RoleBadge, UserRowActions } from "./components";
@@ -400,6 +400,10 @@ export default function UsersPage() {
         },
         size: 200,
         meta: {
+          facet: {
+            field: "role_profile",
+            title: "Role",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Role",
           exportValue: (row: NirmaanUsers) => {
             const roleValue = row.role_profile;
@@ -458,7 +462,6 @@ export default function UsersPage() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters, // Destructure columnFilters
     exportAllRows,
     isExporting,
   } = useServerDataTable<NirmaanUsers>({
@@ -470,28 +473,6 @@ export default function UsersPage() {
     urlSyncKey: "users_list",
     enableRowSelection: false, // No row selection needed for users list generally
   });
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: roleFacetOptions, isLoading: isRoleFacetLoading } =
-    useFacetValues({
-      doctype: USER_DOCTYPE,
-      field: "role_profile",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      role_profile: {
-        title: "Role",
-        options: roleFacetOptions,
-        isLoading: isRoleFacetLoading,
-      },
-    }),
-    [roleFacetOptions, isRoleFacetLoading]
-  );
 
   return (
     <div
@@ -520,7 +501,7 @@ export default function UsersPage() {
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={USER_DOCTYPE}
           dateFilterColumns={USER_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}

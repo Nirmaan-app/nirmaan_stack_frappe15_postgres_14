@@ -187,27 +187,6 @@ def _fetch_review_rows_for_ai(boq_name: str, sheet_name: str) -> list[dict]:
     return rows
 
 
-def _effective_level(idx, eff_parent_by_index: dict, cap: int = 500) -> int:
-    """Level of the node at row_index `idx`, derived by walking the effective-parent
-    chain to root (root = level 1). Returns -1 on a broken/cyclic/dangling chain.
-
-    Defensive: bounded by `cap` and a visited-set so a cycle can never spin."""
-    if idx is None or idx not in eff_parent_by_index:
-        return -1
-    seen = {idx}
-    level = 1
-    cur = idx
-    while True:
-        parent = eff_parent_by_index.get(cur)
-        if parent is None:           # reached a root
-            return level
-        if parent in seen or parent not in eff_parent_by_index or level > cap:
-            return -1                # cycle / dangling parent / runaway
-        seen.add(parent)
-        level += 1
-        cur = parent
-
-
 # ---------------------------------------------------------------------------
 # Write-back (set_value scalar bypass -- no doc.save, no edit_log side-effects)
 # ---------------------------------------------------------------------------
@@ -224,13 +203,11 @@ def _apply_ai_suggestions(
     Returns the count of rows written. Caller commits.
     """
     name_by_index: dict = {}
-    eff_parent_by_index: dict = {}
     for r in rows:
         ridx = r.get("row_index")
         if ridx is None:
             continue
         name_by_index[ridx] = r.get("name")
-        eff_parent_by_index[ridx] = r.get("effective_parent_index")
 
     # Stale-clear: reset ai_* to defaults on every row of the sheet that currently
     # carries a suggestion status (a re-run must not leave orphaned suggestions).
@@ -251,27 +228,18 @@ def _apply_ai_suggestions(
 
         # AI-2d: ai_suggested_is_root is the FIRST branch -- a root suggestion is now
         # fully representable. -1 on ai_suggested_parent means ONLY "no parent-index
-        # suggestion"; the root signal lives in the flag. (Replaces the AI-2c interim
-        # which stored -1/level=-1 and warned that root could not be applied.)
+        # suggestion"; the root signal lives in the flag.
         is_root = bool(s.get("ai_suggested_is_root"))
         sug_parent = s.get("ai_suggested_parent")  # None=NO_CHANGE, >=0=real (root via flag)
         if is_root:
-            # Root suggestion: row becomes top-level. Genuine root level = 1 (per
-            # _effective_level, where a node with no parent is level 1).
-            stored_parent = -1
+            stored_parent = -1          # root: top-level, signalled by ai_suggested_is_root
             stored_is_root = 1
-            level = 1
         elif sug_parent is None:
-            # NO_CHANGE: store the no-suggestion sentinel; level = the row's current level.
-            stored_parent = -1
+            stored_parent = -1          # NO_CHANGE: no parent-index suggestion
             stored_is_root = 0
-            level = _effective_level(row_index, eff_parent_by_index)
         else:
-            # Real parent (internal row_index). Level = parent's effective level + 1.
-            stored_parent = sug_parent
+            stored_parent = sug_parent  # real parent (internal row_index)
             stored_is_root = 0
-            parent_level = _effective_level(sug_parent, eff_parent_by_index)
-            level = (parent_level + 1) if parent_level >= 1 else -1
 
         frappe.db.set_value(_REVIEW_ROW, name, {
             "ai_suggested_classification": s.get("ai_suggested_classification"),
@@ -279,7 +247,9 @@ def _apply_ai_suggestions(
             "ai_suggested_parent": stored_parent,
             "ai_suggested_is_root": stored_is_root,
             "ai_parent_confidence": s.get("ai_parent_confidence"),
-            "ai_suggested_level": level,
+            # The AI pass no longer outputs a level -- the real level is derived at commit
+            # (derive_effective_levels, ADR-0009). Store the -1 "no suggestion" sentinel.
+            "ai_suggested_level": -1,
             "ai_explanation": s.get("ai_explanation") or "",
             "ai_suggestion_status": "Pending",
         })

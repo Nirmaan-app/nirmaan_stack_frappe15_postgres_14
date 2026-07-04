@@ -1,0 +1,384 @@
+{
+  "discipline": "Electrical",
+  "version": "1.0-provisional",
+  "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain.",
+  "rules": [
+    {
+      "rule_id": "PW-POINT",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["light point", "fan point", "call bell point", "plug point", "power point", "raw power point", "light points"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "Names a wiring point (light/fan/call-bell/plug) - the per-point circuit run from the switch or distribution board to the outlet.",
+      "source": "corpus: light point 177"
+    },
+    {
+      "rule_id": "PW-CONTROL",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["controlled by", "points controlled", "control wiring", "set of"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "Describes points grouped under a control device (e.g. 'controlled by MCB' = small circuit breaker), the hallmark of point-wiring lots.",
+      "source": "corpus: controlled by 323, points 182"
+    },
+    {
+      "rule_id": "PW-ANC",
+      "category_id": "point_wiring",
+      "signal_type": "ancestor",
+      "match": ["point wiring", "light points", "control wiring"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a Point Wiring section header.",
+      "source": "corpus preamble: 'Point Wiring', 'LIGHT POINTS DIRECTLY CONTROLLED BY SWITCH/MCB'"
+    },
+    {
+      "rule_id": "PW-WIRINGFOR",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["wiring for\\b[\\s\\S]{0,80}\\bpoints?\\b", "\\bfan points?\\b", "\\blight points?\\b", "\\bplug points?\\b", "\\bpower points?\\b", "\\bloop points?\\b", "call bell points?\\b"],
+      "match_mode": "regex",
+      "weight": 0.6,
+      "plain": "A 'wiring for ... point(s)' lot (e.g. 'Wiring for fan points with 3x2.5 sq mm'): this is point wiring - the cable size quoted is just the wire used for the point, not a cable-run item.",
+      "source": "FIX3 proving-run 2026-06-30: 31 'Wiring for X points' lines mis-scored wiring_cabling",
+      "ambiguous_with": ["wiring_cabling"]
+    },
+
+    {
+      "rule_id": "WC-SIZE",
+      "category_id": "wiring_cabling",
+      "signal_type": "item_keyword",
+      "match": ["sq.mm", "sqmm", "sq. mm", "sq mm", "core x", "c x", "core"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Specifies a conductor cross-section (sq mm) and core count - cable is being run as a length.",
+      "source": "corpus: sq.mm 745, core 551"
+    },
+    {
+      "rule_id": "WC-CABLE",
+      "category_id": "wiring_cabling",
+      "signal_type": "item_keyword",
+      "match": ["cable", "copper conductor", "aluminium conductor"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "Names a cable / conductor.",
+      "source": "corpus: cable 649, copper 497",
+      "exclude_if": ["cable tray", "raceway", "trunking", "cable basket"],
+      "ambiguous_with": ["cabletray_raceway"]
+    },
+    {
+      "rule_id": "WC-INSUL",
+      "category_id": "wiring_cabling",
+      "signal_type": "item_keyword",
+      "match": ["xlpe", "frls", "frlsh", "armoured", "armored", "unarmoured", "unarmored", "ywy"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Cable insulation/armour spec: XLPE (heat-resistant insulation), FRLS (flame-retardant low-smoke), armoured (steel-wire-armoured) - identifies a power cable.",
+      "source": "corpus: frls 413, armoured 329, xlpe 289"
+    },
+    {
+      "rule_id": "WC-ANC",
+      "category_id": "wiring_cabling",
+      "signal_type": "ancestor",
+      "match": ["lt cables", "eb cables", "cables and accessories", "copper conductor cables", "power cable"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under an LT / EB Cables section header.",
+      "source": "corpus preamble: 'LT CABLES', 'EB CABLES'"
+    },
+    {
+      "rule_id": "WC-EXCL-POINTWIRING",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["wiring for\\b[\\s\\S]{0,80}\\bpoints?\\b"],
+      "match_mode": "regex",
+      "weight": 0,
+      "plain": "FIX3 guard: a 'wiring for ... point(s)' line is point wiring, not a cable-run item, so the wiring_cabling signal from its quoted cable size is suppressed.",
+      "source": "FIX3 proving-run 2026-06-30: wiring_cabling over-fired on point-wiring lots"
+    },
+
+    {
+      "rule_id": "SS-ACC",
+      "category_id": "switches_sockets",
+      "signal_type": "item_keyword",
+      "match": ["switch socket", "modular switch", "face plate", "faceplate", "plate switch", "regulator", "plug top", "switch and socket"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Names a modular wiring accessory (switch/socket/face-plate/regulator).",
+      "source": "corpus: socket 338, switch 314, modular 90",
+      "exclude_if": ["industrial socket", "industrial type socket", "metal clad"],
+      "ambiguous_with": ["industrial_sockets"]
+    },
+    {
+      "rule_id": "SS-SOCK",
+      "category_id": "switches_sockets",
+      "signal_type": "item_keyword",
+      "match": ["socket", "switch", "round pin", "round socket"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "Mentions a switch or socket outlet.",
+      "source": "corpus: socket 338, switch 314, round 210",
+      "exclude_if": ["industrial socket", "industrial type socket", "metal clad"],
+      "ambiguous_with": ["industrial_sockets", "point_wiring"]
+    },
+    {
+      "rule_id": "SS-ANC",
+      "category_id": "switches_sockets",
+      "signal_type": "ancestor",
+      "match": ["socket outlets", "power receptacles", "switches and sockets", "pop-up boxes", "floor outlet"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Socket Outlets / Power Receptacles section header.",
+      "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'"
+    },
+
+    {
+      "rule_id": "DB-SCHEDULE",
+      "category_id": "db_switchgear",
+      "signal_type": "item_keyword",
+      "match": ["outgoing", "incomer", "mcb db", "way tpn", "way spn", "way db", "way vtpn", "way etpn"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A distribution-board schedule (way-count, incomer/outgoing breaker list) - a standalone DB, not a built panel.",
+      "source": "corpus: outgoing 175, way 130, incomer 111, mcb db 99"
+    },
+    {
+      "rule_id": "DB-WAY-REGEX",
+      "category_id": "db_switchgear",
+      "signal_type": "item_keyword",
+      "match": ["\\b\\d+\\s*way\\b", "\\b[sdtv]?[tp]n\\b"],
+      "match_mode": "regex",
+      "weight": 0.35,
+      "plain": "Quotes a DB way-count / pole configuration (TPN/SPN = triple/single-pole-and-neutral).",
+      "source": "corpus: 'N way' 130, TPN/SPN 125"
+    },
+    {
+      "rule_id": "DB-CURVE",
+      "category_id": "db_switchgear",
+      "signal_type": "item_keyword",
+      "match": ["curve", "ma sensitivity", "30 ma", "100 ma", "300 ma"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "Quotes a breaker trip class ('C'/'D' curve) or earth-leakage sensitivity (mA) - distribution-board detail.",
+      "source": "corpus: curve 177, mA 108"
+    },
+    {
+      "rule_id": "DB-BREAKER-BARE",
+      "category_id": "db_switchgear",
+      "signal_type": "item_keyword",
+      "match": ["mcb", "mccb", "rccb", "rcbo", "elcb", "isolator", "acb", "changeover", "contactor"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Names a loose protective device - MCB (small circuit breaker), MCCB (larger breaker), RCCB (earth-leakage breaker) or isolator. On its own this is standalone switchgear, but it could be a component inside a panel assembly - review.",
+      "source": "corpus: mcb 587, rccb 100, mccb 82, isolator 80",
+      "exclude_if": ["industrial socket", "industrial type socket", "metal clad"],
+      "ambiguous_with": ["panels"]
+    },
+    {
+      "rule_id": "DB-ANC",
+      "category_id": "db_switchgear",
+      "signal_type": "ancestor",
+      "match": ["distribution board", "mcb db", "distribution boards", "light & power distribution"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Distribution Boards section header.",
+      "source": "corpus preamble: 'DISTRIBUTION BOARDS - MCB DB, MCB,RCCB'"
+    },
+
+    {
+      "rule_id": "NW-DATA",
+      "category_id": "networking",
+      "signal_type": "item_keyword",
+      "match": ["cat6", "cat 6", "cat6a", "rj45", "patch cord", "patch panel", "jack panel", "data jack", "i/o jack", "utp"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "Structured-data cabling (CAT6, RJ45, patch panel) - electrical-side networking.",
+      "source": "corpus: data 63, patch 7, cat6 3 (rare in Electrical - data lives under Data & Networking)"
+    },
+
+    {
+      "rule_id": "UPS-UNIT",
+      "category_id": "ups",
+      "signal_type": "item_keyword",
+      "match": ["ups", "uninterruptible"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A UPS (uninterruptible power supply) unit.",
+      "source": "corpus: ups 258",
+      "exclude_if": ["ups room", "ups distribution board", "ups output panel"],
+      "ambiguous_with": ["db_switchgear", "panels"]
+    },
+    {
+      "rule_id": "UPS-BATT",
+      "category_id": "ups",
+      "signal_type": "item_keyword",
+      "match": ["battery", "kva", "vrla", "smf battery", "backup"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "UPS battery / backup capacity (KVA = electrical capacity rating).",
+      "source": "corpus: battery 109, kva 89"
+    },
+    {
+      "rule_id": "UPS-ANC",
+      "category_id": "ups",
+      "signal_type": "ancestor",
+      "match": ["ups system", "ups & battery", "ups and battery"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a UPS System section header.",
+      "source": "corpus preamble: 'UPS SYSTEM', 'UPS & BATTERY SYSTEM'"
+    },
+
+    {
+      "rule_id": "CP-CONDUIT",
+      "category_id": "conduit_piping",
+      "signal_type": "item_keyword",
+      "match": ["conduit", "pvc conduit", "ms conduit", "gi conduit", "flexible conduit", "casing", "capping"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A conduit / raceway pipe that carries wiring (PVC = plastic, MS = mild-steel, GI = galvanised-iron).",
+      "source": "corpus: conduit 260"
+    },
+    {
+      "rule_id": "CP-ANC",
+      "category_id": "conduit_piping",
+      "signal_type": "ancestor",
+      "match": ["conduit", "conduting", "conduiting", "lighting circuit mains"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Conduit / Conduiting section header.",
+      "source": "corpus preamble: 'Supply and laying of PVC conduit'"
+    },
+
+    {
+      "rule_id": "IS-IND",
+      "category_id": "industrial_sockets",
+      "signal_type": "item_keyword",
+      "match": ["industrial socket", "industrial type socket", "industrial plug", "metal clad", "metalclad", "welding socket"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A heavy-duty industrial socket/plug (often IP-rated, with an integral MCB).",
+      "source": "corpus: industrial socket 25, plug top 50, metal clad 14"
+    },
+    {
+      "rule_id": "IS-ANC",
+      "category_id": "industrial_sockets",
+      "signal_type": "ancestor",
+      "match": ["industrial sockets", "metal clad socket"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under an Industrial Sockets section header.",
+      "source": "corpus preamble: 'Industrial Sockets - IP67', 'Metal clad socket outlets'"
+    },
+
+    {
+      "rule_id": "CT-TRAY",
+      "category_id": "cabletray_raceway",
+      "signal_type": "item_keyword",
+      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack", "junction box", "junction-box", "j-box", "j box", "pull box", "draw box"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "Cable support / containment / junction hardware: cable tray, ladder, raceway, trunking, or a junction / pull / draw box.",
+      "source": "corpus: cable tray 178, raceway 99, perforated 40; FIX1 proving-run 2026-06-30: 49 junction/box fragments abstained"
+    },
+    {
+      "rule_id": "CT-ANC",
+      "category_id": "cabletray_raceway",
+      "signal_type": "ancestor",
+      "match": ["cable tray", "ladder type trays", "raceway", "trunking"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Cable Tray / Raceway section header.",
+      "source": "corpus preamble: 'Hot Dip-galvanised Ladder Type trays', 'Perforated type cable tray'"
+    },
+
+    {
+      "rule_id": "TERM-END",
+      "category_id": "termination",
+      "signal_type": "item_keyword",
+      "match": ["endterminations", "end termination", "end terminations", "termination", "terminations", "lug", "gland", "cable jointing", "heat shrink", "thimble", "ferrule"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "Cable end-work: terminations, lugs, glands or jointing. Often a child sub-line under a cable line - the tree walk inherits the cable context; this rule just recognises the term.",
+      "source": "corpus: termination 459, endterminations 315, gland 57"
+    },
+    {
+      "rule_id": "TERM-ANC",
+      "category_id": "termination",
+      "signal_type": "ancestor",
+      "match": ["end termination", "terminal joints", "making of end termination"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under an end-termination section header.",
+      "source": "corpus preamble: 'Supplying and making of end termination', 'terminal joints'"
+    },
+
+    {
+      "rule_id": "EARTH-KW",
+      "category_id": "earthing",
+      "signal_type": "item_keyword",
+      "match": ["earth strip", "earthing", "earth pit", "earth electrode", "gi strip", "earth bus", "maintenance free earth", "chemical earth", "earth station", "bonding"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "Part of the earthing system: earth strip, pit, electrode or GI (galvanised-iron) strip. (Excluded when the line is really a socket that merely mentions an earth pin.)",
+      "source": "corpus: earthing 322, earth strip 40, gi strip 39",
+      "exclude_if": ["pin", "socket", "plug top"],
+      "ambiguous_with": ["switches_sockets"]
+    },
+    {
+      "rule_id": "EARTH-ANC",
+      "category_id": "earthing",
+      "signal_type": "ancestor",
+      "match": ["earthing", "earth strips", "earth station"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under an Earthing section header.",
+      "source": "corpus preamble: 'EARTH STRIPS', 'EARTHING'"
+    },
+
+    {
+      "rule_id": "PNL-ASSEMBLY",
+      "category_id": "panels",
+      "signal_type": "item_keyword",
+      "match": ["panel", "lt panel", "switch board", "switchboard", "panel board", "metering panel", "capacitor panel"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Names a built panel / switch-board assembly (a fabricated enclosure that houses breakers as one unit).",
+      "source": "corpus: panel 128, lt panel 27",
+      "exclude_if": ["led", "light panel", "luminaire", "downlight", "panel light", "ceiling panel", "drop down panel", "patch panel", "danger", "sld", "chart", "fire extinguisher", "name board", "notice board", "mat", "shock treatment", "first aid"],
+      "ambiguous_with": ["db_switchgear", "networking"]
+    },
+    {
+      "rule_id": "PNL-ENCLOSURE",
+      "category_id": "panels",
+      "signal_type": "item_keyword",
+      "match": ["bus bar", "busbar", "crca", "floor mount", "floor mounting", "free standing", "fabricated", "feeder", "sheet steel", "sheet metal", "cubicle", "form 4", "form-4"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Panel fabrication/assembly language: bus bar, CRCA (cold-rolled steel body), floor-mounted, fabricated, feeder - marks a built panel assembly.",
+      "source": "corpus: bus bar 42, crca 30, feeder 7",
+      "exclude_if": ["led", "luminaire", "downlight"]
+    },
+    {
+      "rule_id": "PNL-TYPE",
+      "category_id": "panels",
+      "signal_type": "item_keyword",
+      "match": ["mcc", "pcc", "apfc", "amf panel", "dg set", "main lt panel"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "A named panel type: MCC (motor-control), PCC (power-control), APFC (power-factor), or DG/AMF (diesel-generator / auto-mains-failure) panel.",
+      "source": "corpus: pcc 4, dg/amf 14 (mcc/apfc absent in current corpus - kept for coverage)"
+    },
+    {
+      "rule_id": "PNL-ANC",
+      "category_id": "panels",
+      "signal_type": "ancestor",
+      "match": ["lt panel", "lt switch boards", "panels", "lt switch board"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under an LT Panel / LT Switch Boards section header.",
+      "source": "corpus preamble: 'PART - F : LT PANEL', 'LT SWITCH BOARDS'"
+    }
+  ]
+}

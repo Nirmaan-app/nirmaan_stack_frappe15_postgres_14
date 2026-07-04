@@ -75,7 +75,9 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
             value: cat.name,
             label: cat.category_name,
             tax: parseFloat(cat.tax || "0"),
-            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile" && userData?.role !== "Nirmaan PMO Executive Profile"
+            // PMO no longer bypasses the per-category `new_items` gate; treated like a Project
+            // Manager (2026-07-04 PMO access review) — request-only in locked categories.
+            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile"
         })) || [];
     }, [categories, userData?.role]);
 

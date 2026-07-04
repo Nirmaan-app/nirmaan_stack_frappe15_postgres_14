@@ -8,7 +8,7 @@ classify_sheet) MOCKED -- NO live Gemini / Vertex / network call anywhere in thi
 
 Groups:
   TestGeminiAssistPure       -- service mapping (map_suggestion incl. is_root),
-                                derive_levels, normalize_confidence, build_row_payload.
+                                normalize_confidence, build_row_payload.
   TestRunGeminiPass          -- run_gemini_pass guards (gemini_disabled / not_parsed /
                                 frozen / parsing) + enqueue sets gemini_in_progress;
                                 get_gemini_pass_status recovery shape.
@@ -121,14 +121,6 @@ class TestGeminiAssistPure(FrappeTestCase):
         self.assertEqual(svc.normalize_confidence("garbage"), "Low")
         self.assertEqual(svc.normalize_confidence("high"), "High")
         self.assertEqual(svc.normalize_confidence("Medium"), "Medium")
-
-    def test_derive_levels_root_and_chain(self):
-        levels = svc.derive_levels({0: -1, 1: 0, 2: 1})
-        self.assertEqual(levels, {0: 0, 1: 1, 2: 2})
-
-    def test_derive_levels_cycle_safe(self):
-        levels = svc.derive_levels({1: 2, 2: 1})
-        self.assertTrue(all(isinstance(v, int) for v in levels.values()))
 
     def test_build_row_payload_excludes_parser_verdict(self):
         row = {
@@ -391,8 +383,9 @@ class TestGeminiWorker(_GeminiDBBase):
              patch("frappe.publish_realtime", MagicMock()):
             gemini_assist._run_gemini_pass_worker(self.boq_name, _G_SHEET, user=None)
 
-    def test_worker_writes_back_pending_and_derives_level_and_is_root(self):
+    def test_worker_writes_back_pending_and_is_root_with_sentinel_level(self):
         # row 0 -> preamble root; row 1 -> line_item under 0; row 2 -> line_item root.
+        # The pass no longer outputs a level -- gemini_suggested_level is the -1 sentinel.
         suggestions = [
             {"id": 0, "gemini_suggested_classification": "preamble",
              "gemini_suggested_parent": -1, "gemini_suggested_is_root": 1,
@@ -413,13 +406,14 @@ class TestGeminiWorker(_GeminiDBBase):
         self.assertEqual(r0["gemini_suggested_classification"], "preamble")
         self.assertEqual(r0["gemini_suggestion_status"], "Pending")
         self.assertEqual(r0["gemini_suggested_is_root"], 1)
-        self.assertEqual(r0["gemini_suggested_level"], 0, "a root -> derived level 0")
+        self.assertEqual(r0["gemini_suggested_level"], -1,
+                         "the pass no longer outputs a level -- sentinel -1")
 
         r1 = self._row(1)
         self.assertEqual(r1["gemini_suggested_parent"], 0)
         self.assertEqual(r1["gemini_suggested_is_root"], 0)
-        self.assertEqual(r1["gemini_suggested_level"], 1,
-                         "child of a root -> derived level 1")
+        self.assertEqual(r1["gemini_suggested_level"], -1,
+                         "the pass no longer outputs a level -- sentinel -1")
         self.assertEqual(r1["gemini_suggestion_status"], "Pending")
 
     def test_worker_clears_stale_prior_suggestions(self):

@@ -1,0 +1,31 @@
+{
+  "version": "1.0-provisional",
+  "note": "The confidence model for the category runner. ALL numbers here are DATA - the runner hardcodes none of them. Provisional; recalibrate against team verdicts + AI agreement once the prompt-2 harness produces labelled samples. See runner.py docstring for the algorithm these knobs drive.",
+
+  "cap": 1.0,
+  "_cap_doc": "Per-category score ceiling. A line can pile up many rule weights; cap keeps every score in 0-1 so bands stay comparable across categories.",
+
+  "agreement_bonus": 0.15,
+  "_agreement_doc": "Added ONCE to a category's score when it is supported by >=2 DISTINCT signal_types (e.g. an item_keyword AND an ancestor section header agree). Independent kinds of evidence agreeing is stronger than two keywords of the same kind, so this nudges agreeing categories toward HIGH.",
+
+  "conflict_margin": 0.6,
+  "_conflict_margin_doc": "The runner-up is treated as a genuine competitor when its score >= top_score * conflict_margin. At 0.6 a clearly-dominant top (runner-up < 60% of it) is left alone; a close second triggers the conflict penalty below.",
+
+  "conflict_penalty": 0.3,
+  "_conflict_penalty_doc": "When a genuine competitor exists, the top category's score is multiplied by (1 - conflict_penalty). This pushes a contested two-way down a band (e.g. 0.6 -> 0.42 = LOW) and forces the reason to name both candidates for human review.",
+
+  "bands": {
+    "high": 0.75,
+    "med": 0.45
+  },
+  "_bands_doc": "Final (post-conflict) top score -> band. HIGH >= 0.75; MED >= 0.45 and < 0.75; LOW > 0 and < 0.45; ABSTAIN == 0 (no positive signal, or every candidate was excluded) -> category_id 'novel'.",
+
+  "direct_signal_bonus": 0.05,
+  "_direct_signal_bonus_doc": "FIX 5 (proving-run 2026-06-30): a tiny RANKING-ONLY nudge given to a category that has a DIRECT (item_keyword, on-the-line) signal over a competitor whose signal is ANCESTOR-ONLY. Applied only to the ordering key, NOT to the reported score, so a near-tie resolves toward what the line itself names rather than what its section header implies. Does not override a clear winner (the nudge is small). The specific 'industrial socket on a DB sheet' miss is handled more firmly by an exclusion on the bare-breaker rule (see rules_electrical.json DB-BREAKER-BARE.exclude_if); this knob is the general safety net.",
+
+  "inheritance_weight": 0.5,
+  "inheritance_cap": 0.6,
+  "_inheritance_doc": "FIX 4 (proving-run 2026-06-30): fragment inheritance. When a line ABSTAINS (no own signal at all) but its ANCESTOR chain alone resolves to EXACTLY ONE dominant category (a parent section/line that itself matches category rules), the line inherits that category at a DOWN-WEIGHTED score = min(inheritance_cap, dominant_ancestor_raw * inheritance_weight). inheritance_cap (0.6) is below the HIGH band on purpose -- an inherited verdict is never HIGH (it is context, not direct evidence), so it lands MED/LOW and flags for review. Triggers ONLY on otherwise-novel lines and ONLY when one ancestor category strictly dominates; it can never override a real own-signal.",
+
+  "novel_category_id": "novel"
+}

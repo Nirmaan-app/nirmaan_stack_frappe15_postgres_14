@@ -131,15 +131,32 @@ const criticalPOColumn: ColumnDef<DCMIRReportRowData> = {
     },
 };
 
-const dateColumn: ColumnDef<DCMIRReportRowData> = {
+// Document date column (reads `dc_date`). Title is contextual — "DC Date" for DC
+// reports, "MIR Date" for MIR reports — since the same field backs both.
+const makeDateColumn = (title: string): ColumnDef<DCMIRReportRowData> => ({
     accessorKey: "dc_date",
-    header: ({ column }) => <DataTableColumnHeader column={column} title="Date" />,
+    header: ({ column }) => <DataTableColumnHeader column={column} title={title} />,
     cell: ({ row }) => (
         <div>{row.original.dc_date ? formatDate(row.original.dc_date) : "—"}</div>
     ),
     meta: {
-        exportHeaderName: "Date",
+        exportHeaderName: title,
         exportValue: (row: DCMIRReportRowData) => row.dc_date ? formatDate(row.dc_date) : "",
+    },
+    filterFn: dateFilterFn,
+});
+
+// Upload date column — the system `creation` timestamp (when the row was keyed in),
+// distinct from the user-entered document date above.
+const uploadDateColumn: ColumnDef<DCMIRReportRowData> = {
+    accessorKey: "creation",
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Upload Date" />,
+    cell: ({ row }) => (
+        <div>{row.original.creation ? formatDate(row.original.creation) : "—"}</div>
+    ),
+    meta: {
+        exportHeaderName: "Upload Date",
+        exportValue: (row: DCMIRReportRowData) => row.creation ? formatDate(row.creation) : "",
     },
     filterFn: dateFilterFn,
 };
@@ -285,6 +302,9 @@ export const getDCMIRReportColumns = (
         ? [itmColumn, sourceProjectColumn]
         : [vendorColumn, poColumn, criticalPOColumn];
 
+    // Contextual document-date label: "MIR Date" for MIR reports, "DC Date" otherwise.
+    const dateCol = makeDateColumn(reportType === 'MIR Report' ? "MIR Date" : "DC Date");
+
     if (reportType === 'MIR Report') {
         return [
             projectCol,
@@ -307,7 +327,8 @@ export const getDCMIRReportColumns = (
                 },
             },
             ...parentCols,
-            dateColumn,
+            dateCol,
+            uploadDateColumn,
             itemsColumn,
             signedColumn,
             attachmentColumn,
@@ -328,7 +349,8 @@ export const getDCMIRReportColumns = (
             },
         },
         ...parentCols,
-        dateColumn,
+        dateCol,
+        uploadDateColumn,
         itemsColumn,
         signedColumn,
         attachmentColumn,

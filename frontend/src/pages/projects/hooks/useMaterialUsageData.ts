@@ -636,6 +636,7 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
         poNumber: poId,
         vendorName: vendorByPO.get(poId) || "",
         dcDate: doc.dc_date,
+        creation: doc.creation,
         billingCategory: isStub ? "N/A" : docBillingCategory,
         totalReceivedQuantity: displayItems.reduce((sum, i) => sum + i.receivedQuantity, 0),
         totalQuantity: displayItems.reduce((sum, i) => sum + i.quantity, 0),

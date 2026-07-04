@@ -79,7 +79,7 @@ export interface DCMIRWiseMaterialTableHandle {
 export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHandle, DCMIRWiseMaterialTableProps>(({ type, items, searchTerm, projectId }, ref) => {
   const isDC = type === 'dc';
   const docLabel = isDC ? 'DC' : 'MIR';
-  const colCount = isDC ? 12 : 13;
+  const colCount = isDC ? 13 : 14;
 
   const [expandedDocs, setExpandedDocs] = React.useState<Set<string>>(new Set());
 
@@ -201,10 +201,11 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
 
     const docNoHeader = `${docLabel} Number`;
     const qtyHeader = `${docLabel} Qty`;
+    const dateHeader = `${docLabel} Date`;
     const headers = [
       docNoHeader,
       ...(isDC ? [] : ['DC Ref']),
-      'PO Number', 'Vendor', 'Date',
+      'PO Number', 'Vendor', dateHeader, 'Upload Date',
       'Item Name', 'Category', 'Unit', 'Billing Category',
       'DN Qty', qtyHeader, 'Make', 'Signed', 'Status'
     ];
@@ -217,7 +218,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
           ...(isDC ? {} : { 'DC Ref': doc.dcReference || '-' }),
           'PO Number': doc.poNumber,
           'Vendor': doc.vendorName,
-          'Date': doc.dcDate ? formatDate(doc.dcDate) : '-',
+          [dateHeader]: doc.dcDate ? formatDate(doc.dcDate) : '-',
+          'Upload Date': doc.creation ? formatDate(doc.creation) : '-',
           'Item Name': '-',
           'Category': '-',
           'Unit': '-',
@@ -235,7 +237,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
             ...(isDC ? {} : { 'DC Ref': doc.dcReference || '-' }),
             'PO Number': doc.poNumber,
             'Vendor': doc.vendorName,
-            'Date': doc.dcDate ? formatDate(doc.dcDate) : '-',
+            [dateHeader]: doc.dcDate ? formatDate(doc.dcDate) : '-',
+            'Upload Date': doc.creation ? formatDate(doc.creation) : '-',
             'Item Name': item.itemName,
             'Category': item.category || '-',
             'Unit': item.unit,
@@ -278,7 +281,8 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
                 <span>Vendor</span>
               </div>
             </TableHead>
-            <TableHead className="min-w-[110px]">Date</TableHead>
+            <TableHead className="min-w-[110px]">{docLabel} Date</TableHead>
+            <TableHead className="min-w-[110px]">Upload Date</TableHead>
             <DCMIRSortableHeader {...sortProps('itemCount')} className="text-center min-w-[80px]">Items</DCMIRSortableHeader>
             <TableHead className="min-w-[130px]">
               <div className="flex items-center gap-1">
@@ -328,6 +332,7 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
                   <TableCell className="py-2 px-3 text-xs font-mono">{doc.poNumber}</TableCell>
                   <TableCell className="py-2 px-3 text-sm text-muted-foreground">{doc.vendorName || '-'}</TableCell>
                   <TableCell className="py-2 px-3 text-sm">{doc.dcDate ? formatDate(doc.dcDate) : '-'}</TableCell>
+                  <TableCell className="py-2 px-3 text-sm">{doc.creation ? formatDate(doc.creation) : '-'}</TableCell>
                   <TableCell className="text-center py-2 px-3 font-mono text-sm">{doc.itemCount}</TableCell>
                   <TableCell className="py-2 px-3 text-sm">
                     <Badge variant={doc.billingCategory === "Billable" ? "default" : "secondary"}
@@ -387,6 +392,7 @@ export const DCMIRWiseMaterialTable = React.forwardRef<DCMIRWiseMaterialTableHan
                   <span className="text-muted-foreground ml-2">({item.unit})</span>
                   {item.make && <span className="text-muted-foreground ml-1">&middot; {item.make}</span>}
                 </TableCell>
+                <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">-</TableCell>
                 <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">-</TableCell>
                 <TableCell className="text-center py-1.5 px-3 text-xs text-muted-foreground">-</TableCell>
                 <TableCell className="py-1.5 px-3 text-xs text-muted-foreground">{item.billingCategory || "N/A"}</TableCell>

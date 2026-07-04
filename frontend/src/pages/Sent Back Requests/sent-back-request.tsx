@@ -19,7 +19,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration, FacetOverrides } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -58,6 +58,8 @@ const SBDataTableWrapper: React.FC<{
     sbSearchableFields: SearchFieldOption[];
     staticFilters: any[];
     facetFilterOptions: any;
+    facetDoctype?: string;
+    facetOverrides?: FacetOverrides;
     dateColumns: any;
     getRowClassName?: (row: Row<SentBackCategory>) => string | undefined;
     exportFileName?: string;
@@ -68,6 +70,8 @@ const SBDataTableWrapper: React.FC<{
     sbSearchableFields,
     staticFilters,
     facetFilterOptions,
+    facetDoctype,
+    facetOverrides,
     dateColumns,
     getRowClassName,
     exportFileName
@@ -80,7 +84,6 @@ const SBDataTableWrapper: React.FC<{
             table, totalCount, isLoading: listIsLoading, error: listError,
             selectedSearchField: tableSelectedSearchField, setSelectedSearchField,
             searchTerm: tableSearchTerm, setSearchTerm,
-            columnFilters,
             exportAllRows,
             isExporting,
         } = useServerDataTable<SentBackCategory>({
@@ -96,19 +99,8 @@ const SBDataTableWrapper: React.FC<{
             requirePendingItems: tab !== "All SBs" ? true : false, // This is crucial and should be handled correctly
         });
 
-        const { facetOptions: projectFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'project',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters
-        });
-
-        const combinedFacetOptions = {
-            ...facetFilterOptions,
-            project: { title: "Project", options: projectFacets }
-        };
+        // project facet migrated to a self-fetching facet: meta.facet on the project column +
+        // facetDoctype/facetOverrides threaded from the parent. workflow_state + type stay legacy static.
 
         return (
             <DataTable<SentBackCategory>
@@ -122,7 +114,9 @@ const SBDataTableWrapper: React.FC<{
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={tableSearchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={combinedFacetOptions}
+                facetFilterOptions={facetFilterOptions}
+                facetDoctype={facetDoctype}
+                facetOverrides={facetOverrides}
                 dateFilterColumns={dateColumns}
                 showExportButton={true} // Optional
                 onExport={'default'}
@@ -266,6 +260,7 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
             },
             enableColumnFilter: true, size: 200,
             meta: {
+                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
                 exportHeaderName: "Project",
                 exportValue: (row: SentBackCategory) => {
                     const project = projectOptions.find(p => p.value === row.project);
@@ -342,12 +337,12 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
 
 
     // --- Faceted Filter Options ---
+    // project migrated to a self-fetching facet (meta.facet on the project column + facetDoctype below);
+    // workflow_state + type remain legacy static-options facets.
     const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        // type: { title: "Type", options: [{label: "Rejected", value:"Rejected"}, ...]} // If type needs to be a facet
         workflow_state: { title: "Status", options: statusOptions },
         type: { title: "Type", options: typeOptions },
-    }), [projectOptions]);
+    }), [statusOptions, typeOptions]);
 
     // --- CEO Hold Row Highlighting ---
     const getRowClassName = useCallback(
@@ -393,6 +388,8 @@ export const SentBackRequest: React.FC<SentBackRequestProps> = ({ tab }) => {
                     sbSearchableFields={sbSearchableFields}
                     staticFilters={staticFilters}
                     facetFilterOptions={facetFilterOptions}
+                    facetDoctype={DOCTYPE}
+                    facetOverrides={{ project: { additionalFilters: staticFilters } }}
                     dateColumns={dateColumns}
                     getRowClassName={getRowClassName}
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`}

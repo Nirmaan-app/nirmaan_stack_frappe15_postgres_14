@@ -8,7 +8,6 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk";
 import { memoize } from "lodash";
 import { TableSkeleton } from "@/components/ui/skeleton";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 
 export default function PORevisionsApprovalList() {
@@ -83,7 +82,6 @@ export default function PORevisionsApprovalList() {
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
-        columnFilters,
         exportAllRows,
         isExporting,
     } = useServerDataTable<any>({
@@ -96,68 +94,15 @@ export default function PORevisionsApprovalList() {
         defaultSort: "creation desc",
     });
 
-    const {
-        facetOptions: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-    } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "project",
-        currentFilters: columnFilters,
-        additionalFilters: statusFilters,
-        searchTerm,
-        selectedSearchField,
-        enabled: true,
-    });
-
-    const {
-        facetOptions: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-    } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "vendor",
-        currentFilters: columnFilters,
-        additionalFilters: statusFilters,
-        searchTerm,
-        selectedSearchField,
-        enabled: true,
-    });
-
     const isApprovedTab = activeTab === "Approved";
 
-    const {
-        facetOptions: approvedByFacetOptions,
-        isLoading: isApprovedByFacetLoading,
-    } = useFacetValues({
-        doctype: DOCTYPE,
-        field: "approved_by",
-        currentFilters: columnFilters,
-        additionalFilters: statusFilters,
-        searchTerm,
-        selectedSearchField,
-        enabled: isApprovedTab,
-    });
-
-    const facetOptionsConfig = useMemo(
+    const facetOverrides = useMemo(
         () => ({
-            project: {
-                title: "Project",
-                options: projectFacetOptions,
-                isLoading: isProjectFacetLoading,
-            },
-            vendor: {
-                title: "Vendor",
-                options: vendorFacetOptions,
-                isLoading: isVendorFacetLoading,
-            },
-            ...(isApprovedTab ? {
-                approved_by: {
-                    title: "Approved By",
-                    options: approvedByFacetOptions,
-                    isLoading: isApprovedByFacetLoading,
-                },
-            } : {}),
+            project: { additionalFilters: statusFilters },
+            vendor: { additionalFilters: statusFilters },
+            approved_by: { additionalFilters: statusFilters, enabled: isApprovedTab },
         }),
-        [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading, isApprovedTab, approvedByFacetOptions, isApprovedByFacetLoading]
+        [statusFilters, isApprovedTab]
     );
 
     const isLoadingOverall = isDataLoading || isProjectsLoading || isVendorsLoading;
@@ -223,7 +168,8 @@ export default function PORevisionsApprovalList() {
                         onSelectedSearchFieldChange={setSelectedSearchField}
                         searchTerm={searchTerm}
                         onSearchTermChange={setSearchTerm}
-                        facetFilterOptions={facetOptionsConfig}
+                        facetDoctype={DOCTYPE}
+                        facetOverrides={facetOverrides}
                         dateFilterColumns={PO_REVISION_DATE_COLUMNS}
                         showExportButton={true}
                         onExport={"default"}

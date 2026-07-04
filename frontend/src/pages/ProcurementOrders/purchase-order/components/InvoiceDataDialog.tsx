@@ -12,7 +12,6 @@ import { useMemo } from "react";
 interface InvoiceDataDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  vendorInvoices?: VendorInvoice[];
   project?: string;
   poNumber?: string;
   vendor?: string;
@@ -21,12 +20,25 @@ interface InvoiceDataDialogProps {
 export const InvoiceDataDialog = ({
   open,
   onOpenChange,
-  vendorInvoices,
   project,
   poNumber,
   vendor
 }: InvoiceDataDialogProps) => {
-  const approvedInvoices = vendorInvoices?.filter(inv => inv.status === "Approved") ?? [];
+  // Self-fetch this doc's Approved invoices only when the dialog is open (swrKey null
+  // disables until then). Filter by `document_name` (= poNumber) + status only — NOT
+  // `document_type`: document_name is globally unique, so this preserves the PO-and-SR
+  // behavior of the shared callers. Replaces the whole-table `vendorInvoices` prop
+  // (ADR-0010 #4 WS-B).
+  const { data: fetchedInvoices } = useFrappeGetDocList<VendorInvoice>(
+    "Vendor Invoices",
+    {
+      fields: ["name", "document_name", "invoice_amount", "invoice_no", "invoice_date", "invoice_attachment", "status"],
+      filters: [["document_name", "=", poNumber ?? ""], ["status", "=", "Approved"]],
+      limit: 0,
+    },
+    open && poNumber ? `InvoiceDialog-${poNumber}` : null
+  );
+  const approvedInvoices = fetchedInvoices ?? [];
 
   // `invoice_attachment` on a Vendor Invoice is a Link to a `Nirmaan Attachments`
   // doc (an ID, not a file URL). Resolve IDs → file URLs in one batch when the

@@ -447,7 +447,6 @@ export interface ReviewRow {
   ai_suggested_parent?: number | null;
   ai_parent_confidence?: "High" | "Medium" | "Low" | null;
   ai_suggested_is_root?: 0 | 1;
-  ai_suggested_level?: number | null;
   ai_explanation?: string | null;
   ai_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
   // AI-3c-2b: true when an AI acceptance on this row can still be reverted (the backend
@@ -478,7 +477,6 @@ export interface ReviewRow {
   gemini_suggested_parent?: number | null;
   gemini_parent_confidence?: "High" | "Medium" | "Low" | null;
   gemini_suggested_is_root?: 0 | 1;
-  gemini_suggested_level?: number | null;
   gemini_explanation?: string | null;
   gemini_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
   // DUAL-AI mirror of revert_available: true when a Gemini acceptance on this row can still be

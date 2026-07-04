@@ -14,7 +14,7 @@ A read-only SECOND OPINION over a parsed BoQ sheet: Gemini independently
 re-classifies and re-parents the review rows so a reviewer can see where it
 disagrees with the deterministic parser. This module holds the pure, testable
 pieces (prompt, schema, row-payload builder, chunker, Gemini call, output
-mapping, level derivation, resume selection); the background worker + endpoint
+mapping, resume selection); the background worker + endpoint
 that read/write the DB live in api/boq/wizard/gemini_assist.py.
 
 Design decisions (docs/adr/0003-dual-provider-boq-ai-assist.md):
@@ -23,8 +23,9 @@ Design decisions (docs/adr/0003-dual-provider-boq-ai-assist.md):
     invoice-extraction flow is never coupled to this).
   - Per-row output `{ id, classification, parent_id|null, classification_confidence,
     parent_confidence, reason }`; `id`/`parent_id` are row_index. classification
-    constrained to the 6 parser classes; missing confidence -> "Low";
-    gemini_suggested_level is DERIVED by the worker, not emitted.
+    constrained to the 6 parser classes; missing confidence -> "Low". The pass does
+    NOT output a level -- gemini_suggested_level is stored as the -1 sentinel and the
+    real level is derived at commit (derive_effective_levels, ADR-0009).
   - Each row is sent its FACTS + derived signals, never the parser's verdict.
   - Chunk only above a threshold; carry the running list of Gemini-identified
     preambles forward so a child can name its section across chunks.
@@ -351,25 +352,6 @@ def map_suggestion(out_row: Any) -> dict | None:
         "gemini_explanation": reason,
         "gemini_suggestion_status": "Pending",
     }
-
-
-def derive_levels(parent_by_id: dict[int, int]) -> dict[int, int]:
-    """Depth of each id by walking the suggested parent chain to root.
-
-    `parent_by_id` maps id -> gemini_suggested_parent (-1 / missing = root). Root -> 0,
-    its child -> 1, etc. Cycle-safe (a seen-set caps the walk) and dangling-parent-safe
-    (a parent not in the map ends the walk)."""
-    levels: dict[int, int] = {}
-    for rid in parent_by_id:
-        seen: set[int] = set()
-        depth = 0
-        cur = parent_by_id.get(rid, -1)
-        while cur is not None and cur != -1 and cur in parent_by_id and cur not in seen:
-            seen.add(cur)
-            depth += 1
-            cur = parent_by_id.get(cur, -1)
-        levels[rid] = depth
-    return levels
 
 
 def select_pending_rows(rows: list[dict]) -> list[dict]:

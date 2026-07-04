@@ -9,6 +9,7 @@ import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import SITEURL from "@/constants/siteURL";
 import {
     HoverCard,
@@ -127,8 +128,7 @@ export const getProjectInvoiceColumns = (
             meta: {
                 exportHeaderName: "Project",
                 exportValue: (row: ProjectInvoice) => getProjectName(row.project),
-                enableFacet: true,
-                facetTitle: "Project"
+                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
             }
         },
         // Conditionally include customer column
@@ -149,8 +149,7 @@ export const getProjectInvoiceColumns = (
                     meta: {
                         exportHeaderName: "Customer",
                         exportValue: (row: ProjectInvoice) => getCustomerName(row.customer),
-                        enableFacet: true,
-                        facetTitle: "Customer",
+                        facet: { field: "customer", title: "Customer" } satisfies FacetDeclaration,
                     },
                 } as ColumnDef<ProjectInvoice>,
             ]
@@ -283,8 +282,7 @@ export const getProjectInvoiceColumns = (
             meta: {
                 exportHeaderName: "Created By",
                 exportValue: (row: ProjectInvoice) => getUserName(row.owner),
-                enableFacet: true,
-                facetTitle: "Created By"
+                facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
             }
         },
 

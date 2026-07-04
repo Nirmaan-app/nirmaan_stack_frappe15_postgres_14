@@ -16,7 +16,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
@@ -244,6 +244,10 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 180,
         meta: {
+          facet: {
+            field: "vendor",
+            title: "Vendor",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Vendor",
           exportValue: (row: ServiceRequests) => {
             return getVendorName(row.vendor);
@@ -268,9 +272,11 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
         enableColumnFilter: true,
         size: 120,
         meta: {
-          enableFacet: true,
-          facetTitle: "Status",
-        }
+          facet: {
+            field: "is_finalized",
+            title: "Status",
+          } satisfies FacetDeclaration,
+        },
       },
       // Financial columns - conditionally included based on hideFinancialColumns prop
       ...(!hideFinancialColumns
@@ -300,6 +306,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
             ),
             enableColumnFilter: true,
             size: 120,
+            meta: {
+              facet: {
+                field: "gst",
+                title: "GST",
+              } satisfies FacetDeclaration,
+            },
           } as ColumnDef<ServiceRequests>,
           {
             accessorKey: "amount_paid",
@@ -357,7 +369,6 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters,
   } = useServerDataTable<ServiceRequests>({
     doctype: DOCTYPE,
     columns: columns, // Columns are defined below using `useMemo`
@@ -368,94 +379,6 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
     enableRowSelection: false, // No selection typically needed for summary
     additionalFilters: staticFilters,
   });
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: finalizedFacetOptions, isLoading: isFinalizedFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "is_finalized",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const memoizedStatusOptions = useMemo(() => {
-    const baseOptions = [
-      { label: "Approved", value: "0" },
-      { label: "Finalized", value: "1" },
-    ];
-    return baseOptions.map((baseOpt) => {
-      const facetOpt = (finalizedFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
-      return {
-        ...baseOpt,
-        count: facetOpt?.count ?? 0,
-      };
-    });
-  }, [finalizedFacetOptions]);
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: gstFacetOptions, isLoading: isGstFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "gst",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const memoizedGstOptions = useMemo(() => {
-    const baseOptions = SR_SUMMARY_GST_OPTIONS_MAP;
-    return baseOptions.map((baseOpt) => {
-      const facetOpt = (gstFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
-      return {
-        ...baseOpt,
-        count: facetOpt?.count ?? 0,
-      };
-    });
-  }, [gstFacetOptions]);
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(() => {
-    const opts: any = {
-      is_finalized: {
-        title: "Status",
-        options: memoizedStatusOptions,
-        isLoading: isFinalizedFacetLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      },
-      gst: {
-        title: "GST",
-        options: memoizedGstOptions,
-        isLoading: isGstFacetLoading,
-      },
-    };
-    return opts;
-  }, [
-    memoizedStatusOptions,
-    isFinalizedFacetLoading,
-    vendorFacetOptions,
-    isVendorFacetLoading,
-    memoizedGstOptions,
-    isGstFacetLoading,
-  ]);
 
   // --- Combined Loading & Error States ---
   const isInitialLoading =
@@ -541,7 +464,12 @@ export const ProjectSRSummaryTable: React.FC<ProjectSRSummaryTableProps> = ({
           onSelectedSearchFieldChange={setSelectedSearchField}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            is_finalized: { additionalFilters: staticFilters },
+            vendor: { additionalFilters: staticFilters },
+            gst: { additionalFilters: staticFilters },
+          }}
           dateFilterColumns={SR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}

@@ -23,7 +23,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from '@/hooks/useServerDataTable';
-import { useFacetValues } from '@/hooks/useFacetValues';
+import { FacetDeclaration, FacetOverrides } from '@/components/data-table/facetConfig';
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
@@ -197,6 +197,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 </div>);
             },
             enableColumnFilter: true, size: 200,
+            meta: {
+                facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
+            },
         },
         {
             accessorKey: "project", header: "Project",
@@ -205,6 +208,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 return <div className="font-medium truncate max-w-[150px]" title={project?.label}>{project?.label || row.original.project}</div>;
             },
             enableColumnFilter: true, size: 180,
+            meta: {
+                facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
+            },
         },
         {
             id: "po_value", header: ({ column }) => <DataTableColumnHeader column={column} title="WO/PO Value" />,
@@ -311,7 +317,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         searchTerm, setSearchTerm,
         isRowSelectionActive,
         refetch,
-        columnFilters,
         exportAllRows,
         isExporting,
     } = useServerDataTable<ProjectPayments>({
@@ -324,32 +329,6 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         enableRowSelection: canPaymentRowBeSelected,
         additionalFilters: staticFilters,
     });
-
-    // --- Dynamic Facet Values with Counts ---
-    const { facetOptions: projectFacetOptions, isLoading: isProjectFacetLoading } = useFacetValues({
-        doctype: DOCTYPE,
-        field: 'project',
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-    });
-
-    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-        doctype: DOCTYPE,
-        field: 'vendor',
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-    });
-
-    // --- Faceted Filter Options ---
-    const facetFilterOptions = useMemo(() => ({
-        project: { title: "Project", options: projectFacetOptions, isLoading: isProjectFacetLoading },
-        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
-    }), [projectFacetOptions, isProjectFacetLoading, vendorFacetOptions, isVendorFacetLoading]);
-
 
     // --- CSV Export Logic using papaparse ---
     const handlePrepareExport = () => {
@@ -457,7 +436,11 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     //     toggle: toggleItemSearch,
                     //     label: "Item Search"
                     // }}
-                    facetFilterOptions={facetFilterOptions}
+                    facetDoctype={DOCTYPE}
+                    facetOverrides={{
+                        project: { additionalFilters: staticFilters },
+                        vendor: { additionalFilters: staticFilters },
+                    } satisfies FacetOverrides}
                     dateFilterColumns={dateColumns}
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}

@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useCallback } from "react";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import {
   DataTable,
   SearchFieldOption,
 } from "@/components/data-table/new-data-table";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { Button } from "@/components/ui/button";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ColumnDef } from "@tanstack/react-table";
@@ -52,52 +52,6 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
   const staticFilters = useMemo(() => {
     return [["vendor", "=", vendorId]];
   }, [vendorId]);
-
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: "Project Payments",
-    field: "project",
-    currentFilters: [],
-    searchTerm: "",
-    selectedSearchField: "name",
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
-    useFacetValues({
-      doctype: "Project Payments",
-      field: "status",
-      currentFilters: [],
-      searchTerm: "",
-      selectedSearchField: "name",
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      status: {
-        title: "Status",
-        options: statusFacetOptions,
-        isLoading: isStatusFacetLoading,
-      },
-    }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      statusFacetOptions,
-      isStatusFacetLoading,
-    ]
-  );
 
   const columns = useMemo<ColumnDef<ProjectPayments>[]>(
     () => [
@@ -177,6 +131,13 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
           );
         },
         size: 180,
+        meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+            decoupled: true,
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "payment_date",
@@ -208,6 +169,13 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
           </Badge>
         ),
         size: 110,
+        meta: {
+          facet: {
+            field: "status",
+            title: "Status",
+            decoupled: true,
+          } satisfies FacetDeclaration,
+        },
       },
     ],
     [projectOptions, setCurrentPaymentForScreenshot]
@@ -247,7 +215,11 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
         showExportButton={true}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype="Project Payments"
+        facetOverrides={{
+          project: { additionalFilters: staticFilters },
+          status: { additionalFilters: staticFilters },
+        }}
         dateFilterColumns={["payment_date", "creation"]}
         exportFileName={`vendor_payments_${vendorId}`}
       />

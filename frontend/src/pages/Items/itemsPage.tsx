@@ -13,7 +13,7 @@ import { AddItemDialog } from "./components/AddItemDialog"; // Adjust path
 import { EditItemDialog } from "./components/EditItemDialog"; // Added
 import { ItemsSummaryCard } from "./components/ItemsSummaryCard"; // Adjust path
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 import { Items as ItemsType } from "@/types/NirmaanStack/Items";
@@ -127,6 +127,7 @@ export default function ItemsPage() {
         },
         size: 220,
         meta: {
+          facet: { field: "category", title: "Category" } satisfies FacetDeclaration,
           exportHeaderName: "Category",
           exportValue: (row: ItemsType) => {
             const catName = row.category;
@@ -149,6 +150,7 @@ export default function ItemsPage() {
         enableColumnFilter: true,
         size: 140,
         meta: {
+          facet: { field: "billing_category", title: "Billing Category" } satisfies FacetDeclaration,
           exportHeaderName: "Billing Category",
           exportValue: (row: ItemsType) => row.billing_category || "N/A",
         },
@@ -163,6 +165,7 @@ export default function ItemsPage() {
         ),
         size: 100,
         meta: {
+          facet: { field: "unit_name", title: "Unit" } satisfies FacetDeclaration,
           exportHeaderName: "Unit",
           exportValue: (row: ItemsType) => row.unit_name || "--",
         },
@@ -180,6 +183,7 @@ export default function ItemsPage() {
         enableColumnFilter: true,
         size: 120,
         meta: {
+          facet: { field: "item_status", title: "Status" } satisfies FacetDeclaration,
           exportHeaderName: "Status",
           exportValue: (row: any) => row.item_status || "--",
         },
@@ -233,7 +237,6 @@ export default function ItemsPage() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters,
     refetch: refetchTable,
     exportAllRows,
     isExporting,
@@ -247,88 +250,6 @@ export default function ItemsPage() {
     enableRowSelection: false,
     shouldCache: false,
   });
-
-  // Dynamic facet values for category
-  const {
-    facetOptions: categoryFacetOptions,
-    isLoading: isCategoryFacetLoading,
-  } = useFacetValues({
-    doctype: ITEM_DOCTYPE,
-    field: "category",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    enabled: true,
-  });
-
-  // Dynamic facet values for billing category
-  const { facetOptions: billingCategoryFacetOptions, isLoading: isBillingCategoryFacetLoading } =
-    useFacetValues({
-      doctype: ITEM_DOCTYPE,
-      field: "billing_category",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      enabled: true,
-    });
-
-  // Dynamic facet values for unit
-  const { facetOptions: unitFacetOptions, isLoading: isUnitFacetLoading } =
-    useFacetValues({
-      doctype: ITEM_DOCTYPE,
-      field: "unit_name",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      enabled: true,
-    });
-
-  // Dynamic facet values for status
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
-    useFacetValues({
-      doctype: ITEM_DOCTYPE,
-      field: "item_status",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      category: {
-        title: "Category",
-        options: categoryFacetOptions,
-        isLoading: isCategoryFacetLoading,
-      },
-      billing_category: {
-        title: "Billing Category",
-        options: billingCategoryFacetOptions,
-        isLoading: isBillingCategoryFacetLoading,
-      },
-      unit_name: {
-        title: "Unit",
-        options: unitFacetOptions,
-        isLoading: isUnitFacetLoading,
-      },
-      item_status: {
-        title: "Status",
-        options: statusFacetOptions,
-        isLoading: isStatusFacetLoading,
-      },
-    }),
-    [
-      categoryFacetOptions,
-      isCategoryFacetLoading,
-      billingCategoryFacetOptions,
-      isBillingCategoryFacetLoading,
-      unitFacetOptions,
-      isUnitFacetLoading,
-      statusFacetOptions,
-      isStatusFacetLoading,
-    ]
-  );
-
 
   return (
     <div
@@ -361,7 +282,7 @@ export default function ItemsPage() {
         onSelectedSearchFieldChange={setSelectedSearchField}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype={ITEM_DOCTYPE}
         dateFilterColumns={ITEM_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}

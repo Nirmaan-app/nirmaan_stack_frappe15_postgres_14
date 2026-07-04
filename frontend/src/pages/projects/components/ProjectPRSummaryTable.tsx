@@ -16,7 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -296,6 +296,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         size: 180,
         enableColumnFilter: true,
         meta: {
+          facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
           exportHeaderName: "Created By",
           exportValue: (row: ProcurementRequest) => {
             const ownerUser = userList?.find((user) => user.name === row.owner);
@@ -374,6 +375,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         size: 150,
         enableColumnFilter: true,
         meta: {
+          facet: { field: "tag_header", title: "PR Tags" } satisfies FacetDeclaration,
           exportHeaderName: "Headers",
           exportValue: (row: any) => {
             const tags = row.pr_tag_list || [];
@@ -444,7 +446,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters,
   } = useServerDataTable<ProcurementRequest>({
     // Fetches raw ProcurementRequest
     doctype: DOCTYPE,
@@ -459,29 +460,6 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     // requirePendingItems: true, // Apply the special filter if needed for this view
   });
 
-  // --- Dynamic Facet Values ---
-  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "owner",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: wpFacetOptions, isLoading: isWpFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "tag_header",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
   // --- Enriched Status Options with Counts for Facets ---
   const enrichedStatusOptions = useMemo(() => {
     return PR_SUMMARY_STATUS_OPTIONS.map((opt) => ({
@@ -490,29 +468,14 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     }));
   }, [statusCounts]);
 
-  // --- Faceted Filter Options ---
+  // --- Faceted Filter Options (legacy path: static derived-status facet only;
+  //     owner + tag_header now self-fetch via meta.facet + facetDoctype) ---
   const facetFilterOptions = useMemo(
     () => ({
       // Facet for the DERIVED status
       derived_status: { title: "Status", options: enrichedStatusOptions },
-      owner: {
-        title: "Created By",
-        options: ownerFacetOptions,
-        isLoading: isOwnerFacetLoading,
-      },
-      "PR Tag Child Table.tag_header": {
-        title: "PR Tags",
-        options: wpFacetOptions,
-        isLoading: isWpFacetLoading,
-      },
     }),
-    [
-      enrichedStatusOptions,
-      ownerFacetOptions,
-      isOwnerFacetLoading,
-      wpFacetOptions,
-      isWpFacetLoading,
-    ]
+    [enrichedStatusOptions]
   );
 
   // --- Process fetched PR data to include derived status and total ---
@@ -596,6 +559,11 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            owner: { additionalFilters: staticFilters },
+            "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+          }}
           dateFilterColumns={PR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}

@@ -39,7 +39,7 @@ import { useVendorsList } from "../ProcurementRequests/VendorQuotesSelection/hoo
 import { useNirmaanUnitOptions } from "@/components/helpers/SelectUnit";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues, FacetValue } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import {
   rankByTokenScore,
   TokenSearchConfig,
@@ -144,6 +144,22 @@ export default function ApprovedQuotationsTable({
     }
     return map;
   }, [allItems]);
+
+  // Dynamic item-search filters (productId + selected-items -> item_id / name-in tuples).
+  // Shared verbatim by the table's additionalFilters AND every facet's render-scope override.
+  const itemSearchAdditionalFilters = useMemo(() => {
+    const filters = [];
+    if (productId) filters.push(["item_id", "=", productId]);
+    if (selectedItems.length > 0) {
+      const matchingNames = selectedItems.flatMap(
+        (i) => itemNameToNamesMap.get(i.value) || []
+      );
+      if (matchingNames.length > 0) {
+        filters.push(["name", "in", matchingNames]);
+      }
+    }
+    return filters;
+  }, [productId, selectedItems, itemNameToNamesMap]);
 
   const {
     data: vendorsList,
@@ -287,6 +303,9 @@ export default function ApprovedQuotationsTable({
           );
         },
         filterFn: facetedFilterFn,
+        meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "unit",
@@ -297,6 +316,9 @@ export default function ApprovedQuotationsTable({
           <div className="font-medium text-left">{row.getValue("unit")}</div>
         ),
         filterFn: facetedFilterFn,
+        meta: {
+          facet: { field: "unit", title: "Unit" } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "quantity",
@@ -369,6 +391,12 @@ export default function ApprovedQuotationsTable({
           );
         },
         enableColumnFilter: false,
+        meta: {
+          facet: {
+            field: "procurement_order",
+            title: "PO #",
+          } satisfies FacetDeclaration,
+        },
       },
       {
         accessorKey: "creation",
@@ -392,7 +420,6 @@ export default function ApprovedQuotationsTable({
     totalCount,
     isLoading: aqTableLoading,
     error: aqTableError,
-    columnFilters,
     searchTerm: tableSearchTerm,
     setSearchTerm,
     selectedSearchField: tableSelectedSearchField,
@@ -406,117 +433,8 @@ export default function ApprovedQuotationsTable({
     searchableFields: AQ_SEARCHABLE_FIELDS,
     urlSyncKey: productId ? `aq_details_${productId}` : "aq_table",
     defaultSort: "creation desc",
-    additionalFilters: useMemo(() => {
-      const filters = [];
-      if (productId) filters.push(["item_id", "=", productId]);
-      if (selectedItems.length > 0) {
-        const matchingNames = selectedItems.flatMap(
-          (i) => itemNameToNamesMap.get(i.value) || []
-        );
-        if (matchingNames.length > 0) {
-          filters.push(["name", "in", matchingNames]);
-        }
-      }
-      return filters;
-    }, [productId, selectedItems, itemNameToNamesMap]),
+    additionalFilters: itemSearchAdditionalFilters,
   });
-
-  const { facetOptions: POFacets, isLoading: POFacetsLoading } =
-    useFacetValues({
-      doctype: APPROVED_QUOTATION_DOCTYPE,
-      field: "procurement_order",
-      currentFilters: columnFilters,
-      searchTerm: tableSearchTerm,
-      selectedSearchField: tableSelectedSearchField,
-      additionalFilters: useMemo(() => {
-        const filters = [];
-        if (productId) filters.push(["item_id", "=", productId]);
-        if (selectedItems.length > 0) {
-          const matchingNames = selectedItems.flatMap(
-            (i) => itemNameToNamesMap.get(i.value) || []
-          );
-          if (matchingNames.length > 0) {
-            filters.push(["name", "in", matchingNames]);
-          }
-        }
-        return filters;
-      }, [productId, selectedItems, itemNameToNamesMap]),
-    });
-
-  const { facetOptions: vendorFacets, isLoading: vendorFacetsLoading } =
-    useFacetValues({
-      doctype: APPROVED_QUOTATION_DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm: tableSearchTerm,
-      selectedSearchField: tableSelectedSearchField,
-      additionalFilters: useMemo(() => {
-        const filters = [];
-        if (productId) filters.push(["item_id", "=", productId]);
-        if (selectedItems.length > 0) {
-          const matchingNames = selectedItems.flatMap(
-            (i) => itemNameToNamesMap.get(i.value) || []
-          );
-          if (matchingNames.length > 0) {
-            filters.push(["name", "in", matchingNames]);
-          }
-        }
-        return filters;
-      }, [productId, selectedItems, itemNameToNamesMap]),
-    });
-
-  const { facetOptions: unitFacets, isLoading: unitFacetsLoading } =
-    useFacetValues({
-      doctype: APPROVED_QUOTATION_DOCTYPE,
-      field: "unit",
-      currentFilters: columnFilters,
-      searchTerm: tableSearchTerm,
-      selectedSearchField: tableSelectedSearchField,
-      additionalFilters: useMemo(() => {
-        const filters = [];
-        if (productId) filters.push(["item_id", "=", productId]);
-        if (selectedItems.length > 0) {
-          const matchingNames = selectedItems.flatMap(
-            (i) => itemNameToNamesMap.get(i.value) || []
-          );
-          if (matchingNames.length > 0) {
-            filters.push(["name", "in", matchingNames]);
-          }
-        }
-        return filters;
-      }, [productId, selectedItems, itemNameToNamesMap]),
-    });
-
-  /* --- Context-Aware Facet Logic (Client-Side) --- */
-
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      procurement_order: {
-        title: "PO #",
-        options: POFacets,
-        isLoading: POFacetsLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacets,
-        isLoading: vendorFacetsLoading,
-      },
-      unit: {
-        title: "Unit",
-        options: unitFacets,
-        isLoading: unitFacetsLoading,
-      },
-    }),
-    [
-      POFacets,
-      POFacetsLoading,
-      vendorFacets,
-      vendorFacetsLoading,
-      unitFacets,
-      unitFacetsLoading,
-    ]
-  );
 
   const handleItemSelect = useCallback(
     (item: ItemsType) => {
@@ -704,7 +622,12 @@ export default function ApprovedQuotationsTable({
         searchTerm={tableSearchTerm}
         onSearchTermChange={setSearchTerm}
         showSearchBar={productId ? true : false}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype="Approved Quotations"
+        facetOverrides={{
+          procurement_order: { additionalFilters: itemSearchAdditionalFilters },
+          vendor: { additionalFilters: itemSearchAdditionalFilters },
+          unit: { additionalFilters: itemSearchAdditionalFilters },
+        }}
         dateFilterColumns={AQ_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}

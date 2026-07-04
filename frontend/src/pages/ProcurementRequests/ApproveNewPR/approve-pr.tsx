@@ -18,7 +18,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 // import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 // import { parseNumber } from "@/utils/parseNumber";
@@ -114,15 +114,6 @@ export const ApprovePR: React.FC = () => {
         value: item.name,
       })) || [],
     [projects]
-  );
-
-  const userOptions = useMemo(
-    () =>
-      userList?.map((u) => ({
-        label: u.full_name,
-        value: u.full_name === "Administrator" ? "Administrator" : u.name,
-      })) || [],
-    [userList]
   );
 
   const workPackageOptions = useMemo(() => {
@@ -279,8 +270,7 @@ export const ApprovePR: React.FC = () => {
         enableColumnFilter: true,
         size: 200,
         meta: {
-          enableFacet: true,
-          facetTitle: "Project",
+          facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ProcurementRequest) => {
             const project = projectOptions.find((i) => i.value === row.project);
@@ -299,6 +289,7 @@ export const ApprovePR: React.FC = () => {
         enableColumnFilter: true,
         size: 150,
         meta: {
+          facet: { field: "tag_header", title: "Header" } satisfies FacetDeclaration,
           exportHeaderName: "Headers",
           exportValue: (row: ProcurementRequest) => {
             const tags = (row as any).pr_tag_list || [];
@@ -324,6 +315,7 @@ export const ApprovePR: React.FC = () => {
         size: 180,
         enableColumnFilter: true,
         meta: {
+          facet: { field: "owner", title: "Created By" } satisfies FacetDeclaration,
           exportHeaderName: "Created By",
           exportValue: (row: ProcurementRequest) => {
             const ownerUser = userList?.find(
@@ -392,7 +384,6 @@ export const ApprovePR: React.FC = () => {
     setSelectedSearchField,
     searchTerm,
     setSearchTerm,
-    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ProcurementRequest>({
@@ -409,19 +400,7 @@ export const ApprovePR: React.FC = () => {
     apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
   });
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
+  // --- Dynamic Facet Values (migrated to self-fetching facets — see meta.facet + facetOverrides) ---
 
   /* // Pr_work_Package
   const { facetOptions: workPackageFacetOptions, isLoading: isWPFacetLoading } =
@@ -434,44 +413,6 @@ export const ApprovePR: React.FC = () => {
       additionalFilters: staticFilters,
       enabled: true,
     }); */
-
-  const { facetOptions: tagFacetOptions, isLoading: isTagFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "tag_header",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  // --- (6) UPDATED: Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      "PR Tag Child Table.tag_header": {
-        title: "Header",
-        options: tagFacetOptions.length > 0 ? tagFacetOptions : workPackageOptions,
-        isLoading: isTagFacetLoading,
-      },
-      owner: { title: "Created By", options: userOptions },
-    }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      /*workPackageFacetOptions,
-      isWPFacetLoading,*/
-      userOptions,
-      tagFacetOptions,
-      isTagFacetLoading,
-      workPackageOptions
-    ]
-  );
 
   // --- Combined Loading State & Error Handling ---
   const isLoading = projectsLoading || userListLoading || wpLoading;
@@ -516,7 +457,12 @@ export const ApprovePR: React.FC = () => {
           //     toggle: toggleItemSearch,
           //     label: "Item Search"
           // }}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: { additionalFilters: staticFilters },
+            "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+            owner: { additionalFilters: staticFilters },
+          }}
           dateFilterColumns={dateColumns}
           showExportButton={true} // Enable if needed
           onExport={"default"}

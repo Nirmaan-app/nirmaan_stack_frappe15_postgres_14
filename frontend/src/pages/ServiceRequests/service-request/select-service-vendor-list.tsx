@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
 
@@ -203,6 +203,10 @@ export const SelectServiceVendorList: React.FC = () => {
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: {
+            field: "project",
+            title: "Project",
+          } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row) => {
             const project = projectOptions.find((p) => p.value === row.project);
@@ -378,7 +382,6 @@ export const SelectServiceVendorList: React.FC = () => {
     setSearchTerm,
     isRowSelectionActive,
     refetch,
-    columnFilters, // NEW
     exportAllRows,
     isExporting,
   } = useServerDataTable<ServiceRequests>({
@@ -394,20 +397,6 @@ export const SelectServiceVendorList: React.FC = () => {
     additionalFilters: staticFilters,
   });
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
   // Status options are static, no need to dynamic fetch unless we want dynamic counts
   const statusOptions = useMemo(
     () => [
@@ -419,17 +408,12 @@ export const SelectServiceVendorList: React.FC = () => {
     []
   );
 
-  // --- Faceted Filter Options ---
+  // --- Faceted Filter Options (status is static; project self-fetches via facetDoctype) ---
   const facetFilterOptions = useMemo(
     () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
       status: { title: "Status", options: statusOptions },
     }),
-    [projectFacetOptions, isProjectFacetLoading, statusOptions]
+    [statusOptions]
   );
 
   // --- Faceted Filter Options ---
@@ -528,6 +512,10 @@ export const SelectServiceVendorList: React.FC = () => {
           //     label: "Service Item Search"
           // }}
           facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: { additionalFilters: staticFilters },
+          }}
           dateFilterColumns={dateColumns}
           showExportButton={true}
           onExport={"default"}

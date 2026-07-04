@@ -182,8 +182,9 @@ def _apply_gemini_suggestions(
 
     Mirrors _apply_ai_suggestions: stale-clears any prior gemini suggestion on this sheet
     FIRST (a re-run must not leave orphaned Pending gemini suggestions), then applies the
-    new ones via frappe.db.set_value (scalar bypass). gemini_suggested_level is DERIVED
-    here from the suggested-parent chain (derive_levels); the service does not emit it.
+    new ones via frappe.db.set_value (scalar bypass). The pass no longer outputs a level:
+    gemini_suggested_level is stored as the -1 "no suggestion" sentinel (commit derives the
+    real level via derive_effective_levels, ADR-0009).
 
     RE-RUN DEMOTION (ADR-0003 sec 7): a row whose chosen_source was "gemini" but which is
     being stale-cleared (its live gemini suggestion is wiped) demotes chosen_source to
@@ -208,16 +209,6 @@ def _apply_gemini_suggestions(
                 clear_payload["chosen_source"] = "manual"
             frappe.db.set_value(_REVIEW_ROW, r["name"], clear_payload)
 
-    # Derive levels for the whole suggestion set from the suggested-parent chain. The
-    # service emits gemini_suggested_parent (-1 = root); derive_levels walks it to a depth.
-    parent_by_id: dict[int, int] = {}
-    for s in suggestions:
-        rid = s.get("id")
-        if rid is None:
-            continue
-        parent_by_id[int(rid)] = int(s.get("gemini_suggested_parent", -1))
-    levels = boq_gemini_assist.derive_levels(parent_by_id)
-
     written = 0
     for s in suggestions:
         row_index = s.get("id")
@@ -234,8 +225,10 @@ def _apply_gemini_suggestions(
             "gemini_suggested_parent": s.get("gemini_suggested_parent"),
             "gemini_suggested_is_root": s.get("gemini_suggested_is_root"),
             "gemini_parent_confidence": s.get("gemini_parent_confidence"),
-            # -1 sentinel when a level could not be derived (Int column is NOT NULL).
-            "gemini_suggested_level": levels.get(int(row_index), -1),
+            # The Gemini pass no longer outputs a level -- the real level is derived at
+            # commit (derive_effective_levels, ADR-0009). Store the -1 "no suggestion"
+            # sentinel (the Int column is NOT NULL).
+            "gemini_suggested_level": -1,
             "gemini_explanation": s.get("gemini_explanation") or "",
             "gemini_suggestion_status": "Pending",
         })
