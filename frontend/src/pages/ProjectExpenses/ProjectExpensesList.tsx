@@ -13,7 +13,7 @@ import {
   AggregationConfig,
   GroupByConfig,
 } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -222,7 +222,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
               </Link>
             ),
             enableColumnFilter: true,
-            meta: { exportValue: (row) => getProjectName(row.projects) },
+            meta: {
+              facet: { field: "projects", title: "Project" } satisfies FacetDeclaration,
+              exportValue: (row) => getProjectName(row.projects),
+            },
           } as ColumnDef<ProjectExpenses>,
         ]
         : []),
@@ -248,7 +251,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             {row.original.expense_type_name || row.original.type}
           </div>
         ),
-        meta: { exportValue: (row) => row.expense_type_name || row.type },
+        meta: {
+          facet: { field: "type", title: "Expense Type" } satisfies FacetDeclaration,
+          exportValue: (row) => row.expense_type_name || row.type,
+        },
         enableColumnFilter: true,
       },
       {
@@ -277,7 +283,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             {getVendorName(row.original.vendor)}
           </div>
         ),
-        meta: { exportValue: (row) => getVendorName(row.vendor) },
+        meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
+          exportValue: (row) => getVendorName(row.vendor),
+        },
         enableColumnFilter: true,
       },
       {
@@ -307,7 +316,10 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
             {getUserName(row.original.payment_by)}
           </div>
         ),
-        meta: { exportValue: (row) => getUserName(row.payment_by) },
+        meta: {
+          facet: { field: "payment_by", title: "Requested By" } satisfies FacetDeclaration,
+          exportValue: (row) => getUserName(row.payment_by),
+        },
         enableColumnFilter: true,
       },
 
@@ -404,98 +416,6 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     [projectId]
   );
 
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "projects", // Confirm field name in Doctype is 'projects'? Based on accessorKey.
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: !projectId,
-  });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: userFacetOptions, isLoading: isUserFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "payment_by",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const {
-    facetOptions: expenseTypeFacetOptions,
-    isLoading: isExpenseTypeFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "type",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  // --- (2) NEW: Define the facet filter configurations ---
-  const facetFilterOptions = useMemo(() => {
-    const filters: any = {
-      payment_by: {
-        title: "Requested By",
-        options: userFacetOptions,
-        isLoading: isUserFacetLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      },
-      type: {
-        title: "Expense Type",
-        options: expenseTypeFacetOptions,
-        isLoading: isExpenseTypeFacetLoading,
-      },
-    };
-
-    // Conditionally add the project filter only if we are on the main list view
-    if (!projectId) {
-      filters.projects = {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      };
-    }
-
-    return filters;
-  }, [
-    userFacetOptions,
-    isUserFacetLoading,
-    vendorFacetOptions,
-    isVendorFacetLoading,
-    expenseTypeFacetOptions,
-    isExpenseTypeFacetLoading,
-    projectFacetOptions,
-    isProjectFacetLoading,
-    projectId,
-  ]);
-
-  // --- (2) NEW: Define the facet filter configurations ---
-
   // --- Data Table Hook ---
 
   const isLoadingLookups =
@@ -524,7 +444,13 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         totalCount={totalCount}
         searchFieldOptions={PE_SEARCHABLE_FIELDS}
         dateFilterColumns={PE_DATE_COLUMNS}
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype={DOCTYPE}
+        facetOverrides={{
+          projects: { additionalFilters: staticFilters, enabled: !projectId },
+          vendor: { additionalFilters: staticFilters },
+          payment_by: { additionalFilters: staticFilters },
+          type: { additionalFilters: staticFilters },
+        }}
         showExportButton={true}
         onExport="default"
         onExportAll={exportAllRows}

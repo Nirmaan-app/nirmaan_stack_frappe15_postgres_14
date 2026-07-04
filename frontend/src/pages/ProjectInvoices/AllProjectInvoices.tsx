@@ -326,40 +326,11 @@ export const AllProjectInvoices: React.FC<{
   }, [inflowsForVisibleInvoices]);
 
   // --- Dynamic Facet Values ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    enabled: true,
-  });
-
-  const {
-    facetOptions: customerFacetOptions,
-    isLoading: isCustomerFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "customer",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    enabled: true,
-  });
-
-  const { facetOptions: ownerFacetOptions, isLoading: isOwnerFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "owner",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      enabled: true,
-    });
-
+  // project / customer / owner facets migrated to the self-fetching facet interface
+  // (ADR-0010 "Option 2") via `meta.facet` in projectInvoices.config.tsx + `facetDoctype`
+  // below. project_gst stays on the LEGACY facet path: its option labels apply a display-label
+  // transform (getGstName relabel of the raw GST value) the self-fetching interface does not
+  // carry — a legacy label island.
   const { facetOptions: gstFacetOptions, isLoading: isGstFacetLoading } =
     useFacetValues({
       doctype: DOCTYPE,
@@ -370,23 +341,10 @@ export const AllProjectInvoices: React.FC<{
       enabled: true,
     });
 
+  // Only the project_gst label-island facet remains on the legacy path; project / customer /
+  // owner are now self-fetched via meta.facet + facetDoctype.
   const facetOptionsConfig = useMemo(
     () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      customer: {
-        title: "Customer",
-        options: customerFacetOptions,
-        isLoading: isCustomerFacetLoading,
-      },
-      owner: {
-        title: "Created By",
-        options: ownerFacetOptions,
-        isLoading: isOwnerFacetLoading,
-      },
       project_gst: {
         title: "Project GST",
         options: gstFacetOptions.map(opt => {
@@ -398,12 +356,6 @@ export const AllProjectInvoices: React.FC<{
       },
     }),
     [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      customerFacetOptions,
-      isCustomerFacetLoading,
-      ownerFacetOptions,
-      isOwnerFacetLoading,
       gstFacetOptions,
       isGstFacetLoading,
       getGstName,
@@ -442,6 +394,7 @@ export const AllProjectInvoices: React.FC<{
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
           facetFilterOptions={facetOptionsConfig}
+          facetDoctype={DOCTYPE}
           dateFilterColumns={PROJECT_INVOICE_DATE_COLUMNS}
           showExportButton={true}
           onExport={"default"}

@@ -30,7 +30,7 @@ import {
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
@@ -632,8 +632,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         ),
         enableColumnFilter: true,
         meta: {
-          enableFacet: true,
-          facetTitle: "Status",
+          facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
         },
       },
       {
@@ -644,8 +643,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         cell: ({ row }) => <div>{row.original.project_type || "--"}</div>,
         enableColumnFilter: true,
         meta: {
-          enableFacet: true,
-          facetTitle: "Project Type",
+          facet: { field: "project_type", title: "Project Type" } satisfies FacetDeclaration,
         },
       },
     ],
@@ -884,7 +882,6 @@ export const Projects: React.FC<ProjectsProps> = ({
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-    columnFilters, // Destructure columnFilters
     isRowSelectionActive,
     refetch,
   } = useServerDataTable<ProjectsType>({
@@ -914,53 +911,6 @@ export const Projects: React.FC<ProjectsProps> = ({
   // }, [projectsDataForTable, getProjectFinancials,
   //   // prStatusCountsByProject
   // ]);
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "status",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters, // Important: include static filters (like customer restriction)
-      enabled: true,
-    });
-
-  const {
-    facetOptions: projectTypeFacetOptions,
-    isLoading: isProjectTypeFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project_type",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-    enabled: true,
-  });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      status: {
-        title: "Status",
-        options: statusFacetOptions,
-        isLoading: isStatusFacetLoading,
-      },
-      project_type: {
-        title: "Project Type",
-        options: projectTypeFacetOptions,
-        isLoading: isProjectTypeFacetLoading,
-      },
-    }),
-    [
-      statusFacetOptions,
-      isStatusFacetLoading,
-      projectTypeFacetOptions,
-      isProjectTypeFacetLoading,
-    ]
-  );
 
   // --- Combined Loading & Error States ---
   const isLoadingOverall =
@@ -1153,7 +1103,11 @@ export const Projects: React.FC<ProjectsProps> = ({
             onSelectedSearchFieldChange={setSelectedSearchField}
             searchTerm={searchTerm}
             onSearchTermChange={setSearchTerm}
-            facetFilterOptions={facetFilterOptions}
+            facetDoctype={DOCTYPE}
+            facetOverrides={{
+              status: { additionalFilters: staticFilters },
+              project_type: { additionalFilters: staticFilters },
+            }}
             dateFilterColumns={PROJECT_DATE_COLUMNS}
             showExportButton={true}
             onExport={"default"}

@@ -51,7 +51,7 @@ import {
   AggregationConfig,
   GroupByConfig,
 } from "@/hooks/useServerDataTable"; // Your hook
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -347,6 +347,10 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         meta: {
           exportHeaderName: "Expense Type",
           exportValue: (row) => row.type,
+          facet: {
+            field: "type",
+            title: "Expense Type",
+          } satisfies FacetDeclaration,
         },
       },
       {
@@ -556,33 +560,6 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     additionalFilters: dateFilters, // NEW: Apply date filters
   });
 
-  // --- Dynamic Facet Values ---
-  const {
-    facetOptions: expenseTypeFacetOptions,
-    isLoading: isExpenseTypeFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "type",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: dateFilters,
-    enabled: true,
-  });
-
-  // --- (4) NEW: Define the facet filter configuration object ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      type: {
-        // This key 'type' MUST match the column's accessorKey
-        title: "Expense Type",
-        options: expenseTypeFacetOptions,
-        isLoading: isExpenseTypeFacetLoading,
-      },
-    }),
-    [expenseTypeFacetOptions, isExpenseTypeFacetLoading]
-  );
-
   const handleClearDateFilter = useCallback(() => {
     onDateClear(); // Reset to "ALL" (no date filtering)
   }, [onDateClear]);
@@ -611,7 +588,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
       <DataTable<NonProjectExpensesType>
         table={table} // This table instance is now created with columns
         columns={columnsDefinition} // Pass the same columns definition for export/etc.
-        isLoading={isLoading || isExpenseTypeFacetLoading}
+        isLoading={isLoading}
         error={error}
         totalCount={totalCount}
         searchFieldOptions={NPE_SEARCHABLE_FIELDS} // Make sure this is an array of SearchFieldOption
@@ -619,8 +596,10 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         onSelectedSearchFieldChange={setSelectedSearchField}
         searchTerm={searchTerm}
         onSearchTermChange={setSearchTerm}
-        // facetFilterOptions={facetFilterOptions} // Define if needed
-        facetFilterOptions={facetFilterOptions}
+        facetDoctype={DOCTYPE}
+        facetOverrides={{
+          type: { additionalFilters: dateFilters },
+        }}
         dateFilterColumns={NPE_DATE_COLUMNS}
         showExportButton={true}
         onExport={"default"}
