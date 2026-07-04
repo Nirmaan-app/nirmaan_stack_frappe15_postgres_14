@@ -1,6 +1,6 @@
 <!--
 electrical_ai_category_prompt.md
-version: v1.2 (2026-07-05) — supersedes v1.1
+version: v1.3 (2026-07-05) — supersedes v1.2
 date: 2026-07-05
 model: claude-opus-4-8
 CANONICAL rate-guidance AI category prompt. This is the SINGLE SOURCE OF TRUTH for the
@@ -22,6 +22,20 @@ itemised as part of a panel build (under an "LT PANELS" / MDB / DB-schedule / "s
 of" section) is `panels`, not `db_switchgear`. Diagnosed in tuning round 2 (AI put 77/120
 team=panels into db_switchgear); this edit's effect on the AI voter is certified in the
 upcoming full-corpus rerun, NOT in the rules-only round-2 certification.
+
+v1.3 changes vs v1.2 (content otherwise verbatim — the frozen 15, their descriptions, the
+output contract, and Option-B independence are UNCHANGED): SHARPEN the Panel-assembly
+precedence boundary. (a) REMOVED "MDB / DB-schedule" from the panel-build trigger list — it
+caused 36 of 50 verified db→panels overshoot rows on the full corpus (the AI cited the
+DB-schedule trigger verbatim while flipping distribution-board schedules to panels; evidence
+dump = Panels_DB_Boundary_Analysis_2026-07-05.md). (b) ADDED an explicit exclusion: a
+distribution-board SCHEDULE (an "N Way MCB DB" itemising incomer / sub-incomer / outgoing
+breakers) is `db_switchgear`, NOT a panel — panel-assembly precedence applies ONLY under a
+fabricated LT/MCC/control PANEL section. (c) ADDED the owner's standing pricing convention
+(approved verdict crosswalk): motor starters (DOL / star-delta / starter panels) itemised as
+panel equipment are `panels`, not `db_switchgear`. v1.3 is UNMEASURED — per owner decision
+(routing absorbs boundary disagreements) it is certified at the next out-of-sample (Set-3)
+cycle, NOT re-run now; the routing / yield numbers on record remain v1.2-based.
 -->
 
 # Electrical BoQ line categorisation — independent voter (Option B)
@@ -72,7 +86,9 @@ READ THE TREE TOP-DOWN. The section/parent context GOVERNS the child: a bare spe
 - **DB-to-first-point ambiguity:** a bare "DB to first point" SIZED FEEDER with NO named load (no light/fan/socket named) is genuinely ambiguous — it could be a sub-main or a point run. Prefer blank "" or low confidence; do NOT force it into a confident category.
 - **Termination is wiring_cabling:** lugs, glands, end terminations belong to `wiring_cabling` (category 4), not a separate termination category.
 - **LED panel is a light fixture:** a "LED panel"/"panel light" is `light_fixtures`, NOT `panels` (panels = LT/MCC/control panel boards).
-- **Panel-assembly precedence:** when a line itemizes a switchgear DEVICE (MCCB / MCB / MCOS / changeover / meter / busbar / DOL starter / EPO) as part of a PANEL BUILD - i.e. under an "LT PANELS", MDB / DB-schedule, or "... shall consist of ..." section/heading - classify it as `panels` (the panel is the priced unit), NOT `db_switchgear`. Reserve `db_switchgear` for a STANDALONE distribution board / loose switchgear NOT itemised inside a panel assembly. (Mirrors the Point Wiring precedence: the assembly framing overrides the component device word.)
+- **Panel-assembly precedence:** when a line itemizes a switchgear DEVICE (MCCB / MCB / MCOS / changeover / meter / busbar / DOL starter / EPO) as part of a PANEL BUILD - i.e. under a FABRICATED LT/MCC/control PANEL section/heading ("LT PANELS", "... shall consist of ...", a named main/sub panel) - classify it as `panels` (the panel is the priced unit), NOT `db_switchgear`. Reserve `db_switchgear` for a STANDALONE distribution board / loose switchgear NOT itemised inside a panel assembly. (Mirrors the Point Wiring precedence: the assembly framing overrides the component device word.)
+  - **A DB schedule is NOT a panel:** a distribution-board SCHEDULE (an "N Way MCB DB" itemising incomer / sub-incomer / outgoing breakers) is `db_switchgear`, NOT a panel. Apply panel-assembly precedence ONLY under a fabricated LT/MCC/control PANEL section ("LT PANELS", "shall consist of", a named main/sub panel) — never to a DB schedule.
+  - **Motor starters:** motor starters (DOL / star-delta / starter panels) itemised as panel equipment are `panels`, not `db_switchgear`.
 
 ## Output format
 
