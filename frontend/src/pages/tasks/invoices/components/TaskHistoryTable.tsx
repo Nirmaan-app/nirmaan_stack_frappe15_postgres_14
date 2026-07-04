@@ -183,15 +183,9 @@ export const TaskHistoryTable: React.FC = () => {
     });
 
     // --- Facet Filters ---
-    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-        doctype: VENDOR_INVOICES_DOCTYPE,
-        field: "vendor",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-    });
-
+    // vendor + status migrated to self-fetching facets (meta.facet in columns.tsx + facetDoctype below).
+    // document_type stays on the LEGACY path: its column is shared with PendingTasksTable, which relabels
+    // "Service Requests" -> "Work Orders" on it, so both pages keep document_type legacy for consistency.
     const { facetOptions: typeFacetOptions, isLoading: isTypeFacetLoading } = useFacetValues({
         doctype: VENDOR_INVOICES_DOCTYPE,
         field: "document_type",
@@ -201,20 +195,9 @@ export const TaskHistoryTable: React.FC = () => {
         additionalFilters: staticFilters,
     });
 
-    const { facetOptions: statusFacetOptions, isLoading: isStatusFacetLoading } = useFacetValues({
-        doctype: VENDOR_INVOICES_DOCTYPE,
-        field: "status",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-    });
-
     const facetFilterOptions = useMemo(() => ({
-        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
         document_type: { title: "Type", options: typeFacetOptions, isLoading: isTypeFacetLoading },
-        status: { title: "Status", options: statusFacetOptions, isLoading: isStatusFacetLoading },
-    }), [vendorFacetOptions, isVendorFacetLoading, typeFacetOptions, isTypeFacetLoading, statusFacetOptions, isStatusFacetLoading]);
+    }), [typeFacetOptions, isTypeFacetLoading]);
 
     // Effect to extract attachment IDs from fetched invoices
     useEffect(() => {
@@ -275,6 +258,11 @@ export const TaskHistoryTable: React.FC = () => {
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
                     facetFilterOptions={facetFilterOptions}
+                    facetDoctype={VENDOR_INVOICES_DOCTYPE}
+                    facetOverrides={{
+                        vendor: { additionalFilters: staticFilters },
+                        status: { additionalFilters: staticFilters },
+                    }}
                     dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={"default"}

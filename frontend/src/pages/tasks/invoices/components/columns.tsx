@@ -17,6 +17,7 @@ import { formatDate } from 'date-fns';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import SITEURL from "@/constants/siteURL";
 import { parseNumber } from "@/utils/parseNumber";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 
 /**
  * Maps Document AI entity types (snake_case) to human-readable labels.
@@ -217,6 +218,7 @@ const getCommonColumns = (
             enableColumnFilter: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
             meta: {
+                facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
                 exportHeaderName: "Vendor Name",
                 exportValue: (row: VendorInvoice) => {
                     if (!row) return "";
@@ -464,8 +466,10 @@ export const getTaskHistoryColumns = (
                 else if (status === 'Pending') variant = 'outline';
                 return <Badge variant={variant}>{status}</Badge>;
             },
+            enableColumnFilter: true,
             filterFn: (row, id, value) => value.includes(row.getValue(id)),
             meta: {
+                facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
                 exportHeaderName: "Status",
                 exportValue: (row: VendorInvoice) => row.status
             }
