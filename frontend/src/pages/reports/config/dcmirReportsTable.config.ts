@@ -18,4 +18,4 @@ export const DCMIR_REPORTS_ITM_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "itemsSummary", label: "Items", placeholder: "Search by Item..." },
 ];
 
-export const DCMIR_REPORTS_DATE_COLUMNS: string[] = ["dc_date"];
+export const DCMIR_REPORTS_DATE_COLUMNS: string[] = ["dc_date", "creation"];

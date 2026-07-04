@@ -137,6 +137,7 @@ export interface DCMIRWiseDisplayItem {
   poNumber: string;
   vendorName: string;
   dcDate?: string;
+  creation?: string;   // system upload timestamp (when the DC/MIR row was keyed in)
   billingCategory: string;
   totalReceivedQuantity: number;
   totalQuantity: number;
