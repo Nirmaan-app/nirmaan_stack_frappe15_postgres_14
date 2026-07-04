@@ -175,10 +175,32 @@ identical, adversarial), **tsc delta-0**, and **runtime** (0 mount fetches; one 
 ### Migration & sunset (the dual-path is transitional)
 
 The `facetFilterOptions` prop + the page-level `useFacetValues` pattern are **scheduled for
-removal**. The remaining **~28 pages** migrate incrementally to `meta.facet` (each a mechanical,
-parity-checkable diff); once the last lands, delete the legacy `facetFilterOptions` branch in
-`new-data-table.tsx` and the direct `useFacetValues` call sites. Until then the dual path is the
-**intended, safe state** — do not treat the legacy branch as dead code.
+removal**. Pages migrate incrementally to `meta.facet` (each a mechanical, parity-checkable diff);
+once the last lands, delete the legacy `facetFilterOptions` branch in `new-data-table.tsx` and the
+direct `useFacetValues` call sites. Until then the dual path is the **intended, safe state** — do
+not treat the legacy branch as dead code.
+
+**Progress (2026-07-04).** 27 pages migrated across commits `9ac02d77` (8 + foundation), `ad556a55`
+(10), `4bbe0dfe` (9). **~10 pages remain**: TaskHistoryTable, AllProjectInvoices, ProjectExpensesList,
+NonProjectExpensesPage, approve-pr, sent-back-request, projects, itemsPage, users, and PendingTasksTable
+(deferred — see below). Server-side label resolution (`LINK_FIELD_MAP`: project/vendor/owner/customer →
+name) means the many client-side id→name remaps drop out with no display loss.
+
+**Two blockers to a *full* sunset:**
+
+1. **Shared column configs** must migrate as a set. `PendingTasksTable` + `TaskHistoryTable` share
+   `getPendingTaskColumns` (`tasks/invoices/components/columns.tsx`); attach `meta.facet` once, then
+   opt each page in via `facetDoctype`. Re-scan every remaining page for a `get*Columns()` call
+   before migrating (the "inline columns" assumption failed here).
+2. **Display-label renames** the backend cannot produce — a **deliberate interface gap** (owner
+   decision, 2026-07-04): keep these facets on the legacy path rather than add a `mapOptionLabel`
+   transform to `FacetOverride`. Current **legacy islands**: `all-sr-list.is_finalized` (Check 0/1 →
+   Approved/Finalized) and `PendingTasksTable.document_type` ("Service Requests" → "Work Orders").
+   Full deletion of the legacy branch requires either extending the interface with a label transform
+   or accepting these two facets never migrate — revisit at sunset.
+
+Distinguish an **id→name resolution** (backend already handles it via `LINK_FIELD_MAP` → migrate
+freely) from a **value rename** (Check/Select display relabel → legacy island until a decision).
 
 ## Deferred backlog (future implementation, in residence-rule order)
 
