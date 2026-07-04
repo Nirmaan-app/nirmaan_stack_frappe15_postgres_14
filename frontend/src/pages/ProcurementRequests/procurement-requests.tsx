@@ -471,7 +471,14 @@ export const ProcurementRequests: React.FC = () => {
 
     // --- Render Logic ---
     const renderCurrentTab = () => {
-        if (tab === PR_TABS.APPROVE_PR) return <ApprovePR />; // ApprovePR now uses its own useServerDataTable
+        if (tab === PR_TABS.APPROVE_PR) {
+            // Approval authority is gated by PR_ADMIN_ROLES (isAdmin). The tab button is hidden for
+            // non-approvers, but they can still reach this branch via a manual `?tab=Approve PR` URL —
+            // so block the pending-approval list here too. Mirrors the approve-view guard in
+            // render-procurement-requests.tsx. (PMO removed from PR_ADMIN_ROLES on 2026-07-04.)
+            if (!isAdmin) return <div className="flex items-center justify-center h-[50vh] text-muted-foreground">You do not have permission to approve procurement requests.</div>;
+            return <ApprovePR />; // ApprovePR now uses its own useServerDataTable
+        }
         if ([PR_TABS.REJECTED, PR_TABS.DELAYED, PR_TABS.CANCELLED, "All SBs"].includes(tab as any)) return <SentBackRequest tab={tab} />;
 
         if (shouldRenderDataTable) {

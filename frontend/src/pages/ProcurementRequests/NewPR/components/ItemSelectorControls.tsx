@@ -156,10 +156,11 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const categoryDetails = categoryList.find(
       (c) => c.name === curItem.category
     );
+    // PMO no longer bypasses the per-category `new_items` gate; treated like a Project
+    // Manager (2026-07-04 PMO access review) — request-only in locked categories.
     return (
       categoryDetails?.new_items === "false" &&
-      userData?.role !== "Nirmaan Admin Profile" &&
-      userData?.role !== "Nirmaan PMO Executive Profile"
+      userData?.role !== "Nirmaan Admin Profile"
     );
   }, [curItem, categoryList, userData?.role]);
 
