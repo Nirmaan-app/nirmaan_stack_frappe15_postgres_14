@@ -24,6 +24,7 @@ import { Info } from "lucide-react";
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
+import { useFacetValues } from "@/hooks/useFacetValues";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import {
@@ -352,9 +353,6 @@ export const AllSRList: React.FC<AllSRListProps> = ({
         ),
         enableColumnFilter: true,
         size: 120,
-        meta: {
-          facet: { field: "is_finalized", title: "Status" } satisfies FacetDeclaration,
-        }
       },
       {
         accessorKey: "total_amount",
@@ -457,6 +455,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     totalCount,
     isLoading: listIsLoading,
     error: listError,
+    columnFilters,
     selectedSearchField,
     setSelectedSearchField,
     searchTerm,
@@ -474,20 +473,43 @@ export const AllSRList: React.FC<AllSRListProps> = ({
     additionalFilters: staticFilters,
   });
 
-  // project / vendor / is_finalized facets migrated to the self-fetching facet interface
-  // (ADR-0010 "Option 2"): declared via `meta.facet` on their columns + `facetOverrides` below.
-  // Only the static-options `gst` facet remains on the legacy pre-fetched path.
+  // project / vendor facets migrated to the self-fetching facet interface (ADR-0010 "Option 2")
+  // via `meta.facet` + `facetOverrides` below. is_finalized stays on the LEGACY facet path: its
+  // option labels are a display rename (Check 0/1 -> Approved/Finalized) the self-fetching
+  // interface intentionally does not carry (ADR-0010 owner decision) — a legacy island. gst is
+  // static-options, also legacy.
+  const { facetOptions: finalizedFacetOptions, isLoading: isFinalizedFacetLoading } = useFacetValues({
+    doctype: DOCTYPE,
+    field: "is_finalized",
+    currentFilters: columnFilters,
+    searchTerm,
+    selectedSearchField,
+    additionalFilters: staticFilters,
+    enabled: true,
+  });
+
+  const memoizedStatusOptions = useMemo(() => {
+    const baseOptions: { label: string; value: string; count?: number }[] = [
+      { label: "Approved", value: "0" },
+      { label: "Finalized", value: "1" },
+    ];
+    return baseOptions.map((baseOpt) => {
+      const facetOpt = (finalizedFacetOptions as any[])?.find((f) => String(f.value) === baseOpt.value);
+      return { ...baseOpt, count: facetOpt?.count ?? 0 };
+    });
+  }, [finalizedFacetOptions]);
+
   const facetFilterOptions = useMemo(
     () => ({
+      is_finalized: { title: "Status", options: memoizedStatusOptions, isLoading: isFinalizedFacetLoading },
       gst: { title: "GST", options: SR_GST_OPTIONS_MAP },
     }),
-    []
+    [memoizedStatusOptions, isFinalizedFacetLoading]
   );
 
   const facetOverrides = useMemo(
     () => ({
       project: { additionalFilters: staticFilters },
-      is_finalized: { additionalFilters: staticFilters },
       vendor: { additionalFilters: staticFilters, enabled: !for_vendor },
     }),
     [staticFilters, for_vendor]
