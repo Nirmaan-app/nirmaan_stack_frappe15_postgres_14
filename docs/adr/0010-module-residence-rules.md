@@ -180,20 +180,18 @@ once the last lands, delete the legacy `facetFilterOptions` branch in `new-data-
 direct `useFacetValues` call sites. Until then the dual path is the **intended, safe state** — do
 not treat the legacy branch as dead code.
 
-**Progress (2026-07-04).** 34 pages migrated across `9ac02d77` (8 + foundation), `ad556a55` (10),
-`4bbe0dfe` (9), `2e4dbad5` (7). **3 pages remain**, all deferred for careful handling (see below):
-TaskHistoryTable + PendingTasksTable (a shared-columns pair) and sent-back-request (a nested wrapper).
-Server-side label resolution (`LINK_FIELD_MAP`: project/vendor/owner/customer/created_by → name) means
-the many client-side id→name remaps drop out with no display loss (e.g. approve-pr's `owner` moved from
-a client all-users list to the backend facet — a data-source *improvement*, not a regression).
+**Progress (2026-07-04) — migration COMPLETE.** Every faceted page is migrated across `9ac02d77`
+(8 + foundation), `ad556a55` (10), `4bbe0dfe` (9), `2e4dbad5` (7), `495d4e9a` (final: the tasks
+shared-columns pair + the sent-back-request wrapper). No page remains on the fully-legacy path.
+Server-side label resolution (`LINK_FIELD_MAP`: project/vendor/owner/customer/created_by → name) meant
+the many client-side id→name remaps dropped out with no display loss (e.g. approve-pr's `owner` moved
+from a client all-users list to the backend facet — a data-source *improvement*, not a regression).
 
-**Two blockers to a *full* sunset:**
+**One remaining blocker to *deleting* the legacy branch — the label islands.** The `facetFilterOptions`
+prop can be removed from `new-data-table.tsx` only after these 3 hybrid facets are resolved (they keep a
+`useFacetValues` + client label transform + a `facetFilterOptions` entry alongside `facetDoctype`):
 
-1. **Shared column configs** must migrate as a set. `PendingTasksTable` + `TaskHistoryTable` share
-   `getPendingTaskColumns` (`tasks/invoices/components/columns.tsx`); attach `meta.facet` once, then
-   opt each page in via `facetDoctype`. Re-scan every remaining page for a `get*Columns()` call
-   before migrating (the "inline columns" assumption failed here).
-2. **Display-label renames** the backend cannot produce — a **deliberate interface gap** (owner
+1. **Display-label renames** the backend cannot produce — a **deliberate interface gap** (owner
    decision, 2026-07-04): keep these facets on the legacy path rather than add a `mapOptionLabel`
    transform to `FacetOverride`. Current **legacy islands**: `all-sr-list.is_finalized` (Check 0/1 →
    Approved/Finalized), `PendingTasksTable.document_type` ("Service Requests" → "Work Orders"), and
