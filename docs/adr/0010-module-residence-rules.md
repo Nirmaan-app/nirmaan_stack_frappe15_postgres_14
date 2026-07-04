@@ -180,11 +180,12 @@ once the last lands, delete the legacy `facetFilterOptions` branch in `new-data-
 direct `useFacetValues` call sites. Until then the dual path is the **intended, safe state** — do
 not treat the legacy branch as dead code.
 
-**Progress (2026-07-04).** 27 pages migrated across commits `9ac02d77` (8 + foundation), `ad556a55`
-(10), `4bbe0dfe` (9). **~10 pages remain**: TaskHistoryTable, AllProjectInvoices, ProjectExpensesList,
-NonProjectExpensesPage, approve-pr, sent-back-request, projects, itemsPage, users, and PendingTasksTable
-(deferred — see below). Server-side label resolution (`LINK_FIELD_MAP`: project/vendor/owner/customer →
-name) means the many client-side id→name remaps drop out with no display loss.
+**Progress (2026-07-04).** 34 pages migrated across `9ac02d77` (8 + foundation), `ad556a55` (10),
+`4bbe0dfe` (9), `2e4dbad5` (7). **3 pages remain**, all deferred for careful handling (see below):
+TaskHistoryTable + PendingTasksTable (a shared-columns pair) and sent-back-request (a nested wrapper).
+Server-side label resolution (`LINK_FIELD_MAP`: project/vendor/owner/customer/created_by → name) means
+the many client-side id→name remaps drop out with no display loss (e.g. approve-pr's `owner` moved from
+a client all-users list to the backend facet — a data-source *improvement*, not a regression).
 
 **Two blockers to a *full* sunset:**
 
@@ -195,9 +196,12 @@ name) means the many client-side id→name remaps drop out with no display loss.
 2. **Display-label renames** the backend cannot produce — a **deliberate interface gap** (owner
    decision, 2026-07-04): keep these facets on the legacy path rather than add a `mapOptionLabel`
    transform to `FacetOverride`. Current **legacy islands**: `all-sr-list.is_finalized` (Check 0/1 →
-   Approved/Finalized) and `PendingTasksTable.document_type` ("Service Requests" → "Work Orders").
-   Full deletion of the legacy branch requires either extending the interface with a label transform
-   or accepting these two facets never migrate — revisit at sunset.
+   Approved/Finalized), `PendingTasksTable.document_type` ("Service Requests" → "Work Orders"), and
+   `AllProjectInvoices.project_gst` (a `gstFacetOptions.map` label transform). Each is a hybrid page —
+   the other facets self-fetch while the island facet keeps its `useFacetValues` + transform + a
+   `facetFilterOptions` entry passed alongside `facetDoctype`. Full deletion of the legacy branch
+   requires either extending the interface with a label transform or accepting these facets never
+   migrate — revisit at sunset.
 
 Distinguish an **id→name resolution** (backend already handles it via `LINK_FIELD_MAP` → migrate
 freely) from a **value rename** (Check/Select display relabel → legacy island until a decision).
