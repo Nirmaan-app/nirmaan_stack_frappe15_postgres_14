@@ -22,7 +22,28 @@ TOL = 1.0
 # TESTING SCOPE: run on ONE project only. Set to None to backfill ALL projects.
 PROJECT = "GAUTAM_BUDDHA_NAGAR-PROJ-00074"   # Maconns Noida (set None for the full run)
 _COUNTED = ("Pending", "Approved")
-_FAIL_LOG = "/workspace/development/frappe-bench/extraction_failures.log"
+
+import os
+_BENCH = frappe.utils.get_bench_path()          # the bench dir on dev AND prod (portable)
+_FAIL_LOG = os.path.join(_BENCH, "extraction_failures.log")
+_CACHE = os.path.join(_BENCH, "extraction_cache.json")
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _save_no_modified(vi):
+    """Save a Vendor Invoice WITHOUT bumping modified/modified_by -- this is a backfill, not a
+    user edit. doc.save() always sets modified, so we capture the original first and restore it
+    right after (the update_modified=False equivalent for a doc that has a child table)."""
+    orig_m, orig_mb = vi.get("modified"), vi.get("modified_by")
+    vi.save(ignore_permissions=True)
+    frappe.db.set_value("Vendor Invoices", vi.name,
+                        {"modified": orig_m, "modified_by": orig_mb}, update_modified=False)
 
 
 # =============================================================================
@@ -162,7 +183,7 @@ def run_extraction(project=None):
                 _apply_autofill(vi, payload, po_doc)  # line_mappings + all autofill_* fields
             else:                                     # manual fix -> line_mappings only
                 vi.set("line_mappings", payload)
-            vi.save(ignore_permissions=True)
+            _save_no_modified(vi)
 
         recompute_po_invoice_qty(po)                  # EXACT if ALL mapped, else stays ordered qty
         frappe.db.commit()
@@ -212,15 +233,26 @@ def _extract_one(inv, po, po_doc):
 
 
 def _apply_autofill(vi, res, po_doc):
-    """MINIMAL change on the invoice: write line_mappings (the data recompute reads) and mark
-    autofill_used = 1. Nothing else -- no audit-JSON snapshots. recompute (called right after
-    the save, in run_extraction) then derives invoice_qty from these mappings."""
+    """Populate line_mappings AND every autofill_* field from the extract response, so the
+    invoice is identical to a UI-autofilled one (recon UI + auto-approve gates + cacheable)."""
     import json
     from nirmaan_stack.api.delivery_notes.update_invoice_data import build_line_mapping_rows
 
     lm = (res or {}).get("line_match") or {}
+    _j = lambda v: json.dumps(v) if v else None
+
     vi.set("line_mappings", build_line_mapping_rows(json.dumps(lm), po_doc))
     vi.autofill_used = 1
+    vi.autofill_processor_id = res.get("processor_id")
+    vi.autofill_extracted_invoice_no = res.get("invoice_no")
+    vi.autofill_extracted_invoice_date = res.get("invoice_date")
+    vi.autofill_extracted_amount = res.get("amount")
+    vi.autofill_extracted_supplier_gstin = res.get("supplier_gstin")
+    vi.autofill_extracted_receiver_gstin = res.get("receiver_gstin")
+    vi.autofill_confidence_json = _j(res.get("confidence"))
+    vi.autofill_all_entities_json = _j(res.get("entities"))
+    vi.autofill_line_items_json = _j(res.get("line_items"))
+    vi.autofill_line_match_json = _j(lm)
 
 
 def _prompt_fix(inv, po_doc, line_match=None):
@@ -324,8 +356,156 @@ def manual_fix(invoice_name, qty_by_item):
         return
 
     vi.set("line_mappings", rows)
-    vi.save(ignore_permissions=True)
+    _save_no_modified(vi)
     recompute_po_invoice_qty(vi.document_name)
     frappe.db.commit()
     print(f"  ✓ mapped {invoice_name}; recomputed {vi.document_name} "
           f"(EXACT once all its invoices are mapped)")
+
+
+# =============================================================================
+# CACHE — extract once on TEST, replay on PROD (no Gemini for cached invoices).
+# =============================================================================
+_AF_FIELDS = (
+    "autofill_used", "autofill_processor_id", "autofill_extracted_invoice_no",
+    "autofill_extracted_invoice_date", "autofill_extracted_amount",
+    "autofill_extracted_supplier_gstin", "autofill_extracted_receiver_gstin",
+    "autofill_confidence_json", "autofill_all_entities_json",
+    "autofill_line_items_json", "autofill_line_match_json",
+)
+
+
+def export_cache(project=None):
+    """TEST: write every MAPPED invoice's full autofill data -> extraction_cache.json.
+    Opens the file with "w" -> CLEARS any existing content and regenerates it FRESH from
+    the current DB each run (so it always mirrors the latest extraction + manual fixes)."""
+    import json
+    project = project or PROJECT
+
+    po_filter = {"status": ["!=", "Merged"]}
+    if project:
+        po_filter["project"] = ["=", project]
+    pos = set(frappe.get_all("Procurement Orders", filters=po_filter, pluck="name"))
+
+    invs = frappe.get_all(
+        "Vendor Invoices", filters={"document_type": "Procurement Orders"},
+        fields=["name", "document_name", "invoice_no", "invoice_attachment", *_AF_FIELDS])
+
+    entries = []
+    for vi in invs:
+        if vi.document_name not in pos:
+            continue
+        lm = frappe.get_all(
+            "Vendor Invoice Line",
+            filters={"parent": vi.name, "parenttype": "Vendor Invoices"},
+            fields=["description", "quantity", "rate", "amount", "tax_rate",
+                    "match_status", "match_source", "match_score", "po_item_id", "po_item_name"])
+        if not lm:
+            continue                                    # only invoices that actually got mapped
+        entry = {"po": vi.document_name, "invoice_no": vi.invoice_no,
+                 "content_hash": _content_hash(vi.invoice_attachment), "line_mappings": lm}
+        for f in _AF_FIELDS:
+            entry[f] = vi.get(f)
+        entries.append(entry)
+
+    with open(_CACHE, "w") as fh:                       # "w" = truncate (clear) + write fresh
+        json.dump(entries, fh, indent=2, default=str)
+    print(f"[export_cache] wrote {len(entries)} invoices -> {_CACHE} (fresh, {project or 'ALL'})")
+
+
+def import_cache(project=None, apply=False):
+    """PROD: replay the cache onto each mismatched PO's invoices.
+        HIT  (po + invoice_no in cache) -> set all autofill fields + line_mappings, NO Gemini.
+        MISS (not cached)               -> non-interactive Gemini read + apply (else logged).
+    Then recompute per PO. apply=False = dry preview (nothing written)."""
+    import json
+    from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+
+    project = project or PROJECT
+    try:
+        with open(_CACHE) as fh:
+            cache = json.load(fh)
+    except FileNotFoundError:
+        print(f"[import_cache] no cache file at {_CACHE}"); return
+    by_key = {(e["po"], e["invoice_no"]): e for e in cache}
+    print(f"[import_cache] {len(cache)} cached invoices. scope={project or 'ALL'}  apply={apply}\n")
+
+    mismatched = _find_mismatched(project)
+    hit = miss = failed = 0
+    for po in mismatched:
+        po_doc = frappe.get_doc("Procurement Orders", po)
+        for inv in _active_invoices(po):
+            if _has_lines(inv.name):
+                continue
+            entry = by_key.get((po, inv.invoice_no))
+            if entry:
+                hit += 1
+                print(f"  HIT  {po} / {inv.invoice_no}")
+                if apply:
+                    _apply_cache_entry(inv.name, entry, po_doc)
+            else:
+                miss += 1
+                print(f"  MISS {po} / {inv.invoice_no} -> Gemini")
+                if apply and not _gemini_apply(inv, po_doc):
+                    failed += 1
+                    _log_failure(po, inv)
+        if apply:
+            recompute_po_invoice_qty(po)
+            frappe.db.commit()
+
+    tag = "applied" if apply else "DRY PREVIEW — nothing written"
+    print(f"\n[import_cache] HIT {hit}  |  MISS→Gemini {miss}  |  failed {failed}  ({tag})")
+
+
+def _apply_cache_entry(invoice_name, entry, po_doc):
+    """Write a cached extract onto an invoice: all autofill fields + re-resolved line_mappings."""
+    vi = frappe.get_doc("Vendor Invoices", invoice_name)
+    for f in _AF_FIELDS:
+        setattr(vi, f, entry.get(f))
+    vi.autofill_used = 1
+    vi.set("line_mappings", [_resolve_row(m, po_doc) for m in entry.get("line_mappings", [])])
+    _save_no_modified(vi)
+
+
+def _resolve_row(m, po_doc):
+    """Re-resolve a cached mapping's po_item_row against THIS PO's items (by name, then id)."""
+    it = (next((x for x in po_doc.items if x.item_name == m.get("po_item_name")), None)
+          or next((x for x in po_doc.items if x.item_id == m.get("po_item_id")), None))
+    row = {
+        "description": m.get("description"), "quantity": _num(m.get("quantity")),
+        "rate": _num(m.get("rate")), "amount": _num(m.get("amount")),
+        "tax_rate": _num(m.get("tax_rate")),
+        "match_status": m.get("match_status") or "Unmatched",
+        "match_source": m.get("match_source") or "", "match_score": _num(m.get("match_score")),
+    }
+    if it and m.get("match_status") == "Matched":
+        row.update({"po_item_id": it.item_id, "po_item_row": it.name, "po_item_name": it.item_name})
+    return row
+
+
+def _content_hash(attachment_id):
+    """Lightweight file identity for the cache (the attachment's file_url)."""
+    return (frappe.db.get_value("Nirmaan Attachments", attachment_id, "attachment")
+            if attachment_id else None)
+
+
+def _gemini_apply(inv, po_doc):
+    """Cache MISS fallback: a non-interactive Gemini read + apply. Returns True on success."""
+    from nirmaan_stack.api.invoice_autofill import extract_invoice_fields
+    fu = (frappe.db.get_value("Nirmaan Attachments", inv.invoice_attachment, "attachment")
+          if inv.invoice_attachment else None)
+    if not fu:
+        return False
+    try:
+        res = extract_invoice_fields(fu, docname=po_doc.name)
+        lm = (res or {}).get("line_match") or {}
+        s = lm.get("summary", {})
+        m, u = s.get("matched", 0), s.get("unmatched", 0)
+        if m / max(1, m + u) < MIN_MATCH:
+            return False
+        vi = frappe.get_doc("Vendor Invoices", inv.name)
+        _apply_autofill(vi, res, po_doc)
+        _save_no_modified(vi)
+        return True
+    except Exception:
+        return False
