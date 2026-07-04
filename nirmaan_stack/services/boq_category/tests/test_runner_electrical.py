@@ -461,5 +461,149 @@ class TestMiscAndLightKeywords(unittest.TestCase):
         self.assertEqual(classify_line("Flexi strip light 10W/M", [])["category_id"], "light_fixtures")
 
 
+# ---------------------------------------------------------------------------
+# v2.1 tuning2: EARTH-ANC headers-only guard, dimension-count geometry signals,
+# and the category rule fixes (popup / LMS / light_fixtures / switched-socket /
+# miscellaneous). Positive AND negative cases per the tuning-round-2 spec.
+# ---------------------------------------------------------------------------
+
+class TestEarthAncHeadersOnly(unittest.TestCase):
+    """#1: EARTH-ANC (headers_only) fires on an ancestor HEADER token, not a note-only one."""
+
+    def test_fires_on_ancestor_header(self):
+        r = classify_line("Body earthing conductor", ["EARTHING"],
+                          ancestor_headers=["EARTHING"])
+        self.assertEqual(r["category_id"], "earthing")
+
+    def test_not_fired_when_earthing_only_in_note(self):
+        # 'earthed' lives only in the ancestor NOTE (full anc_texts), NOT the header ->
+        # EARTH-ANC must not false-fire; this box then reads junction_box via geometry.
+        r = classify_line(
+            "160 x 160 x 50mm Size",
+            ancestor_texts=["Raceways the channels shall be earthed at the joints"],
+            ancestor_headers=["Raceways"])
+        self.assertNotEqual(r["category_id"], "earthing")
+
+    def test_backward_compatible_without_headers(self):
+        # No ancestor_headers passed -> headers_only falls back to the full blob (legacy).
+        r = classify_line("GI earth strip 25x3mm laid in earth pit", ["EARTHING"])
+        self.assertEqual(r["category_id"], "earthing")
+
+
+class TestConduitDiaGeometry(unittest.TestCase):
+    """#6: a single-diameter 'Xmm dia' leaf under a conduit section is conduit_piping."""
+
+    def test_dia_under_conduit_is_conduit(self):
+        r = classify_line("25mm dia", ["Supply and laying of PVC conduit"],
+                          ancestor_headers=["Supply and laying of PVC conduit"])
+        self.assertEqual(r["category_id"], "conduit_piping")
+
+    def test_two_dim_size_not_flipped_to_conduit_by_geometry(self):
+        # the dia-geometry needs 'dia' + a conduit ancestor; a 2-dim W x H tray size under a
+        # raceway section must stay cabletray, NOT be flipped to conduit.
+        r = classify_line("300 x 100mm Size", ["CABLE TRAYS & RACEWAYS"])
+        self.assertNotEqual(r["category_id"], "conduit_piping")
+
+    def test_dia_without_conduit_ancestor_not_forced(self):
+        r = classify_line("25mm dia", ["Cable Tray"])
+        self.assertNotEqual(r["category_id"], "conduit_piping")
+
+
+class TestJunctionBoxGeometry(unittest.TestCase):
+    """#7: a 3-dim W x H x D box (depth 40-600mm) under a raceway/box section is junction_box."""
+
+    def test_wxhxd_box_under_raceway_is_junction_box(self):
+        r = classify_line("460 x 460 x 50mm Size",
+                          ["Floor raceways with respective Junction Box", "Raceways"])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+
+    def test_box_with_swg_gauge_still_fires(self):
+        # gate v2: a stated gauge ('16 SWG') must NOT exclude a genuine box.
+        r = classify_line("460 x 460 x 50mm 16 SWG Size", ["Raceways"])
+        self.assertEqual(r["category_id"], "junction_box_raceway")
+
+    def test_thin_trunking_is_not_box(self):
+        # 3 numbers but depth 2mm + tray word 'trunking' -> a tray, not a box.
+        r = classify_line("300 x 50 x 2mm GI Trunking", ["Raceways"])
+        self.assertNotEqual(r["category_id"], "junction_box_raceway")
+
+    def test_two_dim_tray_is_not_box(self):
+        r = classify_line("600 x 100mm Size", ["Cable Tray"])
+        self.assertNotEqual(r["category_id"], "junction_box_raceway")
+
+    def test_box_without_raceway_context_not_forced(self):
+        r = classify_line("460 x 460 x 50mm Size", ["Some unrelated section"])
+        self.assertNotEqual(r["category_id"], "junction_box_raceway")
+
+
+class TestPopupFix(unittest.TestCase):
+    """#2: floor/pop-up boxes resolve to popup_boxes; box-frame guard beats SS-SWSOCK."""
+
+    def test_floor_service_box_is_popup(self):
+        r = classify_line("Supply of Floor service box suitable for sockets",
+                          ["FLOOR SERVICE BOXES"])
+        self.assertEqual(r["category_id"], "popup_boxes")
+
+    def test_box_frame_guard_keeps_floor_box_from_switched_socket(self):
+        # SS-SWSOCK would fire on 'socket controlled by switch' but the box-frame guard wins.
+        r = classify_line("Flip flop box with 2x6/13A round pin socket controlled by 16A switch",
+                          ["FLOOR SERVICE BOXES"])
+        self.assertEqual(r["category_id"], "popup_boxes")
+
+
+class TestLmsFix(unittest.TestCase):
+    """#3: modern LMS vocabulary + ancestor; a DALI luminaire stays a fixture."""
+
+    def test_knx_device_under_lms_section(self):
+        r = classify_line("KNX 8 Ch Relay Master Secure", ["LIGHTING CONTROL SYSTEM"])
+        self.assertEqual(r["category_id"], "lighting_mgmt_system")
+
+    def test_dali_luminaire_is_light_fixture_not_lms(self):
+        # DALI is the fixture's dimming protocol -> a recessed luminaire is a fixture, not LMS.
+        r = classify_line("Recessed linear Luminaire with LED DALI dimmable",
+                          ["OFFICE AREA LIGHTS"])
+        self.assertEqual(r["category_id"], "light_fixtures")
+
+
+class TestSwitchedSocket(unittest.TestCase):
+    """#5: 'socket controlled by switch' is a switched socket, not point_wiring."""
+
+    def test_socket_controlled_by_switch_is_switches_sockets(self):
+        r = classify_line("2x6/16A round pin socket controlled by 16A switch", ["Without box"])
+        self.assertEqual(r["category_id"], "switches_sockets")
+
+
+class TestLightFixturePointFrame(unittest.TestCase):
+    """#4: the raised (0.6) LF weight must not steal a point-wiring light point."""
+
+    def test_light_point_not_stolen_by_fixture_weight(self):
+        r = classify_line("Recessed light point controlled by 6A switch",
+                          ["POINT WIRING FOR LIGHTING"])
+        self.assertEqual(r["category_id"], "point_wiring")
+
+
+class TestMiscAnc(unittest.TestCase):
+    """#8: MISC-ANC propagates misc but its low weight never overrides a real signal."""
+
+    def test_bare_line_under_misc_section_inherits_misc(self):
+        r = classify_line("Supply and fixing of the following as per site incharge",
+                          ["MISCELLANEOUS ITEMS"])
+        self.assertEqual(r["category_id"], "miscellaneous")
+
+    def test_misc_anc_does_not_override_real_signal(self):
+        # a cable line under a MISCELLANEOUS section is still wiring_cabling (0.35 loses).
+        r = classify_line("3.5C x 240 sq.mm XLPE armoured cable", ["MISCELLANEOUS ITEMS"])
+        self.assertEqual(r["category_id"], "wiring_cabling")
+
+
+class TestGeometryDoesNotOverrideStrongSignal(unittest.TestCase):
+    """The geometry override only touches a cabletray/earthing/blank winner, never a strong keyword."""
+
+    def test_strong_cable_with_box_size_stays_wiring(self):
+        r = classify_line("3.5C x 240 sqmm XLPE cable box 300 x 300 x 100mm",
+                          ["CABLE TRAYS & RACEWAYS"])
+        self.assertEqual(r["category_id"], "wiring_cabling")
+
+
 if __name__ == "__main__":
     unittest.main()

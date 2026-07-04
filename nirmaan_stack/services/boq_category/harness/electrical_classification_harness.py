@@ -167,8 +167,12 @@ def main():
                 anc = ancestors(n)
                 # RULES: ancestor_texts = [sheet_name] + each ancestor (desc + its notes); notes = own
                 anc_texts = [str(sn)] + [f"{a['description'] or ''} {_notes_text(a)}".strip() for a in anc]
+                # v2.1 tuning2: ancestor HEADERS (descriptions only, NO notes) so headers_only rules
+                # (EARTH-ANC) match a real section header, not an incidental keyword in an ancestor note.
+                anc_headers = [str(sn)] + [str(a["description"] or "") for a in anc]
                 notes_list = [own_notes] if own_notes else []
-                res = classify_line(desc, anc_texts, notes_list, discipline="Electrical")
+                res = classify_line(desc, anc_texts, notes_list, discipline="Electrical",
+                                    ancestor_headers=anc_headers)
                 rule_out[n["name"]] = res
                 # AI: structured nested tree (root-first, indented, notes per node) + sheet_name
                 chain_strs = [f"[sheet] {sn}"]

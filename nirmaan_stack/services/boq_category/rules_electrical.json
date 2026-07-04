@@ -1,6 +1,6 @@
 {
   "discipline": "Electrical",
-  "version": "2.0-build2b",
+  "version": "2.1-tuning2",
   "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain. Build 2b: POINT WIRING FULL PRECEDENCE -- a point-frame (light/fan/plug/power point, points controlled, controlled by mcb/switch, mcb-to-first-light) zeroes conduit_piping / switches_sockets / wiring_cabling via point-frame exclusion rules so the bundled point line reads point_wiring even when it names conduit/switch/cable. DB-TO-FIRST-POINT SEAM: a bare 'DB to first point' sized feeder with NO named load is suppressed (WC-EXCL-DBFIRSTPOINT) and 'first point' is deliberately NOT a point_wiring positive token, so it lands blank/review, not a confident label. TERMINATION MERGED into wiring_cabling (TERM-* re-pointed). NETWORKING removed (NW-DATA deleted); data vocab is suppressed from wiring_cabling (WC-EXCL-NETWORKING) so cat6/rj45/patch-panel lines route to blank (cross-discipline).",
   "rules": [
     {
@@ -167,11 +167,11 @@
       "rule_id": "SS-ANC",
       "category_id": "switches_sockets",
       "signal_type": "ancestor",
-      "match": ["socket outlets", "power receptacles", "switches and sockets", "pop-up boxes", "floor outlet"],
+      "match": ["socket outlets", "power receptacles", "switches and sockets"],
       "match_mode": "any_token",
       "weight": 0.4,
       "plain": "Sits under a Socket Outlets / Power Receptacles section header.",
-      "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'"
+      "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'. v2.1 tuning2: removed 'pop-up boxes'/'floor outlet' (they belong to popup_boxes, not switches_sockets)."
     },
     {
       "rule_id": "SS-EXCL-POINTFRAME",
@@ -182,6 +182,27 @@
       "weight": 0,
       "plain": "Build 2b Point Wiring precedence: a point-frame line ('point controlled by switch') is point wiring, not a loose switch/socket accessory - suppress the switches_sockets read.",
       "source": "Build 2b owner ruling: point-frame overrides component words."
+    },
+    {
+      "rule_id": "SS-SWSOCK",
+      "category_id": "switches_sockets",
+      "signal_type": "item_keyword",
+      "match": ["socket controlled by", "pin socket controlled", "socket outlet controlled by"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A switched socket (a socket outlet controlled by its own switch, e.g. '2x6/16A socket controlled by 16A switch') - this is a switches_sockets unit, NOT point wiring. Needs to outscore point_wiring's 'controlled by' read.",
+      "source": "v2.1 tuning2: recovers 'N x rating socket controlled by switch' switched-socket lines that were mislabelled point_wiring. Requires SS-EXCL-BOXFRAME to coexist (floor boxes with 'round pin socket' stay popup).",
+      "ambiguous_with": ["point_wiring", "popup_boxes"]
+    },
+    {
+      "rule_id": "SS-EXCL-BOXFRAME",
+      "category_id": "switches_sockets",
+      "signal_type": "exclusion",
+      "match": ["floor service box", "floor box", "pop-up box", "pop up box", "popup box", "flip flop box", "flip-flop box", "ega box", "floor socket box", "table box"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "v2.1 tuning2 popup precedence: a floor / pop-up / flip-flop box IS a socket enclosure but is priced as its own popup_boxes unit - suppress the switches_sockets read (incl. SS-SWSOCK) so popup_boxes wins. Mirrors the point-frame precedence pattern.",
+      "source": "v2.1 tuning2: box framing overrides the socket component; ships WITH SS-SWSOCK."
     },
 
     {
@@ -359,52 +380,102 @@
       "rule_id": "PU-BOX",
       "category_id": "popup_boxes",
       "signal_type": "item_keyword",
-      "match": ["pop up box", "popup box", "pop-up box", "floor box", "flip flop box", "flip-flop box", "floor socket box", "table box", "floor outlet"],
+      "match": ["pop up box", "popup box", "pop-up box", "floor box", "flip flop box", "flip-flop box", "floor socket box", "table box", "floor outlet", "floor service box", "ega box", "under floor box", "floor mounted box"],
       "match_mode": "any_token",
       "weight": 0.55,
-      "plain": "A pop-up / floor socket box (flip-flop / table / floor outlet unit) - a socket enclosure sunk into a floor or desk.",
-      "source": "Build 2a: new category seed. corpus preamble: 'POP-UP BOXES', 'FLOOR OUTLET'.",
+      "plain": "A pop-up / floor socket box (flip-flop / table / floor outlet / floor service / ega box unit) - a socket enclosure sunk into a floor or desk.",
+      "source": "Build 2a: new category seed. corpus preamble: 'POP-UP BOXES', 'FLOOR OUTLET'. v2.1 tuning2: added floor service box / ega box / under floor box / floor mounted box.",
       "ambiguous_with": ["switches_sockets", "junction_box_raceway"]
+    },
+    {
+      "rule_id": "PU-ANC",
+      "category_id": "popup_boxes",
+      "signal_type": "ancestor",
+      "match": ["floor service box", "floor service boxes", "pop-up boxes", "pop up boxes", "popup boxes", "floor outlet", "floor mounted box", "ega box", "under floor box"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a Floor / Pop-up Box section header - the bare child sizes under it are floor-box units.",
+      "source": "v2.1 tuning2: popup section header did not propagate to child lines (no ancestor rule existed)."
     },
     {
       "rule_id": "LMS-KW",
       "category_id": "lighting_mgmt_system",
       "signal_type": "item_keyword",
-      "match": ["lighting management", "lighting control", "dali", "occupancy sensor", "daylight sensor", "lighting processor", "scene controller", "relay module for lighting"],
+      "match": ["lighting management", "lighting control", "dali", "occupancy sensor", "daylight sensor", "lighting processor", "scene controller", "relay module for lighting", "knx", "spacelynk", "spacelogic", "lutron", "grydsense", "dali gateway", "dali dimming", "dimming controller", "dimming system", "light management", "lms processor", "lighting control system", "vortex processor", "ip router", "relay master", "wireless dali"],
       "match_mode": "any_token",
       "weight": 0.55,
-      "plain": "A lighting management / control system: DALI, occupancy/daylight sensors, lighting processor or scene controller.",
-      "source": "Build 2a: new category seed. corpus: DALI / lighting control / occupancy sensor lines."
+      "plain": "A lighting management / control system: DALI, occupancy/daylight sensors, lighting processor/scene controller, or a modern LMS ecosystem device (KNX, Lutron, GrydSense, SpaceLynk, DALI gateway / dimming controller).",
+      "source": "Build 2a: new category seed. corpus: DALI / lighting control / occupancy sensor lines. v2.1 tuning2: added modern LMS ecosystem vocabulary (KNX/Lutron/GrydSense/SpaceLynk/DALI gateway/dimming controller/etc)."
+    },
+    {
+      "rule_id": "LMS-ANC",
+      "category_id": "lighting_mgmt_system",
+      "signal_type": "ancestor",
+      "match": ["lighting control", "light management", "lighting management", "lms", "knx", "lutron", "grydsense"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a Lighting Management / Control (LMS) section header - propagates LMS to the bare component lines (keypads, relays, gateways) itemised under it.",
+      "source": "v2.1 tuning2: LMS section header did not propagate. Deliberately excludes 'dali'/'occupancy sensor' (item-only) so a fixture section's DALI note does not propagate LMS to luminaires."
     },
     {
       "rule_id": "LF-KW",
       "category_id": "light_fixtures",
       "signal_type": "item_keyword",
-      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlight", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light", "led strip", "strip light"],
+      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlight", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light", "led strip", "strip light", "pendant", "recessed", "recessed light", "recessed luminaire", "linear luminaire", "linear light", "surface mounted light", "hanging light", "pendant light", "ceiling light", "wall light", "led fixture", "light fitting"],
       "match_mode": "any_token",
-      "weight": 0.5,
-      "plain": "A luminaire / light fixture: LED light, LED panel/strip, panel light, down light / downlight(er), batten, cove / street / flood / decorative light. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture.",
-      "source": "Build 2a: new category seed. corpus: luminaire / down light / panel light lines. Build 2b: added 'led panel'. residual-43 tuning: added one-word 'downlight' + 'led strip'/'strip light' (DOWNLIGHT/LED STRIP LIGHT product lines abstained)."
+      "weight": 0.6,
+      "plain": "A luminaire / light fixture: LED light, LED panel/strip, panel light, down light / downlight(er), batten, cove / street / flood / decorative light, pendant / recessed / linear / surface / hanging luminaire. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture. Weight 0.6 (v2.1) so a DALI-dimmable luminaire beats the LMS 'dali' read.",
+      "source": "Build 2a: new category seed. Build 2b: added 'led panel'. residual-43 tuning: 'downlight'/'led strip'. v2.1 tuning2: weight 0.5->0.6 (DALI false-friend); added pendant/recessed/linear/surface/hanging/ceiling/wall/fitting vocabulary (abstaining generic light lines)."
+    },
+    {
+      "rule_id": "LF-ANC",
+      "category_id": "light_fixtures",
+      "signal_type": "ancestor",
+      "match": ["office area lights", "decorative lights", "functional lights", "conventional lighting", "light fixtures", "luminaires", "area lights"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a Lights / Luminaires section header - propagates light_fixtures to bare fixture lines under it.",
+      "source": "v2.1 tuning2: lights section header did not propagate to child luminaire lines."
+    },
+    {
+      "rule_id": "LF-EXCL-POINTFRAME",
+      "category_id": "light_fixtures",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light", "point wiring"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "v2.1 tuning2 Point Wiring precedence for light_fixtures: a LIGHT POINT (wiring circuit) is point_wiring, not a fixture - suppress the light_fixtures read when a point-frame is present. Mirrors SS-EXCL-POINTFRAME; needed because LF-KW weight rose to 0.6.",
+      "source": "v2.1 tuning2: without this, the 0.6 LF weight stole point_wiring rows (light-point lines)."
     },
     {
       "rule_id": "MISC-KW",
       "category_id": "miscellaneous",
       "signal_type": "item_keyword",
-      "match": ["fixing accessory", "gi frame for electrical", "rcc cutting", "chasing for electrical"],
+      "match": ["fixing accessory", "gi frame for electrical", "rcc cutting", "chasing for electrical", "as built drawing", "as-built", "professional charges", "liaisoning", "ceig approval", "licensing works", "thermal scanning", "fire barrier sealant", "fire retardant material", "fire rated", "ms support", "ms frame", "ms angle", "supporting structure", "epo station", "hdpe pipe", "temporary lighting & power"],
       "match_mode": "any_token",
       "weight": 0.3,
-      "plain": "A genuine electrical miscellaneous item (fixing accessory, GI frame, RCC cutting / chasing for electrical work). POSITIVE placement only - deliberately LOW weight and few tokens so it never becomes an uncertainty catch-all (blank remains the uncertainty outcome).",
-      "source": "Build 2a: new category seed, CONSERVATIVE. Kept minimal on purpose per Rebuild Spec v2.0 - miscellaneous is a positive read, NOT a fallback."
+      "plain": "A genuine electrical miscellaneous item (fixing accessory, GI frame, RCC cutting / chasing, as-built drawings, professional/CEIG/licensing charges, thermal scanning, fire sealants, MS supports/frames, temporary power). POSITIVE placement only - deliberately LOW weight so it never becomes an uncertainty catch-all (blank remains the uncertainty outcome).",
+      "source": "Build 2a: new category seed, CONSERVATIVE. v2.1 tuning2: added recurring misc item types (services / MS supports / fire sealants / temporary works)."
     },
     {
       "rule_id": "MISC-SAFETY",
       "category_id": "miscellaneous",
       "signal_type": "item_keyword",
-      "match": ["first aid", "hume pipe", "shock treatment", "danger notice", "danger board", "fire bucket", "insulating mat", "rubber mat", "shock chart", "single line diagram", "sld chart", "name board", "notice board"],
+      "match": ["first aid", "hume pipe", "shock treatment", "danger notice", "danger board", "fire bucket", "insulating mat", "rubber mat", "shock chart", "single line diagram", "sld chart", "name board", "notice board", "rubber hand glove", "artificial respiration", "safety equipment", "first-aid"],
       "match_mode": "any_token",
       "weight": 0.3,
-      "plain": "Electrical safety-accessory / site-overhead misc items (danger boards, insulating/rubber mats, shock-treatment & first-aid charts/kits, fire buckets, SLD charts, name/notice boards). POSITIVE placement - these mirror the panels false-friend exclude_if set, so a row panels already refuses now reads miscellaneous instead of abstaining/mis-firing.",
-      "source": "residual-43 tuning: collision-verified misc-only across the Set-1 corpus (0 non-misc hits). Recovers the panels->misc false-friends + the safety-item abstains."
+      "plain": "Electrical safety-accessory / site-overhead misc items (danger boards, insulating/rubber mats/gloves, shock-treatment/artificial-respiration & first-aid charts/kits, fire buckets, SLD charts, name/notice boards). POSITIVE placement - mirrors the panels false-friend exclude_if set.",
+      "source": "residual-43 tuning: collision-verified misc-only across Set-1 (0 non-misc hits). v2.1 tuning2: added rubber gloves / artificial respiration / safety equipment / first-aid variant."
+    },
+    {
+      "rule_id": "MISC-ANC",
+      "category_id": "miscellaneous",
+      "signal_type": "ancestor",
+      "match": ["miscellaneous", "misc items", "misc."],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "Sits under a Miscellaneous section header. DELIBERATELY LOW WEIGHT (0.35) so it only wins when NO real category signal fires - faithful to 'miscellaneous is a positive placement, NOT a fallback for uncertainty'. It is the last-resort tiebreak for genuine misc items under a misc section, never an override of a real signal.",
+      "source": "v2.1 tuning2: misc section header did not propagate; low weight keeps it from stealing real-signal rows (validated 0 collateral)."
     },
 
     {
@@ -446,9 +517,10 @@
       "signal_type": "ancestor",
       "match": ["earthing", "earth strips", "earth station"],
       "match_mode": "any_token",
+      "headers_only": true,
       "weight": 0.45,
-      "plain": "Sits under an Earthing section header.",
-      "source": "corpus preamble: 'EARTH STRIPS', 'EARTHING'"
+      "plain": "Sits under an Earthing section header. HEADERS-ONLY (v2.1 tuning2): matches an ancestor DESCRIPTION/section header, NOT a note -- so an incidental 'earthed'/'earthing' inside a raceway/box preamble note (e.g. 'the channels shall be earthed') does not false-fire earthing.",
+      "source": "corpus preamble: 'EARTH STRIPS', 'EARTHING'. v2.1 tuning2: headers_only added (note false-friend fix)."
     },
 
     {
