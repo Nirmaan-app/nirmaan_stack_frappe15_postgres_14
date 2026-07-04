@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { facetMeta } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -123,7 +124,10 @@ export const getProjectExpenseColumns = ({
       </Link>
     ),
     enableColumnFilter: true,
-    meta: { exportValue: (row: ProjectExpenses) => getProjectName(row.projects) },
+    meta: {
+      ...facetMeta({ field: "projects", title: "Project" }),
+      exportValue: (row: ProjectExpenses) => getProjectName(row.projects),
+    },
   };
 
   const expenseTypeColumn: ColumnDef<ProjectExpenses> = {
@@ -140,6 +144,7 @@ export const getProjectExpenseColumns = ({
     ),
     enableColumnFilter: true,
     meta: {
+      ...facetMeta({ field: "type", title: "Expense Type" }),
       exportValue: (row: ProjectExpenses) =>
         row.expense_type_name || row.type || "--",
     },
@@ -177,7 +182,10 @@ export const getProjectExpenseColumns = ({
       </div>
     ),
     enableColumnFilter: true,
-    meta: { exportValue: (row: ProjectExpenses) => getVendorName(row.vendor) },
+    meta: {
+      ...facetMeta({ field: "vendor", title: "Vendor" }),
+      exportValue: (row: ProjectExpenses) => getVendorName(row.vendor),
+    },
   };
 
   const amountColumn: ColumnDef<ProjectExpenses> = {
@@ -208,7 +216,10 @@ export const getProjectExpenseColumns = ({
       </div>
     ),
     enableColumnFilter: true,
-    meta: { exportValue: (row: ProjectExpenses) => getUserName(row.owner) },
+    meta: {
+      ...facetMeta({ field: "owner", title: "Created By" }),
+      exportValue: (row: ProjectExpenses) => getUserName(row.owner),
+    },
   };
 
   const paymentByColumn: ColumnDef<ProjectExpenses> = {
@@ -221,7 +232,10 @@ export const getProjectExpenseColumns = ({
       </div>
     ),
     enableColumnFilter: true,
-    meta: { exportValue: (row: ProjectExpenses) => getUserName(row.payment_by) },
+    meta: {
+      ...facetMeta({ field: "payment_by", title: "Payment By" }),
+      exportValue: (row: ProjectExpenses) => getUserName(row.payment_by),
+    },
   };
 
   const paymentDateColumn: ColumnDef<ProjectExpenses> = {
@@ -259,7 +273,10 @@ export const getProjectExpenseColumns = ({
         </span>
       );
     },
-    meta: { exportValue: (row: ProjectExpenses) => row.status || "Requested" },
+    meta: {
+      ...facetMeta({ field: "status", title: "Status" }),
+      exportValue: (row: ProjectExpenses) => row.status || "Requested",
+    },
   };
 
   const actionsColumn: ColumnDef<ProjectExpenses> = {

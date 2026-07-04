@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { facetMeta } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
 import {
   formatForReport,
@@ -129,6 +130,7 @@ export const getNonProjectExpenseColumns = ({
       );
     },
     meta: {
+      ...facetMeta({ field: "status", title: "Status" }),
       exportHeaderName: "Status",
       exportValue: (row: NonProjectExpenses) => row.status || "Requested",
     },
@@ -147,6 +149,7 @@ export const getNonProjectExpenseColumns = ({
     ),
     enableColumnFilter: true,
     meta: {
+      ...facetMeta({ field: "type", title: "Expense Type" }),
       exportHeaderName: "Expense Type",
       exportValue: (row: NonProjectExpenses) => row.type,
     },
@@ -310,6 +313,7 @@ export const getNonProjectExpenseColumns = ({
     ),
     enableColumnFilter: true,
     meta: {
+      ...facetMeta({ field: "owner", title: "Created By" }),
       exportHeaderName: "Created By",
       exportValue: (row: NonProjectExpenses) => getUserName(row.owner),
     },

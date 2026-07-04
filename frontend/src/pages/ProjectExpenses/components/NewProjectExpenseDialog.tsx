@@ -1,7 +1,7 @@
 // src/pages/ProjectExpenses/components/NewProjectExpenseDialog.tsx
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
-import { useFrappeCreateDoc, useFrappeGetDocList, GetDocListArgs, FrappeDoc } from "frappe-react-sdk";
+import { useFrappeCreateDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 import { Check, ChevronsUpDown } from "lucide-react";
 
@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 import ProjectSelect from "@/components/custom-select/project-select"; // Assuming this is your project selector
 
 // --- Types ---
-import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 
@@ -225,6 +224,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                         <div className="col-span-3">
                             <Input id="amount" type="number" value={formState.amount} onChange={(e) => handleInputChange('amount', e.target.value)} className={formErrors.amount ? "border-destructive" : ""} disabled={isLoadingOverall} />
                             {formErrors.amount && <p className="text-xs text-destructive mt-1">{formErrors.amount}</p>}
+                            <p className="text-xs text-muted-foreground mt-1">Expenses under ₹5,000 are auto-approved; ₹5,000 and above require approval.</p>
                         </div>
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">

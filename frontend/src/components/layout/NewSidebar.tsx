@@ -481,6 +481,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan HR Executive Profile"].includes(role as string)
+      ? [
+        {
+          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
+          // default (Misc Project) tab; the tab strip handles switching.
+          key: '/expense/project',
+          icon: Landmark,
+          label: 'Expense',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan Project Lead Profile"].includes(role as string)
       ? [
         {
@@ -516,17 +527,6 @@ export function NewSidebar() {
           key: '/project-invoices',
           icon: FileUp,
           label: 'Project Invoices',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Procurement Executive Profile", "Nirmaan HR Executive Profile"].includes(role as string)
-      ? [
-        {
-          // Unified Expense module: Misc Project + Non-Project tabs. Links to the
-          // default (Misc Project) tab; the tab strip handles switching.
-          key: '/expense/project',
-          icon: Landmark,
-          label: 'Expense',
         },
       ]
       : []),

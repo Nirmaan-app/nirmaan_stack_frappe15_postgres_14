@@ -16,7 +16,7 @@ import { Check, ChevronsUpDown, Loader2, Sparkles } from "lucide-react"; // Icon
 // --- UI Components ---
 import {
     AlertDialog, AlertDialogCancel, AlertDialogContent,
-    AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogAction
+    AlertDialogHeader, AlertDialogTitle, AlertDialogFooter
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,13 +79,15 @@ interface NewNonProjectExpenseProps {
 }
 
 export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refetchList }) => {
-    const { newNonProjectExpenseDialog, toggleNewNonProjectExpenseDialog, setNewNonProjectExpenseDialog } = useDialogStore();
+    const { newNonProjectExpenseDialog, setNewNonProjectExpenseDialog } = useDialogStore();
     const { toast } = useToast();
 
     const [formState, setFormState] = useState<NewExpenseFormState>(INITIAL_FORM_STATE);
     const [formErrors, setFormErrors] = useState<Partial<Record<keyof NewExpenseFormState, string>>>({});
 
-    const [recordPaymentDetails, setRecordPaymentDetails] = useState(true);
+    // Both sections default OFF (see the dialog-open reset effect below). Payment is
+    // the Accountant's Mark-as-Paid step; invoice details are optional at creation.
+    const [recordPaymentDetails, setRecordPaymentDetails] = useState(false);
     const [recordInvoiceDetails, setRecordInvoiceDetails] = useState(false);
 
     const [paymentAttachmentFile, setPaymentAttachmentFile] = useState<File | null>(null);
@@ -299,7 +301,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             toast({ title: "Failed!", description: error.message || "Failed to add expense.", variant: "destructive" });
         }
     }, [
-        createDoc, formState, validateForm, toast, refetchList, toggleNewNonProjectExpenseDialog, upload,
+        createDoc, formState, validateForm, toast, refetchList, upload,
         recordPaymentDetails, paymentAttachmentFile, uploadedPaymentUrl, recordInvoiceDetails, invoiceAttachmentFile
     ]);
 
@@ -416,6 +418,9 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         {formErrors.amount && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.amount}</p>}
                         <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
                             Use negative amount for refunds.
+                        </p>
+                        <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">
+                            Expenses under ₹5,000 are auto-approved; ₹5,000 and above require approval.
                         </p>
                     </div>
 

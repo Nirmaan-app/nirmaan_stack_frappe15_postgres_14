@@ -35,12 +35,6 @@ import {
   AggregationConfig,
   GroupByConfig, getUrlStringParam,
 } from "@/hooks/useServerDataTable"; // Your hook
-import { FacetDeclaration } from "@/components/data-table/facetConfig";
-import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
 
  
 
@@ -476,6 +470,8 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         facetDoctype={DOCTYPE}
         facetOverrides={{
           type: { additionalFilters: dateFilters },
+          status: { additionalFilters: dateFilters },
+          owner: { additionalFilters: dateFilters },
         }}
         dateFilterColumns={NPE_DATE_COLUMNS}
         showExportButton={true}

@@ -14,12 +14,6 @@ import {
   getUrlStringParam,
 } from "@/hooks/useServerDataTable";
 
-import { FacetDeclaration } from "@/components/data-table/facetConfig";
-import { formatDate } from "@/utils/FormatDate";
-import {
-  formatForReport,
-  formatToRoundedIndianRupee,
-} from "@/utils/FormatPrice";
 import { urlStateManager } from "@/utils/urlStateManager";
 import memoize from "lodash/memoize";
 import { cn } from "@/lib/utils";
@@ -324,6 +318,13 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     return filters;
   }, [projectId, effectiveStatusTab]);
 
+  // --- Project-scoped static filters for facet value lists (tab-independent) ---
+  const staticFilters = useMemo(() => {
+    const filters: any[] = [];
+    if (projectId) filters.push(["projects", "=", projectId]);
+    return filters;
+  }, [projectId]);
+
   // --- Per-status counts for the tab badges (project-scoped) ---
   const { data: requestedCount, mutate: mutateRequested } = useFrappeGetDocCount(
     DOCTYPE,
@@ -361,7 +362,6 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   // --- Data Table Hook (MOVED UP) ---
   const {
     table,
-    data,
     totalCount,
     isLoading,
     error,
@@ -458,6 +458,8 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
           vendor: { additionalFilters: staticFilters },
           payment_by: { additionalFilters: staticFilters },
           type: { additionalFilters: staticFilters },
+          owner: { additionalFilters: staticFilters },
+          status: { additionalFilters: staticFilters },
         }}
         showExportButton={true}
         onExport="default"

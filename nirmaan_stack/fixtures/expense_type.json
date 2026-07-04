@@ -295,5 +295,14 @@
   "name": "Fixed Assets",
   "non_project": 1,
   "project": 0
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Expense Type",
+  "expense_name": "Loan",
+  "modified": "2026-07-04 18:40:12.399476",
+  "name": "Loan",
+  "non_project": 1,
+  "project": 0
  }
 ]
