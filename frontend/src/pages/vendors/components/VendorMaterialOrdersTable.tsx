@@ -585,7 +585,6 @@ export const VendorMaterialOrdersTable: React.FC<
       <InvoiceDataDialog
         open={!!selectedInvoicePO}
         onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-        vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
         project={selectedInvoicePO?.project_name}
         poNumber={selectedInvoicePO?.name}
         vendor={selectedInvoicePO?.vendor_name}
@@ -594,7 +593,6 @@ export const VendorMaterialOrdersTable: React.FC<
       <PaymentsDataDialog
         open={!!selectedPaymentPO}
         onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
-        payments={projectPayments}
         data={selectedPaymentPO}
         isPO
       />

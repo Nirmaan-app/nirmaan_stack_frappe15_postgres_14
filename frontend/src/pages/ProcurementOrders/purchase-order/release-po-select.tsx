@@ -4,7 +4,6 @@ import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { formatDate } from "@/utils/FormatDate";
@@ -175,11 +174,6 @@ export const ReleasePOSelect: React.FC = () => {
         });
         return unsubscribe; // Cleanup subscription
     }, [initialTab]); // Depend on `tab` to avoid stale closures
-
-    const { data: projectPayments, isLoading: projectPaymentsLoading, error: projectPaymentsError } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-        fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
-        limit: 0
-    })
 
     // Fetch Vendor Invoices for all POs to calculate invoice totals
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>(
@@ -623,7 +617,7 @@ export const ReleasePOSelect: React.FC = () => {
         if (tab === PO_TABS.APPROVE_PO_REVISION) return <PORevisionsApprovalList />;
 
         if (shouldShowTable) {
-            if (projectsLoading || vendorsListLoading || userListLoading || projectPaymentsLoading) {
+            if (projectsLoading || vendorsListLoading || userListLoading) {
                 return <TableSkeleton />;
             }
             if (!projects || !vendorsList || !userList) {
@@ -651,7 +645,7 @@ export const ReleasePOSelect: React.FC = () => {
     };
     // --- End Render View Logic ---
 
-    const combinedErrorOverall = projectsError || vendorsError || projectPaymentsError || userError;
+    const combinedErrorOverall = projectsError || vendorsError || userError;
 
     if (combinedErrorOverall) { // Show prominent error if main list fails
         return <AlertDestructive error={combinedErrorOverall} />
@@ -691,7 +685,6 @@ export const ReleasePOSelect: React.FC = () => {
             <InvoiceDataDialog
                 open={!!selectedInvoicePO}
                 onOpenChange={(open) => !open && setSelectedInvoicePO(undefined)}
-                vendorInvoices={vendorInvoices?.filter(inv => inv.document_name === selectedInvoicePO?.name)}
                 project={selectedInvoicePO?.project_name}
                 poNumber={selectedInvoicePO?.name}
                 vendor={selectedInvoicePO?.vendor_name}
@@ -700,7 +693,6 @@ export const ReleasePOSelect: React.FC = () => {
             <PaymentsDataDialog
                 open={!!selectedPaymentPO}
                 onOpenChange={(open) => !open && setSelectedPaymentPO(undefined)}
-                payments={projectPayments}
                 data={selectedPaymentPO}
                 projects={projects}
                 vendors={vendorsList}

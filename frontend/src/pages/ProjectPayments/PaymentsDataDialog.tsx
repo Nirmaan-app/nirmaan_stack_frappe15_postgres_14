@@ -8,6 +8,7 @@ import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
+import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 
 interface PaymentsDataDialogProps {
@@ -16,7 +17,6 @@ interface PaymentsDataDialogProps {
   vendors?: Vendors[];
   onOpenChange: (open: boolean) => void;
   isPO?: boolean,
-  payments?: ProjectPayments[],
   data: any
 }
 
@@ -26,9 +26,22 @@ export const PaymentsDataDialog = ({
   data,
   projects,
   vendors,
-  payments,
   isPO
 }: PaymentsDataDialogProps) => {
+
+  // Self-fetch this doc's Paid payments only when the dialog is open (swrKey null
+  // disables the request until then). Doctype-agnostic: `document_name` is globally
+  // unique, so this filter serves both PO and SR rows. Replaces the whole-table
+  // `payments` prop the callers used to pass (ADR-0010 #4 WS-B).
+  const { data: fetchedPayments } = useFrappeGetDocList<ProjectPayments>(
+    "Project Payments",
+    {
+      fields: ["name", "document_name", "status", "amount", "payment_date", "creation", "utr", "payment_attachment", "tds"],
+      filters: [["document_name", "=", data?.name], ["status", "=", "Paid"]],
+      limit: 0,
+    },
+    open && data?.name ? `PaymentsDialog-${data.name}` : null
+  );
 
   const dataAttributes = useMemo(() => {
           let project = ""
@@ -46,7 +59,8 @@ export const PaymentsDataDialog = ({
           return { project, vendor, document_name: data?.name, gst }
   }, [projects, vendors, data])
 
-  const paymentsData = useMemo(() => payments?.filter((i) => i?.document_name === data?.name && i?.status === "Paid") || [], [data, payments])
+  // The fetch already scopes to document_name + status="Paid", so no further filtering needed.
+  const paymentsData = useMemo(() => fetchedPayments ?? [], [fetchedPayments])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
