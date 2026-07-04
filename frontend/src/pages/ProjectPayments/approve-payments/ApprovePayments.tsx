@@ -46,7 +46,10 @@ import PaymentSummaryCards from "../PaymentSummaryCards";
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import {
+  FacetDeclaration,
+  FacetOverrides,
+} from "@/components/data-table/facetConfig";
 import {
   formatToApproxLakhs,
   formatToLakhsNumber,
@@ -490,6 +493,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
           exportHeaderName: "Vendor",
           exportValue: (row: ProjectPayments) =>
             vendorOptions.find((v) => v.value === row.vendor)?.label ||
@@ -514,6 +518,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         enableColumnFilter: true,
         size: 200,
         meta: {
+          facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
           exportHeaderName: "Project",
           exportValue: (row: ProjectPayments) =>
             projectOptions.find((p) => p.value === row.project)?.label ||
@@ -759,7 +764,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     setSearchTerm,
     // isRowSelectionActive,
     refetch,
-    columnFilters,
     exportAllRows,
     isExporting,
   } = useServerDataTable<ProjectPayments>({
@@ -774,51 +778,6 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       : false,
     additionalFilters: staticFilters,
   });
-
-  // --- Dynamic Facet Values with Counts ---
-  const {
-    facetOptions: projectFacetOptions,
-    isLoading: isProjectFacetLoading,
-  } = useFacetValues({
-    doctype: DOCTYPE,
-    field: "project",
-    currentFilters: columnFilters,
-    searchTerm,
-    selectedSearchField,
-    additionalFilters: staticFilters,
-  });
-
-  const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } =
-    useFacetValues({
-      doctype: DOCTYPE,
-      field: "vendor",
-      currentFilters: columnFilters,
-      searchTerm,
-      selectedSearchField,
-      additionalFilters: staticFilters,
-    });
-
-  // --- Faceted Filter Options ---
-  const facetFilterOptions = useMemo(
-    () => ({
-      project: {
-        title: "Project",
-        options: projectFacetOptions,
-        isLoading: isProjectFacetLoading,
-      },
-      vendor: {
-        title: "Vendor",
-        options: vendorFacetOptions,
-        isLoading: isVendorFacetLoading,
-      },
-    }),
-    [
-      projectFacetOptions,
-      isProjectFacetLoading,
-      vendorFacetOptions,
-      isVendorFacetLoading,
-    ]
-  );
 
   // --- Update Logic ---
   const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
@@ -951,7 +910,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           //     label: "Item Search"
           // }}
           summaryCard={<PaymentSummaryCards totalCount={totalCount} />}
-          facetFilterOptions={facetFilterOptions}
+          facetDoctype={DOCTYPE}
+          facetOverrides={{
+            project: { additionalFilters: staticFilters },
+            vendor: { additionalFilters: staticFilters },
+          } satisfies FacetOverrides}
           dateFilterColumns={dateColumns}
           showExportButton={true} // Optional
           onExport={"default"}

@@ -4,6 +4,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { formatDate } from "@/utils/FormatDate";
 import formatCurrency from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 
 export const DOCTYPE = "PO Revisions";
 
@@ -76,7 +77,7 @@ export const getPORevisionColumns = ({
             </div>
         ),
         filterFn: facetedFilterFn,
-        meta: { exportHeaderName: "Project", exportValue: (row: any) => getProjectName ? getProjectName(row.project) : row.project }
+        meta: { facet: { field: "project", title: "Project" } satisfies FacetDeclaration, exportHeaderName: "Project", exportValue: (row: any) => getProjectName ? getProjectName(row.project) : row.project }
     },
     {
         accessorKey: "vendor",
@@ -87,7 +88,7 @@ export const getPORevisionColumns = ({
             </div>
         ),
         filterFn: facetedFilterFn,
-        meta: { exportHeaderName: "Vendor", exportValue: (row: any) => getVendorName ? getVendorName(row.vendor) : row.vendor }
+        meta: { facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration, exportHeaderName: "Vendor", exportValue: (row: any) => getVendorName ? getVendorName(row.vendor) : row.vendor }
     },
     {
         accessorKey: "total_amount_difference",
@@ -110,6 +111,6 @@ export const getPORevisionColumns = ({
                 : <span className="text-slate-700">{val}</span>;
         },
         filterFn: facetedFilterFn,
-        meta: { exportHeaderName: "Approved By", exportValue: (row: any) => row.approved_by === "System" ? "System (Auto)" : (row.approved_by || "") }
+        meta: { facet: { field: "approved_by", title: "Approved By" } satisfies FacetDeclaration, exportHeaderName: "Approved By", exportValue: (row: any) => row.approved_by === "System" ? "System (Auto)" : (row.approved_by || "") }
     }
 ];

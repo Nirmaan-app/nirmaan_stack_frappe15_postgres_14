@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
-import { useFacetValues } from "@/hooks/useFacetValues";
 import { DataTable } from "@/components/data-table/new-data-table";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
@@ -32,47 +32,6 @@ export const VendorApprovedQuotesTable: React.FC<
     if (!vendorId) return [];
     return [["vendor", "=", vendorId]];
   }, [vendorId]);
-
-  // --- Dynamic Facet Values ---
-  const { facetOptions: itemFacetOptions, isLoading: isItemFacetLoading } =
-    useFacetValues({
-      doctype: "Approved Quotations",
-      field: "item_name",
-      currentFilters: [], // We initially don't have access to table state here easily with this pattern, usually useServerDataTable provides it
-      // Note: For now, assuming no cross-filtering dependency for the first render or using a simplified approach
-      // To strictly follow the pattern, we'd need to lift `columnFilters` out or move this after useServerDataTable is called (but useServerDataTable needs options)
-      searchTerm: "",
-      selectedSearchField: "name",
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const { facetOptions: unitFacetOptions, isLoading: isUnitFacetLoading } =
-    useFacetValues({
-      doctype: "Approved Quotations",
-      field: "unit",
-      currentFilters: [],
-      searchTerm: "",
-      selectedSearchField: "name",
-      additionalFilters: staticFilters,
-      enabled: true,
-    });
-
-  const facetFilterOptions = useMemo(
-    () => ({
-      item_name: {
-        title: "Item Name",
-        options: itemFacetOptions,
-        isLoading: isItemFacetLoading,
-      },
-      unit: {
-        title: "Unit",
-        options: unitFacetOptions,
-        isLoading: isUnitFacetLoading,
-      },
-    }),
-    [itemFacetOptions, isItemFacetLoading, unitFacetOptions, isUnitFacetLoading]
-  );
 
   const fetchFields = useMemo(
     () => [
@@ -155,6 +114,11 @@ export const VendorApprovedQuotesTable: React.FC<
         },
         size: 250,
         meta: {
+          facet: {
+            field: "item_name",
+            title: "Item Name",
+            decoupled: true,
+          } satisfies FacetDeclaration,
           exportHeaderName: "Item Name",
           exportValue: (row: ApprovedQuotations) => {
             return row.item_name;
@@ -207,6 +171,11 @@ export const VendorApprovedQuotesTable: React.FC<
         ),
         size: 100,
         meta: {
+          facet: {
+            field: "unit",
+            title: "Unit",
+            decoupled: true,
+          } satisfies FacetDeclaration,
           exportHeaderName: "Unit",
           exportValue: (row: ApprovedQuotations) => {
             return row.unit;
@@ -319,7 +288,11 @@ export const VendorApprovedQuotesTable: React.FC<
       onSelectedSearchFieldChange={setSelectedSearchField}
       searchTerm={searchTerm}
       onSearchTermChange={setSearchTerm}
-      facetFilterOptions={facetFilterOptions}
+      facetDoctype="Approved Quotations"
+      facetOverrides={{
+        item_name: { additionalFilters: staticFilters },
+        unit: { additionalFilters: staticFilters },
+      }}
       dateFilterColumns={["modified", "creation"]}
       showExportButton={true}
       onExport={"default"}

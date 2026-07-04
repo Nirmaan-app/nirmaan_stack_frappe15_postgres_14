@@ -151,15 +151,8 @@ export const PendingTasksTable: React.FC = () => {
     });
 
     // --- Facet Filters ---
-    const { facetOptions: vendorFacetOptions, isLoading: isVendorFacetLoading } = useFacetValues({
-        doctype: VENDOR_INVOICES_DOCTYPE,
-        field: "vendor",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-        additionalFilters: staticFilters,
-    });
-
+    // vendor migrated to a self-fetching facet (meta.facet in columns.tsx + facetDoctype below).
+    // document_type stays on the LEGACY path: it relabels "Service Requests" -> "Work Orders" (label island).
     const { facetOptions: typeFacetOptions, isLoading: isTypeFacetLoading } = useFacetValues({
         doctype: VENDOR_INVOICES_DOCTYPE,
         field: "document_type",
@@ -170,16 +163,15 @@ export const PendingTasksTable: React.FC = () => {
     });
 
     const facetFilterOptions = useMemo(() => ({
-        vendor: { title: "Vendor", options: vendorFacetOptions, isLoading: isVendorFacetLoading },
-        document_type: { 
-            title: "Type", 
+        document_type: {
+            title: "Type",
             options: typeFacetOptions.map(opt => ({
                 ...opt,
                 label: opt.label.replace("Service Requests", "Work Orders")
-            })), 
-            isLoading: isTypeFacetLoading 
+            })),
+            isLoading: isTypeFacetLoading
         },
-    }), [vendorFacetOptions, isVendorFacetLoading, typeFacetOptions, isTypeFacetLoading]);
+    }), [typeFacetOptions, isTypeFacetLoading]);
 
     // Effect to extract attachment IDs from fetched invoices
     useEffect(() => {
@@ -240,6 +232,10 @@ export const PendingTasksTable: React.FC = () => {
                     searchTerm={searchTerm}
                     onSearchTermChange={setSearchTerm}
                     facetFilterOptions={facetFilterOptions}
+                    facetDoctype={VENDOR_INVOICES_DOCTYPE}
+                    facetOverrides={{
+                        vendor: { additionalFilters: staticFilters },
+                    }}
                     dateFilterColumns={VENDOR_INVOICE_DATE_COLUMNS}
                     showExportButton={true}
                     onExport={"default"}

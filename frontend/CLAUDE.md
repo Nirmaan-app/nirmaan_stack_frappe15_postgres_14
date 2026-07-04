@@ -185,6 +185,14 @@ A concept has **one owning module**, never scattered across components (full set
 - **F4** — pages/hooks stay **thin over pure logic** in `utils/<domain>`; the pure rule is unit-testable without React.
 - **F5** — writes go through **one safety seam** (`useEditingLock`, extend it); grep for raw `updateDoc`.
 
+**Faceted filters self-fetch (F2/F4 worked example).** A DataTable column declares its facet in
+`meta.facet` (`{field, title, requirePendingItems?, decoupled?}` in `*.config.ts`); render-scope
+bits (`additionalFilters`, an `enabled` render-gate) go in the `facetOverrides` prop; the page
+passes `facetDoctype` to opt in. `<DataTable>` then renders a lazy `SelfFetchingFacetFilter`
+(fetches on first popover-open, not on mount). **Do NOT hand-roll `useFacetValues` + a
+`facetFilterOptions` memo in new pages** — that legacy path is dual-supported but scheduled for
+sunset (ADR-0010 "Second proof" + Migration & sunset). `getColumnFacet` is the one typed reader.
+
 ---
 
 ## BoQ Wizard & Pricing Editor -- Frontend Conventions

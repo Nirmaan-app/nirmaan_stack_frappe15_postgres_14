@@ -32,7 +32,7 @@ import { TailSpin } from "react-loader-spinner";
 
 // --- Hooks & Utils ---
 import { useServerDataTable, getUrlStringParam } from '@/hooks/useServerDataTable';
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration, FacetOverrides } from "@/components/data-table/facetConfig";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserData } from "@/hooks/useUserData";
 import { formatDate } from "@/utils/FormatDate";
@@ -86,7 +86,6 @@ const PRDataTableWrapper: React.FC<{
     fieldsToFetch: string[];
     prSearchableFields: SearchFieldOption[];
     staticFilters: any[];
-    facetFilterOptions: any;
     dateColumns: any;
     notifications: NotificationType[];
     exportFileName?: string;
@@ -96,7 +95,6 @@ const PRDataTableWrapper: React.FC<{
     fieldsToFetch,
     prSearchableFields,
     staticFilters,
-    facetFilterOptions,
     dateColumns,
     notifications,
     exportFileName
@@ -123,7 +121,6 @@ const PRDataTableWrapper: React.FC<{
             totalCount,
             isLoading: listIsLoading,
             error: listError,
-            columnFilters,
             searchTerm: tableSearchTerm,
             setSearchTerm,
             selectedSearchField: tableSelectedSearchField,
@@ -142,15 +139,6 @@ const PRDataTableWrapper: React.FC<{
             apiEndpoint: "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
         });
 
-        const { facetOptions: projectFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'project',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-        });
-
         // const { facetOptions: wpFacets } = useFacetValues({
         //     doctype: DOCTYPE,
         //     field: 'work_package',
@@ -159,42 +147,6 @@ const PRDataTableWrapper: React.FC<{
         //     selectedSearchField: tableSelectedSearchField,
         //     additionalFilters: staticFilters,
         // });
-
-        const { facetOptions: ownerFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'owner',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-        });
-
-        const { facetOptions: statusFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'workflow_state',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-            enabled: tab === PR_TABS.ALL_PRS
-        });
-
-        const { facetOptions: tagFacets } = useFacetValues({
-            doctype: DOCTYPE,
-            field: 'tag_header',
-            currentFilters: columnFilters,
-            searchTerm: tableSearchTerm,
-            selectedSearchField: tableSelectedSearchField,
-            additionalFilters: staticFilters,
-        });
-
-        const facetOptionsToDataTable = useMemo(() => ({
-            ...facetFilterOptions,
-            project: { ...facetFilterOptions.project, options: projectFacets },
-            owner: { ...facetFilterOptions.owner, options: ownerFacets },
-            workflow_state: { ...facetFilterOptions.workflow_state, options: statusFacets },
-            "PR Tag Child Table.tag_header": { ...facetFilterOptions["PR Tag Child Table.tag_header"], options: tagFacets }
-        }), [facetFilterOptions, projectFacets, ownerFacets, statusFacets, tagFacets]);
 
 
         return (
@@ -209,7 +161,13 @@ const PRDataTableWrapper: React.FC<{
                 onSelectedSearchFieldChange={setSelectedSearchField}
                 searchTerm={tableSearchTerm}
                 onSearchTermChange={setSearchTerm}
-                facetFilterOptions={facetOptionsToDataTable}
+                facetDoctype={DOCTYPE}
+                facetOverrides={{
+                    project: { additionalFilters: staticFilters },
+                    owner: { additionalFilters: staticFilters },
+                    "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+                    workflow_state: { additionalFilters: staticFilters, enabled: tab === PR_TABS.ALL_PRS },
+                } satisfies FacetOverrides}
                 dateFilterColumns={dateColumns}
                 showExportButton={true}
                 onExport={'default'}
@@ -283,8 +241,6 @@ export const ProcurementRequests: React.FC = () => {
 
     // --- Memoized Options and Counts ---
     const projectOptions = useMemo(() => projects?.map((item) => ({ label: item.project_name, value: item.name })) || [], [projects]);
-
-    const userOptions = useMemo(() => userList?.map(u => ({ label: u.full_name, value: (u.full_name === "Administrator" ? "Administrator" : u.name) })) || [], [userList]);
 
     const workPackageOptions = useMemo(() => {
         const packages = wp_list?.map(wp => ({ label: wp.work_package_name!, value: wp.work_package_name! })) || [];
@@ -391,6 +347,7 @@ export const ProcurementRequests: React.FC = () => {
             },
             enableColumnFilter: true, size: 200,
             meta: {
+                facet: { field: 'project', title: 'Project' } satisfies FacetDeclaration,
                 exportHeaderName: "Project",
                 exportValue: (row: ProcurementRequest) => {
                     const project = projectOptions.find(p => p.value === row.project);
@@ -405,6 +362,7 @@ export const ProcurementRequests: React.FC = () => {
             cell: ({ row }) => <PRTagsCell row={row} />,
             enableColumnFilter: true, size: 150,
             meta: {
+                facet: { field: 'tag_header', title: 'Header' } satisfies FacetDeclaration,
                 exportHeaderName: "Headers",
                 exportValue: (row: ProcurementRequest) => {
                     const tags = (row as any).pr_tag_list || [];
@@ -420,6 +378,7 @@ export const ProcurementRequests: React.FC = () => {
             }, size: 180,
             enableColumnFilter: true,
             meta: {
+                facet: { field: 'owner', title: 'Created By' } satisfies FacetDeclaration,
                 exportHeaderName: "Created By",
                 exportValue: (row: ProcurementRequest) => {
                     const ownerUser = userList?.find((entry) => row.owner === entry.name);
@@ -440,7 +399,10 @@ export const ProcurementRequests: React.FC = () => {
                     );
                 },
                 size: 180,
-                enableColumnFilter: true
+                enableColumnFilter: true,
+                meta: {
+                    facet: { field: 'workflow_state', title: 'Status' } satisfies FacetDeclaration,
+                }
             } as ColumnDef<ProcurementRequest>
         ] : []),
         // Conditional Delete Column
@@ -456,30 +418,6 @@ export const ProcurementRequests: React.FC = () => {
             }
         } as ColumnDef<ProcurementRequest>] : []),
     ], [tab, role, notifications, projectOptions, userList, workPackageOptions, handleNewPRSeen]); // Dependencies for columns
-
-
-    const statusOptions = useMemo(() => [
-        { label: "Pending", value: "Pending" },
-        { label: "Rejected", value: "Rejected" },
-        { label: "Draft", value: "Draft" },
-        { label: "Approved", value: "Approved" },
-        { label: "In Progress", value: "In Progress" },
-        { label: "Partially Approved", value: "Partially Approved" },
-        { label: "Vendor Selected", value: "Vendor Selected" },
-        { label: "Vendor Approved", value: "Vendor Approved" },
-        { label: "Delayed", value: "Delayed" },
-        { label: "Sent Back", value: "Sent Back" },
-
-    ], []);
-
-
-    // --- Faceted Filter Options for Data Table ---
-    const facetFilterOptionsForDataTable = useMemo(() => ({
-        project: { title: "Project", options: projectOptions },
-        workflow_state: { title: "Status", options: statusOptions },
-        "PR Tag Child Table.tag_header": { title: "Header", options: workPackageOptions },
-        owner: { title: "Created By", options: userOptions }
-    }), [projectOptions, statusOptions, workPackageOptions, userOptions]); // Add new dependencies
 
 
     // --- useServerDataTable Hook Instantiation for Data Table Tabs ---
@@ -548,7 +486,6 @@ export const ProcurementRequests: React.FC = () => {
                     fieldsToFetch={fieldsToFetch}
                     prSearchableFields={prSearchableFields}
                     staticFilters={staticFilters}
-                    facetFilterOptions={facetFilterOptionsForDataTable}
                     dateColumns={dateColumnsForDataTable}
                     notifications={notifications}
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}`}

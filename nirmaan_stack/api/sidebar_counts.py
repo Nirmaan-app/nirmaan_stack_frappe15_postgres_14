@@ -1,5 +1,6 @@
 import frappe, json
 from frappe import _
+from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
 
 @frappe.whitelist()
 def sidebar_counts(user: str) -> str:
@@ -45,92 +46,105 @@ def sidebar_counts(user: str) -> str:
     porev_counts["all"] = simple("PO Revisions", porev_filters)
 
 
-    # --- Procurement Requests (Using Your Preferred Flow with the Fix) ---
-    # We fetch only the parent document fields first for speed.
-    pr_fields = ["name", "workflow_state"] 
-    pr_docs = frappe.get_all(
-        "Procurement Requests",
-        filters={
-            "workflow_state": ["in", ["Pending", "Rejected", "Approved", "In Progress", "Vendor Selected", "Partially Approved", "Vendor Approved", "Delayed", "Sent Back"]],
-            **({} if is_full_access else {"project": ["in", user_projects]}),
-        },
-        fields=pr_fields,
-        limit=0,
+    # --- Awaiting-approval spine (ADR-0010): the PR/SB "approve" counts and the
+    # workflow_state / type tallies are DB aggregates, not row-loops. "Awaiting
+    # approval" = workflow_state in AWAITING_APPROVAL_STATES AND an order_list item
+    # still Pending; the rule lives in services/procurement_approval.py and this SQL
+    # must agree with is_awaiting_approval (parity-tested).
+    _approval_states = tuple(AWAITING_APPROVAL_STATES)
+
+    def _proj(alias):
+        """Project-permission clause: empty for full access; blocks all rows when a
+        scoped user has no projects; otherwise an IN over the allowed projects."""
+        if is_full_access:
+            return ""
+        if not user_projects:
+            return " AND 1=0"
+        return f' AND {alias}."project" IN %(projects)s'
+
+    def _params(extra):
+        if not is_full_access and user_projects:
+            extra["projects"] = tuple(user_projects)
+        return extra
+
+    def _awaiting_count(doctype, alias):
+        """Count docs awaiting approval: in an approval state WITH a Pending order_list item."""
+        return frappe.db.sql(
+            f'''
+            SELECT COUNT(*) FROM "tab{doctype}" {alias}
+            WHERE {alias}.workflow_state IN %(states)s{_proj(alias)}
+              AND EXISTS (
+                SELECT 1 FROM "tabProcurement Request Item Detail" i
+                WHERE i.parent = {alias}.name AND i.parenttype = %(dt)s
+                  AND i.parentfield = 'order_list' AND i.status = %(pending)s
+              )
+            ''',
+            _params({"states": _approval_states, "dt": doctype, "pending": PENDING_ITEM_STATUS}),
+        )[0][0]
+
+    # --- Procurement Requests: state tallies via GROUP BY + approve via EXISTS ---
+    pr_states = ("Pending", "Rejected", "Approved", "In Progress", "Vendor Selected",
+                 "Partially Approved", "Vendor Approved", "Delayed", "Sent Back")
+    pr_group = frappe.db.sql(
+        f'''
+        SELECT p.workflow_state AS state, COUNT(*) AS c
+        FROM "tabProcurement Requests" p
+        WHERE p.workflow_state IN %(states)s{_proj("p")}
+        GROUP BY p.workflow_state
+        ''',
+        _params({"states": pr_states}), as_dict=True,
     )
+    pr_by_state = {r["state"]: r["c"] for r in pr_group}
+    # Vendor Selected / Partially Approved rows count toward `all` but feed only `approve`.
     pr_counts = {
-        "pending": 0, "rejected": 0, "approved": 0, "in_progress": 0,
-        "approve": 0, "vendor_approved": 0, "delayed": 0, "sent_back": 0, "all": len(pr_docs),
+        "pending": pr_by_state.get("Pending", 0),
+        "rejected": pr_by_state.get("Rejected", 0),
+        "approved": pr_by_state.get("Approved", 0),
+        "in_progress": pr_by_state.get("In Progress", 0),
+        "approve": _awaiting_count("Procurement Requests", "p"),
+        "vendor_approved": pr_by_state.get("Vendor Approved", 0),
+        "delayed": pr_by_state.get("Delayed", 0),
+        "sent_back": pr_by_state.get("Sent Back", 0),
+        "all": sum(pr_by_state.values()),
     }
 
-    for d in pr_docs:
-        # For simple states, we just increment the counter based on the data we already have.
-        if d.workflow_state == "Pending":
-            pr_counts["pending"] += 1
-        elif d.workflow_state == "Approved":
-            pr_counts["approved"] += 1
-        elif d.workflow_state == "In Progress":
-            pr_counts["in_progress"] += 1
-        elif d.workflow_state == "Vendor Approved":
-            pr_counts["vendor_approved"] += 1
-        elif d.workflow_state == "Delayed":
-            pr_counts["delayed"] += 1
-        elif d.workflow_state == "Sent Back":
-            pr_counts["sent_back"] += 1
-        elif d.workflow_state == "Rejected":
-            pr_counts["rejected"] += 1
-        
-        # --- THIS IS THE FIX ---
-        # For complex states that require checking the child table:
-        elif d.workflow_state in ("Vendor Selected", "Partially Approved"):
-            # We must get the full document object for THIS specific document
-            # to access its child table (`order_list`).
-            full_doc = frappe.get_doc("Procurement Requests", d.name)
-            order_list_items = full_doc.order_list or []
-            
-            # Now your original `any()` logic works perfectly on the correct data.
-            if any(i.get("status") == "Pending" for i in order_list_items):
-                pr_counts["approve"] += 1
-    
-
-    # --- Sent Back Category (Using Your Preferred Flow with the Fix) ---
-    sb_fields = ["name", "workflow_state", "type"]
-    sb_docs = frappe.get_all(
-        "Sent Back Category",
-        filters={
-            "workflow_state": ["in", ["Vendor Selected", "Partially Approved", "Pending", "Approved", "Sent Back"]],
-            **({} if is_full_access else {"project": ["in", user_projects]}),
-        },
-        fields=sb_fields,
-        limit=0,
+    # --- Sent Back Category: `all` + type tallies (excluding approval-state rows) + approve ---
+    sb_states = ("Vendor Selected", "Partially Approved", "Pending", "Approved", "Sent Back")
+    sb_all = frappe.db.sql(
+        f'''SELECT COUNT(*) FROM "tabSent Back Category" s
+            WHERE s.workflow_state IN %(states)s{_proj("s")}''',
+        _params({"states": sb_states}),
+    )[0][0]
+    # Approval-state rows are covered by `approve`; the type tallies cover the rest
+    # (workflow_state in Pending / Approved / Sent Back), matching the old elif chain.
+    sb_type_group = frappe.db.sql(
+        f'''
+        SELECT s.type AS type,
+               COUNT(*) AS all_c,
+               SUM(CASE WHEN s.workflow_state = 'Pending' THEN 1 ELSE 0 END) AS pending_c
+        FROM "tabSent Back Category" s
+        WHERE s.workflow_state IN %(states)s{_proj("s")}
+        GROUP BY s.type
+        ''',
+        _params({"states": ("Pending", "Approved", "Sent Back")}), as_dict=True,
     )
+    sb_by_type = {r["type"]: r for r in sb_type_group}
+
+    def _sb_type(t):
+        row = sb_by_type.get(t)
+        if not row:
+            return {"all": 0, "pending": 0}
+        return {"all": int(row["all_c"] or 0), "pending": int(row["pending_c"] or 0)}
+
     sb_counts = {
-        "approve": 0, "rejected": {"all": 0, "pending": 0},
-        "delayed": {"all": 0, "pending": 0}, "cancelled": {"all": 0, "pending": 0},
-        "pending": 0, "sent_back": 0, "all" : len(sb_docs),
+        "approve": _awaiting_count("Sent Back Category", "s"),
+        "rejected": _sb_type("Rejected"),
+        "delayed": _sb_type("Delayed"),
+        "cancelled": _sb_type("Cancelled"),
+        "pending": _sb_type("Pending")["all"],
+        "sent_back": _sb_type("Sent Back")["all"],
+        "all": sb_all,
     }
-
-    for d in sb_docs:
-        if d.workflow_state in ("Vendor Selected", "Partially Approved"):
-            # --- THIS IS THE FIX (Applied to Sent Back Category) ---
-            # Get the full document to access its child table, which is also `order_list`.
-            full_doc = frappe.get_doc("Sent Back Category", d.name)
-            order_list_items = full_doc.order_list or []
-
-            if any(i.get("status") == "Pending" for i in order_list_items):
-                sb_counts["approve"] += 1
-        elif d.type == "Rejected":
-            if d.workflow_state == "Pending": sb_counts["rejected"]["pending"] += 1
-            sb_counts["rejected"]["all"] += 1
-        elif d.type == "Delayed":
-            if d.workflow_state == "Pending": sb_counts["delayed"]["pending"] += 1
-            sb_counts["delayed"]["all"] += 1
-        elif d.type == "Cancelled":
-            if d.workflow_state == "Pending": sb_counts["cancelled"]["pending"] += 1
-            sb_counts["cancelled"]["all"] += 1
-        elif d.type == "Pending":
-            sb_counts["pending"] += 1
-        elif d.type == "Sent Back":
-            sb_counts["sent_back"] += 1
 
 
     # --- Service Requests, Payments, Credits (Your Original, Correct Logic) ---

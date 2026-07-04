@@ -31,8 +31,13 @@ export const useSidebarCounts = (user: string | null | undefined) => {
     user ? { user } : undefined,
     user ? getSidebarCountsKey(user) : null,
     {
-      revalidateOnFocus: true,
-      refreshInterval: 1000 * 60 * 2, // 2-minute auto refresh
+      // ADR-0010: sidebar counts run on every page. The aggregate rewrite makes each
+      // call cheap, so we stop the focus-triggered refetch storm and lengthen the poll.
+      // Badges still refresh on navigation, on mutation (invalidateSidebarCounts bridge),
+      // and on socket reconnect. Deferred (ADR-0010 backlog): the inline mutate-on-navigate.
+      revalidateOnFocus: false,
+      refreshInterval: 1000 * 60 * 5, // 5-minute background refresh (was 2)
+      dedupingInterval: 1000 * 10,    // collapse overlapping mount/reconnect triggers
     }
   );
 

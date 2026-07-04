@@ -21,7 +21,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useFacetValues } from "@/hooks/useFacetValues";
+import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 
 // --- Wrapper Component for Dynamic Facets ---
@@ -43,7 +43,6 @@ const TDSDataTableWrapper: React.FC<{
         setSearchTerm,
         selectedSearchField,
         setSelectedSearchField,
-        columnFilters,
         refetch,
         exportAllRows,
         isExporting,
@@ -62,57 +61,6 @@ const TDSDataTableWrapper: React.FC<{
     }, [refetch, refetchRef]);
 
 
-    // --- Dynamic Facet Hooks ---
-    const { facetOptions: wpFacetOptions, isLoading: isWPLoading } = useFacetValues({
-        doctype,
-        field: "work_package",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-    });
-
-    const { facetOptions: catFacetOptions, isLoading: isCatLoading } = useFacetValues({
-        doctype,
-        field: "category",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-    });
-
-    const { facetOptions: itemFacetOptions, isLoading: isItemLoading } = useFacetValues({
-        doctype,
-        field: "tds_item_name",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-    });
-
-    const { facetOptions: makeFacetOptions, isLoading: isMakeLoading } = useFacetValues({
-        doctype,
-        field: "make",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-    });
-
-    const { facetOptions: statusFacetOptions, isLoading: isStatusLoading } = useFacetValues({
-        doctype,
-        field: "status",
-        currentFilters: columnFilters,
-        searchTerm,
-        selectedSearchField,
-    });
-
-    // Combined Facet Options
-    const facetFilterOptions = useMemo(() => ({
-        work_package: { title: "Work Package", options: wpFacetOptions, isLoading: isWPLoading },
-        category: { title: "Category", options: catFacetOptions, isLoading: isCatLoading },
-        tds_item_name: { title: "Item Name", options: itemFacetOptions, isLoading: isItemLoading },
-        make: { title: "Make", options: makeFacetOptions, isLoading: isMakeLoading },
-        status: { title: "Status", options: statusFacetOptions, isLoading: isStatusLoading },
-    }), [wpFacetOptions, isWPLoading, catFacetOptions, isCatLoading, itemFacetOptions, isItemLoading, makeFacetOptions, isMakeLoading, statusFacetOptions, isStatusLoading]);
-
-
     return (
         <DataTable
             table={table}
@@ -120,7 +68,7 @@ const TDSDataTableWrapper: React.FC<{
             isLoading={isLoading}
             error={tableError}
             totalCount={totalCount}
-            facetFilterOptions={facetFilterOptions}
+            facetDoctype={doctype}
             searchTerm={searchTerm}
             onSearchTermChange={setSearchTerm}
             searchFieldOptions={searchableFields}
@@ -185,7 +133,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }: { row: any }) => <div className="font-medium mx-auto">{row.getValue("work_package")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
-            meta: { enableFacet: true, facetTitle: "Work Package" }
+            meta: { facet: { field: "work_package", title: "Work Package" } satisfies FacetDeclaration }
         },
         {
             accessorKey: "category",
@@ -193,7 +141,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }: { row: any }) => <div>{row.getValue("category")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
-            meta: { enableFacet: true, facetTitle: "Category" }
+            meta: { facet: { field: "category", title: "Category" } satisfies FacetDeclaration }
         },
         {
             accessorKey: "tds_item_name",
@@ -201,7 +149,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }: { row: any }) => <div className="font-medium">{row.getValue("tds_item_name")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
-            meta: { enableFacet: true, facetTitle: "Item Name" }
+            meta: { facet: { field: "tds_item_name", title: "Item Name" } satisfies FacetDeclaration }
         },
         {
             accessorKey: "description",
@@ -218,7 +166,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             cell: ({ row }: { row: any }) => <div className="font-medium">{row.getValue("make")}</div>,
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
-            meta: { enableFacet: true, facetTitle: "Make" }
+            meta: { facet: { field: "make", title: "Make" } satisfies FacetDeclaration }
         },
         {
             accessorKey: "status",
@@ -240,7 +188,7 @@ export const TDSRepositoryMaster: React.FC = () => {
             },
             enableColumnFilter: true,
             filterFn: "arrIncludesSome" as any,
-            meta: { enableFacet: true, facetTitle: "Status" }
+            meta: { facet: { field: "status", title: "Status" } satisfies FacetDeclaration }
         },
         {
             accessorKey: "tds_attachment",

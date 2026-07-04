@@ -18,6 +18,8 @@ import {
 import { DataTablePagination } from "./data-table-pagination";
 import { DataTableViewOptions } from "./data-table-view-options";
 import { DataTableFacetedFilter } from "./data-table-faceted-filter";
+import { SelfFetchingFacetFilter } from "./SelfFetchingFacetFilter";
+import { getColumnFacet, FacetOverrides } from "./facetConfig";
 import { DataTableDateFilter } from "./data-table-date-filter";
 import { TableBodySkeleton } from "@/components/ui/skeleton";
 import { exportToCsv } from "@/utils/exportToCsv";
@@ -48,6 +50,12 @@ export interface DataTableProps<T> {
 
   /* filters */
   facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[]; isLoading?: boolean }>;
+  /** Optional: called with a column id when its faceted-filter popover first opens (enables lazy option fetching). */
+  onFacetOpen?: (field: string) => void;
+  /* self-fetching facets (ADR-0010 "Option 2"): a column declares `meta.facet` and DataTable
+     renders a lazy, self-fetching filter. Takes precedence over `facetFilterOptions` per column. */
+  facetDoctype?: string;             // the table's list doctype (default facet aggregation source)
+  facetOverrides?: FacetOverrides;   // per-column-id render-scope context (additionalFilters / enabled gate)
   dateFilterColumns?: string[];
 
   /* export */
@@ -88,7 +96,8 @@ export function DataTable<T>({
   isLoading, error, totalCount,
   searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
   searchTerm, onSearchTermChange,
-  facetFilterOptions = {}, dateFilterColumns = [],
+  facetFilterOptions = {}, dateFilterColumns = [], onFacetOpen,
+  facetDoctype, facetOverrides,
   showExportButton = false, onExport, exportFileName = "data", onExportAll, isExporting = false,
   toolbarActions, className,
   summaryCard, // NEW
@@ -107,6 +116,9 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
+  // Live column filters — read once per render, fed to self-fetching facets so their counts
+  // stay cross-filter-correct (sticky-live). Re-reads whenever the table state changes.
+  const columnFilters = table.getState().columnFilters;
   const leafCols = React.useMemo(() => table.getVisibleLeafColumns(), [table]);
   const colWidths = React.useMemo(
     () => leafCols.map(c => c.getSize() ?? 150), [leafCols]);
@@ -279,7 +291,19 @@ export function DataTable<T>({
                   const first = i === 0;
                   const left = first ? stickyOffset(0) : undefined;
                   const columnInstance = h.column;
-                  const canShowFacetedFilter = facetFilterOptions?.[columnInstance.id];
+                  // NEW self-fetching facet path (ADR-0010 "Option 2"): column declares `meta.facet`.
+                  const metaFacet = getColumnFacet(columnInstance);
+                  const facetOverride = facetOverrides?.[columnInstance.id];
+                  const facetRenderGate = facetOverride?.enabled ?? true; // render gate — NOT the lazy fetch gate
+                  // A column is "claimed" by the self-fetch system once it declares meta.facet AND the page
+                  // opts in via facetDoctype. facetDoctype is the per-page opt-in: a shared config gaining
+                  // meta.facet never breaks a sibling page that hasn't opted in (it keeps the legacy path).
+                  const isSelfFetchClaimed = !!(metaFacet && facetDoctype);
+                  const canShowSelfFetchFacet = isSelfFetchClaimed && facetRenderGate;
+                  // LEGACY pre-fetched path — ONLY for columns the new system does NOT claim. So a claimed
+                  // facet gated off (facetOverrides[id].enabled === false) hides ENTIRELY even if a residual
+                  // facetFilterOptions entry exists for the same id (enforces the "enabled:false hides" contract).
+                  const canShowFacetedFilter = !isSelfFetchClaimed && facetFilterOptions?.[columnInstance.id];
                   const canShowDateFilter = dateFilterColumns.includes(columnInstance.id);
 
                   return (
@@ -296,12 +320,24 @@ export function DataTable<T>({
                       }}>
                       {h.isPlaceholder ? null : (
                         <div className="flex items-center gap-1">
+                          {canShowSelfFetchFacet && (
+                            <SelfFetchingFacetFilter
+                              column={columnInstance!}
+                              doctype={facetDoctype!}
+                              facet={metaFacet!}
+                              override={facetOverride}
+                              columnFilters={columnFilters}
+                              searchTerm={searchTerm}
+                              selectedSearchField={selectedSearchField}
+                            />
+                          )}
                           {canShowFacetedFilter && (
                             <DataTableFacetedFilter
                               column={columnInstance!}
                               title={facetFilterOptions[h.column.id]!.title}
                               options={facetFilterOptions[h.column.id]!.options}
                               isLoading={facetFilterOptions[h.column.id]!.isLoading}
+                              onOpenChange={(open) => { if (open) onFacetOpen?.(columnInstance.id); }}
                             />
                           )}
                           {canShowDateFilter && (
