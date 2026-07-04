@@ -134,6 +134,7 @@ def update_invoice_data(
                     "invoice_no": new_invoice_entry_data.get("invoice_no"),
                     "invoice_date": new_invoice_entry_data.get("date"),
                     "invoice_amount": new_invoice_entry_data.get("amount"),
+                    "is_credit_note": 1 if new_invoice_entry_data.get("is_credit_note") else 0,
                 })
 
                 # If a new attachment was provided, update it
@@ -147,8 +148,12 @@ def update_invoice_data(
                 # snapshot is refreshed to match. invoice_qty resyncs via the
                 # recompute call before commit below.
                 if rebuild_line_mappings and vendor_invoice.status == "Pending":
-                    vendor_invoice.line_mappings = build_line_mapping_rows(
-                        autofill_line_match_json, doc
+                    # Use .set() (NOT direct attribute assignment) so the dict rows are
+                    # converted into child documents — a raw list of dicts left on the
+                    # attribute makes save() call .is_new() on a dict and blow up.
+                    vendor_invoice.set(
+                        "line_mappings",
+                        build_line_mapping_rows(autofill_line_match_json, doc),
                     )
                     vendor_invoice.autofill_used = 1
                     vendor_invoice.autofill_line_match_json = autofill_line_match_json
@@ -421,6 +426,7 @@ def create_vendor_invoice(
         "invoice_date": invoice_data.get("date"),
         "invoice_amount": invoice_data.get("amount"),
         "invoice_attachment": attachment_id,
+        "is_credit_note": 1 if invoice_data.get("is_credit_note") else 0,
         "status": "Pending",
         "uploaded_by": uploaded_by,
         "autofill_used": 1 if autofill_used else 0,

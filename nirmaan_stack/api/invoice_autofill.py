@@ -161,6 +161,10 @@ def extract_invoice_fields(file_url, docname=None):
         "line_items": line_items,
         "line_item_validation": line_item_validation,
         "line_match": line_match,
+        # True if the document itself is a credit note / credit memo (Gemini classified
+        # it). The frontend uses this to flip the amount (and, when NOT marked a credit
+        # note by the user, the line quantities) negative.
+        "credit_note_detected": any(e.get("type") == "is_credit_note" for e in entities),
         "po_items": po_items_out,
         "min_confidence": MIN_CONFIDENCE,
         "processor_id": settings.get("gemini_model"),

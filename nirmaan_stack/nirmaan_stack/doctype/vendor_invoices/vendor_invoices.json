@@ -19,6 +19,7 @@
   "column_break_invoice",
   "invoice_amount",
   "invoice_attachment",
+  "is_credit_note",
   "approval_section",
   "status",
   "uploaded_by",
@@ -134,6 +135,15 @@
    "fieldtype": "Link",
    "label": "Invoice Attachment",
    "options": "Nirmaan Attachments"
+  },
+  {
+   "default": "0",
+   "description": "Tick if this Vendor Invoice is a credit note. Credit notes are EXCLUDED from Purchase Order Item.invoice_qty (they do not add to the invoiced quantity).",
+   "fieldname": "is_credit_note",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Credit Note"
   },
   {
    "fieldname": "approval_section",

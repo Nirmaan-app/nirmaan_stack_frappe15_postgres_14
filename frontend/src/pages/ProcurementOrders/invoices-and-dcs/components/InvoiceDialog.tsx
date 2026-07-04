@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -73,6 +74,34 @@ const initialInvoiceState = {
   invoice_no: "",
   amount: "",
   date: "",
+  is_credit_note: false,
+};
+
+// --- Credit / return note sign helpers ---
+// Force an amount string negative (credit / return note). "" / non-numeric → unchanged.
+const forceNegativeAmount = (amt: string): string => {
+  const n = Number(String(amt).replace(/,/g, ""));
+  if (!amt || !isFinite(n) || n === 0) return amt;
+  return String(-Math.abs(n));
+};
+
+// Apply a sign to every row's quantity — negative for a return note, positive otherwise.
+const applyQtySign = <T extends { quantity?: any }>(
+  rows: T[] | null,
+  negative: boolean
+): T[] | null => {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((r) => {
+    const q = Number(r?.quantity);
+    if (!isFinite(q) || q === 0) return r;
+    return { ...r, quantity: negative ? -Math.abs(q) : Math.abs(q) };
+  });
+};
+
+// Apply the sign to a lineMatch object's mappings[].quantity.
+const applyMatchQtySign = (lm: any, negative: boolean): any => {
+  if (!lm || !Array.isArray(lm.mappings)) return lm;
+  return { ...lm, mappings: applyQtySign(lm.mappings, negative) };
 };
 
 export function InvoiceDialog<T extends DocumentType>({
@@ -140,6 +169,10 @@ export function InvoiceDialog<T extends DocumentType>({
   const [lineItems, setLineItems] = useState<any[] | null>(null);
   const [poItemsForMatch, setPoItemsForMatch] = useState<any[] | null>(null);
   const [lineMatch, setLineMatch] = useState<LineMatch | null>(null);
+  // Gemini classified the uploaded document as a credit note / credit memo.
+  // Drives the sign: amount → negative always; quantities → negative only when the
+  // user leaves "Credit Note" UNticked (a return note that reduces invoiced qty).
+  const [creditNoteDetected, setCreditNoteDetected] = useState(false);
   const [rawExtraction, setRawExtraction] = useState<any | null>(null);
 
   // API hooks
@@ -197,6 +230,7 @@ export function InvoiceDialog<T extends DocumentType>({
           invoice_no: selectedInvoice.invoice_no || "",
           amount: String(selectedInvoice.invoice_amount || ""),
           date: selectedInvoice.invoice_date || "",
+          is_credit_note: !!selectedInvoice.is_credit_note,
         });
         // Edit mode skips the upload-first stage.
         setStage("form");
@@ -218,6 +252,7 @@ export function InvoiceDialog<T extends DocumentType>({
       setLineMatch(null);
       setRawExtraction(null);
       setReExtracted(false);
+      setCreditNoteDetected(false);
     }
   }, [isOpen, selectedInvoice]);
 
@@ -234,6 +269,7 @@ export function InvoiceDialog<T extends DocumentType>({
     setLineMatch(null);
     setRawExtraction(null);
     setReExtracted(false);
+    setCreditNoteDetected(false);
   }, [selectedAttachment]);
 
   // Edit mode: show the invoice's existing auto-filled mapping + entities inline
@@ -405,6 +441,15 @@ export function InvoiceDialog<T extends DocumentType>({
         filled.add("amount");
       }
 
+      // Credit-note handling: if Gemini classified the file as a credit note, the
+      // AMOUNT goes negative (always). Quantities are signed further below based on
+      // the "Credit Note" checkbox (unticked = return note = negative qty).
+      const creditNote = !!extracted.credit_note_detected;
+      setCreditNoteDetected(creditNote);
+      if (creditNote && updates.amount) {
+        updates.amount = forceNegativeAmount(updates.amount);
+      }
+
       setInvoiceData((prev) => ({ ...prev, ...updates }));
       setAutofilledFields(filled);
       if (extracted.confidence && typeof extracted.confidence === "object") {
@@ -437,11 +482,15 @@ export function InvoiceDialog<T extends DocumentType>({
       // route through a dedicated Review step so the user can verify/correct the
       // mapping before the final form.
       setRawExtraction(extracted);
+      // A return note (Gemini says credit note AND user has NOT ticked "Credit Note")
+      // reduces invoiced qty → store its line quantities negative. A ticked credit note
+      // keeps qty positive (it is excluded from invoice_qty entirely).
+      const qtyNegative = creditNote && !invoiceData.is_credit_note;
       const hasLineItems = Array.isArray(extracted.line_items) && extracted.line_items.length > 0;
-      if (hasLineItems) setLineItems(extracted.line_items);
+      if (hasLineItems) setLineItems(applyQtySign(extracted.line_items, qtyNegative));
       if (Array.isArray(extracted.po_items)) setPoItemsForMatch(extracted.po_items);
       const hasMapping = !!extracted.line_match && Array.isArray(extracted.line_match.mappings);
-      if (hasMapping) setLineMatch(extracted.line_match);
+      if (hasMapping) setLineMatch(applyMatchQtySign(extracted.line_match, qtyNegative));
 
       if (filled.size === 0) {
         toast({
@@ -517,6 +566,7 @@ export function InvoiceDialog<T extends DocumentType>({
         invoice_no: invoiceData.invoice_no.trim(),
         amount: parseNumber(invoiceData.amount),
         date: invoiceData.date,
+        is_credit_note: invoiceData.is_credit_note ? 1 : 0,
         updated_by: userData?.user_id,
       };
 
@@ -1059,6 +1109,38 @@ export function InvoiceDialog<T extends DocumentType>({
                     disabled={isLoading || isAutofilling}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Credit Note — when ticked, this invoice is EXCLUDED from the PO's
+                invoice_qty (it does not add to the invoiced quantity). */}
+            <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+              <Checkbox
+                id="is_credit_note"
+                checked={invoiceData.is_credit_note}
+                onCheckedChange={(checked) => {
+                  const isChecked = checked === true;
+                  setInvoiceData((prev) => ({ ...prev, is_credit_note: isChecked }));
+                  // On a Gemini-detected credit note, the checkbox decides the qty sign:
+                  // ticked (price credit) → qty positive (invoice is skipped anyway);
+                  // unticked (return note) → qty negative (recompute subtracts).
+                  // The amount stays negative in both cases.
+                  if (creditNoteDetected) {
+                    const neg = !isChecked;
+                    setLineItems((prev) => applyQtySign(prev, neg));
+                    setLineMatch((prev) => applyMatchQtySign(prev, neg));
+                  }
+                }}
+                disabled={isLoading || isAutofilling}
+                className="mt-0.5"
+              />
+              <div className="text-sm leading-snug">
+                <Label htmlFor="is_credit_note" className="font-medium cursor-pointer">
+                  Credit Note
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Tick if this is a credit note. It will be excluded from the PO's invoiced quantity.
+                </p>
               </div>
             </div>
 
