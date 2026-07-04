@@ -1,7 +1,7 @@
 <!--
 electrical_ai_category_prompt.md
-version: v1.1 (2026-07-02) — supersedes v1.0
-date: 2026-07-02
+version: v1.2 (2026-07-05) — supersedes v1.1
+date: 2026-07-05
 model: claude-opus-4-8
 CANONICAL rate-guidance AI category prompt. This is the SINGLE SOURCE OF TRUTH for the
 Option-B independent AI voter and is loaded + sent VERBATIM across ALL electrical runs
@@ -14,6 +14,14 @@ reading instruction (the line is delivered within its ancestor tree with attache
 per node + the sheet name; the parent/section context governs a bare child); (b) tightened
 switches_sockets vs point_wiring boundary — a line naming the SOCKET ACCESSORY itself is
 switches_sockets (or industrial_sockets), not point_wiring.
+
+v1.2 changes vs v1.1 (content otherwise verbatim — the frozen 15, their descriptions, the
+output contract, and Option-B independence are UNCHANGED): one new Boundary rule added --
+"Panel-assembly precedence": a switchgear device (MCCB/MCB/MCOS/meter/busbar/starter/EPO)
+itemised as part of a panel build (under an "LT PANELS" / MDB / DB-schedule / "shall consist
+of" section) is `panels`, not `db_switchgear`. Diagnosed in tuning round 2 (AI put 77/120
+team=panels into db_switchgear); this edit's effect on the AI voter is certified in the
+upcoming full-corpus rerun, NOT in the rules-only round-2 certification.
 -->
 
 # Electrical BoQ line categorisation — independent voter (Option B)
@@ -64,6 +72,7 @@ READ THE TREE TOP-DOWN. The section/parent context GOVERNS the child: a bare spe
 - **DB-to-first-point ambiguity:** a bare "DB to first point" SIZED FEEDER with NO named load (no light/fan/socket named) is genuinely ambiguous — it could be a sub-main or a point run. Prefer blank "" or low confidence; do NOT force it into a confident category.
 - **Termination is wiring_cabling:** lugs, glands, end terminations belong to `wiring_cabling` (category 4), not a separate termination category.
 - **LED panel is a light fixture:** a "LED panel"/"panel light" is `light_fixtures`, NOT `panels` (panels = LT/MCC/control panel boards).
+- **Panel-assembly precedence:** when a line itemizes a switchgear DEVICE (MCCB / MCB / MCOS / changeover / meter / busbar / DOL starter / EPO) as part of a PANEL BUILD - i.e. under an "LT PANELS", MDB / DB-schedule, or "... shall consist of ..." section/heading - classify it as `panels` (the panel is the priced unit), NOT `db_switchgear`. Reserve `db_switchgear` for a STANDALONE distribution board / loose switchgear NOT itemised inside a panel assembly. (Mirrors the Point Wiring precedence: the assembly framing overrides the component device word.)
 
 ## Output format
 
