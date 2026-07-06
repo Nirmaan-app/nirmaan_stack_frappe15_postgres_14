@@ -396,6 +396,62 @@ class TestClassifyStatus(FrappeTestCase):
             res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
         self.assertEqual(res["state"], "running")
 
+    def test_running_bare_before_first_batch(self):
+        # A marker set at start (no done/total yet) -> running WITHOUT done/total (the poll bar
+        # stays indeterminate until the first batch writes progress).
+        classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
+        with mock.patch("nirmaan_stack.api.boq.wizard.classify.get_job_status", return_value="started"):
+            res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
+        self.assertEqual(res["state"], "running")
+        self.assertNotIn("done", res)
+        self.assertNotIn("total", res)
+
+    def test_running_carries_done_total_after_batch(self):
+        # After a batch merges progress into the marker, the running status carries ints the poll
+        # feeds straight into the progress bar.
+        classify._set_marker(self.boq, self.sheet, self.disc, "fakejob123", "Administrator")
+        classify._update_marker_progress(self.boq, self.sheet, self.disc, 20, 57)
+        with mock.patch("nirmaan_stack.api.boq.wizard.classify.get_job_status", return_value="started"):
+            res = get_classify_status(boq=self.boq, sheet_name=self.sheet, discipline=self.disc)
+        self.assertEqual(res["state"], "running")
+        self.assertEqual(res["done"], 20)
+        self.assertEqual(res["total"], 57)
+
+
+# ── MARKER PROGRESS (poll-driven progress) ───────────────────────────────────────
+class TestMarkerProgress(FrappeTestCase):
+    """The _update_marker_progress sibling helper: merges done/total into a live marker while
+    preserving job_id/enqueued_at/user, and SKIPS SILENTLY when the marker is gone (never
+    re-creates one for a terminated job)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.boq = "MARKER-PROGRESS-BOQ"  # pure Redis -- no BOQs row needed
+        cls.sheet = "MarkerFix "
+        cls.disc = "Electrical"
+
+    def tearDown(self):
+        frappe.cache().delete_value(classify._marker_key(self.boq, self.sheet, self.disc))
+
+    def test_update_merges_and_preserves_identity(self):
+        classify._set_marker(self.boq, self.sheet, self.disc, "jobABC", "Administrator")
+        before = classify._get_marker(self.boq, self.sheet, self.disc)
+        classify._update_marker_progress(self.boq, self.sheet, self.disc, 40, 100)
+        after = classify._get_marker(self.boq, self.sheet, self.disc)
+        self.assertEqual(after["done"], 40)
+        self.assertEqual(after["total"], 100)
+        # job_id / enqueued_at / user survive the merge untouched.
+        self.assertEqual(after["job_id"], "jobABC")
+        self.assertEqual(after["user"], "Administrator")
+        self.assertEqual(after["enqueued_at"], before["enqueued_at"])
+
+    def test_update_skips_when_marker_missing(self):
+        # No marker set (expired / already cleared) -> the helper is a no-op, NEVER re-creates one.
+        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
+        classify._update_marker_progress(self.boq, self.sheet, self.disc, 5, 10)
+        self.assertIsNone(classify._get_marker(self.boq, self.sheet, self.disc))
+
 
 # ── WORKER ───────────────────────────────────────────────────────────────────────
 class TestClassifyWorker(FrappeTestCase):

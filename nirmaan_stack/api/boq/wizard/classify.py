@@ -59,6 +59,24 @@ def _clear_marker(boq, sheet_name, discipline):
     frappe.cache().delete_value(_marker_key(boq, sheet_name, discipline))
 
 
+def _update_marker_progress(boq, sheet_name, discipline, done, total):
+    """Merge per-batch done/total into the EXISTING in-progress marker, preserving
+    job_id/enqueued_at/user and the marker TTL. A SIBLING of _set_marker (kept separate so the
+    start-write signature stays minimal and the two sites don't drift). RE-READS the marker each
+    call; if it is gone (expired or the run was already cleared) it SKIPS SILENTLY -- never
+    re-creates a marker for a terminated job. done/total are ints (stored as-is)."""
+    marker = _get_marker(boq, sheet_name, discipline)
+    if not marker:
+        return
+    marker["done"] = done
+    marker["total"] = total
+    frappe.cache().set_value(
+        _marker_key(boq, sheet_name, discipline),
+        marker,
+        expires_in_sec=_MARKER_TTL_SEC,
+    )
+
+
 def _maybe_self_heal(boq, sheet_name, discipline, marker):
     """Given a present marker, return 'running' | 'cleared' | 'cleared_stale'. Clears the marker
     when the RQ job is terminal (finished/failed/unknown) or the enqueue is older than the stale
@@ -193,7 +211,10 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
     def _progress(done, total):
         # Incremental progress, emitted once per 20-row AI batch. No DB dependency (transient
         # counts only), so no commit-before-publish is needed. The terminal boq:classify_sheet_done
-        # + the Redis poll fallback are unchanged.
+        # is unchanged. TWO sinks now: (1) the marker carries done/total so the get_classify_status
+        # poll can drive the progress bar (the socket is unreliable in some deployments); (2) the
+        # additive realtime event stays as-is.
+        _update_marker_progress(boq, sheet_name, discipline, done, total)
         _publish_classify_progress(boq, sheet_name, discipline, user, done, total)
 
     try:
@@ -262,7 +283,13 @@ def get_classify_status(boq=None, sheet_name=None, discipline="Electrical"):
         return {"state": "done", **term}
     marker = _get_marker(boq, sheet_name, discipline)
     if marker and _maybe_self_heal(boq, sheet_name, discipline, marker) == "running":
-        return {"state": "running"}
+        out = {"state": "running"}
+        # Carry done/total ONLY once a batch has written them (a run before its first batch has
+        # none -> bare running; the TS side reads done?/total? guarded by typeof === "number").
+        if isinstance(marker.get("done"), int) and isinstance(marker.get("total"), int):
+            out["done"] = marker["done"]
+            out["total"] = marker["total"]
+        return out
     return {"state": "idle"}
 
 

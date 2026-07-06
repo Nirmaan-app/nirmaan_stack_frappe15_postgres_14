@@ -55,6 +55,7 @@ import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
 import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
+import { ClassifyProgressModal } from "./ClassifyProgressModal";
 import {
   ClassifySheetDialog,
   aiStatusNote,
@@ -385,6 +386,9 @@ const SheetPricingPage = () => {
   // stable socket/poll callbacks read the CURRENT running state without re-registering.
   const [classifyOpen, setClassifyOpen] = useState(false);
   const [classifyRunning, setClassifyRunning] = useState(false);
+  // The blocking progress modal stays open from run-start THROUGH the terminal state (so the
+  // completion/error line + Close button show); it closes only when the user acknowledges.
+  const [classifyModalOpen, setClassifyModalOpen] = useState(false);
   const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
@@ -538,6 +542,7 @@ const SheetPricingPage = () => {
     setClassifyOpen(false);
     setClassifyRunning(false);
     classifyRunningRef.current = false;
+    setClassifyModalOpen(false);
     setClassifyProgress(null);
     setClassifySummary(null);
     setShowNeedsReview(false);
@@ -646,15 +651,26 @@ const SheetPricingPage = () => {
         discipline: CLASSIFY_DISCIPLINE,
         ...msg,
       });
-    } else if (msg.state === "running" && !classifyRunningRef.current) {
-      setClassifyRunning(true);
-      classifyRunningRef.current = true;
+    } else if (msg.state === "running") {
+      // PRECEDENCE: done WINS. If a terminal summary is already showing (modal awaiting the
+      // user's Close), ignore a stale running poll so it cannot re-open/re-lock the modal. A NEW
+      // run clears classifySummary in onStarted, which re-enables this recovery branch.
+      if (!classifyRunningRef.current && classifySummary) return;
+      // First-time recovery of an in-flight run (started elsewhere / before navigation): open the
+      // blocking modal and flag it running.
+      if (!classifyRunningRef.current) {
+        setClassifyRunning(true);
+        classifyRunningRef.current = true;
+        setClassifyModalOpen(true);
+      }
+      // POLL DRIVES THE BAR: advance on EVERY running poll (not just the recovery seed). The
+      // socket onProgress path stays additive -- last-writer-wins on the same {done,total}.
       if (typeof msg.done === "number" && typeof msg.total === "number") {
         setClassifyProgress({ done: msg.done, total: msg.total });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classifyStatusData, applyClassifyDone, boqId, sheetName]);
+  }, [classifyStatusData, applyClassifyDone, boqId, sheetName, classifySummary]);
 
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
@@ -1906,27 +1922,21 @@ const SheetPricingPage = () => {
         </div>
       )}
 
-      {/* ── CL-2: classify progress (while running) + completion summary (after) ── */}
-      {classifyRunning && classifyProgress && (
-        <div className="flex items-center gap-3 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-sky-200 dark:bg-sky-900">
-            <div
-              className="h-full rounded-full bg-sky-500 transition-all dark:bg-sky-400"
-              style={{
-                width:
-                  classifyProgress.total > 0
-                    ? `${Math.round((classifyProgress.done / classifyProgress.total) * 100)}%`
-                    : "0%",
-              }}
-            />
-          </div>
-          <span className="tabular-nums">
-            {classifyProgress.done} of {classifyProgress.total} rows
-          </span>
-        </div>
-      )}
-      {!classifyRunning && classifySummary && classifySummary.status === "error" && (
+      {/* ── CL-2 (poll-driven): classify progress is a BLOCKING centered modal, dismissable only
+          at a terminal state. The inline completion/error strips below persist AFTER the modal is
+          closed (gated on !classifyModalOpen so they don't double up while the modal is open). ── */}
+      <ClassifyProgressModal
+        open={classifyModalOpen}
+        running={classifyRunning}
+        sheetName={(sheetName ?? "").trim()}
+        progress={classifyProgress}
+        summary={classifySummary}
+        onClose={() => {
+          setClassifyModalOpen(false);
+          setClassifyProgress(null);
+        }}
+      />
+      {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="flex-1">
@@ -1946,7 +1956,7 @@ const SheetPricingPage = () => {
           </button>
         </div>
       )}
-      {!classifyRunning && classifySummary && classifySummary.status !== "error" && (
+      {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status !== "error" && (
         <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="flex-1">
@@ -1988,6 +1998,7 @@ const SheetPricingPage = () => {
           classifyRunningRef.current = true;
           setClassifyProgress(null);
           setClassifySummary(null);
+          setClassifyModalOpen(true); // open the blocking progress modal for this run
         }}
       />
 
