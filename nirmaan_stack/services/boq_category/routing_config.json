@@ -1,0 +1,6 @@
+{
+  "policy_id": "R3d",
+  "ai_weak_low": 0.70,
+  "ai_weak_high": 0.85,
+  "weak_rule_band": "LOW"
+}
