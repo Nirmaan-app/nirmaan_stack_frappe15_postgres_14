@@ -252,10 +252,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   the scrolling-pane + single-table colgroups, NEVER the frozen/anchor pane. It is driven by a reference-stable
   `categoriesByExcelRow: Map<number, SheetCategoryRow>` (built page-side from `get_sheet_categories`, ONE identity line
   in `pricingRowPropsAreEqual`) — the row memo is untouched (do NOT hand it a per-row prop that changes on keystroke).
-  DISPLAY + needs-review amber cue ONLY; the click-to-edit verdict picker is CL-3 (a seam, not wired). The run itself is
+  The run itself is
   driven from a screen-scoped socket (`boq:classify_sheet_progress`/`_done`) + `get_classify_status` poll on
   `SheetPricingPage` (the page's FIRST socket), mirroring the BoqHub parse-run pattern. `ClassifySheetDialog.tsx` is the
   engine/scope picker (registry-driven, modeled on CopyForwardDialog's `Set<selected>` + `Record<id,scope>`).
+- **Category cell is CLICK-TO-EDIT (CL-3):** click (and Enter on the focused cell) open `CategoryVerdictPicker.tsx` (a
+  Radix Popover anchored to the clicked cell via `virtualRef`), with categories GROUPED BY the engine(s) that ran
+  (engine-scoped, NOT all-15; v1 = one Electrical group). **Open-state is PAGE-OWNED, keyed by excel_row — NEVER a
+  per-row prop.** The row receives only a REFERENCE-STABLE `onCategoryClick(excelRow, cellEl)` callback + a stable
+  `categoryLabelById` map (both compared by identity in `pricingRowPropsAreEqual`), so the row memo stays intact — do
+  NOT thread an `open`/`selected` boolean through the row props. Only classified rows are editable
+  (`isRowEditable`). The cell shows the human-readable LABEL (`labelFor`, id fallback) + 3 states via `deriveVerdictState`
+  (auto / amber needs-review / emerald "your pick" human verdict). Selecting calls `set_row_category` (`""`=clear) with an
+  OPTIMISTIC `categoryOverrides` patch folded into the reference-stable `categoriesByExcelRow` map + `mutateCategories`
+  reconcile + revert-on-error. The needs-review filter is UNCHANGED (a human verdict auto-drops the row via
+  `isNeedsReviewCategory`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
+  two-engine overlap-conflict fork stays PARKED. `get_category_catalog` labels the ids -- never invent labels client-side.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
