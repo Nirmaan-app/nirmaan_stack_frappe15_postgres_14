@@ -234,7 +234,7 @@ const SheetPricingPage = () => {
     message: { committed_version: number | null; categories: SheetCategoryRow[] };
   }>(
     "nirmaan_stack.api.boq.wizard.classify.get_sheet_categories",
-    { boq_name: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
     boqId && sheetName ? undefined : null,
   );
   // CL-3: the selectable category catalog for the Electrical engine (id -> label). Read-only;
