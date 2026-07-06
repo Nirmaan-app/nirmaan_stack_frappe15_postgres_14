@@ -1323,3 +1323,25 @@ export interface SheetCategoryRow {
   human_category_id: string;
   effective_category_id: string;
 }
+
+// ── CL-3: category verdict picker (click-to-edit human category verdict) ─────────
+
+/**
+ * One selectable category in the verdict picker, from classify.get_category_catalog(discipline).
+ * `id` is the human_category_id written by set_row_category; `label` is the display text.
+ */
+export interface CategoryCatalogEntry {
+  id: string;
+  label: string;
+}
+
+/**
+ * One engine's category catalog (a discipline + its display label + the categories it offers).
+ * The CL-3 picker renders ONE group per ENGINE actually run on the sheet (buildEngineGroups
+ * filters the full catalog set down to the run's disciplines). v1: only the Electrical engine.
+ */
+export interface EngineCatalog {
+  discipline: string;
+  label: string;
+  categories: CategoryCatalogEntry[];
+}

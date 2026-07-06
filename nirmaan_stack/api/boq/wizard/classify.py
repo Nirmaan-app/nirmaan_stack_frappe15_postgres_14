@@ -354,3 +354,24 @@ def set_row_category(boq=None, sheet_name=None, excel_row=None, human_category_i
     human = (cur[0].get("human_category_id") or "").strip()
     effective = human if human else (cur[0].get("final_category_id") or "")
     return {"excel_row": excel_row, "effective_category_id": effective}
+
+
+@frappe.whitelist()
+def get_category_catalog(discipline="Electrical"):
+    """Read-only: one engine's category catalog (id -> display label), from the ruleset
+    (categories_<disc>.json via load_ruleset). Drives the CL-3 verdict picker + the Category
+    column's human-readable label. ENGINE-SCOPED -- only an AVAILABLE engine has a catalog
+    (load_ruleset raises for others), so an unavailable discipline throws. The label falls back
+    to the id if a category has no name. Returns {discipline, categories:[{id, label}]}.
+    """
+    if not engines.is_discipline_available(discipline):
+        frappe.throw(
+            f"Classification engine '{discipline}' is not available yet.", title="Engine unavailable"
+        )
+    cats = load_ruleset(discipline=discipline)["categories"]
+    return {
+        "discipline": discipline,
+        "categories": [
+            {"id": c["category_id"], "label": (c.get("name") or c["category_id"])} for c in cats
+        ],
+    }

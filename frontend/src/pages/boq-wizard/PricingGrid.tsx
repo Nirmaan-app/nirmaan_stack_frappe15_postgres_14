@@ -61,7 +61,7 @@ import {
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
-import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight } from "lucide-react";
+import { Palette, MessageSquare, AlertTriangle, Flag, Scale, ChevronRight, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -133,7 +133,7 @@ import type {
   RowReviewFlags,
   SheetCategoryRow,
 } from "./boqTypes";
-import { isNeedsReviewCategory } from "./ClassifySheetDialog";
+import { deriveVerdictState, isRowEditable, labelFor } from "./CategoryVerdictPicker";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -1370,9 +1370,22 @@ interface PricingGridProps {
    * CL-2: per-EXCEL-ROW category verdicts (get_sheet_categories), built page-side into a
    * reference-stable Map keyed by excel_row. The grid READS it to render the read-only Category
    * column (effective_category_id + a "needs review" amber cue). DISPLAY ONLY -- editing the
-   * verdict is CL-3's concern (no onClick wired here). ABSENT/empty => blank Category cells.
+   * verdict is CL-3's concern (wired via onCategoryClick below). ABSENT/empty => blank Category cells.
    */
   categoriesByExcelRow?: Map<number, SheetCategoryRow>;
+  /**
+   * CL-3: the page-owned open callback for the category verdict picker. The grid calls it with
+   * the row's Excel row + the clicked cell element (the picker's virtual anchor); the PAGE owns
+   * the picker + the write. Reference-stable (a page useCallback) -> memo-safe. ABSENT => the
+   * Category cell is display-only (no click-to-edit). WITHHELD by the page when locked/taken-over.
+   */
+  onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
+  /**
+   * CL-3: id -> label for the Category cell's DISPLAY (from classify.get_category_catalog). A
+   * reference-stable Map (page-built, changes only on fetch, never on keystroke) -> memo-safe.
+   * ABSENT/empty => the cell falls back to the raw category id (labelFor).
+   */
+  categoryLabelById?: Map<string, string>;
   /**
    * Cluster B: choose (keep_document/take_formula) or clear the reconciliation choice for one
    * divergent amount cell (save_cell_reconciliation_choice + mutate). ABSENT => the divergence
@@ -1482,6 +1495,10 @@ const EMPTY_SLICE: Record<string, string> = Object.freeze({});
 // CL-2: a stable empty category map for the default (no categories fetched) case -- a shared
 // reference so the row memo is never defeated by a fresh Map per render.
 const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
+
+// CL-3: a stable empty id->label map for the default (no catalog fetched) case -- a shared
+// reference so the row memo is never defeated by a fresh Map per render.
+const EMPTY_CATEGORY_LABEL_MAP: Map<string, string> = new Map();
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -1647,6 +1664,12 @@ interface PricingGridRowProps {
   /** CL-2: per-EXCEL-ROW category verdict map (per-SHEET, reference-stable across a keystroke --
    *  built page-side, changes only on a classify mutate). Read-only display in the Category cell. */
   categoriesByExcelRow: Map<number, SheetCategoryRow>;
+  /** CL-3: id->label for the Category cell display (per-SHEET, reference-stable -- changes only on
+   *  a catalog fetch, never on keystroke). */
+  categoryLabelById: Map<string, string>;
+  /** CL-3: open the verdict picker for a classified row's Category cell (page-owned, ref-stable).
+   *  undefined => the cell is display-only (no click-to-edit). */
+  onCategoryClick?: (excelRow: number, cellEl: HTMLElement) => void;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
@@ -1712,6 +1735,8 @@ export function pricingRowPropsAreEqual(
     prev.columnFormulas === next.columnFormulas &&
     prev.reconChoiceMap === next.reconChoiceMap &&
     prev.categoriesByExcelRow === next.categoriesByExcelRow &&
+    prev.categoryLabelById === next.categoryLabelById &&
+    prev.onCategoryClick === next.onCategoryClick &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
     prev.onSaveRate === next.onSaveRate &&
@@ -1766,6 +1791,8 @@ const PricingGridRow = memo(function PricingGridRow({
   columnFormulas,
   reconChoiceMap,
   categoriesByExcelRow,
+  categoryLabelById,
+  onCategoryClick,
   override,
   formulasComplete,
   onSaveRate,
@@ -2021,24 +2048,40 @@ const PricingGridRow = memo(function PricingGridRow({
       )}
       {pane !== "frozen" && (
         <>
-      {/* CL-2: read-only Category column -- the FIRST right-pane cell (colIndex FIXED_ANCHOR_COUNT).
-          Displays the row's effective category verdict; a "Needs review" verdict with no human pick
-          shows an amber dot + amber text. Uses the same read-only nav-cell wiring the anchor cells
-          use (tdFocusProps / cellNavClass / registerCell), no input. DISPLAY ONLY.
-          CL-3 seam: click-to-edit verdict picker not wired here. */}
+      {/* CL-2/CL-3: the Category column -- the FIRST right-pane cell (colIndex FIXED_ANCHOR_COUNT).
+          Displays the row's effective category verdict (labelled). Three visual states:
+          "needs_review" = amber dot + amber text; "human" = emerald check + emerald text ("(your
+          pick)"); "auto" = plain foreground; "unclassified" = blank. Uses the same read-only nav-cell
+          wiring the anchor cells use (tdFocusProps / cellNavClass / registerCell), no input.
+          CL-3: a CLASSIFIED row is click-to-edit -- onClick opens the page-owned verdict picker
+          anchored to this cell (Enter on the focused cell does the same via handleGridKeyDown). */}
       {(() => {
         const colIndex = FIXED_ANCHOR_COUNT;
         const cat = categoriesByExcelRow.get(row.source_row_number);
         const effective = cat?.effective_category_id ?? "";
-        const needsReview = isNeedsReviewCategory(cat);
+        const state = deriveVerdictState(cat);
+        const editable = isRowEditable(cat) && !!onCategoryClick;
+        const label = labelFor(effective, categoryLabelById);
+        const needsReview = state === "needs_review";
+        const isHuman = state === "human";
         return (
           <td
             {...tdFocusProps(colIndex)}
             data-colkey="category"
-            title={effective || undefined}
+            title={isHuman ? `${label} (your pick)` : label || undefined}
+            onClick={
+              editable
+                ? (e) => onCategoryClick?.(row.source_row_number, e.currentTarget as HTMLElement)
+                : undefined
+            }
             className={cn(
               "px-2 py-1.5 align-top border-l border-border",
-              needsReview ? "text-amber-700 dark:text-amber-300" : "text-foreground",
+              needsReview
+                ? "text-amber-700 dark:text-amber-300"
+                : isHuman
+                  ? "text-emerald-700 dark:text-emerald-300"
+                  : "text-foreground",
+              editable && "cursor-pointer hover:bg-muted/40",
               cellNavClass(colIndex),
             )}
           >
@@ -2049,7 +2092,13 @@ const PricingGridRow = memo(function PricingGridRow({
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
                 />
               )}
-              <span className="truncate">{effective}</span>
+              {isHuman && (
+                <Check
+                  aria-hidden
+                  className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                />
+              )}
+              <span className="truncate">{label}</span>
             </span>
           </td>
         );
@@ -2320,7 +2369,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3279,6 +3328,20 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         return;
       }
     }
+    // CL-3: Enter on the focused CATEGORY cell (colIndex FIXED_ANCHOR_COUNT) OPENS the verdict
+    // picker (mirrors the remarks + parent Enter cases; mouse-click already opens it). Only when
+    // the row is CLASSIFIED (editable) and the page wired onCategoryClick; a non-editable / unwired
+    // cell falls through to the generic Enter->down so nav is unchanged there.
+    if (activeCell.colIndex === FIXED_ANCHOR_COUNT && e.key === "Enter" && onCategoryClick) {
+      const r = rows[activeCell.rowIndex];
+      const cat = r ? categoriesByExcelRow.get(r.source_row_number) : undefined;
+      const el = cellRefs.current.get(navKey(activeCell.rowIndex, FIXED_ANCHOR_COUNT));
+      if (r && isRowEditable(cat) && el) {
+        e.preventDefault();
+        onCategoryClick(r.source_row_number, el as HTMLElement);
+        return;
+      }
+    }
     let dir: NavDirection | null = null;
     if (e.key === "ArrowUp") dir = "up";
     else if (e.key === "ArrowDown") dir = "down";
@@ -3734,6 +3797,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       columnFormulas={columnFormulas}
       reconChoiceMap={reconChoiceMap}
       categoriesByExcelRow={categoriesByExcelRow}
+      categoryLabelById={categoryLabelById}
+      onCategoryClick={onCategoryClick}
       override={override}
       formulasComplete={formulasComplete}
       onSaveRate={onSaveRate}

@@ -33,10 +33,12 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   AmountFormulaSaveArgs,
   BOQsDoc,
+  CategoryCatalogEntry,
   ClassifySummary,
   ColorSaveArgs,
   CommittedSheetGridResponse,
   DismissalSaveArgs,
+  EngineCatalog,
   ApplyCopyForwardResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
@@ -52,6 +54,7 @@ import type {
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
+import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
 import {
   ClassifySheetDialog,
   isNeedsReviewCategory,
@@ -233,14 +236,51 @@ const SheetPricingPage = () => {
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
     boqId && sheetName ? undefined : null,
   );
-  // A reference-stable (per fetch) Map keyed by excel_row -> the grid reads it for the Category
-  // cell; rebuilt only when catData changes (a fresh fetch / a post-classify mutate), so the row
-  // memo is never defeated by a per-render Map.
+  // CL-3: the selectable category catalog for the Electrical engine (id -> label). Read-only;
+  // disabled until boqId + sheetName are present. Drives the verdict picker groups + the Category
+  // cell's label display.
+  const { data: catalogData } = useFrappeGetCall<{
+    message: { discipline: string; categories: CategoryCatalogEntry[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_category_catalog",
+    { discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? undefined : null,
+  );
+  // CL-3: id -> label for the Category cell display (reference-stable per fetch -> memo-safe).
+  const categoryLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    (catalogData?.message?.categories ?? []).forEach((c) => m.set(c.id, c.label));
+    return m;
+  }, [catalogData]);
+  // CL-3: the picker's engine-scoped groups (v1: a single Electrical group carrying its catalog).
+  const engineCatalogs = useMemo<EngineCatalog[]>(
+    () =>
+      catalogData?.message
+        ? [
+            {
+              discipline: catalogData.message.discipline,
+              label: CLASSIFY_DISCIPLINE,
+              categories: catalogData.message.categories,
+            },
+          ]
+        : [],
+    [catalogData],
+  );
+  // CL-3: optimistic per-row verdict overrides (this session), keyed by excel_row. An override
+  // shows the picked verdict instantly; it is dropped once the set_row_category refetch
+  // (mutateCategories) lands (or on an error revert). Reset per-sheet (below).
+  const [categoryOverrides, setCategoryOverrides] = useState<Map<number, SheetCategoryRow>>(
+    () => new Map(),
+  );
+  // A reference-stable (per fetch / per override) Map keyed by excel_row -> the grid reads it for
+  // the Category cell; rebuilt only when catData or the overrides change (never on a keystroke),
+  // so the row memo is never defeated by a per-render Map. Overrides merge LAST (optimistic wins).
   const categoriesByExcelRow = useMemo(() => {
     const m = new Map<number, SheetCategoryRow>();
     (catData?.message?.categories ?? []).forEach((c) => m.set(c.excel_row, c));
+    categoryOverrides.forEach((c, k) => m.set(k, c));
     return m;
-  }, [catData]);
+  }, [catData, categoryOverrides]);
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
@@ -318,6 +358,12 @@ const SheetPricingPage = () => {
   const { call: unlockSheetCall } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.unlock_sheet",
   );
+  // CL-3: set / clear one row's human category verdict (set_row_category). A SEPARATE write path
+  // (parallel to rates/annotations); "" clears to the machine verdict. Optimistic (categoryOverrides)
+  // then mutateCategories()-refetches so the effective verdict re-derives authoritatively.
+  const { call: setRowCategory } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.set_row_category",
+  );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -344,6 +390,18 @@ const SheetPricingPage = () => {
   const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
   const [showNeedsReview, setShowNeedsReview] = useState(false);
   const classifyRunningRef = useRef(false);
+
+  // ── CL-3: category verdict picker (page-owned open-state; reset on a tab switch below) ──
+  // pickerState holds the target row + the clicked cell element (the picker's virtual anchor);
+  // null when closed. onCategoryClick is a STABLE callback the grid calls on a Category-cell click
+  // (or Enter) -> reference-stable so the grid's row memo holds.
+  const [pickerState, setPickerState] = useState<{ excelRow: number; anchorEl: HTMLElement } | null>(
+    null,
+  );
+  const onCategoryClick = useCallback(
+    (excelRow: number, cellEl: HTMLElement) => setPickerState({ excelRow, anchorEl: cellEl }),
+    [],
+  );
 
   // ── Toolbar Part 1 (per-sheet per-session; reset on a tab switch below) ──────────
   // Column-hide: the set of HIDDEN non-amount descriptor `col` letters. DEFAULT EMPTY = nothing
@@ -482,6 +540,9 @@ const SheetPricingPage = () => {
     setClassifyProgress(null);
     setClassifySummary(null);
     setShowNeedsReview(false);
+    // CL-3: the verdict picker + optimistic overrides are per-sheet -- a tab switch starts clean.
+    setPickerState(null);
+    setCategoryOverrides(new Map());
     // Toolbar Part 1: column-hide, search, and the three row-type filters are all per-sheet.
     setHiddenCols(new Set());
     setSearchQuery("");
@@ -711,6 +772,59 @@ const SheetPricingPage = () => {
       setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
     } finally {
       setLockToggling(false);
+    }
+  };
+
+  // CL-3: pick / clear one row's human category verdict. Optimistic: stamp the pick into
+  // categoryOverrides (human_category_id = id; effective = id || the machine final) so the grid
+  // repaints instantly + close the picker; POST set_row_category; on success mutateCategories()
+  // then drop the override (the authoritative verdict has landed); on error drop the override
+  // (revert) + surface the message inline (the page's error strip -- no toast in this editor).
+  const handleVerdictSelect = async (id: string) => {
+    const target = pickerState;
+    if (!target) return;
+    const { excelRow } = target;
+    const cur = categoriesByExcelRow.get(excelRow);
+    const base: SheetCategoryRow = cur ?? {
+      excel_row: excelRow,
+      rule_category_id: "",
+      ai_category_id: "",
+      final_category_id: "",
+      routing: "",
+      routing_reason: "",
+      human_category_id: "",
+      effective_category_id: "",
+    };
+    const optimistic: SheetCategoryRow = {
+      ...base,
+      excel_row: excelRow,
+      human_category_id: id,
+      effective_category_id: id || base.final_category_id,
+    };
+    setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+    setPickerState(null);
+    setSaveError(null);
+    const dropOverride = () =>
+      setCategoryOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(excelRow);
+        return next;
+      });
+    try {
+      await setRowCategory({
+        boq: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM -- trailing spaces intact (#152)
+        excel_row: excelRow,
+        human_category_id: id,
+        discipline: CLASSIFY_DISCIPLINE,
+      });
+      await mutateCategories();
+      dropOverride();
+    } catch (e) {
+      dropOverride();
+      setSaveError(
+        getFrappeError(e) || "Could not save the category verdict. Please try again.",
+      );
     }
   };
 
@@ -1848,6 +1962,24 @@ const SheetPricingPage = () => {
         }}
       />
 
+      {/* CL-3: the category verdict picker -- a Popover anchored to the clicked Category grid cell
+          (page-owned open-state). currentId = the row's human pick, else its effective verdict.
+          onSelect writes (or clears with "") + closes; onClose drops the open-state. */}
+      <CategoryVerdictPicker
+        open={!!pickerState}
+        anchorEl={pickerState?.anchorEl ?? null}
+        groups={buildEngineGroups([CLASSIFY_DISCIPLINE], engineCatalogs)}
+        currentId={
+          pickerState
+            ? categoriesByExcelRow.get(pickerState.excelRow)?.human_category_id ||
+              categoriesByExcelRow.get(pickerState.excelRow)?.effective_category_id ||
+              ""
+            : ""
+        }
+        onSelect={handleVerdictSelect}
+        onClose={() => setPickerState(null)}
+      />
+
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). For a grid-only
           general-specs sheet it is a read-only reference note; otherwise the Slice-3b
@@ -2124,9 +2256,13 @@ const SheetPricingPage = () => {
             // read-only pill, mirroring onSaveColor/onSaveRate).
             reconChoices={reconChoices}
             onSaveReconChoice={locked ? undefined : handleSaveReconChoice}
-            // CL-2: per-row category verdicts drive the read-only Category column (display only;
-            // CL-3 owns editing). A reference-stable per-fetch Map -> the row memo holds.
+            // CL-2/CL-3: per-row category verdicts drive the Category column; categoryLabelById
+            // supplies the display label; onCategoryClick opens the page-owned verdict picker on a
+            // classified cell. Withheld when locked -> the cell renders display-only. All three are
+            // reference-stable -> the row memo holds.
             categoriesByExcelRow={categoriesByExcelRow}
+            categoryLabelById={categoryLabelById}
+            onCategoryClick={locked ? undefined : onCategoryClick}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}

@@ -170,6 +170,19 @@ class TestEngines(FrappeTestCase):
         self.assertFalse(engines.is_discipline_available("HVAC"))
         self.assertFalse(engines.is_discipline_available("Nonexistent"))
 
+    def test_category_catalog(self):
+        from nirmaan_stack.api.boq.wizard.classify import get_category_catalog
+
+        cat = get_category_catalog("Electrical")
+        self.assertEqual(cat["discipline"], "Electrical")
+        ids = {c["id"] for c in cat["categories"]}
+        self.assertIn("db_switchgear", ids)
+        # every category carries a non-empty display label (id fallback ensures this)
+        self.assertTrue(cat["categories"] and all(c["label"] for c in cat["categories"]))
+        # an unavailable engine has no catalog -> throws
+        with self.assertRaises(frappe.ValidationError):
+            get_category_catalog("HVAC")
+
 
 # ── ORCHESTRATOR ─────────────────────────────────────────────────────────────────
 class TestOrchestrator(FrappeTestCase):
