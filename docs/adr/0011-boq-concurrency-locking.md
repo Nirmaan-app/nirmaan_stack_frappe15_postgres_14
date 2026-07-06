@@ -6,6 +6,11 @@ Date: 2026-07-03
 
 **Proposed — pending owner (Nitesh) sign-off.** One open sub-decision (D11) awaits a call.
 
+> **Amendment A1 (2026-07-03):** Phase C's *response* is reshaped from a tiered **block** (D15/D16) to a
+> **presence-escalated warn-only** model — grill-locked (Q1–Q9). Detection (the state floor, D14) is
+> retained; the hard block, the Author-or-Admin gate, and the `committed_by`/`priced_by` attribution
+> fields + migration are **dropped**. See **"Amendment A1"** at the end of this ADR.
+
 Grill-locked design (20 decisions, D1–D20). Migration-critical facts adversarially verified against
 live code + data. Full build plan: `frontend/.claude/plans/boq-concurrency-locking-plan.md`.
 Illustrated explainer (diagrams): `docs/boq/concurrency-locking.html`. Numbered `0011` (highest existing
@@ -128,3 +133,70 @@ rug-pull early.
   plus one DB uniqueness constraint. A break-glass flag bounds prod risk.
 - **Open (D11):** the Hub general-specs lost-update fix — additive per-sheet toggle vs optimistic
   compare-and-set (lean) — is deferred to an owner call; it does not block the rest.
+
+## Amendment A1 (2026-07-03) — Phase C reshaped to presence-escalated warnings
+
+**Status:** Proposed — grill-locked (Q1–Q9), pending Nitesh sign-off. **Supersedes the _response model_ of
+D14–D20.** The directional guard's **detection** (state floor, D14) is retained unchanged; its
+**enforcement** changes from a tiered block to warn-only, and the presence layer is repurposed as the
+escalation signal. Phases A (commit-race), A2/B1/B2 (same-stage locks + presence), and B3 are untouched.
+
+### Why revisit
+
+The owner's requirement sharpened: **do not lock users out of upstream stages.** Instead surface a **hard,
+unmissable warning** — naming whoever is actively working downstream — at **two touchpoints** (on entering a
+pre-phase screen, and on saving within it). A user may always proceed after acknowledging. This deliberately
+reverses D15's "another user live → hard block": the earlier "no-one should be _able_ to alter" is now read as
+"no-one should _accidentally_ alter" — enforced by an unmissable named warning, not a lock.
+
+### Resolved model — "presence-escalated warning" (hybrid detect, warn-only respond)
+
+- **Detection — hybrid, unchanged (Q1).** The durable state floor `downstream_priced_count(boq, sheet) > 0`
+  is the baseline: it **always** warns when orphanable work exists. (Pure live-presence was rejected — it
+  re-opens the verified vacated-work hole: a pricer who closes their tab / whose lock TTL lapses would be
+  silently orphaned.)
+- **Escalation — the pricing lock is the live signal (Q3).** B2 presence is **BoQ-level** (`doc_viewers` on
+  the BOQs doc) and cannot pinpoint the pricing stage; the **pricing lock** (`(boq, sheet, version)`,
+  `locked_by`) is version-precise and names the editor. A **fresh** lock held by **another** user → **Live**
+  (named, stronger tone); orphanable work with no fresh other-user lock → **Vacated** (count-only). A
+  self-held lock collapses to count-only — never name yourself (Q9).
+- **Response — warn-only everywhere (Q2, supersedes D15/D16).** An **interrupting acknowledge-to-proceed**
+  modal on save; **never a hard block**, even when another user is Live. No ownership gate.
+- **Two touchpoints (new, extends D14).**
+  1. **On entry** → a persistent **banner** on Review + Config, a per-sheet **card indicator** on the Hub, and
+     a note by the root-metadata (tax/version) controls. On-mount read; **no** live-refresh in v1 (Q4).
+  2. **On save** → the interrupting modal, which **re-reads live state authoritatively** (never trusts the
+     entry banner) (Q5).
+- **Save scope — subsumes the 5 holes (Q7).** _Decisive actions_ (re-commit, force re-parse, un-finalize,
+  root-metadata) → interrupting modal every time. _Incremental edits_ (review row edits, restructure, revert,
+  config toggles) → banner + a **one-time per-mount acknowledgment** on the first edit, then quiet (the
+  backend still gates every save with `confirm_orphan`; the client asks once and auto-confirms the rest).
+- **Recovery — D17 retained, trimmed (Q8).** Rely on the existing freeze-and-supersede preservation + partial
+  copy-forward (nothing is destructively lost). A proactive "prior v{N} had {count} priced cells — copy
+  forward" **surfacing UI is deferred**.
+- **Exported/tendered pricing — D19 softened (Q8).** Same warn-only; the message **notes the export** ("will
+  desync that tender"). No typed-confirm, no block in v1.
+
+### Dropped vs the original D14–D20 (net simplification)
+
+| Original | Amended |
+|---|---|
+| D15 hard block (another-user-live) | Named **warning** (proceed after ack) |
+| D16 Author-or-Admin ownership gate | **Removed** — no block to gate |
+| `committed_by` / `priced_by` fields + migration | **Not needed** — Live name from the lock; Vacated is count-only |
+| M1-vs-M3 (presence-only vs hybrid) | Hybrid **detection** kept; presence used only to _escalate_, never as the sole trigger |
+
+The wizard's would-be **first role check is eliminated**. Net build = enrich the 3 shipped guards' message with
+Live-naming + add entry banners (Review/Config + Hub cards) + wire the 2 pending guards (force-reparse as a
+decisive modal, review/config as a first-edit ack).
+
+### Consequences
+
+- Leaner than D14–D20: **no new schema, no migration, no role check, no hard block** — guard-message
+  enrichment + read-side banners + two new guards.
+- **Accepted trade-off (Q2):** warn-only means a careless user _can_ still orphan Live work after
+  acknowledging — the warning kills **accidents**, not the **possibility**; preservation + copy-forward
+  (retained) keep it recoverable.
+- The 3 shipped guards are **repurposed, not replaced** — they are already warn-only confirms with state-floor
+  detection (verified live 2026-07-03); only their message gains the Live name.
+- Terms coined this session are in `CONTEXT.md` → **BoQ concurrency & directional guard**.

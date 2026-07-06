@@ -59,6 +59,8 @@ The build = **pricing-lock enforcement core + `useEditingLock`/commission realti
 
 ### Cross-stage directional guard (D14–D20)
 
+> **Response model superseded by ADR-0011 Amendment A1** (presence-escalated warn-only): D15 hard-block → named warning; D16 Author-or-Admin gate + attribution fields **dropped**; D17/D19 trimmed. **Detection (D14) unchanged.** The table below is the original design record — see the Phase C section above + ADR § Amendment A1 for the in-force model.
+
 | # | Decision |
 |---|---|
 | D14 | Trigger = **existence** of downstream work (durable state floor); live presence only hardens/names the block. |
@@ -125,30 +127,47 @@ Enforcement core (reuse pricing_lock.py; generalize identity → version-optiona
 
 **B2 · Presence overlay** — hub soft alert + `doc_viewers` "also here" list. **B3 · General-specs fix** (per D11).
 
-### Phase C — cross-stage directional guard
+### Phase C — cross-stage directional guard  — **RESHAPED by ADR-0011 Amendment A1 (presence-escalated warn-only)**
 
-**C0 · State-floor guards (can ride Phase A)** — 5 targeted `_guard_no_downstream_*` existence checks (does an `is_current` committed / priced artifact exist?) wired into the 5 endpoints — closes the *silent* rug-pull immediately, even before the full tiered UX.
+> **Model (Amendment A1, grill-locked Q1–Q9).** *Detect* = state floor (`downstream_priced_count > 0`, **always** warns).
+> *Escalate* = the **pricing lock** names a **Live** other-user editor (else **Vacated** = count-only; a self-held lock =
+> count-only). *Respond* = **warn-only, never block** — an interrupting acknowledge-to-proceed modal on save. *Surface* at
+> **two touchpoints**: a persistent **banner on entry** (Review/Config + Hub per-card + root-metadata note) and the **modal on
+> save** (which re-reads live state). **Dropped:** hard block, Author-or-Admin gate, `committed_by`/`priced_by` attribution +
+> migration. Full rationale + grill trail: `docs/adr/0011-boq-concurrency-locking.md` § Amendment A1.
 
-**C1 · Full tiered guard** (reuses B's D8 locks for presence):
-- Attribution: add/confirm `committed_by` on BoQ Sheet + `priced_by` (last editor) on the pricing tier (or derive from `Nirmaan Versions`).
-- Tiered response (D15): `no downstream work` → allow · `your own` → light confirm · `another's, vacated` → named confirm (**Author-or-Admin**, D16) · `another's, live` → hard block (named) · `exported` → elevated typed confirm (D19).
-- Orphan-and-surface (D17): the new version shows "prior version had N priced cells by X — view / copy forward"; a returning author sees "your pricing is on vN (superseded)"; copy-forward stays opt-in.
-- Scope (D18): per-sheet on the sheet actions; per-BoQ on `update_boq_draft` (`tax_treatment`/`version`); affected-sheet checks for replace-all.
+**C0 · State-floor guards — 3 of 5 wired + shipped as warn-only confirms (verified live 2026-07-03).**
+Wired: re-commit (`commit_boq`), un-finalize (`unmark_sheet_parsed_check_done`), root-metadata (`update_boq_draft`, per-BoQ).
+Pending: force re-parse, Parsed-reviewer window — both re-cast as warnings below. (The 3 shipped guards are already warn-only
+confirms; they are **repurposed, not replaced**.)
 
-**The 5 guards → endpoints**
+**C1 (amended) · Presence-escalated warning** — no new subsystem; enrich C0 + add read-side banners:
+- **Enrich the guard message with the Live name** — `guard_no_downstream_orphan` also reads the pricing lock: a fresh
+  *other-user* lock → "X is pricing v{N} now — proceeding orphans their {count} cells"; else count-only. Self-held → count-only.
+- **On-entry banner** — a small "downstream state for (boq, sheet)" read → persistent banner on Review + Config, a per-sheet
+  **card indicator** on the Hub, a note by the root-metadata controls. On-mount read; **no** live-refresh in v1.
+- **Wire the 2 pending guards as warnings** — force re-parse = a decisive interrupting modal (`parse_run.py`, **by hand**);
+  review/config edits = a **first-edit-of-session ack** (backend gates every save with `confirm_orphan`; the client shows the
+  modal once per mount, then auto-confirms).
+- **Recovery (D17, trimmed)** — rely on existing freeze-and-supersede + partial copy-forward; proactive "prior v{N} had {count}
+  priced cells — copy forward" surfacing UI **deferred**.
+- **Exported/tendered (D19, softened)** — same warn-only; message **notes the export**; no typed-confirm / block in v1.
+- **Dropped from the old C1:** the `committed_by`/`priced_by` fields + migration, the Author-or-Admin role check, and the hard block.
 
-| Hole | Endpoint | Guard fires when |
+**The 5 guards → endpoints (Amendment A1 treatment)**
+
+| Hole | Endpoint | Status → treatment |
 |---|---|---|
-| Parsed reviewer window | review writes on a `Parsed` sheet | downstream commit/pricing exists |
-| Un-finalize | `unmark_sheet_parsed_check_done` (`review_screen.py:2793`) | committed/priced artifact exists |
-| Force re-parse | `run_parse(force_reparse=True)` (`parse_run.py:238`) | committed/priced artifact exists |
-| Re-commit over priced | `commit_boq` | current version has pricing to orphan |
-| Root metadata | `update_boq_draft` (`tax_treatment`/`version`) | **any** sheet in the BoQ is committed/priced |
+| Re-commit over priced | `commit_boq` | ✅ shipped confirm → enrich with Live name |
+| Un-finalize | `unmark_sheet_parsed_check_done` | ✅ shipped confirm → enrich with Live name |
+| Root metadata (per-BoQ, D18) | `update_boq_draft` (`tax_treatment`/`version`) | ✅ shipped confirm → enrich with Live name |
+| Force re-parse | `run_parse(force_reparse=True)` | ⬜ pending → decisive interrupting modal (by hand) |
+| Parsed-reviewer window | review / config writes on a committed+priced sheet | ⬜ pending → entry banner + first-edit-of-session ack |
 
 **Invariants:** re-committing a sheet with **no** downstream pricing = free forward progress (guard keys on orphanable-work-existing, never the action). Do not conflate the general-specs-outranks-`wizard_status` rule or the parse-excludes-Finalized / commit-requires-Finalized asymmetry.
 
 ### Phase D — polish
-Admin force-override UI (D5/D16), data-loss/`beforeunload` refinements (D6), exported-pricing acknowledgment UI (D19).
+Data-loss / `beforeunload` refinements (D6); admin force-override / takeover UI (D5); the **deferred** proactive orphan-surfacing UI + exported-pricing acknowledgment. *(The D16 Author-or-Admin override UI is **dropped** — Amendment A1.)*
 
 ---
 

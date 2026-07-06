@@ -59,3 +59,17 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Area structure** — the mapping of a spreadsheet column to the project area it measures (e.g. column G → "7th floor / T-1"). It is carried by the sheet's *area names* (Section 2) + *column→area mapping* (Section 3), authored by the reviewer. It is **separate** from the header declaration: it is never auto-derived from the area-tier rows.
 
 - **Excluded rows (manual)** — rows the reviewer explicitly removes from the data region *in addition to* the header row, expressed as a list of **skip definitions**. Each skip definition is either a **single row** (one row number) or a **row range** (a start row + an end row, inclusive). This is the primary tool for the two cases the single header row can't cover: extra header tiers *below* the header row (rate splits, area tiers), and a column-header that *repeats mid-sheet* or a stray banner between data rows. They exclude *by position* (not by classification), anywhere in the sheet.
+
+## BoQ concurrency & directional guard
+
+- **Upstream stage** — a BoQ pre-pricing stage whose output a later stage consumes: *Config*, *Review*, and the backward actions *re-parse*, *re-commit*, *un-finalize*, and *root-metadata* (tax treatment / version) edits. Contrast *Downstream stage*.
+
+- **Downstream stage** — the stage that consumes an upstream stage's output. For a committed sheet the downstream stage is **Pricing** of its current committed version (*Tendering* is a later downstream stage). The BoQ phases form a one-way ladder: Config → Review → Commit → Pricing/Tendering.
+
+- **Orphanable work** — priced cells on a sheet's *current committed version*: the work an upstream change would strand. On a re-commit they survive on the now-frozen version but are not carried into the new one (only rates copy forward, and only partially). Zero orphanable work means an upstream change is free forward progress.
+
+- **Live (downstream)** — an orphanable sheet is *Live* when **another** user holds a fresh single-editor pricing lock on its current committed version. A *Live* directional warning names that user. Contrast *Vacated*. A lock held by the *same* user performing the upstream action does not count as Live (you are never warned about yourself).
+
+- **Vacated (downstream)** — orphanable work exists but no other user is currently *Live* on it (nobody holds a fresh pricing lock). A *Vacated* directional warning states only the count — no name.
+
+- **Presence-escalated warning** — the directional guard's response: an unmissable warning that always fires when *orphanable work* exists (*Vacated* → count only) and escalates with the editor's name when the downstream stage is *Live*. It never blocks — the user may proceed after acknowledging. Surfaced at two touchpoints: on entering a pre-phase screen (a banner) and on saving within it (an interrupting confirm). [[0011-boq-concurrency-locking]]

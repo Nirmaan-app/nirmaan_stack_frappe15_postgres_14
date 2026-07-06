@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoQ Concurrency &amp; Locking — As-Built &amp; Pending</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F7F8F7; --surface:#FFFFFF; --ink:#1A2321; --muted:#5C6B66; --faint:#8A9793;
+    --border:#E4E9E7; --border-strong:#D2DAD7;
+    --accent:#0E7C6B; --accent-soft:#E3F3EF; --accent-ink:#0A5D50;
+    --violet:#5A4E86; --violet-soft:#ECE7F6;
+    --red:#B8402A; --red-soft:#FBE9E4;
+    --amber:#9A6A11; --amber-soft:#FBF0DA;
+    --slate:#556; --slate-soft:#EEF1F3;
+    --code-bg:#12211E; --code-ink:#D7E6E1;
+    --font-head:'Bricolage Grotesque',system-ui,sans-serif;
+    --font-body:'DM Sans',system-ui,sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,monospace;
+    --r:14px; --rs:9px; --rfull:999px;
+    --shadow:0 1px 2px rgba(20,40,35,.05),0 6px 20px rgba(20,40,35,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;font-family:var(--font-body);color:var(--ink);background:var(--bg);
+    line-height:1.62;font-size:16.5px;-webkit-font-smoothing:antialiased;
+    background-image:radial-gradient(ellipse at 15% 0%,rgba(14,124,107,.05),transparent 55%);
+  }
+  .wrap{max-width:940px;margin:0 auto;padding:0 22px 120px}
+  h1,h2,h3,h4{font-family:var(--font-head);font-weight:700;line-height:1.15;letter-spacing:-.01em;color:var(--ink)}
+  h2{font-size:1.72rem;margin:2.9rem 0 .5rem;padding-top:.6rem}
+  h3{font-size:1.24rem;margin:1.9rem 0 .5rem}
+  h4{font-size:1.02rem;margin:1.4rem 0 .4rem;font-weight:600}
+  p{margin:.6rem 0}
+  a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid var(--accent-soft)}
+  code{font-family:var(--font-mono);font-size:.86em;background:var(--slate-soft);padding:.08em .38em;border-radius:5px;color:#243}
+  strong{font-weight:600}
+  hr{border:none;border-top:1px solid var(--border);margin:2.4rem 0}
+
+  /* Hero */
+  header.hero{padding:56px 0 12px}
+  .eyebrow{font-family:var(--font-mono);font-size:.76rem;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  header.hero h1{font-size:2.7rem;font-weight:800;margin:.35rem 0 .3rem;letter-spacing:-.025em}
+  header.hero .sub{font-size:1.12rem;color:var(--muted);max-width:70ch}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+  .chip{font-family:var(--font-mono);font-size:.76rem;font-weight:500;padding:4px 11px;border-radius:var(--rfull);background:var(--surface);border:1px solid var(--border-strong);color:var(--muted)}
+  .chip b{color:var(--ink);font-weight:600}
+
+  /* TOC */
+  nav.toc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin:26px 0 8px;box-shadow:var(--shadow)}
+  nav.toc h4{margin:0 0 8px;font-family:var(--font-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  nav.toc ol{margin:0;padding-left:1.1rem;columns:2;column-gap:34px}
+  nav.toc li{margin:.18rem 0;break-inside:avoid}
+  nav.toc a{border:none;color:var(--ink);font-size:.94rem}
+  nav.toc a:hover{color:var(--accent-ink)}
+
+  /* Badges */
+  .badge{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:.72rem;font-weight:600;padding:2px 10px;border-radius:var(--rfull);letter-spacing:.02em;white-space:nowrap;vertical-align:middle}
+  .badge::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor}
+  .b-ship{color:var(--accent);background:var(--accent-soft)}
+  .b-pend{color:var(--amber);background:var(--amber-soft)}
+  .b-drop{color:var(--slate);background:var(--slate-soft)}
+  .b-verif{color:var(--accent);background:var(--accent-soft)}
+
+  /* Actor pills */
+  .actor{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:.78rem;font-weight:600;padding:1px 9px 1px 7px;border-radius:var(--rfull);white-space:nowrap;vertical-align:baseline}
+  .actor::before{content:'';width:8px;height:8px;border-radius:50%;background:currentColor}
+  .a-a{color:var(--red);background:var(--red-soft)}
+  .a-b{color:var(--violet);background:var(--violet-soft)}
+  .a-s{color:var(--accent);background:var(--accent-soft)}
+
+  /* Cards */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px 24px;margin:16px 0;box-shadow:var(--shadow)}
+  .feat{border-left:4px solid var(--accent)}
+  .feat.pending{border-left-color:var(--amber)}
+  .feat-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:2px}
+  .feat-head .tag{font-family:var(--font-mono);font-size:.8rem;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:2px 9px;border-radius:6px}
+  .feat.pending .tag{color:var(--amber);background:var(--amber-soft)}
+  .feat-head h3{margin:0;font-size:1.2rem}
+  .lead{color:var(--muted);font-size:1.02rem;margin:.3rem 0 .8rem}
+
+  .kv{font-family:var(--font-mono);font-size:.8rem;color:var(--faint);margin:.9rem 0 .2rem;letter-spacing:.06em;text-transform:uppercase;font-weight:600}
+
+  /* Code */
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:var(--rs);padding:15px 17px;overflow-x:auto;font-family:var(--font-mono);font-size:.82rem;line-height:1.6;margin:.6rem 0;border:1px solid #1d322e}
+  pre .c{color:#7FA99E}      /* comment */
+  pre .k{color:#8AD6C0}      /* keyword */
+  pre .s{color:#E4C580}      /* string */
+  pre .fn{color:#9CC7FF}     /* func / marker */
+  pre .n{color:#E38F7A}      /* number / danger */
+  .filelabel{font-family:var(--font-mono);font-size:.74rem;color:var(--faint);margin:.8rem 0 -.2rem;font-weight:500}
+
+  /* Scenario timeline */
+  .scene{background:linear-gradient(180deg,#FBFCFB,#F4F7F6);border:1px solid var(--border);border-radius:var(--r);padding:6px 4px 6px 0;margin:14px 0}
+  .scene .row{display:grid;grid-template-columns:82px 1fr;gap:10px;padding:8px 18px;align-items:baseline;border-bottom:1px dashed var(--border)}
+  .scene .row:last-child{border-bottom:none}
+  .scene .t{font-family:var(--font-mono);font-size:.72rem;color:var(--faint);text-align:right;font-weight:600}
+  .scene .ev{font-size:.95rem}
+  .scene .ev .r{color:var(--red);font-weight:600}
+  .scene .ev .g{color:var(--accent);font-weight:600}
+
+  /* Callouts */
+  .note{border-radius:var(--rs);padding:13px 17px;margin:14px 0;font-size:.96rem;border:1px solid}
+  .note .lab{font-family:var(--font-mono);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:3px}
+  .n-key{background:var(--accent-soft);border-color:#BEE3DA;color:#0B4A40}
+  .n-key .lab{color:var(--accent)}
+  .n-warn{background:var(--amber-soft);border-color:#EBD3A0;color:#6B4A0C}
+  .n-warn .lab{color:var(--amber)}
+  .n-haz{background:var(--red-soft);border-color:#EFC4B8;color:#7A2A19}
+  .n-haz .lab{color:var(--red)}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.92rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{background:#F0F4F2;font-family:var(--font-mono);font-size:.74rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td code{font-size:.82em}
+  .tbl-scroll{overflow-x:auto}
+
+  .verified{display:flex;align-items:flex-start;gap:9px;background:var(--accent-soft);border:1px solid #BEE3DA;border-radius:var(--rs);padding:10px 14px;margin:.7rem 0;font-size:.92rem;color:#0B4A40}
+  .verified .ok{font-weight:700;color:var(--accent)}
+
+  ul.tight{margin:.5rem 0;padding-left:1.2rem}
+  ul.tight li{margin:.28rem 0}
+  .why{background:#FCFBF6;border:1px dashed #E4D9B8;border-radius:var(--rs);padding:12px 16px;margin:.6rem 0}
+  .why .lab{font-family:var(--font-mono);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--amber);display:block;margin-bottom:2px}
+  footer{margin-top:60px;padding-top:20px;border-top:1px solid var(--border);color:var(--faint);font-size:.86rem}
+  .dim{color:var(--faint)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">As-Built &amp; Pending · ADR-0011</div>
+  <h1>BoQ Concurrency &amp; Locking</h1>
+  <p class="sub">What was actually built on <code>feature/boq-concurrency-locking</code>, worked examples of each mechanism, the live two-user E2E results — and what is still pending, with the reason each pending piece is still needed.</p>
+  <div class="meta-row">
+    <span class="chip">Branch <b>feature/boq-concurrency-locking</b></span>
+    <span class="chip">Base <b>develop @ 96f4f5bc</b></span>
+    <span class="chip">9 commits · <b>23 files · ~2.7k LOC</b></span>
+    <span class="chip">Status <b>local-only · not pushed</b></span>
+    <span class="chip">ADR-0011 <b>Proposed</b></span>
+    <span class="chip">Verified <b>E2E 2026-07-03</b></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#why">Why this exists — 2 hazards</a></li>
+    <li><a href="#model">The three-dimension model</a></li>
+    <li><a href="#a1">A1 · Commit-race fix</a></li>
+    <li><a href="#a2">A2 · Realtime pricing lock</a></li>
+    <li><a href="#b1">B1 · Draft-tier lock</a></li>
+    <li><a href="#b2">B2 · Presence overlay</a></li>
+    <li><a href="#b3">B3 · General-specs compare-and-set</a></li>
+    <li><a href="#c0">C0 · Directional guard</a></li>
+    <li><a href="#e2e">Live E2E results</a></li>
+    <li><a href="#pending">Pending — &amp; why still needed</a></li>
+    <li><a href="#question">The open design question</a></li>
+  </ol>
+</nav>
+
+<!-- ═══════════════════════════ WHY ═══════════════════════════ -->
+<h2 id="why">Why this exists — two verified hazards</h2>
+<p>The BoQ wizard is multi-user, but before this branch it had <strong>almost no concurrency control</strong> — only the pricing editor held a lock, and even that never <em>notified</em> anyone. Two distinct, adversarially-verified hazards drove the work.</p>
+
+<div class="note n-haz">
+  <span class="lab">Hazard 1 — Commit duplicate-<code>is_current</code> race</span>
+  <code>_next_commit_version</code> reads <code>max(commit_version)+1</code> on a plain read, then freeze-then-inserts with <strong>no</strong> <code>SELECT FOR UPDATE</code>, <strong>no</strong> in-progress flag, <strong>no</strong> unique index. Two concurrent commits of one <code>(boq, sheet)</code> both write <code>is_current=1</code>. Every downstream pricing read resolves the sheet by <code>is_current=1</code> (not <code>max(version)</code>) — so a duplicate <strong>silently and non-deterministically corrupts</strong> the invariant the whole pricing layer depends on.
+</div>
+
+<div class="note n-haz">
+  <span class="lab">Hazard 2 — Cross-stage "rug-pull"</span>
+  BoQ phases are a one-way ladder (<b>Config → Review → Commit → Pricing/Tendering</b>), but every backward endpoint is a role-less <code>@frappe.whitelist</code>, and every existing guard is a <em>user-agnostic forward freeze</em>. A user in an earlier stage can <b>Force Re-parse</b> + <b>re-commit</b> a sheet another user has priced. Pricing keys on <code>committed_version</code>; a re-commit mints <code>v+1</code>, freezes the prior, and the editor only ever loads <code>is_current</code> — so the downstream pricer's work is <strong>silently orphaned</strong> on the frozen version (invisible), recoverable only via partial copy-forward (rates only; formulas / remarks / colours lost).
+</div>
+
+<!-- ═══════════════════════════ MODEL ═══════════════════════════ -->
+<h2 id="model">The three-dimension model</h2>
+<p>Rather than invent a subsystem, the build reuses in-house patterns across <strong>three orthogonal dimensions</strong>. Each answers a different question.</p>
+<div class="tbl-scroll"><table>
+  <tr><th>Dimension</th><th>Question it answers</th><th>Scope</th><th>Built from</th></tr>
+  <tr><td><b>Draft-tier lock</b> (same-stage)</td><td>Is a peer editing Config/Review of this sheet <em>now</em>?</td><td><code>(boq, sheet)</code></td><td>Pricing-lock engine, <code>version=0</code> sentinel</td></tr>
+  <tr><td><b>Pricing lock</b> (same-stage)</td><td>Is a peer pricing this committed version <em>now</em>?</td><td><code>(boq, sheet, version)</code></td><td>Existing lock + new realtime layer</td></tr>
+  <tr><td><b>Directional guard</b> (cross-stage)</td><td>Does a <em>later</em> stage hold work my <em>earlier</em> action would orphan?</td><td>Across the ladder</td><td>5 targeted existence checks</td></tr>
+</table></div>
+<p class="dim">The single-editor lock is a fused primitive: the pricing lock's <em>enforcement core</em> (deterministic-PK acquire → exactly-one-winner) + a <em>realtime</em> layer (<code>boq:lock_changed</code> broadcast) + a <em>cleanup</em> layer (heartbeat + <code>sendBeacon</code> release). A server-side break-glass flag (<code>boq_locks_disabled</code>, default enforcing) can disable all of it in prod.</p>
+
+<!-- ═══════════════════════════ A1 ═══════════════════════════ -->
+<h2 id="a1">Shipped features</h2>
+
+<div class="card feat">
+  <div class="feat-head"><span class="tag">A1</span><h3>Commit-race fix</h3><span class="badge b-ship">Shipped</span></div>
+  <p class="lead">Makes "exactly one <code>is_current</code> per <code>(boq, sheet)</code>" a <strong>database guarantee</strong>, not a convention — and serialises concurrent commits for clean UX.</p>
+
+  <div class="kv">Mechanism — defence in depth</div>
+  <ul class="tight">
+    <li><b>Durable backstop:</b> a <b>partial unique index</b> <code>(boq, sheet_name) WHERE is_current=1</code> on <code>BoQ Sheet</code> and <code>(boq, source_sheet_name)</code> on the grid tier. A concurrent duplicate <code>INSERT</code> now fails with <code>IntegrityError</code> (caught per-sheet → reported in <code>failed[]</code>) instead of corrupting.</li>
+    <li><b>Graceful UX:</b> a per-BoQ PostgreSQL <b>advisory lock</b> (<code>pg_try_advisory_lock</code>) serialises commits, so a 2nd concurrent commit computes <code>N+2</code> rather than colliding on <code>N+1</code>.</li>
+    <li><b>Heal-then-constrain migration:</b> before adding the index, demote any pre-existing duplicate — keep the highest <code>commit_version</code>, never delete frozen history.</li>
+  </ul>
+
+  <div class="filelabel">patches/v3_0/boq_commit_current_unique_guard.py</div>
+<pre><span class="c"># CONSTRAIN — a duplicate is_current INSERT now fails at the DB, cannot corrupt</span>
+<span class="k">CREATE UNIQUE INDEX IF NOT EXISTS</span> uq_boq_sheet_current
+    <span class="k">ON</span> <span class="s">"tabBoQ Sheet"</span> (boq, sheet_name) <span class="k">WHERE</span> is_current = <span class="n">1</span>;</pre>
+
+  <div class="filelabel">commit_pipeline.py — graceful serialization</div>
+<pre><span class="k">if not</span> frappe.db.sql(<span class="s">"SELECT pg_try_advisory_lock(%s)"</span>, (_commit_lock_key,))[<span class="n">0</span>][<span class="n">0</span>]:
+    <span class="c"># another commit of this BoQ is in flight — reject cleanly, corrupt nothing</span>
+    frappe.throw(<span class="s">"A commit for this BoQ is already in progress…"</span>)
+<span class="c"># … released in a finally: block, on both success and failure paths</span></pre>
+
+  <div class="verified"><span class="ok">Note</span><span>The index (not the flag) is the real guarantee — it holds even across workers and check-then-set gaps. Live data was clean at authoring time, so the heal is a safety net for other environments.</span></div>
+</div>
+
+<!-- ═══════════════════════════ A2 ═══════════════════════════ -->
+<div class="card feat" id="a2">
+  <div class="feat-head"><span class="tag">A2</span><h3>Realtime single-editor pricing lock</h3><span class="badge b-ship">Shipped</span></div>
+  <p class="lead">The pricing lock already <em>enforced</em> (server throw) but never <em>notified</em> — a 2nd user learned only on a failed save, and a holder who left stranded the sheet for 5 minutes. A2 adds the realtime + cleanup layer.</p>
+
+  <div class="kv">Mechanism</div>
+  <ul class="tight">
+    <li><b>Acquire on first edit-intent</b> — the grid's first dirty keystroke calls <code>acquire_pricing_lock</code> (not on mount, not on save).</li>
+    <li><b>Broadcast</b> <code>boq:lock_changed</code> after commit → every open pricing screen flips read-only / frees <em>live</em>, sub-second.</li>
+    <li><b>Cleanup</b> — a ~30 s heartbeat refreshes the lock while held; <code>navigator.sendBeacon</code> releases it on unload/unmount; a ~2-min edit-driven TTL frees a hard-crash lazily.</li>
+    <li><b>Reject writes nothing</b> — a 2nd writer gets <code>BOQ_PRICING_LOCKED</code> and the server mutates nothing.</li>
+  </ul>
+
+  <div class="filelabel">pricing_lock.py — the broadcast (reused by the draft tier too)</div>
+<pre><span class="k">def</span> <span class="fn">broadcast_lock_changed</span>(boq, sheet_name, version, action, locked_by):
+    <span class="c"># caller must frappe.db.commit() FIRST (commit-before-publish)</span>
+    frappe.<span class="fn">publish_realtime</span>(
+        event=<span class="s">"boq:lock_changed"</span>,
+        message={<span class="s">"boq"</span>:boq, <span class="s">"sheet_name"</span>:sheet_name,
+                 <span class="s">"version"</span>:version, <span class="s">"action"</span>:action, <span class="s">"locked_by"</span>:locked_by},
+    )</pre>
+
+  <div class="kv">Worked example — two users, one committed version</div>
+  <div class="scene">
+    <div class="row"><div class="t">t0</div><div class="ev"><span class="actor a-b">User&nbsp;B</span> opens the pricing screen — sees rates, editable.</div></div>
+    <div class="row"><div class="t">t1</div><div class="ev"><span class="actor a-a">User&nbsp;A</span> types the first rate → <code>acquire_pricing_lock</code> <span class="g">✓</span>, broadcast <code>acquired</code>.</div></div>
+    <div class="row"><div class="t">t1+200ms</div><div class="ev"><span class="actor a-b">User&nbsp;B</span>'s screen flips <span class="r">read-only</span> with "🔒 Being edited by Administrator" — <b>no refresh</b>.</div></div>
+    <div class="row"><div class="t">t2</div><div class="ev"><span class="actor a-a">User&nbsp;A</span> navigates away → <code>sendBeacon</code> release, broadcast <code>released</code>.</div></div>
+    <div class="row"><div class="t">t2+</div><div class="ev"><span class="actor a-b">User&nbsp;B</span>'s screen re-enables <span class="g">live</span>.</div></div>
+  </div>
+  <div class="verified"><span class="ok">✓ Verified live</span><span>Two-user flip observed instantly (no reload); DB lock row + <code>acquire_pricing_lock [200]</code> / <code>release</code> confirmed; full acquire → flip → release cycle green.</span></div>
+</div>
+
+<!-- ═══════════════════════════ B1 ═══════════════════════════ -->
+<div class="card feat" id="b1">
+  <div class="feat-head"><span class="tag">B1</span><h3>Draft-tier single-editor lock (Config + Review)</h3><span class="badge b-ship">Shipped</span></div>
+  <p class="lead">Config/Review collisions are <em>destructive</em> (whole-blob clobber, cross-row tree corruption). B1 extends the same locking primitive to the draft tier — with <strong>no new doctype and no migration</strong>.</p>
+
+  <div class="note n-key">
+    <span class="lab">The elegant trick</span>
+    Reuse the <code>BoQ Sheet Pricing Lock</code> doctype with a <b>sentinel <code>committed_version = 0</code></b>. Real committed versions start at 1, so the draft identity <code>sha1(boq ␀ sheet ␀ 0)</code> is disjoint from every pricing-lock identity. One engine, two tiers, zero schema change.
+  </div>
+
+  <div class="kv">Mechanism</div>
+  <ul class="tight">
+    <li>Acquired on <b>first edit-intent</b> in every draft <em>write</em> endpoint — config writers, review edit / restructure / revert, and the AI-accept writers — <em>after</em> the existing freeze guards, <em>before</em> the write.</li>
+    <li><b>Spans Config ↔ Review</b> of one <code>(boq, sheet)</code>. It is <b>not</b> keyed on <code>wizard_status</code> (which flips mid-edit); the <code>version=0</code> sentinel is stable across the whole draft lifecycle.</li>
+    <li>Annotation-only writes (<code>save_review_remark</code>, <code>dismiss_row_flags</code>) do <b>not</b> acquire — a remark is not an edit.</li>
+    <li>Distinct <code>BOQ_DRAFT_LOCKED</code> marker lets the frontend tell a draft reject from a pricing reject.</li>
+  </ul>
+
+  <div class="filelabel">draft_lock.py — thin wrapper over the shared engine</div>
+<pre><span class="fn">DRAFT_LOCK_VERSION</span> = <span class="n">0</span>            <span class="c"># sentinel — never collides with a real version (≥1)</span>
+_DRAFT_MARKER = <span class="s">"BOQ_DRAFT_LOCKED"</span>
+
+<span class="k">def</span> <span class="fn">acquire_or_refresh</span>(boq, sheet_name, user, now):
+    <span class="k">return</span> pricing_lock.<span class="fn">acquire_or_refresh</span>(
+        boq, sheet_name, <span class="fn">DRAFT_LOCK_VERSION</span>, user, now,
+        marker=_DRAFT_MARKER, activity=<span class="s">"edited"</span>,   <span class="c"># reuse the pricing engine verbatim</span>
+    )</pre>
+
+  <div class="verified"><span class="ok">✓ Verified live</span><span>Review edit → <code>acquire_draft_lock [200]</code>, DB row with <code>committed_version=0</code>. User B's Review screen flipped read-only instantly. <b>Cross-screen invariant proven:</b> the lock acquired via Review also made the Config screen read-only for User B — one lock, both stages.</span></div>
+</div>
+
+<!-- ═══════════════════════════ B2 ═══════════════════════════ -->
+<div class="card feat" id="b2">
+  <div class="feat-head"><span class="tag">B2</span><h3>"Who else is here" presence overlay</h3><span class="badge b-ship">Shipped</span></div>
+  <p class="lead">Presence ≠ lock. A complementary <b>BoQ-level</b> awareness badge (built on Frappe-core <code>doc_viewers</code>) shows who else has the BoQ open — on all four screens (hub, config, review, pricing).</p>
+  <div class="kv">Why it is separate from the lock</div>
+  <p>Presence has no ownership and no server reject — you cannot build a write-block on "who has the doc open" (the PR app proved this: its input-block was coded and <em>deliberately commented out</em>). So presence stays purely informational; enforcement is the lock's job.</p>
+  <div class="verified"><span class="ok">✓ Verified live</span><span>"Also here: Nived K K" rendered on all four screens, both directions, in realtime.</span></div>
+</div>
+
+<!-- ═══════════════════════════ B3 ═══════════════════════════ -->
+<div class="card feat" id="b3">
+  <div class="feat-head"><span class="tag">B3</span><h3>General-specs compare-and-set</h3><span class="badge b-ship">Shipped</span></div>
+  <p class="lead">The hub general-specs Save is replace-all (delete-then-reinsert). Two users editing the ticked set concurrently would silently clobber each other. B3 turns that silent lost-update into a <strong>visible, recoverable conflict</strong>.</p>
+
+  <div class="kv">Mechanism — optimistic concurrency</div>
+  <p>The client sends <code>expected_current</code> — the set it <em>loaded</em>. The server compares it to the live DB set; if they differ (a concurrent change), it rejects instead of clobbering.</p>
+
+  <div class="filelabel">update_sheet_draft.py :: set_general_specs_sheet</div>
+<pre><span class="k">if</span> current != <span class="fn">set</span>(expected_current <span class="k">or</span> []):
+    frappe.<span class="fn">throw</span>(
+        <span class="s">"The general-specs selection was changed by someone else since you "</span>
+        <span class="s">"loaded it. Reload the BoQ and re-apply your change."</span>,
+        title=<span class="s">"Selection changed"</span>,
+    )</pre>
+  <div class="verified"><span class="ok">✓ Verified live</span><span>Client payload carried <code>expected_current:["MAKES"]</code>; a stale baseline threw "Selection changed"; matching baseline saved. Set unchanged — no clobber.</span></div>
+</div>
+
+<!-- ═══════════════════════════ C0 ═══════════════════════════ -->
+<div class="card feat" id="c0">
+  <div class="feat-head"><span class="tag">C0</span><h3>Directional guard — the state floor</h3><span class="badge b-ship">3 of 5 wired</span></div>
+  <p class="lead">The cross-stage dimension: turn the silent rug-pull into an <strong>explicit, acknowledged</strong> action. An earlier-stage endpoint that would orphan downstream pricing throws <code>BOQ_DOWNSTREAM_ORPHAN</code> (with the exact count) <em>unless</em> the caller passes an explicit confirm flag.</p>
+
+  <div class="kv">The five holes — and what is wired today</div>
+  <div class="tbl-scroll"><table>
+    <tr><th>Hole</th><th>Endpoint</th><th>Status</th></tr>
+    <tr><td>Re-commit over priced</td><td><code>commit_boq</code></td><td><span class="badge b-ship">Wired</span></td></tr>
+    <tr><td>Un-finalize</td><td><code>unmark_sheet_parsed_check_done</code></td><td><span class="badge b-ship">Wired</span></td></tr>
+    <tr><td>Root metadata</td><td><code>update_boq_draft</code> (tax/version)</td><td><span class="badge b-ship">Wired</span></td></tr>
+    <tr><td>Force re-parse</td><td><code>run_parse(force_reparse=True)</code></td><td><span class="badge b-pend">Pending</span></td></tr>
+    <tr><td>Parsed-reviewer window</td><td><code>save_review_edit</code> et al.</td><td><span class="badge b-pend">Pending</span></td></tr>
+  </table></div>
+
+  <div class="filelabel">directional_guard.py — pure existence check, writes nothing</div>
+<pre><span class="fn">ORPHAN_MARKER</span> = <span class="s">"BOQ_DOWNSTREAM_ORPHAN"</span>   <span class="c"># stable token the frontend switches on</span>
+
+<span class="k">def</span> <span class="fn">guard_no_downstream_orphan</span>(boq, sheet_name, confirm, action):
+    count = <span class="fn">downstream_priced_count</span>(boq, sheet_name)   <span class="c"># priced cells on is_current version</span>
+    <span class="k">if</span> count <span class="k">and not</span> <span class="fn">_truthy</span>(confirm):
+        frappe.<span class="fn">throw</span>(
+            <span class="s">f"{ORPHAN_MARKER}: '{sheet_name}' has {count} priced cell(s) on the "</span>
+            <span class="s">f"current committed version. A {action} will orphan them… Confirm to proceed."</span>,
+            title=<span class="s">"This will orphan priced cells"</span>,
+        )
+    <span class="k">return</span> count   <span class="c"># 0 ⇒ free forward progress, no guard</span></pre>
+
+  <div class="kv">Frontend contract</div>
+  <p>Each endpoint gets a <code>confirm_orphan</code> param. The reject mutates nothing. The frontend detects the marker → shows an <code>AlertDialog</code> ("This will orphan priced cells… <b>Re-commit anyway</b> / <b>Un-finalize anyway</b>") → on confirm, retries with <code>confirm_orphan=true</code>. <code>CommitDialog.tsx</code> is the reference implementation.</p>
+
+  <div class="kv">Worked example — the rug-pull, now gated</div>
+  <div class="scene">
+    <div class="row"><div class="t">state</div><div class="ev">Sheet ELECTRICAL is committed <code>v1</code> with 7 priced cells (a later phase is active).</div></div>
+    <div class="row"><div class="t">action</div><div class="ev"><span class="actor a-a">User&nbsp;A</span> finalizes it and hits <b>Commit</b> → <code>commit_boq(confirm_orphan=None)</code>.</div></div>
+    <div class="row"><div class="t">guard</div><div class="ev">Server throws <span class="r">BOQ_DOWNSTREAM_ORPHAN</span> "…7 priced cell(s)…" — <b>before any write</b>.</div></div>
+    <div class="row"><div class="t">UI</div><div class="ev">Dialog: "This will orphan priced cells (7)". <span class="actor a-a">User&nbsp;A</span> clicks <b>Cancel</b> → nothing committed, no <code>v2</code>.</div></div>
+  </div>
+  <div class="verified"><span class="ok">✓ Verified live</span><span>Both wired guards fired the exact dialog with count <b>7</b>; Cancel left <code>v1</code> intact (no <code>v2</code> minted); <code>confirm_orphan=true</code> bypass worked. Backend also proven at the endpoint level (rolled back).</span></div>
+
+  <div class="why">
+    <span class="lab">Design note — why only 3 of 5 are correctness-critical</span>
+    The orphan is only <em>realized</em> at <b>re-commit</b> (and root-metadata). The other endpoints (un-finalize, force-reparse, review edits) are <em>gateways</em> — remove their guards and the re-commit keystone still catches the orphan at the moment it actually happens. So the two pending guards are <b>early warnings</b>, not the last line of defence.
+  </div>
+</div>
+
+<!-- ═══════════════════════════ E2E ═══════════════════════════ -->
+<h2 id="e2e">Live two-user E2E results <span class="badge b-verif" style="font-size:.7rem;vertical-align:middle">2026-07-03</span></h2>
+<p>Driven via chrome-devtools on <code>localhost:8080</code> — User A = Administrator (driven), User B = a second impersonated user. Break-glass OFF (locks enforcing) throughout; fixture <code>BOQ-26-00035 / ELECTRICAL</code> fully restored afterward.</p>
+<div class="tbl-scroll"><table>
+  <tr><th>#</th><th>Check</th><th>Result</th></tr>
+  <tr><td>A2</td><td>Pricing lock — acquire + self-presence</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>A2</td><td>Pricing lock — cross-user read-only flip (realtime)</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>A2</td><td>Pricing lock — release-on-leave</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>B1</td><td>Draft lock (Review) — acquire (<code>version=0</code>) + flip</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>B1</td><td>Draft lock — Config↔Review span invariant</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>B1</td><td>Draft lock — release</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>B2</td><td>Presence badge — all 4 screens, both directions</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>B3</td><td>General-specs — client baseline + stale-conflict reject</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>C0</td><td>Re-commit-over-priced orphan confirm (count 7)</td><td><span class="badge b-verif">Pass</span></td></tr>
+  <tr><td>C0</td><td>Un-finalize orphan confirm (count 7) + bypass</td><td><span class="badge b-verif">Pass</span></td></tr>
+</table></div>
+
+<!-- ═══════════════════════════ PENDING ═══════════════════════════ -->
+<h2 id="pending">Pending — and why each is still needed</h2>
+<p>Phases A and B are complete and E2E-verified. Phase C is ~60% (3 of 5 guards, flat confirms). Here is what remains from my end, ordered by leverage, each with the reason it is still needed.</p>
+
+<div class="card feat pending">
+  <div class="feat-head"><span class="tag">C0·rest</span><h3>The 2 unwired directional guards</h3><span class="badge b-pend">Pending · low urgency</span></div>
+  <p class="lead">Force-reparse (<code>run_parse</code>) and the Parsed-reviewer window (<code>save_review_edit</code> et al.) still have no <code>confirm_orphan</code> gate.</p>
+  <div class="why"><span class="lab">Why still needed</span>
+    They are <b>early warnings</b> — they surface the orphan risk at the moment the user starts the regression, not only at the final commit. Without them a reviewer can quietly re-parse and rework a priced sheet and only hit the wall at re-commit, having already lost their intermediate context. <b>Not correctness-critical</b> (the re-commit keystone is the backstop), so this is genuinely descope-able if you prefer the minimal surface. <span class="dim">Note: do <code>parse_run.py</code> by hand — a prior automated edit broke that large file.</span>
+  </div>
+</div>
+
+<div class="card feat pending">
+  <div class="feat-head"><span class="tag">C1</span><h3>Presence-escalated warning <span style="font-weight:400;font-size:.82rem;color:var(--muted)">— amended (ADR-0011 A1)</span></h3><span class="badge b-pend">Pending · design locked</span></div>
+  <p class="lead">The amended C1 keeps the guard <strong>warn-only — no blocks</strong> — and enriches it with a live name + an on-entry banner. <em>This supersedes the earlier tiered-block / attribution design</em> (grill Q1–Q9).</p>
+  <ul class="tight">
+    <li><b>Enrich the message with the Live name</b> — the guard also reads the pricing lock: a fresh <em>other-user</em> lock → "X is pricing v{N} now — proceeding orphans their {count} cells"; else count-only (Vacated); a self-held lock → count-only. <b>No attribution schema</b> — the name comes free from the lock.</li>
+    <li><b>On-entry banner</b> — persistent banner on Review / Config, a per-sheet card indicator on the Hub, a note by the root-metadata controls; the interrupting modal is reserved for <b>save</b>.</li>
+    <li><b>Wire the 2 pending guards as warnings</b> — force re-parse = a decisive modal; review / config edits = a <b>first-edit-of-session ack</b> (not per-keystroke).</li>
+    <li><b>Dropped:</b> the hard block, the Author-or-Admin role check, and the <code>committed_by</code>/<code>priced_by</code> fields + migration.</li>
+  </ul>
+  <div class="why"><span class="lab">Why still needed</span>
+    It delivers "<em>no-one should <b>accidentally</b> alter another phase's work</em>": an unmissable, named warning at <b>entry</b> and at <b>save</b>. Warn-only means orphaning stays <em>possible</em> but never <em>silent</em>; the existing freeze + copy-forward keep it recoverable. Detection is already shipped (the 3 confirms) — this is the message enrichment + banners + the 2 remaining guards, re-cast as warnings.
+  </div>
+</div>
+
+<div class="card feat pending">
+  <div class="feat-head"><span class="tag">D</span><h3>Polish</h3><span class="badge b-pend">Pending · not started</span></div>
+  <ul class="tight">
+    <li><b>Admin force-override UI</b> — a displaced holder currently frees lazily on TTL; the explicit takeover affordance is unbuilt.</li>
+    <li><b>Unsaved-draft / <code>beforeunload</code> refinements</b> — preserve-and-flag hardening.</li>
+    <li><b>Exported-pricing elevated acknowledgment UI</b> — the data signal exists ("priced since last export" badge already shows); the elevated ack dialog does not.</li>
+  </ul>
+  <div class="why"><span class="lab">Why still needed</span>
+    Edge-case ergonomics — prevents a stranded lock needing a 2-min wait, and makes desyncing an <em>already-exported</em> tender a loud, deliberate act rather than a quiet one. Lower priority than C1.
+  </div>
+</div>
+
+<div class="card feat pending">
+  <div class="feat-head"><span class="tag">Process</span><h3>Sign-off &amp; merge</h3><span class="badge b-pend">Pending</span></div>
+  <ul class="tight">
+    <li><b>ADR-0011 is still "Proposed"</b> → pending Nitesh sign-off. D11 (general-specs) is effectively decided as compare-and-set (B3 implements it); the ADR may need a note marking it resolved.</li>
+    <li>Branch is <b>local-only, not pushed, not merged</b> to develop.</li>
+  </ul>
+</div>
+
+<h4>Explicitly deferred (not part of finishing this branch)</h4>
+<p class="dim">Harden the PR "In-Progress" surface into a real lock · extract the lock as an app-wide <code>useEntityLock</code> module · cell-level live cursors · crash-free realtime push (a scheduled <code>expired</code> sweep so a passively-waiting user is pushed the instant a crashed holder's TTL lapses).</p>
+
+<!-- ═══════════════════════════ QUESTION ═══════════════════════════ -->
+<h2 id="question">The open design question</h2>
+<p>A reassessment surfaced: <em>given that locks, finalization and the commit pipeline already exist, do we still need the directional guard at all?</em> The verified answer is <strong>yes</strong> — none of the existing mechanisms covers this, because they are all same-stage or preservation, and the concern is cross-stage.</p>
+<div class="tbl-scroll"><table>
+  <tr><th>Existing mechanism</th><th>What it protects</th><th>Blocks upstream alteration of a priced sheet?</th></tr>
+  <tr><td>Draft lock (v0) + Pricing lock (v<sub>N</sub>)</td><td>Two people editing the <em>same</em> stage at once</td><td><b>No</b> — the two locks live on different version keys and never see each other; <code>commit_boq</code> never checks the pricing lock.</td></tr>
+  <tr><td>Finalization freeze</td><td>Casual review edits while Finalized</td><td><b>No</b> — un-markable, and it is the <em>gateway</em> to the rug-pull; it does not gate re-commit.</td></tr>
+  <tr><td>Commit pipeline (freeze-and-supersede)</td><td>Preserves prior versions as history</td><td><b>No</b> — it is the <em>source</em> of the orphaning; role-less, never asks "is this version priced?"</td></tr>
+</table></div>
+<div class="note n-key">
+  <span class="lab">Resolved — Amendment A1 (grill Q1–Q9)</span>
+  Keep the guard, but make the response a <b>presence-escalated <em>warning</em>, never a block</b> — the owner reframed "no-one should be <em>able</em> to alter" as "no-one should <em>accidentally</em> alter". Detection stays the state floor; a fresh <em>other-user</em> pricing lock escalates it to a <b>named</b> warning; the user may always proceed after acknowledging. This <em>drops</em> the hard block, the Author-or-Admin gate, and the attribution fields + migration. Full model + grill trail: <code>docs/adr/0011-boq-concurrency-locking.md</code> § Amendment A1.
+</div>
+
+<footer>
+  <p><b>BoQ Concurrency &amp; Locking — As-Built &amp; Pending.</b> Companion docs: design explainer <code>docs/boq/concurrency-locking.html</code> · decision record <code>docs/adr/0011-boq-concurrency-locking.md</code> · build plan <code>frontend/.claude/plans/boq-concurrency-locking-plan.md</code>.</p>
+  <p class="dim">Generated 2026-07-03 · branch feature/boq-concurrency-locking · reflects code + live E2E as of that date. Local repo doc — not published externally.</p>
+</footer>
+
+</div>
+</body>
+</html>
