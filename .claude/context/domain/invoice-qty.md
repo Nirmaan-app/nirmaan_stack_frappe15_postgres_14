@@ -85,9 +85,15 @@ The middle state has changed twice. It started **all-or-nothing**: EXACT only wh
 
 ## 6. The one-time backfill + extraction
 
-File: `nirmaan_stack/patches/v3_0/backfill_invoice_qty.py`. **NOT wired into `patches.txt`** — run deliberately. Scope = the module `PROJECT` constant (a project id = that project; **`None` = all projects** — flip to `None` for prod).
+File: `nirmaan_stack/patches/v3_0/backfill_invoice_qty.py`. Scope = the module `PROJECT` constant (a project id = that project; **`None` = all projects** — set to `None` for prod).
 
-**One command:** `run()` = `execute()` then `import_cache(apply=True)`.
+**Wiring:** **NOT in `patches.txt`** — run it deliberately with `bench execute` (it calls Gemini, so it must never fire on a routine `bench migrate`). `bench migrate` only creates the `invoice_qty` / `is_credit_note` **columns**; it does not populate them.
+
+**One command (does both steps):** `run()` = `execute()` (Step 1, deterministic) then `import_cache(apply=True)` (Step 2, Gemini) in a single pass:
+```bash
+bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
+```
+Or run the steps separately — `…backfill_invoice_qty.execute`, then `…import_cache --kwargs "{'apply': True}"` (import_cache defaults to `apply=False`, a dry preview that writes nothing).
 
 - **`execute()` — deterministic, no AI.** Classifies every live PO (excl. Merged) via its **own** classifier `_po_bucket` and writes with `_write_bucket`:
   - `EXACT` (all counted mapped) → line sums · `COMPLETED` (project done) / `DIRECT` (all Approved & amount ≥ total−TOL) → ordered qty · `ZERO` (no invoices) → 0 · **`MISMATCH` (under-invoiced / pending) → left UNWRITTEN** for the extraction step.
@@ -103,10 +109,10 @@ Command (in the dev container, prefix `docker exec -w /workspace/development/fra
 bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
 ```
 
-1. **Prereqs:** app deployed + `bench migrate` (creates the `invoice_qty` and `is_credit_note` columns). Set `PROJECT` (a project id to pilot one project, `None` for the full run). Gemini/Document AI enabled — only cache **MISSES** call it.
+1. **Prereqs:** app deployed + `bench migrate` (creates the `invoice_qty` / `is_credit_note` columns — it does **not** run the backfill). Set `PROJECT` (a project id to pilot one project, `None` for the full run). Gemini/Document AI enabled — only cache **MISSES** call it.
 2. **Test server:** `run()` builds `invoice_qty` **and** the cache (mapped + failed entries) in one pass. Fix the `failed` ones in `/resolve-invoices` (Analyze → correct → Save; each Save flips its cache entry `failed → mapped`). Repeat until no `failed` entries remain.
 3. **Ship the cache:** it lives in the app dir, so it **travels with the app** to prod — deploy the app, or copy `extraction_cache.json` in. (`export_cache()` optionally re-snapshots mapped invoices from the DB, preserving `failed` entries.)
-4. **Prod:** set `PROJECT = None`, deploy, `bench migrate`, then `run()` — cache **HITs replay with no Gemini**; any MISS gets one Gemini read; failures surface in prod's `/resolve-invoices`.
+4. **Prod:** confirm `PROJECT = None`, deploy, `bench migrate` (columns only), then `run()` — cache **HITs replay with no Gemini**; any MISS gets one Gemini read; failures surface in prod's `/resolve-invoices`.
 
 **Ops notes:**
 - **Idempotent** — safe to re-run / interrupt (recompute re-derives from source; `execute` re-buckets). A failed invoice is Gemini'd **at most once**, then left for the UI.

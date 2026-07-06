@@ -1,33 +1,37 @@
 import frappe
 
-# Backfill `Purchase Order Item.invoice_qty`.
+# Backfill `Purchase Order Item.invoice_qty`.  TWO steps, split by trust/cost:
 #
-# ONE COMMAND (recommended):
-#   run()   -- deterministic backfill + cache-first extraction in a single, non-interactive
-#              pass, scoped to PROJECT (None = ALL projects):
-#                bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
+#   Step 1 -- execute():  deterministic backfill for EVERY live PO, NO AI. Leaves the
+#             under-invoiced ("MISMATCH") POs unwritten for Step 2.
 #
-# The pieces (run() calls the first two):
-#   execute()                -- deterministic backfill for EVERY live PO, no AI. Leaves the
-#                               under-invoiced ("MISMATCH") POs for the extraction step.
-#   import_cache(apply=True) -- extraction on the MISMATCH POs. It BUILDS the cache as it goes:
-#                               HIT  (mapped entry in extraction_cache.json) -> replay, no AI;
-#                               FAIL (failed entry)                          -> skip, leave for the UI;
-#                               MISS (not cached) -> Gemini reads it ONCE -> registers the result
-#                                                    as a 'mapped' entry, or a 'failed' entry.
-#   export_cache()           -- optional: re-snapshot the DB's mapped invoices into the cache
-#                               (import_cache already writes it live; failed entries are preserved).
+#   Step 2 -- import_cache(apply=True):  cache-first Gemini extraction on the MISMATCH POs.
+#             MANUAL, NEVER on migrate (external AI = cost/latency/missing-creds must not block a
+#             deploy). apply defaults to False = DRY preview that writes nothing, so pass it:
+#               bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.import_cache --kwargs "{'apply': True}"
+#             BUILDS the cache as it goes:
+#               HIT  (mapped entry in extraction_cache.json) -> replay, no AI;
+#               FAIL (failed entry)                          -> skip, leave for the UI;
+#               MISS (not cached) -> Gemini reads it ONCE -> registers a 'mapped' or 'failed' entry.
 #
+#   run()          -- optional all-in-one MANUAL alternative = execute() + import_cache(apply=True):
+#                       bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
+#   export_cache() -- optional: re-snapshot the DB's mapped invoices into the cache
+#                     (import_cache already writes it live; failed entries are preserved).
+#
+# NOT wired into patches.txt -- run it deliberately with `bench execute` (it calls Gemini, so it
+# must never fire on a routine `bench migrate`; migrate only creates the invoice_qty column).
+# Scope = the PROJECT constant below (a project id = that project; None = ALL projects).
 # ALL human fixing happens in the Resolve UI (/resolve-invoices), which on save ALSO updates the
 # invoice's cache entry (failed -> mapped) so the fix ships to prod with extraction_cache.json.
 # A failed invoice is Gemini'd at most ONCE, then left for the UI (never retried). There is NO
 # terminal fixing. invoice_qty is durable: every fix is LINE MAPPINGS (never a raw number), so
-# recompute keeps deriving it. NOT wired into patches.txt -- run deliberately.
+# recompute keeps deriving it.
 
 MIN_MATCH = 0.70
 TOL = 1.0
 # TESTING SCOPE: run on ONE project only. Set to None to backfill ALL projects.
-PROJECT = "GAUTAM_BUDDHA_NAGAR-PROJ-00074"   # Maconns Noida (set None for the full run)
+PROJECT = None  # Maconns Noida="GAUTAM_BUDDHA_NAGAR-PROJ-00074" (set None for the full run)
 _COUNTED = ("Pending", "Approved")
 
 import os
@@ -57,7 +61,8 @@ def _save_no_modified(vi):
 
 
 # =============================================================================
-# SINGLE COMMAND (recommended entry point) — backfill + extraction in ONE run:
+# run() — the all-in-one MANUAL command = execute() (Step 1) + import_cache(apply=True) (Step 2).
+# Runs both backfill and Gemini extraction in a single pass:
 #   bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
 # =============================================================================
 def run():
