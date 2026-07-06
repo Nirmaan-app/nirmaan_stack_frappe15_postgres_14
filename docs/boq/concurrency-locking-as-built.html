@@ -145,7 +145,7 @@
     <span class="chip">9 commits · <b>23 files · ~2.7k LOC</b></span>
     <span class="chip">Status <b>local-only · not pushed</b></span>
     <span class="chip">ADR-0011 <b>Proposed</b></span>
-    <span class="chip">Verified <b>E2E 2026-07-03</b></span>
+    <span class="chip">Verified <b>E2E 2026-07-06 · A1 slices 1–4</b></span>
   </div>
 </header>
 
@@ -160,6 +160,7 @@
     <li><a href="#b2">B2 · Presence overlay</a></li>
     <li><a href="#b3">B3 · General-specs compare-and-set</a></li>
     <li><a href="#c0">C0 · Directional guard</a></li>
+    <li><a href="#a1build">Amendment A1 build (1–4) + slice 5</a></li>
     <li><a href="#e2e">Live E2E results</a></li>
     <li><a href="#pending">Pending — &amp; why still needed</a></li>
     <li><a href="#question">The open design question</a></li>
@@ -357,6 +358,89 @@ _DRAFT_MARKER = <span class="s">"BOQ_DRAFT_LOCKED"</span>
 </div>
 
 <!-- ═══════════════════════════ E2E ═══════════════════════════ -->
+<!-- ═══════════════════════ AMENDMENT A1 BUILD ═══════════════════════ -->
+<h2 id="a1build">Amendment A1 build — presence-escalated warnings <span class="badge b-verif" style="font-size:.7rem;vertical-align:middle">BUILT · E2E 2026-07-06</span></h2>
+<p>The reshaped Phase C (warn-only, presence-escalated) is now <strong>built and browser-verified</strong> across slices 1–4 (8 commits). The guard <em>detects</em> on the durable state floor and <em>escalates</em> with the Live pricer&rsquo;s name when someone is actively pricing; it <strong>never blocks</strong>. Each piece below has a real, captured example.</p>
+
+<div class="card feat" id="a1s1">
+  <div class="feat-head"><span class="tag">1</span><h3>The guard names the Live pricer</h3><span class="badge b-ship">Built + E2E</span></div>
+  <p class="lead">All four decisive endpoints now read the pricing lock. If <em>another</em> user holds a <b>fresh</b> lock on the current committed version, the throw <b>names</b> them (Live); otherwise it&rsquo;s count-only (Vacated). A self-held / stale / absent lock is Vacated (you&rsquo;re never warned about yourself).</p>
+  <div class="filelabel">directional_guard.py — the escalation signal</div>
+<pre><span class="k">def</span> <span class="fn">live_pricing_holder</span>(boq, sheet_name):
+    version = <span class="fn">current_commit_version</span>(boq, sheet_name)
+    <span class="k">if</span> version <span class="k">is None</span>: <span class="k">return None</span>
+    info = pricing_lock.<span class="fn">read_lock_info</span>(boq, sheet_name, version, frappe.session.user, <span class="fn">now_datetime</span>())
+    <span class="k">if</span> info <span class="k">and not</span> info[<span class="s">"is_stale"</span>] <span class="k">and not</span> info[<span class="s">"is_locked_by_me"</span>]:
+        <span class="k">return</span> info[<span class="s">"locked_by_name"</span>]   <span class="c"># Live -> named</span>
+    <span class="k">return None</span>                               <span class="c"># Vacated -> count-only</span></pre>
+  <div class="kv">Real throws (captured 2026-07-06, Nived holds a fresh lock)</div>
+  <div class="tbl-scroll"><table>
+    <tr><th>Endpoint</th><th>Message (Live)</th></tr>
+    <tr><td>Re-commit</td><td>…orphan priced cells on the current version of <b>'ELECTRICAL' (7, Nived K K pricing now)</b>…</td></tr>
+    <tr><td>Un-finalize</td><td>'ELECTRICAL' has 7 priced cell(s)… <b>Nived K K is pricing it right now.</b> A un-finalize will orphan them…</td></tr>
+    <tr><td>Root-metadata</td><td>this BoQ has 7 priced cell(s)… <b>Live now: Nived K K on 'ELECTRICAL'.</b>…</td></tr>
+  </table></div>
+  <div class="verified"><span class="ok">✓ Verified</span><span>All 3 named on a live lock (count-only when Vacated/self); 304 backend tests green.</span></div>
+</div>
+
+<div class="card feat" id="a1s2">
+  <div class="feat-head"><span class="tag">2</span><h3>Read endpoints for the banners</h3><span class="badge b-ship">Built</span></div>
+  <p class="lead">Two read-only endpoints feed the UI: <code>get_downstream_state(boq, sheet)</code> → <code>{committed_version, orphanable_count, live_holder}</code> (per-sheet, for Review/Config); <code>get_boq_downstream_state(boq)</code> → per-sheet map + <code>live_any</code> (for the Hub cards).</p>
+</div>
+
+<div class="card feat" id="a1s3">
+  <div class="feat-head"><span class="tag">3</span><h3>On-entry banners + Hub chip</h3><span class="badge b-ship">Built + E2E</span></div>
+  <p class="lead">The awareness touchpoint. Every upstream screen of a committed+priced sheet shows the risk on entry (never blocking); the Hub shows a per-card chip. Rose = Live (named), amber = Vacated (count).</p>
+  <div class="kv">Review / Config banner — captured live</div>
+  <div class="scene">
+    <div class="row"><div class="t">Vacated</div><div class="ev">⚠ <b>This sheet is committed (v1) and priced.</b> Re-parsing, re-committing or un-finalizing it will orphan 7 priced cells on the frozen version — they are not carried forward. You can still proceed; you&rsquo;ll be asked to confirm on save.</div></div>
+    <div class="row"><div class="t">Live</div><div class="ev">⚠ This sheet is committed (v1) and priced. <span class="ev"><b style="color:var(--red)">Nived K K is pricing it right now.</b></span> Re-parsing, re-committing or un-finalizing it will orphan 7 priced cells…</div></div>
+  </div>
+  <div class="kv">Hub per-card chip</div>
+  <p><span class="badge" style="color:var(--amber);background:var(--amber-soft)">will orphan 7</span> when Vacated &nbsp;·&nbsp; <span class="badge" style="color:#B4315B;background:#FBE4EC">Nived K K pricing now</span> when Live.</p>
+  <div class="verified"><span class="ok">✓ Verified</span><span>Banner on Review + Config (Vacated + Live), Hub chip flipped amber → rose when Nived acquired a lock. tsc Δ0.</span></div>
+</div>
+
+<div class="card feat" id="a1s4">
+  <div class="feat-head"><span class="tag">4</span><h3>Force-reparse orphan confirm</h3><span class="badge b-ship">Built + E2E</span></div>
+  <p class="lead">The decisive-action interrupting confirm. A Force Re-parse of a committed+priced sheet throws <code>BOQ_DOWNSTREAM_ORPHAN</code> before the enqueue; the hub catches it → an AlertDialog → confirm retries with <code>confirm_orphan=true</code>. (Re-commit + un-finalize already had this; force-reparse is the new one.)</p>
+  <div class="scene">
+    <div class="row"><div class="t">dialog</div><div class="ev">⚠ <b>This will orphan priced cells</b> — "re-parsing will orphan priced cells on the current committed version of 'ELECTRICAL' (7)… Confirm to proceed." &nbsp;<span class="badge b-drop">Cancel</span> <span class="badge" style="color:#fff;background:var(--red)">Re-parse anyway</span></div></div>
+  </div>
+  <div class="verified"><span class="ok">✓ Verified</span><span>Dialog fired in-browser; <b>Cancel → nothing enqueued</b> (<code>parse_in_progress=0</code>, reject-mutates-nothing); 99 test_parse_run green.</span></div>
+</div>
+
+<!-- ─────────────────── SLICE 5 DECISION ─────────────────── -->
+<div class="card feat pending" id="a1s5">
+  <div class="feat-head"><span class="tag">5</span><h3>Slice 5 — the review/config first-edit ack <span style="font-weight:400;font-size:.82rem;color:var(--muted)">(your call)</span></h3><span class="badge b-pend">Not built — decide</span></div>
+  <p class="lead">The one remaining piece, laid out so you can judge whether it&rsquo;s worth building. It adds a <em>third</em>, softer touchpoint on top of the two already shipped.</p>
+
+  <div class="kv">What it is</div>
+  <p>An interrupting confirm on the <b>first incremental edit</b> (a review row edit, reclassify, or config toggle) of a committed+priced sheet — <b>once per screen-mount</b> — after which further edits auto-confirm and stay quiet. The backend guards every such save with <code>confirm_orphan</code>; the client shows the modal once, then sends <code>confirm_orphan=true</code> for the rest of that session.</p>
+
+  <div class="kv">Worked example</div>
+  <div class="scene">
+    <div class="row"><div class="t">open</div><div class="ev">You open ELECTRICAL&rsquo;s Review (committed + priced). The <b>entry banner</b> (slice 3, already built) warns you.</div></div>
+    <div class="row"><div class="t">1st edit</div><div class="ev">You edit a description on row 10 → a modal: <span class="r">"This will orphan priced cells… proceed?"</span> → you confirm <b>once</b>.</div></div>
+    <div class="row"><div class="t">edits 2–20</div><div class="ev">You keep editing rows → <span class="g">no more modals</span> this session (auto-confirmed). The banner stays visible.</div></div>
+    <div class="row"><div class="t">re-open</div><div class="ev">Leave and re-open the screen → the ack resets (fires again on the next first edit).</div></div>
+  </div>
+
+  <div class="kv">The trade-off — is it worth it?</div>
+  <div class="tbl-scroll"><table>
+    <tr><th></th><th>Already shipped (slices 1–4)</th><th>What slice 5 adds</th></tr>
+    <tr><td><b>Awareness on entry</b></td><td>✅ the entry banner</td><td>— (same)</td></tr>
+    <tr><td><b>Blocks the actual orphan</b></td><td>✅ the re-commit keystone (confirm at re-commit)</td><td>— (same)</td></tr>
+    <tr><td><b>Warn on the first edit</b></td><td>❌</td><td>✅ a once-per-session confirm as you start reworking</td></tr>
+    <tr><td><b>Cost</b></td><td>—</td><td>coupled backend+frontend; row-memo-delicate; all-or-nothing; needs its own browser E2E</td></tr>
+  </table></div>
+
+  <div class="why">
+    <span class="lab">Recommendation</span>
+    The two touchpoints that <em>matter</em> — awareness on entry and the block at the actual orphan point (re-commit) — are already live. Slice 5 is a <b>third, softer nudge</b> that&rsquo;s partly redundant, and it&rsquo;s the one row-memo-delicate change. <b>Lean: skip it</b> unless you specifically want the "warn again the moment I start editing" nudge. It can always be added later with no rework to slices 1–4.
+  </div>
+</div>
+
 <h2 id="e2e">Live two-user E2E results <span class="badge b-verif" style="font-size:.7rem;vertical-align:middle">2026-07-03</span></h2>
 <p>Driven via chrome-devtools on <code>localhost:8080</code> — User A = Administrator (driven), User B = a second impersonated user. Break-glass OFF (locks enforcing) throughout; fixture <code>BOQ-26-00035 / ELECTRICAL</code> fully restored afterward.</p>
 <div class="tbl-scroll"><table>
@@ -386,7 +470,7 @@ _DRAFT_MARKER = <span class="s">"BOQ_DRAFT_LOCKED"</span>
 </div>
 
 <div class="card feat pending">
-  <div class="feat-head"><span class="tag">C1</span><h3>Presence-escalated warning <span style="font-weight:400;font-size:.82rem;color:var(--muted)">— amended (ADR-0011 A1)</span></h3><span class="badge b-pend">Pending · design locked</span></div>
+  <div class="feat-head"><span class="tag">C1</span><h3>Presence-escalated warning <span style="font-weight:400;font-size:.82rem;color:var(--muted)">— amended (ADR-0011 A1)</span></h3><span class="badge b-ship">Built · slices 1–4 (see above)</span></div>
   <p class="lead">The amended C1 keeps the guard <strong>warn-only — no blocks</strong> — and enriches it with a live name + an on-entry banner. <em>This supersedes the earlier tiered-block / attribution design</em> (grill Q1–Q9).</p>
   <ul class="tight">
     <li><b>Enrich the message with the Live name</b> — the guard also reads the pricing lock: a fresh <em>other-user</em> lock → "X is pricing v{N} now — proceeding orphans their {count} cells"; else count-only (Vacated); a self-held lock → count-only. <b>No attribution schema</b> — the name comes free from the lock.</li>
