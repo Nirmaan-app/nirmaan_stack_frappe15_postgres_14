@@ -4,7 +4,9 @@ Date: 2026-07-03
 
 ## Status
 
-**Proposed — pending owner (Nitesh) sign-off.** One open sub-decision (D11) awaits a call.
+**Accepted — signed off by owner (Nitesh), 2026-07-06.** Covers the base design (D1–D20), **Amendment A1**
+(presence-escalated warn-only), and the **2026-07-06 Update** (force-reparse → inline warning, slice 5 dropped).
+D11 resolved = optimistic **compare-and-set** (implemented as B3).
 
 > **Amendment A1 (2026-07-03):** Phase C's *response* is reshaped from a tiered **block** (D15/D16) to a
 > **presence-escalated warn-only** model — grill-locked (Q1–Q9). Detection (the state floor, D14) is
@@ -136,7 +138,7 @@ rug-pull early.
 
 ## Amendment A1 (2026-07-03) — Phase C reshaped to presence-escalated warnings
 
-**Status:** Proposed — grill-locked (Q1–Q9), pending Nitesh sign-off. **Supersedes the _response model_ of
+**Status:** Accepted (signed off 2026-07-06) — grill-locked (Q1–Q9). **Supersedes the _response model_ of
 D14–D20.** The directional guard's **detection** (state floor, D14) is retained unchanged; its
 **enforcement** changes from a tiered block to warn-only, and the presence layer is repurposed as the
 escalation signal. Phases A (commit-race), A2/B1/B2 (same-stage locks + presence), and B3 are untouched.
