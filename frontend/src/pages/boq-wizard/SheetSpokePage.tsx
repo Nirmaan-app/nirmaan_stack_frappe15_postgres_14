@@ -25,6 +25,7 @@ import {
 } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
+import { DownstreamBanner } from "./DownstreamBanner";
 import { ArrowLeft, Loader2, Lock, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -548,6 +549,10 @@ const SheetSpokePage = () => {
         saved blob always includes the current role-map. rows is passed for the
         future Section 3 column list (Slice 3d-ii).
       */}
+      {/* Amendment A1: on-entry directional banner (this sheet is committed + priced; a config
+          change + re-parse/re-commit here will orphan that pricing). Warn-only. */}
+      <DownstreamBanner boqId={boqId} sheetName={sheetName} />
+
       {draft && (
         <SheetConfigPanel
           key={decodedSheetName}

@@ -37,6 +37,7 @@ import {
 import { getFrappeError } from "@/utils/frappeErrors";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
+import { DownstreamBanner } from "./DownstreamBanner";
 import type {
   AiPassDonePayload,
   BOQsDoc,
@@ -874,6 +875,11 @@ const SheetReviewPage = () => {
           )}
         </div>
       </div>
+
+      {/* ── Amendment A1: on-entry directional banner. This sheet is an UPSTREAM stage; if its
+          current committed version is priced, re-parsing / re-committing / un-finalizing it will
+          orphan that pricing. Warn-only awareness (renders nothing when unpriced). ──────────── */}
+      <DownstreamBanner boqId={boqId} sheetName={sheetName} />
 
       {/* ── #164: parsing banner -- takes precedence over the checked banner ──── */}
       {isParsing && (
