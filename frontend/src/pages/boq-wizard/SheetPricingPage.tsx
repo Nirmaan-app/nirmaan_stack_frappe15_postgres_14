@@ -57,6 +57,7 @@ import { CopyForwardDialog } from "./CopyForwardDialog";
 import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
 import {
   ClassifySheetDialog,
+  aiStatusNote,
   isNeedsReviewCategory,
   reduceProgress,
   skipRollupText,
@@ -583,6 +584,9 @@ const SheetPricingPage = () => {
         skipped_by_reason: p.skipped_by_reason ?? {},
         committed_version: p.committed_version ?? null,
         sheet_warnings: p.sheet_warnings ?? [],
+        ai_status: p.ai_status ?? null,
+        status: p.status,
+        error_code: p.error_code,
       });
       void mutateCategories();
     },
@@ -1922,7 +1926,27 @@ const SheetPricingPage = () => {
           </span>
         </div>
       )}
-      {!classifyRunning && classifySummary && (
+      {!classifyRunning && classifySummary && classifySummary.status === "error" && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">Classification could not complete.</span>
+            <span className="mt-0.5 block opacity-90">
+              The run failed{classifySummary.error_code ? ` (${classifySummary.error_code})` : ""} -- nothing
+              was saved. Please try again; if the AI was on, check the AI settings/key.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setClassifySummary(null)}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-60 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      {!classifyRunning && classifySummary && classifySummary.status !== "error" && (
         <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <div className="flex-1">
@@ -1934,6 +1958,11 @@ const SheetPricingPage = () => {
             {skipRollupText(classifySummary.skipped_by_reason) && (
               <span className="mt-0.5 block text-emerald-700 dark:text-emerald-300">
                 {skipRollupText(classifySummary.skipped_by_reason)}
+              </span>
+            )}
+            {aiStatusNote(classifySummary.ai_status) && (
+              <span className="mt-0.5 block text-amber-700 dark:text-amber-300">
+                {aiStatusNote(classifySummary.ai_status)}
               </span>
             )}
           </div>

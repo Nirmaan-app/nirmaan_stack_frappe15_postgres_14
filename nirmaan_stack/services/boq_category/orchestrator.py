@@ -56,6 +56,7 @@ def _empty_summary(committed_version, sheet_warnings):
         "skipped_by_reason": {},
         "committed_version": committed_version,
         "sheet_warnings": sheet_warnings,
+        "ai_status": None,
     }
 
 
@@ -126,12 +127,14 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
     # owner of client/settings logic (no duplication here).
     ai_by_excel = {}
     prompt_version = model = ""
+    ai_status = None  # "ran" | "disabled" | "no_key" (None only when there were no eligible rows)
     for b in range(0, total, _AI_BATCH):
         env = ai_voter.classify_rows_ai(kept[b:b + _AI_BATCH], discipline=discipline, client=ai_client)
         for r in env["results"]:
             ai_by_excel[r["excel_row"]] = r
         prompt_version = env.get("prompt_version", "") or prompt_version
         model = env.get("model", "") or model
+        ai_status = env.get("ai_status") or ai_status
         if progress_cb:
             progress_cb(min(b + _AI_BATCH, total), total)
 
@@ -186,4 +189,5 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
         "skipped_by_reason": skipped_by_reason,
         "committed_version": committed_version,
         "sheet_warnings": ctx.get("sheet_warnings", []),
+        "ai_status": ai_status,
     }

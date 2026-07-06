@@ -11,6 +11,7 @@ import {
   clampDone,
   reduceProgress,
   skipRollupText,
+  aiStatusNote,
   isNeedsReviewCategory,
 } from "./ClassifySheetDialog";
 import type { EngineOption, SheetCategoryRow } from "./boqTypes";
@@ -129,6 +130,16 @@ describe("skipRollupText", () => {
     expect(skipRollupText({ note: 3, subtotal: 1 })).toBe(
       "3 note rows, 1 subtotal row skipped",
     );
+  });
+});
+
+describe("aiStatusNote", () => {
+  it("notes when the AI voter was disabled or keyless, else empty", () => {
+    expect(aiStatusNote("disabled")).toContain("AI voter was off");
+    expect(aiStatusNote("no_key")).toContain("AI key is not configured");
+    expect(aiStatusNote("ran")).toBe("");
+    expect(aiStatusNote(null)).toBe("");
+    expect(aiStatusNote(undefined)).toBe("");
   });
 });
 

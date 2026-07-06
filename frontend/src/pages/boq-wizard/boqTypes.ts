@@ -1306,6 +1306,13 @@ export interface ClassifySummary {
   skipped_by_reason: Record<string, number>;
   committed_version: number | null;
   sheet_warnings: string[];
+  /** Whether the AI voter actually ran: "ran" | "disabled" | "no_key" (null when there were no
+   *  eligible rows). Lets the completion message say "AI was off" instead of a silent all-review. */
+  ai_status?: string | null;
+  /** The terminal outcome: "success" | "error" (present on the boq:classify_sheet_done payload). */
+  status?: string;
+  /** On an error outcome: the failure code (e.g. "classify_failed"). */
+  error_code?: string;
 }
 
 /**

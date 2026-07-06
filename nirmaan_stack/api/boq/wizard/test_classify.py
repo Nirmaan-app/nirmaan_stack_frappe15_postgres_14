@@ -218,6 +218,7 @@ class TestOrchestrator(FrappeTestCase):
         self.assertEqual(summary["eligible_classified"], 3)
         self.assertEqual(summary["needs_review"], 3)  # AI blank -> never consensus
         self.assertEqual(summary["auto_accepted"], 0)
+        self.assertEqual(summary["ai_status"], "ran")  # enabled + client -> the voter ran
         cats = frappe.get_all(
             _ROW_CATEGORY, filters={"boq": self.boq, "is_current": 1},
             fields=["routing", "final_category_id"],
@@ -271,6 +272,7 @@ class TestOrchestrator(FrappeTestCase):
         self.assertEqual(summary["needs_review"], 2)
         self.assertEqual(summary["auto_accepted"], 0)
         self.assertEqual(client.messages.calls, 0, "disabled -> no AI call attempted")
+        self.assertEqual(summary["ai_status"], "disabled")  # surfaced so the UI can say "AI was off"
 
     def test_progress_cb_monotonic_per_batch(self):
         # Force multiple 20-row slices on the 3-eligible-row fixture by patching the batch size

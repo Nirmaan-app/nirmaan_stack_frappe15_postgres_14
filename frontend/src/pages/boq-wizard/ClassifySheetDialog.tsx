@@ -103,6 +103,18 @@ export function skipRollupText(skipped: Record<string, number>): string {
 }
 
 /**
+ * A note for the completion message when the AI voter did NOT actually run, so an all-needs-review
+ * result does not read as a silent failure. "" when the AI ran normally ("ran") or is unknown.
+ */
+export function aiStatusNote(aiStatus: string | null | undefined): string {
+  if (aiStatus === "disabled")
+    return "The AI voter was off, so every row was routed to review. Enable AI in settings to auto-accept consensus rows.";
+  if (aiStatus === "no_key")
+    return "The AI key is not configured, so every row was routed to review.";
+  return "";
+}
+
+/**
  * Whether a category row is an unresolved "Needs review" verdict -- routed to review AND without a
  * human override yet. Drives the amber cue in the grid's Category column.
  */

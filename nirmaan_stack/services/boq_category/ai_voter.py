@@ -142,22 +142,26 @@ def classify_rows_ai(items, discipline="Electrical", client=None):
 
     # The AI voter stamps only ITS OWN provenance (prompt_version + model). rules_version is
     # the rule engine's provenance, assembled by the orchestrator/persist caller separately.
-    def _envelope(enabled, results):
+    # ai_status tells the caller whether the voter ACTUALLY ran: "ran" | "disabled" | "no_key"
+    # (the two fail-closed cases return blank verdicts, so the caller can surface "AI did not run"
+    # at completion instead of a silent all-needs-review).
+    def _envelope(enabled, results, ai_status):
         return {
             "model": model,
             "prompt_version": prompt_version,
             "enabled": enabled,
+            "ai_status": ai_status,
             "results": results,
         }
 
     # Fail closed: disabled settings -> no client, no call.
     if not settings.get("enabled"):
-        return _envelope(False, _blank_results())
+        return _envelope(False, _blank_results(), "disabled")
 
     if client is None:
         api_key = get_boq_ai_api_key()
         if not api_key:
-            return _envelope(True, _blank_results())
+            return _envelope(True, _blank_results(), "no_key")
         import anthropic
 
         client = anthropic.Anthropic(api_key=api_key)
@@ -174,4 +178,4 @@ def classify_rows_ai(items, discipline="Electrical", client=None):
         results.append(
             {"excel_row": it["excel_row"], "category_id": cat, "confidence": conf, "reason": reason}
         )
-    return _envelope(True, results)
+    return _envelope(True, results, "ran")
