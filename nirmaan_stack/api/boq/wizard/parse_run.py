@@ -484,7 +484,7 @@ def flatten_parsed_boq(parsed_boq: ParsedBoq, boq_name: str) -> list[dict[str, A
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist(methods=["POST"])
-def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
+def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False, confirm_orphan=None):
     """
     Enqueue a background parse worker.  Returns immediately.
 
@@ -532,6 +532,45 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
                 title="Parse in progress",
             )
         # "cleared" / "cleared_stale" -> the stale state was wiped; proceed.
+
+    # C0 / ADR-0011 directional guard (Amendment A1): a Force Re-parse of a committed sheet that has
+    # pricing on its CURRENT committed version would orphan it onto the frozen version. Warn (marker
+    # BOQ_DOWNSTREAM_ORPHAN, naming any Live pricer) UNLESS confirm_orphan. force_reparse only (a
+    # normal parse never targets committed sheets). Runs AFTER the in-progress guard, BEFORE the
+    # enqueue -> a rejected re-parse enqueues nothing and mutates nothing.
+    if force_reparse:
+        from nirmaan_stack.api.boq.wizard import directional_guard
+
+        if not directional_guard._truthy(confirm_orphan):
+            if sheet_names is not None:
+                _targets = list(sheet_names)
+            else:
+                _adm = _rule3_admissible_statuses(force_reparse)
+                _targets = [
+                    d.sheet_name
+                    for d in frappe.db.get_all(
+                        "BoQ Sheet Draft",
+                        filters={"parent": boq_name, "parenttype": "BOQs"},
+                        fields=["sheet_name", "wizard_status"],
+                    )
+                    if (d.wizard_status or "") in _adm
+                ]
+            _orphaning = [
+                (s, n)
+                for s in _targets
+                if (n := directional_guard.downstream_priced_count(boq_name, s))
+            ]
+            if _orphaning:
+                _parts = []
+                for s, n in _orphaning:
+                    _h = directional_guard.live_pricing_holder(boq_name, s)
+                    _parts.append(f"'{s}' ({n}{f', {_h} pricing now' if _h else ''})")
+                frappe.throw(
+                    f"{directional_guard.ORPHAN_MARKER}: re-parsing will orphan priced cells on the "
+                    f"current committed version of {', '.join(_parts)} -- they stay on the frozen "
+                    f"version but are NOT carried forward. Confirm to proceed.",
+                    title="This will orphan priced cells",
+                )
 
     # Raw (un-namespaced) job id. frappe.enqueue namespaces it internally to
     # "{site}::{id}"; get_job_status re-namespaces on read, so we MUST store the
