@@ -171,6 +171,8 @@ reverses D15's "another user live → hard block": the earlier "no-one should be
   root-metadata) → interrupting modal every time. _Incremental edits_ (review row edits, restructure, revert,
   config toggles) → banner + a **one-time per-mount acknowledgment** on the first edit, then quiet (the
   backend still gates every save with `confirm_orphan`; the client asks once and auto-confirms the rest).
+  _(**Revised 2026-07-06** — force re-parse softened from a modal to an inline parse-dialog warning; the
+  incremental-edit ack is **dropped**. See "Update 2026-07-06" at the end of this section.)_
 - **Recovery — D17 retained, trimmed (Q8).** Rely on the existing freeze-and-supersede preservation + partial
   copy-forward (nothing is destructively lost). A proactive "prior v{N} had {count} priced cells — copy
   forward" **surfacing UI is deferred**.
@@ -188,7 +190,8 @@ reverses D15's "another user live → hard block": the earlier "no-one should be
 
 The wizard's would-be **first role check is eliminated**. Net build = enrich the 3 shipped guards' message with
 Live-naming + add entry banners (Review/Config + Hub cards) + wire the 2 pending guards (force-reparse as a
-decisive modal, review/config as a first-edit ack).
+decisive modal, review/config as a first-edit ack). _(Both pending guards **revised 2026-07-06** — force
+re-parse → inline warning, review/config ack → dropped; see Update below.)_
 
 ### Consequences
 
@@ -200,3 +203,32 @@ decisive modal, review/config as a first-edit ack).
 - The 3 shipped guards are **repurposed, not replaced** — they are already warn-only confirms with state-floor
   detection (verified live 2026-07-03); only their message gains the Live name.
 - Terms coined this session are in `CONTEXT.md` → **BoQ concurrency & directional guard**.
+
+### Update 2026-07-06 (owner) — force re-parse softened to a warning, review/config ack dropped
+
+**Status: BUILT + browser-E2E-verified 2026-07-06** (tsc Δ0 in `boq-wizard`; 99 `test_parse_run` green; two-path
+E2E on `BOQ-26-00035/ELECTRICAL` — Vacated amber "N cells will be superseded" + Live rose "X is pricing this
+sheet now"; Cancel → nothing enqueued; adversarial multi-agent review clean).
+
+Two of Amendment A1's "wire the 2 pending guards" items are revised by owner requirement. This stays **within**
+the warn-only philosophy — it only softens further; nothing about detection, the 3 shipped guards, or Phases A/B
+changes.
+
+- **Force re-parse (was: decisive interrupting modal via a `BOQ_DOWNSTREAM_ORPHAN` round-trip).** The server-side
+  `confirm_orphan` gate on `run_parse` is **removed**, and the reject-marker + separate `AlertDialog` retry is
+  **reverted**. Instead, the existing parse-confirmation dialog (`ParseRunDialog`) shows a **per-sheet inline
+  warning** in the sheet checklist — Live-named from the pricing lock, else a Vacated count — driven by the
+  already-fetched `get_boq_downstream_state` map. The user proceeds through the normal flow: **no server gate, no
+  separate confirm**. The slice-3 Hub `SheetCard` chip is kept.
+- **Review/config first-edit ack (slice 5): dropped.** Not built.
+
+**Rationale.** Re-parse and incremental review/config edits are **non-destructive and inert to the
+committed/pricing tier** — they orphan nothing on their own. The orphan is realized only at **re-commit**, which
+mints `v+1` with `is_current=1` and **preserves** the prior priced commit (frozen, `is_current=0`; the slice-A1
+partial unique index guarantees exactly one current). Re-commit keeps its guard (the slice-1 keystone). So both
+gateways need only an **awareness nudge** — already delivered by the on-entry banner + Hub chip (slice 3) — not a
+block or a per-save confirm. **`directional_guard.py` is unchanged** (its 3 other consumers keep their enriched
+warnings); only `run_parse`'s local guard is reverted.
+
+**Net 5-holes table (in force):** re-commit / un-finalize / root-metadata = enriched warn-only confirms
+(shipped); force re-parse = inline dialog warning (no server gate); Parsed-reviewer window = dropped.

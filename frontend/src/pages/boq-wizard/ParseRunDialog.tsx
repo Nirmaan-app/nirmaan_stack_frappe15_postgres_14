@@ -53,6 +53,15 @@ interface ParseRunDialogProps {
    * full re-parse picker (global entry point). VERBATIM sheet_name (#152).
    */
   restrictToSheetName?: string | null;
+  /**
+   * Amendment A1 (Update 2026-07-06): per-sheet downstream orphanable pricing state,
+   * keyed by VERBATIM sheet_name (#152). Present only for committed sheets that have
+   * priced cells on the current committed version (get_boq_downstream_state filters
+   * them). Drives a SOFT inline warning in the re-parse checklist -- the Live pricer is
+   * named when someone holds a fresh lock, else a count. Re-parse is NEVER blocked;
+   * this is awareness only (the real orphan point, re-commit, is separately guarded).
+   */
+  downstreamSheets?: Record<string, { orphanable_count: number; live_holder: string | null }>;
 }
 
 export function ParseRunDialog({
@@ -68,6 +77,7 @@ export function ParseRunDialog({
   mode = "parse",
   reparseDrafts = [],
   restrictToSheetName = null,
+  downstreamSheets = {},
 }: ParseRunDialogProps) {
   const isReparse = mode === "reparse";
 
@@ -176,6 +186,11 @@ export function ParseRunDialog({
                     {tickableDrafts.map((d) => {
                       const isDirty = d.has_prior_parse === 1;
                       const isTicked = tickedSheets.has(d.sheet_name);
+                      // Amendment A1 (Update 2026-07-06): downstream pricing on this
+                      // committed sheet. Present only for sheets with priced cells on the
+                      // current committed version (get_boq_downstream_state filters them).
+                      // A soft inline warning -- re-parse is never blocked. Reparse mode only.
+                      const ds = isReparse ? downstreamSheets[d.sheet_name] : undefined;
                       // Per-row note: in reparse mode name what is discarded by status;
                       // in parse mode flag only dirty-Config-Done sheets (the existing note).
                       const note = isReparse
@@ -212,6 +227,19 @@ export function ParseRunDialog({
                                 {note}
                               </span>
                             )}
+                            {ds &&
+                              (ds.live_holder ? (
+                                <span className="flex items-center gap-1 text-xs text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  {ds.live_holder} is pricing this sheet now
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium mt-0.5">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  committed &amp; priced &mdash; {ds.orphanable_count} cell
+                                  {ds.orphanable_count !== 1 ? "s" : ""} will be superseded
+                                </span>
+                              ))}
                           </label>
                         </li>
                       );

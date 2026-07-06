@@ -146,9 +146,11 @@ confirms; they are **repurposed, not replaced**.)
   *other-user* lock → "X is pricing v{N} now — proceeding orphans their {count} cells"; else count-only. Self-held → count-only.
 - **On-entry banner** — a small "downstream state for (boq, sheet)" read → persistent banner on Review + Config, a per-sheet
   **card indicator** on the Hub, a note by the root-metadata controls. On-mount read; **no** live-refresh in v1.
-- **Wire the 2 pending guards as warnings** — force re-parse = a decisive interrupting modal (`parse_run.py`, **by hand**);
-  review/config edits = a **first-edit-of-session ack** (backend gates every save with `confirm_orphan`; the client shows the
-  modal once per mount, then auto-confirms).
+- **The 2 remaining guards (revised 2026-07-06, owner):** force re-parse = a **soft inline warning** in `ParseRunDialog` — the
+  slice-4 server `confirm_orphan` gate + reject-marker round-trip is **reverted** (`parse_run.py`, **by hand**); the dialog shows a
+  per-sheet Live-named / Vacated-count line from `get_boq_downstream_state`, and the user proceeds normally. Review/config first-edit
+  ack = **dropped**. Rationale: both are non-destructive gateways; the orphan is realized only at re-commit (keystone-guarded) and
+  `is_current` preserves the prior priced commit. `directional_guard.py` untouched.
 - **Recovery (D17, trimmed)** — rely on existing freeze-and-supersede + partial copy-forward; proactive "prior v{N} had {count}
   priced cells — copy forward" surfacing UI **deferred**.
 - **Exported/tendered (D19, softened)** — same warn-only; message **notes the export**; no typed-confirm / block in v1.
@@ -161,8 +163,8 @@ confirms; they are **repurposed, not replaced**.)
 | Re-commit over priced | `commit_boq` | ✅ shipped confirm → enrich with Live name |
 | Un-finalize | `unmark_sheet_parsed_check_done` | ✅ shipped confirm → enrich with Live name |
 | Root metadata (per-BoQ, D18) | `update_boq_draft` (`tax_treatment`/`version`) | ✅ shipped confirm → enrich with Live name |
-| Force re-parse | `run_parse(force_reparse=True)` | ⬜ pending → decisive interrupting modal (by hand) |
-| Parsed-reviewer window | review / config writes on a committed+priced sheet | ⬜ pending → entry banner + first-edit-of-session ack |
+| Force re-parse | `run_parse(force_reparse=True)` | ✅ **shipped 2026-07-06** → soft inline warning in `ParseRunDialog` (built + E2E; no server `confirm_orphan` gate; slice-4 guard reverted) |
+| Parsed-reviewer window | review / config writes on a committed+priced sheet | ❌ **dropped 2026-07-06** (entry banner + re-commit keystone suffice) |
 
 **Invariants:** re-committing a sheet with **no** downstream pricing = free forward progress (guard keys on orphanable-work-existing, never the action). Do not conflate the general-specs-outranks-`wizard_status` rule or the parse-excludes-Finalized / commit-requires-Finalized asymmetry.
 

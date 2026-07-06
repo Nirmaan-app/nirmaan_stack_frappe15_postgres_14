@@ -137,10 +137,6 @@ const BoqHubPage = () => {
   // per-card entry point) pre-filters the dialog to one sheet.
   const [parseDialogMode, setParseDialogMode] = useState<"parse" | "reparse">("parse");
   const [reparseRestrictSheet, setReparseRestrictSheet] = useState<string | null>(null);
-  // Force-reparse directional orphan gate (Amendment A1): when run_parse throws
-  // BOQ_DOWNSTREAM_ORPHAN, hold the stripped message + the sheet list so the user can
-  // acknowledge and retry with confirm_orphan=true.
-  const [parseOrphanPrompt, setParseOrphanPrompt] = useState<{ message: string; sheetNames: string[] } | null>(null);
   const [parseInFlight, setParseInFlight] = useState(false);
   // RQ job id of the in-flight parse, captured from the run_parse response. Drives
   // the get_parse_status poll fallback (cleared before each new parse so the poll
@@ -684,7 +680,7 @@ const BoqHubPage = () => {
     setParseDialogOpen(true);
   };
 
-  const handleParseConfirm = async (sheetNames: string[], confirmOrphan = false) => {
+  const handleParseConfirm = async (sheetNames: string[]) => {
     if (!boqId) return;
     // Force Re-parse path adds force_reparse:true; normal Parse omits it entirely
     // (backend default False). The SDK serializes the bool; the backend coerces it.
@@ -701,26 +697,17 @@ const BoqHubPage = () => {
         boq_name: boqId,
         sheet_names: sheetNames,
         ...(force ? { force_reparse: true } : {}),
-        // Amendment A1: acknowledged orphaning of downstream pricing (retry path).
-        ...(confirmOrphan ? { confirm_orphan: true } : {}),
       });
       const newJobId = (res?.message as { job_id?: string | null })?.job_id ?? null;
       setParseJobId(newJobId);
-      setParseOrphanPrompt(null);
-    } catch (e) {
+    } catch {
+      // Amendment A1 (Update 2026-07-06): force re-parse no longer gates on
+      // BOQ_DOWNSTREAM_ORPHAN. The downstream-pricing warning is surfaced inline in
+      // ParseRunDialog before the user confirms; any error here is a genuine failure.
       setParseInFlight(false);
       setParseJobId(null);
-      const msg = getFrappeError(e);
-      if (msg.includes("BOQ_DOWNSTREAM_ORPHAN")) {
-        // Amendment A1 directional gate: a force re-parse would orphan downstream pricing.
-        // Surface an explicit confirm (strip the marker); the dialog closes and the orphan
-        // AlertDialog opens. Confirm retries with confirm_orphan=true.
-        setParseOrphanPrompt({ message: msg.replace(/^.*?BOQ_DOWNSTREAM_ORPHAN:\s*/, ""), sheetNames });
-        setParseDialogOpen(false);
-      } else {
-        setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
-        setParseDialogOpen(false);
-      }
+      setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
+      setParseDialogOpen(false);
     }
   };
 
@@ -1194,33 +1181,8 @@ const BoqHubPage = () => {
         mode={parseDialogMode}
         reparseDrafts={reparseEligibleDrafts}
         restrictToSheetName={reparseRestrictSheet}
+        downstreamSheets={downstreamSheets}
       />
-
-      {/* ── Amendment A1: force-reparse directional orphan confirm. run_parse threw
-          BOQ_DOWNSTREAM_ORPHAN; on confirm we retry with confirm_orphan=true. Warn-only. ── */}
-      <AlertDialog
-        open={!!parseOrphanPrompt}
-        onOpenChange={(o) => { if (!o) setParseOrphanPrompt(null); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              This will orphan priced cells
-            </AlertDialogTitle>
-            <AlertDialogDescription>{parseOrphanPrompt?.message}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={parseInFlight}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={parseInFlight}
-              onClick={() => { if (parseOrphanPrompt) void handleParseConfirm(parseOrphanPrompt.sheetNames, true); }}
-            >
-              Re-parse anyway
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* ── Hub XLSX export dialog (Slice D2b) ────────────────────────────── */}
       <ExportWorkbookDialog
