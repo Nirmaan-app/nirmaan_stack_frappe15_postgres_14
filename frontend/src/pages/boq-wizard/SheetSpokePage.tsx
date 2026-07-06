@@ -478,7 +478,7 @@ const SheetSpokePage = () => {
   };
 
   return (
-    <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
+    <div className="flex-1 space-y-4 max-w-6xl mx-auto pt-6 pb-10">
 
       {/* ── Header strip ──────────────────────────────────────────────────── */}
       <div className="flex items-start gap-3">

@@ -1283,14 +1283,19 @@ export function SheetConfigPanel({
         )}
       </div>
 
-      {/* ── Section 2: Areas ────────────────────────────────────────────── */}
+      {/* ── Section 2: Areas / Zones ─────────────────────────────────────── */}
       <div className="space-y-4 pt-3 border-t border-border">
-        <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
-          Section 2 — Areas
-          {(isUnconfirmed("area_dimensions", isMulti) || isUnconfirmed("section:areas", hasPrefill)) && (
-            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
-          )}
-        </h3>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
+            Section 2 — Areas / Zones
+            {(isUnconfirmed("area_dimensions", isMulti) || isUnconfirmed("section:areas", hasPrefill)) && (
+              <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
+            )}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Name the physical areas this sheet&apos;s quantities are split across (floors, blocks, towers). These names become the Area options in Column Roles below.
+          </p>
+        </div>
 
         <div className={cn("space-y-3", isUnconfirmed("area_dimensions", isMulti) && "opacity-50")}>
           <div className="flex rounded-md border border-border overflow-hidden w-fit">
@@ -1374,12 +1379,17 @@ export function SheetConfigPanel({
         Cross-section reactivity: area reconciliation effect above handles area clearing.
       */}
       <div className="space-y-4 pt-3 border-t border-border">
-        <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
-          Section 3 — Column Roles
-          {(isUnconfirmed("column_role_map", Object.keys(columnRoleMap).length > 0) || isUnconfirmed("section:roles", hasPrefill)) && (
-            <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
-          )}
-        </h3>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground leading-none flex items-center gap-1">
+            Section 3 — Column Roles
+            {(isUnconfirmed("column_role_map", Object.keys(columnRoleMap).length > 0) || isUnconfirmed("section:roles", hasPrefill)) && (
+              <span className="text-sm" aria-label="Section not yet confirmed">✨</span>
+            )}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Map each spreadsheet column to what it means — Description, Quantity, Rate, Amount, Make/Model — optionally tagged to an area.
+          </p>
+        </div>
 
         <div
           className={cn(
@@ -1616,8 +1626,36 @@ export function SheetConfigPanel({
       </div>
       </div>
 
+      {/* Coverage summary: one line per content-bearing column with its role.
+          Non-blocking -- shows above Section 4 so forgotten columns are visible. */}
+      {contentBearingColumns.length > 0 && (
+        <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
+          <p className="text-xs font-medium text-foreground">
+            Column coverage (preview rows):
+          </p>
+          <ul className="text-xs text-muted-foreground space-y-0.5">
+            {contentBearingColumns.map(({ col }) => {
+              const entry = columnRoleMap[col];
+              const roleLabel =
+                entry && entry.role !== ""
+                  ? (ROLE_LABELS[entry.role] ?? entry.role)
+                  : "Ignore (unmapped)";
+              const isIgnored = !entry || entry.role === "";
+              return (
+                <li key={col} className="flex items-center gap-1.5">
+                  <span className="font-mono text-foreground w-6 shrink-0">{col}</span>
+                  <span className={isIgnored ? "text-amber-600 dark:text-amber-400" : ""}>
+                    {roleLabel}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* ── Zone B: Sheet details ─────────────────────────────────────────── */}
-      <div className="rounded-md border border-border bg-muted/30 p-3">
+      <div className="rounded-md border border-border p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
         Sheet details — saved without re-parsing
       </p>
@@ -1665,8 +1703,11 @@ export function SheetConfigPanel({
       </div>
       </div>
 
+      {/* ── Footer panel: bulk-accept + review gate + save (one bordered container) ── */}
+      <div className="rounded-md border border-border p-3 space-y-4">
+
       {/* ── Bulk-accept + Review gate ────────────────────────────────────── */}
-      <div className="space-y-4 pt-3 border-t border-border">
+      <div className="space-y-4">
 
         {/* Bulk-accept: one click confirms all three sections at once. */}
         {hasPrefill && !allSectionsConfirmed && (
@@ -1682,34 +1723,6 @@ export function SheetConfigPanel({
             <p className="text-xs text-muted-foreground">
               Accept the pre-filled values without changes.
             </p>
-          </div>
-        )}
-
-        {/* Coverage summary: one line per content-bearing column with its role.
-            Non-blocking -- shows at attest time so forgotten columns are visible. */}
-        {contentBearingColumns.length > 0 && (
-          <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1.5">
-            <p className="text-xs font-medium text-foreground">
-              Column coverage (preview rows):
-            </p>
-            <ul className="text-xs text-muted-foreground space-y-0.5">
-              {contentBearingColumns.map(({ col }) => {
-                const entry = columnRoleMap[col];
-                const roleLabel =
-                  entry && entry.role !== ""
-                    ? (ROLE_LABELS[entry.role] ?? entry.role)
-                    : "Ignore (unmapped)";
-                const isIgnored = !entry || entry.role === "";
-                return (
-                  <li key={col} className="flex items-center gap-1.5">
-                    <span className="font-mono text-foreground w-6 shrink-0">{col}</span>
-                    <span className={isIgnored ? "text-amber-600 dark:text-amber-400" : ""}>
-                      {roleLabel}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
           </div>
         )}
 
@@ -1768,7 +1781,7 @@ export function SheetConfigPanel({
       </div>
 
       {/* ── Save action ─────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 pt-3 border-t border-border">
+      <div className="flex flex-col gap-3">
         {unmappedWarnings.length > 0 && (
           <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1.5">
             <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -1805,6 +1818,7 @@ export function SheetConfigPanel({
           </Button>
           {saveError && <p className="text-xs text-destructive">{saveError}</p>}
         </div>
+      </div>
       </div>
       </fieldset>
 
