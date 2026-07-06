@@ -8,6 +8,7 @@
  "field_order": [
   "details_section",
   "type",
+  "status",
   "description",
   "comment",
   "amount",
@@ -31,6 +32,15 @@
    "fieldtype": "Link",
    "label": "Type",
    "options": "Expense Type"
+  },
+  {
+   "default": "Requested",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Requested\nApproved\nPaid",
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "amount",

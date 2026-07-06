@@ -177,7 +177,7 @@ def get_payment_dashboard_stats():
         # means PO + WO + Project Expenses (matches the Cash Sheet report).
         project_expenses = frappe.get_all(
             "Project Expenses",
-            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]], "status": "Paid"},
             fields=["amount"],
             limit_page_length=None,
         )
@@ -199,7 +199,7 @@ def get_payment_dashboard_stats():
         # --- 2g. Non-project outflow (Non Project Expenses) — last 30 days ---
         non_project_expenses = frappe.get_all(
             "Non Project Expenses",
-            filters={"payment_date": ["between", [thirty_days_ago, today_date]]},
+            filters={"payment_date": ["between", [thirty_days_ago, today_date]], "status": "Paid"},
             fields=["amount"],
             limit_page_length=None,
         )

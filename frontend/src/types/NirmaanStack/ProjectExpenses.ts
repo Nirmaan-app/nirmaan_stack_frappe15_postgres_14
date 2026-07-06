@@ -12,6 +12,7 @@ export interface ProjectExpenses {
     parenttype?: string
     idx?: number
 
+    status?: "Requested" | "Approved" | "Paid"; // Approval workflow status (default "Requested")
     projects: string; // This is the link to the Projects doctype
     vendor?: string; // Optional link to Vendors
     type?: string; // --- (Indicator) NEW: Link to Expense Type DocType ---
