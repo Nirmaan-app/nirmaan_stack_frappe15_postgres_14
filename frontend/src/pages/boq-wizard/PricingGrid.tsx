@@ -131,7 +131,9 @@ import type {
   ReconciliationChoiceRef,
   RemarkSaveArgs,
   RowReviewFlags,
+  SheetCategoryRow,
 } from "./boqTypes";
+import { isNeedsReviewCategory } from "./ClassifySheetDialog";
 
 // Depth indent step -- mirrors ReviewTree.INDENT_PX (kept in sync; the pricing grid does
 // not import ReviewTree per design v1.3 Sec.4 path b).
@@ -680,6 +682,14 @@ export function buildRateCell(row: PricedRow, d: ColumnDescriptor): RateCellSave
 // 0=Excel Row, 1=Sl.No, 2=Parent, 3=Classification, 4=Description. Descriptor cells
 // occupy colIndex FIXED_ANCHOR_COUNT .. (FIXED_ANCHOR_COUNT + displayDescriptors.length - 1).
 export const FIXED_ANCHOR_COUNT = 5;
+
+// CL-2: a read-only "Category" column is the FIRST right-pane (scrolling) column, at colIndex
+// FIXED_ANCHOR_COUNT. It is NOT a 6th anchor -- the 5 anchors stay pinned; Category rides in the
+// scrolling pane with the descriptors. Descriptor cells therefore start ONE column later. Every
+// descriptor colIndex is derived from this constant so the +1 lives in exactly one place.
+export const DESCRIPTOR_COL_START = FIXED_ANCHOR_COUNT + 1; // +1 for the leading read-only Category column
+// The fixed width of the read-only Category column (px). Not user-resizable (no colWidths entry).
+const CATEGORY_COL_WIDTH = 140;
 
 export type NavDirection = "up" | "down" | "left" | "right" | "tab" | "shift-tab";
 export interface CellCoord {
@@ -1357,6 +1367,13 @@ interface PricingGridProps {
    */
   reconChoices?: ReconciliationChoiceRef[];
   /**
+   * CL-2: per-EXCEL-ROW category verdicts (get_sheet_categories), built page-side into a
+   * reference-stable Map keyed by excel_row. The grid READS it to render the read-only Category
+   * column (effective_category_id + a "needs review" amber cue). DISPLAY ONLY -- editing the
+   * verdict is CL-3's concern (no onClick wired here). ABSENT/empty => blank Category cells.
+   */
+  categoriesByExcelRow?: Map<number, SheetCategoryRow>;
+  /**
    * Cluster B: choose (keep_document/take_formula) or clear the reconciliation choice for one
    * divergent amount cell (save_cell_reconciliation_choice + mutate). ABSENT => the divergence
    * cue renders read-only (a static pill, no chooser) -- the page withholds it when
@@ -1461,6 +1478,10 @@ const savedRateStr = (row: PricedRow, d: ColumnDescriptor): string => {
 // such rows never get a fresh `{}` per render (which would defeat the memo). Read-only by
 // the row (lookups only; never mutated).
 const EMPTY_SLICE: Record<string, string> = Object.freeze({});
+
+// CL-2: a stable empty category map for the default (no categories fetched) case -- a shared
+// reference so the row memo is never defeated by a fresh Map per render.
+const EMPTY_CATEGORY_MAP: Map<number, SheetCategoryRow> = new Map();
 
 /** Shallow string-map equality (key set + values). Pure -- unit-tested. */
 function shallowEqualStrMap(a: Record<string, string>, b: Record<string, string>): boolean {
@@ -1623,6 +1644,9 @@ interface PricingGridRowProps {
   /** Cluster B: per-cell reconciliation choice map (per-SHEET, reference-stable across a
    *  keystroke -- changes only on mutate, exactly like columnFormulas). */
   reconChoiceMap: Map<string, ReconChoice>;
+  /** CL-2: per-EXCEL-ROW category verdict map (per-SHEET, reference-stable across a keystroke --
+   *  built page-side, changes only on a classify mutate). Read-only display in the Category cell. */
+  categoriesByExcelRow: Map<number, SheetCategoryRow>;
   override: boolean;
   /** MANDATORY amount-formula gate (per-SHEET boolean -- flips identically for all rows). */
   formulasComplete: boolean;
@@ -1687,6 +1711,7 @@ export function pricingRowPropsAreEqual(
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
     prev.reconChoiceMap === next.reconChoiceMap &&
+    prev.categoriesByExcelRow === next.categoriesByExcelRow &&
     prev.override === next.override &&
     prev.formulasComplete === next.formulasComplete &&
     prev.onSaveRate === next.onSaveRate &&
@@ -1740,6 +1765,7 @@ const PricingGridRow = memo(function PricingGridRow({
   columnDescriptors,
   columnFormulas,
   reconChoiceMap,
+  categoriesByExcelRow,
   override,
   formulasComplete,
   onSaveRate,
@@ -1995,10 +2021,43 @@ const PricingGridRow = memo(function PricingGridRow({
       )}
       {pane !== "frozen" && (
         <>
+      {/* CL-2: read-only Category column -- the FIRST right-pane cell (colIndex FIXED_ANCHOR_COUNT).
+          Displays the row's effective category verdict; a "Needs review" verdict with no human pick
+          shows an amber dot + amber text. Uses the same read-only nav-cell wiring the anchor cells
+          use (tdFocusProps / cellNavClass / registerCell), no input. DISPLAY ONLY.
+          CL-3 seam: click-to-edit verdict picker not wired here. */}
+      {(() => {
+        const colIndex = FIXED_ANCHOR_COUNT;
+        const cat = categoriesByExcelRow.get(row.source_row_number);
+        const effective = cat?.effective_category_id ?? "";
+        const needsReview = isNeedsReviewCategory(cat);
+        return (
+          <td
+            {...tdFocusProps(colIndex)}
+            data-colkey="category"
+            title={effective || undefined}
+            className={cn(
+              "px-2 py-1.5 align-top border-l border-border",
+              needsReview ? "text-amber-700 dark:text-amber-300" : "text-foreground",
+              cellNavClass(colIndex),
+            )}
+          >
+            <span className="flex items-center gap-1 min-w-0">
+              {needsReview && (
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 dark:bg-amber-400"
+                />
+              )}
+              <span className="truncate">{effective}</span>
+            </span>
+          </td>
+        );
+      })()}
       {/* Descriptor-driven data cells: editable rate inputs, live-amount cells, and read-only
           qty/other cells. */}
       {displayDescriptors.map((d, dIdx) => {
-        const colIndex = FIXED_ANCHOR_COUNT + dIdx;
+        const colIndex = DESCRIPTOR_COL_START + dIdx;
         // ── Slice 4a: per-cell color (the SEPARATE left-border channel) + the picker
         //    trigger (editable only when onSaveColor is present). ──
         const cellColor = row.color_by_cell?.[d.col];
@@ -2261,7 +2320,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2562,7 +2621,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
   // Nav dims over the VISIBLE descriptor set (column-hide aware) so the matrix stays consistent
   // with what is rendered -- a hidden column is absent from the matrix + the ref map.
-  const remarksColIndex = FIXED_ANCHOR_COUNT + visibleDescriptors.length;
+  const remarksColIndex = DESCRIPTOR_COL_START + visibleDescriptors.length;
   const colCount = remarksColIndex + 1;
   const anyCellActive = activeCell !== null;
 
@@ -2680,8 +2739,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   // The descriptor at a grid colIndex (descriptor columns only), else null.
   const descriptorAt = (c: number): ColumnDescriptor | null =>
-    c >= FIXED_ANCHOR_COUNT && c <= remarksColIndex - 1
-      ? (visibleDescriptors[c - FIXED_ANCHOR_COUNT] ?? null)
+    c >= DESCRIPTOR_COL_START && c <= remarksColIndex - 1
+      ? (visibleDescriptors[c - DESCRIPTOR_COL_START] ?? null)
       : null;
   // A target cell's kind: remark (last col), rate (a rate descriptor), else "other" (anchor/amount/qty).
   const cellKindAt = (c: number): CellKind => {
@@ -3081,7 +3140,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     if (anchor >= 0) return anchor; // a0..a4 -> 0..4
     if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
     const idx = visibleDescriptors.findIndex((d) => columnWidthKey("descriptor", d.col) === colkey);
-    return idx >= 0 ? FIXED_ANCHOR_COUNT + idx : null;
+    return idx >= 0 ? DESCRIPTOR_COL_START + idx : null;
   };
 
   // Compute each menu item's enabled state for a target rect NOW (open-time), reading the
@@ -3141,10 +3200,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
-    if (!onSaveRate || cell.colIndex < FIXED_ANCHOR_COUNT) return;
+    if (!onSaveRate || cell.colIndex < DESCRIPTOR_COL_START) return;
     // colIndex is over the VISIBLE descriptor set (column-hide aware) -- reverse-map through the
     // SAME visibleDescriptors the cells render from, else a hidden column would shift the lookup.
-    const d = visibleDescriptors[cell.colIndex - FIXED_ANCHOR_COUNT];
+    const d = visibleDescriptors[cell.colIndex - DESCRIPTOR_COL_START];
     if (!d || !isRateDescriptor(d)) return;
     const row = rows[cell.rowIndex];
     if (!row) return;
@@ -3381,6 +3440,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // redistribute slack and break the authoritative colgroup widths).
   const totalWidth =
     ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0) +
+    CATEGORY_COL_WIDTH + // CL-2: the read-only Category column (fixed width, no colWidths entry)
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
   const tableStyle = { width: `${totalWidth}px` };
@@ -3399,7 +3459,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
   const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
   const scrollPaneTableWidth =
-    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) + widthOf(REMARKS_WIDTH_KEY);
+    CATEGORY_COL_WIDTH + // CL-2: the read-only Category column leads the scrolling pane
+    descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
+    widthOf(REMARKS_WIDTH_KEY);
 
   // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
   // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
@@ -3506,6 +3568,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     <col key={d.col} style={{ width: `${widthOf(columnWidthKey("descriptor", d.col))}px` }} />
   ));
   const remarksCol = <col style={{ width: `${widthOf(REMARKS_WIDTH_KEY)}px` }} />;
+  // CL-2: the read-only Category <col> -- leads the scrolling pane (before descriptorCols). Fixed
+  // width; never in the frozen/anchor colgroup.
+  const categoryCol = <col style={{ width: `${CATEGORY_COL_WIDTH}px` }} />;
 
   // Anchor headers: vertical sticky (top-0, z-20). Width comes from the colgroup; the label
   // truncates single-line (D4) with a title tooltip; the right-edge handle drag-resizes (D1).
@@ -3602,6 +3667,18 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     );
   });
 
+  // CL-2: the read-only Category header -- leads the scrolling pane (before descriptorHeaderCells).
+  // No resize handle (fixed-width column). data-colkey mirrors the body cell's "category" key.
+  const categoryHeaderCell = (
+    <th
+      data-colkey="category"
+      title="Category"
+      className="px-2 py-2 text-left font-medium text-muted-foreground border-l border-border sticky top-0 z-20 bg-muted"
+    >
+      <span className="block truncate">Category</span>
+    </th>
+  );
+
   // Slice 4a: trailing Remarks column (per-row; click/Enter-to-open editor). NOT a descriptor;
   // Slice 4a.2 made it the matrix's last navigable column.
   const remarksHeaderCell = (
@@ -3656,6 +3733,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       columnDescriptors={columnDescriptors}
       columnFormulas={columnFormulas}
       reconChoiceMap={reconChoiceMap}
+      categoriesByExcelRow={categoriesByExcelRow}
       override={override}
       formulasComplete={formulasComplete}
       onSaveRate={onSaveRate}
@@ -3801,11 +3879,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 onContextMenu={onCellContextMenu}
               >
                 <colgroup>
+                  {categoryCol}
                   {descriptorCols}
                   {remarksCol}
                 </colgroup>
                 <thead>
                   <tr>
+                    {categoryHeaderCell}
                     {descriptorHeaderCells}
                     {remarksHeaderCell}
                   </tr>
@@ -3850,12 +3930,14 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       >
         <colgroup>
           {anchorCols}
+          {categoryCol}
           {descriptorCols}
           {remarksCol}
         </colgroup>
         <thead>
           <tr>
             {anchorHeaderCells}
+            {categoryHeaderCell}
             {descriptorHeaderCells}
             {remarksHeaderCell}
           </tr>

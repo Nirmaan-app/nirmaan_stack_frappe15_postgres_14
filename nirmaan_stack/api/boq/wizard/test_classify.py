@@ -259,6 +259,27 @@ class TestOrchestrator(FrappeTestCase):
         self.assertEqual(summary["auto_accepted"], 0)
         self.assertEqual(client.messages.calls, 0, "disabled -> no AI call attempted")
 
+    def test_progress_cb_monotonic_per_batch(self):
+        # Force multiple 20-row slices on the 3-eligible-row fixture by patching the batch size
+        # to 2 (test-only; production stays 20). progress_cb must receive a monotonic
+        # non-decreasing `done`, capped at total, ending exactly at (total, total).
+        frappe.db.set_single_value(_AI_SETTINGS, "enabled", 1)
+        client = _fake_ai({10: ("", 0.0), 11: ("", 0.0), 12: ("", 0.0)})
+        calls = []
+        with mock.patch("nirmaan_stack.services.boq_category.orchestrator._AI_BATCH", 2):
+            summary = orchestrator.classify_sheet_rows(
+                self.boq, self.sheet, "Electrical",
+                progress_cb=lambda done, total: calls.append((done, total)),
+                ai_client=client,
+            )
+        self.assertEqual(summary["eligible_classified"], 3)
+        self.assertTrue(calls, "progress_cb fired")
+        dones = [d for d, _ in calls]
+        self.assertEqual(dones, sorted(dones), "done is monotonic non-decreasing")
+        self.assertTrue(all(t == 3 for _, t in calls), "total == eligible count")
+        self.assertLessEqual(max(dones), 3, "done never exceeds total")
+        self.assertEqual(calls[-1], (3, 3), "final progress is total-of-total")
+
 
 # ── START_CLASSIFY ───────────────────────────────────────────────────────────────
 class TestStartClassify(FrappeTestCase):

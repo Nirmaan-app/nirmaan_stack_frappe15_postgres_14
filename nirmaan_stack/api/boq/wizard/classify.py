@@ -189,8 +189,17 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
     row_filter = None
     if scope and scope.get("mode") == "range":
         row_filter = (int(scope["start"]), int(scope["end"]))
+
+    def _progress(done, total):
+        # Incremental progress, emitted once per 20-row AI batch. No DB dependency (transient
+        # counts only), so no commit-before-publish is needed. The terminal boq:classify_sheet_done
+        # + the Redis poll fallback are unchanged.
+        _publish_classify_progress(boq, sheet_name, discipline, user, done, total)
+
     try:
-        summary = orchestrator.classify_sheet_rows(boq, sheet_name, discipline, row_filter=row_filter)
+        summary = orchestrator.classify_sheet_rows(
+            boq, sheet_name, discipline, row_filter=row_filter, progress_cb=_progress
+        )
         frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
         payload = {
             "status": "success",
@@ -210,6 +219,16 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
             "error_code": "classify_failed",
         }
     _publish_classify_event(boq, sheet_name, discipline, user, payload)
+
+
+def _publish_classify_progress(boq, sheet_name, discipline, user, done, total):
+    """Emit incremental classify progress (once per 20-row AI batch). NEW event, additive -- the
+    terminal boq:classify_sheet_done + get_classify_status poll are unchanged. Payload is keyed
+    by (boq, sheet_name, discipline) so the client gates it to the active sheet."""
+    payload = {"boq": boq, "sheet_name": sheet_name, "discipline": discipline,
+               "done": done, "total": total}
+    publish_kwargs = {"user": user} if user else {}
+    frappe.publish_realtime("boq:classify_sheet_progress", payload, **publish_kwargs)
 
 
 def _publish_classify_event(boq, sheet_name, discipline, user, payload):

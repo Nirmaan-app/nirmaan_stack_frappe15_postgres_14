@@ -19,10 +19,10 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,6 +33,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   AmountFormulaSaveArgs,
   BOQsDoc,
+  ClassifySummary,
   ColorSaveArgs,
   CommittedSheetGridResponse,
   DismissalSaveArgs,
@@ -46,10 +47,17 @@ import type {
   RemarkSaveArgs,
   ReviewEntry,
   RowReviewFlags,
+  SheetCategoryRow,
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
+import {
+  ClassifySheetDialog,
+  isNeedsReviewCategory,
+  reduceProgress,
+  skipRollupText,
+} from "./ClassifySheetDialog";
 import {
   PricingGrid,
   buildSearchHits,
@@ -129,6 +137,38 @@ const REVIEW_ENTRY_META: Record<
   },
 };
 
+// CL-2: the classify-sheet realtime payloads + the get_classify_status poll shape. The done event
+// carries the full ClassifySummary plus the run identity (boq_name / sheet_name / discipline).
+interface ClassifyProgressPayload {
+  boq: string;
+  sheet_name: string;
+  discipline: string;
+  done: number;
+  total: number;
+}
+interface ClassifyDonePayload extends ClassifySummary {
+  status: string;
+  boq_name: string;
+  sheet_name: string;
+  discipline: string;
+}
+interface ClassifyStatusResponse {
+  state: string; // "running" | "done" | ... (backend-authoritative)
+  done?: number;
+  total?: number;
+  status?: string;
+  total_in_range?: number;
+  eligible_classified?: number;
+  needs_review?: number;
+  auto_accepted?: number;
+  skipped_total?: number;
+  skipped_by_reason?: Record<string, number>;
+  committed_version?: number | null;
+  sheet_warnings?: string[];
+}
+// CL-2: only the Electrical engine is wired in v1 (matches the ClassifySheetDialog gating).
+const CLASSIFY_DISCIPLINE = "Electrical";
+
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
   const navigate = useNavigate();
@@ -182,6 +222,25 @@ const SheetPricingPage = () => {
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
   );
+
+  // CL-2: the per-row category verdicts for THIS sheet (Electrical engine). mutateCategories
+  // refetches after a classify run completes so the grid's Category column repaints. Disabled
+  // until boqId + sheetName are present (swrKey gotcha).
+  const { data: catData, mutate: mutateCategories } = useFrappeGetCall<{
+    message: { committed_version: number | null; categories: SheetCategoryRow[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_sheet_categories",
+    { boq_name: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? undefined : null,
+  );
+  // A reference-stable (per fetch) Map keyed by excel_row -> the grid reads it for the Category
+  // cell; rebuilt only when catData changes (a fresh fetch / a post-classify mutate), so the row
+  // memo is never defeated by a per-render Map.
+  const categoriesByExcelRow = useMemo(() => {
+    const m = new Map<number, SheetCategoryRow>();
+    (catData?.message?.categories ?? []).forEach((c) => m.set(c.excel_row, c));
+    return m;
+  }, [catData]);
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
@@ -271,6 +330,20 @@ const SheetPricingPage = () => {
   // Slice 4b-A: "show only unpriced" -- collapse the grid to priceable-but-not-fully-priced
   // rows. Per-sheet per-session (reset on a tab switch, like the override).
   const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
+
+  // ── CL-2: classify-sheet state (per-sheet per-session; reset on a tab switch below) ──
+  // The dialog open flag; the running flag (a run is in flight -> disables the ribbon button +
+  // shows the progress bar); the live {done,total} progress; the completion summary; and the
+  // "show only needs-review rows" view filter. classifyRunningRef mirrors classifyRunning so the
+  // stable socket/poll callbacks read the CURRENT running state without re-registering.
+  const [classifyOpen, setClassifyOpen] = useState(false);
+  const [classifyRunning, setClassifyRunning] = useState(false);
+  const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
+  const [showNeedsReview, setShowNeedsReview] = useState(false);
+  const classifyRunningRef = useRef(false);
 
   // ── Toolbar Part 1 (per-sheet per-session; reset on a tab switch below) ──────────
   // Column-hide: the set of HIDDEN non-amount descriptor `col` letters. DEFAULT EMPTY = nothing
@@ -401,6 +474,14 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
+    // CL-2: classify state is per-sheet -- a tab switch starts clean (the socket/poll below
+    // re-recovers a genuinely in-flight run from get_classify_status on the new sheet).
+    setClassifyOpen(false);
+    setClassifyRunning(false);
+    classifyRunningRef.current = false;
+    setClassifyProgress(null);
+    setClassifySummary(null);
+    setShowNeedsReview(false);
     // Toolbar Part 1: column-hide, search, and the three row-type filters are all per-sheet.
     setHiddenCols(new Set());
     setSearchQuery("");
@@ -418,6 +499,97 @@ const SheetPricingPage = () => {
   useEffect(() => {
     setSearchCurrentIdx(0);
   }, [searchQuery]);
+
+  // ── CL-2: classify-sheet completion handling (socket + poll fallback) ─────────────
+  // Apply a done outcome from EITHER the boq:classify_sheet_done event or the get_classify_status
+  // poll. Guards on boq / sheet_name (VERBATIM #152) / discipline so a broadcast for another sheet
+  // never mutates this one. Clears the running/progress state, stores the summary, and refetches
+  // the category verdicts so the grid's Category column repaints.
+  const applyClassifyDone = useCallback(
+    (p: Partial<ClassifyDonePayload> & { boq_name: string; sheet_name: string; discipline: string }) => {
+      if (p.boq_name !== (boqId ?? "")) return;
+      if (p.sheet_name !== (sheetName ?? "")) return;
+      if (p.discipline !== CLASSIFY_DISCIPLINE) return;
+      setClassifyRunning(false);
+      classifyRunningRef.current = false;
+      setClassifyProgress(null);
+      setClassifySummary({
+        total_in_range: p.total_in_range ?? 0,
+        eligible_classified: p.eligible_classified ?? 0,
+        needs_review: p.needs_review ?? 0,
+        auto_accepted: p.auto_accepted ?? 0,
+        skipped_total: p.skipped_total ?? 0,
+        skipped_by_reason: p.skipped_by_reason ?? {},
+        committed_version: p.committed_version ?? null,
+        sheet_warnings: p.sheet_warnings ?? [],
+      });
+      void mutateCategories();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boqId, sheetName, mutateCategories],
+  );
+
+  // Socket for boq:classify_sheet_progress / boq:classify_sheet_done (mirrors the BoqHubPage
+  // parse-run pattern -- SCREEN-SCOPED via FrappeContext, NOT socketListeners.ts). Reconnect
+  // self-heals by refetching the categories; the poll below covers a missed done event.
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  useEffect(() => {
+    if (!socket) return;
+    const onProgress = (p: ClassifyProgressPayload) => {
+      if (
+        p.boq !== (boqId ?? "") ||
+        p.sheet_name !== (sheetName ?? "") ||
+        p.discipline !== CLASSIFY_DISCIPLINE
+      )
+        return;
+      setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
+    };
+    const onDone = (p: ClassifyDonePayload) => applyClassifyDone(p);
+    const onReconnect = () => {
+      void mutateCategories();
+    };
+    socket.on("boq:classify_sheet_progress", onProgress);
+    socket.on("boq:classify_sheet_done", onDone);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:classify_sheet_progress", onProgress);
+      socket.off("boq:classify_sheet_done", onDone);
+      socket.off("connect", onReconnect);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, boqId, sheetName, applyClassifyDone]);
+
+  // Fallback + on-mount recovery: get_classify_status. Always enabled (a single read on mount
+  // recovers an in-flight run started elsewhere / before navigation), then polls every 3s ONLY
+  // while running. A "done" state funnels through the SAME applyClassifyDone (socket or poll --
+  // first to resolve wins, gated on classifyRunningRef); a "running" state seen while we think
+  // we're idle resumes the indicator (the recovery case).
+  const { data: classifyStatusData } = useFrappeGetCall<{ message: ClassifyStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_classify_status",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? `boq-classify-status::${boqId}::${sheetName}` : null,
+    { refreshInterval: classifyRunning ? 3000 : 0 },
+  );
+  useEffect(() => {
+    const msg = classifyStatusData?.message;
+    if (!msg) return;
+    if (msg.state === "done") {
+      if (!classifyRunningRef.current) return; // only a done we were waiting on
+      applyClassifyDone({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "",
+        discipline: CLASSIFY_DISCIPLINE,
+        ...msg,
+      });
+    } else if (msg.state === "running" && !classifyRunningRef.current) {
+      setClassifyRunning(true);
+      classifyRunningRef.current = true;
+      if (typeof msg.done === "number" && typeof msg.total === "number") {
+        setClassifyProgress({ done: msg.done, total: msg.total });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classifyStatusData, applyClassifyDone, boqId, sheetName]);
 
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
@@ -861,8 +1033,11 @@ const SheetPricingPage = () => {
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
+    // CL-2: "show only needs-review" keeps rows whose category verdict is an unresolved
+    // Needs-review (VIEW-ONLY -- it never touches counts / Summary / the review-flag feed).
+    (!showNeedsReview || isNeedsReviewCategory(categoriesByExcelRow.get(r.source_row_number))) &&
     classificationVisible(r.effective_classification, rowTypeToggles);
-  const anyViewFilter = showOnlyUnpriced || !noRowTypeHidden;
+  const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
   // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
@@ -1394,6 +1569,49 @@ const SheetPricingPage = () => {
             {collapsed.size === 0 ? "Collapse all" : "Expand all"}
           </Button>
 
+          {/* ── CL-2: classify-sheet launcher. Opens the ClassifySheetDialog (engine + scope);
+              shows a spinner + "Classifying..." while a run is in flight (classifyRunning, driven
+              by the socket/poll). Disabled while loading/error or a run is already running. ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={pricedLoading || pricedError || classifyRunning}
+            onClick={() => setClassifyOpen(true)}
+            title="Run AI category classification over this sheet."
+          >
+            {classifyRunning ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Classifying…
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Classify sheet
+              </>
+            )}
+          </Button>
+
+          {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
+              unresolved Needs-review). VIEW-ONLY, mirrors the Show-unpriced toggle. ── */}
+          <Button
+            size="sm"
+            variant={showNeedsReview ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={showNeedsReview}
+            onClick={() => setShowNeedsReview((o) => !o)}
+            disabled={pricedLoading || pricedError || categoriesByExcelRow.size === 0}
+            title={
+              showNeedsReview
+                ? "Showing only rows that need category review. Click to show all rows."
+                : "Show only rows whose category verdict needs review."
+            }
+          >
+            <Filter className="h-4 w-4" />
+            {showNeedsReview ? "Needs review only" : "Needs review"}
+          </Button>
+
           {/* ── Slice B (undo/redo): session history for RATE edits. Two icon buttons mirroring the
               collapse-all pattern, calling the grid via the imperative handle; disabled from the
               grid's onHistoryChange-fed {canUndo, canRedo} AND when the sheet is locked/read-only
@@ -1569,6 +1787,66 @@ const SheetPricingPage = () => {
           </div>
         </div>
       )}
+
+      {/* ── CL-2: classify progress (while running) + completion summary (after) ── */}
+      {classifyRunning && classifyProgress && (
+        <div className="flex items-center gap-3 rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-sky-200 dark:bg-sky-900">
+            <div
+              className="h-full rounded-full bg-sky-500 transition-all dark:bg-sky-400"
+              style={{
+                width:
+                  classifyProgress.total > 0
+                    ? `${Math.round((classifyProgress.done / classifyProgress.total) * 100)}%`
+                    : "0%",
+              }}
+            />
+          </div>
+          <span className="tabular-nums">
+            {classifyProgress.done} of {classifyProgress.total} rows
+          </span>
+        </div>
+      )}
+      {!classifyRunning && classifySummary && (
+        <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">
+              {classifySummary.eligible_classified} of {classifySummary.total_in_range} classified,
+              {" "}
+              {classifySummary.needs_review} flagged for review
+            </span>
+            {skipRollupText(classifySummary.skipped_by_reason) && (
+              <span className="mt-0.5 block text-emerald-700 dark:text-emerald-300">
+                {skipRollupText(classifySummary.skipped_by_reason)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setClassifySummary(null)}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-60 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* CL-2: the classify-sheet launcher dialog (fetches engines + fires start_classify). */}
+      <ClassifySheetDialog
+        open={classifyOpen}
+        boqId={boqId ?? ""}
+        sheetName={sheetName ?? ""}
+        onClose={() => setClassifyOpen(false)}
+        onStarted={() => {
+          setClassifyRunning(true);
+          classifyRunningRef.current = true;
+          setClassifyProgress(null);
+          setClassifySummary(null);
+        }}
+      />
 
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). For a grid-only
@@ -1846,6 +2124,9 @@ const SheetPricingPage = () => {
             // read-only pill, mirroring onSaveColor/onSaveRate).
             reconChoices={reconChoices}
             onSaveReconChoice={locked ? undefined : handleSaveReconChoice}
+            // CL-2: per-row category verdicts drive the read-only Category column (display only;
+            // CL-3 owns editing). A reference-stable per-fetch Map -> the row memo holds.
+            categoriesByExcelRow={categoriesByExcelRow}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}

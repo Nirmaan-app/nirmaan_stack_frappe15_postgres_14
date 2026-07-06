@@ -1272,3 +1272,54 @@ export interface SheetPreflight {
 export interface PreflightResponse {
   per_sheet: SheetPreflight[];
 }
+
+// ── CL-2: classify-sheet types (AI category classification per committed sheet) ──
+
+/**
+ * One classification ENGINE option (from classify.list_engines). `available` gates whether the
+ * engine can be selected in the ClassifySheetDialog (v1: only Electrical is available). `discipline`
+ * is the value handed to start_classify / get_classify_status / get_sheet_categories.
+ */
+export interface EngineOption {
+  id: string;
+  label: string;
+  discipline: string;
+  available: boolean;
+}
+
+/**
+ * The range to classify: the WHOLE sheet, or an inclusive Excel-row [start, end] window. Serialized
+ * (JSON.stringify) into the start_classify `scope` arg.
+ */
+export type ClassifyScope = { mode: "sheet" } | { mode: "range"; start: number; end: number };
+
+/**
+ * The classify-sheet completion summary (the "boq:classify_sheet_done" payload, minus the routing
+ * identity fields). Drives the post-run summary readout in SheetPricingPage.
+ */
+export interface ClassifySummary {
+  total_in_range: number;
+  eligible_classified: number;
+  needs_review: number;
+  auto_accepted: number;
+  skipped_total: number;
+  skipped_by_reason: Record<string, number>;
+  committed_version: number | null;
+  sheet_warnings: string[];
+}
+
+/**
+ * One per-row category verdict (from get_sheet_categories.categories). `effective_category_id` is
+ * the resolved verdict the grid displays (human pick wins, else the routed final). `routing` +
+ * `human_category_id` drive the "needs review" amber cue (isNeedsReviewCategory).
+ */
+export interface SheetCategoryRow {
+  excel_row: number;
+  rule_category_id: string;
+  ai_category_id: string;
+  final_category_id: string;
+  routing: string;
+  routing_reason: string;
+  human_category_id: string;
+  effective_category_id: string;
+}

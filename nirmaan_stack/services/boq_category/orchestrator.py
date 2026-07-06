@@ -24,6 +24,11 @@ from nirmaan_stack.services.boq_category.runner import classify_line, load_rules
 # The harness scorable-row rule (mirrors context_builder / the harness CLASSIFY_NT).
 _CLASSIFY_NT = {"Line Item", "Preamble"}
 
+# AI batch size -- MUST equal ai_voter._BATCH. The orchestrator drives the batching (in slices
+# of this size) so it can emit progress BETWEEN batches; the size stays 20 so the AI behaviour
+# (batching, prompt, model) is byte-identical to the certified CL-1b smoke test.
+_AI_BATCH = 20
+
 # Map an excluded committed row to a compact, human-groupable skip reason. row_class carries
 # the fine classification (node_type "Other" covers all of these); is_current=0 -> superseded.
 _ROW_CLASS_REASON = {
@@ -58,7 +63,8 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
     """Classify one committed sheet's eligible rows.
 
     row_filter: None (whole sheet) or (start_excel_row, end_excel_row) inclusive.
-    progress_cb: optional callable(done, total) invoked per classified row.
+    progress_cb: optional callable(done, total) invoked once per 20-row AI batch (done is the
+        cumulative rows fed to the voter so far, clamped to total).
     ai_client: optional injected Anthropic client (tests); passed through to the AI voter.
 
     Returns {total_in_range, eligible_classified, needs_review, auto_accepted, skipped_total,
@@ -111,18 +117,28 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
     ruleset = load_ruleset(discipline=discipline)
     rules_version = ruleset.get("version", "") or ""
 
-    # Independent AI voter ONCE over all kept rows (preserves the batch-of-20 mechanics). The
-    # voter never sees rule output.
-    envelope = ai_voter.classify_rows_ai(kept, discipline=discipline, client=ai_client)
-    ai_by_excel = {r["excel_row"]: r for r in envelope["results"]}
-    prompt_version = envelope.get("prompt_version", "")
-    model = envelope.get("model", "")
+    total = len(kept)
+    # Independent AI voter, driven in slices of _AI_BATCH so progress fires BETWEEN 20-row
+    # batches (Option A). Batch size is IDENTICAL to ai_voter._BATCH -- AI behaviour (batching,
+    # prompt, model) stays byte-identical to the certified smoke test; only the progress emit is
+    # added. The voter never sees rule output. When ai_client is None (production) the voter
+    # builds its client per slice -- negligible vs opus latency, and keeps ai_voter the sole
+    # owner of client/settings logic (no duplication here).
+    ai_by_excel = {}
+    prompt_version = model = ""
+    for b in range(0, total, _AI_BATCH):
+        env = ai_voter.classify_rows_ai(kept[b:b + _AI_BATCH], discipline=discipline, client=ai_client)
+        for r in env["results"]:
+            ai_by_excel[r["excel_row"]] = r
+        prompt_version = env.get("prompt_version", "") or prompt_version
+        model = env.get("model", "") or model
+        if progress_cb:
+            progress_cb(min(b + _AI_BATCH, total), total)
 
     rows_to_persist = []
     needs_review = 0
     auto_accepted = 0
-    total = len(kept)
-    for i, row in enumerate(kept):
+    for row in kept:
         notes_list = [row["notes"]] if row.get("notes") else []
         res = classify_line(
             row.get("description") or "",
@@ -157,8 +173,6 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
                 "model": model,
             }
         )
-        if progress_cb:
-            progress_cb(i + 1, total)
 
     if rows_to_persist:
         persist.write_row_categories(boq, sheet_name, committed_version, discipline, rows_to_persist)
