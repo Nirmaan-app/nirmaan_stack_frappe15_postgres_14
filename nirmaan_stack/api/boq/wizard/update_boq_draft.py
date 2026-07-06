@@ -39,10 +39,16 @@ def update_boq_draft(
         if material_change:
             n = directional_guard.boq_downstream_priced_count(boq_name)
             if n:
+                # Amendment A1: name any Live pricers across the BoQ.
+                live = directional_guard.boq_live_pricing_holders(boq_name)
+                live_clause = ""
+                if live:
+                    who = "; ".join(f"{name} on '{s}'" for s, name in live)
+                    live_clause = f" Live now: {who}."
                 frappe.throw(
                     f"{directional_guard.ORPHAN_MARKER}: this BoQ has {n} priced cell(s) across its "
-                    f"committed sheets. Changing the version / tax treatment desyncs their pricing "
-                    f"basis. Confirm to proceed.",
+                    f"committed sheets.{live_clause} Changing the version / tax treatment desyncs "
+                    f"their pricing basis. Confirm to proceed.",
                     title="This affects priced sheets",
                 )
 

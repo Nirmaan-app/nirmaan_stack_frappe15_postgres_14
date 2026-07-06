@@ -366,7 +366,13 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=No
             if (n := directional_guard.downstream_priced_count(boq_name, s))
         ]
         if orphaning:
-            detail = ", ".join(f"'{s}' ({n})" for s, n in orphaning)
+            # Amendment A1: name the Live pricer per sheet when another user holds a fresh lock.
+            parts = []
+            for s, n in orphaning:
+                holder = directional_guard.live_pricing_holder(boq_name, s)
+                suffix = f", {holder} pricing now" if holder else ""
+                parts.append(f"'{s}' ({n}{suffix})")
+            detail = ", ".join(parts)
             frappe.throw(
                 f"{directional_guard.ORPHAN_MARKER}: re-committing will orphan priced cells on the "
                 f"current version of {detail} -- they stay on the frozen version but are NOT carried "

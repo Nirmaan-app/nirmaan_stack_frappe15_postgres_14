@@ -18,10 +18,15 @@ formulas/remarks/colors not at all.
 C0 IS THE STATE FLOOR: it turns a SILENT orphan into an EXPLICIT, acknowledged action -- the
 disturbing endpoint throws with the orphan count (marker BOQ_DOWNSTREAM_ORPHAN) UNLESS the caller
 passes an explicit confirm flag. Re-committing / re-parsing a sheet with NO downstream pricing is
-free forward progress (count 0 -> no guard). The full tiered UX (D15/D16: presence-upgrade,
-Author-or-Admin, orphan-surfacing both ways) is the later C1 slice.
+free forward progress (count 0 -> no guard).
+
+ADR-0011 Amendment A1: the response is WARN-ONLY (never a block). When ANOTHER user is live-pricing
+the current committed version the message NAMES them (a "Live" warning); otherwise it is count-only
+(a "Vacated" warning) -- see live_pricing_holder + guard_no_downstream_orphan. The dropped tiered
+block / Author-or-Admin gate / attribution fields are NOT built.
 """
 import frappe
+from frappe.utils import now_datetime
 
 _BOQ_SHEET = "BoQ Sheet"
 _PRICING = "BoQ Cell Pricing"
@@ -64,19 +69,54 @@ def boq_downstream_priced_count(boq: str) -> int:
     return frappe.db.count(_PRICING, {"boq": boq, "is_current": 1})
 
 
+def live_pricing_holder(boq: str, sheet_name: str):
+    """The full name of ANOTHER user who holds a FRESH pricing lock on this sheet's CURRENT
+    committed version -- the "Live" downstream editor (ADR-0011 Amendment A1). Returns None when
+    the sheet is uncommitted, or the lock is absent / stale / held by the SAME user (you are never
+    warned about yourself) -- in which case the orphan warning is "Vacated" (count-only)."""
+    version = current_commit_version(boq, sheet_name)
+    if version is None:
+        return None
+    # Lazy import: pricing_lock is a leaf lock engine; keep directional_guard cheap to import.
+    from nirmaan_stack.api.boq.wizard import pricing_lock
+
+    info = pricing_lock.read_lock_info(
+        boq, sheet_name, version, frappe.session.user, now_datetime()
+    )
+    if info and not info["is_stale"] and not info["is_locked_by_me"]:
+        return info["locked_by_name"]
+    return None
+
+
+def boq_live_pricing_holders(boq: str):
+    """[(sheet_name, holder_full_name)] for every committed sheet of `boq` whose CURRENT version is
+    being live-priced by ANOTHER user (Amendment A1). Empty when none -- used by the per-BoQ
+    root-metadata guard to name who is affected."""
+    out = []
+    for s in frappe.get_all(_BOQ_SHEET, filters={"boq": boq, "is_current": 1}, pluck="sheet_name"):
+        holder = live_pricing_holder(boq, s)
+        if holder:
+            out.append((s, holder))
+    return out
+
+
 def guard_no_downstream_orphan(boq: str, sheet_name: str, confirm, action: str) -> int:
-    """C0 state floor: throw (with the orphan count + ORPHAN_MARKER) UNLESS `confirm` when
-    `action` on (boq, sheet_name) would orphan downstream pricing. `action` is a short human
-    label ("re-commit", "re-parse", "un-finalize", ...). Returns the orphan count (0 = no guard
-    fired). WRITES NOTHING -- call it before any destructive write, so a rejected action mutates
-    nothing (mirrors the lock reject-mutates-nothing contract)."""
+    """C0 state floor + Amendment A1 presence escalation: throw (with the orphan count +
+    ORPHAN_MARKER) UNLESS `confirm` when `action` on (boq, sheet_name) would orphan downstream
+    pricing. When ANOTHER user is live-pricing the current version the message NAMES them (Live);
+    otherwise it is count-only (Vacated). `action` is a short human label ("re-commit", "re-parse",
+    "un-finalize", ...). Returns the orphan count (0 = no guard fired). WRITES NOTHING -- call it
+    before any destructive write, so a rejected action mutates nothing (mirrors the lock
+    reject-mutates-nothing contract). It NEVER blocks -- the caller re-submits with `confirm`."""
     count = downstream_priced_count(boq, sheet_name)
     if count and not _truthy(confirm):
+        holder = live_pricing_holder(boq, sheet_name)
+        live = f" {holder} is pricing it right now." if holder else ""
         frappe.throw(
             f"{ORPHAN_MARKER}: '{sheet_name}' has {count} priced cell(s) on the current committed "
-            f"version. A {action} will orphan them -- they stay on the frozen version but are NOT "
-            f"carried forward (only rates are partially recoverable via copy-forward). Confirm to "
-            f"proceed.",
+            f"version.{live} A {action} will orphan them -- they stay on the frozen version but are "
+            f"NOT carried forward (only rates are partially recoverable via copy-forward). Confirm "
+            f"to proceed.",
             title="This will orphan priced cells",
         )
     return count
