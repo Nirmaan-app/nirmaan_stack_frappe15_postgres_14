@@ -245,6 +245,17 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   Dialog -- ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
 - **Annotation channels coexist:** system cell BACKGROUND (priced emerald / amber), user color = LEFT BORDER, system
   flags = col-0 GUTTER, focus = ring — never let one channel mask another.
+- **Classify Category column (CL-2):** a read-only nav column, the FIRST right-pane (scrolling) cell at colIndex
+  `FIXED_ANCHOR_COUNT` (the 5 anchors stay pinned; Category is NOT a 6th anchor). The descriptor colIndex base is
+  centralized to `DESCRIPTOR_COL_START = FIXED_ANCHOR_COUNT + 1` — the `+1` lives in ONE place (render loop /
+  `remarksColIndex` / `descriptorAt` / `colIndexFromColKey` / rate-guard all read it); its leading `<col>`/`<th>` go in
+  the scrolling-pane + single-table colgroups, NEVER the frozen/anchor pane. It is driven by a reference-stable
+  `categoriesByExcelRow: Map<number, SheetCategoryRow>` (built page-side from `get_sheet_categories`, ONE identity line
+  in `pricingRowPropsAreEqual`) — the row memo is untouched (do NOT hand it a per-row prop that changes on keystroke).
+  DISPLAY + needs-review amber cue ONLY; the click-to-edit verdict picker is CL-3 (a seam, not wired). The run itself is
+  driven from a screen-scoped socket (`boq:classify_sheet_progress`/`_done`) + `get_classify_status` poll on
+  `SheetPricingPage` (the page's FIRST socket), mirroring the BoqHub parse-run pattern. `ClassifySheetDialog.tsx` is the
+  engine/scope picker (registry-driven, modeled on CopyForwardDialog's `Set<selected>` + `Record<id,scope>`).
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
