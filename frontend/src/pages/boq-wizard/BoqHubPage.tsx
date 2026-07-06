@@ -137,6 +137,10 @@ const BoqHubPage = () => {
   // per-card entry point) pre-filters the dialog to one sheet.
   const [parseDialogMode, setParseDialogMode] = useState<"parse" | "reparse">("parse");
   const [reparseRestrictSheet, setReparseRestrictSheet] = useState<string | null>(null);
+  // Force-reparse directional orphan gate (Amendment A1): when run_parse throws
+  // BOQ_DOWNSTREAM_ORPHAN, hold the stripped message + the sheet list so the user can
+  // acknowledge and retry with confirm_orphan=true.
+  const [parseOrphanPrompt, setParseOrphanPrompt] = useState<{ message: string; sheetNames: string[] } | null>(null);
   const [parseInFlight, setParseInFlight] = useState(false);
   // RQ job id of the in-flight parse, captured from the run_parse response. Drives
   // the get_parse_status poll fallback (cleared before each new parse so the poll
@@ -202,6 +206,20 @@ const BoqHubPage = () => {
   // so badges + count update without a page reload.
   const { data: committedStateData, mutate: mutateCommittedState } = useFrappeGetCall<{ message: GetCommittedStateResponse }>(
     "nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null
+  );
+
+  // Amendment A1: per-sheet downstream orphanable state (priced-cell count + Live pricer) for the
+  // directional per-card chip. Same bare-whitelist GET + null-key gotcha as the reads above.
+  const { data: downstreamData } = useFrappeGetCall<{
+    message: {
+      sheets: Record<string, { orphanable_count: number; live_holder: string | null }>;
+      total_priced: number;
+      live_any: boolean;
+    };
+  }>(
+    "nirmaan_stack.api.boq.wizard.directional_guard.get_boq_downstream_state",
     { boq_name: boqId ?? "" },
     boqId ? undefined : null
   );
@@ -422,6 +440,8 @@ const BoqHubPage = () => {
   const committedMap = new Map<string, CommittedSheetState>(
     (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
   );
+  // Amendment A1: per-sheet downstream orphanable state, keyed by sheet_name VERBATIM (#152).
+  const downstreamSheets = downstreamData?.message?.sheets ?? {};
   // F2: live stale-config reason per sheet (keyed by sheet_name VERBATIM #152). Mirrors
   // committedMap. Passed to each card as staleReason; the card de-dups it against the
   // draft's stored parse_failure_* when both describe the same staleness.
@@ -664,7 +684,7 @@ const BoqHubPage = () => {
     setParseDialogOpen(true);
   };
 
-  const handleParseConfirm = async (sheetNames: string[]) => {
+  const handleParseConfirm = async (sheetNames: string[], confirmOrphan = false) => {
     if (!boqId) return;
     // Force Re-parse path adds force_reparse:true; normal Parse omits it entirely
     // (backend default False). The SDK serializes the bool; the backend coerces it.
@@ -681,14 +701,26 @@ const BoqHubPage = () => {
         boq_name: boqId,
         sheet_names: sheetNames,
         ...(force ? { force_reparse: true } : {}),
+        // Amendment A1: acknowledged orphaning of downstream pricing (retry path).
+        ...(confirmOrphan ? { confirm_orphan: true } : {}),
       });
       const newJobId = (res?.message as { job_id?: string | null })?.job_id ?? null;
       setParseJobId(newJobId);
-    } catch (_e) {
+      setParseOrphanPrompt(null);
+    } catch (e) {
       setParseInFlight(false);
       setParseJobId(null);
-      setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
-      setParseDialogOpen(false);
+      const msg = getFrappeError(e);
+      if (msg.includes("BOQ_DOWNSTREAM_ORPHAN")) {
+        // Amendment A1 directional gate: a force re-parse would orphan downstream pricing.
+        // Surface an explicit confirm (strip the marker); the dialog closes and the orphan
+        // AlertDialog opens. Confirm retries with confirm_orphan=true.
+        setParseOrphanPrompt({ message: msg.replace(/^.*?BOQ_DOWNSTREAM_ORPHAN:\s*/, ""), sheetNames });
+        setParseDialogOpen(false);
+      } else {
+        setParseError({ message: "Failed to start parse job. Please try again.", severity: "destructive" });
+        setParseDialogOpen(false);
+      }
     }
   };
 
@@ -904,6 +936,7 @@ const BoqHubPage = () => {
             workHeaders={workPackageMap[draft.sheet_name]}
             committedState={committedMap.get(draft.sheet_name)}
             staleReason={staleMap.get(draft.sheet_name)}
+            downstreamState={downstreamSheets[draft.sheet_name]}
           />
         ))}
 
@@ -1162,6 +1195,32 @@ const BoqHubPage = () => {
         reparseDrafts={reparseEligibleDrafts}
         restrictToSheetName={reparseRestrictSheet}
       />
+
+      {/* ── Amendment A1: force-reparse directional orphan confirm. run_parse threw
+          BOQ_DOWNSTREAM_ORPHAN; on confirm we retry with confirm_orphan=true. Warn-only. ── */}
+      <AlertDialog
+        open={!!parseOrphanPrompt}
+        onOpenChange={(o) => { if (!o) setParseOrphanPrompt(null); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              This will orphan priced cells
+            </AlertDialogTitle>
+            <AlertDialogDescription>{parseOrphanPrompt?.message}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={parseInFlight}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={parseInFlight}
+              onClick={() => { if (parseOrphanPrompt) void handleParseConfirm(parseOrphanPrompt.sheetNames, true); }}
+            >
+              Re-parse anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Hub XLSX export dialog (Slice D2b) ────────────────────────────── */}
       <ExportWorkbookDialog

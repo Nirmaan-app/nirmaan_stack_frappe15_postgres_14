@@ -84,6 +84,13 @@ interface SheetCardProps {
    */
   committedState?: CommittedSheetState;
   /**
+   * Amendment A1: per-sheet downstream orphanable state. When orphanable_count > 0 the card shows a
+   * chip -- "{live_holder} pricing now" (rose) when another user holds a fresh pricing lock, else
+   * "will orphan {n}" (amber). A re-parse / re-commit / un-finalize here would orphan that pricing.
+   * undefined => uncommitted / unpriced (no chip).
+   */
+  downstreamState?: { orphanable_count: number; live_holder: string | null };
+  /**
    * F2 "needs attention": this sheet's LIVE stale-config reason from get_stale_sheets
    * (Slice 1b), keyed by sheet_name VERBATIM (#152). undefined => not stale. The parse-
    * and commit-failure signals are read off `draft` (they ride the BOQs payload), so this
@@ -105,6 +112,7 @@ export function SheetCard({
   onExportCsv,
   committedState,
   staleReason,
+  downstreamState,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -323,6 +331,26 @@ export function SheetCard({
             <span className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
               priced since last export
             </span>
+          )}
+          {/* Amendment A1: directional orphan chip. This sheet's current committed version is
+              priced; a re-parse / re-commit / un-finalize here would orphan it. Live pricer (rose)
+              vs vacated count (amber). */}
+          {downstreamState && downstreamState.orphanable_count > 0 && (
+            downstreamState.live_holder ? (
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                title={`${downstreamState.live_holder} is pricing this sheet now -- re-parsing / re-committing / un-finalizing it will orphan their work.`}
+              >
+                {downstreamState.live_holder} pricing now
+              </span>
+            ) : (
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                title="Re-parsing, re-committing or un-finalizing this sheet will orphan its priced cells."
+              >
+                will orphan {downstreamState.orphanable_count}
+              </span>
+            )
           )}
           {/* F2: "needs attention" chip -- RED when a failure stamp is present, AMBER when
               only stale-config. Click toggles the inline detail block below. */}
