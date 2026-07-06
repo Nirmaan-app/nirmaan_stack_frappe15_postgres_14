@@ -355,6 +355,60 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(current[0].commit_version, 2)
         self.assertEqual(sorted(s.commit_version for s in sheets), [1, 2])
 
+    # ----- T8. work-package carry from draft GRANDCHILD to committed sheet #
+
+    def _ensure_work_header(self, name):
+        """Get-or-create a minimal Work Headers fixture (autoname = work_header_name,
+        so the docname IS `name`). work_package_link is optional -> left blank."""
+        if not frappe.db.exists("Work Headers", name):
+            wh = frappe.new_doc("Work Headers")
+            wh.work_header_name = name
+            wh.insert(ignore_permissions=True)
+        return name
+
+    def _seed_draft_work_packages(self, sheet_name, work_headers):
+        """Insert BoQ Sheet Work Package GRANDCHILD rows on the draft (child of a child of
+        BOQs), mirroring update_sheet_draft.set_sheet_work_packages -- parent = the draft
+        child docname, parenttype/parentfield explicit. Returns the draft child name."""
+        draft_name = self._draft(sheet_name).name
+        for wh in work_headers:
+            pkg = frappe.new_doc("BoQ Sheet Work Package")
+            pkg.parent = draft_name
+            pkg.parenttype = "BoQ Sheet Draft"
+            pkg.parentfield = "work_packages"
+            pkg.work_header = wh
+            pkg.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return draft_name
+
+    def test_work_packages_carried_from_draft_grandchild_to_committed_sheet(self):
+        """Regression for the WP-propagation bug: the draft's work_packages is a GRANDCHILD
+        table (BOQs -> BoQ Sheet Draft -> BoQ Sheet Work Package) that get_doc does NOT
+        hydrate, so the old `draft.work_packages` read was always empty. The commit now reads
+        the grandchild rows directly (keyed on draft.name) and copies them onto the committed
+        BoQ Sheet -- which IS a direct child, so it hydrates on get_doc."""
+        wh_a = self._ensure_work_header("_TEST_WH_A_CP")
+        wh_b = self._ensure_work_header("_TEST_WH_B_CP")
+        draft_name = None
+        try:
+            draft_name = self._seed_draft_work_packages("HVAC", [wh_a, wh_b])
+
+            res = self._commit("HVAC", "finalized")
+            bs = frappe.get_doc(_SHEET, res["boq_sheet_name"])
+            carried = [w.work_header for w in bs.work_packages]
+            # both work headers carried, in idx (insertion) order
+            self.assertEqual(carried, [wh_a, wh_b],
+                             "committed BoQ Sheet.work_packages must carry the draft "
+                             "grandchild work headers (was empty under the get_doc read)")
+        finally:
+            if draft_name is not None:
+                frappe.db.delete("BoQ Sheet Work Package",
+                                 {"parent": draft_name, "parenttype": "BoQ Sheet Draft"})
+            # raw delete bypasses the Link-in-use check (committed WP child rows still
+            # reference the fixtures until tearDown's _purge removes them).
+            frappe.db.delete("Work Headers", {"name": ["in", [wh_a, wh_b]]})
+            frappe.db.commit()
+
     # ================================================================== #
     # Slice 3b -- node tree                                               #
     # ================================================================== #

@@ -709,16 +709,23 @@ export interface AmountFormulaSaveArgs {
 
 /**
  * Response shape of get_priced_rows (Phase 5 pricing-overlay read). DISTINCT from
- * GetReviewRowsResponse: no work_packages / flags; adds commit_version + the single-editor
+ * GetReviewRowsResponse (no flags); adds commit_version + the single-editor
  * lock fields (slice A): `editable` (precomputed gate -- false only when held fresh by
- * another user) + `lock_info` (the holder details, or null when free); and the F1
- * `column_formulas` (per-COLUMN amount formulas, never per-row).
+ * another user) + `lock_info` (the holder details, or null when free); the F1
+ * `column_formulas` (per-COLUMN amount formulas, never per-row); and `work_packages`
+ * (the Work Headers docnames carried on the committed BoQ Sheet).
  */
 export interface GetPricedRowsResponse {
   rows: PricedRow[];
   column_descriptors: ColumnDescriptor[];
   /** The committed commit_version these prices price (null when nothing is committed). */
   commit_version: number | null;
+  /**
+   * Work Headers docnames assigned to this committed sheet (passthrough from
+   * get_committed_rows, which reads the committed BoQ Sheet.work_packages child table
+   * directly). [] for an uncommitted / grid-only sheet.
+   */
+  work_packages: string[];
   /** Precomputed gate: true if FREE / locked-by-me / stale; false only when held fresh by another. */
   editable: boolean;
   /** The current lock holder details, or null when the sheet+version is free. */

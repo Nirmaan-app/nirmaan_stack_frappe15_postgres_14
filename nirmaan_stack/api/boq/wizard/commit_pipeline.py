@@ -626,10 +626,24 @@ def _write_committed_boq_sheet(
     bs.is_current = 1
     bs.committed_at = committed_at
 
-    # Work-header assignments carried from the draft.
+    # Work-header assignments carried from the draft. `draft` is a BoQ Sheet Draft
+    # CHILD row (from boq_doc.sheet_drafts) -- its work_packages GRANDCHILD table is
+    # NOT hydrated by get_doc (Frappe hydrates one level deep only). Read the grandchild
+    # rows directly, keyed on the draft child's docname (draft.name), mirroring the
+    # write path in update_sheet_draft.set_sheet_work_packages. CAPTURE-ONLY (copy).
     if draft is not None:
-        for wp in (getattr(draft, "work_packages", None) or []):
-            wh = getattr(wp, "work_header", None)
+        wp_rows = frappe.db.get_all(
+            "BoQ Sheet Work Package",
+            filters={
+                "parent": draft.name,
+                "parenttype": "BoQ Sheet Draft",
+                "parentfield": "work_packages",
+            },
+            fields=["work_header"],
+            order_by="idx asc",
+        )
+        for wp in wp_rows:
+            wh = wp.get("work_header")
             if wh:
                 bs.append("work_packages", {"work_header": wh})
 

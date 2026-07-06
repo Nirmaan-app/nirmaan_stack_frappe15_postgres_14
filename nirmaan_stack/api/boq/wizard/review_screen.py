@@ -1438,6 +1438,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": [{<draft-shaped committed row>, ...}],   # ordered by sort_order
         "column_descriptors": [{col, role, area, value_field, value_key, rate_subkey}, ...],
         "commit_version": <int|None>,   # the current committed version of this sheet
+        "work_packages": [<work_header docname>, ...],   # Work Headers on the committed BoQ Sheet ([] if none)
       }
     `commit_version` (additive -- pricing-overlay slice) is the current committed BoQ Sheet's
     commit_version, the single source of truth a pricing overlay passes to get_sheet_pricing
@@ -1465,7 +1466,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     )
     if not sheet_doc:
         # No current committed sheet for this (boq, sheet) -> nothing committed yet.
-        return {"rows": [], "column_descriptors": [], "commit_version": None}
+        return {"rows": [], "column_descriptors": [], "commit_version": None, "work_packages": []}
 
     # Column descriptors: a PURE reuse of the draft-side builder on the committed config.
     # JSON columns may come back parsed (dict) or raw (str) depending on the read path; normalize.
@@ -1475,14 +1476,26 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     }
     column_descriptors = _build_column_descriptors(sheet_config)
 
+    # Work-package assignments carried on the committed BoQ Sheet (child table; direct read
+    # so the pricing layer has the WP context without a second endpoint). Additive: one key.
+    wp_rows = frappe.db.get_all(
+        "BoQ Sheet Work Package",
+        filters={"parent": sheet_doc["name"], "parenttype": "BoQ Sheet"},
+        fields=["work_header"],
+        order_by="idx asc",
+    )
+    work_packages = [r["work_header"] for r in wp_rows if r.get("work_header")]
+
     # Current nodes + row assembly (factored into the shared tail). The CURRENT path pins
     # is_current=1 -- byte-for-byte the prior query (the version-aware twin omits it).
-    return _assemble_committed_rows(
+    result = _assemble_committed_rows(
         boq_name,
         {"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
         column_descriptors,
         sheet_doc.get("commit_version"),
     )
+    result["work_packages"] = work_packages
+    return result
 
 
 def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_version) -> dict:

@@ -173,6 +173,13 @@ const SheetPricingPage = () => {
   const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
+  // Per-sheet Work Packages -- carried onto the committed BoQ Sheet at commit time and returned
+  // by get_priced_rows (work_packages: string[]). Read defensively: default [] when the payload
+  // is missing/older, and drop any empty/whitespace entries so the header badge only renders real
+  // assignments. SHEET-LEVEL only -- never threaded into the memoized PricingGrid rows.
+  const workPackages = (pricedData?.message?.work_packages ?? []).filter(
+    (wp): wp is string => typeof wp === "string" && wp.trim() !== "",
+  );
   // History mode iff an EARLIER version than the live one is selected.
   const isViewingHistory = selectedVersion !== null && selectedVersion !== liveCommitVersion;
 
@@ -1189,6 +1196,19 @@ const SheetPricingPage = () => {
           <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
             {displaySheetName}
           </h1>
+          {/* Per-sheet Work Packages badge -- surfaces the committed-version WP snapshot on Pricing
+              (data rides get_priced_rows). Compact pill; renders nothing when empty. SHEET-LEVEL
+              header element only -- never threaded into the memoized PricingGrid rows. IDENTICAL to
+              the Review screen's badge for visual consistency. */}
+          {workPackages.length > 0 && (
+            <span
+              className="mt-1 inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
+              title={`Work packages: ${workPackages.join(", ")}`}
+            >
+              <span className="text-primary font-medium">WP</span>
+              <span className="truncate">{workPackages.join(" · ")}</span>
+            </span>
+          )}
         </div>
 
         {/* ── Slice 4c: full-screen toggle (ALWAYS rendered) + Slice-3c save-status

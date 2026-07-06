@@ -2048,6 +2048,7 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": [...],                # committed rows, rate cells stamped + markers + 4a annotations
         "column_descriptors": [...],  # passed through from get_committed_rows UNCHANGED
         "commit_version": <int|None>, # the version that was priced (None if uncommitted)
+        "work_packages": [...],       # Work Headers docnames on the committed BoQ Sheet ([] if none)
         "editable": True,             # RESERVED placeholder for the future lock slice
         "lock_info": None,            # RESERVED placeholder for the future lock slice
         "column_formulas": [...],     # F1: per-COLUMN amount formulas (NOT per-row); each
@@ -2067,11 +2068,17 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     rows = committed.get("rows") or []
     column_descriptors = committed.get("column_descriptors") or []
     commit_version = committed.get("commit_version")
+    # Work-package assignments (Work Headers docnames) carried on the committed BoQ Sheet --
+    # passed through UNCHANGED from get_committed_rows (which reads the child table directly).
+    # [] for an uncommitted / grid-only sheet. Additive: one key, no merge, no per-row stamp.
+    work_packages = committed.get("work_packages") or []
 
     base = {
         "rows": rows,
         "column_descriptors": column_descriptors,
         "commit_version": commit_version,
+        # Committed work-package assignments (see above) -- passthrough from get_committed_rows.
+        "work_packages": work_packages,
         # Single-editor lock (slice A) -- PURE READ (this endpoint NEVER acquires/mutates
         # the lock; only save_cell_price does). Defaults below cover the uncommitted /
         # no-version case (free -> editable, lock_info None).
