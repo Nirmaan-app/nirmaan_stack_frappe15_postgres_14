@@ -120,3 +120,40 @@ def guard_no_downstream_orphan(boq: str, sheet_name: str, confirm, action: str) 
             title="This will orphan priced cells",
         )
     return count
+
+
+@frappe.whitelist()
+def get_downstream_state(boq_name: str = None, sheet_name: str = None) -> dict:
+    """Read-only downstream state for the on-entry directional banner (Amendment A1) of ONE sheet:
+    {committed_version, orphanable_count, live_holder}. `live_holder` is ANOTHER user's name pricing
+    the current committed version right now, else None. NEVER mutates."""
+    if not boq_name or not sheet_name:
+        frappe.throw("boq_name and sheet_name are required.")
+    return {
+        "committed_version": current_commit_version(boq_name, sheet_name),
+        "orphanable_count": downstream_priced_count(boq_name, sheet_name),
+        "live_holder": live_pricing_holder(boq_name, sheet_name),
+    }
+
+
+@frappe.whitelist()
+def get_boq_downstream_state(boq_name: str = None) -> dict:
+    """Read-only downstream state for ALL committed sheets of a BoQ (Hub per-card indicators + the
+    per-BoQ root-metadata note): {sheets: {name: {orphanable_count, live_holder}}, total_priced,
+    live_any}. Only sheets with orphanable work are listed. NEVER mutates."""
+    if not boq_name:
+        frappe.throw("boq_name is required.")
+    sheets = {}
+    total = 0
+    for s in frappe.get_all(
+        _BOQ_SHEET, filters={"boq": boq_name, "is_current": 1}, pluck="sheet_name"
+    ):
+        c = downstream_priced_count(boq_name, s)
+        if c:
+            sheets[s] = {"orphanable_count": c, "live_holder": live_pricing_holder(boq_name, s)}
+            total += c
+    return {
+        "sheets": sheets,
+        "total_priced": total,
+        "live_any": any(v["live_holder"] for v in sheets.values()),
+    }
