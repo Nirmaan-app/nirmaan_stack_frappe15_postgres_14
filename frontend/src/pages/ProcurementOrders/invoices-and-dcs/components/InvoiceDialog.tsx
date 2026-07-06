@@ -110,13 +110,17 @@ export function InvoiceDialog<T extends DocumentType>({
   docMutate,
   vendor,
 }: InvoiceDialogProps<T>) {
-  const { 
+  const {
     toggleNewInvoiceDialog, newInvoiceDialog,
     toggleEditInvoiceDialog, editInvoiceDialog,
-    selectedInvoice, setSelectedInvoice
+    selectedInvoice, setSelectedInvoice,
+    newInvoiceIsCredit
   } = useDialogStore();
   const { mutate: globalMutate } = useSWRConfig();
   const userData = useUserData();
+  // Nirmaan Admins may edit the AI line-item mapping even after an invoice is Approved
+  // (backend update_invoice_data mirrors this: admin can rebuild a locked mapping).
+  const isNirmaanAdmin = userData?.user_id === "Administrator" || userData?.role === "Nirmaan Admin Profile";
 
   const isEditMode = !!selectedInvoice;
   const isOpen = newInvoiceDialog || editInvoiceDialog;
@@ -169,10 +173,6 @@ export function InvoiceDialog<T extends DocumentType>({
   const [lineItems, setLineItems] = useState<any[] | null>(null);
   const [poItemsForMatch, setPoItemsForMatch] = useState<any[] | null>(null);
   const [lineMatch, setLineMatch] = useState<LineMatch | null>(null);
-  // Gemini classified the uploaded document as a credit note / credit memo.
-  // Drives the sign: amount → negative always; quantities → negative only when the
-  // user leaves "Credit Note" UNticked (a return note that reduces invoiced qty).
-  const [creditNoteDetected, setCreditNoteDetected] = useState(false);
   const [rawExtraction, setRawExtraction] = useState<any | null>(null);
 
   // API hooks
@@ -199,7 +199,10 @@ export function InvoiceDialog<T extends DocumentType>({
   // pull the exact values again (fields + line-item mapping) — all in this one
   // dialog, no separate review step. A Pending PO invoice additionally gets its
   // line → PO-item mapping rebuilt from the fresh extraction on save.
-  const canReExtract = isEditMode && selectedInvoice?.status === "Pending";
+  const canReExtract = isEditMode && (
+    selectedInvoice?.status === "Pending" ||
+    (isNirmaanAdmin && selectedInvoice?.status === "Approved")   // admins can also fix approved invoices
+  );
   const canEditMapping = canReExtract && docType === "Procurement Orders";
   // True once a replaced file has actually been re-extracted (drives rebuild).
   const [reExtracted, setReExtracted] = useState(false);
@@ -235,7 +238,13 @@ export function InvoiceDialog<T extends DocumentType>({
         // Edit mode skips the upload-first stage.
         setStage("form");
       } else {
-        setInvoiceData(initialInvoiceState);
+        // Add mode: the entry button decides credit-note-ness (Add Credit -> true), but ONLY
+        // for POs. Service Requests have no "Add Credit", so they always open as a normal invoice
+        // (guards against a stale store flag from a prior PO "Add Credit").
+        setInvoiceData({
+          ...initialInvoiceState,
+          is_credit_note: docType === "Procurement Orders" ? newInvoiceIsCredit : false,
+        });
         setStage("upload");
       }
       setSelectedAttachment(null);
@@ -252,9 +261,8 @@ export function InvoiceDialog<T extends DocumentType>({
       setLineMatch(null);
       setRawExtraction(null);
       setReExtracted(false);
-      setCreditNoteDetected(false);
     }
-  }, [isOpen, selectedInvoice]);
+  }, [isOpen, selectedInvoice, newInvoiceIsCredit]);
 
   // Reset autofill state when user picks a different file
   useEffect(() => {
@@ -269,7 +277,6 @@ export function InvoiceDialog<T extends DocumentType>({
     setLineMatch(null);
     setRawExtraction(null);
     setReExtracted(false);
-    setCreditNoteDetected(false);
   }, [selectedAttachment]);
 
   // Edit mode: show the invoice's existing auto-filled mapping + entities inline
@@ -441,12 +448,12 @@ export function InvoiceDialog<T extends DocumentType>({
         filled.add("amount");
       }
 
-      // Credit-note handling: if Gemini classified the file as a credit note, the
-      // AMOUNT goes negative (always). Quantities are signed further below based on
-      // the "Credit Note" checkbox (unticked = return note = negative qty).
+      // Credit-note handling (driven by the entry button + Gemini):
+      //   Add Credit  (is_credit_note = true)                  -> AMOUNT negative, QTY unchanged.
+      //   Add Invoice (is_credit_note = false) + Gemini credit -> AMOUNT negative AND QTY negative
+      //                                                            (a return note that reduces qty).
       const creditNote = !!extracted.credit_note_detected;
-      setCreditNoteDetected(creditNote);
-      if (creditNote && updates.amount) {
+      if ((invoiceData.is_credit_note || creditNote) && updates.amount) {
         updates.amount = forceNegativeAmount(updates.amount);
       }
 
@@ -482,9 +489,9 @@ export function InvoiceDialog<T extends DocumentType>({
       // route through a dedicated Review step so the user can verify/correct the
       // mapping before the final form.
       setRawExtraction(extracted);
-      // A return note (Gemini says credit note AND user has NOT ticked "Credit Note")
-      // reduces invoiced qty → store its line quantities negative. A ticked credit note
-      // keeps qty positive (it is excluded from invoice_qty entirely).
+      // Return note: Gemini says credit note AND it was added via "Add Invoice"
+      // (is_credit_note = false) → line quantities go negative (reduces invoiced qty).
+      // An "Add Credit" credit note keeps qty positive (excluded from invoice_qty entirely).
       const qtyNegative = creditNote && !invoiceData.is_credit_note;
       const hasLineItems = Array.isArray(extracted.line_items) && extracted.line_items.length > 0;
       if (hasLineItems) setLineItems(applyQtySign(extracted.line_items, qtyNegative));
@@ -524,7 +531,7 @@ export function InvoiceDialog<T extends DocumentType>({
     } finally {
       setIsAutofilling(false);
     }
-  }, [docName, docType, upload, extractInvoiceFieldsApi, isEditMode]);
+  }, [docName, docType, upload, extractInvoiceFieldsApi, isEditMode, invoiceData.is_credit_note]);
 
   const handleAttachmentSelect = useCallback((file: File | null) => {
     setSelectedAttachment(file);
@@ -561,10 +568,13 @@ export function InvoiceDialog<T extends DocumentType>({
         attachmentUrl = await uploadInvoice();
       }
 
-      // Prepare API payload
+      // Prepare API payload. Credit notes are stored with a NEGATIVE amount so they're
+      // excluded from the PO's invoiced quantity (same rule the backfill/recompute use);
+      // regular invoices stay positive.
+      const parsedAmount = parseNumber(invoiceData.amount);
       const invoicePayloadForApi = {
         invoice_no: invoiceData.invoice_no.trim(),
-        amount: parseNumber(invoiceData.amount),
+        amount: invoiceData.is_credit_note ? -Math.abs(parsedAmount || 0) : parsedAmount,
         date: invoiceData.date,
         is_credit_note: invoiceData.is_credit_note ? 1 : 0,
         updated_by: userData?.user_id,
@@ -810,7 +820,7 @@ export function InvoiceDialog<T extends DocumentType>({
             <AlertDialogHeader className="space-y-1">
               <AlertDialogTitle className="flex items-center gap-2 text-lg font-semibold">
                 <FileText className="h-5 w-5 text-primary" />
-                {isEditMode ? "Edit Invoice" : "Add Invoice"}
+                {isEditMode ? "Edit Invoice" : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm text-muted-foreground">
                 {isEditMode 
@@ -879,6 +889,7 @@ export function InvoiceDialog<T extends DocumentType>({
                   poItems={poItemsForMatch || []}
                   lineMatch={lineMatch}
                   onChange={setLineMatch}
+                  editableQty
                 />
               </div>
               <div className="bg-gray-50/80 px-6 py-4 border-t flex items-center justify-between gap-3">
@@ -894,6 +905,19 @@ export function InvoiceDialog<T extends DocumentType>({
             // ───────── Stage 3: Form (prefilled if autofill ran) ─────────
             <>
           <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            {/* Credit-note warning — pinned at the top so it's the first thing seen. */}
+            {invoiceData.is_credit_note && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Credit Note</p>
+                  <p className="mt-0.5">
+                    This invoice will <b>not</b> affect the PO's invoiced quantity (the Purchase Order
+                    <i> invoice_qty</i>). Its amount is stored as negative and excluded from the PO's invoiced total.
+                  </p>
+                </div>
+              </div>
+            )}
             {!isEditMode && autofilledFields.size > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 -mt-1">
                 <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
@@ -1112,37 +1136,26 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             </div>
 
-            {/* Credit Note — when ticked, this invoice is EXCLUDED from the PO's
-                invoice_qty (it does not add to the invoiced quantity). */}
-            <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-              <Checkbox
-                id="is_credit_note"
-                checked={invoiceData.is_credit_note}
-                onCheckedChange={(checked) => {
-                  const isChecked = checked === true;
-                  setInvoiceData((prev) => ({ ...prev, is_credit_note: isChecked }));
-                  // On a Gemini-detected credit note, the checkbox decides the qty sign:
-                  // ticked (price credit) → qty positive (invoice is skipped anyway);
-                  // unticked (return note) → qty negative (recompute subtracts).
-                  // The amount stays negative in both cases.
-                  if (creditNoteDetected) {
-                    const neg = !isChecked;
-                    setLineItems((prev) => applyQtySign(prev, neg));
-                    setLineMatch((prev) => applyMatchQtySign(prev, neg));
-                  }
-                }}
-                disabled={isLoading || isAutofilling}
-                className="mt-0.5"
-              />
-              <div className="text-sm leading-snug">
-                <Label htmlFor="is_credit_note" className="font-medium cursor-pointer">
-                  Credit Note
-                </Label>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Tick if this is a credit note. It will be excluded from the PO's invoiced quantity.
-                </p>
+            {/* Credit Note — read-only indicator, shown ONLY when editing. In add mode the
+                "Add Invoice" / "Add Credit" entry button already decides it, so no checkbox. */}
+            {isEditMode && (
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <Checkbox
+                  id="is_credit_note"
+                  checked={invoiceData.is_credit_note}
+                  disabled
+                  className="mt-0.5"
+                />
+                <div className="text-sm leading-snug">
+                  <Label htmlFor="is_credit_note" className="font-medium">
+                    Credit Note
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Read-only. Credit notes are excluded from the PO's invoiced quantity.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Attachment */}
             <div className="space-y-1.5">
@@ -1210,6 +1223,7 @@ export function InvoiceDialog<T extends DocumentType>({
                     poItems={poItemsForMatch || []}
                     lineMatch={lineMatch}
                     onChange={setLineMatch}
+                    editableQty
                   />
                 </div>
               </div>

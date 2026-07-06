@@ -142,12 +142,16 @@ def update_invoice_data(
                     vendor_invoice.invoice_attachment = attachment_id
 
                 # Rebuild the verified line → PO-item mapping from the (corrected)
-                # mapping the frontend sent. PENDING invoices ONLY — an approved
-                # invoice's mapping is locked because its invoice_qty/billing
-                # already counts. The child rows are fully regenerated; the audit
+                # mapping the frontend sent. Allowed for PENDING invoices, OR for a
+                # NIRMAAN ADMIN on any status (an admin may correct a locked/approved
+                # invoice's mapping). The child rows are fully regenerated; the audit
                 # snapshot is refreshed to match. invoice_qty resyncs via the
-                # recompute call before commit below.
-                if rebuild_line_mappings and vendor_invoice.status == "Pending":
+                # recompute call (line ~244) before commit.
+                _admin_can_rebuild = (
+                    frappe.session.user == "Administrator"
+                    or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
+                )
+                if rebuild_line_mappings and (vendor_invoice.status == "Pending" or _admin_can_rebuild):
                     # Use .set() (NOT direct attribute assignment) so the dict rows are
                     # converted into child documents — a raw list of dicts left on the
                     # attribute makes save() call .is_new() on a dict and blow up.

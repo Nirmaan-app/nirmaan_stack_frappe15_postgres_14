@@ -8,7 +8,7 @@
  * gets persisted on submit. Editing is mapping-only — extracted values are
  * read-only (the user verifies the read, they don't rewrite the invoice).
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Select from "react-select";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -70,6 +70,13 @@ interface Props {
   poItems: POItem[];
   lineMatch: LineMatch;
   onChange: (next: LineMatch) => void;
+  /**
+   * Opt-in: make the per-line QUANTITY editable (default false = read-only).
+   * The normal Add-Invoice flow keeps qty read-only ("verify the read, don't
+   * rewrite the invoice"); the temporary Resolve-Invoices tool turns this on so
+   * an admin can correct a mis-read quantity while fixing the PO-item mapping.
+   */
+  editableQty?: boolean;
 }
 
 type Opt = { value: string; label: string; row: number; nonItem: boolean };
@@ -96,7 +103,7 @@ const SOURCE_BADGE: Record<string, { label: string; variant: any }> = {
   manual: { label: "you", variant: "purple" },
 };
 
-export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange }: Props) => {
+export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange, editableQty = false }: Props) => {
   const poOptions = useMemo<Opt[]>(
     () => [
       { value: NON_ITEM_VALUE, label: "⊘  Not a PO item (freight / charge)", row: -1, nonItem: true },
@@ -134,6 +141,26 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange 
         po_item_id: po.item_id ?? null, po_item_name: po.item_name ?? null, po_row: opt.row,
         score: null, over_billing: recomputeOverbill(m, po),
       };
+    });
+    onChange({ ...lineMatch, mappings });
+  };
+
+  // Editable-qty (opt-in). Keep the raw keystroke string per row so partial
+  // decimals ("1.") don't get clobbered by Number(); push the parsed number to
+  // the mapping and re-derive the over-billing flag for a matched row.
+  const [qtyDraft, setQtyDraft] = useState<Record<number, string>>({});
+
+  const handleQtyChange = (lineIndex: number, raw: string) => {
+    setQtyDraft((d) => ({ ...d, [lineIndex]: raw }));
+    const n = raw.trim() === "" ? null : Number(raw);
+    const q = n === null || isNaN(n) ? null : n;
+    const mappings = lineMatch.mappings.map((m) => {
+      if (m.invoice_line_index !== lineIndex) return m;
+      const next: MappingRow = { ...m, quantity: q };
+      if (next.status === "matched" && next.po_row != null && poItems[next.po_row]) {
+        next.over_billing = recomputeOverbill(next, poItems[next.po_row]);
+      }
+      return next;
     });
     onChange({ ...lineMatch, mappings });
   };
@@ -187,7 +214,20 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange 
                     </div>
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
-                    {m.quantity ?? "—"}{m.unit ? <span className="text-gray-400"> {m.unit}</span> : null}
+                    {editableQty ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          className="w-16 h-7 rounded border px-1 text-right text-xs"
+                          value={qtyDraft[m.invoice_line_index] ?? (m.quantity ?? "")}
+                          onChange={(e) => handleQtyChange(m.invoice_line_index, e.target.value)}
+                        />
+                        {m.unit ? <span className="text-gray-400">{m.unit}</span> : null}
+                      </div>
+                    ) : (
+                      <>{m.quantity ?? "—"}{m.unit ? <span className="text-gray-400"> {m.unit}</span> : null}</>
+                    )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
                     {m.amount != null ? formatToRoundedIndianRupee(m.amount) : "—"}
@@ -203,7 +243,10 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange 
                       menuPortalTarget={typeof document !== "undefined" ? document.body : undefined}
                       menuPosition="fixed"
                       styles={{
-                        menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                        // pointerEvents:auto re-enables clicks on the portalled menu inside a
+                        // modal Radix dialog (which sets pointer-events:none on everything outside
+                        // the dialog) — without it options are only selectable by keyboard.
+                        menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" }),
                         control: (base) => ({ ...base, minHeight: 30, fontSize: 12 }),
                         menu: (base) => ({ ...base, fontSize: 12 }),
                       }}

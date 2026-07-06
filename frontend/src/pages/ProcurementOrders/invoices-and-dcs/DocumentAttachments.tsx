@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { RefreshCcw, CirclePlus, Upload } from "lucide-react";
+import { RefreshCcw, CirclePlus, Upload, Plus } from "lucide-react";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/usePODeliveryDocuments";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
@@ -92,7 +92,7 @@ export const DocumentAttachments = <T extends DocumentType>({
 }: DocumentAttachmentsProps<T>) => {
   //   console.log("DocumentAttachments", project, documentData);
 
-  const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice } = useDialogStore();
+  const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice, setNewInvoiceIsCredit } = useDialogStore();
   const { role } = useUserData();
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile" || role === "Nirmaan Admin Profile";
   const { toast } = useToast();
@@ -584,15 +584,26 @@ export const DocumentAttachments = <T extends DocumentType>({
                   )}
 
                 {!isEstimatesExecutive && (
-                  <Button
-                    variant="outline"
-                    size="sm" // Consistent button size
-                    className="text-primary border-primary hover:bg-primary/5" // Subtle hover
-                    onClick={toggleNewInvoiceDialog}
-                    disabled={disabledAddInvoice || false}
-                  >
-                    Add Invoice
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-primary border-primary hover:bg-primary/5"
+                      onClick={() => { setNewInvoiceIsCredit(false); toggleNewInvoiceDialog(); }}
+                      disabled={disabledAddInvoice || false}
+                    >
+                      <CirclePlus className="h-4 w-4 mr-1" /> Add Invoice
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-primary border-primary hover:bg-primary/5"
+                      onClick={() => { setNewInvoiceIsCredit(true); toggleNewInvoiceDialog(); }}
+                      disabled={disabledAddInvoice || false}
+                    >
+                      <CirclePlus className="h-4 w-4 mr-1" /> Add Credit
+                    </Button>
+                  </>
                 )}
               </div>
             </CardTitle>

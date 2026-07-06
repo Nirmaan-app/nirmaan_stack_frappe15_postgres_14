@@ -6,18 +6,22 @@
 `invoice_qty` is a DERIVED per-PO-row field, RECOMPUTED FROM SOURCE on every call
 (never incremented by deltas, so it cannot drift). Per PO, `counted` = Pending+
 Approved invoices with Credit Notes excluded (`is_credit_note = 1` -> skipped, like
-Rejected). It resolves to one of three states:
+Rejected). It resolves by TRUST LEVEL to one of four states:
 
-  EXACT   -- EVERY counted invoice is line-mapped -> Σ signed Matched line quantity
-             per PO row. ALL-OR-NOTHING: trusted only when every invoice has line
-             data, else summing the mapped ones would UNDERCOUNT the unmapped
-             invoices (the "last added invoice" bug). A return note's negative qty
-             subtracts here.
-  ORDERED -- not all mapped, but the PO HAS counted invoices (or its project is
-             Completed) -> ordered quantity per row. Legacy / not-yet-extracted POs
-             are trusted fully invoiced; extraction later adds line data -> EXACT.
-  ZERO    -- no counted invoices (none / all rejected / only credit notes) and the
-             project is not Completed -> 0.
+  EXACT        -- EVERY counted invoice is line-mapped -> Σ signed Matched line quantity
+                  per PO row (a return note's negative qty subtracts here). Complete line
+                  data for all invoices == FULLY trustable, so use the precise figure.
+  TRUSTED-FULL -- fully billed (all counted invoices Approved AND their amount >= PO total
+                  within TOL) OR project Completed -> ordered quantity per row. Also fully
+                  trustable (a fully-invoiced PO can't be undercounted).
+  DELIVERED    -- counted invoices exist but the PO is only PARTIALLY trustable: line data
+                  is incomplete AND it is not yet fully billed -> fall back to the DELIVERED
+                  (received) quantity, the real-world amount that actually arrived. Avoids
+                  BOTH the ordered-qty OVERcount and the mapped-only UNDERcount -- e.g. a
+                  directly-backfilled PO later revised with a new line-mapped invoice would
+                  otherwise drop its old (unmapped) invoices' rows to 0.
+  ZERO         -- no counted invoices (none / all rejected / only credit notes) and the
+                  project is not Completed -> 0.
 
 Call `recompute_po_invoice_qty(po_name)` inside the transaction of every invoice
 event (create / approve / reject / delete / edit), BEFORE the commit.
@@ -27,6 +31,7 @@ import frappe
 
 # Invoice statuses that represent real billing exposure (mirror get_po_item_billing).
 _COUNTED_STATUSES = ("Pending", "Approved")
+_TOL = 1.0   # Rs rounding cushion: a few Rs under the PO total still counts as "fully invoiced".
 
 
 def recompute_po_invoice_qty(po_name: str) -> None:
@@ -42,7 +47,7 @@ def recompute_po_invoice_qty(po_name: str) -> None:
     po_rows = frappe.db.get_all(
         "Purchase Order Item",
         filters={"parent": po_name, "parenttype": "Procurement Orders"},
-        fields=["name", "quantity"],
+        fields=["name", "quantity", "received_quantity", "category"],
     )
     if not po_rows:
         return
@@ -51,7 +56,7 @@ def recompute_po_invoice_qty(po_name: str) -> None:
     # n_lines = how many Vendor Invoice Line rows each carries (0 = not yet extracted).
     counted = frappe.db.sql(
         """
-        SELECT vi.name,
+        SELECT vi.name, vi.status, COALESCE(vi.invoice_amount, 0) AS amount,
                (SELECT COUNT(*) FROM "tabVendor Invoice Line" vil
                  WHERE vil.parent = vi.name AND vil.parenttype = 'Vendor Invoices') AS n_lines
         FROM "tabVendor Invoices" vi
@@ -66,16 +71,27 @@ def recompute_po_invoice_qty(po_name: str) -> None:
 
     def _write(value_fn):
         for r in po_rows:
+            # Additional Charges (freight / P&F / etc.) are not real line quantities — they
+            # NEVER carry an invoice_qty (always 0), whatever the bucket.
+            val = 0 if r.category == "Additional Charges" else value_fn(r)
             frappe.db.set_value(
-                "Purchase Order Item", r.name, "invoice_qty", value_fn(r),
+                "Purchase Order Item", r.name, "invoice_qty", val,
                 update_modified=False,
             )
 
-    # 1) EXACT — every counted invoice has line data -> Σ signed Matched qty per row.
-    # WHY all-or-nothing: if even one counted invoice is unmapped, summing the mapped
-    # ones would UNDERCOUNT (the unmapped invoice contributes 0) -> the "last added
-    # invoice" bug. Only trust the line sum when every invoice has been read.
-    if counted and all((c.n_lines or 0) > 0 for c in counted):
+    mapped = [c for c in counted if (c.n_lines or 0) > 0]
+    all_mapped = bool(counted) and len(mapped) == len(counted)
+    # "Trusted full" = every counted invoice Approved AND their amount reaches the PO total
+    # (within TOL), OR the project is Completed. Such a PO is trusted FULLY invoiced -> ordered qty.
+    all_approved = bool(counted) and all(c.status == "Approved" for c in counted)
+    net = sum(float(c.amount or 0) for c in counted)
+    po_total = float(frappe.db.get_value("Procurement Orders", po_name, "total_amount") or 0)
+    completed = _project_is_completed(po_name)
+    trusted_full = (all_approved and net >= po_total - _TOL) or completed
+
+    # 1) EXACT — EVERY counted invoice is line-mapped. Complete line data == FULLY trustable, so
+    # sum the signed Matched line qty per PO row (a return note's negative qty subtracts here).
+    if all_mapped:
         rows = frappe.db.sql(
             """
             SELECT vil.po_item_row              AS row_name,
@@ -99,14 +115,23 @@ def recompute_po_invoice_qty(po_name: str) -> None:
         _write(lambda r: invoiced.get(r.name, 0))
         return
 
-    # 2) ORDERED — not all mapped, but the PO HAS counted invoices, OR its project is
-    # Completed -> trust it's (fully) invoiced -> ordered quantity per row. (The short-
-    # circuit keeps the project lookup off the hot path when invoices exist.)
-    if counted or _project_is_completed(po_name):
+    # 2) TRUSTED-FULL — fully billed (all Approved AND amount >= PO total) or project Completed.
+    # Also fully trustable -> ordered quantity per row (a fully-invoiced PO can't be undercounted).
+    if trusted_full:
         _write(lambda r: float(r.quantity or 0))
         return
 
-    # 3) ZERO — no counted invoices and project not Completed.
+    # 3) DELIVERED — counted invoices exist but the PO is only PARTIALLY trustable: line data is
+    # incomplete AND it is not yet fully billed. Fall back to the DELIVERED (received) quantity --
+    # the real-world amount that actually arrived. This avoids BOTH the ordered-qty OVERcount and
+    # the mapped-only UNDERcount (e.g. a directly-backfilled PO later revised with a new line-mapped
+    # invoice, whose old unmapped invoices would otherwise drop their rows to 0). It becomes EXACT
+    # once every invoice on the PO is line-mapped (branch 1).
+    if counted:
+        _write(lambda r: float(r.received_quantity or 0))
+        return
+
+    # 4) ZERO — no counted invoices and project not Completed.
     _write(lambda r: 0)
 
 
