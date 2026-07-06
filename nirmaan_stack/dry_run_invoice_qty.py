@@ -75,6 +75,12 @@ item_count = dict(frappe.db.sql(
     """SELECT parent, COUNT(*) FROM "tabPurchase Order Item"
        WHERE parenttype = 'Procurement Orders' GROUP BY parent"""))
 
+# Additional Charges (freight / P&F / etc.) NEVER get an invoice_qty -> always 0 (mirrors the
+# patch's Additional-Charges rule). Count per PO so the ordered-qty tally excludes them.
+addl_count = dict(frappe.db.sql(
+    """SELECT parent, COUNT(*) FROM "tabPurchase Order Item"
+       WHERE parenttype = 'Procurement Orders' AND category = 'Additional Charges' GROUP BY parent"""))
+
 
 # =============================================================================
 # STAGE 1 — classify every live PO (mirrors the patch's derivation)
@@ -118,6 +124,7 @@ def classify(project_status, po_total, po_invs):
 
 counts = defaultdict(int)
 ordered_rows = 0
+addl_zero_rows = 0    # Additional Charges rows -> invoice_qty 0 (never ordered qty)
 extraction = []       # MISMATCH POs (under-invoiced) -> the (held) Gemini extraction list
 direct_ordered = []   # COMPLETED + DIRECT POs -> ordered qty directly, no extraction
 
@@ -125,7 +132,9 @@ for p in pos:
     bucket, reason = classify(proj_status.get(p.project, ""), num(p.amt), inv_by_po.get(p.name, []))
     counts[bucket] += 1
     if bucket in ("COMPLETED", "DIRECT", "MISMATCH"):
-        ordered_rows += int(item_count.get(p.name, 0))
+        # Additional Charges rows get 0 (never ordered qty) -> exclude them from the tally.
+        ordered_rows += int(item_count.get(p.name, 0)) - int(addl_count.get(p.name, 0))
+        addl_zero_rows += int(addl_count.get(p.name, 0))
     if bucket in ("COMPLETED", "DIRECT"):
         direct_ordered.append({
             "project": p.project or "(no project)", "po": p.name,
@@ -155,6 +164,7 @@ print(f"  EXACT     {counts['EXACT']:>5}   -> sum of mapped line qty")
 print(f"  ZERO      {counts['ZERO']:>5}   -> 0  (no invoices)")
 print(f"\n  ordered qty on ~{ordered_rows} Purchase Order Item rows"
       f"  (COMPLETED {counts['COMPLETED']} + DIRECT {counts['DIRECT']} + MISMATCH {counts['MISMATCH']})")
+print(f"  Additional Charges rows -> invoice_qty 0 (excluded from ordered qty): ~{addl_zero_rows} rows")
 
 # ---- mismatch breakdown, PROJECT-WISE (how many POs + invoices mismatched per project) ----
 by_proj = defaultdict(lambda: {"pos": 0, "invoices": 0})
@@ -308,13 +318,16 @@ for proj, po in targets:
     if po_ok:
         overall["PASS"] += 1
         rows = frappe.db.sql(
-            """SELECT item_name, COALESCE(quantity, 0) AS ordered
+            """SELECT item_name, category, COALESCE(quantity, 0) AS ordered
                FROM "tabPurchase Order Item"
                WHERE parent = %s AND parenttype = 'Procurement Orders' ORDER BY idx""",
             (po,), as_dict=True,
         )
         print("  >>> PO PASS — resulting NET invoice_qty vs ordered:")
         for r in rows:
+            if r.category == "Additional Charges":       # charges never carry an invoice_qty -> 0
+                print(f"        {r.item_name[:44]:<46} ordered {r.ordered:>10,.0f}  invoice_qty {0:>10,.0f}  charge->0")
+                continue
             q = per_item.get(r.item_name, 0.0)
             flag = "OVER" if q > r.ordered else ("full" if q == r.ordered else "partial")
             print(f"        {r.item_name[:44]:<46} ordered {r.ordered:>10,.0f}  invoice_qty {q:>10,.0f}  {flag}")
