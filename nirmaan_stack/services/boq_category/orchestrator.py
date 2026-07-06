@@ -1,0 +1,175 @@
+# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
+# For license information, please see license.txt
+
+"""Per-sheet classification orchestrator (Classifier CL-1b).
+
+classify_sheet_rows ties the CL-1a service core together for one committed sheet:
+context_builder (feed) -> rule runner + independent AI voter -> R3d router -> persist. It
+CALLS the CL-1a modules; it does not re-implement any of them.
+
+ELIGIBLE-ONLY, SILENT scoping (owner decision): a range is never rejected for containing
+spacers / headings / non-current rows -- the eligible subset (node_type in {Line Item,
+Preamble}, current) is classified and the summary reports N-of-M plus a compact
+skipped_by_reason count rollup (why the rest were skipped), never a per-row list.
+
+The summary M (total_in_range) is HONEST: it counts every committed row the scope covered,
+including the ineligible ones, so "classified N of M" is truthful.
+"""
+
+import frappe
+
+from nirmaan_stack.services.boq_category import ai_voter, context_builder, persist, routing
+from nirmaan_stack.services.boq_category.runner import classify_line, load_ruleset
+
+# The harness scorable-row rule (mirrors context_builder / the harness CLASSIFY_NT).
+_CLASSIFY_NT = {"Line Item", "Preamble"}
+
+# Map an excluded committed row to a compact, human-groupable skip reason. row_class carries
+# the fine classification (node_type "Other" covers all of these); is_current=0 -> superseded.
+_ROW_CLASS_REASON = {
+    "spacer": "layout",
+    "header_repeat": "layout",
+    "note": "note",
+    "subtotal_marker": "subtotal",
+}
+
+
+def _skip_reason(node):
+    if not node.get("is_current"):
+        return "superseded"
+    rc = (node.get("row_class") or "").strip()
+    return _ROW_CLASS_REASON.get(rc, "other")
+
+
+def _empty_summary(committed_version, sheet_warnings):
+    return {
+        "total_in_range": 0,
+        "eligible_classified": 0,
+        "needs_review": 0,
+        "auto_accepted": 0,
+        "skipped_total": 0,
+        "skipped_by_reason": {},
+        "committed_version": committed_version,
+        "sheet_warnings": sheet_warnings,
+    }
+
+
+def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_cb=None, ai_client=None):
+    """Classify one committed sheet's eligible rows.
+
+    row_filter: None (whole sheet) or (start_excel_row, end_excel_row) inclusive.
+    progress_cb: optional callable(done, total) invoked per classified row.
+    ai_client: optional injected Anthropic client (tests); passed through to the AI voter.
+
+    Returns {total_in_range, eligible_classified, needs_review, auto_accepted, skipped_total,
+    skipped_by_reason:{reason:count}, committed_version, sheet_warnings}.
+    """
+    # Resolve the CURRENT committed sheet (needed for the honest-M skip rollup -- context_builder
+    # returns eligible rows only, so the ineligible/superseded counts come from a direct read).
+    sheets = frappe.get_all(
+        "BoQ Sheet",
+        filters={"boq": boq, "sheet_name": sheet_name, "is_current": 1},
+        fields=["name", "commit_version"],
+    )
+    if not sheets:
+        return _empty_summary(
+            None, [f"No current committed BoQ Sheet for boq={boq}, sheet_name={sheet_name!r}."]
+        )
+    sheet_doc = sheets[0]["name"]
+    committed_version = sheets[0]["commit_version"]
+
+    def _in_range(row_number):
+        if row_filter is None:
+            return True
+        start, end = row_filter
+        return row_number is not None and start <= row_number <= end
+
+    # Honest M + skip rollup: EVERY committed row under the current sheet doc in scope (any
+    # is_current). Eligible rows are classified below; the rest are counted by reason.
+    scope_nodes = [
+        n
+        for n in frappe.get_all(
+            "BOQ Nodes",
+            filters={"boq": boq, "sheet": sheet_doc},
+            fields=["source_row_number", "node_type", "row_class", "is_current"],
+        )
+        if _in_range(n.get("source_row_number"))
+    ]
+    total_in_range = len(scope_nodes)
+    skipped_by_reason = {}
+    for n in scope_nodes:
+        if n.get("is_current") and (n.get("node_type") or "").strip() in _CLASSIFY_NT:
+            continue  # eligible -> classified below
+        reason = _skip_reason(n)
+        skipped_by_reason[reason] = skipped_by_reason.get(reason, 0) + 1
+    skipped_total = sum(skipped_by_reason.values())
+
+    # Eligible feed (context_builder = is_current=1 + eligible), filtered to the scope range.
+    ctx = context_builder.build_sheet_context(boq, sheet_name)
+    kept = [row for row in ctx["rows"] if _in_range(row.get("excel_row"))]
+
+    ruleset = load_ruleset(discipline=discipline)
+    rules_version = ruleset.get("version", "") or ""
+
+    # Independent AI voter ONCE over all kept rows (preserves the batch-of-20 mechanics). The
+    # voter never sees rule output.
+    envelope = ai_voter.classify_rows_ai(kept, discipline=discipline, client=ai_client)
+    ai_by_excel = {r["excel_row"]: r for r in envelope["results"]}
+    prompt_version = envelope.get("prompt_version", "")
+    model = envelope.get("model", "")
+
+    rows_to_persist = []
+    needs_review = 0
+    auto_accepted = 0
+    total = len(kept)
+    for i, row in enumerate(kept):
+        notes_list = [row["notes"]] if row.get("notes") else []
+        res = classify_line(
+            row.get("description") or "",
+            row.get("anc_texts"),
+            notes_list,
+            discipline=discipline,
+            ancestor_headers=row.get("anc_headers"),
+        )
+        ai = ai_by_excel.get(row["excel_row"], {"category_id": "", "confidence": 0.0})
+        routed = routing.route_r3d(
+            {"category_id": res["category_id"], "band": res["band"]},
+            {"category_id": ai.get("category_id", ""), "confidence": ai.get("confidence", 0.0)},
+        )
+        if routed["routing"] == "Auto-accepted":
+            auto_accepted += 1
+        else:
+            needs_review += 1
+        rows_to_persist.append(
+            {
+                "excel_row": row["excel_row"],
+                "rule_category_id": res["category_id"],
+                "rule_band": res["band"],
+                "rule_score": res["score"],
+                "ai_category_id": ai.get("category_id", ""),
+                "ai_confidence": ai.get("confidence", 0.0),
+                "final_category_id": routed["final_category_id"],
+                "routing": routed["routing"],
+                "routing_reason": routed["reason"],
+                "description": row.get("description") or "",
+                "rules_version": rules_version,
+                "prompt_version": prompt_version,
+                "model": model,
+            }
+        )
+        if progress_cb:
+            progress_cb(i + 1, total)
+
+    if rows_to_persist:
+        persist.write_row_categories(boq, sheet_name, committed_version, discipline, rows_to_persist)
+
+    return {
+        "total_in_range": total_in_range,
+        "eligible_classified": len(rows_to_persist),
+        "needs_review": needs_review,
+        "auto_accepted": auto_accepted,
+        "skipped_total": skipped_total,
+        "skipped_by_reason": skipped_by_reason,
+        "committed_version": committed_version,
+        "sheet_warnings": ctx.get("sheet_warnings", []),
+    }
