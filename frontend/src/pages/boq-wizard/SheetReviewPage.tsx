@@ -686,6 +686,12 @@ const SheetReviewPage = () => {
   const rows = reviewData?.message?.rows ?? [];
   const columnDescriptors = reviewData?.message?.column_descriptors ?? [];
   const flags = reviewData?.message?.flags ?? [];
+  // Per-sheet Work Packages -- chosen at config time, carried through by get_review_rows
+  // (work_packages: string[]). Read defensively: default [] when the payload is missing/older,
+  // and drop any empty/whitespace entries so the header badge only renders real assignments.
+  const workPackages = (reviewData?.message?.work_packages ?? []).filter(
+    (wp): wp is string => typeof wp === "string" && wp.trim() !== "",
+  );
   // R4: structural breaks for the warnings panel (must-fix group). Defaults to [] until the
   // get_structural_breaks fetch resolves; the panel renders breaks above the advisory flags.
   const breaks = breaksData?.message?.breaks ?? [];
@@ -765,6 +771,18 @@ const SheetReviewPage = () => {
           <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
             {displaySheetName}
           </h1>
+          {/* Per-sheet Work Packages badge -- surfaces the config-time WP selection on Review
+              (data already rides get_review_rows). Compact pill; renders nothing when empty.
+              SHEET-LEVEL header element only -- never threaded into the memoized ReviewTree rows. */}
+          {workPackages.length > 0 && (
+            <span
+              className="mt-1 inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
+              title={`Work packages: ${workPackages.join(", ")}`}
+            >
+              <span className="text-primary font-medium">WP</span>
+              <span className="truncate">{workPackages.join(" · ")}</span>
+            </span>
+          )}
         </div>
 
         {/* Right cluster: the Mark-checked action (only on a "Parsed" sheet) + the
