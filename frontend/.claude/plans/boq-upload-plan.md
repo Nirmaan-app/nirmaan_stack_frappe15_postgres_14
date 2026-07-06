@@ -94,6 +94,10 @@ Frontend click-to-edit for the Category column + one read-only backend endpoint 
 
 **Manual verification (owner -- full CL-1..CL-3 pass):** restart bench workers (backend changed -- the catalog endpoint). On a committed NBoQ Electrical sheet: run Classify sheet -> click a needs-review row's Category cell -> pick a category -> cell shows the human verdict (emerald "your pick") + the row drops from the needs-review filter -> click again -> Clear -> reverts to the machine verdict. Plus the CL-2 flow (button/progress/summary/column/filter) + the arrow-nav-into-Category-cell glance.
 
+## Classifier module -- CL-3.1 (fix: blank Category column) COMPLETE
+
+One-line frontend fix. The pricing editor's `get_sheet_categories` fetch (`SheetPricingPage.tsx:237`) passed the BoQ id under key `boq_name`, but the classify endpoint's param is `boq` (`classify.py:270`, guard `:277-278`) -- so `boq` arrived `None` and the endpoint threw "boq is required." on every page load, leaving the **Category column blank**. The value (`boqId`) and the enable-guard were already correct; only the key was wrong (copied from the pricing-endpoint fetches above it, which legitimately take `boq_name`). Fix: `boq_name` -> `boq`, aligning it with the page's three other classify calls (`get_classify_status`, `set_row_category`, `start_classify`), which already use `boq`. Backend unchanged (correct). Gates (no regression): tsc clean for `SheetPricingPage`; vitest 457 boq-wizard tests green; `yarn build` exit 0. The fix itself is OWNER-VERIFIED LIVE (the Category column populates on BOQ-26-00035 Electrical after a restart) -- gates only prove no regression.
+
 ## 1. Overview
 
 Upload Bill of Quantities (BoQ) Excel files for projects, parse them into a structured hierarchical form, edit with audit, and use the parsed line items as anchors for downstream linkages — Work Headers / Milestones, Critical PO Tasks, PR/PO line items, and Delivery records.
