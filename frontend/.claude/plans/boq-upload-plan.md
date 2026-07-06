@@ -27,6 +27,25 @@ tsc delta-0, build green (2026-06-25; see §"Fuzzy description search" below). P
 ADDITIVE ParentChain + ChildrenList read components mounted in the EXISTING review-screen detail panel (clickable drill-nav;
 ORIGINAL single-column panel design UNCHANGED, a two-column revamp prototyped then reverted), 2026-06-25.
 
+## Classifier module -- CL-1a (service core) COMPLETE
+
+Backend-only service core for the rate-guidance classifier, landed on `feature/boq-phase-5` (one feat commit + this docs commit). NO endpoints, worker, or frontend this slice -- those are CL-1b/CL-2. Purely additive (no existing doctype / endpoint / parser / grid touched).
+
+**What landed:**
+- **`BoQ Row Category` doctype** -- per-row classification overlay mirroring `BoQ Cell Remark`'s durable-address shape (identity `boq, sheet_name [VERBATIM #152], excel_row, committed_version, discipline`; `discipline` is IN the tuple so a second engine's row for the same Excel address coexists). Fields: rule_* / ai_* / final_category_id / routing / routing_reason / human_* / provenance (rules_version, prompt_version, model) / description guard / freeze-and-supersede lifecycle (category_version, is_current, classified_at). Autoname `BRCT-.YY.-.#####`; controller minimal.
+- **`services/boq_category/persist.py`** -- `write_row_categories` (freeze-and-supersede per identity; replicates pricing.py `_annot_*` locally, no private-helper import) + `set_human_verdict` (in-place on the current record, does NOT mint a new version -- the verdict annotates the same run).
+- **`services/boq_category/context_builder.py`** -- `build_sheet_context(boq, sheet_name)` returns `{committed_version, sheet_name, rows, sheet_warnings}`. Per eligible row (node_type in {Line Item, Preamble}, mirroring the harness scorable-row rule) it emits the rules feed (`anc_texts`/`anc_headers`, sheet-prepended, byte-identical to the certified harness), a structured per-ancestor list (node_type + description + notes, root-first) the AI voter rebuilds the indented chain from, every ancestor's attached_notes + append_notes_raw, and the row's own notes. Foolproof walk (cycle-guard, hop-cap 80, broken/non-current parent -> per-row `warnings`, NEVER drops a row).
+- **`services/boq_category/routing.py` + `routing_config.json`** -- first tracked R3d implementation: pure `route_r3d(rule_result, ai_result, config)`. Auto-accept ONLY a non-blank rule==AI consensus, EXCEPT a LOW-band consensus whose AI confidence is in the inclusive weak window [0.70, 0.85] -> human; all disagreements / mutual-blank / one-blank-one-cat -> human (blank final). Thresholds config-driven (R3d + prompt v1.3 uncertified until Set-3).
+- **`services/boq_category/ai_voter.py`** -- in-stack independent Option-B voter porting the harness `_ai_batch` mechanics (batch 20, retry range(1,4)/sleep(2*attempt), valid-id enforcement, confidence clamp). Reuses `ai_settings` for config/secret; model = settings else `claude-opus-4-8`; stamps its own provenance (prompt_version + model). Fails closed (settings disabled -> no client, no call).
+
+**Tests:** new module `nirmaan_stack/api/boq/wizard/test_row_category.py` -- 23 tests, all green (routing truth table incl. a config-override proof; freeze-and-supersede + two-discipline coexistence + in-place human verdict; context-builder ancestor fidelity + eligibility + broken-parent warning; AI voter batching/valid-id/retry/fail-closed via an injected fake client). Regression canary `test_pricing` 176 tests still green; parser + other wizard suites untouched (this slice touches neither).
+
+**Migrate:** `bench --site localhost migrate` clean; `frappe.get_meta('BoQ Row Category')` verified (31 fields; discipline / is_current / final_category_id columns present). **Workers need a restart before any live use (no hot-reload).**
+
+**Work-header fidelity finding (PARKED):** the certified harness feeds the AI voter ONLY `{id, description, ancestor_chain, notes}` -- it does NOT pass work headers. Per owner decision (revised at build time), work headers are NOT read or emitted anywhere in CL-1a (no `BoQ Sheet Work Package` linkage read, no `work_headers` field, no assertions). Work-header-as-signal is parked for a later stage (a separate minor fix comes first); when added, the AI feed changes and Set-3 must re-certify.
+
+**Frozen-left doc correction (this commit):** the pricing-editor invariant that said "frozen-left is NOT [shipped]" was stale -- the two-pane frozen-left split HAS shipped, gated behind the page-owned `frozen` toggle in `PricingGrid`. Corrected in `frontend/CLAUDE.md` (the note lives there, not in root `CLAUDE.md`).
+
 ## 1. Overview
 
 Upload Bill of Quantities (BoQ) Excel files for projects, parse them into a structured hierarchical form, edit with audit, and use the parsed line items as anchors for downstream linkages — Work Headers / Milestones, Critical PO Tasks, PR/PO line items, and Delivery records.

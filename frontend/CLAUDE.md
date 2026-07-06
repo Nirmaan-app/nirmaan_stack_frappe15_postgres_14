@@ -236,10 +236,13 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **`priceability.ts` is the shared "qty-bearing priceable line" spine** — the ONE definition for flags / the N-of-M
   count / rollup alignment. It imports PricingGrid's leaf predicates; **PricingGrid NEVER imports priceability**
   (receives flags as a prop) — keep this one-way dependency (why `isNonZeroNum` is a self-contained copy in PricingGrid).
-- **Column resize is shipped; frozen-left is NOT** (cell-level multi-column sticky-left doesn't track horizontal
-  scroll — DEFERRED to a dedicated two-pane slice). Table is `table-fixed` + `<colgroup>`; widths are GRID-LEVEL
+- **Column resize is shipped; frozen-left HAS shipped too** as a TWO-PANE split, gated behind a page-owned `frozen`
+  toggle (`PricingGrid` `frozen` prop, default false, wired from `SheetPricingPage`; `split` engages once every row
+  height is measured -- frozen pane = the 5 anchor columns, scrolling pane = descriptors + Remarks and owns overflow-x/y,
+  mirroring its vertical scroll back to the frozen pane). When `frozen` is OFF (the default) it stays a single
+  `table-fixed` + `<colgroup>` table with only a vertically-sticky header (no sticky-left). Widths are GRID-LEVEL
   (never a per-row prop, so the row memo is untouched). Full-screen is an in-app root-`className` toggle (NO portal /
-  Dialog — ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
+  Dialog -- ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
 - **Annotation channels coexist:** system cell BACKGROUND (priced emerald / amber), user color = LEFT BORDER, system
   flags = col-0 GUTTER, focus = ring — never let one channel mask another.
 
