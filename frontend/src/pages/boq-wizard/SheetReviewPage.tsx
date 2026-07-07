@@ -22,8 +22,9 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, Maximize2, Minimize2, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,6 +53,7 @@ import type {
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
+import { shouldExitFullscreenOnEsc } from "./PricingGrid";
 
 // AI-3a: readable messages for run_ai_pass's {ok:false, error} pre-flight rejections.
 const AI_REJECT_MSGS: Record<string, string> = {
@@ -150,6 +152,13 @@ const SheetReviewPage = () => {
   // edited_at for an instant update (does not wait for the get_review_rows refetch).
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
+  // Full-screen / maximize mode (per-session), ported from SheetPricingPage's Slice 4c. When true
+  // the page root becomes a fixed inset-0 full-viewport overlay so the dense review tree gets the
+  // whole screen. Pure LAYOUT: only the root wrapper's className flips (ONE JSX tree, same children),
+  // so expand/collapse NEVER remounts ReviewTree -- open detail panel / search / collapse / draft-lock
+  // all survive. NOT a Dialog/portal (those remount), NOT the native Fullscreen API.
+  const [expanded, setExpanded] = useState(false);
+
   // C-v2: after a value edit saves, advance the anchor + refresh the grid so the
   // row flips to "Edited" (green tint) and its edit history gains an entry.
   // R4: also re-fetch structural breaks -- a value/restructure edit can resolve or introduce
@@ -232,6 +241,18 @@ const SheetReviewPage = () => {
       setTakenOver(false);
     }
   }, [draftLockData]);
+
+  // Esc-to-exit full-screen. Window keydown listener mounted ONLY while expanded.
+  // shouldExitFullscreenOnEsc (reused from PricingGrid) guards the collision cases:
+  // e.defaultPrevented (a Radix popover closing on its own Esc) and an <input>/<textarea> being typed.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (shouldExitFullscreenOnEsc(e, document.activeElement)) setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
 
   // Realtime lock updates: flip read-only / free the instant ANOTHER user acquires or releases
   // this sheet's DRAFT lock. Mirrors the boq:ai_pass_done listener above (screen-scoped on the
@@ -750,50 +771,87 @@ const SheetReviewPage = () => {
   ).length;
 
   return (
-    <div className="flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4">
+    <div
+      className={cn(
+        expanded
+          ? "fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4"
+          : "flex-1 space-y-4 max-w-5xl mx-auto pt-6 pb-10 px-4",
+      )}
+    >
 
-      {/* ── Header strip (mirrors SheetSpokePage layout) ──────────────────── */}
-      <div className="flex items-start gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-1.5 text-muted-foreground mt-0.5"
-          onClick={handleBack}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+      {/* ── Header: Row 1 = back + title + status badges; Row 2 = action buttons ── */}
+      <div className="space-y-3">
+        {/* Row 1: back button, title, and the STATUS BADGES beside the title (WP, "Also here", saved). */}
+        {/* items-center vertically centres the badges against the two-line title block; flex-wrap
+            lets the badge cluster drop to its own right-aligned line if the viewport is too narrow. */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
 
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">
-            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Review &amp; edit
-          </p>
-          <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
-            {displaySheetName}
-          </h1>
-          {/* Per-sheet Work Packages badge -- surfaces the config-time WP selection on Review
-              (data already rides get_review_rows). Compact pill; renders nothing when empty.
-              SHEET-LEVEL header element only -- never threaded into the memoized ReviewTree rows. */}
-          {workPackages.length > 0 && (
-            <span
-              className="mt-1 inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
-              title={`Work packages: ${workPackages.join(", ")}`}
-            >
-              <span className="text-primary font-medium">WP</span>
-              <span className="truncate">{workPackages.join(" · ")}</span>
-            </span>
-          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground truncate">
+              {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Review &amp; edit
+            </p>
+            <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
+              {displaySheetName}
+            </h1>
+          </div>
+
+          {/* Status badges -- RIGHT-ALIGNED on the title line (ml-auto). Per-sheet Work Packages,
+              "who else is here" presence, and the auto-save status anchor. SHEET-LEVEL header
+              elements only -- never threaded into the memoized ReviewTree rows. justify-end +
+              flex-wrap keeps them tidily right-packed; each badge self-truncates so a long WP
+              list / presence roster never crowds the title (which truncates via min-w-0 flex-1). */}
+          <div className="ml-auto shrink-0 flex flex-wrap items-center justify-end gap-2">
+            {workPackages.length > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground max-w-[16rem]"
+                title={`Work packages: ${workPackages.join(", ")}`}
+              >
+                <span className="text-primary font-medium">WP</span>
+                <span className="truncate">{workPackages.join(" · ")}</span>
+              </span>
+            )}
+            {/* B2: BoQ-level "who else is here" presence (soft awareness; the draft lock owns correctness). */}
+            <BoqPresence boqId={boqId} />
+            {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit (split-by-meaning:
+                the persistent saved-status badge lives with the title badges). */}
+            {lastSavedAt && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                <span>
+                  All changes saved
+                  <span className="text-muted-foreground/70"> &middot; {fmtSavedTime(lastSavedAt)}</span>
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right cluster: the Mark-checked action (only on a "Parsed" sheet) + the
-            C-v2 save-status anchor. The Mark button and the read-only banner below are
-            mutually exclusive by construction (status-driven). */}
-        <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
-          {/* B2: BoQ-level "who else is here" presence (soft awareness; the draft lock owns correctness). */}
-          <BoqPresence boqId={boqId} />
-          {/* Slice D2: per-sheet CSV export. STATUS-INDEPENDENT (a frozen/checked
-              sheet exports too) and VIEW-INDEPENDENT (filters/collapse/search do
-              not affect it). Disabled while loading or when there are no rows. */}
+        {/* Row 2: action buttons. Full screen FIRST, then Export, Finalize, and the AI/Gemini
+            triggers with their transient "running…" chips beside their own triggers. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Full-screen toggle -- FIRST. Ported from SheetPricingPage Slice 4c. Orthogonal to
+              editability (works on a read-only / finalized sheet too). */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            aria-pressed={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Exit full screen (Esc)" : "Expand the review screen to full screen"}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {expanded ? "Exit full screen" : "Full screen"}
+          </Button>
+          {/* Slice D2: per-sheet CSV export. STATUS-INDEPENDENT + VIEW-INDEPENDENT. */}
           <Button
             size="sm"
             variant="outline"
@@ -811,10 +869,7 @@ const SheetReviewPage = () => {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
-          {/* S2 hard gate: Finalize is DISABLED whenever any structural break exists. The
-              must-fix panel (ReviewTree warnings) lists exactly what to fix; the server
-              hard-blocks any break so there is no override. Advisory flags (orphan / parser /
-              classifier) never block Finalize. */}
+          {/* S2 hard gate: Finalize DISABLED whenever any structural break exists. */}
           {sheetStatus === "Parsed" && (
             <Button
               size="sm"
@@ -830,11 +885,7 @@ const SheetReviewPage = () => {
               Mark Finalized
             </Button>
           )}
-          {/* AI-3a: Run AI pass. Enabled only with parsed rows + not while an AI pass or a
-              parse is in flight. The pass writes ai_* suggestion fields only (read-only here;
-              accept/reject is AI-3b). AI-3c-2d: ALSO disabled on a finalized sheet -- a fresh
-              pass would stale-clear (wipe) Accepted rows' status on a read-only sheet (the
-              backend rejects it too, {ok:false,error:"frozen"}); stays VISIBLE, just greyed. */}
+          {/* AI-3a: Run AI pass. */}
           <Button
             size="sm"
             variant="outline"
@@ -852,14 +903,7 @@ const SheetReviewPage = () => {
               <span>AI pass running&hellip;</span>
             </div>
           )}
-          {/* DUAL-AI (ADR-0003): Run Gemini -- the reviewer's independent provider trigger,
-              BESIDE Nitesh's Claude "Run AI pass" above. Same disabled gates (parsed rows +
-              not while a Gemini/parse pass is in flight + not on a finalized sheet), gated on
-              its OWN geminiEnabled flag (mounted only when enabled). mode="resume". The pass
-              writes gemini_* suggestion fields only (read-only here; accept/reject lives in the
-              tree). Like the AI pass it is also disabled on a finalized sheet -- a fresh pass
-              would stale-clear Accepted rows on a read-only sheet (the backend rejects it too,
-              {ok:false,error:"frozen"}); stays VISIBLE, just greyed. */}
+          {/* DUAL-AI (ADR-0003): Run Gemini -- gated on its OWN geminiEnabled flag. */}
           {geminiEnabled && (
             <Button
               size="sm"
@@ -877,18 +921,6 @@ const SheetReviewPage = () => {
             <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>Gemini pass running&hellip;</span>
-            </div>
-          )}
-          {/* C-v2: sheet-level save-status anchor -- reports the last auto-saved edit.
-              Every confirmed edit already saved (one call = one commit); this is a
-              status indicator, not a batch-save trigger. Shown once a save has landed. */}
-          {lastSavedAt && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
-              <span>
-                All changes saved
-                <span className="text-muted-foreground/70"> &middot; {fmtSavedTime(lastSavedAt)}</span>
-              </span>
             </div>
           )}
         </div>
@@ -1087,6 +1119,8 @@ const SheetReviewPage = () => {
           onEditIntent={ensureLockAcquired}
           // DUAL-AI (ADR-0003): mount the Gemini provider column + accept block when enabled.
           geminiEnabled={geminiEnabled}
+          // Full-screen toggle above -- relaxes ReviewTree's internal scroll-height cap in full-screen.
+          expanded={expanded}
         />
       )}
 
