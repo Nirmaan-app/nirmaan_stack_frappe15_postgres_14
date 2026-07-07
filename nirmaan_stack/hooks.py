@@ -245,10 +245,12 @@ doc_events = {
     "Project Expenses": {
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
         "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
-        "on_trash": [
-            "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
-        ],
+        # generate_versions needs the pre-delete data, so it stays on on_trash.
+        "on_trash": "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
+        # Cashflow recompute moved to after_delete so the gap query runs AFTER the
+        # row is gone (on_trash fires before the DB delete) — deleting a Paid
+        # expense now correctly lowers the gap / releases a CEO Hold.
+        "after_delete": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
     },
     "Project Inflows": {
         "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",

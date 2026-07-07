@@ -66,4 +66,5 @@ LINK_FIELD_MAP = {
     "assigned_to": {"doctype": "User", "label_field": "full_name"},
     "created_by": {"doctype": "User", "label_field": "full_name"},
     "modified_by": {"doctype": "User", "label_field": "full_name"},
+    "payment_by": {"doctype": "User", "label_field": "full_name"},
 }

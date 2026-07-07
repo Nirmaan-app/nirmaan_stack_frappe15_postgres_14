@@ -57,8 +57,8 @@ export const useOutflowReportData = ({ startDate, endDate }: UseOutflowReportDat
     }, []);
 
     const expenseFilters = useMemo(() => {
-        const filters: any[] = [];
-        // Removed date filters from database query - will filter client-side instead
+        // Only Paid expenses count toward outflow. Date filtering is applied client-side.
+        const filters: any[] = [["status", "=", "Paid"]];
         return filters;
     }, []);
 
