@@ -27,6 +27,121 @@ tsc delta-0, build green (2026-06-25; see §"Fuzzy description search" below). P
 ADDITIVE ParentChain + ChildrenList read components mounted in the EXISTING review-screen detail panel (clickable drill-nav;
 ORIGINAL single-column panel design UNCHANGED, a two-column revamp prototyped then reverted), 2026-06-25.
 
+## Classifier module -- CL-1a (service core) COMPLETE
+
+Backend-only service core for the rate-guidance classifier, landed on `feature/boq-phase-5` (one feat commit + this docs commit). NO endpoints, worker, or frontend this slice -- those are CL-1b/CL-2. Purely additive (no existing doctype / endpoint / parser / grid touched).
+
+**What landed:**
+- **`BoQ Row Category` doctype** -- per-row classification overlay mirroring `BoQ Cell Remark`'s durable-address shape (identity `boq, sheet_name [VERBATIM #152], excel_row, committed_version, discipline`; `discipline` is IN the tuple so a second engine's row for the same Excel address coexists). Fields: rule_* / ai_* / final_category_id / routing / routing_reason / human_* / provenance (rules_version, prompt_version, model) / description guard / freeze-and-supersede lifecycle (category_version, is_current, classified_at). Autoname `BRCT-.YY.-.#####`; controller minimal.
+- **`services/boq_category/persist.py`** -- `write_row_categories` (freeze-and-supersede per identity; replicates pricing.py `_annot_*` locally, no private-helper import) + `set_human_verdict` (in-place on the current record, does NOT mint a new version -- the verdict annotates the same run).
+- **`services/boq_category/context_builder.py`** -- `build_sheet_context(boq, sheet_name)` returns `{committed_version, sheet_name, rows, sheet_warnings}`. Per eligible row (node_type in {Line Item, Preamble}, mirroring the harness scorable-row rule) it emits the rules feed (`anc_texts`/`anc_headers`, sheet-prepended, byte-identical to the certified harness), a structured per-ancestor list (node_type + description + notes, root-first) the AI voter rebuilds the indented chain from, every ancestor's attached_notes + append_notes_raw, and the row's own notes. Foolproof walk (cycle-guard, hop-cap 80, broken/non-current parent -> per-row `warnings`, NEVER drops a row).
+- **`services/boq_category/routing.py` + `routing_config.json`** -- first tracked R3d implementation: pure `route_r3d(rule_result, ai_result, config)`. Auto-accept ONLY a non-blank rule==AI consensus, EXCEPT a LOW-band consensus whose AI confidence is in the inclusive weak window [0.70, 0.85] -> human; all disagreements / mutual-blank / one-blank-one-cat -> human (blank final). Thresholds config-driven (R3d + prompt v1.3 uncertified until Set-3).
+- **`services/boq_category/ai_voter.py`** -- in-stack independent Option-B voter porting the harness `_ai_batch` mechanics (batch 20, retry range(1,4)/sleep(2*attempt), valid-id enforcement, confidence clamp). Reuses `ai_settings` for config/secret; model = settings else `claude-opus-4-8`; stamps its own provenance (prompt_version + model). Fails closed (settings disabled -> no client, no call).
+
+**Tests:** new module `nirmaan_stack/api/boq/wizard/test_row_category.py` -- 23 tests, all green (routing truth table incl. a config-override proof; freeze-and-supersede + two-discipline coexistence + in-place human verdict; context-builder ancestor fidelity + eligibility + broken-parent warning; AI voter batching/valid-id/retry/fail-closed via an injected fake client). Regression canary `test_pricing` 176 tests still green; parser + other wizard suites untouched (this slice touches neither).
+
+**Migrate:** `bench --site localhost migrate` clean; `frappe.get_meta('BoQ Row Category')` verified (31 fields; discipline / is_current / final_category_id columns present). **Workers need a restart before any live use (no hot-reload).**
+
+**Work-header fidelity finding (PARKED):** the certified harness feeds the AI voter ONLY `{id, description, ancestor_chain, notes}` -- it does NOT pass work headers. Per owner decision (revised at build time), work headers are NOT read or emitted anywhere in CL-1a (no `BoQ Sheet Work Package` linkage read, no `work_headers` field, no assertions). Work-header-as-signal is parked for a later stage (a separate minor fix comes first); when added, the AI feed changes and Set-3 must re-certify.
+
+**Frozen-left doc correction (this commit):** the pricing-editor invariant that said "frozen-left is NOT [shipped]" was stale -- the two-pane frozen-left split HAS shipped, gated behind the page-owned `frozen` toggle in `PricingGrid`. Corrected in `frontend/CLAUDE.md` (the note lives there, not in root `CLAUDE.md`).
+
+## Classifier module -- CL-1b (endpoints + long worker) COMPLETE
+
+Backend-only. Wires the CL-1a service core into runnable endpoints + a background worker on `feature/boq-phase-5` (one feat commit + this docs commit). NO frontend this slice; NO doctype change (so NO migrate). Purely additive -- CL-1a modules are CALLED, not edited.
+
+**What landed:**
+- **`services/boq_category/engines.py`** -- the engine registry, the SINGLE source the picker + validation read. Electrical `available=True`; HVAC + ELV listed `available=False`. Adding a future engine is a REGISTRY-ENTRY EDIT ONLY; nothing hardcodes an engine name (`is_discipline_available` gates start/verdict). `available` flips True only once that engine has its own ruleset + certified prompt.
+- **`services/boq_category/orchestrator.py`** -- `classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_cb=None, ai_client=None)`: context_builder feed -> `runner.classify_line` (harness call shape) + `ai_voter.classify_rows_ai` (batched ONCE, voter never sees rule output) -> `routing.route_r3d` -> `persist.write_row_categories`. **ELIGIBLE-ONLY, SILENT** range scoping (never rejects a range for spacers/headings/non-current). **Honest N-of-M:** `total_in_range` counts every committed row in scope (incl. ineligible) and `skipped_by_reason` is a compact count rollup (`layout`/`note`/`subtotal`/`superseded`) -- never a per-row list. Summary: `{total_in_range, eligible_classified, needs_review, auto_accepted, skipped_total, skipped_by_reason, committed_version, sheet_warnings}`. `rules_version` stamps `""` (load_ruleset surfaces no version key); `prompt_version`+`model` from the voter envelope.
+- **`api/boq/wizard/classify.py`** -- 5 whitelisted endpoints + `_classify_worker`, copying the `parse_run` long-job pattern (raw 32-char job_id stored un-namespaced, in-progress marker set after enqueue, commit BEFORE `publish_realtime("boq:classify_sheet_done", ...)`, Redis fallback for a missed socket, self-heal with a 1200s stale cap). Endpoints: `list_engines`, `start_classify(boq, sheet_name, discipline, scope={mode:sheet|range})`, `get_classify_status`, `get_sheet_categories` (effective = human else final), `set_row_category` (validates the frozen-15; `""` clears back to the machine verdict). **DIVERGENCE (disclosed):** the in-progress marker + terminal payload live in REDIS keyed by `(boq, sheet_name, discipline)`, NOT a doctype field -- `parse_run`/`ai_assist` use doctype columns, but classify runs on the committed tier (a committed sheet may have no live `BoQ Sheet Draft` row) and CL-1b adds NO doctype fields, so a per-sheet Redis marker is the schema-free equivalent.
+
+**Tests:** new `nirmaan_stack/api/boq/wizard/test_classify.py` -- 21 tests, all green (engines; orchestrator whole-sheet + range skip-rollup + consensus auto-accept + AI-disabled fail-closed with a stubbed voter client; start_classify validation + happy path with mocked enqueue; status idle/done/running; worker success/error terminal + marker-clear; get-categories effective + current-only; set-verdict valid/unknown/clear). Regression canaries green + unchanged: `test_row_category` 23, `test_pricing` 176. No migrate (endpoints only).
+
+**Live-testable now (headless):** start a run on a committed sheet -> poll `get_classify_status` / listen for `boq:classify_sheet_done` -> `get_sheet_categories` -> `set_row_category`. **Workers do NOT hot-reload -- restart the bench workers before smoke-testing.**
+
+## Classifier module -- CL-2 (classify-sheet UI + worker progress emit) COMPLETE
+
+Frontend classify-sheet surface on the pricing editor + one small backend addition (incremental progress emit), on `feature/boq-phase-5` (one feat commit + this docs commit). Additive: a NEW socket event, a NEW read-only column, new page state; no existing endpoint contract changed, the row memo intact, no doctype change (no migrate). CL-3 (click-to-edit verdict picker) + the two-engine overlap-conflict fork stay PARKED.
+
+**Backend (small):**
+- `orchestrator.classify_sheet_rows` now drives the AI in slices of `_AI_BATCH` (=20, IDENTICAL to `ai_voter._BATCH`) so progress fires BETWEEN 20-row batches (Option A). AI behaviour is byte-identical to the certified smoke test; `ai_voter` is untouched; `progress_cb` is per-batch (was per-row post-AI).
+- `classify._classify_worker` passes a `progress_cb` that publishes `boq:classify_sheet_progress {boq, sheet_name, discipline, done, total}`. Terminal `boq:classify_sheet_done` + Redis poll unchanged.
+
+**Frontend (`frontend/src/pages/boq-wizard/`):**
+- **`boqTypes.ts`** -- `EngineOption` / `ClassifyScope` / `ClassifySummary` / `SheetCategoryRow`.
+- **`ClassifySheetDialog.tsx` (new)** -- modeled on CopyForwardDialog (`Set<selected>` + `Record<id,scope>`). Registry-driven engine picker (`available` gates selectable, no hardcoded names), per-engine whole-sheet | row-range scope (validated start<=end), fires `start_classify` per engine. Pure vitest helpers: `selectableEngines`, `validateRange`, `buildStartArgs`, `clampDone`, `reduceProgress`, `skipRollupText`, `isNeedsReviewCategory`.
+- **`PricingGrid.tsx`** -- read-only **Category** column as the FIRST right-pane cell (colIndex `FIXED_ANCHOR_COUNT`; anchors stay 5). Descriptor colIndex base centralized to `DESCRIPTOR_COL_START = FIXED_ANCHOR_COUNT + 1` (the +1 in ONE place); leading `<col>`/`<th>` in the scrolling-pane + single-table colgroups (not the frozen pane). Driven by a reference-stable `categoriesByExcelRow` map (one line in `pricingRowPropsAreEqual`) -- row memo untouched. Amber cue on needs-review; DISPLAY ONLY (CL-3 seam).
+- **`SheetPricingPage.tsx`** -- `get_sheet_categories` fetch -> `categoriesByExcelRow`; "Classify sheet" ribbon button beside Collapse-all (inherits `{!isGridOnly}`); the dialog; the page's FIRST screen-scoped socket cluster (`progress`/`done` + reconnect self-heal + `get_classify_status` recovery, guarded on boq+sheet+discipline); inline x-of-y progress bar + honest completion summary (N of M, K flagged, plain-word skip rollup); a "Needs review" view-only filter.
+
+**Tests / gates (in-container):** `ClassifySheetDialog.test.ts` 21 vitest (all helpers) + backend `test_classify` +1 progress test (monotonic done, capped, ends total-of-total). `tsc --noEmit` clean for all boq-wizard files (pre-existing unrelated errors remain -- the project builds via `vite build`, so baseline tsc is red); `vitest` 197 passed (21 new + 131 grid + 45 priceability); `yarn build` exit 0. Backend canaries green: `test_classify` 22, `test_row_category` 23, `test_pricing` 176.
+
+**Manual verification (owner):** restart bench workers first (no hot-reload -- the worker changed). On a committed NBoQ Electrical sheet: Classify sheet -> pick Electrical -> whole-sheet or a small range -> watch x-of-y progress -> summary -> Category column populates + needs-review rows marked -> toggle the needs-review filter. (Editing a verdict is CL-3.)
+
+## Classifier module -- CL-3 (classify verdict picker: click-to-edit human verdict) COMPLETE
+
+Frontend click-to-edit for the Category column + one read-only backend endpoint (the category catalog), on `feature/boq-phase-5` (one feat commit + this docs commit). Additive: `set_row_category` / `get_sheet_categories` contracts unchanged (CALLED, not edited), `list_engines`' shape untouched, the row memo intact. No doctype change (no migrate). The two-engine overlap-conflict fork stays PARKED.
+
+**Backend (read-only add):**
+- `classify.get_category_catalog(discipline="Electrical")` -> `{discipline, categories:[{id,label}]}` from `load_ruleset` (labels = `categories_<disc>.json` name, id fallback). Engine-scoped (unavailable engine throws). Drives the picker + the Category-column label. `test_classify` +1 catalog test (22 -> 23).
+
+**Frontend (`frontend/src/pages/boq-wizard/`):**
+- **`boqTypes.ts`** -- `CategoryCatalogEntry` / `EngineCatalog`.
+- **`CategoryVerdictPicker.tsx` (new)** -- a Radix Popover anchored to the clicked grid cell (external `virtualRef`); categories GROUPED BY the engine(s) that ran (engine-scoped, NOT all-15; v1 = one Electrical group), each its own catalog; a "Clear verdict (use machine answer)" action -> `onSelect("")`; closes on select/clear/escape/outside. Pure vitest helpers: `deriveVerdictState` (unclassified/auto/needs_review/human), `isRowEditable` (classified-only), `labelFor` (id fallback), `buildEngineGroups` (filter to run disciplines). + `CategoryVerdictPicker.test.ts` (17).
+- **`PricingGrid.tsx`** -- the Category cell is now CLICK-TO-EDIT: click + Enter (on the focused cell, colIndex `FIXED_ANCHOR_COUNT`) open the picker via a REFERENCE-STABLE page-owned `onCategoryClick(excelRow, cellEl)` callback -- **open-state is NOT a per-row prop** (row memo untouched; `onCategoryClick` + `categoryLabelById` compared by identity, two comparator lines). Only classified rows editable. The cell shows the human-readable LABEL (`labelFor`, id fallback) + 3 visual states (`deriveVerdictState`: auto / amber needs-review / emerald "your pick" human). Nav matrix unchanged.
+- **`SheetPricingPage.tsx`** -- `get_category_catalog` fetch -> `categoryLabelById` + `engineCatalogs`; page-owned `pickerState` + one anchored `CategoryVerdictPicker`; `set_row_category` on select/clear with an OPTIMISTIC `categoryOverrides` patch folded into the reference-stable `categoriesByExcelRow` map + `mutateCategories` reconcile + revert-on-error (inline error strip -- no toast exists in this editor). Needs-review filter UNCHANGED (a human verdict auto-drops the row via `isNeedsReviewCategory`).
+
+**Gates (in-container):** `tsc --noEmit` clean for all CL-3 files (pre-existing unrelated errors remain); `vitest` 214 passed (17 new picker + 21 dialog + 131 grid + 45 priceability); `yarn build` exit 0. Backend `test_classify` 23 green.
+
+**Manual verification (owner -- full CL-1..CL-3 pass):** restart bench workers (backend changed -- the catalog endpoint). On a committed NBoQ Electrical sheet: run Classify sheet -> click a needs-review row's Category cell -> pick a category -> cell shows the human verdict (emerald "your pick") + the row drops from the needs-review filter -> click again -> Clear -> reverts to the machine verdict. Plus the CL-2 flow (button/progress/summary/column/filter) + the arrow-nav-into-Category-cell glance.
+
+## Classifier module -- CL-3.1 (fix: blank Category column) COMPLETE
+
+One-line frontend fix. The pricing editor's `get_sheet_categories` fetch (`SheetPricingPage.tsx:237`) passed the BoQ id under key `boq_name`, but the classify endpoint's param is `boq` (`classify.py:270`, guard `:277-278`) -- so `boq` arrived `None` and the endpoint threw "boq is required." on every page load, leaving the **Category column blank**. The value (`boqId`) and the enable-guard were already correct; only the key was wrong (copied from the pricing-endpoint fetches above it, which legitimately take `boq_name`). Fix: `boq_name` -> `boq`, aligning it with the page's three other classify calls (`get_classify_status`, `set_row_category`, `start_classify`), which already use `boq`. Backend unchanged (correct). Gates (no regression): tsc clean for `SheetPricingPage`; vitest 457 boq-wizard tests green; `yarn build` exit 0. The fix itself is OWNER-VERIFIED LIVE (the Category column populates on BOQ-26-00035 Electrical after a restart) -- gates only prove no regression.
+
+## Classifier module -- CL-4 (poll-driven classify progress + blocking modal) COMPLETE
+
+Two backend data edits + one frontend poll-drive + a modal swap, on `feature/boq-phase-5` (one feat commit + this docs commit). NO doctype change (no migrate). Motivation: the realtime `boq:classify_sheet_progress` socket is NOT delivering progress in the owner's environment (confirmed live), so the x-of-y bar never advanced. This slice makes the **3-second `get_classify_status` poll** the authoritative progress source and re-homes the progress UI into a **centered, screen-blocking modal**. The socket path is UNTOUCHED and additive (last-writer-wins on the same `{done,total}`).
+
+**Backend (`api/boq/wizard/classify.py`, data only):**
+- **`_update_marker_progress(boq, sheet_name, discipline, done, total)`** -- a NEW sibling of `_set_marker` (kept separate so the start-write signature stays minimal and the two sites don't drift). RE-READS the in-progress marker for that key and merges `done`/`total` in, preserving `job_id`/`enqueued_at`/`user` + the same `_MARKER_TTL_SEC`. If the marker is gone (expired / already cleared) it SKIPS SILENTLY -- never re-creates a marker for a terminated job. Called inside the per-batch `_progress` closure in `_classify_worker`, ALONGSIDE the unchanged `_publish_classify_progress` (two sinks now: the marker for the poll, the realtime event as-is). `done`/`total` are ints, stored as-is.
+- **`get_classify_status`** -- the `running` branch now carries `done`/`total` when the marker holds them: `{"state":"running","done":..,"total":..}`. Included ONLY when both are ints (a run before its first batch returns bare `running` -> the bar stays indeterminate). The `done`/`idle` branches + the terminal `_status_key`/`_publish_classify_event` path are UNCHANGED (the terminal event still sets the status key THEN clears the marker, so a `running` poll can never race a `done` -- terminal wins at the source).
+
+**Frontend (`frontend/src/pages/boq-wizard/`):**
+- **`ClassifyProgressModal.tsx` (NEW, pricing-editor dir)** -- a centered blocking modal over the shadcn `Dialog` primitive (`@/components/ui/dialog`; the same one `ClassifySheetDialog` uses). **Dismiss-gating is OWNER-LOCKED:** while `running` it is NON-dismissable (`disableCloseIcon={false}` hides the X; `onEscapeKeyDown`/`onPointerDownOutside`/`onInteractOutside` are `preventDefault`'d; `onOpenChange` swallows close). It becomes dismissable ONLY at a TERMINAL state -- SUCCESS (completion line + "Done") or ERROR (failure message + "Close") -- so the user is NEVER trapped. Before the first batch it shows an indeterminate "Starting..." state (no 0-of-0 bar). Pure vitest helpers: `deriveClassifyModalPhase` (starting/running/success/error) + `classifyPercent` (0-of-0-safe).
+- **`SheetPricingPage.tsx`** -- (1) POLL DRIVES THE BAR: a `state==="running"` poll with numeric `done`/`total` now calls `setClassifyProgress` on EVERY tick (not just the first recovery seed); the recovery branch also opens the modal. PRECEDENCE guard: a stale `running` poll is ignored once a terminal `classifySummary` is showing (so it can't re-open/re-lock a just-`done` modal; a NEW run clears the summary in `onStarted`). (2) new `classifyModalOpen` state opens on run-start / recovery and stays open THROUGH the terminal state (so the completion/error line + Close show); Close clears it + `classifyProgress`. (3) the old inline x-of-y strip is REPLACED by `<ClassifyProgressModal>`; the inline completion/error summary strips are gated `&& !classifyModalOpen` so they surface as the persistent record only AFTER the modal is dismissed. `classifyModalOpen` is reset on sheet switch.
+
+**Terminal-error note (follow-up flag):** this slice did NOT add new error semantics -- the modal's error phase reuses the EXISTING terminal-error payload (`classifySummary.status === "error"` from `applyClassifyDone`, i.e. the `_classify_worker` `error_code:"classify_failed"` path). No new error surface was introduced; the modal simply renders the existing terminal-error state with an enabled Close.
+
+**Tests / gates (in-container, bench-verified this session):** backend `test_classify` **23 -> 27** (added: `_update_marker_progress` merges+preserves identity / skips-when-missing; `get_classify_status` running carries done/total after a batch AND bare before the first batch; the terminal-clears-marker path is unchanged, covered by the existing worker test). Frontend `tsc -b` clean for all touched boq-wizard files (project baseline stays red -- vendors/utils/zustand, unrelated); `vitest` **457 -> 468** (+11 new `ClassifyProgressModal.test.ts`); `yarn build` exit 0. The modal JSX itself is manual-cert (owner live-cert); only the two pure helpers are unit-tested.
+
+**Manual verification (owner):** restart bench workers (worker changed -- no hot-reload) + the CSRF clear-site-data/re-login if a write 401s. Run Classify on BOQ-26-00035 Electrical with AI enabled -> a centered modal with a dimmed backdrop appears, the editor behind is NOT clickable, the bar advances in ~3s steps to the total, and it CANNOT be closed mid-run (no X, Esc/backdrop do nothing); on completion the summary line shows + Close enables; closing returns to the editor. If the bar never advances: capture the Network `get_classify_status` payloads.
+
+## Classifier module -- CL-5 (AI-off fail-safe: rule-category fallback) COMPLETE
+
+One backend orchestrator override + tests, on `feature/boq-phase-5` (one feat commit + this docs commit). NO doctype change (no migrate). `route_r3d`, `ai_voter`, and `persist` are ALL untouched. Completes the CL-1a fail-safe that `eb9221ac` left half-built.
+
+**The bug (recon-proven, Option A owner-locked fix):** `eb9221ac` was NOTE-ONLY. When AI is off/keyless, `ai_voter.classify_rows_ai` fails closed and returns a BLANK vote per row (`ai_status` = `"disabled"` | `"no_key"`). The pure `route_r3d` then sees rule=category / AI=blank, treats it as a one-sided disagreement, and BLANKS `final_category_id` (its `human()` helper); `persist` faithfully stores the blank. Result: with AI off, EVERY Category cell was empty -- while the amber "AI voter was off" note (wired in `eb9221ac`, `ClassifySheetDialog.aiStatusNote`) claimed rows had been "routed to review." The note was wired; the category-fallback was not.
+
+**The fix (`services/boq_category/orchestrator.py`, per-row override):** compute `ai_off = ai_status in ("disabled", "no_key")` ONCE (run-level flag) after the AI-batch loop. In the per-row loop, when `ai_off`, OVERRIDE the `routed` dict BEFORE the needs_review counter + `rows_to_persist` assembly consume it: `final_category_id = res["category_id"] or ""` (the RULE category; a genuine rule-abstain stays honestly BLANK -- no placeholder), `routing = "Needs review"`, `reason = "AI off -- rule category, flagged for review"`. Overriding in place means the existing counter tallies it as needs_review exactly once and persist stores the rule category verbatim. When AI actually RAN (`ai_status == "ran"`), NO override -- `route_r3d`'s decision stands verbatim (a real consensus still auto-accepts; a real one-blank disagreement still routes to human with a blank final). This is a RUN-LEVEL override the pure, unit-tested router is deliberately blind to -- so it lives in the orchestrator, NOT in `route_r3d` (which stays pure) or `persist` (which stays a faithful writer). No `routing_config.json` change (this is a run-state branch, not a threshold).
+
+**Tests / gates (in-container, bench-verified this session):** backend `test_classify` **27 -> 30** (+3 in `TestOrchestrator`: AI-off rule-present -> final == rule category + Needs review + counted; AI-off rule-abstain -> final stays "" + Needs review + counted; AI-on consensus still auto-accepts AND AI-on one-blank disagreement still blanks final -- the two regression guards proving the override never leaks into the AI-on path). Regression canary `test_row_category` **23** green + unchanged (route_r3d contract intact). No migrate.
+
+**Manual verification (owner):** restart bench workers (worker changed -- no hot-reload) + CSRF clear-site-data/re-login if a write 401s. (1) With AI DISABLED in BOQ Upload Review AI Settings, Classify BOQ-26-00035 Electrical -> categories populate from the RULE engine wherever the rule had one, rule-abstain rows stay blank, EVERY row is flagged Needs review, and the amber "AI voter was off" note shows. (2) Re-enable AI, run again -> normal behaviour returns (consensus auto-accepts, disagreements route to human). If AI-off still shows all-blank categories: capture the run summary + a few rows' `rule_category_id` vs `final_category_id`.
+
+## Classifier module -- CL-6 (review lane: upsert verdict + blank-eligible clickability + amber fill + filter rename) COMPLETE
+
+One backend method change + a frontend guard/fill/prop + a label rename, on `feature/boq-phase-5` (one feat commit + this docs commit). NO doctype/schema change (no migrate). `route_r3d`, `ai_voter`, `orchestrator`, `classify.py`, `CategoryVerdictPicker.tsx`, and the doctype JSON are ALL untouched. Motivation: a needs-review or genuinely-blank eligible cell could not be opened to assign a category (the click/Enter gate keyed on a non-blank effective category), and no cue told the estimator which eligible rows still lacked a category.
+
+**Four changes:**
+- **Upsert (`persist.set_human_verdict`):** the `if not names:` branch previously THREW "No current classification". It now CREATES a fresh current `BoQ Row Category` -- identity tuple (`boq`, `sheet_name` VERBATIM, `excel_row`, `committed_version`, `discipline`) + the human trio (`human_category_id`, `human_verdict_at`, `human_verdict_by`) + `category_version=1` (via `_next_version`, which yields 1 first-ever) + `is_current=1` + `classified_at`, leaving rule/ai/routing/`final_category_id` BLANK (a set `human_category_id` is the effective category via `get_sheet_categories`). Mirrors `write_row_categories`' fresh-insert idiom; no freeze-and-supersede (nothing current to supersede). This is what lets an ELIGIBLE row that was never classified (e.g. outside a partial classify range) receive a verdict. The in-place update path for an existing record is BYTE-FOR-BYTE unchanged. `committed_version` + `discipline` were already resolved server-side in `set_row_category` (no new client field; the endpoint signature is unchanged).
+- **Clickability gate (`PricingGrid.tsx`, click `onClick` + the Enter key path):** a Category cell is editable when `!!onCategoryClick && (isRowEditable(cat) || (isPriceableType(row.node_type) && hasRun))` -- i.e. an eligible (Preamble/Line Item) BLANK cell is clickable once the sheet has been classified at least once; a non-eligible row (`node_type` "Other" -- notes/subtotals) is NEVER clickable; nothing is clickable on a never-run sheet. Driven by a NEW grid-level `hasRun` prop (`SheetPricingPage` passes `categoriesByExcelRow.size > 0` -- the same size>0 truth that gates the filter button). `hasRun` is DELIBERATELY NOT in `pricingRowPropsAreEqual`: it is a pure function of the already-compared `categoriesByExcelRow`, so it can never change without that map's reference changing -- the row memo stays intact.
+- **Amber FILL (`PricingGrid.tsx` Category cell):** (a) an ELIGIBLE cell with a BLANK effective category (state `unclassified`, with OR without a record -- incl. no-record rows, which already render an empty `<td>`) gets `bg-amber-50 dark:bg-amber-950/30` (the grid's established attention-fill token) with the existing `text-foreground`; (b) a `needs_review` cell that HAS a category gets the SAME fill PLUS high-contrast `text-black dark:text-white` (amber-on-amber text was illegible) and keeps its amber dot. `auto`/`human` unchanged. The fill CLEARS automatically once a category is set (effective goes non-blank -> state leaves `unclassified`/`needs_review`). Never on "Other" rows. The `cursor-pointer hover:bg-muted/40` (when editable) composes over the fill on hover only.
+- **Filter rename (`SheetPricingPage.tsx`):** the button label `"Needs review [only]"` -> `"Check Category [only]"` (+ tooltip). VISIBLE TEXT ONLY -- the `showNeedsReview` state, the `isNeedsReviewCategory` predicate, and the backend `"Needs review"` ROUTING literal (compared in `ClassifySheetDialog.tsx` / `CategoryVerdictPicker.tsx`) are ALL unchanged; filter behaviour is identical.
+
+**Tests / gates (in-container, bench-verified this session):** backend `test_row_category` **23 -> 26** (+3 in `TestRowCategoryPersistence`: upsert-creates-when-absent -> one current record, version 1, human set, blank final; `get_sheet_categories` effective == the human pick after an upsert; upsert-then-clear mints no version + clears in place). Regression `test_classify` **30** green + unchanged (the `set_row_category` clear/valid/unknown paths still pass). Frontend: `vitest` **468** unchanged (no test file touched; PricingGrid 131 / picker 17 / dialog 22 all green -- the new required `hasRun` row prop is absorbed by the test's `as unknown as RowProps` cast, and the comparator ignores it); `tsc --noEmit` clean on the two touched boq-wizard files (project baseline stays red on unrelated vendors/utils); `yarn build` exit 0. No new vitest added (the change is a guard/fill/rename over existing pure helpers -- no natural new extraction). No migrate.
+
+**Manual verification (owner):** restart bench workers (persist.py changed -- no hot-reload) + CSRF clear-site-data/re-login if a write 401s. On BOQ-26-00035 Electrical (committed): (1) a NEVER-classified sheet -> eligible blank cells show amber FILL but are NOT clickable; notes/subtotals never amber. (2) Classify whole-sheet -> blank needs-review cells: amber fill, clickable -> pick -> fill clears + emerald "your pick". (3) Classify a PARTIAL range -> a blank eligible row OUTSIDE the range (no record): amber fill, clickable -> pick CREATES a record, fill clears; re-open -> Clear -> reverts. (4) an AI-off needs-review row that HAS a category: amber fill + dark text + amber dot (legible). (5) the filter button reads "Check Category"; toggling filters exactly as before. If anything differs: capture the cell + the `set_row_category` Network payload.
+
 ## 1. Overview
 
 Upload Bill of Quantities (BoQ) Excel files for projects, parse them into a structured hierarchical form, edit with audit, and use the parsed line items as anchors for downstream linkages — Work Headers / Milestones, Critical PO Tasks, PR/PO line items, and Delivery records.
@@ -10670,6 +10785,184 @@ Scratch harness + CSVs (NOT committed) live at /tmp/boq_category_csv/ (one CSV p
 17-column rules-vs-AI-vs-team schema). NEXT: re-run the harness post-tuning to confirm the
 agreement lift, then widen to more electrical BoQs and let team verdicts recalibrate the
 provisional weights/bands.
+
+BUILD 1 -- category re-base to the frozen 15 + novel retired -> blank ABSTAIN (local, NOT
+pushed; branch feature/boq-phase-5 tip c8226842; Rebuild Spec v2.0 §§1-3.1/6, Design doc §20):
+STRUCTURAL re-base only -- rules_electrical.json UNCHANGED (Build 2 rewrites the rules), and the
+confidence/scoring model is UNCHANGED (cap/agreement_bonus/conflict_margin/conflict_penalty/
+bands/direct_signal_bonus/inheritance_weight/inheritance_cap all untouched).
+- categories_electrical.json rewritten to the FROZEN 15: switches_sockets, db_switchgear,
+  cabletray_raceway, wiring_cabling (now "Wiring, Cabling & Termination"), junction_box_raceway
+  (NEW), earthing, conduit_piping, industrial_sockets, point_wiring, popup_boxes (NEW), ups,
+  lighting_mgmt_system (NEW), miscellaneous (NEW, positive placement -- NOT an uncertainty
+  fallback), light_fixtures (NEW), panels. PLUS 2 TRANSITIONAL ids retained ONLY so the
+  unchanged Build-1 rules still resolve: termination (Build 2 merges -> wiring_cabling) and
+  networking (Build 2 removes -> cross-discipline blank). version bumped to 2.0-frozen15-build1.
+- "novel" is RETIRED as a category (removed from the list). ABSTAIN now returns a BLANK
+  category_id (""), band still "ABSTAIN", reason "no category signal matched; routed to review
+  (blank)." Wired in three places: scoring.json "novel_category_id":"" (data-driven; runner
+  hardcodes nothing), runner.py abstain-return reason string + docstrings, tests. The FIX-4
+  fragment-inheritance path is UNCHANGED -- it still returns its real inherited category (never
+  blanked).
+- No orphaned rule: all 12 category_ids referenced by the (untouched) rules resolve against the
+  new list (10 frozen + termination + networking). The 5 new frozen ids carry no rules yet
+  (Build 2 adds them).
+- Tests: tests/test_runner_electrical.py contract tests updated to blank-on-abstain + the new
+  frozen id set; count UNCHANGED at 27, all green (run in-container via
+  env/bin/python -m unittest ... ; the bare-`python` interpreter lacks firebase_admin and fails
+  at package import -- use the bench-env python or `bench run-tests`).
+- runner.py still has NO frappe imports; classify_line signature unchanged.
+
+BUILD 2a -- rules for the 5 new categories + FIX-1 reversal (local, NOT pushed; branch
+feature/boq-phase-5 tip 088ee99f; Rebuild Spec v2.0 §3.2/§3.3/§3.6, Design doc §20). ADDITIVE
+half of the rules rewrite: only rules_electrical.json + tests changed. scoring.json (confidence
+model) and runner.py (algorithm) UNCHANGED; point_wiring / termination / networking rules
+UNTOUCHED (Build 2b owns those). Rule count 35 -> 40.
+- FIX-1 REVERSED: the junction/pull/draw box vocabulary ("junction box", "junction-box",
+  "j-box", "j box", "pull box", "draw box") was removed from the cabletray_raceway rule CT-TRAY
+  and moved into a NEW junction_box_raceway rule (JB-BOX). CT-TRAY now carries ONLY
+  tray/raceway/trunking/ladder vocabulary; a plain cable-tray line still resolves
+  cabletray_raceway (verified). A junction/pull/draw box line now resolves junction_box_raceway.
+- 5 NEW item_keyword rules (weights on the existing 0.3-0.6 scale):
+  JB-BOX (junction_box_raceway, 0.6, exclude_if floor box/pop up/popup),
+  PU-BOX (popup_boxes, 0.55: pop up/floor/flip-flop/table box, floor outlet),
+  LMS-KW (lighting_mgmt_system, 0.55: lighting management/control, DALI, occupancy/daylight
+  sensor, lighting processor, scene controller),
+  LF-KW (light_fixtures, 0.5: luminaire, led light, panel light, down light, batten,
+  cove/street/flood/decorative light),
+  MISC-KW (miscellaneous, 0.3 CONSERVATIVE: fixing accessory, gi frame for electrical,
+  rcc cutting, chasing for electrical). miscellaneous is a POSITIVE placement only, deliberately
+  low weight + few tokens so it never becomes an uncertainty catch-all -- blank ("") stays the
+  uncertainty outcome (verified by test).
+- No strong existing category regressed (db_switchgear / earthing / ups / industrial_sockets /
+  switches_sockets / conduit_piping / panels / wiring_cabling / cabletray all still green).
+- KNOWN GAP (owner note): LF-KW seed tokens are "led light" / "panel light" (adjacent), so a
+  REVERSED phrasing like "2X2 LED panel" is NOT caught by light_fixtures and still ABSTAINs to
+  blank -- this is intentional for 2a (it preserves the existing led-panel-excluded tests); if
+  LED panels should read as light_fixtures, add "led panel" in a tuning pass and update those
+  two tests.
+- Tests: was 27 (Build 1) -> 34; all green in-container (env/bin/python -m unittest). Added:
+  2 FIX-1-reversal tests + 6 new-category tests (5 positive + 1 no-signal-stays-blank guard);
+  the old test_fix1_junction_box_is_cabletray was rewritten to the reversal contract.
+
+BUILD 2b -- Point Wiring full precedence + termination merge + networking removal + cleanup
+(local, NOT pushed; branch feature/boq-phase-5 tip 4164534f; Rebuild Spec v2.0 §3.4/§3.5/§2,
+Design doc §20.3, owner rulings this session). BEHAVIORAL half of the rules rewrite -- changes
+how existing lines resolve. scoring.json (confidence model) + the runner ALGORITHM UNCHANGED;
+the DB-to-first-point seam is handled by LETTING those lines score low/blank, NOT by moving
+thresholds. Rule count 40 -> 45; categories 17 -> 15 (exactly the frozen 15). Tests 34 -> 44.
+- POINT WIRING FULL PRECEDENCE (owner: the point-frame overrides component words). Added three
+  point-frame EXCLUSION rules -- WC-EXCL-POINTFRAME (wiring_cabling), SS-EXCL-POINTFRAME
+  (switches_sockets), CP-EXCL-POINTFRAME (conduit_piping) -- each carrying the same point-frame
+  token set (light/fan/plug/power/call-bell/loop point(s), point(s) controlled, controlled by
+  mcb/switch, first light / to first light / mcb to first light). When a point-frame is present
+  those three categories are ZEROED (exclusion machinery), so the surviving point_wiring wins a
+  bundled line that also names conduit/switch/cable. Added PW-FIRSTLIGHT positive rule
+  (first light / to first light / mcb to first light, 0.5) for the 'MCB -> first light' case.
+- DB-TO-FIRST-POINT SEAM (owner: bare feeder, no named load -> review, not forced). Implemented
+  by (a) DELIBERATELY NOT adding 'first point' as a point_wiring positive token, and (b)
+  WC-EXCL-DBFIRSTPOINT ("db to first point"/"to first point") zeroing wiring_cabling. Net: a bare
+  "DB to first point" sized feeder -> blank/ABSTAIN -> human review (verified: band != HIGH). A
+  load-bearing "first light point" still reads point_wiring (the exact phrase "to first point"
+  does not appear when a load word sits between).
+- TERMINATION MERGED into wiring_cabling: TERM-END + TERM-ANC re-pointed termination ->
+  wiring_cabling (tokens kept: lug/gland/end termination); "termination" category removed. A
+  "Cable lugs and glands, end termination" line now reads wiring_cabling.
+- NETWORKING REMOVED: NW-DATA rule deleted; "networking" category removed; PNL-ASSEMBLY
+  ambiguous_with cleaned. Added WC-EXCL-NETWORKING (cat6/rj45/utp/patch panel/... ) so a data
+  line's generic "cable" word does NOT read wiring_cabling -- these cross-discipline lines route
+  to blank/review (Design doc §20.3). No rule references termination/networking as a category.
+- LED PANEL -> LIGHT FIXTURES: added "led panel"/"led panel light" to LF-KW; PNL-ASSEMBLY still
+  excludes led/panel light/luminaire, so "2X2 LED panel" reads light_fixtures and never panels.
+  The two former led-panel-excluded tests now assert light_fixtures.
+- CLEANUP: runner.py identifier novel_id -> abstain_category_id (both occurrences; it holds ""
+  from scoring.json). No logic change; still NO frappe imports; classify_line behavior unchanged.
+- Blast-radius NEGATIVE guards all green: plain "PVC conduit" -> conduit_piping, "Modular switch
+  socket" -> switches_sockets, "3C x 2.5 sqmm XLPE cable" -> wiring_cabling (none read
+  point_wiring). Strong existing categories (db/earthing/ups/industrial/panels/cabletray/conduit/
+  switches/wiring) unchanged.
+- OWNER NOTES: (1) the point-frame token set is intentionally the same list on all three
+  competitor categories -- tune in one place per category if it over/under-reaches. (2) The
+  networking suppression means a line literally saying "CAT6 cable" now goes to blank (review),
+  not wiring_cabling -- this is the intended cross-discipline routing. (3) "first point" is a
+  reserved review trigger; do not add it as a strong positive token without revisiting the seam.
+
+RESIDUAL-43 TUNING -- plural-aware matcher + misc/light keywords (local, NOT pushed; branch
+feature/boq-phase-5; feat c9b843a4). From the tree-fed Set-1 re-run (baseline rule 75.9% /
+AI 89.8%, 43 abstains): two additive changes to the classification module, confidence model +
+runner algorithm otherwise unchanged.
+- (a) CONSERVATIVE PLURAL-AWARE MATCHER (runner.py _token_re -- the pattern fix, NOT a hardcoded
+  plural list): a singular token now also matches a regular s/es plural of its FINAL word, so
+  'junction box' hits 'junction boxes', 'cable tray' hits 'cable trays', 'raceway' hits
+  'raceways', 'socket' hits 'sockets', 'cable' hits 'cables'. GUARDED: the optional (?:es|s)?
+  suffix is added only when the final word is >= 3 chars and does NOT already end in 's' -- so
+  gas/bus/class/glass/status/access/process/plus/cross and 2-char units ('mm') are never
+  mis-stripped, and an already-plural token ('light points', 'socket outlets') stays exact. The
+  suffix is optional so singular still matches (backward-compatible). Applies wherever _token_re
+  runs: item_keyword + ancestor + exclusion matching alike (so plural exclusions like 'cable
+  trays' also suppress wiring_cabling correctly). Recovers ~80 plural rows from the recon.
+- (b) rules_electrical.json: NEW rule MISC-SAFETY (miscellaneous, weight 0.3) = first aid /
+  hume pipe / shock treatment / danger notice / danger board / fire bucket / insulating mat /
+  rubber mat / shock chart / single line diagram / sld chart / name board / notice board --
+  collision-verified misc-only across the Set-1 corpus (0 non-misc hits); these mirror the panels
+  exclude_if false-friend set, so a row panels already refuses now reads miscellaneous instead of
+  abstaining/mis-firing. LF-KW gained one-word 'downlight' + 'led strip' / 'strip light' (the
+  DOWNLIGHT / LED STRIP LIGHT product lines that abstained).
+- DEFERRED (riskier recon items, NOT added): the DALI-vs-fixture guard and the
+  socket-outlet-point point-frame token -- both ambiguous; left for a later, measured pass.
+- Tests: runner suite 44 -> 62 green (18 new: plural forms, ss/short-word guards, misc + light
+  keywords, panels->misc false-friend). Additive; no strong-category regression
+  (db_switchgear/point_wiring/wiring_cabling/earthing/conduit_piping all still pass).
+
+AI CATEGORY PROMPT -> TRACKED + v1.1 (local, NOT pushed; branch feature/boq-phase-5). The canonical
+Option-B AI voter prompt was moved OUT of scratch into a version-controlled module location and
+bumped to v1.1.
+- LOCATION: now tracked at `nirmaan_stack/services/boq_category/prompts/electrical_ai_category_prompt.md`
+  (single source of truth). The filename is version-FREE (stable path); the version lives in the
+  file header ("v1.1 (2026-07-02) -- supersedes v1.0"). The prior scratch copy
+  (_classification_review/BoQ_AI_Category_Prompt_v1_0.md) was deleted; the scratch harnesses
+  (rerun_harness.py + rerun_harness_committed.py) were repointed to the tracked path. NOTE:
+  `_classification_review/` is untracked scratch, so the harness repoint + scratch deletion are
+  on-disk only (not committed) -- the ONLY tracked artifact is the new prompt file.
+- v1.1 EDITS (surgical; frozen-15 categories + descriptions, the {category_id in 15 or "",
+  confidence 0-1, brief_reason} output contract, and Option-B independence all preserved VERBATIM):
+  (a) TREE-READING instruction -- the AI is told it receives each line WITHIN its full ancestor
+  tree (sheet-name root -> section preambles -> parent, indented, with attached/append notes shown
+  per node) and must read TOP-DOWN: the section/parent context governs a bare child ("300 X 40mm
+  size" under a "CABLE TRAYS"/"JUNCTION BOXES"/"EARTHING" heading takes that category); the sheet
+  name is context. Matches how the committed-tree harness now feeds the structured tree.
+  (b) SWITCHES vs POINT-WIRING tightening -- a new boundary bullet: Point-Wiring precedence applies
+  to a point/circuit framed as a unit, NOT to a line naming the SOCKET ACCESSORY itself (modular
+  socket / socket outlet / spike-guard / switch-socket plate -> switches_sockets; IP-rated /
+  3-phase / interlocked -> industrial_sockets). Fixes the one place the AI underperformed the
+  rules (over-applying point-wiring precedence to socket lines). DALI-vs-fixture guard still
+  DEFERRED.
+- Not re-run here (that is the next AI re-run). Load-verified: both harnesses resolve PROMPT_PATH
+  to the tracked file (7518 bytes, v1.1 header). No push, no migrate.
+
+CLASSIFICATION HARNESS -> TRACKED (behavior-preserving move; local, NOT pushed; feat abdf5faf).
+The committed-tree classification harness (previously scratch-only in _classification_review/) is
+now version-controlled in the module, so it is not lost and other disciplines reuse the SAME
+mechanism later.
+- LOCATION: nirmaan_stack/services/boq_category/harness/ -- electrical_classification_harness.py
+  (canonical name; moved from scratch rerun_harness_committed.py -- THE harness now) +
+  classification_analysis.py (moved from analyze_rerun.py). The whole classification mechanism is
+  now tracked in services/boq_category/: engine (runner.py) + rules_electrical.json +
+  categories_electrical.json + scoring.json + prompts/electrical_ai_category_prompt.md + harness/.
+- MINIMAL move: only file location + rename + internal-path repoints. NO logic/tree-walk/join/
+  measurement change. Prompt resolved from the module (../prompts/); rules/categories/scoring are
+  read by the runner (load_ruleset), not the harness. INPUT (env BOQ_HARNESS_INPUT) + OUTPUT (CLI
+  arg) stay LOCAL and default OUTSIDE the repo -- a tracked harness never writes CSVs into the repo.
+- DROPPED (not tracked): the superseded xlsx-input rerun_harness.py + the throwaway diagnostics
+  (dbcheck/parentcheck/rootcheck/recon*.py) -- left in scratch.
+- BEHAVIOR-PRESERVING PROOF: code diff scratch-vs-tracked = docstring + 4 path lines only; a fresh
+  tracked-harness run over the 5 Set-1 BoQs reconciles row-math (2333 = 1296 LI + 305 Preamble +
+  732 Other) and diffs ZERO on ALL structural columns + notes vs the tree-fed output (identical
+  classify_line inputs). The rule-column diffs vs that older output are 100% the Prompt-2 committed
+  runner tuning (plural matcher + misc/light keywords), NOT the move. Runner suite 62 green.
+- DEFERRED: discipline-parameterisation (electrical BOQS + prompt hardcoded for now); the
+  durable-address verdict re-join in classification_analysis.py (it currently reads a verdict-bearing
+  CSV). No push, no migrate.
 ### Slice preamble-level-derivation (derive `level` from effective tree, kills #7 false-positive) -- 2026-06-30, local, NOT committed
 
 REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble_parent_level` breaks): the stored `level` field is written once by the parser from the heading's numbering/styling axis and never updated when the user re-parents a preamble in the review screen. After a legitimate re-parent the `level` (parser axis) and `effective_parent_index` (human-edited tree axis) diverge; the #7 commit guard sees an inconsistent level and hard-blocks Finalize even though the tree is structurally valid. ADR-0009 (pending Nitesh sign-off). Full analysis doc: `docs/boq/preamble-level-reparent-block.html`. Full plan: `frontend/.claude/plans/boq-level-derivation-fix.md`.
@@ -10677,4 +10970,100 @@ REQUIREMENT (confirmed live on BOQ-26-00023 / "HVAC BOQ ", 11 must-fix `preamble
 DESIGN (grilled + locked): preamble `level` is now a DERIVED value computed whole-sheet on every read -- `1 + (count of preamble ancestors in the effective-parent chain)`; root preamble = 1, +1 per nesting tier. Non-preambles keep `level = None` (system convention unchanged). Single backend source `derive_effective_levels(node_rows)` in `commit_validation.py` (hop-cap 60, cycle-guard), replacing `_real_preamble_level` + `_compute_levelless_preamble_levels`. Three consumers: (a) `validate_node_plan` (#7/#15/#22 tripwires -- unchanged, now validate derived levels), (b) `commit_pipeline.py` (writes derived level to `BOQ Nodes.level`), (c) `get_review_rows` (new `effective_level` field shipped to client). All existing checks KEPT as defensive tripwires (owner instruction). Parser `level` write becomes vestigial (written, unread -- like `path`). Cascade invariant: whole-sheet derivation on every read means re-parenting a preamble recomputes that row AND every descendant in lockstep. Frontend: `boqTypes.ts` `ReviewRow` gains `effective_level: number | null`; `ParentChain.tsx` renders an `L{n}` chip on preamble crumbs (reads `effective_level`) and a `ClassificationPill` on the current-row terminal (had neither before).
 
 BUILT + GREEN (local, NOT committed, NOT deployed): test_commit_validation 51, test_commit_pipeline 50, test_boq_nodes 77, test_review_screen 241 (all in-container green); new `ParentChain.test.tsx` 4 cases; tsc delta-0 new errors. Empirical confirmation on localhost DB: 1554 review rows + 1994 committed nodes, ZERO non-preamble rows with level>=1. The 11 `preamble_parent_level` breaks on BOQ-26-00023 clear with no data edits (derived levels become consistent: VALVES->L2, PN-16 Butterfly->L3, BTU METER->L3, Ultrasonic BTUH->L4). ADR-0009 pending Nitesh sign-off. As-built backend: `.claude/context/domain/boq-backend.md` (slice added 2026-06-30). As-built frontend: `frontend/.claude/context/domain/boq-frontend.md` (ParentChain section updated 2026-06-30). OWED: Nitesh ADR-0009 review -> commit -> browser E2E on BOQ-26-00023 (the 11 breaks must vanish).
+
+### Category-engine TUNING ROUND 2 -- un-freeze v2.0-build2b -> v2.1-tuning2 + AI prompt v1.1 -> v1.2 -- 2026-07-05, COMMITTED on feature/boq-phase-5
+
+Un-froze the electrical category classifier (frozen at tip 67af6d7c) and applied 8 validated
+rule-side fixes + one AI-prompt boundary. Feat commits: `8a14a4bc` (rules+runner+harness+tests),
+`7e0b4bc9` (AI prompt v1.2), this docs commit. Files: `rules_electrical.json` (46 -> 53 rules,
+version 2.1-tuning2), `runner.py` (headers_only + geometry), `harness/electrical_classification_harness.py`
+(ancestor-headers feed), `prompts/electrical_ai_category_prompt.md` (v1.2), `tests/test_runner_electrical.py`
+(62 -> 82).
+
+**Provenance:** every fix was validated in-memory against the Set-2 committed corpus (12 BoQs, 2,888
+scorable line items) before this build; full spec = `Classification_Fix_Spec_v1_0.md` (OneDrive). The
+build implements the spec EXACTLY (no re-tune).
+
+**The 8 fixes (JSON = rules_electrical.json; runner = runner.py):**
+1. **EARTH-ANC headers_only (runner+JSON+harness).** EARTH-ANC now matches an ancestor DESCRIPTION/
+   header, not a note -- an incidental 'earthed' in a raceway/box preamble note no longer false-fires
+   earthing. `classify_line` gains keyword-only `ancestor_headers`; the harness passes headers (desc-only)
+   parallel to `anc_texts` (desc+notes). Backward-compatible (None -> legacy full-blob behaviour).
+2. **popup (JSON).** Trim SS-ANC (drop 'pop-up boxes'/'floor outlet'); extend PU-BOX; add PU-ANC +
+   SS-EXCL-BOXFRAME. popup_boxes 3.8 -> 88.5%.
+3. **LMS (JSON).** Modern KNX/Lutron/GrydSense/DALI-gateway vocab on LMS-KW + new LMS-ANC. 32.4 -> 80.3%.
+4. **light_fixtures (JSON).** LF-KW 0.5 -> 0.6 + luminaire vocab; LF-ANC; LF-EXCL-POINTFRAME (protects
+   point_wiring from the higher weight). 64.8 -> 96.9%. (DALI-luminaire false-friend fixed by the weight.)
+5. **SS-SWSOCK (JSON).** New switched-socket rule ('socket controlled by'); ships WITH #2's box-frame
+   guard (else it steals floor boxes). switches_sockets 49.7 -> 61.9%.
+6. **conduit geometry (runner).** A single-diameter 'Xmm dia' leaf under a conduit section -> conduit.
+   57.7 -> 88.3% (composed).
+7. **JB geometry (runner).** A 3-dim W x H x D box (depth 40-600mm; tray-name-only exclusions; gauge/SWG
+   allowed -- v2 gate) under a raceway/box section -> junction_box. 0 -> 88.3%.
+8. **miscellaneous (JSON).** Safety/service vocab on MISC-KW/MISC-SAFETY + low-weight (0.35) MISC-ANC
+   (never overrides a real signal). 17.4 -> 66.7%.
+Geometry = one dimension-count override (1-num+dia=conduit, 2-num=tray, 3-num=box) applied to a
+cabletray/earthing/blank winner only. Evaluation order in `classify_line`: keyword/ancestor scoring
+(with headers_only EARTH) -> JB geometry -> conduit geometry. Exclusion guards rebuild automatically
+in `load_ruleset` (no runner change for them).
+
+**AI prompt v1.2 (#9, feat 7e0b4bc9):** one new Boundary rule -- "Panel-assembly precedence": a switchgear
+device (MCCB/MCB/MCOS/meter/busbar/starter/EPO) itemised in a panel build ("LT PANELS"/MDB/"shall consist
+of" section) is `panels`, not `db_switchgear`. DIAGNOSED only (AI voter put 77/120 team=panels into
+db_switchgear); its effect is CERTIFIED in the upcoming full-corpus AI rerun, NOT in this rules-only
+certification. JB/SS framing prompt edits were NOT drafted/validated -> out of scope.
+
+**OWNER DECISION -- JB-ANC DROPPED (2026-07-04, reversing an earlier "implement").** A row-level review of
+the 33 cabletray->junction_box regressions showed only 3 were true team mislabels (3-dim boxes); the other
+30 were genuine 2-dim RACEWAYS the team labelled correctly, wrongly flipped by JB-ANC (which fires on any
+'junction box' anywhere in the ancestor incl. notes -- and sections like "Floor raceways with respective
+Junction Box" hold BOTH raceways and boxes). Geometry alone tells them apart. So JB-ANC is NOT built;
+junction_box is recovered by geometry (3-dim boxes) only.
+
+**ACCEPTED DRAG (do not misread the numbers):** ~24 team=cabletray rows that are genuinely 3-dim boxes
+(team mislabels) stay UNCORRECTED in the ground truth and are flipped to junction_box by the geometry
+signal -- they count as cabletray "misses". This is why measured cabletray reads 88.2% (not ~93%). These
+are corrections, not rule errors; ground truth was left as-is per owner.
+
+**CERTIFICATION (real v2.1 engine, rules-only, Set-2 committed feed, 2,888 scorable LI):**
+overall **86.9%** (2,509; stock was 67.4%), abstains 54 -> **9**. Per-category: junction_box 0 -> 88.3,
+light_fixtures 64.8 -> 96.9, conduit 57.7 -> 93.9, miscellaneous 17.4 -> 66.7, LMS 32.4 -> 80.3,
+popup 3.8 -> 88.5, switches_sockets 49.7 -> 61.9, db 91.8 -> 94.8, cabletray 68.0 -> 88.2 (accepted drag);
+**earthing 93.9, ups 97.8, point_wiring 68.2, industrial_sockets 83.9, panels 85.8 EXACTLY FLAT vs stock**
+(no collateral). Regressions vs team = 3 defensible boundaries (2 LMS<->light_fixtures, 1 cable<->LMS).
+Tests: 82/82 green. Not pushed; stays on feature/boq-phase-5.
+
+**CORPUS STATUS CHANGE -- Set-1 + Set-2 are now IN-SAMPLE (training/tuning data), no longer held-out.**
+These fixes were tuned against BOTH the Set-1 verdicts (5 BoQs: 00007/16/19/22/24) and the Set-2 verdicts
+(12 BoQs), which are unified in `OneDrive/Desktop/Set2_Verdicts_Relabeled/` (Set-1 CSVs relabelled +
+team_classification added, owner-approved crosswalk). Any future accuracy claim on v2.1 must use a FRESH
+out-of-sample set -- Set-1/Set-2 can no longer certify generalisation.
+
+### AI prompt v1.2 -> v1.3 -- panel-assembly boundary sharpen -- 2026-07-05, COMMITTED (feat 196d1e64)
+
+Sharpen ONLY the AI voter's "Panel-assembly precedence" boundary (prompt file
+`prompts/electrical_ai_category_prompt.md`, v1.2 -> v1.3). Three edits; the frozen 15, output
+contract, and Option-B independence are VERBATIM. No code / rules / harness / test change.
+
+WHY (evidence): the full-corpus (Set-1+Set-2) panels<->db boundary dump
+(`Panels_DB_Boundary_Analysis_2026-07-05.md`) found **36 of 50 verified db->panels flips are
+DB-SCHEDULE OVERSHOOT** -- distribution-board schedules ("N Way SPN/TPN MCB DB", "Outgoing: N Nos
+MCB", "HUB Room UDB's") that v1.2 wrongly treated as panel builds. Root cause = v1.2's OWN wording,
+which listed "MDB / DB-schedule" as a panel-build trigger; the AI cited it verbatim ("Outgoing MCB
+itemised within the DB-schedule assembly -> panels"). Only 14/50 (genuine LT-PANEL-section rows) were
+defensible (team label loose). The Q2 panels->db misses (53) are NOT overshoot (9 genuine panel MCCBs
+the AI missed + 44 ambiguous motor starters).
+
+THE THREE EDITS:
+1. REMOVED "MDB / DB-schedule" from the Panel-assembly precedence trigger list; the trigger is now a
+   FABRICATED LT/MCC/control PANEL section only ("LT PANELS", "shall consist of", a named main/sub panel).
+2. ADDED an explicit exclusion sub-bullet: a distribution-board SCHEDULE (an "N Way MCB DB" itemising
+   incomer / sub-incomer / outgoing breakers) is `db_switchgear`, NOT a panel.
+3. ADDED the owner's standing pricing convention (approved verdict crosswalk) sub-bullet: motor starters
+   (DOL / star-delta / starter panels) itemised as panel equipment are `panels`, not `db_switchgear`.
+
+STATUS: **v1.3 is UNMEASURED.** Owner decision -- routing absorbs boundary disagreements, so v1.3 is NOT
+re-run now; it is certified at the next out-of-sample (Set-3) cycle. **All routing / yield numbers on
+record (94.7% auto-accept @ 91.0%, the §21.6 cross-tab, the auto-accept error analysis, the escalation
+curve) remain v1.2-based** -- re-derive them on the Set-3 rerun if v1.3's boundary shift matters. No push.
 

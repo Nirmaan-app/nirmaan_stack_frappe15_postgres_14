@@ -1,7 +1,7 @@
 {
   "discipline": "Electrical",
-  "version": "1.0-provisional",
-  "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain.",
+  "version": "2.1-tuning2",
+  "note": "Rules seeded from REAL committed electrical line vocabulary (work_header='Electrical', is_current=1, node_type='Line Item'; n=4282) mined 2026-06-29. Token counts in each `source` are live-corpus document frequencies. Weights are provisional and tunable via scoring.json semantics; recalibrate against team verdicts + AI agreement. match against: item_keyword/exclusion -> description+notes; ancestor -> the parent_node ancestor chain. Build 2b: POINT WIRING FULL PRECEDENCE -- a point-frame (light/fan/plug/power point, points controlled, controlled by mcb/switch, mcb-to-first-light) zeroes conduit_piping / switches_sockets / wiring_cabling via point-frame exclusion rules so the bundled point line reads point_wiring even when it names conduit/switch/cable. DB-TO-FIRST-POINT SEAM: a bare 'DB to first point' sized feeder with NO named load is suppressed (WC-EXCL-DBFIRSTPOINT) and 'first point' is deliberately NOT a point_wiring positive token, so it lands blank/review, not a confident label. TERMINATION MERGED into wiring_cabling (TERM-* re-pointed). NETWORKING removed (NW-DATA deleted); data vocab is suppressed from wiring_cabling (WC-EXCL-NETWORKING) so cat6/rj45/patch-panel lines route to blank (cross-discipline).",
   "rules": [
     {
       "rule_id": "PW-POINT",
@@ -43,6 +43,17 @@
       "plain": "A 'wiring for ... point(s)' lot (e.g. 'Wiring for fan points with 3x2.5 sq mm'): this is point wiring - the cable size quoted is just the wire used for the point, not a cable-run item.",
       "source": "FIX3 proving-run 2026-06-30: 31 'Wiring for X points' lines mis-scored wiring_cabling",
       "ambiguous_with": ["wiring_cabling"]
+    },
+    {
+      "rule_id": "PW-FIRSTLIGHT",
+      "category_id": "point_wiring",
+      "signal_type": "item_keyword",
+      "match": ["first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "An 'MCB -> first light / low-power device' point run: a named load (first LIGHT) makes this point wiring. NOTE: a bare 'first point' with no named load is deliberately NOT matched here - that is the DB-to-first-point review seam (see WC-EXCL-DBFIRSTPOINT).",
+      "source": "Build 2b owner ruling: MCB->first light = point_wiring; bare DB->first point (no load) = review.",
+      "ambiguous_with": ["wiring_cabling", "db_switchgear"]
     },
 
     {
@@ -97,6 +108,36 @@
       "plain": "FIX3 guard: a 'wiring for ... point(s)' line is point wiring, not a cable-run item, so the wiring_cabling signal from its quoted cable size is suppressed.",
       "source": "FIX3 proving-run 2026-06-30: wiring_cabling over-fired on point-wiring lots"
     },
+    {
+      "rule_id": "WC-EXCL-POINTFRAME",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: when a point-frame (a named point / controlled-by / mcb-to-first-light) is present, the cable size quoted is just the wire used for the point - suppress the wiring_cabling read so point_wiring wins.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
+    },
+    {
+      "rule_id": "WC-EXCL-DBFIRSTPOINT",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["db to first point", "to first point"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b DB-to-first-point seam: a bare 'DB to first point' sized feeder with NO named load must NOT read a confident wiring_cabling - suppress it so the line lands blank -> human review (the load is unknown; do not force a label).",
+      "source": "Build 2b owner ruling: bare DB->first point (no load) = review, not a confident category."
+    },
+    {
+      "rule_id": "WC-EXCL-NETWORKING",
+      "category_id": "wiring_cabling",
+      "signal_type": "exclusion",
+      "match": ["cat6", "cat 6", "cat6a", "rj45", "patch cord", "patch panel", "jack panel", "data jack", "i/o jack", "utp"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b networking removal: structured-data vocab (CAT6/RJ45/patch panel/UTP) is cross-discipline (Data & Networking), NOT power wiring_cabling - suppress the generic 'cable' read so these lines route to blank/review instead of being mislabelled power cabling.",
+      "source": "Build 2b / Design doc §20.3: networking excluded -> blank."
+    },
 
     {
       "rule_id": "SS-ACC",
@@ -126,11 +167,42 @@
       "rule_id": "SS-ANC",
       "category_id": "switches_sockets",
       "signal_type": "ancestor",
-      "match": ["socket outlets", "power receptacles", "switches and sockets", "pop-up boxes", "floor outlet"],
+      "match": ["socket outlets", "power receptacles", "switches and sockets"],
       "match_mode": "any_token",
       "weight": 0.4,
       "plain": "Sits under a Socket Outlets / Power Receptacles section header.",
-      "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'"
+      "source": "corpus preamble: 'SOCKET OUTLETS', 'POWER RECEPTACLES'. v2.1 tuning2: removed 'pop-up boxes'/'floor outlet' (they belong to popup_boxes, not switches_sockets)."
+    },
+    {
+      "rule_id": "SS-EXCL-POINTFRAME",
+      "category_id": "switches_sockets",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: a point-frame line ('point controlled by switch') is point wiring, not a loose switch/socket accessory - suppress the switches_sockets read.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
+    },
+    {
+      "rule_id": "SS-SWSOCK",
+      "category_id": "switches_sockets",
+      "signal_type": "item_keyword",
+      "match": ["socket controlled by", "pin socket controlled", "socket outlet controlled by"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A switched socket (a socket outlet controlled by its own switch, e.g. '2x6/16A socket controlled by 16A switch') - this is a switches_sockets unit, NOT point wiring. Needs to outscore point_wiring's 'controlled by' read.",
+      "source": "v2.1 tuning2: recovers 'N x rating socket controlled by switch' switched-socket lines that were mislabelled point_wiring. Requires SS-EXCL-BOXFRAME to coexist (floor boxes with 'round pin socket' stay popup).",
+      "ambiguous_with": ["point_wiring", "popup_boxes"]
+    },
+    {
+      "rule_id": "SS-EXCL-BOXFRAME",
+      "category_id": "switches_sockets",
+      "signal_type": "exclusion",
+      "match": ["floor service box", "floor box", "pop-up box", "pop up box", "popup box", "flip flop box", "flip-flop box", "ega box", "floor socket box", "table box"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "v2.1 tuning2 popup precedence: a floor / pop-up / flip-flop box IS a socket enclosure but is priced as its own popup_boxes unit - suppress the switches_sockets read (incl. SS-SWSOCK) so popup_boxes wins. Mirrors the point-frame precedence pattern.",
+      "source": "v2.1 tuning2: box framing overrides the socket component; ships WITH SS-SWSOCK."
     },
 
     {
@@ -187,17 +259,6 @@
     },
 
     {
-      "rule_id": "NW-DATA",
-      "category_id": "networking",
-      "signal_type": "item_keyword",
-      "match": ["cat6", "cat 6", "cat6a", "rj45", "patch cord", "patch panel", "jack panel", "data jack", "i/o jack", "utp"],
-      "match_mode": "any_token",
-      "weight": 0.55,
-      "plain": "Structured-data cabling (CAT6, RJ45, patch panel) - electrical-side networking.",
-      "source": "corpus: data 63, patch 7, cat6 3 (rare in Electrical - data lives under Data & Networking)"
-    },
-
-    {
       "rule_id": "UPS-UNIT",
       "category_id": "ups",
       "signal_type": "item_keyword",
@@ -250,6 +311,16 @@
       "plain": "Sits under a Conduit / Conduiting section header.",
       "source": "corpus preamble: 'Supply and laying of PVC conduit'"
     },
+    {
+      "rule_id": "CP-EXCL-POINTFRAME",
+      "category_id": "conduit_piping",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "Build 2b Point Wiring precedence: a point-frame line that also names conduit ('light points ... with 25mm conduit') is point wiring as a unit - the conduit is part of the point run - so suppress the conduit_piping read.",
+      "source": "Build 2b owner ruling: point-frame overrides component words."
+    },
 
     {
       "rule_id": "IS-IND",
@@ -276,11 +347,11 @@
       "rule_id": "CT-TRAY",
       "category_id": "cabletray_raceway",
       "signal_type": "item_keyword",
-      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack", "junction box", "junction-box", "j-box", "j box", "pull box", "draw box"],
+      "match": ["cable tray", "cable basket", "raceway", "ladder type", "perforated", "trunking", "c-channel", "c channel", "threaded rod", "cable rack"],
       "match_mode": "any_token",
       "weight": 0.6,
-      "plain": "Cable support / containment / junction hardware: cable tray, ladder, raceway, trunking, or a junction / pull / draw box.",
-      "source": "corpus: cable tray 178, raceway 99, perforated 40; FIX1 proving-run 2026-06-30: 49 junction/box fragments abstained"
+      "plain": "Cable support / containment: cable tray, ladder, raceway or trunking.",
+      "source": "corpus: cable tray 178, raceway 99, perforated 40. Build 2a reversed FIX1: junction/pull/draw box vocabulary moved OUT to its own junction_box_raceway category (JB-BOX)."
     },
     {
       "rule_id": "CT-ANC",
@@ -294,24 +365,138 @@
     },
 
     {
+      "rule_id": "JB-BOX",
+      "category_id": "junction_box_raceway",
+      "signal_type": "item_keyword",
+      "match": ["junction box", "junction-box", "j-box", "j box", "pull box", "draw box", "jb for raceway", "junction box for raceway"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A junction / pull / draw box for the raceway / cable system - its own priced category (a box, not the tray/raceway run itself).",
+      "source": "Build 2a: reversal of FIX1 - junction/pull/draw box vocabulary moved here out of cabletray_raceway (CT-TRAY). corpus: 49 junction/box fragments.",
+      "exclude_if": ["floor box", "pop up", "popup"],
+      "ambiguous_with": ["cabletray_raceway", "popup_boxes"]
+    },
+    {
+      "rule_id": "PU-BOX",
+      "category_id": "popup_boxes",
+      "signal_type": "item_keyword",
+      "match": ["pop up box", "popup box", "pop-up box", "floor box", "flip flop box", "flip-flop box", "floor socket box", "table box", "floor outlet", "floor service box", "ega box", "under floor box", "floor mounted box"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A pop-up / floor socket box (flip-flop / table / floor outlet / floor service / ega box unit) - a socket enclosure sunk into a floor or desk.",
+      "source": "Build 2a: new category seed. corpus preamble: 'POP-UP BOXES', 'FLOOR OUTLET'. v2.1 tuning2: added floor service box / ega box / under floor box / floor mounted box.",
+      "ambiguous_with": ["switches_sockets", "junction_box_raceway"]
+    },
+    {
+      "rule_id": "PU-ANC",
+      "category_id": "popup_boxes",
+      "signal_type": "ancestor",
+      "match": ["floor service box", "floor service boxes", "pop-up boxes", "pop up boxes", "popup boxes", "floor outlet", "floor mounted box", "ega box", "under floor box"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a Floor / Pop-up Box section header - the bare child sizes under it are floor-box units.",
+      "source": "v2.1 tuning2: popup section header did not propagate to child lines (no ancestor rule existed)."
+    },
+    {
+      "rule_id": "LMS-KW",
+      "category_id": "lighting_mgmt_system",
+      "signal_type": "item_keyword",
+      "match": ["lighting management", "lighting control", "dali", "occupancy sensor", "daylight sensor", "lighting processor", "scene controller", "relay module for lighting", "knx", "spacelynk", "spacelogic", "lutron", "grydsense", "dali gateway", "dali dimming", "dimming controller", "dimming system", "light management", "lms processor", "lighting control system", "vortex processor", "ip router", "relay master", "wireless dali"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A lighting management / control system: DALI, occupancy/daylight sensors, lighting processor/scene controller, or a modern LMS ecosystem device (KNX, Lutron, GrydSense, SpaceLynk, DALI gateway / dimming controller).",
+      "source": "Build 2a: new category seed. corpus: DALI / lighting control / occupancy sensor lines. v2.1 tuning2: added modern LMS ecosystem vocabulary (KNX/Lutron/GrydSense/SpaceLynk/DALI gateway/dimming controller/etc)."
+    },
+    {
+      "rule_id": "LMS-ANC",
+      "category_id": "lighting_mgmt_system",
+      "signal_type": "ancestor",
+      "match": ["lighting control", "light management", "lighting management", "lms", "knx", "lutron", "grydsense"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a Lighting Management / Control (LMS) section header - propagates LMS to the bare component lines (keypads, relays, gateways) itemised under it.",
+      "source": "v2.1 tuning2: LMS section header did not propagate. Deliberately excludes 'dali'/'occupancy sensor' (item-only) so a fixture section's DALI note does not propagate LMS to luminaires."
+    },
+    {
+      "rule_id": "LF-KW",
+      "category_id": "light_fixtures",
+      "signal_type": "item_keyword",
+      "match": ["light fixture", "luminaire", "led light", "led panel", "led panel light", "panel light", "down light", "downlight", "downlighter", "spot light", "batten", "cove light", "street light", "flood light", "decorative light", "led strip", "strip light", "pendant", "recessed", "recessed light", "recessed luminaire", "linear luminaire", "linear light", "surface mounted light", "hanging light", "pendant light", "ceiling light", "wall light", "led fixture", "light fitting"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A luminaire / light fixture: LED light, LED panel/strip, panel light, down light / downlight(er), batten, cove / street / flood / decorative light, pendant / recessed / linear / surface / hanging luminaire. A LIGHT POINT (the wiring circuit) is point_wiring, not a fixture. Weight 0.6 (v2.1) so a DALI-dimmable luminaire beats the LMS 'dali' read.",
+      "source": "Build 2a: new category seed. Build 2b: added 'led panel'. residual-43 tuning: 'downlight'/'led strip'. v2.1 tuning2: weight 0.5->0.6 (DALI false-friend); added pendant/recessed/linear/surface/hanging/ceiling/wall/fitting vocabulary (abstaining generic light lines)."
+    },
+    {
+      "rule_id": "LF-ANC",
+      "category_id": "light_fixtures",
+      "signal_type": "ancestor",
+      "match": ["office area lights", "decorative lights", "functional lights", "conventional lighting", "light fixtures", "luminaires", "area lights"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a Lights / Luminaires section header - propagates light_fixtures to bare fixture lines under it.",
+      "source": "v2.1 tuning2: lights section header did not propagate to child luminaire lines."
+    },
+    {
+      "rule_id": "LF-EXCL-POINTFRAME",
+      "category_id": "light_fixtures",
+      "signal_type": "exclusion",
+      "match": ["light point", "light points", "fan point", "fan points", "plug point", "plug points", "power point", "power points", "call bell point", "loop point", "loop points", "point controlled", "points controlled", "controlled by mcb", "controlled by switch", "first light", "to first light", "mcb to first light", "point wiring"],
+      "match_mode": "any_token",
+      "weight": 0,
+      "plain": "v2.1 tuning2 Point Wiring precedence for light_fixtures: a LIGHT POINT (wiring circuit) is point_wiring, not a fixture - suppress the light_fixtures read when a point-frame is present. Mirrors SS-EXCL-POINTFRAME; needed because LF-KW weight rose to 0.6.",
+      "source": "v2.1 tuning2: without this, the 0.6 LF weight stole point_wiring rows (light-point lines)."
+    },
+    {
+      "rule_id": "MISC-KW",
+      "category_id": "miscellaneous",
+      "signal_type": "item_keyword",
+      "match": ["fixing accessory", "gi frame for electrical", "rcc cutting", "chasing for electrical", "as built drawing", "as-built", "professional charges", "liaisoning", "ceig approval", "licensing works", "thermal scanning", "fire barrier sealant", "fire retardant material", "fire rated", "ms support", "ms frame", "ms angle", "supporting structure", "epo station", "hdpe pipe", "temporary lighting & power"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "A genuine electrical miscellaneous item (fixing accessory, GI frame, RCC cutting / chasing, as-built drawings, professional/CEIG/licensing charges, thermal scanning, fire sealants, MS supports/frames, temporary power). POSITIVE placement only - deliberately LOW weight so it never becomes an uncertainty catch-all (blank remains the uncertainty outcome).",
+      "source": "Build 2a: new category seed, CONSERVATIVE. v2.1 tuning2: added recurring misc item types (services / MS supports / fire sealants / temporary works)."
+    },
+    {
+      "rule_id": "MISC-SAFETY",
+      "category_id": "miscellaneous",
+      "signal_type": "item_keyword",
+      "match": ["first aid", "hume pipe", "shock treatment", "danger notice", "danger board", "fire bucket", "insulating mat", "rubber mat", "shock chart", "single line diagram", "sld chart", "name board", "notice board", "rubber hand glove", "artificial respiration", "safety equipment", "first-aid"],
+      "match_mode": "any_token",
+      "weight": 0.3,
+      "plain": "Electrical safety-accessory / site-overhead misc items (danger boards, insulating/rubber mats/gloves, shock-treatment/artificial-respiration & first-aid charts/kits, fire buckets, SLD charts, name/notice boards). POSITIVE placement - mirrors the panels false-friend exclude_if set.",
+      "source": "residual-43 tuning: collision-verified misc-only across Set-1 (0 non-misc hits). v2.1 tuning2: added rubber gloves / artificial respiration / safety equipment / first-aid variant."
+    },
+    {
+      "rule_id": "MISC-ANC",
+      "category_id": "miscellaneous",
+      "signal_type": "ancestor",
+      "match": ["miscellaneous", "misc items", "misc."],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "Sits under a Miscellaneous section header. DELIBERATELY LOW WEIGHT (0.35) so it only wins when NO real category signal fires - faithful to 'miscellaneous is a positive placement, NOT a fallback for uncertainty'. It is the last-resort tiebreak for genuine misc items under a misc section, never an override of a real signal.",
+      "source": "v2.1 tuning2: misc section header did not propagate; low weight keeps it from stealing real-signal rows (validated 0 collateral)."
+    },
+
+    {
       "rule_id": "TERM-END",
-      "category_id": "termination",
+      "category_id": "wiring_cabling",
       "signal_type": "item_keyword",
       "match": ["endterminations", "end termination", "end terminations", "termination", "terminations", "lug", "gland", "cable jointing", "heat shrink", "thimble", "ferrule"],
       "match_mode": "any_token",
       "weight": 0.6,
-      "plain": "Cable end-work: terminations, lugs, glands or jointing. Often a child sub-line under a cable line - the tree walk inherits the cable context; this rule just recognises the term.",
-      "source": "corpus: termination 459, endterminations 315, gland 57"
+      "plain": "Cable end-work: terminations, lugs, glands or jointing. Build 2b merged the former 'termination' category into 'Wiring, Cabling & Termination' (wiring_cabling).",
+      "source": "corpus: termination 459, endterminations 315, gland 57. Build 2b: re-pointed from termination -> wiring_cabling (merge)."
     },
     {
       "rule_id": "TERM-ANC",
-      "category_id": "termination",
+      "category_id": "wiring_cabling",
       "signal_type": "ancestor",
       "match": ["end termination", "terminal joints", "making of end termination"],
       "match_mode": "any_token",
       "weight": 0.4,
-      "plain": "Sits under an end-termination section header.",
-      "source": "corpus preamble: 'Supplying and making of end termination', 'terminal joints'"
+      "plain": "Sits under an end-termination section header (part of Wiring, Cabling & Termination after the Build 2b merge).",
+      "source": "corpus preamble: 'Supplying and making of end termination', 'terminal joints'. Build 2b: re-pointed from termination -> wiring_cabling (merge)."
     },
 
     {
@@ -332,9 +517,10 @@
       "signal_type": "ancestor",
       "match": ["earthing", "earth strips", "earth station"],
       "match_mode": "any_token",
+      "headers_only": true,
       "weight": 0.45,
-      "plain": "Sits under an Earthing section header.",
-      "source": "corpus preamble: 'EARTH STRIPS', 'EARTHING'"
+      "plain": "Sits under an Earthing section header. HEADERS-ONLY (v2.1 tuning2): matches an ancestor DESCRIPTION/section header, NOT a note -- so an incidental 'earthed'/'earthing' inside a raceway/box preamble note (e.g. 'the channels shall be earthed') does not false-fire earthing.",
+      "source": "corpus preamble: 'EARTH STRIPS', 'EARTHING'. v2.1 tuning2: headers_only added (note false-friend fix)."
     },
 
     {
@@ -347,7 +533,7 @@
       "plain": "Names a built panel / switch-board assembly (a fabricated enclosure that houses breakers as one unit).",
       "source": "corpus: panel 128, lt panel 27",
       "exclude_if": ["led", "light panel", "luminaire", "downlight", "panel light", "ceiling panel", "drop down panel", "patch panel", "danger", "sld", "chart", "fire extinguisher", "name board", "notice board", "mat", "shock treatment", "first aid"],
-      "ambiguous_with": ["db_switchgear", "networking"]
+      "ambiguous_with": ["db_switchgear"]
     },
     {
       "rule_id": "PNL-ENCLOSURE",
