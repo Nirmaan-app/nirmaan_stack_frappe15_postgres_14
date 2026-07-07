@@ -84,3 +84,16 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 ## Procurement approval
 
 - **Awaiting approval (of a PR or Sent Back)** — a Procurement Request or Sent Back Category ready for line-item approval: its `workflow_state` is *Vendor Selected* or *Partially Approved* **and** at least one of its order-list items is still *Pending*. It is the single rule behind the sidebar "Approve" count and the approval screens; a PR and an SB share it (they share the order-list child table). Its one home is a single pure module (ADR-0010, rule B1) — replacing the copy of this rule that was scattered across the sidebar-count and approval endpoints.
+## BoQ concurrency & directional guard
+
+- **Upstream stage** — a BoQ pre-pricing stage whose output a later stage consumes: *Config*, *Review*, and the backward actions *re-parse*, *re-commit*, *un-finalize*, and *root-metadata* (tax treatment / version) edits. Contrast *Downstream stage*.
+
+- **Downstream stage** — the stage that consumes an upstream stage's output. For a committed sheet the downstream stage is **Pricing** of its current committed version (*Tendering* is a later downstream stage). The BoQ phases form a one-way ladder: Config → Review → Commit → Pricing/Tendering.
+
+- **Orphanable work** — priced cells on a sheet's *current committed version*: the work an upstream change would strand. On a re-commit they survive on the now-frozen version but are not carried into the new one (only rates copy forward, and only partially). Zero orphanable work means an upstream change is free forward progress.
+
+- **Live (downstream)** — an orphanable sheet is *Live* when **another** user holds a fresh single-editor pricing lock on its current committed version. A *Live* directional warning names that user. Contrast *Vacated*. A lock held by the *same* user performing the upstream action does not count as Live (you are never warned about yourself).
+
+- **Vacated (downstream)** — orphanable work exists but no other user is currently *Live* on it (nobody holds a fresh pricing lock). A *Vacated* directional warning states only the count — no name.
+
+- **Presence-escalated warning** — the directional guard's response: an unmissable warning that always fires when *orphanable work* exists (*Vacated* → count only) and escalates with the editor's name when the downstream stage is *Live*. It never blocks — the user may proceed after acknowledging. Surfaced at two touchpoints: on entering a pre-phase screen (a banner) and on saving within it (an interrupting confirm). [[0011-boq-concurrency-locking]]

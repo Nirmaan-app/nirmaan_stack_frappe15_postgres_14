@@ -22,6 +22,8 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
+import { BoqPresence } from "./BoqPresence";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -216,6 +218,13 @@ const SheetPricingPage = () => {
   const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
+  // Per-sheet Work Packages -- carried onto the committed BoQ Sheet at commit time and returned
+  // by get_priced_rows (work_packages: string[]). Read defensively: default [] when the payload
+  // is missing/older, and drop any empty/whitespace entries so the header badge only renders real
+  // assignments. SHEET-LEVEL only -- never threaded into the memoized PricingGrid rows.
+  const workPackages = (pricedData?.message?.work_packages ?? []).filter(
+    (wp): wp is string => typeof wp === "string" && wp.trim() !== "",
+  );
   // History mode iff an EARLIER version than the live one is selected.
   const isViewingHistory = selectedVersion !== null && selectedVersion !== liveCommitVersion;
 
@@ -368,6 +377,34 @@ const SheetPricingPage = () => {
   );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
+
+  // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
+  // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
+  // (the grid's onDirtyChange), heartbeat ~30s while holding it, release on leave (sendBeacon
+  // + unmount), and listen for boq:lock_changed to flip read-only / free the instant ANOTHER
+  // user acquires / releases. The server throw (BOQ_PRICING_LOCKED in every save_* endpoint)
+  // stays the durable enforcement; this is only the UX accelerator.
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  const { user_id: currentUser } = useUserData();
+  const { call: acquirePricingLock } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
+  );
+  // committed_version this client currently HOLDS the lock for (null = none). A ref so the
+  // heartbeat + socket handler read the latest without re-registering.
+  const heldVersionRef = useRef<number | null>(null);
+  // Break-glass CLIENT override (dev/testing). The server site_config flag is the real prod
+  // switch (D13); this just lets a developer disable the lock calls locally.
+  const locksDisabledClient =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
+  // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  const lockCtxRef = useRef<{
+    boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
+  }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
+  lockCtxRef.current = {
+    boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
+  };
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -602,7 +639,7 @@ const SheetPricingPage = () => {
   // Socket for boq:classify_sheet_progress / boq:classify_sheet_done (mirrors the BoqHubPage
   // parse-run pattern -- SCREEN-SCOPED via FrappeContext, NOT socketListeners.ts). Reconnect
   // self-heals by refetching the categories; the poll below covers a missed done event.
-  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  // (Reuses the `socket` bound above by the concurrency-lock realtime layer -- same FrappeContext.)
   useEffect(() => {
     if (!socket) return;
     const onProgress = (p: ClassifyProgressPayload) => {
@@ -686,6 +723,100 @@ const SheetPricingPage = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded]);
+
+  // Realtime lock updates (A2): flip read-only / free the instant ANOTHER user acquires or
+  // releases this sheet's lock. Screen-scoped listener (BoqHubPage pattern): register on the
+  // stable FrappeContext socket, read changing identity from lockCtxRef, off() on cleanup,
+  // + a reconnect self-heal (re-fetch authoritative lock_info on (re)connect).
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      boq?: string; sheet_name?: string; committed_version?: number | string;
+      action?: string; locked_by?: string | null;
+    }) => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled) return;
+      if (!payload || payload.boq !== ctx.boqId) return;
+      if (payload.sheet_name !== ctx.sheetName) return; // VERBATIM (#152)
+      if (ctx.version === null || Number(payload.committed_version) !== Number(ctx.version)) return;
+      if (payload.locked_by && payload.locked_by === ctx.currentUser) return; // suppress own events
+      if (payload.action === "acquired" || payload.action === "took_over") {
+        // Another user now holds this sheet -> we no longer do; flip to read-only.
+        const wasHolding = heldVersionRef.current !== null;
+        heldVersionRef.current = null;
+        if (wasHolding) {
+          // We were the editor and got displaced -> the takeover banner (we may have an
+          // unsaved draft the grid keeps).
+          setTakenOver(true);
+        } else {
+          // We were only viewing -> re-read authoritative state so the precise
+          // "being priced by <name>" holder banner shows (editable=false + lock_info).
+          void mutate();
+        }
+      } else if (payload.action === "released") {
+        // Freed by another -> re-read authoritative editable/lock_info (the [pricedData]
+        // effect clears takenOver when the fresh payload reports the sheet editable).
+        void mutate();
+      }
+    };
+    const onReconnect = () => { void mutate(); };
+    socket.on("boq:lock_changed", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:lock_changed", handler);
+      socket.off("connect", onReconnect);
+    };
+  }, [socket, mutate]);
+
+  // Heartbeat (A2): while we HOLD the lock, refresh it every ~30s so an active editor is never
+  // taken over mid-session (the 120s edit-driven TTL would otherwise lapse without saves). A
+  // rejected refresh (another user took over) flips us to read-only.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || ctx.version === null || heldVersionRef.current !== ctx.version) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      void acquirePricingLock({
+        boq_name: ctx.boqId, sheet_name: ctx.sheetName, committed_version: ctx.version,
+      }).catch((e) => {
+        if (isTakeoverError(getFrappeError(e))) {
+          heldVersionRef.current = null;
+          setTakenOver(true);
+        }
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [acquirePricingLock]);
+
+  // Release-on-leave (A2): free the lock the INSTANT the editor closes, so no colleague waits
+  // out the TTL. beforeunload + unmount both fire navigator.sendBeacon (a normal POST would be
+  // cancelled on unload). Guarded on actually holding the lock; idempotent + tolerant server-side.
+  useEffect(() => {
+    const beacon = () => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || heldVersionRef.current === null || ctx.version === null) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      try {
+        const fd = new FormData();
+        fd.append("boq_name", ctx.boqId);
+        fd.append("sheet_name", ctx.sheetName);
+        fd.append("committed_version", String(ctx.version));
+        const csrf = (window as unknown as { frappe?: { csrf_token?: string } })?.frappe?.csrf_token;
+        if (csrf) fd.append("csrf_token", csrf);
+        navigator.sendBeacon(
+          "/api/method/nirmaan_stack.api.boq.wizard.pricing.release_pricing_lock", fd,
+        );
+      } catch {
+        /* best-effort: the lock ages out via the TTL if this fails */
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      beacon(); // release on unmount (SPA navigate-away) too
+      heldVersionRef.current = null;
+    };
+  }, []);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -777,6 +908,34 @@ const SheetPricingPage = () => {
   // gate), so withholding the save callbacks below collapses EVERY mutation path to read-only by
   // construction. The history payload also reports editable=false (server belt to this suspenders).
   const locked = editable === false || takenOver || isLocked || isViewingHistory;
+
+  // Acquire the single-editor lock on FIRST edit-intent (A2 / ADR-0011). Called from the grid's
+  // onDirtyChange (fires when the user first modifies a cell, BEFORE any save), so a second
+  // viewer flips read-only within a socket round-trip -- not on a failed save. Idempotent per
+  // version (heldVersionRef). A rejected acquire (someone else holds it fresh) flips us to
+  // read-only via the same takeover banner. The save_* endpoints still enforce server-side.
+  const ensureLockAcquired = () => {
+    if (locksDisabledClient) return;
+    if (locked) return; // read-only (history / deliberate lock / already taken over)
+    if (!boqId || !sheetName || commitVersion === null) return;
+    if (heldVersionRef.current === commitVersion) return; // already hold it for this version
+    heldVersionRef.current = commitVersion; // optimistic (prevents a double-fire)
+    void acquirePricingLock({
+      boq_name: boqId, sheet_name: sheetName, committed_version: commitVersion,
+    }).catch((e) => {
+      const msg = getFrappeError(e);
+      heldVersionRef.current = null; // failed -> we do NOT hold it
+      if (isTakeoverError(msg)) setTakenOver(true); // someone else holds it fresh -> read-only
+      // else: transient error -> a retry on the next edit will re-attempt.
+    });
+  };
+
+  // The grid's dirty signal doubles as first-edit-intent: keep the existing hasUnsaved wiring
+  // AND acquire the lock the moment the sheet becomes dirty.
+  const handleDirtyChange = (dirty: boolean) => {
+    setHasUnsaved(dirty);
+    if (dirty) ensureLockAcquired();
+  };
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -1324,36 +1483,129 @@ const SheetPricingPage = () => {
         </div>
       )}
 
-      {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
-      <div className="flex items-start gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-1.5 text-muted-foreground mt-0.5"
-          onClick={handleBack}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+      {/* ── Header: Row 1 = back + title + status badges (right-aligned on the title line);
+          Row 2 = action buttons. Mirrors the Review screen's two-row header. ─────────────── */}
+      <div className="space-y-3">
+        {/* Row 1: back, title, and the STATUS BADGES right-aligned on the title line. items-center
+            centres them against the two-line title block; flex-wrap drops the cluster to its own
+            right-aligned line if the viewport is too narrow. */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
 
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">
-            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
-            {commitVersion !== null && (
-              <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground truncate">
+              {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
+              {commitVersion !== null && (
+                <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+              )}
+            </p>
+            <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
+              {displaySheetName}
+            </h1>
+          </div>
+
+          {/* Status badges -- RIGHT-ALIGNED on the title line (ml-auto). Per-sheet Work Packages +
+              "who else is here" presence (always), then the save-status chip + priced-count readout
+              (!isGridOnly -- a grid-only reference sheet has nothing to save/price). SHEET-LEVEL
+              header elements only -- never threaded into the memoized PricingGrid rows. justify-end +
+              flex-wrap keeps them right-packed; each self-truncates so a long WP list / presence
+              roster never crowds the title (which truncates via min-w-0 flex-1). */}
+          <div className="ml-auto shrink-0 flex flex-wrap items-center justify-end gap-3">
+            {/* Per-sheet Work Packages badge -- committed-version WP snapshot (rides get_priced_rows).
+                IDENTICAL to the Review screen's badge for visual consistency. */}
+            {workPackages.length > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground max-w-[16rem]"
+                title={`Work packages: ${workPackages.join(", ")}`}
+              >
+                <span className="text-primary font-medium">WP</span>
+                <span className="truncate">{workPackages.join(" · ")}</span>
+              </span>
             )}
-          </p>
-          <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
-            {displaySheetName}
-          </h1>
+            {/* B2: BoQ-level "who else is here" presence (soft awareness; the pricing lock owns correctness). */}
+            <BoqPresence boqId={boqId} />
+            {!isGridOnly && (
+              <div className="flex items-center gap-3">
+                {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
+                    status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
+                    width -- keeping the right-aligned badge cluster from jittering on every edit.
+                    overflow-hidden + a `truncate` text child + a `title` keep an unexpectedly-long
+                    message on ONE line (clipped with an ellipsis, full text on hover). Messaging unchanged. */}
+                <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
+                  {saveStatus === "saving" && (
+                    <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span className="truncate">Saving&hellip;</span>
+                    </span>
+                  )}
+                  {saveStatus === "saved" && lastSavedAt && (
+                    <span
+                      className="flex items-center gap-1.5 text-muted-foreground min-w-0"
+                      title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
+                    >
+                      <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                      <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
+                    </span>
+                  )}
+                  {saveStatus === "unsaved" && (
+                    <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
+                      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="truncate">Unsaved changes</span>
+                    </span>
+                  )}
+                  {saveStatus === "failed" && (
+                    <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Save failed</span>
+                    </span>
+                  )}
+                  {saveStatus === "idle" && (
+                    <span className="text-muted-foreground truncate" title="All changes saved">
+                      All changes saved
+                    </span>
+                  )}
+                </div>
+                {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
+                    When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
+                    that is a later slice). Hidden when the sheet has no priceable lines. */}
+                {pricedCount.total > 0 && (
+                  <span
+                    className={cn(
+                      "text-xs font-medium tabular-nums whitespace-nowrap",
+                      allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+                    )}
+                    title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
+                  >
+                    {allPriced ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Check className="h-3.5 w-3.5" />
+                        {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
+                      </span>
+                    ) : (
+                      <>
+                        {pricedCount.priced} of {pricedCount.total} priceable lines priced
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Slice 4c: full-screen toggle (ALWAYS rendered) + Slice-3c save-status
-            chip / force-save (SUPPRESSED for a grid-only general-specs sheet -- it is
-            read-only reference, nothing to save). The right-cluster wrapper now renders
-            unconditionally so the maximize toggle is reachable on a read-only / grid-only
-            sheet too -- full-screen is orthogonal to editability. */}
-        <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+        {/* Row 2: action buttons. Full screen FIRST (always rendered -- orthogonal to editability);
+            the editing toolbar (Lock, Freeze, Summary, Review, Price any row, Save now) is !isGridOnly. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Slice 4c: full-screen toggle -- ALWAYS rendered, reachable on a read-only / grid-only
+              sheet too (full-screen is orthogonal to editability). */}
           <Button
             size="sm"
             variant="outline"
@@ -1482,74 +1734,6 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
-          {/* Status text (save-status chip + priced-count) -- pushed to the ribbon's right.
-              Moved here from before the action buttons in the two-ribbon reorg; behavior
-              (the saveStatus / pricedCount reads) is byte-identical. */}
-          <div className="ml-auto flex items-center gap-3">
-          {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
-              status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
-              width -- otherwise the right-pinned status-group widens and the whole ml-auto button
-              cluster shifts left on every edit. overflow-hidden + a `truncate` text child + a
-              `title` keep an unexpectedly-long message on ONE line (clipped with an ellipsis, full
-              text on hover) so it still can't wrap or shove neighbours. Messaging itself unchanged. */}
-          <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
-            {saveStatus === "saving" && (
-              <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
-                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                <span className="truncate">Saving&hellip;</span>
-              </span>
-            )}
-            {saveStatus === "saved" && lastSavedAt && (
-              <span
-                className="flex items-center gap-1.5 text-muted-foreground min-w-0"
-                title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
-              >
-                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
-                <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
-              </span>
-            )}
-            {saveStatus === "unsaved" && (
-              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                <span className="truncate">Unsaved changes</span>
-              </span>
-            )}
-            {saveStatus === "failed" && (
-              <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Save failed</span>
-              </span>
-            )}
-            {saveStatus === "idle" && (
-              <span className="text-muted-foreground truncate" title="All changes saved">
-                All changes saved
-              </span>
-            )}
-          </div>
-          {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
-              When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
-              that is a later slice). Hidden when the sheet has no priceable lines. */}
-          {pricedCount.total > 0 && (
-            <span
-              className={cn(
-                "text-xs font-medium tabular-nums whitespace-nowrap",
-                allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
-              )}
-              title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
-            >
-              {allPriced ? (
-                <span className="inline-flex items-center gap-1">
-                  <Check className="h-3.5 w-3.5" />
-                  {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
-                </span>
-              ) : (
-                <>
-                  {pricedCount.priced} of {pricedCount.total} priceable lines priced
-                </>
-              )}
-            </span>
-          )}
-          </div>
           </>
           )}
         </div>
@@ -2313,7 +2497,7 @@ const SheetPricingPage = () => {
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
-            onDirtyChange={setHasUnsaved}
+            onDirtyChange={handleDirtyChange}
             // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
             // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
             onHistoryChange={setHistoryState}

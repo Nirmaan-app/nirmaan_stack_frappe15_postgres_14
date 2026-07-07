@@ -76,6 +76,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
+from nirmaan_stack.api.boq.wizard import directional_guard
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
     _extract_grid_rows,
@@ -274,8 +275,25 @@ def _next_commit_version(boq: str, sheet_name: str) -> int:
     return ((agg[0].mv if agg else None) or 0) + 1
 
 
+def _commit_advisory_key(boq_name: str) -> int:
+    """A stable 64-bit key for the per-BoQ commit advisory lock (A1b / ADR-0011).
+
+    Serializes concurrent commit_boq calls for the SAME boq so the version race
+    (_next_commit_version reads max+1 with NO lock, then freeze-then-inserts) cannot
+    even be attempted concurrently. The partial unique index on
+    (boq, sheet_name) WHERE is_current=1 (patch boq_commit_current_unique_guard) is the
+    DURABLE corruption backstop; this advisory lock is the graceful-serialization layer
+    on top (a losing concurrent commit gets a clean retryable message instead of a
+    caught unique-violation in failed[]). Session-level (NOT xact) so it survives the
+    per-sheet frappe.db.commit()s; auto-released on connection close if the request dies.
+    """
+    return frappe.db.sql(
+        "SELECT hashtextextended(%s, 0)", (f"boq_commit:{boq_name}",)
+    )[0][0]
+
+
 @frappe.whitelist(methods=["POST"])
-def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
+def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=None) -> dict:
     """Commit a subset of a BoQ's sheets into the committed schema (Phase 5 Slice 3a/3b).
 
     For each requested sheet (under ONE shared commit_version): build + persist its
@@ -336,6 +354,32 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
             title="Not commit-eligible",
         )
 
+    # C0 / ADR-0011 directional guard: re-committing a sheet that has pricing on its CURRENT
+    # committed version orphans that pricing onto the frozen version (only rates are partially
+    # recoverable via copy-forward). Surface it explicitly -- reject (marker BOQ_DOWNSTREAM_ORPHAN
+    # + the per-sheet counts) UNLESS confirm_orphan. A first commit (no current version) or an
+    # unpriced sheet has count 0 -> free forward progress, no guard. Runs BEFORE the advisory lock
+    # + any write, so a rejected commit acquires nothing and mutates nothing.
+    if not directional_guard._truthy(confirm_orphan):
+        orphaning = [
+            (s, n) for s in subset
+            if (n := directional_guard.downstream_priced_count(boq_name, s))
+        ]
+        if orphaning:
+            # Amendment A1: name the Live pricer per sheet when another user holds a fresh lock.
+            parts = []
+            for s, n in orphaning:
+                holder = directional_guard.live_pricing_holder(boq_name, s)
+                suffix = f", {holder} pricing now" if holder else ""
+                parts.append(f"'{s}' ({n}{suffix})")
+            detail = ", ".join(parts)
+            frappe.throw(
+                f"{directional_guard.ORPHAN_MARKER}: re-committing will orphan priced cells on the "
+                f"current version of {detail} -- they stay on the frozen version but are NOT carried "
+                f"forward. Confirm to proceed.",
+                title="This will orphan priced cells",
+            )
+
     # Draft lookup (verbatim sheet_name) for the column-config snapshot.
     drafts_by_name = {d.sheet_name: d for d in boq_doc.sheet_drafts}
 
@@ -344,6 +388,20 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
         frappe.throw(
             f"BOQs '{boq_name}' has no source_file_url set.",
             title="Missing source file",
+        )
+
+    # SERIALIZE concurrent commits of the SAME boq (A1b / ADR-0011). Non-blocking
+    # session-level advisory lock: atomic, survives the per-sheet commits below, and
+    # auto-releases if the request dies (no stale flag to clean up). Acquired AFTER the
+    # cheap validation/gate (so a rejected call holds nothing) and released in the
+    # finally. The DB partial unique index is the durable backstop; this only turns a
+    # concurrent double-commit into a clean, retryable message.
+    _commit_lock_key = _commit_advisory_key(boq_name)
+    if not frappe.db.sql("SELECT pg_try_advisory_lock(%s)", (_commit_lock_key,))[0][0]:
+        frappe.throw(
+            "A commit is already running for this BoQ. "
+            "Please wait for it to finish, then retry.",
+            title="Commit already in progress",
         )
 
     tempfile_path = None
@@ -417,6 +475,9 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None) -> dict:
                 os.unlink(tempfile_path)
             except OSError:
                 pass
+        # Release the per-boq commit advisory lock (A1b). Always runs on normal AND
+        # exception exit; a hard process kill instead auto-releases on connection close.
+        frappe.db.sql("SELECT pg_advisory_unlock(%s)", (_commit_lock_key,))
 
     return {"boq_name": boq_name, "committed": committed, "failed": failed}
 
@@ -565,10 +626,24 @@ def _write_committed_boq_sheet(
     bs.is_current = 1
     bs.committed_at = committed_at
 
-    # Work-header assignments carried from the draft.
+    # Work-header assignments carried from the draft. `draft` is a BoQ Sheet Draft
+    # CHILD row (from boq_doc.sheet_drafts) -- its work_packages GRANDCHILD table is
+    # NOT hydrated by get_doc (Frappe hydrates one level deep only). Read the grandchild
+    # rows directly, keyed on the draft child's docname (draft.name), mirroring the
+    # write path in update_sheet_draft.set_sheet_work_packages. CAPTURE-ONLY (copy).
     if draft is not None:
-        for wp in (getattr(draft, "work_packages", None) or []):
-            wh = getattr(wp, "work_header", None)
+        wp_rows = frappe.db.get_all(
+            "BoQ Sheet Work Package",
+            filters={
+                "parent": draft.name,
+                "parenttype": "BoQ Sheet Draft",
+                "parentfield": "work_packages",
+            },
+            fields=["work_header"],
+            order_by="idx asc",
+        )
+        for wp in wp_rows:
+            wh = wp.get("work_header")
             if wh:
                 bs.append("work_packages", {"work_header": wh})
 

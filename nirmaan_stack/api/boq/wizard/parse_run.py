@@ -533,6 +533,14 @@ def run_parse(boq_name: str = None, sheet_names=None, force_reparse=False):
             )
         # "cleared" / "cleared_stale" -> the stale state was wiped; proceed.
 
+    # NOTE (ADR-0011 Amendment A1, Update 2026-07-06): the force-reparse directional
+    # orphan guard was reverted here. Re-parse is draft-tier-only and inert to the
+    # committed/pricing tier -- it orphans nothing on its own; the orphan is realized
+    # only at re-commit (guarded in commit_pipeline.commit_boq) and the prior priced
+    # version is preserved (is_current versioning). The user is now warned by a soft
+    # inline notice in ParseRunDialog (Live pricer named from get_boq_downstream_state)
+    # instead of a server confirm_orphan gate. directional_guard.py is unchanged.
+
     # Raw (un-namespaced) job id. frappe.enqueue namespaces it internally to
     # "{site}::{id}"; get_job_status re-namespaces on read, so we MUST store the
     # RAW id -- storing job.id (already namespaced) would double-namespace and
