@@ -514,9 +514,10 @@ export function InvoiceDialog<T extends DocumentType>({
       }
       // EDIT never steps through the review screen — the fresh extraction
       // (fields + mapping) is applied inline and we stay on the form. CREATE
-      // still routes a PO mapping through the Review step to verify it.
+      // shows the CONTENT form first; the PO line-item mapping is verified in the
+      // dedicated Review step only AFTER the content page passes its validation.
       if (isEditMode) setReExtracted(true);
-      setStage(!isEditMode && hasMapping ? "review" : "form");
+      setStage("form");
     } catch (error) {
       console.error("Auto-fill error:", error);
       toast({
@@ -740,6 +741,41 @@ export function InvoiceDialog<T extends DocumentType>({
     submitInvoice();
   }, [submitInvoice]);
 
+  // Add flow: the content page must validate before the user can reach the
+  // line-item mapping. Mirrors handleSubmit's required-field + hard-duplicate
+  // guards, but advances to the Review (mapping) step instead of submitting.
+  // (Amount-overage / GST-mismatch are already enforced via the button's disabled
+  // state, identical to Submit.)
+  const handleContinueToMapping = useCallback(() => {
+    if (!invoiceData.date || !invoiceData.invoice_no.trim() || !invoiceData.amount) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill all required fields (Invoice No, Date, Amount).",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!isEditMode && !selectedAttachment) {
+      toast({
+        title: "Validation Error",
+        description: "Please attach an invoice file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (duplicateCheckResult?.exists_in_current_doc) {
+      toast({
+        title: "Duplicate Invoice",
+        description: `Invoice number "${invoiceData.invoice_no}" already exists in this ${
+          docType === "Procurement Orders" ? "Purchase Order" : "Service Request"
+        }.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setStage("review");
+  }, [invoiceData, duplicateCheckResult, docType, isEditMode, selectedAttachment]);
+
   const isLoading = uploadLoading || updateInvoiceApiCallLoading;
 
   // Determine validation state for UI
@@ -893,11 +929,11 @@ export function InvoiceDialog<T extends DocumentType>({
                 />
               </div>
               <div className="bg-gray-50/80 px-6 py-4 border-t flex items-center justify-between gap-3">
-                <Button variant="outline" onClick={() => setStage(isEditMode ? "form" : "upload")}>
+                <Button variant="outline" onClick={() => setStage("form")} disabled={isLoading}>
                   Back
                 </Button>
-                <Button onClick={() => setStage("form")}>
-                  Looks good — continue
+                <Button onClick={handleSubmit} disabled={isLoading || isAutofilling}>
+                  {isLoading ? "Processing..." : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
                 </Button>
               </div>
             </>
@@ -1243,7 +1279,7 @@ export function InvoiceDialog<T extends DocumentType>({
                     Cancel
                 </Button>
                 <Button
-                  onClick={handleSubmit}
+                  onClick={!isEditMode && lineMatch ? handleContinueToMapping : handleSubmit}
                   disabled={
                     !invoiceData.date ||
                     !invoiceData.invoice_no.trim() ||
@@ -1258,7 +1294,9 @@ export function InvoiceDialog<T extends DocumentType>({
                     receiverGstinMismatch
                   }
                 >
-                  {isEditMode ? "Update Invoice" : "Add Invoice"}
+                  {!isEditMode && lineMatch
+                    ? "Continue to line items →"
+                    : isEditMode ? "Update Invoice" : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
                 </Button>
               </>
             )}

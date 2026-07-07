@@ -8,7 +8,7 @@
  * gets persisted on submit. Editing is mapping-only — extracted values are
  * read-only (the user verifies the read, they don't rewrite the invoice).
  */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Select from "react-select";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -86,6 +86,14 @@ const NON_ITEM_VALUE = "__non_item__";
 const num = (v: any): number | null =>
   v === null || v === undefined || v === "" || isNaN(Number(v)) ? null : Number(v);
 
+// True only when a qty genuinely differs from the original (a no-op re-type of the
+// same value is NOT a change). null/blank vs a number counts as a change.
+const qtyChanged = (a: number | null, b: number | null): boolean => {
+  if (a === null && b === null) return false;
+  if (a === null || b === null) return true;
+  return Math.abs(a - b) > 1e-9;
+};
+
 function recomputeOverbill(m: MappingRow, po: POItem) {
   const ia = num(m.amount), pa = num(po.amount), iq = num(m.quantity), pq = num(po.quantity);
   const amount_exceeded = ia !== null && pa !== null && ia > pa + 10;
@@ -97,11 +105,24 @@ function recomputeOverbill(m: MappingRow, po: POItem) {
   };
 }
 
-const SOURCE_BADGE: Record<string, { label: string; variant: any }> = {
-  fuzzy: { label: "auto", variant: "green" },
-  gemini: { label: "AI", variant: "blue" },
-  manual: { label: "you", variant: "purple" },
-};
+// Row badge: any system match (fuzzy OR gemini) shows "Auto" (green); the
+// gemini/fuzzy distinction isn't surfaced. "Manual" (purple) once the user edits.
+function sourceBadge(m: MappingRow): { label: string; variant: any } | null {
+  if (m.source === "manual") return { label: "Manual", variant: "purple" };
+  if (m.source === "fuzzy" || m.source === "gemini") return { label: "Auto", variant: "green" };
+  return null;
+}
+
+// Human reason a matched row is flagged "over PO" (qty and/or amount exceeded).
+function overReason(ob: MappingRow["over_billing"]): string {
+  if (!ob) return "";
+  const parts: string[] = [];
+  if (ob.qty_exceeded && ob.invoice_qty != null && ob.po_qty != null)
+    parts.push(`qty ${ob.invoice_qty} > ordered ${ob.po_qty}`);
+  if (ob.amount_exceeded && ob.invoice_amount != null && ob.po_amount != null)
+    parts.push(`${formatToRoundedIndianRupee(ob.invoice_amount)} > PO ${formatToRoundedIndianRupee(ob.po_amount)}`);
+  return parts.join(" · ");
+}
 
 export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange, editableQty = false }: Props) => {
   const poOptions = useMemo<Opt[]>(
@@ -150,13 +171,26 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
   // the mapping and re-derive the over-billing flag for a matched row.
   const [qtyDraft, setQtyDraft] = useState<Record<number, string>>({});
 
+  // Remember each row's ORIGINAL AI qty + source (captured before any edit), so
+  // re-typing the SAME value keeps it "Auto AI" and only a real change → "Manual".
+  const originalRef = useRef<Record<number, { quantity: number | null; source: string | null }>>({});
+  lineMatch.mappings.forEach((m) => {
+    if (!(m.invoice_line_index in originalRef.current)) {
+      originalRef.current[m.invoice_line_index] = { quantity: m.quantity ?? null, source: m.source ?? null };
+    }
+  });
+
   const handleQtyChange = (lineIndex: number, raw: string) => {
     setQtyDraft((d) => ({ ...d, [lineIndex]: raw }));
     const n = raw.trim() === "" ? null : Number(raw);
     const q = n === null || isNaN(n) ? null : n;
     const mappings = lineMatch.mappings.map((m) => {
       if (m.invoice_line_index !== lineIndex) return m;
-      const next: MappingRow = { ...m, quantity: q };
+      // "Manual" only if the qty actually differs from the original AI value; a no-op
+      // re-type of the same number stays on its original AI source (badge = "Auto AI").
+      const orig = originalRef.current[lineIndex];
+      const changed = qtyChanged(q, orig?.quantity ?? null);
+      const next: MappingRow = { ...m, quantity: q, source: changed ? "manual" : (orig?.source ?? m.source) };
       if (next.status === "matched" && next.po_row != null && poItems[next.po_row]) {
         next.over_billing = recomputeOverbill(next, poItems[next.po_row]);
       }
@@ -187,31 +221,43 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
           <thead className="bg-gray-50 text-gray-600">
             <tr>
               <th className="text-left px-2 py-1.5 font-medium">Invoice line</th>
-              <th className="text-right px-2 py-1.5 font-medium w-20">Qty</th>
-              <th className="text-right px-2 py-1.5 font-medium w-24">Amount</th>
-              <th className="text-left px-2 py-1.5 font-medium w-[40%]">Maps to PO item</th>
+              <th className="text-right px-2 py-1.5 font-medium w-24">Qty <span className="font-normal text-gray-400">inv/PO</span></th>
+              <th className="text-right px-2 py-1.5 font-medium w-28">Rate <span className="font-normal text-gray-400">inv/PO</span></th>
+              <th className="text-left px-2 py-1.5 font-medium w-[38%]">Maps to PO item</th>
             </tr>
           </thead>
           <tbody>
             {lineMatch.mappings.map((m) => {
               const ob = m.over_billing?.would_exceed;
+              const reason = ob ? overReason(m.over_billing) : "";
+              const badge = sourceBadge(m);
+              // Matched PO item (for the inv/PO comparison columns).
+              const po = m.status === "matched" && m.po_row != null ? poItems[m.po_row] : null;
+              const poQty = po ? num(po.quantity) : null;
+              const poRate = po ? num(po.quote) : null;
+              const iq = num(m.quantity);
+              const ia = num(m.amount);
+              // Invoice rate: prefer the extracted rate, else derive amount ÷ qty.
+              const invRate = num(m.rate) ?? (ia != null && iq != null && iq !== 0 ? ia / iq : null);
               return (
                 <tr key={m.invoice_line_index} className="border-t align-top">
                   <td className="px-2 py-1.5 text-gray-900">
                     <div className="break-words">{m.description || <span className="text-gray-400 italic">—</span>}</div>
                     <div className="mt-0.5 flex items-center gap-1">
-                      {m.source && SOURCE_BADGE[m.source] && (
-                        <Badge variant={SOURCE_BADGE[m.source].variant} className="text-[10px] px-1.5 py-0">
-                          {SOURCE_BADGE[m.source].label}
-                          {m.score != null ? ` ${Math.round(m.score * 100)}%` : ""}
+                      {badge && (
+                        <Badge variant={badge.variant} className="text-[10px] px-1.5 py-0">
+                          {badge.label}
                         </Badge>
                       )}
                       {ob && (
-                        <Badge variant="red" className="text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
+                        <Badge variant="red" title={reason ? `Over PO — ${reason}` : undefined} className="text-[10px] px-1.5 py-0 inline-flex items-center gap-0.5">
                           <AlertTriangle className="h-2.5 w-2.5" /> over PO
                         </Badge>
                       )}
                     </div>
+                    {ob && reason && (
+                      <div className="mt-0.5 text-[10px] text-red-600 leading-snug">Over PO — {reason}</div>
+                    )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
                     {editableQty ? (
@@ -219,18 +265,22 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
                         <input
                           type="number"
                           inputMode="decimal"
-                          className="w-16 h-7 rounded border px-1 text-right text-xs"
+                          className="w-14 h-7 rounded border px-1 text-right text-xs"
                           value={qtyDraft[m.invoice_line_index] ?? (m.quantity ?? "")}
                           onChange={(e) => handleQtyChange(m.invoice_line_index, e.target.value)}
                         />
-                        {m.unit ? <span className="text-gray-400">{m.unit}</span> : null}
+                        <span className="text-gray-400">/ {poQty ?? "—"}{m.unit ? ` ${m.unit}` : ""}</span>
                       </div>
                     ) : (
-                      <>{m.quantity ?? "—"}{m.unit ? <span className="text-gray-400"> {m.unit}</span> : null}</>
+                      <>
+                        {m.quantity ?? "—"}
+                        <span className="text-gray-400"> / {poQty ?? "—"}{m.unit ? ` ${m.unit}` : ""}</span>
+                      </>
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
-                    {m.amount != null ? formatToRoundedIndianRupee(m.amount) : "—"}
+                    {invRate != null ? formatToRoundedIndianRupee(invRate) : "—"}
+                    <span className="text-gray-400"> / {poRate != null ? formatToRoundedIndianRupee(poRate) : "—"}</span>
                   </td>
                   <td className="px-2 py-1.5">
                     <Select<Opt>
@@ -247,8 +297,13 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
                         // modal Radix dialog (which sets pointer-events:none on everything outside
                         // the dialog) — without it options are only selectable by keyboard.
                         menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" }),
-                        control: (base) => ({ ...base, minHeight: 30, fontSize: 12 }),
+                        // Let the control grow and the selected value WRAP so the full PO-item name
+                        // is readable after selection (default react-select truncates to one line).
+                        control: (base) => ({ ...base, minHeight: 30, height: "auto", fontSize: 12 }),
+                        valueContainer: (base) => ({ ...base, overflow: "visible" }),
+                        singleValue: (base) => ({ ...base, whiteSpace: "normal", overflow: "visible", textOverflow: "clip" }),
                         menu: (base) => ({ ...base, fontSize: 12 }),
+                        option: (base) => ({ ...base, whiteSpace: "normal" }),
                       }}
                     />
                     {m.status === "unmatched" && (
