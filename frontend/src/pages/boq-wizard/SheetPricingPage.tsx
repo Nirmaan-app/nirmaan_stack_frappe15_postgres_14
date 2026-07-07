@@ -1174,51 +1174,129 @@ const SheetPricingPage = () => {
         </div>
       )}
 
-      {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
-      <div className="flex items-start gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-1.5 text-muted-foreground mt-0.5"
-          onClick={handleBack}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+      {/* ── Header: Row 1 = back + title + status badges (right-aligned on the title line);
+          Row 2 = action buttons. Mirrors the Review screen's two-row header. ─────────────── */}
+      <div className="space-y-3">
+        {/* Row 1: back, title, and the STATUS BADGES right-aligned on the title line. items-center
+            centres them against the two-line title block; flex-wrap drops the cluster to its own
+            right-aligned line if the viewport is too narrow. */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
 
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">
-            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
-            {commitVersion !== null && (
-              <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground truncate">
+              {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
+              {commitVersion !== null && (
+                <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+              )}
+            </p>
+            <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
+              {displaySheetName}
+            </h1>
+          </div>
+
+          {/* Status badges -- RIGHT-ALIGNED on the title line (ml-auto). Per-sheet Work Packages +
+              "who else is here" presence (always), then the save-status chip + priced-count readout
+              (!isGridOnly -- a grid-only reference sheet has nothing to save/price). SHEET-LEVEL
+              header elements only -- never threaded into the memoized PricingGrid rows. justify-end +
+              flex-wrap keeps them right-packed; each self-truncates so a long WP list / presence
+              roster never crowds the title (which truncates via min-w-0 flex-1). */}
+          <div className="ml-auto shrink-0 flex flex-wrap items-center justify-end gap-3">
+            {/* Per-sheet Work Packages badge -- committed-version WP snapshot (rides get_priced_rows).
+                IDENTICAL to the Review screen's badge for visual consistency. */}
+            {workPackages.length > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground max-w-[16rem]"
+                title={`Work packages: ${workPackages.join(", ")}`}
+              >
+                <span className="text-primary font-medium">WP</span>
+                <span className="truncate">{workPackages.join(" · ")}</span>
+              </span>
             )}
-          </p>
-          <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
-            {displaySheetName}
-          </h1>
-          {/* Per-sheet Work Packages badge -- surfaces the committed-version WP snapshot on Pricing
-              (data rides get_priced_rows). Compact pill; renders nothing when empty. SHEET-LEVEL
-              header element only -- never threaded into the memoized PricingGrid rows. IDENTICAL to
-              the Review screen's badge for visual consistency. */}
-          {workPackages.length > 0 && (
-            <span
-              className="mt-1 inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
-              title={`Work packages: ${workPackages.join(", ")}`}
-            >
-              <span className="text-primary font-medium">WP</span>
-              <span className="truncate">{workPackages.join(" · ")}</span>
-            </span>
-          )}
+            {/* B2: BoQ-level "who else is here" presence (soft awareness; the pricing lock owns correctness). */}
+            <BoqPresence boqId={boqId} />
+            {!isGridOnly && (
+              <div className="flex items-center gap-3">
+                {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
+                    status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
+                    width -- keeping the right-aligned badge cluster from jittering on every edit.
+                    overflow-hidden + a `truncate` text child + a `title` keep an unexpectedly-long
+                    message on ONE line (clipped with an ellipsis, full text on hover). Messaging unchanged. */}
+                <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
+                  {saveStatus === "saving" && (
+                    <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span className="truncate">Saving&hellip;</span>
+                    </span>
+                  )}
+                  {saveStatus === "saved" && lastSavedAt && (
+                    <span
+                      className="flex items-center gap-1.5 text-muted-foreground min-w-0"
+                      title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
+                    >
+                      <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                      <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
+                    </span>
+                  )}
+                  {saveStatus === "unsaved" && (
+                    <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
+                      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="truncate">Unsaved changes</span>
+                    </span>
+                  )}
+                  {saveStatus === "failed" && (
+                    <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Save failed</span>
+                    </span>
+                  )}
+                  {saveStatus === "idle" && (
+                    <span className="text-muted-foreground truncate" title="All changes saved">
+                      All changes saved
+                    </span>
+                  )}
+                </div>
+                {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
+                    When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
+                    that is a later slice). Hidden when the sheet has no priceable lines. */}
+                {pricedCount.total > 0 && (
+                  <span
+                    className={cn(
+                      "text-xs font-medium tabular-nums whitespace-nowrap",
+                      allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+                    )}
+                    title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
+                  >
+                    {allPriced ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Check className="h-3.5 w-3.5" />
+                        {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
+                      </span>
+                    ) : (
+                      <>
+                        {pricedCount.priced} of {pricedCount.total} priceable lines priced
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Slice 4c: full-screen toggle (ALWAYS rendered) + Slice-3c save-status
-            chip / force-save (SUPPRESSED for a grid-only general-specs sheet -- it is
-            read-only reference, nothing to save). The right-cluster wrapper now renders
-            unconditionally so the maximize toggle is reachable on a read-only / grid-only
-            sheet too -- full-screen is orthogonal to editability. */}
-        <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
-          {/* B2: BoQ-level "who else is here" presence (soft awareness; the pricing lock owns correctness). */}
-          <BoqPresence boqId={boqId} />
+        {/* Row 2: action buttons. Full screen FIRST (always rendered -- orthogonal to editability);
+            the editing toolbar (Lock, Freeze, Summary, Review, Price any row, Save now) is !isGridOnly. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Slice 4c: full-screen toggle -- ALWAYS rendered, reachable on a read-only / grid-only
+              sheet too (full-screen is orthogonal to editability). */}
           <Button
             size="sm"
             variant="outline"
@@ -1347,74 +1425,6 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
-          {/* Status text (save-status chip + priced-count) -- pushed to the ribbon's right.
-              Moved here from before the action buttons in the two-ribbon reorg; behavior
-              (the saveStatus / pricedCount reads) is byte-identical. */}
-          <div className="ml-auto flex items-center gap-3">
-          {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
-              status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
-              width -- otherwise the right-pinned status-group widens and the whole ml-auto button
-              cluster shifts left on every edit. overflow-hidden + a `truncate` text child + a
-              `title` keep an unexpectedly-long message on ONE line (clipped with an ellipsis, full
-              text on hover) so it still can't wrap or shove neighbours. Messaging itself unchanged. */}
-          <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
-            {saveStatus === "saving" && (
-              <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
-                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                <span className="truncate">Saving&hellip;</span>
-              </span>
-            )}
-            {saveStatus === "saved" && lastSavedAt && (
-              <span
-                className="flex items-center gap-1.5 text-muted-foreground min-w-0"
-                title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
-              >
-                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
-                <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
-              </span>
-            )}
-            {saveStatus === "unsaved" && (
-              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                <span className="truncate">Unsaved changes</span>
-              </span>
-            )}
-            {saveStatus === "failed" && (
-              <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Save failed</span>
-              </span>
-            )}
-            {saveStatus === "idle" && (
-              <span className="text-muted-foreground truncate" title="All changes saved">
-                All changes saved
-              </span>
-            )}
-          </div>
-          {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
-              When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
-              that is a later slice). Hidden when the sheet has no priceable lines. */}
-          {pricedCount.total > 0 && (
-            <span
-              className={cn(
-                "text-xs font-medium tabular-nums whitespace-nowrap",
-                allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
-              )}
-              title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
-            >
-              {allPriced ? (
-                <span className="inline-flex items-center gap-1">
-                  <Check className="h-3.5 w-3.5" />
-                  {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
-                </span>
-              ) : (
-                <>
-                  {pricedCount.priced} of {pricedCount.total} priceable lines priced
-                </>
-              )}
-            </span>
-          )}
-          </div>
           </>
           )}
         </div>
