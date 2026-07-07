@@ -334,10 +334,10 @@ export const getProjectExpenseColumns = ({
                 <TooltipTrigger asChild>
                   <Button
                     size="sm"
-                    className="h-8 bg-green-600 text-white hover:bg-green-700"
+                    className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
                     onClick={() => onMarkPaid(expense)}
                   >
-                    <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                    <IndianRupee className="mr-1 h-3 w-3" />
                     Mark as Paid
                   </Button>
                 </TooltipTrigger>

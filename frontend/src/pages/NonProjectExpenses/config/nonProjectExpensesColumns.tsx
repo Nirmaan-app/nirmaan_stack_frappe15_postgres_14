@@ -31,9 +31,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { facetMeta } from "@/components/data-table/facetConfig";
 import { formatDate } from "@/utils/FormatDate";
@@ -367,34 +372,105 @@ export const getNonProjectExpenseColumns = ({
     meta: { excludeFromExport: true },
   };
 
+  // Actions layout (per row status): primary actions render inline ("outside"),
+  // secondary actions stay in the "..." overflow menu.
+  //   - Requested -> outside: Approve, Delete;  "...": Record Invoice, Edit
+  //   - Approved  -> outside: Mark as Paid, Delete   (no "..." menu)
+  //   - Paid      -> outside: Edit, Delete           (no "..." menu)
+  // The "All" tab renders these per row off each row's own status.
   const actionsColumn: ColumnDef<NonProjectExpenses> = {
     id: "actions",
-    size: 90,
+    size: 140,
     enableSorting: false,
-    header: () => <div className="text-right">Actions</div>,
+    header: () => <div className="text-center">Actions</div>,
     cell: ({ row }) => {
       const expense = row.original;
       const status = expense.status || "Requested";
+      // Overflow "..." holds the secondary Requested-stage actions only.
+      const hasOverflow =
+        status === "Requested" && (canRecordInvoice || canEdit);
+
       return (
-        <div className="text-right">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-8 w-8 p-0">
-                <span className="sr-only">Open menu</span>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {status === "Requested" && (
-                <>
+        <TooltipProvider delayDuration={300}>
+          <div className="flex items-center justify-center gap-1">
+            {/* Requested -> Approve (outside) */}
+            {status === "Requested" && canApprove && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-green-600 hover:text-green-700"
+                    onClick={() => onApprove(expense)}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-white text-gray-900 border shadow-lg">Approve</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Approved -> Mark as Paid (outside, green labeled) */}
+            {status === "Approved" && canMarkPaid && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="h-7 px-2 text-xs bg-green-600 text-white hover:bg-green-700"
+                    onClick={() => onMarkPaid(expense)}
+                  >
+                    <IndianRupee className="mr-1 h-3 w-3" />
+                    Mark as Paid
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-white text-gray-900 border shadow-lg">Mark as Paid</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Paid -> Edit (outside, Admin only) */}
+            {status === "Paid" && isAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    onClick={() => onEdit(expense)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-white text-gray-900 border shadow-lg">Edit</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Delete is an outside button on every status */}
+            {canDelete && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                    onClick={() => onDelete(expense)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-white text-gray-900 border shadow-lg">Delete</TooltipContent>
+              </Tooltip>
+            )}
+
+            {/* Overflow "..." — Requested rows only: Record Invoice + Edit */}
+            {hasOverflow && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="h-8 w-8 p-0">
+                    <span className="sr-only">Open menu</span>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
                   {canRecordInvoice && (
                     <DropdownMenuItem onClick={() => onRecordInvoice(expense)}>
                       <FileText className="mr-2 h-4 w-4" /> Record Invoice
-                    </DropdownMenuItem>
-                  )}
-                  {canApprove && (
-                    <DropdownMenuItem onClick={() => onApprove(expense)}>
-                      <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
                     </DropdownMenuItem>
                   )}
                   {canEdit && (
@@ -402,36 +478,11 @@ export const getNonProjectExpenseColumns = ({
                       <Pencil className="mr-2 h-4 w-4" /> Edit
                     </DropdownMenuItem>
                   )}
-                </>
-              )}
-
-              {status === "Approved" && canMarkPaid && (
-                <DropdownMenuItem onClick={() => onMarkPaid(expense)}>
-                  <IndianRupee className="mr-2 h-4 w-4" /> Mark as Paid
-                </DropdownMenuItem>
-              )}
-
-              {/* A Paid expense can only be edited by an Admin */}
-              {status === "Paid" && isAdmin && (
-                <DropdownMenuItem onClick={() => onEdit(expense)}>
-                  <Pencil className="mr-2 h-4 w-4" /> Edit
-                </DropdownMenuItem>
-              )}
-
-              {canDelete && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => onDelete(expense)}
-                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        </TooltipProvider>
       );
     },
     meta: { excludeFromExport: true },

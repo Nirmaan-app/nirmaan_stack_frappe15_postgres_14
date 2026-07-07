@@ -35,9 +35,12 @@ Both share one approval lifecycle and are entered/managed together in a single u
   `project_expenses.py`, `non_project_expenses.py` — `0 < amount < 5000` → `Approved`.
   (Owner preference: this small create-time derivation lives in the doctype `.py`
   `validate`, not a controller+hooks.)
-- **Backfill patches:** `v3_0.backfill_project_expenses_status`,
-  `v3_0.backfill_non_project_expenses_status #v2` — classify legacy rows
-  (payment attachment ⇒ `Paid`, else `Approved`).
+- **Backfill patches:** `v3_0.backfill_project_expenses_status` — classify legacy
+  rows (payment attachment ⇒ `Paid`, else `Approved`).
+  `v3_0.backfill_non_project_expenses_status #v3` — **simplified (attachment check
+  dropped, owner decision):** every non-`Paid` row (`Approved` / `Requested` /
+  unclassified) → `Paid`, i.e. all Non Project Expenses end up `Paid`. Local-only
+  patch edited in place + tag-bumped (`#v2`→`#v3`) to force a re-run, not a new file.
 
 ### Unified Expense module (frontend)
 - New `/expense` route with URL-driven tabs: `/expense/project` (Misc Project Expense)
@@ -108,14 +111,58 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
 
 ## Role gating (frontend enforcement)
 
-| Action | Roles |
-|---|---|
-| Record Invoice / edit a `Requested` row | Admin, PMO, Accountant (+ Lead), Procurement, HR |
-| Approve (`Requested → Approved`) | Admin |
-| Mark as Paid (`Approved → Paid`) | Admin, Accountant (+ Lead) |
-| Edit a `Paid` row / Delete | Admin |
+Roles come from `Nirmaan Users.role_profile` (via `useUserData`), NOT standard Frappe
+roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
+`Nirmaan Accountant Lead Profile` (Lead mirrors Accountant everywhere).
 
-Roles come from the `Nirmaan Users.role_profile` (via `useUserData`), not standard Frappe roles.
+### Module visibility & create
+- **Sees the Expense sidebar entry + can open `/expense`** (`NewSidebar.tsx`): Admin,
+  PMO, Accountant\*, Procurement, HR (+ the `Administrator` user). Everyone else
+  (Project Lead, PM, Estimates, Design, Sales, …) has **no access**.
+- **Create** ("Add New Expense" / "Add New Project Expense",
+  `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
+  for both Project and Non-Project.
+- **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
+
+### Non-Project Expenses — actions per tab
+Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
+
+| Tab | Action (placement) | Admin | PMO | Accountant\* | Procurement | HR |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| Requested | Approve (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Requested | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Requested | Record Invoice (⋯) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Requested | Edit (⋯) | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Approved | Mark as Paid (inline) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Approved | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Paid | Edit (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Paid | Delete (inline) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| All | per row, by row status | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+**Actions column visibility:** Requested → all 5; Approved → Admin/PMO/Accountant\*
+(hidden for Procurement & HR); Paid → Admin only; All → Admin only.
+
+### Project Expenses — actions per tab
+Same profiles/gating, but **no Record Invoice** (no invoice/payment split), all actions
+inline (no `⋯` menu), and **Accountant\* CAN Edit a Requested row**.
+
+| Tab | Action | Admin | PMO | Accountant\* | Procurement | HR |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| Requested | Edit | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Requested | Approve | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Requested | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Approved | Mark as Paid | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Approved | Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Paid | Edit / Delete | ✅ | ❌ | ❌ | ❌ | ❌ |
+| All | per row, by row status | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+Actions column visibility: same rule as Non-Project.
+
+### Known asymmetries (by design — do NOT "fix" without owner sign-off)
+- **Accountant\* Edit split:** can Edit a Requested **Project** expense but not a Requested
+  **Non-Project** one (their Non-Project Requested action is *Record Invoice* instead).
+- **Approve = Admin only; Delete = Admin only** in both tables.
+- Enforcement is **frontend-only** (button/column visibility) — no backend `validate` gate.
 
 ---
 
@@ -133,7 +180,7 @@ Roles come from the `Nirmaan Users.role_profile` (via `useUserData`), not standa
 
 ## Patches (append-only)
 - `v3_0.backfill_project_expenses_status`
-- `v3_0.backfill_non_project_expenses_status #v2`
+- `v3_0.backfill_non_project_expenses_status #v3` (was #v2 — now sweeps all legacy → Paid)
 - `v3_0.normalize_project_expense_types`
 
 ## Cross-references
