@@ -274,6 +274,82 @@ class TestOrchestrator(FrappeTestCase):
         self.assertEqual(client.messages.calls, 0, "disabled -> no AI call attempted")
         self.assertEqual(summary["ai_status"], "disabled")  # surfaced so the UI can say "AI was off"
 
+    def test_ai_off_falls_back_to_rule_category_all_review(self):
+        # AI-off fail-safe (Option A): with AI DISABLED, the voter fails closed (blank vote per
+        # row). Instead of route_r3d blanking the rule category as a one-sided disagreement, the
+        # orchestrator adopts the RULE category as the effective category and flags EVERY row for
+        # review. Row 12 has a real rule category (earth strip); row 11 abstains -> stays blank.
+        frappe.db.set_single_value(_AI_SETTINGS, "enabled", 0)
+        client = _fake_ai({11: ("panels", 0.9), 12: ("panels", 0.9)})  # ignored -- AI off, no call
+        summary = orchestrator.classify_sheet_rows(
+            self.boq, self.sheet, "Electrical", row_filter=(11, 12), ai_client=client
+        )
+        self.assertEqual(summary["ai_status"], "disabled")
+        self.assertEqual(summary["eligible_classified"], 2)  # LI1(11) + LI2(12)
+        self.assertEqual(summary["needs_review"], 2)  # EVERY row flagged
+        self.assertEqual(summary["auto_accepted"], 0)
+        self.assertEqual(client.messages.calls, 0, "disabled -> no AI call attempted")
+        rows = {
+            c["excel_row"]: c
+            for c in frappe.get_all(
+                _ROW_CATEGORY, filters={"boq": self.boq, "is_current": 1},
+                fields=["excel_row", "routing", "final_category_id", "rule_category_id"],
+            )
+        }
+        # POS: rule produced a category (row 12) -> effective final == that rule category, review.
+        self.assertTrue(rows[12]["rule_category_id"], "precondition: LI2 must classify non-blank")
+        self.assertEqual(rows[12]["final_category_id"], rows[12]["rule_category_id"])
+        self.assertEqual(rows[12]["routing"], "Needs review")
+        # NEG/edge: rule abstained (row 11) -> effective final stays honestly BLANK, still review.
+        self.assertEqual((rows[11]["rule_category_id"] or ""), "", "precondition: LI1 rule abstains")
+        self.assertEqual((rows[11]["final_category_id"] or ""), "")
+        self.assertEqual(rows[11]["routing"], "Needs review")
+
+    def test_ai_on_consensus_unaffected_by_ai_off_override(self):
+        # Regression: the AI-off override must NOT leak into the AI-on path. A real consensus
+        # (rule==AI, conf 0.99) still Auto-accepts with route_r3d's final category.
+        frappe.db.set_single_value(_AI_SETTINGS, "enabled", 1)
+        rule = classify_line(
+            "supply and fixing of 25x3mm gi earth strip",
+            ["OrchFix ", "SECTION"], [], discipline="Electrical",
+            ancestor_headers=["OrchFix ", "SECTION"],
+        )
+        self.assertTrue(rule["category_id"], "precondition: LI2 must classify to a non-blank category")
+        client = _fake_ai({11: ("", 0.0), 12: (rule["category_id"], 0.99)})
+        summary = orchestrator.classify_sheet_rows(
+            self.boq, self.sheet, "Electrical", row_filter=(11, 12), ai_client=client
+        )
+        self.assertEqual(summary["ai_status"], "ran")
+        self.assertEqual(summary["auto_accepted"], 1)  # consensus row still auto-accepts
+        self.assertEqual(summary["needs_review"], 1)
+        li2 = frappe.get_all(
+            _ROW_CATEGORY, filters={"boq": self.boq, "excel_row": 12, "is_current": 1},
+            fields=["routing", "final_category_id"],
+        )[0]
+        self.assertEqual(li2["routing"], "Auto-accepted")
+        self.assertEqual(li2["final_category_id"], rule["category_id"])
+
+    def test_ai_on_one_blank_disagreement_still_blanks_final(self):
+        # Regression: with AI ON, a rule=category / AI=blank row is route_r3d's one-sided
+        # disagreement -> Needs review with a BLANK final (the pre-fix behaviour that is CORRECT
+        # when AI actually ran). Proves the override fires ONLY when the voter did not run.
+        frappe.db.set_single_value(_AI_SETTINGS, "enabled", 1)
+        client = _fake_ai({11: ("", 0.0), 12: ("", 0.0)})  # AI runs but abstains on every row
+        summary = orchestrator.classify_sheet_rows(
+            self.boq, self.sheet, "Electrical", row_filter=(11, 12), ai_client=client
+        )
+        self.assertEqual(summary["ai_status"], "ran")
+        self.assertEqual(summary["needs_review"], 2)
+        self.assertEqual(summary["auto_accepted"], 0)
+        li2 = frappe.get_all(
+            _ROW_CATEGORY, filters={"boq": self.boq, "excel_row": 12, "is_current": 1},
+            fields=["routing", "final_category_id", "rule_category_id"],
+        )[0]
+        self.assertEqual(li2["routing"], "Needs review")
+        # AI ran -> route_r3d blanks the disagreement; the rule category is NOT adopted as final.
+        self.assertTrue(li2["rule_category_id"], "precondition: LI2 rule non-blank")
+        self.assertEqual((li2["final_category_id"] or ""), "")
+
     def test_progress_cb_monotonic_per_batch(self):
         # Force multiple 20-row slices on the 3-eligible-row fixture by patching the batch size
         # to 2 (test-only; production stays 20). progress_cb must receive a monotonic

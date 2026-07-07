@@ -138,6 +138,16 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
         if progress_cb:
             progress_cb(min(b + _AI_BATCH, total), total)
 
+    # AI-off fail-safe (Option A, owner-locked). When the independent AI voter did NOT actually
+    # run (settings disabled / no key), it returned a blank vote for EVERY row, so route_r3d would
+    # treat rule=category / AI=blank as a one-sided disagreement and BLANK final_category_id --
+    # leaving every Category cell empty. Instead: adopt the RULE category as the effective category
+    # (a genuine rule-abstain -> "" stays honestly blank) and flag EVERY row Needs review. This is a
+    # RUN-LEVEL override that the pure, unit-tested route_r3d is deliberately blind to (and persist
+    # stays a faithful writer) -- neither is touched. eb9221ac wired only the amber "AI voter was
+    # off" completion note; this completes the fail-safe the note describes.
+    ai_off = ai_status in ("disabled", "no_key")
+
     rows_to_persist = []
     needs_review = 0
     auto_accepted = 0
@@ -155,6 +165,15 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
             {"category_id": res["category_id"], "band": res["band"]},
             {"category_id": ai.get("category_id", ""), "confidence": ai.get("confidence", 0.0)},
         )
+        if ai_off:
+            # Rule category becomes the effective category; every row flagged for review. Overriding
+            # `routed` HERE (before the counter + rows_to_persist assembly) means the existing
+            # needs_review tally counts it exactly once and persist stores the rule category.
+            routed = {
+                "routing": "Needs review",
+                "final_category_id": res["category_id"] or "",
+                "reason": "AI off -- rule category, flagged for review",
+            }
         if routed["routing"] == "Auto-accepted":
             auto_accepted += 1
         else:
