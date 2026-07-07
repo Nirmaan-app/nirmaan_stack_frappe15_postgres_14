@@ -101,22 +101,42 @@ def write_row_categories(boq, sheet_name, committed_version, discipline, rows):
 def set_human_verdict(
     boq, sheet_name, excel_row, committed_version, discipline, human_category_id, user=None
 ):
-    """Record a reviewer's chosen category on the CURRENT classification record, IN PLACE.
+    """Record a reviewer's chosen category for one row's durable address.
 
-    Deliberately does NOT mint a new version: the human verdict ANNOTATES the same
-    classification run (a new category_version is reserved for a re-classification pass
-    that changes rule/ai/routing, not for a human accept/override). Updates
-    human_category_id + human_verdict_at + human_verdict_by on the single current record.
+    When a CURRENT classification record exists, ANNOTATE it IN PLACE -- deliberately does NOT
+    mint a new version: the human verdict annotates the same classification run (a new
+    category_version is reserved for a re-classification pass that changes rule/ai/routing, not
+    for a human accept/override). Updates human_category_id + human_verdict_at + human_verdict_by
+    on the single current record.
+
+    When NO current record exists (an ELIGIBLE row that was never classified -- e.g. outside a
+    partial classify range), UPSERT: CREATE a fresh current record carrying only the identity
+    tuple + the human verdict (rule/ai/routing left blank; a set human_category_id is the
+    effective category via get_sheet_categories). This mirrors write_row_categories' fresh-insert
+    idiom (there is no prior current to freeze, so no freeze-and-supersede is needed on create).
     Returns {name, human_category_id}.
     """
     names = _current_names(boq, sheet_name, excel_row, committed_version, discipline)
     if not names:
-        frappe.throw(
-            f"No current BoQ Row Category for boq={boq}, sheet_name={sheet_name!r}, "
-            f"excel_row={excel_row}, committed_version={committed_version}, "
-            f"discipline={discipline}.",
-            title="No current classification",
-        )
+        # First-ever verdict on this address: create a current record. _next_version yields 1 for
+        # a true first write (robust if a stale non-current version somehow exists). No freeze loop
+        # -- _current_names is empty here, so there is nothing current to supersede.
+        version = _next_version(boq, sheet_name, excel_row, committed_version, discipline)
+        doc = frappe.new_doc(_ROW_CATEGORY)
+        doc.boq = boq
+        doc.sheet_name = sheet_name  # VERBATIM (#152)
+        doc.excel_row = excel_row
+        doc.committed_version = committed_version
+        doc.discipline = discipline
+        doc.human_category_id = human_category_id or ""
+        doc.human_verdict_at = frappe.utils.now()
+        doc.human_verdict_by = user or frappe.session.user
+        doc.category_version = version
+        doc.is_current = 1
+        doc.classified_at = frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"name": doc.name, "human_category_id": human_category_id or ""}
     name = names[0]
     frappe.db.set_value(
         _ROW_CATEGORY,

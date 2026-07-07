@@ -1738,12 +1738,14 @@ const SheetPricingPage = () => {
             disabled={pricedLoading || pricedError || categoriesByExcelRow.size === 0}
             title={
               showNeedsReview
-                ? "Showing only rows that need category review. Click to show all rows."
-                : "Show only rows whose category verdict needs review."
+                ? "Showing only rows whose category needs a check. Click to show all rows."
+                : "Show only rows whose category needs a check."
             }
           >
             <Filter className="h-4 w-4" />
-            {showNeedsReview ? "Needs review only" : "Needs review"}
+            {/* CL-6: visible label only -- the state var showNeedsReview, the isNeedsReviewCategory
+                predicate, and the backend "Needs review" routing literal are all UNCHANGED. */}
+            {showNeedsReview ? "Check Category only" : "Check Category"}
           </Button>
 
           {/* ── Slice B (undo/redo): session history for RATE edits. Two icon buttons mirroring the
@@ -2301,6 +2303,10 @@ const SheetPricingPage = () => {
             // classified cell. Withheld when locked -> the cell renders display-only. All three are
             // reference-stable -> the row memo holds.
             categoriesByExcelRow={categoriesByExcelRow}
+            // CL-6: sheet-has-run gate (= at least one category record exists) -- makes eligible
+            // BLANK cells clickable + drives the amber "needs a category" fill. Same size>0 truth
+            // that gates the Check-Category filter button below.
+            hasRun={categoriesByExcelRow.size > 0}
             categoryLabelById={categoryLabelById}
             onCategoryClick={locked ? undefined : onCategoryClick}
             // F3: the amount-column formula header label + builder. columnFormulas drives the

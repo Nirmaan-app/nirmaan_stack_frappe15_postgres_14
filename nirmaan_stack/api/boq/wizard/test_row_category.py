@@ -240,6 +240,71 @@ class TestRowCategoryPersistence(FrappeTestCase):
         )
         self.assertEqual(total, 1, "verdict annotates in place -- no extra record")
 
+    def test_set_human_verdict_upsert_creates_when_absent(self):
+        # UPSERT: an ELIGIBLE row that was NEVER classified (no record) -- set_human_verdict must
+        # CREATE a current record carrying the identity tuple + the human verdict (was: throw).
+        self.assertEqual(self._current(20), [], "precondition: row 20 has no record")
+        persist.set_human_verdict(self.boq, self.sheet, 20, self.cv, "Electrical", "earthing")
+        cur = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": 20,
+                     "committed_version": self.cv, "discipline": "Electrical", "is_current": 1},
+            fields=["name", "category_version", "is_current", "human_category_id",
+                    "final_category_id", "human_verdict_at", "human_verdict_by", "classified_at"],
+        )
+        self.assertEqual(len(cur), 1, "exactly one current record created")
+        self.assertEqual(cur[0]["category_version"], 1, "first-ever record is version 1")
+        self.assertEqual(cur[0]["is_current"], 1)
+        self.assertEqual(cur[0]["human_category_id"], "earthing")
+        self.assertEqual((cur[0]["final_category_id"] or ""), "", "no machine verdict on a create")
+        self.assertTrue(cur[0]["human_verdict_at"])
+        self.assertTrue(cur[0]["human_verdict_by"])
+        self.assertTrue(cur[0]["classified_at"])
+        total = frappe.db.count(
+            _ROW_CATEGORY,
+            {"boq": self.boq, "sheet_name": self.sheet, "excel_row": 20,
+             "committed_version": self.cv, "discipline": "Electrical"},
+        )
+        self.assertEqual(total, 1, "upsert created exactly one record")
+
+    def test_get_sheet_categories_effective_after_upsert(self):
+        # After an upsert on a no-record row, the read endpoint surfaces effective = the human pick.
+        from nirmaan_stack.api.boq.wizard.classify import get_sheet_categories
+
+        bs = frappe.new_doc("BoQ Sheet")
+        bs.boq = self.boq
+        bs.sheet_name = self.sheet
+        bs.sheet_order = 1
+        bs.commit_version = self.cv
+        bs.is_current = 1
+        bs.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            persist.set_human_verdict(self.boq, self.sheet, 21, self.cv, "Electrical", "panels")
+            res = get_sheet_categories(boq=self.boq, sheet_name=self.sheet, discipline="Electrical")
+            by = {c["excel_row"]: c for c in res["categories"]}
+            self.assertIn(21, by, "the upserted row is returned")
+            self.assertEqual(by[21]["human_category_id"], "panels")
+            self.assertEqual(by[21]["effective_category_id"], "panels")
+        finally:
+            frappe.db.delete("BoQ Sheet", {"name": bs.name})
+            frappe.db.commit()
+
+    def test_set_human_verdict_upsert_then_clear(self):
+        # Clearing ("") on a JUST-CREATED record must not crash and leaves the record current with a
+        # blank human verdict (effective then falls back to the machine final, which is blank here).
+        persist.set_human_verdict(self.boq, self.sheet, 22, self.cv, "Electrical", "earthing")
+        persist.set_human_verdict(self.boq, self.sheet, 22, self.cv, "Electrical", "")
+        cur = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": 22,
+                     "committed_version": self.cv, "discipline": "Electrical", "is_current": 1},
+            fields=["category_version", "human_category_id"],
+        )
+        self.assertEqual(len(cur), 1, "still exactly one current after clear")
+        self.assertEqual(cur[0]["category_version"], 1, "clear on a created record mints no version")
+        self.assertEqual((cur[0]["human_category_id"] or ""), "", "verdict cleared in place")
+
 
 # ── CONTEXT BUILDER (DB) ─────────────────────────────────────────────────────────
 class TestContextBuilder(FrappeTestCase):

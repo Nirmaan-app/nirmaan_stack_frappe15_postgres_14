@@ -1374,6 +1374,15 @@ interface PricingGridProps {
    */
   categoriesByExcelRow?: Map<number, SheetCategoryRow>;
   /**
+   * CL-6: whether the sheet has been classified at least once (any engine has run). Grid-LEVEL
+   * (flips identically for all rows), page-computed as `categoriesByExcelRow.size > 0`. Gates
+   * click-to-edit on a BLANK eligible cell: an eligible (Preamble/Line Item) blank cell is
+   * clickable only once the sheet has run. NOT a per-row prop -> the row memo is untouched (it
+   * only ever flips together with a categoriesByExcelRow reference change, which the comparator
+   * already tracks). Default false (never-run sheet => no blank cell is clickable).
+   */
+  hasRun?: boolean;
+  /**
    * CL-3: the page-owned open callback for the category verdict picker. The grid calls it with
    * the row's Excel row + the clicked cell element (the picker's virtual anchor); the PAGE owns
    * the picker + the write. Reference-stable (a page useCallback) -> memo-safe. ABSENT => the
@@ -1664,6 +1673,11 @@ interface PricingGridRowProps {
   /** CL-2: per-EXCEL-ROW category verdict map (per-SHEET, reference-stable across a keystroke --
    *  built page-side, changes only on a classify mutate). Read-only display in the Category cell. */
   categoriesByExcelRow: Map<number, SheetCategoryRow>;
+  /** CL-6: sheet-has-run flag (grid-level; = categoriesByExcelRow.size > 0). Gates click-to-edit on
+   *  a blank eligible cell. Deliberately NOT in pricingRowPropsAreEqual: it is a pure function of
+   *  categoriesByExcelRow (which IS compared), so it can never change without that map's reference
+   *  changing -- the row already re-renders on that. */
+  hasRun: boolean;
   /** CL-3: id->label for the Category cell display (per-SHEET, reference-stable -- changes only on
    *  a catalog fetch, never on keystroke). */
   categoryLabelById: Map<string, string>;
@@ -1791,6 +1805,7 @@ const PricingGridRow = memo(function PricingGridRow({
   columnFormulas,
   reconChoiceMap,
   categoriesByExcelRow,
+  hasRun,
   categoryLabelById,
   onCategoryClick,
   override,
@@ -2060,10 +2075,23 @@ const PricingGridRow = memo(function PricingGridRow({
         const cat = categoriesByExcelRow.get(row.source_row_number);
         const effective = cat?.effective_category_id ?? "";
         const state = deriveVerdictState(cat);
-        const editable = isRowEditable(cat) && !!onCategoryClick;
         const label = labelFor(effective, categoryLabelById);
         const needsReview = state === "needs_review";
         const isHuman = state === "human";
+        // CL-6: eligibility (Preamble/Line Item) is the click + amber-fill axis. A non-eligible row
+        // (node_type "Other" -- notes/subtotals) is never clickable and never amber.
+        const eligible = isPriceableType(row.node_type);
+        // Clickable when the page wired the picker AND (the cell is already classified OR it is an
+        // eligible blank cell on a sheet that has been classified at least once). Nothing is
+        // clickable on a never-run sheet; a non-eligible row is never clickable.
+        const editable = !!onCategoryClick && (isRowEditable(cat) || (eligible && hasRun));
+        // Amber "needs a category" FILL: (a) an eligible cell with a BLANK effective category
+        // (unclassified -- shows with OR without a record, incl. no-record rows), and (b) a
+        // needs-review cell that HAS a category. Clears automatically once a category is set
+        // (effective goes non-blank -> state leaves unclassified/needs_review).
+        const uncategorizedEligible = eligible && state === "unclassified";
+        const amberFill =
+          uncategorizedEligible || needsReview ? "bg-amber-50 dark:bg-amber-950/30" : undefined;
         return (
           <td
             {...tdFocusProps(colIndex)}
@@ -2076,11 +2104,14 @@ const PricingGridRow = memo(function PricingGridRow({
             }
             className={cn(
               "px-2 py-1.5 align-top border-l border-border",
+              // needs-review now sits on the amber FILL -> high-contrast dark text (amber-on-amber
+              // was illegible); human stays emerald; auto/unclassified stay foreground.
               needsReview
-                ? "text-amber-700 dark:text-amber-300"
+                ? "text-black dark:text-white"
                 : isHuman
                   ? "text-emerald-700 dark:text-emerald-300"
                   : "text-foreground",
+              amberFill,
               editable && "cursor-pointer hover:bg-muted/40",
               cellNavClass(colIndex),
             )}
@@ -2369,7 +2400,7 @@ const PricingGridRow = memo(function PricingGridRow({
 PricingGridRow.displayName = "PricingGridRow";
 
 export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -3328,15 +3359,16 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         return;
       }
     }
-    // CL-3: Enter on the focused CATEGORY cell (colIndex FIXED_ANCHOR_COUNT) OPENS the verdict
-    // picker (mirrors the remarks + parent Enter cases; mouse-click already opens it). Only when
-    // the row is CLASSIFIED (editable) and the page wired onCategoryClick; a non-editable / unwired
-    // cell falls through to the generic Enter->down so nav is unchanged there.
+    // CL-3/CL-6: Enter on the focused CATEGORY cell (colIndex FIXED_ANCHOR_COUNT) OPENS the verdict
+    // picker (mirrors the remarks + parent Enter cases; mouse-click already opens it). Editable when
+    // the page wired onCategoryClick AND (the row is already classified OR it is an eligible blank
+    // cell on a run sheet -- SAME gate as the click path); a non-editable / unwired cell falls
+    // through to the generic Enter->down so nav is unchanged there.
     if (activeCell.colIndex === FIXED_ANCHOR_COUNT && e.key === "Enter" && onCategoryClick) {
       const r = rows[activeCell.rowIndex];
       const cat = r ? categoriesByExcelRow.get(r.source_row_number) : undefined;
       const el = cellRefs.current.get(navKey(activeCell.rowIndex, FIXED_ANCHOR_COUNT));
-      if (r && isRowEditable(cat) && el) {
+      if (r && (isRowEditable(cat) || (isPriceableType(r.node_type) && hasRun)) && el) {
         e.preventDefault();
         onCategoryClick(r.source_row_number, el as HTMLElement);
         return;
@@ -3797,6 +3829,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       columnFormulas={columnFormulas}
       reconChoiceMap={reconChoiceMap}
       categoriesByExcelRow={categoriesByExcelRow}
+      hasRun={hasRun}
       categoryLabelById={categoryLabelById}
       onCategoryClick={onCategoryClick}
       override={override}
