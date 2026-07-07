@@ -46,7 +46,6 @@ import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
 import { CommitResultsModal } from "./CommitResultsModal";
 import { PricedTenderDialog } from "./PricedTenderDialog";
-import { TenderingDialog } from "./TenderingDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 
 // Keyword list for presentation-only "likely non-data" hint.
@@ -157,9 +156,6 @@ const BoqHubPage = () => {
 
   // Commit dialog (Phase 5 Slice 4b).
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
-  // Tendering (pricing-editor entry) dialog (Phase 5 Slice 3a) -- the global entry door:
-  // pick one committed sheet -> open its pricing editor.
-  const [tenderingDialogOpen, setTenderingDialogOpen] = useState(false);
   // Commit-results acknowledge modal (Phase 5 Slice 5 frontend). commitResult holds
   // the {committed, failed} envelope; the modal opens once it is set.
   const [commitResult, setCommitResult] = useState<CommitBoqResponse | null>(null);
@@ -436,6 +432,16 @@ const BoqHubPage = () => {
   const committedMap = new Map<string, CommittedSheetState>(
     (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
   );
+  // Tendering direct-nav (WI-1): the first committed sheet by sheet_order (nulls last).
+  // Sourced from the RAW committed_state array so the ordering is explicit; sheet_name
+  // is taken VERBATIM (#152) -- never trimmed. Feeds the Tendering footer button, which
+  // now navigates straight into the pricing editor (picker dialog retired).
+  const firstCommittedSheet = [...(committedStateData?.message?.committed_state ?? [])]
+    .sort(
+      (a, b) =>
+        (a.sheet_order ?? Number.POSITIVE_INFINITY) -
+        (b.sheet_order ?? Number.POSITIVE_INFINITY)
+    )[0]?.sheet_name;
   // Amendment A1: per-sheet downstream orphanable state, keyed by sheet_name VERBATIM (#152).
   const downstreamSheets = downstreamData?.message?.sheets ?? {};
   // F2: live stale-config reason per sheet (keyed by sheet_name VERBATIM #152). Mirrors
@@ -554,15 +560,15 @@ const BoqHubPage = () => {
     const eff = getEffectiveStatus(s);
     return eff !== "Skip" && eff !== "General specs";
   });
-  const blockingCount = dataSheets.filter((s) => {
-    const eff = getEffectiveStatus(s);
-    return eff === "Pending" || eff === "Parse failed";
-  }).length;
   const reviewedCount = dataSheets.filter(
     (s) => getEffectiveStatus(s) === "Config Done"
   ).length;
   const totalDataCount = dataSheets.length;
-  const canParse = blockingCount === 0 && reviewedCount >= 1;
+  // Parse gate loosened (WI-1): a Config-Done sheet is all that's required. Pending /
+  // Parse-failed sheets no longer block -- ParseRunDialog already renders them as
+  // read-only informational lists and only ticks Config-Done sheets. The backend
+  // no_eligible_sheets guard remains the backstop.
+  const canParse = reviewedCount >= 1;
 
   // ── Footer breakdown counts (display-only -- does not touch gate math) ───────
   // These + totalDataCount reconcile to allDrafts.length so the denominator drop
@@ -600,17 +606,9 @@ const BoqHubPage = () => {
     .filter((s) => getEffectiveStatus(s) === "Finalized")
     .map((s) => s.sheet_name);
 
-  const parseGateReason = (() => {
-    if (canParse) return "Workbook is ready to parse";
-    const parts: string[] = [];
-    if (blockingCount > 0)
-      parts.push(
-        `review or skip ${blockingCount} pending sheet${blockingCount !== 1 ? "s" : ""}`
-      );
-    if (reviewedCount === 0)
-      parts.push("mark at least one sheet as Config Done");
-    return `Still needed: ${parts.join("; ")}`;
-  })();
+  const parseGateReason = canParse
+    ? "Workbook is ready to parse"
+    : "Still needed: mark at least one sheet as Config Done";
 
   // ── Dialog data for ParseRunDialog (Slice 2b-frontend-i) ──────────────────
   // Computed from effective statuses -- same source as the gate.
@@ -845,11 +843,12 @@ const BoqHubPage = () => {
       {/* ── General specifications checklist (M2.10, Slice 2b-frontend-ii) ── */}
       {/* Candidate set = nonHiddenDrafts; backend rejects Hidden sheets.      */}
       {/* Ticked = currently designated (set membership M2.16). Save = 1 write. */}
-      <div className="rounded-lg border border-border bg-muted/20 p-4 flex flex-col gap-3">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+      <div className="overflow-hidden rounded-lg border border-border bg-background">
+        {/* Header: title + description on the left, Save on the right (card rhythm). */}
+        <div className="flex flex-col gap-1 px-4 pt-3 pb-2.5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground">
-              General specifications sheets
+              Declare General Specification sheets
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               One or more sheets may contain preamble text shared across all
@@ -874,38 +873,49 @@ const BoqHubPage = () => {
             )}
           </Button>
         </div>
-        {nonHiddenDrafts.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No sheets available.</p>
-        ) : (
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
-            {nonHiddenDrafts.map((d) => {
-              const isTicked = tickedSpecsSheets.has(d.sheet_name);
-              return (
-                <li key={d.sheet_name} className="flex items-center gap-2.5">
-                  <Checkbox
-                    id={`specs-cb-${d.sheet_name}`}
-                    checked={isTicked}
-                    onCheckedChange={() => toggleSpecsSheet(d.sheet_name)}
-                    disabled={specsLoading}
-                    className="shrink-0"
-                  />
-                  <label
-                    htmlFor={`specs-cb-${d.sheet_name}`}
-                    className="text-sm leading-5 cursor-pointer select-none min-w-0 truncate"
-                  >
-                    {d.sheet_name.trim() || d.sheet_name}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {specsError && (
-          <p className="text-xs text-destructive">{specsError}</p>
-        )}
+        {/* Divider → checklist body (mirrors the sheet-card header→divider→body rhythm). */}
+        <div className="border-t border-border/60 px-4 py-3">
+          {nonHiddenDrafts.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No sheets available.</p>
+          ) : (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+              {nonHiddenDrafts.map((d) => {
+                const isTicked = tickedSpecsSheets.has(d.sheet_name);
+                return (
+                  <li key={d.sheet_name} className="flex items-center gap-2.5">
+                    <Checkbox
+                      id={`specs-cb-${d.sheet_name}`}
+                      checked={isTicked}
+                      onCheckedChange={() => toggleSpecsSheet(d.sheet_name)}
+                      disabled={specsLoading}
+                      className="shrink-0"
+                    />
+                    <label
+                      htmlFor={`specs-cb-${d.sheet_name}`}
+                      className="text-sm leading-5 cursor-pointer select-none min-w-0 truncate"
+                    >
+                      {d.sheet_name.trim() || d.sheet_name}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {specsError && (
+            <p className="text-xs text-destructive mt-2">{specsError}</p>
+          )}
+        </div>
       </div>
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
+      {/* A2: "All Sheets" section header above the card grid. */}
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-medium text-foreground">All Sheets</p>
+        <p className="text-xs text-muted-foreground">
+          {nonHiddenDrafts.length}{" "}
+          {nonHiddenDrafts.length === 1 ? "sheet" : "sheets"}
+        </p>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {sortedNonHidden.map((draft) => (
           // EXACT: sheet_name used verbatim as React key and in endpoint calls.
@@ -1097,10 +1107,11 @@ const BoqHubPage = () => {
                   : "No sheets are eligible to commit yet"}
               </TooltipContent>
             </Tooltip>
-            {/* Tendering (Phase 5 Slice 3a) -- the designed pricing-editor entry door
-                (design v1.3 Sec.8.5): a global button -> a picker of eligible (committed)
-                sheets -> open ONE in the pricing editor. Gated on committed-ness (the same
-                committedMap the card badges + the Committed tally use). */}
+            {/* Tendering (Phase 5 Slice 3a; WI-1 direct-nav) -- the pricing-editor entry
+                door. Navigates STRAIGHT into the pricing editor for the first committed
+                sheet (by sheet_order); the editor's in-editor sheet-tab strip replaces the
+                retired picker dialog. Gated on committed-ness (the same committedMap the
+                card badges + the Committed tally use). */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span tabIndex={0}>
@@ -1108,7 +1119,9 @@ const BoqHubPage = () => {
                     variant="outline"
                     size="sm"
                     disabled={committedMap.size === 0}
-                    onClick={() => setTenderingDialogOpen(true)}
+                    onClick={() => {
+                      if (firstCommittedSheet) handleOpenPricing(firstCommittedSheet);
+                    }}
                   >
                     Tendering
                   </Button>
@@ -1200,18 +1213,6 @@ const BoqHubPage = () => {
         eligibleSheets={committableSheets}
         committedState={committedMap}
         onCommitted={handleCommitted}
-      />
-
-      {/* ── Tendering (pricing-editor entry) dialog (Phase 5 Slice 3a) ───────── */}
-      {/* Global entry door: pick one committed sheet -> open its pricing editor. */}
-      <TenderingDialog
-        open={tenderingDialogOpen}
-        onOpenChange={setTenderingDialogOpen}
-        committedState={committedMap}
-        onConfirm={(sheetName) => {
-          setTenderingDialogOpen(false);
-          handleOpenPricing(sheetName);
-        }}
       />
 
       {/* ── Download priced tender dialog (Phase 5 Slice 5b) ─────────────────── */}

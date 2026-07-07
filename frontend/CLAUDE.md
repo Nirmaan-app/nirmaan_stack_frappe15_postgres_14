@@ -221,6 +221,20 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
   `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
   hub-scoped. Full detail in `boq-frontend.md`.
+- **SheetCard is a persistent 3-zone stepper** (`① Configure → ② Review → ③ Commit & Tender`). The
+  effective-status → zone mapping lives in the PURE `sheetCardStages.ts` (`computeSheetStages`, unit-tested,
+  ADR-0010 F4); `SheetCard.tsx` only renders descriptors + interpolates dynamic text (dates/reasons). There is
+  **no header status pill** — the status IS the button-bearing zone's marker; the header holds only name +
+  summary + transient chips (Parsing…, needs-re-parse, N-issues). **Stage ③ is READ-ONLY** (committed badge
+  alone on its line, priced/orphan chips stacked below; Commit + Tender are footer-only actions). Aside sheets
+  (Skip/Hidden) collapse the rail; a committed general-specs sheet still lights ③.
+- **Parse-gate rule:** `canParse = reviewedCount >= 1` (≥1 Config-Done sheet). Pending / Parse-failed sheets do
+  NOT block — `ParseRunDialog` shows them read-only and only ticks Config-Done sheets.
+- **Tendering is direct-nav:** the footer button navigates straight to `/pricing/{first committed sheet by
+  sheet_order}`; the pricing editor's in-editor sheet-tab strip replaces the old picker (TenderingDialog removed).
+- **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
+  (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
+  `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. Detail in `boq-frontend.md`.
 
 ### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
 
