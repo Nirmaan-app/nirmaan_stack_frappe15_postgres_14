@@ -268,6 +268,21 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   reconcile + revert-on-error. The needs-review filter is UNCHANGED (a human verdict auto-drops the row via
   `isNeedsReviewCategory`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
   two-engine overlap-conflict fork stays PARKED. `get_category_catalog` labels the ids -- never invent labels client-side.
+- **Blank-eligible clickability + amber "needs a category" fill (CL-6):** the click/Enter editability gate is
+  `!!onCategoryClick && (isRowEditable(cat) || (isPriceableType(row.node_type) && hasRun))` — an ELIGIBLE
+  (Preamble/Line Item) BLANK cell is clickable once the sheet has been classified at least once; a non-eligible ("Other")
+  row is NEVER clickable; nothing is clickable on a never-run sheet (this REVISES CL-3's "only classified rows are
+  editable"). `hasRun` is a GRID-LEVEL prop = `categoriesByExcelRow.size > 0` (page passes it; same size>0 truth that
+  gates the filter button) — it is DELIBERATELY NOT in `pricingRowPropsAreEqual` (a pure function of the already-compared
+  `categoriesByExcelRow`, so it never flips without that map's ref changing). The Category cell shows an amber FILL
+  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) when (a) an eligible cell has a BLANK effective
+  category (`unclassified`, with or without a record), or (b) a `needs_review` cell HAS a category — case (b) ALSO
+  switches text to high-contrast `text-black dark:text-white` (amber-on-amber was illegible) and keeps its amber dot. The
+  fill CLEARS automatically when a category is set (effective non-blank → state leaves `unclassified`/`needs_review`); do
+  NOT add clearing code. Backend: `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category`
+  when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
+  needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
+  routing literal are unchanged).
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
