@@ -702,9 +702,13 @@ def _commit_node_tree(
             froze_nodes += 1
 
     # 1. Read review rows (verbatim sheet_name, #152) + resolve effective values.
+    #    is_excluded=0 (ADR-0013 D5): deselected template rows must NOT become BOQ Nodes.
+    #    UNIVERSALLY INERT for the upload flow (every upload row is is_excluded=0). The
+    #    committed grid is built separately from the Excel worksheet (_extract_grid_rows),
+    #    NOT from this read, so the node tree is the only tier this filter governs here.
     raw_rows = frappe.db.get_all(
         "BoQ Review Row",
-        filters={"boq": boq_name, "sheet_name": sheet_name},
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=_REVIEW_ROW_FIELDS,
         order_by="row_index asc",
     )

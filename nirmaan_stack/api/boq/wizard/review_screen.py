@@ -2718,9 +2718,14 @@ def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
     # Fetch both the minimal integrity fields and the advisory-flag extra fields in
     # one query.  The integrity check only reads the first six; the advisory helpers
     # read the rest.
+    # is_excluded=0 (ADR-0013 D5): the finalize gate operates on the INCLUDED subset only --
+    # a deselected (excluded) template row must NOT contribute a break or advisory flag (it
+    # will never be committed). The cascade invariant (deselect->subtree, select->ancestor
+    # preamble chain) keeps the included subset a coherent forest, so no included row points
+    # at an excluded parent. UNIVERSALLY INERT for upload (all upload rows are is_excluded=0).
     rows = frappe.db.get_all(
         "BoQ Review Row",
-        filters={"boq": boq_name, "sheet_name": sheet_name},
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=[
             "row_index", "source_row_number", "classification",
             "human_classification", "parent_index", "human_parent", "human_is_root",
@@ -2809,10 +2814,13 @@ def mark_sheet_parsed_check_done(
             title="Cannot finalize",
         )
 
-    # Fetch rows for integrity check (minimal fields only)
+    # Fetch rows for integrity check (minimal fields only).
+    # is_excluded=0 (ADR-0013 D5): filter to the INCLUDED subset so a deselected (excluded)
+    # template orphan cannot block finalize -- the gate must mirror what actually commits.
+    # UNIVERSALLY INERT for upload (all upload rows are is_excluded=0).
     rows = frappe.db.get_all(
         "BoQ Review Row",
-        filters={"boq": boq_name, "sheet_name": sheet_name},
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=["row_index", "source_row_number", "classification",
                 "human_classification", "parent_index", "human_parent", "human_is_root"],
         order_by="row_index asc",
