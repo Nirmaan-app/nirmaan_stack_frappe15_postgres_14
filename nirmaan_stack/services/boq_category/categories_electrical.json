@@ -1,84 +1,96 @@
 {
   "discipline": "Electrical",
-  "version": "1.0-provisional",
-  "note": "The 12 electrical pricing categories + novel. category_id is stable; descriptions are the human/AI Option-B reference (the prompt-2 harness reads this file). Descriptions are signed-off verbatim.",
+  "version": "2.0-frozen15-build2b",
+  "note": "The frozen 15 electrical pricing categories (Rebuild Spec v2.0 / Design doc §20). 'novel' is RETIRED -- ABSTAIN returns a BLANK category_id (\"\"), see scoring.json novel_category_id + runner.py. Build 2b removed the two transitional categories: 'termination' was MERGED into wiring_cabling ('Wiring, Cabling & Termination') and 'networking' was REMOVED (cross-discipline -> data lines route to blank). This list is now exactly the frozen 15. category_id is stable; descriptions are the human/AI reference (the prompt-2 harness reads this file).",
   "categories": [
     {
-      "category_id": "point_wiring",
-      "name": "Point Wiring",
-      "description": "Wiring of individual points (light/fan/call-bell/plug points): the per-point circuit from switch/DB to the outlet.",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "wiring_cabling",
-      "name": "Wiring & Cabling",
-      "description": "Cables/wires run as lengths: armoured/unarmoured power cable, copper/aluminium conductor, by core x size (sq mm).",
-      "discipline": "Electrical"
-    },
-    {
       "category_id": "switches_sockets",
-      "name": "Switches & Sockets",
-      "description": "Modular wiring accessories: switches, sockets, plate-and-grid, face plates, regulators.",
+      "name": "Switches and Sockets",
+      "description": "Modular switches, sockets, plates, cover/blanking plates.",
       "discipline": "Electrical"
     },
     {
       "category_id": "db_switchgear",
-      "name": "DB & Switchgear",
-      "description": "STANDALONE distribution boards and protective gear: MCB, MCCB, RCCB, DBs, enclosures, isolators (loose / NOT built into a panel assembly).",
+      "name": "DB and Switchgear",
+      "description": "Distribution boards, MCB/MCCB/RCCB/RCBO, isolators, changeovers.",
       "discipline": "Electrical"
     },
     {
-      "category_id": "networking",
-      "name": "Networking",
-      "description": "Structured cabling/data: CAT6 cable, jacks, patch panels, racks (electrical-side data infrastructure).",
+      "category_id": "cabletray_raceway",
+      "name": "CableTray & Raceway",
+      "description": "Cable trays, raceways, trunking, ladders, tray covers.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "wiring_cabling",
+      "name": "Wiring, Cabling & Termination",
+      "description": "Bare cable/wire runs sized by conductor, sub-mains/feeders, lugs, glands, end terminations.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "junction_box_raceway",
+      "name": "Junction Box for Raceway",
+      "description": "Junction/pull/draw boxes for raceway/cable systems (own priced category).",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "earthing",
+      "name": "EARTHING",
+      "description": "Earth strips, electrodes, pits, earth wire, earth bus.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "conduit_piping",
+      "name": "Electrical Conduit",
+      "description": "Conduits (PVC/GI/MS/flexible) and conduit accessories.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "industrial_sockets",
+      "name": "Industrial Socket",
+      "description": "Industrial plugs/sockets, IP-rated, 3-phase, interlocked.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "point_wiring",
+      "name": "Point Wiring",
+      "description": "A point/circuit wired as a unit (light/fan/outlet points), including its conduit/switch/wiring; the point framing overrides component words.",
+      "discipline": "Electrical"
+    },
+    {
+      "category_id": "popup_boxes",
+      "name": "Pop up Boxes",
+      "description": "Pop-up/floor socket boxes, flip-flop boxes, table/floor outlet units.",
       "discipline": "Electrical"
     },
     {
       "category_id": "ups",
       "name": "UPS",
-      "description": "UPS units and associated battery/backup supply.",
+      "description": "UPS units, UPS batteries, and UPS accessories (incl. SNMP/BMS cards for a UPS).",
       "discipline": "Electrical"
     },
     {
-      "category_id": "conduit_piping",
-      "name": "Conduit & Piping",
-      "description": "Conduits/raceway pipes carrying wiring: PVC/MS conduit, flexible pipe, by size.",
+      "category_id": "lighting_mgmt_system",
+      "name": "Lighting Management system",
+      "description": "Lighting control systems/processors, DALI, occupancy/daylight sensors for lighting.",
       "discipline": "Electrical"
     },
     {
-      "category_id": "industrial_sockets",
-      "name": "Industrial Sockets",
-      "description": "Heavy-duty/industrial power sockets and plugs, often IP-rated with integral MCB.",
+      "category_id": "miscellaneous",
+      "name": "Miscellaneous",
+      "description": "A positive placement for genuine electrical items fitting no other category (NOT a fallback for uncertainty).",
       "discipline": "Electrical"
     },
     {
-      "category_id": "cabletray_raceway",
-      "name": "CableTray / Raceway",
-      "description": "Cable support: cable trays, ladders, C-channel, threaded rod, junction boxes.",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "termination",
-      "name": "Termination",
-      "description": "Cable end-work: lugs, glands, terminations, jointing of conductors.",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "earthing",
-      "name": "Earthing",
-      "description": "Earthing system: earth strips/plates/electrodes, GI strip, earth pits, bonding.",
+      "category_id": "light_fixtures",
+      "name": "Light Fixtures",
+      "description": "Luminaires/fixtures: LED, panel lights, downlighters, battens, decorative/street/flood lights.",
       "discipline": "Electrical"
     },
     {
       "category_id": "panels",
       "name": "Panels",
-      "description": "BUILT panel ASSEMBLIES (MCC/distribution/metering panels): a fabricated enclosure containing protective gear as one assembly (contains MCCBs/breakers/meters BY NATURE - that's what distinguishes it from standalone DB & Switchgear).",
-      "discipline": "Electrical"
-    },
-    {
-      "category_id": "novel",
-      "name": "Novel / route-to-human",
-      "description": "Matches no category; routes to human review.",
+      "description": "LT/MCC/APFC/control panels and panel boards.",
       "discipline": "Electrical"
     }
   ]

@@ -19,10 +19,12 @@
  * "Unsaved changes". The save MECHANISM is unchanged. The single-editor lock is a later slice
  * (editable / lock_info stay INERT -- read from the payload, threaded into the grid, no lock).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Undo2, Unlock, X } from "lucide-react";
+import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
+import { useUserData } from "@/hooks/useUserData";
+import { BoqPresence } from "./BoqPresence";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,9 +35,12 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import type {
   AmountFormulaSaveArgs,
   BOQsDoc,
+  CategoryCatalogEntry,
+  ClassifySummary,
   ColorSaveArgs,
   CommittedSheetGridResponse,
   DismissalSaveArgs,
+  EngineCatalog,
   ApplyCopyForwardResponse,
   GetCommittedStateResponse,
   GetPricedRowsResponse,
@@ -46,10 +51,20 @@ import type {
   RemarkSaveArgs,
   ReviewEntry,
   RowReviewFlags,
+  SheetCategoryRow,
 } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
+import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
+import { ClassifyProgressModal } from "./ClassifyProgressModal";
+import {
+  ClassifySheetDialog,
+  aiStatusNote,
+  isNeedsReviewCategory,
+  reduceProgress,
+  skipRollupText,
+} from "./ClassifySheetDialog";
 import {
   PricingGrid,
   buildSearchHits,
@@ -129,6 +144,38 @@ const REVIEW_ENTRY_META: Record<
   },
 };
 
+// CL-2: the classify-sheet realtime payloads + the get_classify_status poll shape. The done event
+// carries the full ClassifySummary plus the run identity (boq_name / sheet_name / discipline).
+interface ClassifyProgressPayload {
+  boq: string;
+  sheet_name: string;
+  discipline: string;
+  done: number;
+  total: number;
+}
+interface ClassifyDonePayload extends ClassifySummary {
+  status: string;
+  boq_name: string;
+  sheet_name: string;
+  discipline: string;
+}
+interface ClassifyStatusResponse {
+  state: string; // "running" | "done" | ... (backend-authoritative)
+  done?: number;
+  total?: number;
+  status?: string;
+  total_in_range?: number;
+  eligible_classified?: number;
+  needs_review?: number;
+  auto_accepted?: number;
+  skipped_total?: number;
+  skipped_by_reason?: Record<string, number>;
+  committed_version?: number | null;
+  sheet_warnings?: string[];
+}
+// CL-2: only the Electrical engine is wired in v1 (matches the ClassifySheetDialog gating).
+const CLASSIFY_DISCIPLINE = "Electrical";
+
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
   const navigate = useNavigate();
@@ -171,6 +218,13 @@ const SheetPricingPage = () => {
   const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
+  // Per-sheet Work Packages -- carried onto the committed BoQ Sheet at commit time and returned
+  // by get_priced_rows (work_packages: string[]). Read defensively: default [] when the payload
+  // is missing/older, and drop any empty/whitespace entries so the header badge only renders real
+  // assignments. SHEET-LEVEL only -- never threaded into the memoized PricingGrid rows.
+  const workPackages = (pricedData?.message?.work_packages ?? []).filter(
+    (wp): wp is string => typeof wp === "string" && wp.trim() !== "",
+  );
   // History mode iff an EARLIER version than the live one is selected.
   const isViewingHistory = selectedVersion !== null && selectedVersion !== liveCommitVersion;
 
@@ -182,6 +236,62 @@ const SheetPricingPage = () => {
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
     boqId && sheetName ? undefined : null,
   );
+
+  // CL-2: the per-row category verdicts for THIS sheet (Electrical engine). mutateCategories
+  // refetches after a classify run completes so the grid's Category column repaints. Disabled
+  // until boqId + sheetName are present (swrKey gotcha).
+  const { data: catData, mutate: mutateCategories } = useFrappeGetCall<{
+    message: { committed_version: number | null; categories: SheetCategoryRow[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_sheet_categories",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? undefined : null,
+  );
+  // CL-3: the selectable category catalog for the Electrical engine (id -> label). Read-only;
+  // disabled until boqId + sheetName are present. Drives the verdict picker groups + the Category
+  // cell's label display.
+  const { data: catalogData } = useFrappeGetCall<{
+    message: { discipline: string; categories: CategoryCatalogEntry[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_category_catalog",
+    { discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? undefined : null,
+  );
+  // CL-3: id -> label for the Category cell display (reference-stable per fetch -> memo-safe).
+  const categoryLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    (catalogData?.message?.categories ?? []).forEach((c) => m.set(c.id, c.label));
+    return m;
+  }, [catalogData]);
+  // CL-3: the picker's engine-scoped groups (v1: a single Electrical group carrying its catalog).
+  const engineCatalogs = useMemo<EngineCatalog[]>(
+    () =>
+      catalogData?.message
+        ? [
+            {
+              discipline: catalogData.message.discipline,
+              label: CLASSIFY_DISCIPLINE,
+              categories: catalogData.message.categories,
+            },
+          ]
+        : [],
+    [catalogData],
+  );
+  // CL-3: optimistic per-row verdict overrides (this session), keyed by excel_row. An override
+  // shows the picked verdict instantly; it is dropped once the set_row_category refetch
+  // (mutateCategories) lands (or on an error revert). Reset per-sheet (below).
+  const [categoryOverrides, setCategoryOverrides] = useState<Map<number, SheetCategoryRow>>(
+    () => new Map(),
+  );
+  // A reference-stable (per fetch / per override) Map keyed by excel_row -> the grid reads it for
+  // the Category cell; rebuilt only when catData or the overrides change (never on a keystroke),
+  // so the row memo is never defeated by a per-render Map. Overrides merge LAST (optimistic wins).
+  const categoriesByExcelRow = useMemo(() => {
+    const m = new Map<number, SheetCategoryRow>();
+    (catData?.message?.categories ?? []).forEach((c) => m.set(c.excel_row, c));
+    categoryOverrides.forEach((c, k) => m.set(k, c));
+    return m;
+  }, [catData, categoryOverrides]);
 
   // The selected EARLIER version's read-only rows + its OWN pricing (ADDITIVE endpoint; the live
   // get_priced_rows hot path above is byte-for-byte untouched). Disabled unless viewing history.
@@ -259,8 +369,42 @@ const SheetPricingPage = () => {
   const { call: unlockSheetCall } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.pricing.unlock_sheet",
   );
+  // CL-3: set / clear one row's human category verdict (set_row_category). A SEPARATE write path
+  // (parallel to rates/annotations); "" clears to the machine verdict. Optimistic (categoryOverrides)
+  // then mutateCategories()-refetches so the effective verdict re-derives authoritatively.
+  const { call: setRowCategory } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.set_row_category",
+  );
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
+
+  // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
+  // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
+  // (the grid's onDirtyChange), heartbeat ~30s while holding it, release on leave (sendBeacon
+  // + unmount), and listen for boq:lock_changed to flip read-only / free the instant ANOTHER
+  // user acquires / releases. The server throw (BOQ_PRICING_LOCKED in every save_* endpoint)
+  // stays the durable enforcement; this is only the UX accelerator.
+  const { socket } = useContext(FrappeContext) as FrappeConfig;
+  const { user_id: currentUser } = useUserData();
+  const { call: acquirePricingLock } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock",
+  );
+  // committed_version this client currently HOLDS the lock for (null = none). A ref so the
+  // heartbeat + socket handler read the latest without re-registering.
+  const heldVersionRef = useRef<number | null>(null);
+  // Break-glass CLIENT override (dev/testing). The server site_config flag is the real prod
+  // switch (D13); this just lets a developer disable the lock calls locally.
+  const locksDisabledClient =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("nirmaan-boq-locks-disabled") === "true";
+  // Latest lock identity, read by the [socket]-scoped handler + the heartbeat/release effects
+  // WITHOUT recreating them (BoqHubPage's ref-for-changing-values pattern). Updated each render.
+  const lockCtxRef = useRef<{
+    boqId?: string; sheetName?: string; version: number | null; currentUser: string; disabled: boolean;
+  }>({ boqId, sheetName, version: null, currentUser, disabled: locksDisabledClient });
+  lockCtxRef.current = {
+    boqId, sheetName, version: liveCommitVersion, currentUser, disabled: locksDisabledClient,
+  };
   const [saveError, setSaveError] = useState<string | null>(null);
   // Slice 4a: the minimal review-list strip (rows with a remark), opened above the grid.
   // Slice 4b-A extends its feed to ALL computed flags (a single list, no fork).
@@ -271,6 +415,35 @@ const SheetPricingPage = () => {
   // Slice 4b-A: "show only unpriced" -- collapse the grid to priceable-but-not-fully-priced
   // rows. Per-sheet per-session (reset on a tab switch, like the override).
   const [showOnlyUnpriced, setShowOnlyUnpriced] = useState(false);
+
+  // ── CL-2: classify-sheet state (per-sheet per-session; reset on a tab switch below) ──
+  // The dialog open flag; the running flag (a run is in flight -> disables the ribbon button +
+  // shows the progress bar); the live {done,total} progress; the completion summary; and the
+  // "show only needs-review rows" view filter. classifyRunningRef mirrors classifyRunning so the
+  // stable socket/poll callbacks read the CURRENT running state without re-registering.
+  const [classifyOpen, setClassifyOpen] = useState(false);
+  const [classifyRunning, setClassifyRunning] = useState(false);
+  // The blocking progress modal stays open from run-start THROUGH the terminal state (so the
+  // completion/error line + Close button show); it closes only when the user acknowledges.
+  const [classifyModalOpen, setClassifyModalOpen] = useState(false);
+  const [classifyProgress, setClassifyProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  const [classifySummary, setClassifySummary] = useState<ClassifySummary | null>(null);
+  const [showNeedsReview, setShowNeedsReview] = useState(false);
+  const classifyRunningRef = useRef(false);
+
+  // ── CL-3: category verdict picker (page-owned open-state; reset on a tab switch below) ──
+  // pickerState holds the target row + the clicked cell element (the picker's virtual anchor);
+  // null when closed. onCategoryClick is a STABLE callback the grid calls on a Category-cell click
+  // (or Enter) -> reference-stable so the grid's row memo holds.
+  const [pickerState, setPickerState] = useState<{ excelRow: number; anchorEl: HTMLElement } | null>(
+    null,
+  );
+  const onCategoryClick = useCallback(
+    (excelRow: number, cellEl: HTMLElement) => setPickerState({ excelRow, anchorEl: cellEl }),
+    [],
+  );
 
   // ── Toolbar Part 1 (per-sheet per-session; reset on a tab switch below) ──────────
   // Column-hide: the set of HIDDEN non-amount descriptor `col` letters. DEFAULT EMPTY = nothing
@@ -401,6 +574,18 @@ const SheetPricingPage = () => {
     setReviewOpen(false); // Slice 4a: the review-list strip is per-sheet
     setShowDismissed(false); // Slice 4b-ACKNOWLEDGE: the show-dismissed toggle is per-sheet
     setShowOnlyUnpriced(false); // Slice 4b-A: the unpriced filter is per-sheet
+    // CL-2: classify state is per-sheet -- a tab switch starts clean (the socket/poll below
+    // re-recovers a genuinely in-flight run from get_classify_status on the new sheet).
+    setClassifyOpen(false);
+    setClassifyRunning(false);
+    classifyRunningRef.current = false;
+    setClassifyModalOpen(false);
+    setClassifyProgress(null);
+    setClassifySummary(null);
+    setShowNeedsReview(false);
+    // CL-3: the verdict picker + optimistic overrides are per-sheet -- a tab switch starts clean.
+    setPickerState(null);
+    setCategoryOverrides(new Map());
     // Toolbar Part 1: column-hide, search, and the three row-type filters are all per-sheet.
     setHiddenCols(new Set());
     setSearchQuery("");
@@ -419,6 +604,111 @@ const SheetPricingPage = () => {
     setSearchCurrentIdx(0);
   }, [searchQuery]);
 
+  // ── CL-2: classify-sheet completion handling (socket + poll fallback) ─────────────
+  // Apply a done outcome from EITHER the boq:classify_sheet_done event or the get_classify_status
+  // poll. Guards on boq / sheet_name (VERBATIM #152) / discipline so a broadcast for another sheet
+  // never mutates this one. Clears the running/progress state, stores the summary, and refetches
+  // the category verdicts so the grid's Category column repaints.
+  const applyClassifyDone = useCallback(
+    (p: Partial<ClassifyDonePayload> & { boq_name: string; sheet_name: string; discipline: string }) => {
+      if (p.boq_name !== (boqId ?? "")) return;
+      if (p.sheet_name !== (sheetName ?? "")) return;
+      if (p.discipline !== CLASSIFY_DISCIPLINE) return;
+      setClassifyRunning(false);
+      classifyRunningRef.current = false;
+      setClassifyProgress(null);
+      setClassifySummary({
+        total_in_range: p.total_in_range ?? 0,
+        eligible_classified: p.eligible_classified ?? 0,
+        needs_review: p.needs_review ?? 0,
+        auto_accepted: p.auto_accepted ?? 0,
+        skipped_total: p.skipped_total ?? 0,
+        skipped_by_reason: p.skipped_by_reason ?? {},
+        committed_version: p.committed_version ?? null,
+        sheet_warnings: p.sheet_warnings ?? [],
+        ai_status: p.ai_status ?? null,
+        status: p.status,
+        error_code: p.error_code,
+      });
+      void mutateCategories();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [boqId, sheetName, mutateCategories],
+  );
+
+  // Socket for boq:classify_sheet_progress / boq:classify_sheet_done (mirrors the BoqHubPage
+  // parse-run pattern -- SCREEN-SCOPED via FrappeContext, NOT socketListeners.ts). Reconnect
+  // self-heals by refetching the categories; the poll below covers a missed done event.
+  // (Reuses the `socket` bound above by the concurrency-lock realtime layer -- same FrappeContext.)
+  useEffect(() => {
+    if (!socket) return;
+    const onProgress = (p: ClassifyProgressPayload) => {
+      if (
+        p.boq !== (boqId ?? "") ||
+        p.sheet_name !== (sheetName ?? "") ||
+        p.discipline !== CLASSIFY_DISCIPLINE
+      )
+        return;
+      setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
+    };
+    const onDone = (p: ClassifyDonePayload) => applyClassifyDone(p);
+    const onReconnect = () => {
+      void mutateCategories();
+    };
+    socket.on("boq:classify_sheet_progress", onProgress);
+    socket.on("boq:classify_sheet_done", onDone);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:classify_sheet_progress", onProgress);
+      socket.off("boq:classify_sheet_done", onDone);
+      socket.off("connect", onReconnect);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, boqId, sheetName, applyClassifyDone]);
+
+  // Fallback + on-mount recovery: get_classify_status. Always enabled (a single read on mount
+  // recovers an in-flight run started elsewhere / before navigation), then polls every 3s ONLY
+  // while running. A "done" state funnels through the SAME applyClassifyDone (socket or poll --
+  // first to resolve wins, gated on classifyRunningRef); a "running" state seen while we think
+  // we're idle resumes the indicator (the recovery case).
+  const { data: classifyStatusData } = useFrappeGetCall<{ message: ClassifyStatusResponse }>(
+    "nirmaan_stack.api.boq.wizard.classify.get_classify_status",
+    { boq: boqId ?? "", sheet_name: sheetName ?? "", discipline: CLASSIFY_DISCIPLINE },
+    boqId && sheetName ? `boq-classify-status::${boqId}::${sheetName}` : null,
+    { refreshInterval: classifyRunning ? 3000 : 0 },
+  );
+  useEffect(() => {
+    const msg = classifyStatusData?.message;
+    if (!msg) return;
+    if (msg.state === "done") {
+      if (!classifyRunningRef.current) return; // only a done we were waiting on
+      applyClassifyDone({
+        boq_name: boqId ?? "",
+        sheet_name: sheetName ?? "",
+        discipline: CLASSIFY_DISCIPLINE,
+        ...msg,
+      });
+    } else if (msg.state === "running") {
+      // PRECEDENCE: done WINS. If a terminal summary is already showing (modal awaiting the
+      // user's Close), ignore a stale running poll so it cannot re-open/re-lock the modal. A NEW
+      // run clears classifySummary in onStarted, which re-enables this recovery branch.
+      if (!classifyRunningRef.current && classifySummary) return;
+      // First-time recovery of an in-flight run (started elsewhere / before navigation): open the
+      // blocking modal and flag it running.
+      if (!classifyRunningRef.current) {
+        setClassifyRunning(true);
+        classifyRunningRef.current = true;
+        setClassifyModalOpen(true);
+      }
+      // POLL DRIVES THE BAR: advance on EVERY running poll (not just the recovery seed). The
+      // socket onProgress path stays additive -- last-writer-wins on the same {done,total}.
+      if (typeof msg.done === "number" && typeof msg.total === "number") {
+        setClassifyProgress({ done: msg.done, total: msg.total });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classifyStatusData, applyClassifyDone, boqId, sheetName, classifySummary]);
+
   // Slice 4c: Esc-to-exit full-screen. A window keydown listener mounted ONLY while expanded
   // (added on expand, removed on collapse / unmount). shouldExitFullscreenOnEsc guards the two
   // collision cases: e.defaultPrevented (a Radix popover -- RemarkCell / AmountFormulaBuilder --
@@ -433,6 +723,100 @@ const SheetPricingPage = () => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [expanded]);
+
+  // Realtime lock updates (A2): flip read-only / free the instant ANOTHER user acquires or
+  // releases this sheet's lock. Screen-scoped listener (BoqHubPage pattern): register on the
+  // stable FrappeContext socket, read changing identity from lockCtxRef, off() on cleanup,
+  // + a reconnect self-heal (re-fetch authoritative lock_info on (re)connect).
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (payload: {
+      boq?: string; sheet_name?: string; committed_version?: number | string;
+      action?: string; locked_by?: string | null;
+    }) => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled) return;
+      if (!payload || payload.boq !== ctx.boqId) return;
+      if (payload.sheet_name !== ctx.sheetName) return; // VERBATIM (#152)
+      if (ctx.version === null || Number(payload.committed_version) !== Number(ctx.version)) return;
+      if (payload.locked_by && payload.locked_by === ctx.currentUser) return; // suppress own events
+      if (payload.action === "acquired" || payload.action === "took_over") {
+        // Another user now holds this sheet -> we no longer do; flip to read-only.
+        const wasHolding = heldVersionRef.current !== null;
+        heldVersionRef.current = null;
+        if (wasHolding) {
+          // We were the editor and got displaced -> the takeover banner (we may have an
+          // unsaved draft the grid keeps).
+          setTakenOver(true);
+        } else {
+          // We were only viewing -> re-read authoritative state so the precise
+          // "being priced by <name>" holder banner shows (editable=false + lock_info).
+          void mutate();
+        }
+      } else if (payload.action === "released") {
+        // Freed by another -> re-read authoritative editable/lock_info (the [pricedData]
+        // effect clears takenOver when the fresh payload reports the sheet editable).
+        void mutate();
+      }
+    };
+    const onReconnect = () => { void mutate(); };
+    socket.on("boq:lock_changed", handler);
+    socket.on("connect", onReconnect);
+    return () => {
+      socket.off("boq:lock_changed", handler);
+      socket.off("connect", onReconnect);
+    };
+  }, [socket, mutate]);
+
+  // Heartbeat (A2): while we HOLD the lock, refresh it every ~30s so an active editor is never
+  // taken over mid-session (the 120s edit-driven TTL would otherwise lapse without saves). A
+  // rejected refresh (another user took over) flips us to read-only.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || ctx.version === null || heldVersionRef.current !== ctx.version) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      void acquirePricingLock({
+        boq_name: ctx.boqId, sheet_name: ctx.sheetName, committed_version: ctx.version,
+      }).catch((e) => {
+        if (isTakeoverError(getFrappeError(e))) {
+          heldVersionRef.current = null;
+          setTakenOver(true);
+        }
+      });
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [acquirePricingLock]);
+
+  // Release-on-leave (A2): free the lock the INSTANT the editor closes, so no colleague waits
+  // out the TTL. beforeunload + unmount both fire navigator.sendBeacon (a normal POST would be
+  // cancelled on unload). Guarded on actually holding the lock; idempotent + tolerant server-side.
+  useEffect(() => {
+    const beacon = () => {
+      const ctx = lockCtxRef.current;
+      if (ctx.disabled || heldVersionRef.current === null || ctx.version === null) return;
+      if (!ctx.boqId || !ctx.sheetName) return;
+      try {
+        const fd = new FormData();
+        fd.append("boq_name", ctx.boqId);
+        fd.append("sheet_name", ctx.sheetName);
+        fd.append("committed_version", String(ctx.version));
+        const csrf = (window as unknown as { frappe?: { csrf_token?: string } })?.frappe?.csrf_token;
+        if (csrf) fd.append("csrf_token", csrf);
+        navigator.sendBeacon(
+          "/api/method/nirmaan_stack.api.boq.wizard.pricing.release_pricing_lock", fd,
+        );
+      } catch {
+        /* best-effort: the lock ages out via the TTL if this fails */
+      }
+    };
+    window.addEventListener("beforeunload", beacon);
+    return () => {
+      window.removeEventListener("beforeunload", beacon);
+      beacon(); // release on unmount (SPA navigate-away) too
+      heldVersionRef.current = null;
+    };
+  }, []);
 
   // RR v6 auto-decodes path params -- sheetName is the verbatim DB-stored string.
   const decodedSheetName = sheetName ?? "";
@@ -525,6 +909,34 @@ const SheetPricingPage = () => {
   // construction. The history payload also reports editable=false (server belt to this suspenders).
   const locked = editable === false || takenOver || isLocked || isViewingHistory;
 
+  // Acquire the single-editor lock on FIRST edit-intent (A2 / ADR-0011). Called from the grid's
+  // onDirtyChange (fires when the user first modifies a cell, BEFORE any save), so a second
+  // viewer flips read-only within a socket round-trip -- not on a failed save. Idempotent per
+  // version (heldVersionRef). A rejected acquire (someone else holds it fresh) flips us to
+  // read-only via the same takeover banner. The save_* endpoints still enforce server-side.
+  const ensureLockAcquired = () => {
+    if (locksDisabledClient) return;
+    if (locked) return; // read-only (history / deliberate lock / already taken over)
+    if (!boqId || !sheetName || commitVersion === null) return;
+    if (heldVersionRef.current === commitVersion) return; // already hold it for this version
+    heldVersionRef.current = commitVersion; // optimistic (prevents a double-fire)
+    void acquirePricingLock({
+      boq_name: boqId, sheet_name: sheetName, committed_version: commitVersion,
+    }).catch((e) => {
+      const msg = getFrappeError(e);
+      heldVersionRef.current = null; // failed -> we do NOT hold it
+      if (isTakeoverError(msg)) setTakenOver(true); // someone else holds it fresh -> read-only
+      // else: transient error -> a retry on the next edit will re-attempt.
+    });
+  };
+
+  // The grid's dirty signal doubles as first-edit-intent: keep the existing hasUnsaved wiring
+  // AND acquire the lock the moment the sheet becomes dirty.
+  const handleDirtyChange = (dirty: boolean) => {
+    setHasUnsaved(dirty);
+    if (dirty) ensureLockAcquired();
+  };
+
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
   // (#152). ANY user may toggle (no role check -- a coordination signal). Disabled while in flight.
@@ -539,6 +951,59 @@ const SheetPricingPage = () => {
       setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
     } finally {
       setLockToggling(false);
+    }
+  };
+
+  // CL-3: pick / clear one row's human category verdict. Optimistic: stamp the pick into
+  // categoryOverrides (human_category_id = id; effective = id || the machine final) so the grid
+  // repaints instantly + close the picker; POST set_row_category; on success mutateCategories()
+  // then drop the override (the authoritative verdict has landed); on error drop the override
+  // (revert) + surface the message inline (the page's error strip -- no toast in this editor).
+  const handleVerdictSelect = async (id: string) => {
+    const target = pickerState;
+    if (!target) return;
+    const { excelRow } = target;
+    const cur = categoriesByExcelRow.get(excelRow);
+    const base: SheetCategoryRow = cur ?? {
+      excel_row: excelRow,
+      rule_category_id: "",
+      ai_category_id: "",
+      final_category_id: "",
+      routing: "",
+      routing_reason: "",
+      human_category_id: "",
+      effective_category_id: "",
+    };
+    const optimistic: SheetCategoryRow = {
+      ...base,
+      excel_row: excelRow,
+      human_category_id: id,
+      effective_category_id: id || base.final_category_id,
+    };
+    setCategoryOverrides((prev) => new Map(prev).set(excelRow, optimistic));
+    setPickerState(null);
+    setSaveError(null);
+    const dropOverride = () =>
+      setCategoryOverrides((prev) => {
+        const next = new Map(prev);
+        next.delete(excelRow);
+        return next;
+      });
+    try {
+      await setRowCategory({
+        boq: boqId, // VERBATIM
+        sheet_name: sheetName, // VERBATIM -- trailing spaces intact (#152)
+        excel_row: excelRow,
+        human_category_id: id,
+        discipline: CLASSIFY_DISCIPLINE,
+      });
+      await mutateCategories();
+      dropOverride();
+    } catch (e) {
+      dropOverride();
+      setSaveError(
+        getFrappeError(e) || "Could not save the category verdict. Please try again.",
+      );
     }
   };
 
@@ -861,8 +1326,11 @@ const SheetPricingPage = () => {
   const passesViewFilter = (r: PricedRow) =>
     (!showOnlyUnpriced ||
       (isPriceableLine(r, columnDescriptors) && !isFullyPriced(r, columnDescriptors))) &&
+    // CL-2: "show only needs-review" keeps rows whose category verdict is an unresolved
+    // Needs-review (VIEW-ONLY -- it never touches counts / Summary / the review-flag feed).
+    (!showNeedsReview || isNeedsReviewCategory(categoriesByExcelRow.get(r.source_row_number))) &&
     classificationVisible(r.effective_classification, rowTypeToggles);
-  const anyViewFilter = showOnlyUnpriced || !noRowTypeHidden;
+  const anyViewFilter = showOnlyUnpriced || showNeedsReview || !noRowTypeHidden;
   // displayRows: the view filter AND collapse, composed in ONE page-side pass (R4). VIEW-ONLY --
   // the count (computePricedCount over `rows`), the Summary (rows={rows}), and the review/flag
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
@@ -1015,36 +1483,129 @@ const SheetPricingPage = () => {
         </div>
       )}
 
-      {/* ── Header strip (Back + title + Slice-3c save status + Save now) ─────── */}
-      <div className="flex items-start gap-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="shrink-0 gap-1.5 text-muted-foreground mt-0.5"
-          onClick={handleBack}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+      {/* ── Header: Row 1 = back + title + status badges (right-aligned on the title line);
+          Row 2 = action buttons. Mirrors the Review screen's two-row header. ─────────────── */}
+      <div className="space-y-3">
+        {/* Row 1: back, title, and the STATUS BADGES right-aligned on the title line. items-center
+            centres them against the two-line title block; flex-wrap drops the cluster to its own
+            right-aligned line if the viewport is too narrow. */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={handleBack}
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
 
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">
-            {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
-            {commitVersion !== null && (
-              <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground truncate">
+              {boq.boq_name} &middot; V{boq.version ?? 1} &middot; Pricing
+              {commitVersion !== null && (
+                <span className="text-muted-foreground/70"> &middot; committed v{commitVersion}</span>
+              )}
+            </p>
+            <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
+              {displaySheetName}
+            </h1>
+          </div>
+
+          {/* Status badges -- RIGHT-ALIGNED on the title line (ml-auto). Per-sheet Work Packages +
+              "who else is here" presence (always), then the save-status chip + priced-count readout
+              (!isGridOnly -- a grid-only reference sheet has nothing to save/price). SHEET-LEVEL
+              header elements only -- never threaded into the memoized PricingGrid rows. justify-end +
+              flex-wrap keeps them right-packed; each self-truncates so a long WP list / presence
+              roster never crowds the title (which truncates via min-w-0 flex-1). */}
+          <div className="ml-auto shrink-0 flex flex-wrap items-center justify-end gap-3">
+            {/* Per-sheet Work Packages badge -- committed-version WP snapshot (rides get_priced_rows).
+                IDENTICAL to the Review screen's badge for visual consistency. */}
+            {workPackages.length > 0 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground max-w-[16rem]"
+                title={`Work packages: ${workPackages.join(", ")}`}
+              >
+                <span className="text-primary font-medium">WP</span>
+                <span className="truncate">{workPackages.join(" · ")}</span>
+              </span>
             )}
-          </p>
-          <h1 className="text-lg font-semibold text-foreground truncate leading-tight">
-            {displaySheetName}
-          </h1>
+            {/* B2: BoQ-level "who else is here" presence (soft awareness; the pricing lock owns correctness). */}
+            <BoqPresence boqId={boqId} />
+            {!isGridOnly && (
+              <div className="flex items-center gap-3">
+                {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
+                    status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
+                    width -- keeping the right-aligned badge cluster from jittering on every edit.
+                    overflow-hidden + a `truncate` text child + a `title` keep an unexpectedly-long
+                    message on ONE line (clipped with an ellipsis, full text on hover). Messaging unchanged. */}
+                <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
+                  {saveStatus === "saving" && (
+                    <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span className="truncate">Saving&hellip;</span>
+                    </span>
+                  )}
+                  {saveStatus === "saved" && lastSavedAt && (
+                    <span
+                      className="flex items-center gap-1.5 text-muted-foreground min-w-0"
+                      title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
+                    >
+                      <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+                      <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
+                    </span>
+                  )}
+                  {saveStatus === "unsaved" && (
+                    <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
+                      <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                      <span className="truncate">Unsaved changes</span>
+                    </span>
+                  )}
+                  {saveStatus === "failed" && (
+                    <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">Save failed</span>
+                    </span>
+                  )}
+                  {saveStatus === "idle" && (
+                    <span className="text-muted-foreground truncate" title="All changes saved">
+                      All changes saved
+                    </span>
+                  )}
+                </div>
+                {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
+                    When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
+                    that is a later slice). Hidden when the sheet has no priceable lines. */}
+                {pricedCount.total > 0 && (
+                  <span
+                    className={cn(
+                      "text-xs font-medium tabular-nums whitespace-nowrap",
+                      allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
+                    )}
+                    title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
+                  >
+                    {allPriced ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Check className="h-3.5 w-3.5" />
+                        {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
+                      </span>
+                    ) : (
+                      <>
+                        {pricedCount.priced} of {pricedCount.total} priceable lines priced
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Slice 4c: full-screen toggle (ALWAYS rendered) + Slice-3c save-status
-            chip / force-save (SUPPRESSED for a grid-only general-specs sheet -- it is
-            read-only reference, nothing to save). The right-cluster wrapper now renders
-            unconditionally so the maximize toggle is reachable on a read-only / grid-only
-            sheet too -- full-screen is orthogonal to editability. */}
-        <div className="ml-auto shrink-0 flex items-center gap-3 mt-0.5">
+        {/* Row 2: action buttons. Full screen FIRST (always rendered -- orthogonal to editability);
+            the editing toolbar (Lock, Freeze, Summary, Review, Price any row, Save now) is !isGridOnly. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Slice 4c: full-screen toggle -- ALWAYS rendered, reachable on a read-only / grid-only
+              sheet too (full-screen is orthogonal to editability). */}
           <Button
             size="sm"
             variant="outline"
@@ -1173,74 +1734,6 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
-          {/* Status text (save-status chip + priced-count) -- pushed to the ribbon's right.
-              Moved here from before the action buttons in the two-ribbon reorg; behavior
-              (the saveStatus / pricedCount reads) is byte-identical. */}
-          <div className="ml-auto flex items-center gap-3">
-          {/* Reflow fix (Phase 5 polish): a FIXED footprint (w-40, sized to the longest normal
-              status "Saved as of HH:MM") so the Saving<->Saved swap never changes this element's
-              width -- otherwise the right-pinned status-group widens and the whole ml-auto button
-              cluster shifts left on every edit. overflow-hidden + a `truncate` text child + a
-              `title` keep an unexpectedly-long message on ONE line (clipped with an ellipsis, full
-              text on hover) so it still can't wrap or shove neighbours. Messaging itself unchanged. */}
-          <div className="flex items-center gap-1.5 text-xs w-40 overflow-hidden">
-            {saveStatus === "saving" && (
-              <span className="flex items-center gap-1.5 text-muted-foreground min-w-0" title="Saving…">
-                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                <span className="truncate">Saving&hellip;</span>
-              </span>
-            )}
-            {saveStatus === "saved" && lastSavedAt && (
-              <span
-                className="flex items-center gap-1.5 text-muted-foreground min-w-0"
-                title={`Saved as of ${fmtSavedTime(lastSavedAt)}`}
-              >
-                <Check className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
-                <span className="truncate">Saved as of {fmtSavedTime(lastSavedAt)}</span>
-              </span>
-            )}
-            {saveStatus === "unsaved" && (
-              <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 min-w-0" title="Unsaved changes">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                <span className="truncate">Unsaved changes</span>
-              </span>
-            )}
-            {saveStatus === "failed" && (
-              <span className="flex items-center gap-1.5 text-destructive min-w-0" title="Save failed">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Save failed</span>
-              </span>
-            )}
-            {saveStatus === "idle" && (
-              <span className="text-muted-foreground truncate" title="All changes saved">
-                All changes saved
-              </span>
-            )}
-          </div>
-          {/* Slice 4b-A: live priced-count readout -- N of M priceable lines fully priced.
-              When N === M, a calm "Ready to finalize" affordance text (no finalize logic --
-              that is a later slice). Hidden when the sheet has no priceable lines. */}
-          {pricedCount.total > 0 && (
-            <span
-              className={cn(
-                "text-xs font-medium tabular-nums whitespace-nowrap",
-                allPriced ? "text-green-700 dark:text-green-400" : "text-muted-foreground",
-              )}
-              title="Priceable lines that are fully priced (every qty-bearing area's rate filled)"
-            >
-              {allPriced ? (
-                <span className="inline-flex items-center gap-1">
-                  <Check className="h-3.5 w-3.5" />
-                  {pricedCount.priced} of {pricedCount.total} priced &middot; ready to finalize
-                </span>
-              ) : (
-                <>
-                  {pricedCount.priced} of {pricedCount.total} priceable lines priced
-                </>
-              )}
-            </span>
-          )}
-          </div>
           </>
           )}
         </div>
@@ -1392,6 +1885,51 @@ const SheetPricingPage = () => {
               <ChevronsUpDown className="h-4 w-4" />
             )}
             {collapsed.size === 0 ? "Collapse all" : "Expand all"}
+          </Button>
+
+          {/* ── CL-2: classify-sheet launcher. Opens the ClassifySheetDialog (engine + scope);
+              shows a spinner + "Classifying..." while a run is in flight (classifyRunning, driven
+              by the socket/poll). Disabled while loading/error or a run is already running. ── */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={pricedLoading || pricedError || classifyRunning}
+            onClick={() => setClassifyOpen(true)}
+            title="Run AI category classification over this sheet."
+          >
+            {classifyRunning ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Classifying…
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Classify sheet
+              </>
+            )}
+          </Button>
+
+          {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
+              unresolved Needs-review). VIEW-ONLY, mirrors the Show-unpriced toggle. ── */}
+          <Button
+            size="sm"
+            variant={showNeedsReview ? "default" : "outline"}
+            className="gap-1.5"
+            aria-pressed={showNeedsReview}
+            onClick={() => setShowNeedsReview((o) => !o)}
+            disabled={pricedLoading || pricedError || categoriesByExcelRow.size === 0}
+            title={
+              showNeedsReview
+                ? "Showing only rows whose category needs a check. Click to show all rows."
+                : "Show only rows whose category needs a check."
+            }
+          >
+            <Filter className="h-4 w-4" />
+            {/* CL-6: visible label only -- the state var showNeedsReview, the isNeedsReviewCategory
+                predicate, and the backend "Needs review" routing literal are all UNCHANGED. */}
+            {showNeedsReview ? "Check Category only" : "Check Category"}
           </Button>
 
           {/* ── Slice B (undo/redo): session history for RATE edits. Two icon buttons mirroring the
@@ -1569,6 +2107,104 @@ const SheetPricingPage = () => {
           </div>
         </div>
       )}
+
+      {/* ── CL-2 (poll-driven): classify progress is a BLOCKING centered modal, dismissable only
+          at a terminal state. The inline completion/error strips below persist AFTER the modal is
+          closed (gated on !classifyModalOpen so they don't double up while the modal is open). ── */}
+      <ClassifyProgressModal
+        open={classifyModalOpen}
+        running={classifyRunning}
+        sheetName={(sheetName ?? "").trim()}
+        progress={classifyProgress}
+        summary={classifySummary}
+        onClose={() => {
+          setClassifyModalOpen(false);
+          setClassifyProgress(null);
+        }}
+      />
+      {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status === "error" && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">Classification could not complete.</span>
+            <span className="mt-0.5 block opacity-90">
+              The run failed{classifySummary.error_code ? ` (${classifySummary.error_code})` : ""} -- nothing
+              was saved. Please try again; if the AI was on, check the AI settings/key.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setClassifySummary(null)}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-60 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+      {!classifyRunning && !classifyModalOpen && classifySummary && classifySummary.status !== "error" && (
+        <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="flex-1">
+            <span className="font-medium">
+              {classifySummary.eligible_classified} of {classifySummary.total_in_range} classified,
+              {" "}
+              {classifySummary.needs_review} flagged for review
+            </span>
+            {skipRollupText(classifySummary.skipped_by_reason) && (
+              <span className="mt-0.5 block text-emerald-700 dark:text-emerald-300">
+                {skipRollupText(classifySummary.skipped_by_reason)}
+              </span>
+            )}
+            {aiStatusNote(classifySummary.ai_status) && (
+              <span className="mt-0.5 block text-amber-700 dark:text-amber-300">
+                {aiStatusNote(classifySummary.ai_status)}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setClassifySummary(null)}
+            aria-label="Dismiss"
+            className="shrink-0 opacity-60 hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* CL-2: the classify-sheet launcher dialog (fetches engines + fires start_classify). */}
+      <ClassifySheetDialog
+        open={classifyOpen}
+        boqId={boqId ?? ""}
+        sheetName={sheetName ?? ""}
+        onClose={() => setClassifyOpen(false)}
+        onStarted={() => {
+          setClassifyRunning(true);
+          classifyRunningRef.current = true;
+          setClassifyProgress(null);
+          setClassifySummary(null);
+          setClassifyModalOpen(true); // open the blocking progress modal for this run
+        }}
+      />
+
+      {/* CL-3: the category verdict picker -- a Popover anchored to the clicked Category grid cell
+          (page-owned open-state). currentId = the row's human pick, else its effective verdict.
+          onSelect writes (or clears with "") + closes; onClose drops the open-state. */}
+      <CategoryVerdictPicker
+        open={!!pickerState}
+        anchorEl={pickerState?.anchorEl ?? null}
+        groups={buildEngineGroups([CLASSIFY_DISCIPLINE], engineCatalogs)}
+        currentId={
+          pickerState
+            ? categoriesByExcelRow.get(pickerState.excelRow)?.human_category_id ||
+              categoriesByExcelRow.get(pickerState.excelRow)?.effective_category_id ||
+              ""
+            : ""
+        }
+        onSelect={handleVerdictSelect}
+        onClose={() => setPickerState(null)}
+      />
 
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). For a grid-only
@@ -1846,11 +2482,22 @@ const SheetPricingPage = () => {
             // read-only pill, mirroring onSaveColor/onSaveRate).
             reconChoices={reconChoices}
             onSaveReconChoice={locked ? undefined : handleSaveReconChoice}
+            // CL-2/CL-3: per-row category verdicts drive the Category column; categoryLabelById
+            // supplies the display label; onCategoryClick opens the page-owned verdict picker on a
+            // classified cell. Withheld when locked -> the cell renders display-only. All three are
+            // reference-stable -> the row memo holds.
+            categoriesByExcelRow={categoriesByExcelRow}
+            // CL-6: sheet-has-run gate (= at least one category record exists) -- makes eligible
+            // BLANK cells clickable + drives the amber "needs a category" fill. Same size>0 truth
+            // that gates the Check-Category filter button below.
+            hasRun={categoriesByExcelRow.size > 0}
+            categoryLabelById={categoryLabelById}
+            onCategoryClick={locked ? undefined : onCategoryClick}
             // F3: the amount-column formula header label + builder. columnFormulas drives the
             // `f = ...` label; onSaveFormula is withheld when locked (header renders read-only).
             columnFormulas={columnFormulas}
             onSaveFormula={locked ? undefined : handleSaveFormula}
-            onDirtyChange={setHasUnsaved}
+            onDirtyChange={handleDirtyChange}
             // Slice B (undo/redo): the grid surfaces {canUndo, canRedo}; the bottom-ribbon buttons
             // read it (the onDirtyChange precedent). The undo/redo ACTIONS ride the imperative handle.
             onHistoryChange={setHistoryState}

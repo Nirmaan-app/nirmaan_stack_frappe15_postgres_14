@@ -60,6 +60,19 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Excluded rows (manual)** — rows the reviewer explicitly removes from the data region *in addition to* the header row, expressed as a list of **skip definitions**. Each skip definition is either a **single row** (one row number) or a **row range** (a start row + an end row, inclusive). This is the primary tool for the two cases the single header row can't cover: extra header tiers *below* the header row (rate splits, area tiers), and a column-header that *repeats mid-sheet* or a stray banner between data rows. They exclude *by position* (not by classification), anywhere in the sheet.
 
+## Expense workflow & settlement
+
+- **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
+
+- **Expense status** — the single field describing where an Expense sits in its lifecycle. It advances in one direction: *Requested* → *Approved* → *Paid*. An Expense holds exactly one at a time.
+  - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
+  - **Approved** — sanctioned to spend, but the money has **not** yet left. A staging state, not settled spend.
+  - **Paid** — the cash has actually gone out. The **final** state and the **only** one that counts as real spend.
+
+- **Settled spend (outflow)** — expense money that has actually left, i.e. an Expense at status *Paid*. **Only** *Paid* Expenses are included in any financial rollup — project outflow, the cashflow gap / CEO-Hold, project Financials totals, the Outflow reports, and the 30-day payment dashboard. *Requested* and *Approved* Expenses are commitments, not settled spend, and are excluded from every such number.
+
+- **Auto-approval (of a small Expense)** — a positive Expense below ₹5,000 is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount of ₹5,000 or more follows the full *Requested → Approved → Paid* path.
+
 ## Module residence
 
 - **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).
@@ -71,3 +84,16 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 ## Procurement approval
 
 - **Awaiting approval (of a PR or Sent Back)** — a Procurement Request or Sent Back Category ready for line-item approval: its `workflow_state` is *Vendor Selected* or *Partially Approved* **and** at least one of its order-list items is still *Pending*. It is the single rule behind the sidebar "Approve" count and the approval screens; a PR and an SB share it (they share the order-list child table). Its one home is a single pure module (ADR-0010, rule B1) — replacing the copy of this rule that was scattered across the sidebar-count and approval endpoints.
+## BoQ concurrency & directional guard
+
+- **Upstream stage** — a BoQ pre-pricing stage whose output a later stage consumes: *Config*, *Review*, and the backward actions *re-parse*, *re-commit*, *un-finalize*, and *root-metadata* (tax treatment / version) edits. Contrast *Downstream stage*.
+
+- **Downstream stage** — the stage that consumes an upstream stage's output. For a committed sheet the downstream stage is **Pricing** of its current committed version (*Tendering* is a later downstream stage). The BoQ phases form a one-way ladder: Config → Review → Commit → Pricing/Tendering.
+
+- **Orphanable work** — priced cells on a sheet's *current committed version*: the work an upstream change would strand. On a re-commit they survive on the now-frozen version but are not carried into the new one (only rates copy forward, and only partially). Zero orphanable work means an upstream change is free forward progress.
+
+- **Live (downstream)** — an orphanable sheet is *Live* when **another** user holds a fresh single-editor pricing lock on its current committed version. A *Live* directional warning names that user. Contrast *Vacated*. A lock held by the *same* user performing the upstream action does not count as Live (you are never warned about yourself).
+
+- **Vacated (downstream)** — orphanable work exists but no other user is currently *Live* on it (nobody holds a fresh pricing lock). A *Vacated* directional warning states only the count — no name.
+
+- **Presence-escalated warning** — the directional guard's response: an unmissable warning that always fires when *orphanable work* exists (*Vacated* → count only) and escalates with the editor's name when the downstream stage is *Live*. It never blocks — the user may proceed after acknowledging. Surfaced at two touchpoints: on entering a pre-phase screen (a banner) and on saving within it (an interrupting confirm). [[0011-boq-concurrency-locking]]

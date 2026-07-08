@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BoQ Concurrency &amp; Locking — Feature Explainer</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400;1,9..40,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="course-extra.css">
+
+  <style>
+    /* ── This doc's accent: systems indigo-violet (distinct from the
+          vermillion course + teal reference) ─────────────────────────── */
+    :root {
+      --color-accent:       #6D5BC0;
+      --color-accent-hover: #5A49A8;
+      --color-accent-light: #ECE9F8;
+      --color-accent-muted: #9B8FD0;
+    }
+    body {
+      background-image: radial-gradient(ellipse at 20% 50%,
+        rgba(109, 91, 192, 0.05) 0%, transparent 55%);
+    }
+
+    /* ── Actor pills (User A / User B / Server) ──────────────────────── */
+    .actor-tag {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600;
+      padding: 1px 9px 1px 7px; border-radius: var(--radius-full);
+      vertical-align: middle; white-space: nowrap;
+    }
+    .actor-tag::before { content:''; width:8px; height:8px; border-radius:50%; background: currentColor; }
+    .at-a { color:#B8402A; background:#FBE9E4; }
+    .at-b { color:#5A4E86; background:#ECE7F6; }
+    .at-s { color:#25708C; background:#E1F0F6; }
+
+    /* ── Verdict chips ───────────────────────────────────────────────── */
+    .verdict { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono);
+      font-size:var(--text-xs); font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+      padding:2px 10px; border-radius:var(--radius-full); }
+    .v-yes { color:var(--color-success); background:var(--color-success-light); }
+    .v-no  { color:var(--color-error);   background:var(--color-error-light); }
+    .v-mid { color:#B07D1A; background:#FBF1DA; }
+
+    /* ── Presence↔Lock spectrum ──────────────────────────────────────── */
+    .spectrum { margin: var(--space-8) 0; }
+    .spectrum-bar {
+      position:relative; height:14px; border-radius:var(--radius-full);
+      background: linear-gradient(90deg,#E4F2F7 0%, #FBF1DA 38%, #ECE9F8 68%, #E8F5EE 100%);
+      box-shadow: inset 0 1px 3px rgba(44,42,40,.08);
+    }
+    .spectrum-stops { display:flex; justify-content:space-between; margin-top:var(--space-4); gap:var(--space-3); }
+    .spectrum-stop { flex:1; text-align:center; }
+    .spectrum-stop .ss-dot { width:14px;height:14px;border-radius:50%;margin:0 auto -20px;position:relative;top:-27px;border:3px solid #fff;box-shadow:var(--shadow-sm); }
+    .ss-1 .ss-dot{background:#2A7B9B;} .ss-2 .ss-dot{background:#D4A843;}
+    .ss-3 .ss-dot{background:#6D5BC0;} .ss-4 .ss-dot{background:#2D8B55;}
+    .spectrum-stop strong{ display:block; font-family:var(--font-display); font-size:var(--text-sm); margin-bottom:3px; }
+    .spectrum-stop span{ font-size:var(--text-xs); color:var(--color-text-secondary); line-height:1.4; display:block; }
+    .spectrum-stop .ss-eg{ font-family:var(--font-mono); font-size:.66rem; color:var(--color-text-muted); margin-top:4px; }
+
+    /* ── SVG sequence-diagram grammar (shared) ───────────────────────── */
+    .seq-fig { background:var(--color-surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md);
+      padding:var(--space-6) var(--space-5) var(--space-4); margin:var(--space-8) 0; }
+    .seq-fig svg { width:100%; height:auto; display:block; }
+    .seq-fig figcaption { margin-top:var(--space-3); font-size:var(--text-sm); color:var(--color-text-secondary);
+      text-align:center; line-height:var(--leading-normal); }
+    .seq-fig figcaption b { color:var(--color-text); }
+    .seq .abox { fill:#fff; stroke-width:2; rx:9; }
+    .seq .alabel { font-family:var(--font-body); font-weight:700; font-size:13px; fill:#2C2A28; text-anchor:middle; }
+    .seq .asub   { font-family:var(--font-mono); font-size:9.5px; fill:#9E9790; text-anchor:middle; }
+    .seq .lifeline { stroke:#D8D1C6; stroke-width:1.5; stroke-dasharray:4 5; }
+    .seq .msg   { fill:none; stroke:#6B6560; stroke-width:1.6; }
+    .seq .msg-ev{ fill:none; stroke:#8A8078; stroke-width:1.5; stroke-dasharray:6 4; }
+    .seq .mlabel{ font-family:var(--font-mono); font-size:11px; fill:#4A4640; }
+    .seq .mlabel.mc{ text-anchor:middle; }
+    .seq .mlabel.me{ text-anchor:end; }
+    .seq .act { opacity:.16; }
+    .seq .note { rx:7; stroke-width:1.5; }
+    .seq .ntext { font-family:var(--font-body); font-size:11px; fill:#3a3630; }
+    .seq .ntext.c { text-anchor:middle; }
+    .seq .stepn { font-family:var(--font-mono); font-size:10px; font-weight:700; }
+    .c-a{stroke:#D94F30;} .fa{fill:#D94F30;} .c-b{stroke:#7B6DAA;} .fb{fill:#7B6DAA;}
+    .c-v{stroke:#6D5BC0;} .fv{fill:#6D5BC0;} .c-bad{stroke:#C93B3B;} .fbad{fill:#C93B3B;}
+    .c-ok{stroke:#2D8B55;} .fok{fill:#2D8B55;} .c-s{stroke:#2A7B9B;} .fs{fill:#2A7B9B;}
+
+    /* ── Lifecycle timeline ──────────────────────────────────────────── */
+    .timeline { background:var(--color-surface); border-radius:var(--radius-lg); box-shadow:var(--shadow-md);
+      padding:var(--space-6); margin:var(--space-8) 0; }
+
+    /* ── Tier map + layer stack ──────────────────────────────────────── */
+    .tier-map { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-5); margin:var(--space-8) 0; }
+    @media(max-width:700px){ .tier-map{ grid-template-columns:1fr; } }
+    .tier { border-radius:var(--radius-md); padding:var(--space-5); background:var(--color-surface); box-shadow:var(--shadow-sm); border-top:4px solid; }
+    .tier.draft { border-top-color:#6D5BC0; }
+    .tier.committed { border-top-color:#2A7B9B; }
+    .tier h4 { font-family:var(--font-display); font-size:var(--text-lg); margin-bottom:var(--space-2); }
+    .tier .tid { font-family:var(--font-mono); font-size:.72rem; background:var(--color-bg-code); color:#CBA6F7;
+      padding:3px 8px; border-radius:var(--radius-sm); display:inline-block; margin-bottom:var(--space-3); }
+    .tier ul { margin:0; padding-left:var(--space-5); font-size:var(--text-sm); color:var(--color-text-secondary); }
+    .tier ul li { margin-bottom:var(--space-1); }
+
+    .layer-stack { margin:var(--space-8) 0; display:flex; flex-direction:column; gap:6px; }
+    .lyr { display:grid; grid-template-columns:180px 1fr; gap:var(--space-4); align-items:center;
+      background:var(--color-surface); border-radius:var(--radius-md); padding:var(--space-4) var(--space-5);
+      box-shadow:var(--shadow-sm); border-left:4px solid; }
+    @media(max-width:640px){ .lyr{ grid-template-columns:1fr; gap:var(--space-1); } }
+    .lyr.enf { border-left-color:#2D8B55; } .lyr.rt { border-left-color:#6D5BC0; } .lyr.cl { border-left-color:#D4A843; }
+    .lyr .lname { font-family:var(--font-display); font-weight:700; font-size:var(--text-base); }
+    .lyr .lname small { display:block; font-family:var(--font-mono); font-size:.66rem; color:var(--color-text-muted);
+      text-transform:uppercase; letter-spacing:.06em; margin-top:2px; font-weight:600; }
+    .lyr .ldesc { font-size:var(--text-sm); color:var(--color-text-secondary); }
+    .lyr .ldesc code { font-size:.82em; }
+
+    /* ── disaster cards ──────────────────────────────────────────────── */
+    .disaster { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:var(--space-4); margin:var(--space-6) 0; }
+    .dcard { background:var(--color-surface); border-radius:var(--radius-md); padding:var(--space-5);
+      box-shadow:var(--shadow-sm); border-top:3px solid var(--color-error); }
+    .dcard .dicon{ font-size:1.4rem; margin-bottom:var(--space-2); }
+    .dcard h4{ font-family:var(--font-display); font-size:var(--text-base); margin-bottom:var(--space-2); }
+    .dcard p{ font-size:var(--text-sm); color:var(--color-text-secondary); margin:0; }
+    .dcard .dwho{ font-family:var(--font-mono); font-size:.68rem; color:var(--color-text-muted); margin-top:var(--space-3); display:block; }
+
+    /* decision recap */
+    .dlog dt::before{ content:attr(data-d); }
+    .legend-inline { display:flex; flex-wrap:wrap; gap:var(--space-4); margin:var(--space-4) 0 var(--space-2);
+      font-size:var(--text-xs); color:var(--color-text-secondary); font-family:var(--font-mono); }
+    .legend-inline span{ display:inline-flex; align-items:center; gap:6px; }
+    .lg-solid,.lg-dash{ width:26px; height:0; border-top:2px solid #6B6560; }
+    .lg-dash{ border-top-style:dashed; }
+
+    /* ── decision ladder (directional guard) ─────────────────────────── */
+    .ladder { margin: var(--space-8) 0; }
+    .ladder-step, .ladder-terminal { display:grid; grid-template-columns:1fr 92px minmax(220px,300px); align-items:center; gap:var(--space-2); }
+    .ladder-q { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-md);
+      padding:var(--space-3) var(--space-4); box-shadow:var(--shadow-sm); }
+    .ladder-q strong{ font-family:var(--font-display); font-size:var(--text-sm); display:block; }
+    .ladder-q span{ font-size:var(--text-xs); color:var(--color-text-secondary); }
+    .ladder-branch { text-align:center; font-family:var(--font-mono); font-size:.72rem; color:var(--color-text-muted); }
+    .ladder-out { border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); border-left:4px solid; }
+    .ladder-out .lo-title{ font-family:var(--font-display); font-weight:700; font-size:var(--text-sm); display:block; }
+    .ladder-out .lo-sub{ font-size:var(--text-xs); color:var(--color-text-secondary); display:block; margin-top:2px; }
+    .ladder-else { padding:var(--space-1) 0; font-family:var(--font-mono); font-size:.72rem; color:var(--color-text-muted);
+      border-left:2px solid var(--color-border); margin-left:26px; padding-left:var(--space-4); }
+    .lo-allow{ background:var(--color-success-light); border-color:var(--color-success); }
+    .lo-light{ background:#FBF1DA; border-color:#D4A843; }
+    .lo-block{ background:var(--color-error-light); border-color:var(--color-error); }
+    .lo-named{ background:#FCEDE1; border-color:#D98A3D; }
+    .lo-elev { background:#F7E0DA; border-color:#B8402A; }
+    @media(max-width:680px){
+      .ladder-step,.ladder-terminal{ grid-template-columns:1fr; gap:var(--space-1); }
+      .ladder-branch{ text-align:left; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- shared SVG arrow markers -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <marker id="ah"    markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#6B6560"/></marker>
+    <marker id="ahv"   markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#6D5BC0"/></marker>
+    <marker id="aha"   markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#D94F30"/></marker>
+    <marker id="ahb"   markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#7B6DAA"/></marker>
+    <marker id="ahbad" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#C93B3B"/></marker>
+    <marker id="ahok"  markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#2D8B55"/></marker>
+    <marker id="ahs"   markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 z" fill="#2A7B9B"/></marker>
+  </defs></svg>
+
+  <nav class="nav" id="nav">
+    <div class="progress-bar" id="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+    <div class="nav-inner">
+      <a class="nav-title" href="index.html"><span class="nt-accent">BoQ</span> Concurrency<span class="nt-long"> · locking design</span></a>
+      <div class="stage-nav">
+        <a href="index.html">Overview</a>
+        <a href="architecture-reference.html">Reference</a>
+        <a href="commit-validations.html">Commit</a>
+        <a href="concurrency-locking.html" class="current">Concurrency</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="main">
+
+  <!-- ═══════════════════════════ MODULE 1 — THE PROBLEM ═══════════════════════════ -->
+  <section class="module" id="m1" style="background:var(--color-bg)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">Feature design · pre-build explainer</p>
+        <h1 class="module-title">Concurrency &amp; Locking in BoQ Upload</h1>
+        <p class="module-subtitle">What happens when two people work on the same BoQ at the same time — and the design that stops them silently destroying each other's work. This is a <strong>design explainer</strong>: it explains the problem, the two things we already have, and the proposed solution with diagrams. No code yet.</p>
+        <p style="margin-top:var(--space-4)">
+          <span class="status-badge status-done">design locked · 20 decisions</span>
+          <span class="status-badge status-done">facts verified</span>
+          <span class="status-badge status-planned">build not started</span>
+        </p>
+      </header>
+
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">1 · The one-sentence problem</h2>
+          <p>The whole app is multi-user, but almost nothing in the BoQ wizard stops <em>two people editing the same thing at once</em>. Most of the time that's harmless — but in a handful of places it silently corrupts data or throws away a whole work session. Here are the three that actually hurt:</p>
+
+          <div class="disaster">
+            <div class="dcard">
+              <div class="dicon">🧹</div>
+              <h4>Config gets wiped</h4>
+              <p>Saving a sheet's parser config <strong>replaces the whole blob</strong>. If two people configure the same sheet, the second save silently erases the first person's entire column-mapping session.</p>
+              <span class="dwho">phase: Spoke / Config · <code>set_sheet_config</code></span>
+            </div>
+            <div class="dcard">
+              <div class="dicon">🌳</div>
+              <h4>Review tree corrupts</h4>
+              <p>A "restructure" rewrites parent pointers across <strong>many rows</strong> at once, checked against a stale snapshot. Two at once can create a cycle or orphan that <em>neither</em> request's guard catches.</p>
+              <span class="dwho">phase: Review · <code>save_review_restructure</code></span>
+            </div>
+            <div class="dcard">
+              <div class="dicon">👯</div>
+              <h4>Two "current" versions</h4>
+              <p>Committing computes <code>max(version)+1</code> with no lock. Two commits of the same sheet both write <code>is_current=1</code> → <strong>two current rows</strong>, which quietly breaks every downstream pricing read.</p>
+              <span class="dwho">phase: Commit · <code>commit_boq</code></span>
+            </div>
+          </div>
+
+          <div class="callout callout-accent">
+            <div class="callout-icon">🎯</div>
+            <div class="callout-content"><strong class="callout-title">The goal</strong>
+            <p>Prevent the <em>destructive</em> collisions with a real, server-enforced, <strong>realtime</strong> single-editor lock — while keeping the <em>recoverable</em> ones friction-free with a simple "someone else is here" alert. And fix the commit race regardless, because it corrupts data <em>silently</em>.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">2 · We already have two tools — and they're opposites</h2>
+          <p>The starting point was two existing mechanisms. The key realization is that they sit at <strong>opposite ends of a spectrum</strong> and solve different problems. Understanding why is the whole design.</p>
+
+          <div class="compare-2">
+            <div class="cmp-col cmp-a">
+              <h4><span class="actor-tag at-s">In-Progress PR</span></h4>
+              <p style="font-size:var(--text-sm);color:var(--color-text-secondary)">The "someone is editing this PR" yellow banner. It's Frappe-core <code>doc_viewers</code> <strong>presence</strong> — genuinely realtime, zero backend code… and <strong>zero enforcement</strong>. Two people can still both save. Blocking was even coded once and <em>deliberately commented out</em>.</p>
+              <p style="margin-top:var(--space-3)"><span class="verdict v-yes">realtime</span> <span class="verdict v-no">no teeth</span></p>
+            </div>
+            <div class="cmp-col cmp-b">
+              <h4><span class="actor-tag at-b">BoQ Pricing</span></h4>
+              <p style="font-size:var(--text-sm);color:var(--color-text-secondary)">A real server-enforced single-editor <strong>lock</strong> — it actually rejects the second writer. But it has <strong>no realtime layer</strong>: the other user only finds out on page-load or when their save is rejected. It <em>works</em>; it just surfaces late.</p>
+              <p style="margin-top:var(--space-3)"><span class="verdict v-yes">real lock</span> <span class="verdict v-no">not realtime</span></p>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">💡</div>
+            <div class="callout-content"><strong class="callout-title">Two distinctions that unlock the whole design</strong>
+            <p><strong>Presence ≠ Lock.</strong> Knowing <em>who is in the room</em> is not the same as deciding <em>who holds the pen</em>. &nbsp;·&nbsp; <strong>Server-authoritative ≠ Realtime-notified.</strong> A lock can perfectly protect the data (server rejects the write) while still being slow to <em>tell</em> anyone about it.</p></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ MODULE 2 — PRESENCE vs LOCK ═══════════════════════════ -->
+  <section class="module" id="m2" style="background:var(--color-bg-warm)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">Concept</p>
+        <h2 class="module-title">Presence, alerts, and locks are a spectrum</h2>
+        <p class="module-subtitle">From "just tell me who's here" to "physically stop the second writer." Every BoQ phase gets placed somewhere on this line.</p>
+      </header>
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <div class="spectrum">
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-stops">
+              <div class="spectrum-stop ss-1"><div class="ss-dot"></div><strong>Presence</strong><span>"Who else has this open?"</span><span class="ss-eg">doc_viewers</span></div>
+              <div class="spectrum-stop ss-2"><div class="ss-dot"></div><strong>Soft alert</strong><span>Warns, never blocks. Last-write-wins.</span><span class="ss-eg">PR banner</span></div>
+              <div class="spectrum-stop ss-3"><div class="ss-dot"></div><strong>Hard lock</strong><span>Server rejects the 2nd writer.</span><span class="ss-eg">pricing lock</span></div>
+              <div class="spectrum-stop ss-4"><div class="ss-dot"></div><strong>Realtime lock</strong><span>Rejects <em>and</em> tells everyone live.</span><span class="ss-eg">the goal →</span></div>
+            </div>
+          </div>
+          <p>The In-Progress PR banner sits at <strong>Soft alert</strong>. The BoQ pricing lock sits at <strong>Hard lock</strong>. Neither is at the far right yet. The design moves the destructive BoQ phases to <strong>Realtime lock</strong>, and keeps the recoverable ones at <strong>Soft alert</strong>.</p>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">3 · Why the PR banner can't just "block"</h2>
+          <p>The banner rides Frappe's <code>doc_viewers</code> presence: when you open a PR, the server broadcasts the viewer list to everyone else on that doc, in realtime. Great for awareness. But look at what it <em>doesn't</em> do:</p>
+
+          <div class="legend-inline">
+            <span><span class="lg-solid"></span> call / action</span>
+            <span><span class="lg-dash"></span> realtime event (push)</span>
+          </div>
+
+          <figure class="seq-fig animate-in">
+            <svg class="seq" viewBox="0 0 760 300" role="img" aria-label="doc_viewers presence sequence: both users can still save">
+              <!-- actors -->
+              <g><rect class="abox c-a" x="70"  y="20" width="140" height="36"/><text class="alabel" x="140" y="38">User A</text><text class="asub" x="140" y="50">opens the PR</text></g>
+              <g><rect class="abox c-s" x="310" y="20" width="140" height="36"/><text class="alabel" x="380" y="38">Frappe core</text><text class="asub" x="380" y="50">realtime server</text></g>
+              <g><rect class="abox c-b" x="550" y="20" width="140" height="36"/><text class="alabel" x="620" y="38">User B</text><text class="asub" x="620" y="50">already on the PR</text></g>
+              <!-- lifelines -->
+              <line class="lifeline" x1="140" y1="56" x2="140" y2="286"/>
+              <line class="lifeline" x1="380" y1="56" x2="380" y2="286"/>
+              <line class="lifeline" x1="620" y1="56" x2="620" y2="286"/>
+              <!-- msgs -->
+              <text class="mlabel mc" x="260" y="86">doc_open</text>
+              <line class="msg c-a" x1="140" y1="92" x2="378" y2="92" marker-end="url(#aha)"/>
+              <text class="mlabel mc" x="500" y="120" fill="#8A8078">doc_viewers push {A}</text>
+              <line class="msg-ev" x1="380" y1="126" x2="618" y2="126" marker-end="url(#ah)"/>
+              <!-- note: banner -->
+              <rect class="note" x="536" y="138" width="170" height="30" fill="#FBF1DA" stroke="#E4CE8C"/>
+              <text class="ntext c" x="621" y="157">🟡 "A is editing this PR"</text>
+              <!-- both save -->
+              <text class="mlabel me" x="366" y="196">B saves</text>
+              <line class="msg c-b" x1="620" y1="202" x2="384" y2="202" marker-end="url(#ahb)"/>
+              <text class="mlabel" x="150" y="228">A saves</text>
+              <line class="msg c-a" x1="140" y1="234" x2="378" y2="234" marker-end="url(#aha)"/>
+              <!-- verdict -->
+              <rect class="note" x="120" y="252" width="520" height="34" fill="#FDE8E8" stroke="#E9B4B4"/>
+              <text class="ntext c" x="380" y="273">❌ Both saves succeed → last-write-wins. The banner <tspan font-weight="700">warned</tspan>; nothing was <tspan font-weight="700">blocked</tspan>.</text>
+            </svg>
+            <figcaption>Presence is <b>realtime</b> but has <b>no ownership and no server reject</b>. You can't build a lock on "who's in the room" — there's no first-come winner, and it's all client-rendered. That's why the block was commented out, not shipped.</figcaption>
+          </figure>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">4 · Why the pricing lock feels "not realtime"</h2>
+          <p>The pricing lock is the opposite: it genuinely rejects the second writer on the server. But it never <em>pushes</em> that fact to anyone. So a second user can invest a whole edit before finding out — the exact symptom that motivated this work.</p>
+
+          <figure class="seq-fig animate-in">
+            <svg class="seq" viewBox="0 0 760 344" role="img" aria-label="pricing lock discover-on-failed-save sequence">
+              <g><rect class="abox c-a" x="70"  y="20" width="140" height="36"/><text class="alabel" x="140" y="38">User A</text><text class="asub" x="140" y="50">starts pricing</text></g>
+              <g><rect class="abox c-s" x="310" y="20" width="140" height="36"/><text class="alabel" x="380" y="38">Server</text><text class="asub" x="380" y="50">save_cell_price</text></g>
+              <g><rect class="abox c-b" x="550" y="20" width="140" height="36"/><text class="alabel" x="620" y="38">User B</text><text class="asub" x="620" y="50">opened while free</text></g>
+              <line class="lifeline" x1="140" y1="56" x2="140" y2="330"/>
+              <line class="lifeline" x1="380" y1="56" x2="380" y2="330"/>
+              <line class="lifeline" x1="620" y1="56" x2="620" y2="330"/>
+
+              <text class="mlabel" x="150" y="84">A's first save → acquires lock</text>
+              <line class="msg c-a" x1="140" y1="90" x2="378" y2="90" marker-end="url(#aha)"/>
+              <rect class="act fv" x="376" y="90" width="8" height="210"/>
+
+              <!-- B silent, keeps typing -->
+              <rect class="note" x="512" y="104" width="196" height="44" fill="#ECE7F6" stroke="#C9BEE8"/>
+              <text class="ntext c" x="610" y="122">B has NO idea — no push.</text>
+              <text class="ntext c" x="610" y="138">Types a full rate for 40s…</text>
+
+              <text class="mlabel me" x="366" y="196">B saves the rate</text>
+              <line class="msg c-b" x1="620" y1="202" x2="384" y2="202" marker-end="url(#ahb)"/>
+              <text class="mlabel mc" x="500" y="234" fill="#C93B3B">✗ BOQ_PRICING_LOCKED</text>
+              <line class="msg-ev c-bad" x1="380" y1="240" x2="618" y2="240" marker-end="url(#ahbad)"/>
+
+              <rect class="note" x="512" y="252" width="196" height="44" fill="#FDE8E8" stroke="#E9B4B4"/>
+              <text class="ntext c" x="610" y="270">B discovers the lock ONLY now.</text>
+              <text class="ntext c" x="610" y="286">Draft kept, but unsavable.</text>
+
+              <rect class="note" x="70" y="306" width="340" height="30" fill="#FBF1DA" stroke="#E4CE8C"/>
+              <text class="ntext c" x="240" y="325">+ if A just leaves, lock lingers ~5 min (false block).</text>
+            </svg>
+            <figcaption>The data is <b>safe</b> (server threw, wrote nothing) — but B learns <b>on a failed save</b>, not live. The two real symptoms: <b>wasted typing</b>, and an <b>up-to-5-minute false block</b> after a holder silently leaves (no release-on-leave).</figcaption>
+          </figure>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">5 · The three mechanisms, head-to-head</h2>
+          <div class="tech-table-wrap">
+            <table class="tech-table">
+              <thead><tr><th>Dimension</th><th>PR presence <code>doc_viewers</code></th><th>ApproveNewPR <code>useEditingLock</code></th><th>BoQ pricing lock</th></tr></thead>
+              <tbody>
+                <tr><td>Trigger</td><td>Doc is <em>open</em></td><td>Acquire on mount</td><td>Acquire on first <em>write</em></td></tr>
+                <tr><td>Transport</td><td class="t-center"><span class="verdict v-yes">socket push</span></td><td>push + on-load</td><td class="t-center"><span class="verdict v-no">on-load + on-save</span></td></tr>
+                <tr><td>Server-enforced?</td><td class="t-center"><span class="verdict v-no">no</span></td><td class="t-center"><span class="verdict v-no">no (advisory)</span></td><td class="t-center"><span class="verdict v-yes">yes</span></td></tr>
+                <tr><td>Blocks input?</td><td class="t-center"><span class="verdict v-no">no</span></td><td class="t-center"><span class="verdict v-no">banner only</span></td><td class="t-center"><span class="verdict v-yes">writes</span></td></tr>
+                <tr><td>Cleanup on leave</td><td><code>doc_close</code></td><td class="t-center"><span class="verdict v-yes">sendBeacon + heartbeat</span></td><td class="t-center"><span class="verdict v-no">none (5-min lapse)</span></td></tr>
+                <tr><td>Ownership / takeover</td><td class="t-center">none</td><td>"Edit Anyway" + admin</td><td>auto-when-stale</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout callout-accent">
+            <div class="callout-icon">🧩</div>
+            <div class="callout-content"><strong class="callout-title">Neither one is complete — so we fuse them</strong>
+            <p><strong>useEditingLock</strong> has the right <em>lifecycle</em> (heartbeat, sendBeacon cleanup, socket events) but doesn't actually enforce. The <strong>pricing lock</strong> has the right <em>enforcement</em> but no realtime or cleanup. The design takes the enforcement core from one and the realtime+cleanup layer from the other.</p></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ MODULE 3 — THE DESIGN ═══════════════════════════ -->
+  <section class="module" id="m3" style="background:var(--color-bg)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">The solution</p>
+        <h2 class="module-title">One fused lock, in three layers</h2>
+        <p class="module-subtitle">Enforcement that can't be bypassed, a realtime layer so everyone sees state live, and a cleanup layer so locks free the instant you leave.</p>
+      </header>
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">6 · The three layers</h2>
+          <div class="layer-stack">
+            <div class="lyr enf">
+              <div class="lname">Enforcement<small>reuse pricing lock</small></div>
+              <div class="ldesc">A deterministic <code>sha1</code> primary key → the second concurrent insert collides → <strong>exactly one winner</strong>. Every write endpoint calls it and <code>frappe.throw</code>s the loser. The reject writes <em>nothing</em>. This is the durable, unbypassable boundary.</div>
+            </div>
+            <div class="lyr rt">
+              <div class="lname">Realtime<small>new · model on commission lock</small></div>
+              <div class="ldesc">A broadcast <code>boq:lock_changed</code> event (<code>acquired</code> / <code>released</code> / <code>taken_over</code>). Every screen listens, filters to its own sheet, ignores its own events → a second user flips to read-only within one socket round-trip. Self-heals on reconnect via a re-fetch.</div>
+            </div>
+            <div class="lyr cl">
+              <div class="lname">Cleanup<small>new · model on useEditingLock</small></div>
+              <div class="ldesc"><strong>Release-on-leave</strong> (<code>sendBeacon</code>) frees the lock the instant you close the tab. A <strong>heartbeat</strong> keeps it alive while you're actively editing. Short <strong>~2-min TTL</strong> means even a browser crash frees it fast — no 5-minute ghost.</div>
+            </div>
+          </div>
+          <div class="callout callout-info">
+            <div class="callout-icon">♻️</div>
+            <div class="callout-content"><strong class="callout-title">Almost all the plumbing already exists</strong>
+            <p>The realtime infra (screen-scoped socket listeners + broadcast events) is proven three times over in BoQ already (<code>boq:parse_run_done</code>, the AI passes). The lock engine exists in pricing. The heartbeat/sendBeacon pattern exists in the PR lock. This is mostly <em>wiring known parts together</em>, not new invention.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">7 · What "good" looks like — the realtime flip</h2>
+          <p>Same collision as the pricing example, but with the realtime layer. Watch <span class="actor-tag at-b">User B</span> flip to read-only <em>before</em> they've typed a thing:</p>
+
+          <figure class="seq-fig animate-in">
+            <svg class="seq" viewBox="0 0 760 300" role="img" aria-label="new design realtime acquire sequence">
+              <g><rect class="abox c-a" x="70"  y="20" width="140" height="36"/><text class="alabel" x="140" y="38">User A</text><text class="asub" x="140" y="50">first keystroke</text></g>
+              <g><rect class="abox c-s" x="310" y="20" width="140" height="36"/><text class="alabel" x="380" y="38">Server</text><text class="asub" x="380" y="50">acquire + broadcast</text></g>
+              <g><rect class="abox c-b" x="550" y="20" width="140" height="36"/><text class="alabel" x="620" y="38">User B</text><text class="asub" x="620" y="50">viewing same sheet</text></g>
+              <line class="lifeline" x1="140" y1="56" x2="140" y2="286"/>
+              <line class="lifeline" x1="380" y1="56" x2="380" y2="286"/>
+              <line class="lifeline" x1="620" y1="56" x2="620" y2="286"/>
+
+              <text class="mlabel" x="150" y="84">edit-intent → acquire</text>
+              <line class="msg c-a" x1="140" y1="90" x2="378" y2="90" marker-end="url(#aha)"/>
+              <rect class="act fok" x="376" y="90" width="8" height="150"/>
+              <circle cx="140" cy="90" r="9" fill="#2D8B55"/><text class="stepn" x="140" y="94" fill="#fff" text-anchor="middle">1</text>
+
+              <text class="mlabel mc" x="500" y="120" fill="#6D5BC0">boq:lock_changed {acquired, A}</text>
+              <line class="msg-ev c-v" x1="380" y1="126" x2="618" y2="126" marker-end="url(#ahv)"/>
+              <circle cx="380" cy="126" r="9" fill="#6D5BC0"/><text class="stepn" x="380" y="130" fill="#fff" text-anchor="middle">2</text>
+
+              <rect class="note" x="524" y="140" width="184" height="46" fill="#ECF7EF" stroke="#B4DCC3"/>
+              <text class="ntext c" x="616" y="159">🔒 flips to read-only <tspan font-weight="700">now</tspan></text>
+              <text class="ntext c" x="616" y="175">"A is editing this sheet"</text>
+              <circle cx="620" cy="150" r="9" fill="#2D8B55"/><text class="stepn" x="620" y="154" fill="#fff" text-anchor="middle">3</text>
+
+              <rect class="note" x="70" y="212" width="620" height="34" fill="#E8F5EE" stroke="#B4DCC3"/>
+              <text class="ntext c" x="380" y="233">✓ B never wastes a keystroke. Sub-second. Server reject still backs it up if a packet is lost.</text>
+
+              <text class="mlabel c" x="380" y="278" text-anchor="middle" fill="#9E9790">— B can always still watch read-only; one editor, many viewers —</text>
+            </svg>
+            <figcaption>Acquire on <b>first edit-intent</b> (not on mere open, not as late as first save) + a <b>broadcast event</b> = the second user flips to read-only <b>before</b> investing any work. The server throw remains the durable backstop for dropped packets.</figcaption>
+          </figure>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">8 · Lifecycle — acquire, heartbeat, release, take over</h2>
+          <p>A lock lives only as long as someone is actually editing. Leaving frees it immediately; a crash frees it within the short TTL; an admin can override a stuck one.</p>
+
+          <div class="timeline">
+            <svg class="seq" viewBox="0 0 760 210" role="img" aria-label="lock lifecycle timeline">
+              <!-- baseline -->
+              <line x1="40" y1="70" x2="720" y2="70" stroke="#D8D1C6" stroke-width="2"/>
+              <!-- acquire -->
+              <circle cx="90" cy="70" r="7" fill="#2D8B55"/>
+              <text class="mlabel mc" x="90" y="52" fill="#2D8B55" font-weight="700">acquire</text>
+              <text class="ntext c" x="90" y="92" fill="#6B6560">first edit</text>
+              <!-- heartbeats -->
+              <g fill="#6D5BC0">
+                <circle cx="200" cy="70" r="5"/><circle cx="310" cy="70" r="5"/><circle cx="420" cy="70" r="5"/>
+              </g>
+              <text class="mlabel mc" x="310" y="52" fill="#6D5BC0">heartbeat every ~30s (keeps it alive)</text>
+              <!-- branch A: release -->
+              <path d="M420,70 C500,70 520,130 600,130" fill="none" stroke="#2D8B55" stroke-width="2" marker-end="url(#ahok)"/>
+              <circle cx="600" cy="130" r="7" fill="#2D8B55"/>
+              <text class="ntext" x="612" y="126" fill="#2D8B55" font-weight="700">clean leave → release NOW</text>
+              <text class="ntext" x="612" y="142" fill="#6B6560">sendBeacon frees it instantly</text>
+              <!-- branch B: crash -->
+              <path d="M420,70 C500,70 520,180 600,180" fill="none" stroke="#C93B3B" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#ahbad)"/>
+              <circle cx="600" cy="180" r="7" fill="#C93B3B"/>
+              <text class="ntext" x="612" y="176" fill="#C93B3B" font-weight="700">crash → stale after ~2-min TTL</text>
+              <text class="ntext" x="612" y="192" fill="#6B6560">no heartbeat → auto-freed</text>
+              <!-- admin note -->
+              <rect class="note" x="40" y="118" width="300" height="72" fill="#FDF9F3" stroke="#E5DFD6"/>
+              <text class="ntext" x="56" y="138" font-weight="700">Takeover policy</text>
+              <text class="ntext" x="56" y="156">• stale lock → next editor auto-claims</text>
+              <text class="ntext" x="56" y="172">• fresh lock → <tspan font-weight="700">Admin-only</tspan> force-override</text>
+              <text class="ntext" x="56" y="188">• displaced holder gets a live push (never silent)</text>
+            </svg>
+          </div>
+          <div class="callout callout-warning">
+            <div class="callout-icon">📝</div>
+            <div class="callout-content"><strong class="callout-title">The data-loss contract (when you lose a lock mid-edit)</strong>
+            <p>Your unsaved draft is <strong>kept visible and clearly flagged "not saved"</strong> — never silently discarded, and never clobbered by a forced reload. We don't auto-merge it into the new editor's session (too risky). Plus a browser "you have unsaved changes" guard on navigate-away. Honest limit: we protect <em>visibility &amp; recovery</em>, not <em>automatic preservation</em>.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">9 · Presence comes back — as awareness, where it belongs</h2>
+          <p>The PR <code>doc_viewers</code> mechanism isn't thrown away — it returns as the <strong>complementary awareness layer</strong> on top of the lock. One editor holds the pen; everyone else can watch read-only and see who's here.</p>
+          <div class="icon-rows">
+            <div class="icon-row"><div class="icon-circle" style="background:#ECE9F8;color:#6D5BC0">🔒</div><div><strong>The lock owns correctness</strong><p>One server-enforced editor per sheet. This is what actually prevents lost work.</p></div></div>
+            <div class="icon-row"><div class="icon-circle" style="background:#E4F2F7;color:#2A7B9B">👥</div><div><strong><code>doc_viewers</code> owns awareness</strong><p>A free "also here: B, C" presence list. They coexist instead of competing — this is the clean answer to "was my PR approach correct?" Yes, for awareness.</p></div></div>
+            <div class="icon-row"><div class="icon-circle" style="background:var(--color-border-light);color:var(--color-text-muted)">🚫</div><div><strong>Not in scope: live cursors</strong><p>Google-Docs-style cell-by-cell cursors are deferred — far beyond the correctness goal.</p></div></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ MODULE 4 — WHERE LOCKS GO ═══════════════════════════ -->
+  <section class="module" id="m4" style="background:var(--color-bg-warm)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">Applying it</p>
+        <h2 class="module-title">Where each phase lands</h2>
+        <p class="module-subtitle">Not every phase needs a hard lock. Destructive &amp; unrecoverable → lock. Recoverable → soft alert. And the commit race needs its own fix entirely.</p>
+      </header>
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">10 · Two locks, by tier</h2>
+          <p>Config and Review both edit the same sheet's <em>draft</em> and are coupled (a re-parse from Config destroys Review's rows) — so they share <strong>one</strong> draft-tier lock. Pricing is a separate committed-tier lock. They never overlap in time.</p>
+          <div class="tier-map">
+            <div class="tier draft">
+              <h4>Draft-tier lock</h4>
+              <div class="tid">sha1(boq · sheet · "draft")</div>
+              <ul>
+                <li>Spans <strong>Config + Review</strong> together</li>
+                <li>One "draft editor" per sheet</li>
+                <li>Reuses the pricing-lock doctype with a <code>version = 0</code> sentinel — <strong>no new table, no migration</strong></li>
+                <li>Reject marker <code>BOQ_DRAFT_LOCKED</code></li>
+              </ul>
+            </div>
+            <div class="tier committed">
+              <h4>Committed-tier lock</h4>
+              <div class="tid">sha1(boq · sheet · version)</div>
+              <ul>
+                <li>The <strong>existing pricing lock</strong>, unchanged identity</li>
+                <li>One editor per committed sheet version</li>
+                <li>Gets retrofitted with the realtime + cleanup layers first (safe proving ground)</li>
+                <li>Reject marker <code>BOQ_PRICING_LOCKED</code></li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">11 · The phase map</h2>
+          <div class="tech-table-wrap">
+            <table class="tech-table">
+              <thead><tr><th>Phase</th><th>Collision risk</th><th>Treatment</th><th>Granularity</th></tr></thead>
+              <tbody>
+                <tr><td>Upload</td><td>none — every upload is a new BoQ doc</td><td class="t-center"><span class="verdict v-yes">nothing</span></td><td>—</td></tr>
+                <tr><td>Hub status</td><td>one recoverable field, last-write-wins</td><td class="t-center"><span class="verdict v-mid">soft alert</span></td><td>BoQ</td></tr>
+                <tr><td><strong>Config</strong></td><td>whole-blob clobber → lose a session</td><td class="t-center"><span class="verdict v-no">hard lock</span></td><td>sheet (draft)</td></tr>
+                <tr><td>Parse</td><td>already guarded</td><td class="t-center"><span class="verdict v-yes">exists</span> <span style="font-size:.7rem;color:var(--color-text-muted)">parse_in_progress</span></td><td>BoQ + sheet</td></tr>
+                <tr><td><strong>Review</strong></td><td>cross-row tree corruption</td><td class="t-center"><span class="verdict v-no">hard lock</span></td><td>sheet (draft)</td></tr>
+                <tr><td><strong>Commit</strong></td><td>duplicate <code>is_current</code> (silent)</td><td class="t-center"><span class="verdict v-no">own fix →</span></td><td>(boq, sheet)</td></tr>
+                <tr><td>Pricing</td><td>cell overwrite</td><td class="t-center"><span class="verdict v-yes">exists</span> <span style="font-size:.7rem;color:var(--color-text-muted)">+ realtime</span></td><td>sheet (version)</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">12 · The commit race — verified &amp; catastrophic</h2>
+          <p>This one isn't an editor conflict — it's a classic read-then-write race with <strong>no guard at all</strong>. Two skeptical reviewers independently confirmed it against the live code (and checked live data: zero duplicates today, but nothing prevents it).</p>
+
+          <figure class="seq-fig animate-in">
+            <svg class="seq" viewBox="0 0 760 330" role="img" aria-label="commit race duplicate is_current sequence">
+              <g><rect class="abox c-a" x="70"  y="20" width="150" height="36"/><text class="alabel" x="145" y="38">Commit A</text><text class="asub" x="145" y="50">same sheet</text></g>
+              <g><rect class="abox c-s" x="305" y="20" width="150" height="36"/><text class="alabel" x="380" y="38">PostgreSQL</text><text class="asub" x="380" y="50">READ COMMITTED</text></g>
+              <g><rect class="abox c-b" x="540" y="20" width="150" height="36"/><text class="alabel" x="615" y="38">Commit B</text><text class="asub" x="615" y="50">a second later</text></g>
+              <line class="lifeline" x1="145" y1="56" x2="145" y2="300"/>
+              <line class="lifeline" x1="380" y1="56" x2="380" y2="300"/>
+              <line class="lifeline" x1="615" y1="56" x2="615" y2="300"/>
+
+              <text class="mlabel" x="150" y="84">read max(version) = 2</text>
+              <line class="msg c-a" x1="145" y1="90" x2="378" y2="90" marker-end="url(#aha)"/>
+              <text class="mlabel me" x="374" y="112">read max(version) = 2</text>
+              <line class="msg c-b" x1="615" y1="118" x2="382" y2="118" marker-end="url(#ahb)"/>
+
+              <rect class="note" x="255" y="130" width="250" height="26" fill="#FBF1DA" stroke="#E4CE8C"/>
+              <text class="ntext c" x="380" y="147">both compute next = <tspan font-weight="700">3</tspan></text>
+
+              <text class="mlabel" x="150" y="184">freeze v2 → 0, insert v3 is_current=1</text>
+              <line class="msg c-a" x1="145" y1="190" x2="378" y2="190" marker-end="url(#aha)"/>
+              <text class="mlabel me" x="374" y="212">freeze v2 → 0, insert v3 is_current=1</text>
+              <line class="msg c-b" x1="615" y1="218" x2="382" y2="218" marker-end="url(#ahb)"/>
+
+              <rect class="note" x="150" y="232" width="460" height="30" fill="#FDE8E8" stroke="#E9B4B4"/>
+              <text class="ntext c" x="380" y="252">💥 TWO rows with is_current=1 for one (boq, sheet)</text>
+              <rect class="note" x="150" y="268" width="460" height="30" fill="#FDE8E8" stroke="#E9B4B4"/>
+              <text class="ntext c" x="380" y="288">Every pricing read resolves by is_current=1 → non-deterministic / double-render</text>
+            </svg>
+            <figcaption>Confirmed at <b>commit_pipeline.py:265–274</b> — <code>max(version)+1</code> on a plain read, freeze-then-insert, no <code>SELECT FOR UPDATE</code>, no in-progress flag, no unique index. <b>Silent</b> corruption of the invariant the whole pricing layer trusts.</figcaption>
+          </figure>
+
+          <p><strong>The fix — defense in depth:</strong></p>
+          <div class="step-cards">
+            <div class="step-card"><div class="step-num">1</div><div class="step-body"><strong>App-level serialization</strong><p>A <code>commit_in_progress</code> flag (mirroring the existing <code>parse_in_progress</code>) so the second commit waits and computes <code>N+2</code> — clean UX, clear "a commit is already running."</p></div></div>
+            <div class="step-card"><div class="step-num">2</div><div class="step-body"><strong>Partial unique index (the real backstop)</strong><p><code>UNIQUE (boq, sheet_name) WHERE is_current=1</code> on the BoQ Sheet + Committed Grid tiers. The database <em>physically</em> refuses a second current row — even across two app workers or a check-then-set gap.</p></div></div>
+            <div class="step-card"><div class="step-num">3</div><div class="step-body"><strong>Heal-then-constrain migration</strong><p>Reconcile any existing duplicates first (keep the highest version as current, demote the rest — never delete frozen rows, and pick the same winning version across tiers), <em>then</em> add the index. Live data is clean today, so this is precautionary.</p></div></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ MODULE 4b — CROSS-STAGE / DIRECTIONAL ═══════════════════════════ -->
+  <section class="module" id="m4b" style="background:var(--color-bg)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">The third dimension</p>
+        <h2 class="module-title">A one-way street: don't disturb downstream work</h2>
+        <p class="module-subtitle">The locks so far stop two people fighting over the <em>same</em> screen. But the BoQ phases run in <strong>one direction</strong> — Config → Review → Commit → Pricing — and nothing stops someone in an <em>earlier</em> stage reaching back and destroying the work of someone in a <em>later</em> stage. That's a different problem, and it needs a third kind of guard.</p>
+      </header>
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">13 · Three lock dimensions, not one</h2>
+          <p>Everything up to here was <strong>same-stage</strong> — two peers on the same thing at the same time. The directional guard is <strong>orthogonal</strong>: it protects <em>across</em> the stage ladder, and the existing locks are blind to it.</p>
+          <div class="tech-table-wrap">
+            <table class="tech-table">
+              <thead><tr><th>Lock dimension</th><th>Answers the question…</th><th>Scope</th></tr></thead>
+              <tbody>
+                <tr><td>Draft-tier lock <span class="status-badge status-done">D8</span></td><td>"Is a peer editing Config/Review of this sheet <em>right now</em>?"</td><td class="t-mono">(boq, sheet)</td></tr>
+                <tr><td>Pricing lock <span class="status-badge status-done">exists</span></td><td>"Is a peer pricing <em>this version</em> right now?"</td><td class="t-mono">(boq, sheet, version)</td></tr>
+                <tr><td><strong>Directional guard</strong> <span class="status-badge status-planned">new</span></td><td><strong>"Does a LATER stage hold work my EARLIER action would orphan?"</strong></td><td class="t-mono">across the ladder</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout callout-warning">
+            <div class="callout-icon">🔗</div>
+            <div class="callout-content"><strong class="callout-title">Why the pricing lock can't cover this</strong>
+            <p>The pricing lock is <em>version-scoped</em> — it silently drops the instant a new <code>commit_version</code> is minted. That's <em>exactly</em> the rug-pull below: the act of re-committing destroys the very lock that would have protected it. So the directional guard must live <em>above</em> the version axis.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">14 · The rug-pull</h2>
+          <p>The worst case, verified against live code. <span class="actor-tag at-b">User B</span> has priced a committed sheet. <span class="actor-tag at-a">User A</span> — <em>any</em> user, no role check — reaches back and re-parses, then re-commits. Watch B's work vanish:</p>
+
+          <div class="legend-inline">
+            <span><span class="lg-solid"></span> call / action</span>
+            <span><span class="lg-dash"></span> what the editor loads back</span>
+          </div>
+
+          <figure class="seq-fig animate-in">
+            <svg class="seq" viewBox="0 0 760 360" role="img" aria-label="cross-stage rug-pull: upstream re-parse+re-commit orphans a downstream pricer">
+              <g><rect class="abox c-b" x="70"  y="20" width="140" height="36"/><text class="alabel" x="140" y="38">User B</text><text class="asub" x="140" y="50">pricing · downstream</text></g>
+              <g><rect class="abox c-s" x="310" y="20" width="140" height="36"/><text class="alabel" x="380" y="38">Store</text><text class="asub" x="380" y="50">committed + pricing</text></g>
+              <g><rect class="abox c-a" x="550" y="20" width="140" height="36"/><text class="alabel" x="620" y="38">User A</text><text class="asub" x="620" y="50">upstream · any role</text></g>
+              <line class="lifeline" x1="140" y1="56" x2="140" y2="348"/>
+              <line class="lifeline" x1="380" y1="56" x2="380" y2="348"/>
+              <line class="lifeline" x1="620" y1="56" x2="620" y2="348"/>
+
+              <text class="mlabel mc" x="259" y="84">prices v1 — rates + formulas + colors</text>
+              <line class="msg c-b" x1="140" y1="90" x2="378" y2="90" marker-end="url(#ahb)"/>
+              <rect class="note" x="286" y="102" width="188" height="24" fill="#E8F5EE" stroke="#B4DCC3"/>
+              <text class="ntext c" x="380" y="118">saved @ committed_version = 1 ✓</text>
+
+              <text class="mlabel me" x="616" y="150">① Force Re-parse — deletes review rows</text>
+              <line class="msg c-a" x1="620" y1="156" x2="382" y2="156" marker-end="url(#aha)"/>
+              <text class="mlabel me" x="616" y="182">② re-commit → v2 current, v1 frozen</text>
+              <line class="msg c-a" x1="620" y1="188" x2="382" y2="188" marker-end="url(#aha)"/>
+              <rect class="note" x="292" y="200" width="176" height="24" fill="#FBF1DA" stroke="#E4CE8C"/>
+              <text class="ntext c" x="380" y="216">v2 pricing set = EMPTY</text>
+
+              <text class="mlabel" x="150" y="250">refresh / reopen editor</text>
+              <line class="msg c-b" x1="140" y1="256" x2="378" y2="256" marker-end="url(#ahb)"/>
+              <text class="mlabel mc" x="259" y="278" fill="#C93B3B">loads is_current = v2 → nothing</text>
+              <line class="msg-ev c-bad" x1="378" y1="284" x2="142" y2="284" marker-end="url(#ahbad)"/>
+
+              <rect class="note" x="70" y="300" width="620" height="46" fill="#FDE8E8" stroke="#E9B4B4"/>
+              <text class="ntext c" x="380" y="318">💥 B sees a blank sheet — no warning. Their v1 pricing is orphaned on the frozen version.</text>
+              <text class="ntext c" x="380" y="335">Rates partly recoverable via copy-forward; formulas · remarks · colors are LOST.</text>
+            </svg>
+            <figcaption><b>Force Re-parse + re-commit</b> is reachable by any user, with no role check and no downstream awareness. The editor only ever loads <code>is_current</code>, so B is confronted with an empty sheet. This is the exact gap the directional guard closes.</figcaption>
+          </figure>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">15 · When the guard fires — the decision ladder</h2>
+          <p>It keys on <strong>whether orphanable downstream work exists</strong> — never on the action itself — so your own forward progress stays free, and the response escalates with the risk:</p>
+
+          <div class="ladder">
+            <div class="ladder-step">
+              <div class="ladder-q"><strong>① Downstream work exists?</strong><span>a committed version or priced cells for this sheet</span></div>
+              <div class="ladder-branch">No&nbsp;→</div>
+              <div class="ladder-out lo-allow"><span class="lo-title">✓ Allow</span><span class="lo-sub">pure forward progress — no guard fires</span></div>
+            </div>
+            <div class="ladder-else">else ↓&nbsp; <strong>Yes</strong></div>
+            <div class="ladder-step">
+              <div class="ladder-q"><strong>② Whose work is it?</strong><span>who last committed / priced this sheet</span></div>
+              <div class="ladder-branch">Yours&nbsp;→</div>
+              <div class="ladder-out lo-light"><span class="lo-title">⚠ Light confirm</span><span class="lo-sub">your own iteration</span></div>
+            </div>
+            <div class="ladder-else">else ↓&nbsp; <strong>Another user's</strong></div>
+            <div class="ladder-step">
+              <div class="ladder-q"><strong>③ Are they editing it live?</strong><span>a D8 lock held right now</span></div>
+              <div class="ladder-branch">Yes&nbsp;→</div>
+              <div class="ladder-out lo-block"><span class="lo-title">⛔ Hard block</span><span class="lo-sub">named — "Priya is pricing v1 now"</span></div>
+            </div>
+            <div class="ladder-else">else ↓&nbsp; <strong>No — vacated</strong></div>
+            <div class="ladder-step">
+              <div class="ladder-q"><strong>④ Exported for tendering?</strong><span>last_exported_at is set</span></div>
+              <div class="ladder-branch">No&nbsp;→</div>
+              <div class="ladder-out lo-named"><span class="lo-title">⚠ Named confirm</span><span class="lo-sub">Author-or-Admin — "orphans 214 cells (Priya)"</span></div>
+            </div>
+            <div class="ladder-else">else ↓&nbsp; <strong>Yes — exported</strong></div>
+            <div class="ladder-terminal">
+              <div style="color:var(--color-text-muted);font-family:var(--font-mono);font-size:.72rem">otherwise</div>
+              <div class="ladder-branch"></div>
+              <div class="ladder-out lo-elev"><span class="lo-title">⛔ Elevated confirm</span><span class="lo-sub">typed · Admin — "will desync a live tender"</span></div>
+            </div>
+          </div>
+
+          <div class="callout callout-info">
+            <div class="callout-icon">🧭</div>
+            <div class="callout-content"><strong class="callout-title">Ownership + the orphan contract</strong>
+            <p><strong>Author-or-Admin (D16):</strong> the person who did the work can always re-iterate it; only an <strong>Admin</strong> can authorize disturbing <em>someone else's</em> — the first role check in the otherwise role-less wizard. <strong>Orphan-and-surface (D17):</strong> nothing is deleted (every version is preserved); the displaced pricing is surfaced <em>both ways</em> — the actor sees what they'll strand, the returning author sees where it went — and copy-forward stays opt-in. <strong>Never</strong> auto-migrated (a partial migration that looks complete is a trap) and <strong>never</strong> auto-deleted.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">16 · Five surgical guards</h2>
+          <p>The existing "Finalized freeze" already blocks most backward writes, so the real gap is just <strong>five specific holes</strong>. Each gets one existence-check guard — extending a pattern already in the code, not a new lock subsystem.</p>
+          <div class="tech-table-wrap">
+            <table class="tech-table">
+              <thead><tr><th>Hole</th><th>Endpoint</th><th>Guard fires when…</th></tr></thead>
+              <tbody>
+                <tr><td>Parsed reviewer window</td><td class="t-mono">review writes on a Parsed sheet</td><td>a downstream commit/pricing exists</td></tr>
+                <tr><td>Un-finalize</td><td class="t-mono">unmark_sheet_parsed_check_done</td><td>committed/priced artifact exists</td></tr>
+                <tr><td>Force re-parse</td><td class="t-mono">run_parse(force_reparse=True)</td><td>committed/priced artifact exists</td></tr>
+                <tr><td>Re-commit over priced</td><td class="t-mono">commit_boq</td><td>current version has pricing to orphan</td></tr>
+                <tr><td>Root metadata</td><td class="t-mono">update_boq_draft (tax_treatment/version)</td><td><strong>any</strong> sheet in the BoQ is committed/priced</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout callout-accent">
+            <div class="callout-icon">🧱</div>
+            <div class="callout-content"><strong class="callout-title">A third axis, composed of parts we already have</strong>
+            <p>The five guards are the <strong>state floor</strong> (a cheap existence check, the same throw-pattern as today's finalized freeze). The <strong>D8 locks</strong> supply the <em>presence upgrade</em> (naming a live victim → hard block). <strong>Attribution</strong> supplies <em>ownership</em> (Author-or-Admin). Two invariants are preserved: re-committing a sheet with <em>no</em> downstream pricing stays free forward progress, and the parse-vs-commit eligibility asymmetry is untouched.</p></div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ MODULE 5 — ROLLOUT ═══════════════════════════ -->
+  <section class="module" id="m5" style="background:var(--color-bg-warm)">
+    <div class="module-content wide">
+      <header class="module-header animate-in">
+        <p class="eyebrow">Rollout &amp; scope</p>
+        <h2 class="module-title">How it ships — and what's deferred</h2>
+        <p class="module-subtitle">Fix the dangerous bug first, prove the fused lock on the surface that already blocks, then spread to the new phases.</p>
+      </header>
+      <div class="module-body">
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">17 · Four phases</h2>
+          <div class="flow-steps">
+            <div class="flow-step"><div class="flow-step-num">A</div><p><strong>Foundation</strong><br>commit-race fix + fused primitive + pricing retrofit</p></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><div class="flow-step-num">B</div><p><strong>Same-stage locks</strong><br>draft-tier lock (Config+Review) + presence overlay</p></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><div class="flow-step-num">C</div><p><strong>Directional guard</strong><br>5 guards + tiered confirm + attribution + orphan-surfacing</p></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-step"><div class="flow-step-num">D</div><p><strong>Polish</strong><br>admin override UI, data-loss refinements</p></div>
+          </div>
+          <div class="callout callout-info">
+            <div class="callout-icon">🛡️</div>
+            <div class="callout-content"><strong class="callout-title">Why this order</strong>
+            <p>The commit fix is independent and it's the only <em>silent</em> corruption → it ships first. Retrofitting the pricing lock (which <em>already</em> blocks) proves the new realtime+cleanup machinery on low-risk ground, <em>before</em> we debut brand-new blocking on Config/Review. The directional guard's <strong>state-floor half</strong> (pure existence checks) has almost no dependencies and can ride alongside Phase A to kill the silent rug-pull early; its <strong>presence-upgrade</strong> reuses Phase B's locks, so the full tiered guard lands in Phase C. A server-side <strong>break-glass flag</strong> (default on) can disable all enforcement instantly if anything misbehaves in production.</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">18 · Future scope — you direct these later</h2>
+          <div class="pattern-cards">
+            <div class="pattern-card"><div class="pattern-icon" style="background:#ECE9F8;color:#6D5BC0">🔁</div><div class="pattern-title">Harden the PR surface</div><p class="pattern-desc">Apply the proven primitive to the In-Progress PR flow itself. Separate stakeholder review (hot approval path).</p></div>
+            <div class="pattern-card"><div class="pattern-icon" style="background:#E4F2F7;color:#2A7B9B">🧰</div><div class="pattern-title">Extract a shared module</div><p class="pattern-desc">A generic backend lock + <code>useEntityLock</code> hook, so SR / PO / other domains adopt it without copy-paste.</p></div>
+            <div class="pattern-card"><div class="pattern-icon" style="background:#E8F5EE;color:#2D8B55">✍️</div><div class="pattern-title">Live cell cursors</div><p class="pattern-desc">Google-Docs-style per-cell presence on the grids. Big build; deferred.</p></div>
+            <div class="pattern-card"><div class="pattern-icon" style="background:#FBF1DA;color:#B07D1A">💤</div><div class="pattern-title">Crash-free push</div><p class="pattern-desc">A scheduled sweep that <em>pushes</em> "lock freed" the instant a crashed holder's TTL lapses (today: lazy).</p></div>
+          </div>
+        </section>
+
+        <section class="screen animate-in">
+          <h2 class="screen-heading">19 · One open decision</h2>
+          <div class="callout callout-warning">
+            <div class="callout-icon">⚠️</div>
+            <div class="callout-content"><strong class="callout-title">Hub general-specs (D11) — needs your call</strong>
+            <p>Fixing the general-specs "replace-all clobber" turned out <em>not</em> to be backend-only (the UI submits the whole set). Two options: <strong>(a)</strong> rewrite it into an additive per-sheet toggle (eliminates the race, more work FE+BE), or <strong>(b)</strong> <em>lean:</em> keep the one-Save endpoint and add an optimistic compare-and-set — if the set changed since you loaded it, reject with "specs changed, reload." Smaller, preserves the current UX, turns silent clobber into a visible, recoverable conflict.</p></div>
+          </div>
+
+          <h3 style="font-family:var(--font-display);font-size:var(--text-lg);margin:var(--space-8) 0 var(--space-4)">The 20 locked decisions</h3>
+          <dl class="def-grid dlog">
+            <dt>D1</dt><dd>Correctness-first for destructive phases; awareness for recoverable</dd>
+            <dt>D2</dt><dd>Acquire on <strong>first edit-intent</strong> (not on mount, not on save)</dd>
+            <dt>D3</dt><dd>Broadcast <code>boq:lock_changed</code>, both directions, sub-second + self-heal</dd>
+            <dt>D4</dt><dd>Release-on-leave + heartbeat, ~30s/~2-min, no cron sweep</dd>
+            <dt>D5</dt><dd>Auto-takeover on stale + Admin-only force-override (live push)</dd>
+            <dt>D6</dt><dd>Preserve unsaved drafts visibly + flag; no auto-merge; beforeunload guard</dd>
+            <dt>D7</dt><dd>Viewing always allowed + banner + free <code>doc_viewers</code> presence; no cursors</dd>
+            <dt>D8</dt><dd>Two locks by tier: draft (Config+Review) + committed (pricing)</dd>
+            <dt>D9</dt><dd>Commit race fixed: in-progress flag + partial unique index (heal-then-constrain)</dd>
+            <dt>D10</dt><dd>BoQ-only build; PR left presence-only (proven primitive later)</dd>
+            <dt>D11</dt><dd>Hub general-specs lost-update fixed at the endpoint <em>(open: additive vs compare-and-set)</em></dd>
+            <dt>D12</dt><dd>Ship A → B → C (commit-fix first, prove-on-pricing before draft-tier)</dd>
+            <dt>D13</dt><dd>Server-side break-glass flag (default enforcing) + client dev override</dd>
+          </dl>
+
+          <h3 style="font-family:var(--font-display);font-size:var(--text-lg);margin:var(--space-8) 0 var(--space-4)">Directional guard — D14 → D20</h3>
+          <dl class="def-grid dlog">
+            <dt>D14</dt><dd>Trigger = <strong>existence</strong> of downstream work (state floor); presence only hardens/names the block</dd>
+            <dt>D15</dt><dd>Tiered response: another-user live → hard block; their vacated artifact → named confirm; your own → light confirm; none → allow</dd>
+            <dt>D16</dt><dd><strong>Author-or-Admin</strong> to override another user's work (first role check in the wizard); needs committed_by/priced_by attribution</dd>
+            <dt>D17</dt><dd>Orphan-and-surface: preserve + loud attribution both ways + opt-in copy-forward; never auto-migrate, never auto-delete</dd>
+            <dt>D18</dt><dd>Per-sheet by default; per-BoQ for tax_treatment/version on update_boq_draft; affected-sheet checks for replace-all</dd>
+            <dt>D19</dt><dd>Exported pricing → elevated typed/two-step "desyncs a live tender" acknowledgment (still Admin-overridable)</dd>
+            <dt>D20</dt><dd>5 targeted <code>_guard_no_downstream_*</code> checks (not a new lock subsystem); preserve forward re-commit + eligibility asymmetry</dd>
+          </dl>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <footer class="page-footer">
+    BoQ Concurrency &amp; Locking — design explainer · no code written yet ·
+    <a href="architecture-reference.html">Architecture Reference</a> ·
+    <a href="index.html">Overview</a>
+  </footer>
+  </main>
+
+  <!-- self-contained behaviors (progress bar + reveal-on-scroll, with a fail-safe reveal) -->
+  <script>
+    (function () {
+      var bar = document.getElementById('progress-bar');
+      function onScroll() {
+        if (!bar) return;
+        var h = document.documentElement;
+        var max = (h.scrollHeight - h.clientHeight) || 1;
+        bar.style.width = (Math.min(1, h.scrollTop / max) * 100) + '%';
+      }
+      document.addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+
+      var items = document.querySelectorAll('.animate-in');
+      if ('IntersectionObserver' in window) {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); } });
+        }, { threshold: 0.08, rootMargin: '0px 0px -8% 0px' });
+        items.forEach(function (el) { io.observe(el); });
+        // fail-safe: nothing stays invisible even if the observer misses it
+        setTimeout(function () { items.forEach(function (el) { el.classList.add('visible'); }); }, 1200);
+      } else {
+        items.forEach(function (el) { el.classList.add('visible'); });
+      }
+    })();
+  </script>
+</body>
+</html>

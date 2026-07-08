@@ -11,8 +11,9 @@
  * client-side from review rows): THIS downloads the user's ORIGINAL tender file with the
  * priced rates + the user's color/remark annotations stamped in by the server.
  *
- * Source = the COMMITTED sheets (committedState, the same source TenderingDialog uses, NOT
- * commit-eligibility). Grid-only general-specs sheets are SHOWN but DISABLED ("no rates to
+ * Source = the COMMITTED sheets (committedState / committedMap, NOT commit-eligibility;
+ * this is the same committed-state the hub's Tendering direct-nav uses). Grid-only
+ * general-specs sheets are SHOWN but DISABLED ("no rates to
  * write") -- they pass through the workbook untouched, so ticking them would be a no-op.
  */
 import { useEffect, useMemo, useState } from "react";

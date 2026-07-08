@@ -201,7 +201,8 @@ export const useProjectsListPayments = () => {
 export const useProjectsListExpenses = () => {
   const response = useFrappeGetDocList<ProjectExpenses>(
     "Project Expenses",
-    { fields: ["projects", "amount"], limit: 100000 },
+    // Only Paid expenses count toward project financial totals.
+    { fields: ["projects", "amount"], filters: [["status", "=", "Paid"]], limit: 100000 },
     projectRootKeys.projectsListExpenses()
   );
 
@@ -470,7 +471,9 @@ export const useProjectViewFinancialData = (projectId: string) => {
     "Project Expenses",
     {
       fields: ["name", "amount"],
-      filters: [["projects", "=", projectId]],
+      // Only Paid expenses count toward the project's financial total (mirrors the
+      // Paid-only Project Payments filter above).
+      filters: [["projects", "=", projectId], ["status", "=", "Paid"]],
       limit: 0,
     },
     projectId ? projectRootKeys.projectExpenses(projectId) : null

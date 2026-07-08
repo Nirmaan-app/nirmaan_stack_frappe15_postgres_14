@@ -229,6 +229,20 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
   `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
   hub-scoped. Full detail in `boq-frontend.md`.
+- **SheetCard is a persistent 3-zone stepper** (`① Configure → ② Review → ③ Commit & Tender`). The
+  effective-status → zone mapping lives in the PURE `sheetCardStages.ts` (`computeSheetStages`, unit-tested,
+  ADR-0010 F4); `SheetCard.tsx` only renders descriptors + interpolates dynamic text (dates/reasons). There is
+  **no header status pill** — the status IS the button-bearing zone's marker; the header holds only name +
+  summary + transient chips (Parsing…, needs-re-parse, N-issues). **Stage ③ is READ-ONLY** (committed badge
+  alone on its line, priced/orphan chips stacked below; Commit + Tender are footer-only actions). Aside sheets
+  (Skip/Hidden) collapse the rail; a committed general-specs sheet still lights ③.
+- **Parse-gate rule:** `canParse = reviewedCount >= 1` (≥1 Config-Done sheet). Pending / Parse-failed sheets do
+  NOT block — `ParseRunDialog` shows them read-only and only ticks Config-Done sheets.
+- **Tendering is direct-nav:** the footer button navigates straight to `/pricing/{first committed sheet by
+  sheet_order}`; the pricing editor's in-editor sheet-tab strip replaces the old picker (TenderingDialog removed).
+- **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
+  (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
+  `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. Detail in `boq-frontend.md`.
 
 ### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
 
@@ -256,12 +270,53 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **`priceability.ts` is the shared "qty-bearing priceable line" spine** — the ONE definition for flags / the N-of-M
   count / rollup alignment. It imports PricingGrid's leaf predicates; **PricingGrid NEVER imports priceability**
   (receives flags as a prop) — keep this one-way dependency (why `isNonZeroNum` is a self-contained copy in PricingGrid).
-- **Column resize is shipped; frozen-left is NOT** (cell-level multi-column sticky-left doesn't track horizontal
-  scroll — DEFERRED to a dedicated two-pane slice). Table is `table-fixed` + `<colgroup>`; widths are GRID-LEVEL
+- **Column resize is shipped; frozen-left HAS shipped too** as a TWO-PANE split, gated behind a page-owned `frozen`
+  toggle (`PricingGrid` `frozen` prop, default false, wired from `SheetPricingPage`; `split` engages once every row
+  height is measured -- frozen pane = the 5 anchor columns, scrolling pane = descriptors + Remarks and owns overflow-x/y,
+  mirroring its vertical scroll back to the frozen pane). When `frozen` is OFF (the default) it stays a single
+  `table-fixed` + `<colgroup>` table with only a vertically-sticky header (no sticky-left). Widths are GRID-LEVEL
   (never a per-row prop, so the row memo is untouched). Full-screen is an in-app root-`className` toggle (NO portal /
-  Dialog — ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
+  Dialog -- ONE JSX tree, so the grid never remounts and unsaved drafts + cursor survive).
 - **Annotation channels coexist:** system cell BACKGROUND (priced emerald / amber), user color = LEFT BORDER, system
   flags = col-0 GUTTER, focus = ring — never let one channel mask another.
+- **Classify Category column (CL-2):** a read-only nav column, the FIRST right-pane (scrolling) cell at colIndex
+  `FIXED_ANCHOR_COUNT` (the 5 anchors stay pinned; Category is NOT a 6th anchor). The descriptor colIndex base is
+  centralized to `DESCRIPTOR_COL_START = FIXED_ANCHOR_COUNT + 1` — the `+1` lives in ONE place (render loop /
+  `remarksColIndex` / `descriptorAt` / `colIndexFromColKey` / rate-guard all read it); its leading `<col>`/`<th>` go in
+  the scrolling-pane + single-table colgroups, NEVER the frozen/anchor pane. It is driven by a reference-stable
+  `categoriesByExcelRow: Map<number, SheetCategoryRow>` (built page-side from `get_sheet_categories`, ONE identity line
+  in `pricingRowPropsAreEqual`) — the row memo is untouched (do NOT hand it a per-row prop that changes on keystroke).
+  The run itself is
+  driven from a screen-scoped socket (`boq:classify_sheet_progress`/`_done`) + `get_classify_status` poll on
+  `SheetPricingPage` (the page's FIRST socket), mirroring the BoqHub parse-run pattern. `ClassifySheetDialog.tsx` is the
+  engine/scope picker (registry-driven, modeled on CopyForwardDialog's `Set<selected>` + `Record<id,scope>`).
+- **Category cell is CLICK-TO-EDIT (CL-3):** click (and Enter on the focused cell) open `CategoryVerdictPicker.tsx` (a
+  Radix Popover anchored to the clicked cell via `virtualRef`), with categories GROUPED BY the engine(s) that ran
+  (engine-scoped, NOT all-15; v1 = one Electrical group). **Open-state is PAGE-OWNED, keyed by excel_row — NEVER a
+  per-row prop.** The row receives only a REFERENCE-STABLE `onCategoryClick(excelRow, cellEl)` callback + a stable
+  `categoryLabelById` map (both compared by identity in `pricingRowPropsAreEqual`), so the row memo stays intact — do
+  NOT thread an `open`/`selected` boolean through the row props. Only classified rows are editable
+  (`isRowEditable`). The cell shows the human-readable LABEL (`labelFor`, id fallback) + 3 states via `deriveVerdictState`
+  (auto / amber needs-review / emerald "your pick" human verdict). Selecting calls `set_row_category` (`""`=clear) with an
+  OPTIMISTIC `categoryOverrides` patch folded into the reference-stable `categoriesByExcelRow` map + `mutateCategories`
+  reconcile + revert-on-error. The needs-review filter is UNCHANGED (a human verdict auto-drops the row via
+  `isNeedsReviewCategory`). Catalog + labels come from the read-only `get_category_catalog(discipline)` endpoint. The
+  two-engine overlap-conflict fork stays PARKED. `get_category_catalog` labels the ids -- never invent labels client-side.
+- **Blank-eligible clickability + amber "needs a category" fill (CL-6):** the click/Enter editability gate is
+  `!!onCategoryClick && (isRowEditable(cat) || (isPriceableType(row.node_type) && hasRun))` — an ELIGIBLE
+  (Preamble/Line Item) BLANK cell is clickable once the sheet has been classified at least once; a non-eligible ("Other")
+  row is NEVER clickable; nothing is clickable on a never-run sheet (this REVISES CL-3's "only classified rows are
+  editable"). `hasRun` is a GRID-LEVEL prop = `categoriesByExcelRow.size > 0` (page passes it; same size>0 truth that
+  gates the filter button) — it is DELIBERATELY NOT in `pricingRowPropsAreEqual` (a pure function of the already-compared
+  `categoriesByExcelRow`, so it never flips without that map's ref changing). The Category cell shows an amber FILL
+  (`bg-amber-50 dark:bg-amber-950/30`, the grid's attention-fill token) when (a) an eligible cell has a BLANK effective
+  category (`unclassified`, with or without a record), or (b) a `needs_review` cell HAS a category — case (b) ALSO
+  switches text to high-contrast `text-black dark:text-white` (amber-on-amber was illegible) and keeps its amber dot. The
+  fill CLEARS automatically when a category is set (effective non-blank → state leaves `unclassified`/`needs_review`); do
+  NOT add clearing code. Backend: `set_row_category`→`persist.set_human_verdict` UPSERTS (creates a `BoQ Row Category`
+  when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
+  needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
+  routing literal are unchanged).
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 

@@ -67,6 +67,7 @@ import AssetsPage from "@/pages/Assets/AssetsPage";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
+import ExpenseLayout from "@/pages/Expenses/ExpenseLayout";
 import AdminApprovedQuotationsTable from "@/pages/ApprovedQuotationsFlow/AdminApprovedQuotationsTable";
 import { MilestonesSummary } from "@/pages/Manpower-and-WorkMilestones/MilestonesSummary";
 import { MilestoneTab } from "@/pages/Manpower-and-WorkMilestones/MilestoneTab";
@@ -341,9 +342,20 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <EstimatedPriceOverview /> },
             ],
           },
+          // --- Expense: unified module (Misc Project + Non-Project) with URL tabs ---
+          {
+            path: "expense",
+            element: <ExpenseLayout />,
+            children: [
+              { index: true, element: <Navigate to="/expense/project" replace /> },
+              { path: "project", element: <AllProjectExpensesPage /> },
+              { path: "non-project", element: <NonProjectExpensesPage /> },
+            ],
+          },
+          // Legacy path -> redirect into the unified module (keeps old bookmarks working)
           {
             path: "project-expenses",
-            element: <AllProjectExpensesPage />
+            element: <Navigate to="/expense/project" replace />,
           },
           // ======================================================
           // --- START: COMMISSION REPORT SECTION ---
@@ -524,11 +536,10 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <AllProjectInvocies /> },
             ],
           },
+          // Legacy path -> redirect into the unified Expense module
           {
             path: "non-project",
-            children: [
-              { index: true, element: <NonProjectExpensesPage /> },
-            ],
+            element: <Navigate to="/expense/non-project" replace />,
           },
           // --- Project Payments ---
           {

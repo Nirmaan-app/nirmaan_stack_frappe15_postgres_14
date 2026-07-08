@@ -37,6 +37,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     get_committed_rows_at_version,
     _build_column_descriptors,
 )
+from nirmaan_stack.api.boq.wizard import pricing_lock
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh, read_lock_info
 
 _PRICING = "BoQ Cell Pricing"
@@ -374,6 +375,74 @@ def _set_sheet_lock(boq_name, sheet_name, committed_version, locked: bool) -> di
         "locked_by": locked_by,
         "locked_at": locked_at,
     }
+
+
+# ── Single-editor concurrency lock -- realtime acquire / release (A2 / ADR-0011) ──
+# The transient BoQ Sheet Pricing Lock (pricing_lock.py) gains a realtime layer: the
+# frontend calls acquire_pricing_lock on FIRST edit-intent (and periodically, ~30s, as a
+# heartbeat) and release_pricing_lock on leave (sendBeacon). Each broadcasts
+# boq:lock_changed so every open pricing screen flips read-only / free within a socket
+# round-trip. The server throw in acquire_or_refresh (BOQ_PRICING_LOCKED) remains the
+# durable enforcement (still fired from every save_* endpoint); these endpoints only make
+# the lock state propagate LIVE instead of on-load / on-failed-save.
+
+def _is_nirmaan_admin(user: str) -> bool:
+    """Administrator or a Nirmaan Admin Profile user (mirrors pr_editing_lock's force-release
+    rule). Used ONLY for the admin force-RELEASE path here."""
+    if user == "Administrator":
+        return True
+    return frappe.db.get_value("Nirmaan Users", user, "role_profile") == "Nirmaan Admin Profile"
+
+
+def _validate_lock_args(boq_name, sheet_name, committed_version) -> None:
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if committed_version is None or committed_version == "":
+        frappe.throw("committed_version is required.", title="Missing field: committed_version")
+
+
+@frappe.whitelist(methods=["POST"])
+def acquire_pricing_lock(boq_name=None, sheet_name=None, committed_version=None):
+    """Acquire (or heartbeat-refresh, or stale-takeover) the single-editor pricing lock for a
+    committed (boq, sheet_name VERBATIM #152, committed_version), broadcasting boq:lock_changed
+    on a real acquisition/takeover. Called on FIRST edit-intent AND periodically (~30s) as a
+    heartbeat. OTHER+FRESH throws BOQ_PRICING_LOCKED (the frontend flips to taken-over).
+    Returns {ok, action, lock_info}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.acquire_pricing_lock"""
+    _validate_lock_args(boq_name, sheet_name, committed_version)
+    user = frappe.session.user
+    now = now_datetime()
+    action = acquire_or_refresh(boq_name, sheet_name, committed_version, user, now)
+    frappe.db.commit()  # commit BEFORE publish so a re-reading client sees the new state
+    if action in ("acquired", "took_over"):
+        pricing_lock.broadcast_lock_changed(boq_name, sheet_name, committed_version, action, user)
+    return {
+        "ok": True,
+        "action": action,
+        "lock_info": read_lock_info(boq_name, sheet_name, committed_version, user, now),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def release_pricing_lock(boq_name=None, sheet_name=None, committed_version=None):
+    """Release the single-editor pricing lock on leave (the frontend fires this via
+    navigator.sendBeacon on unload + on unmount). Idempotent + tolerant. The holder releases
+    their own; an admin may force-release another's (D5). Broadcasts boq:lock_changed
+    {released} so waiting users learn the sheet is free live. Returns {ok, action}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.pricing.release_pricing_lock"""
+    _validate_lock_args(boq_name, sheet_name, committed_version)
+    user = frappe.session.user
+    action = pricing_lock.release(
+        boq_name, sheet_name, committed_version, user, is_admin=_is_nirmaan_admin(user)
+    )
+    frappe.db.commit()
+    if action:  # "released" | "released_by_admin"
+        pricing_lock.broadcast_lock_changed(
+            boq_name, sheet_name, committed_version, "released", None
+        )
+    return {"ok": True, "action": action}
 
 
 def _node_priceable_without_override(node_type, node_name, qty) -> bool:
@@ -1979,6 +2048,7 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": [...],                # committed rows, rate cells stamped + markers + 4a annotations
         "column_descriptors": [...],  # passed through from get_committed_rows UNCHANGED
         "commit_version": <int|None>, # the version that was priced (None if uncommitted)
+        "work_packages": [...],       # Work Headers docnames on the committed BoQ Sheet ([] if none)
         "editable": True,             # RESERVED placeholder for the future lock slice
         "lock_info": None,            # RESERVED placeholder for the future lock slice
         "column_formulas": [...],     # F1: per-COLUMN amount formulas (NOT per-row); each
@@ -1998,11 +2068,17 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     rows = committed.get("rows") or []
     column_descriptors = committed.get("column_descriptors") or []
     commit_version = committed.get("commit_version")
+    # Work-package assignments (Work Headers docnames) carried on the committed BoQ Sheet --
+    # passed through UNCHANGED from get_committed_rows (which reads the child table directly).
+    # [] for an uncommitted / grid-only sheet. Additive: one key, no merge, no per-row stamp.
+    work_packages = committed.get("work_packages") or []
 
     base = {
         "rows": rows,
         "column_descriptors": column_descriptors,
         "commit_version": commit_version,
+        # Committed work-package assignments (see above) -- passthrough from get_committed_rows.
+        "work_packages": work_packages,
         # Single-editor lock (slice A) -- PURE READ (this endpoint NEVER acquires/mutates
         # the lock; only save_cell_price does). Defaults below cover the uncommitted /
         # no-version case (free -> editable, lock_info None).

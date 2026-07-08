@@ -12,6 +12,8 @@ export interface NonProjectExpenses {
     comment?: string
     amount: number;
 
+    status?: "Requested" | "Approved" | "Paid"; // Approval workflow status (default "Requested")
+
     // Payment Details (conditionally entered)
     payment_date?: string; // YYYY-MM-DD
     payment_ref?: string;

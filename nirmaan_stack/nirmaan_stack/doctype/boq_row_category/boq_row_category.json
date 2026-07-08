@@ -1,0 +1,368 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "BRCT-.YY.-.#####",
+ "creation": "2026-07-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "committed_version",
+  "discipline",
+  "rule_section",
+  "rule_category_id",
+  "rule_band",
+  "rule_score",
+  "ai_section",
+  "ai_category_id",
+  "ai_confidence",
+  "routing_section",
+  "final_category_id",
+  "routing",
+  "routing_reason",
+  "human_section",
+  "human_category_id",
+  "human_verdict_at",
+  "human_verdict_by",
+  "provenance_section",
+  "rules_version",
+  "prompt_version",
+  "model",
+  "guard_section",
+  "description",
+  "lifecycle_section",
+  "category_version",
+  "is_current",
+  "classified_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Row Identity"
+  },
+  {
+   "description": "The workbook (BOQs) this classification belongs to. Denormalized (mirrors BoQ Cell Remark) so the overlay is filterable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Part of the durable Excel-address identity (survives a re-commit).",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number this classification annotates (= BOQ Nodes.source_row_number = the committed grid row_number). Durable identity component. A classification is PER-ROW (no col_letter).",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet this classification annotates. Anchored to a committed version; identity component.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "default": "Electrical",
+   "description": "The engine/discipline that produced this classification. IN the identity tuple (unlike BoQ Cell Remark) so a second engine's row for the SAME Excel address can coexist as its own current record. v1 is always 'Electrical'.",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rule_section",
+   "fieldtype": "Section Break",
+   "label": "Rule Engine"
+  },
+  {
+   "description": "The rule runner's (classify_line) winning category_id, or blank on ABSTAIN.",
+   "fieldname": "rule_category_id",
+   "fieldtype": "Data",
+   "label": "Rule Category Id"
+  },
+  {
+   "description": "The rule runner's confidence band: HIGH / MED / LOW / ABSTAIN.",
+   "fieldname": "rule_band",
+   "fieldtype": "Data",
+   "label": "Rule Band"
+  },
+  {
+   "description": "The rule runner's post-conflict confidence score (0-1).",
+   "fieldname": "rule_score",
+   "fieldtype": "Float",
+   "label": "Rule Score"
+  },
+  {
+   "fieldname": "ai_section",
+   "fieldtype": "Section Break",
+   "label": "AI Voter (Option B, independent)"
+  },
+  {
+   "description": "The independent AI voter's category_id (never sees rule-engine output), or blank.",
+   "fieldname": "ai_category_id",
+   "fieldtype": "Data",
+   "label": "AI Category Id"
+  },
+  {
+   "description": "The AI voter's self-reported confidence (0-1).",
+   "fieldname": "ai_confidence",
+   "fieldtype": "Float",
+   "label": "AI Confidence"
+  },
+  {
+   "fieldname": "routing_section",
+   "fieldtype": "Section Break",
+   "label": "Routing (R3d)"
+  },
+  {
+   "description": "The routed EFFECTIVE category on auto-accept (rule==AI consensus). BLANK when routing is 'Needs review' -- a blank final_category_id means route-to-human, it is NEVER a category. Effective = human_category_id if set else final_category_id.",
+   "fieldname": "final_category_id",
+   "fieldtype": "Data",
+   "label": "Final Category Id"
+  },
+  {
+   "description": "The R3d routing verdict for this row.",
+   "fieldname": "routing",
+   "fieldtype": "Select",
+   "label": "Routing",
+   "options": "Auto-accepted\nNeeds review"
+  },
+  {
+   "description": "Human-readable explanation of the routing verdict (consensus / weak-consensus / disagreement / mutual-blank).",
+   "fieldname": "routing_reason",
+   "fieldtype": "Small Text",
+   "label": "Routing Reason"
+  },
+  {
+   "fieldname": "human_section",
+   "fieldtype": "Section Break",
+   "label": "Human Verdict"
+  },
+  {
+   "description": "The reviewer's chosen category. When set, it is the effective category (overrides final_category_id). Written IN PLACE on the current record by set_human_verdict -- it does NOT mint a new version (the verdict annotates the same classification run).",
+   "fieldname": "human_category_id",
+   "fieldtype": "Data",
+   "label": "Human Category Id"
+  },
+  {
+   "description": "When the human verdict was recorded.",
+   "fieldname": "human_verdict_at",
+   "fieldtype": "Datetime",
+   "label": "Human Verdict At",
+   "read_only": 1
+  },
+  {
+   "description": "The reviewer who recorded the human verdict (frappe.session.user).",
+   "fieldname": "human_verdict_by",
+   "fieldtype": "Link",
+   "label": "Human Verdict By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "The rules_electrical.json version that produced rule_*.",
+   "fieldname": "rules_version",
+   "fieldtype": "Data",
+   "label": "Rules Version"
+  },
+  {
+   "description": "The AI category prompt version (electrical_ai_category_prompt.md header) that produced ai_*.",
+   "fieldname": "prompt_version",
+   "fieldtype": "Data",
+   "label": "Prompt Version"
+  },
+  {
+   "description": "The AI model that produced ai_*.",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "guard_section",
+   "fieldtype": "Section Break",
+   "label": "Guard (NOT identity)"
+  },
+  {
+   "description": "A copy of the committed row's description at classification time -- a copy-forward MATCH GUARD (a future copy-forward slice warns when the committed description changed under a classification). NOT part of the unique key; never branched on.",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description (guard)"
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Classification Lifecycle"
+  },
+  {
+   "default": "1",
+   "description": "Per-(boq, sheet_name, excel_row, committed_version, discipline) classification version. Incremented on re-classify by the write path (freeze-and-supersede, mirroring the pricing/annotation tiers).",
+   "fieldname": "category_version",
+   "fieldtype": "Int",
+   "label": "Category Version",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Exactly one current classification record per identity tuple. The one-current invariant is enforced by the write path (persist.write_row_categories), NOT this controller (mirrors the pricing/annotation convention).",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Current"
+  },
+  {
+   "description": "When this classification record was written. Set by the write path.",
+   "fieldname": "classified_at",
+   "fieldtype": "Datetime",
+   "label": "Classified At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Row Category",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

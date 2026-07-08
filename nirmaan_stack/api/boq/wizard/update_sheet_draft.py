@@ -1,6 +1,9 @@
 import json
 
 import frappe
+from frappe.utils import now_datetime
+
+from nirmaan_stack.api.boq.wizard import draft_lock
 
 # Statuses settable directly via set_sheet_status.
 # "General specs" is intentionally excluded -- use set_general_specs_sheet instead.
@@ -151,7 +154,7 @@ def set_sheet_label(boq_name: str = None, sheet_name: str = None, label: str = N
 
 
 @frappe.whitelist(methods=["POST"])
-def set_general_specs_sheet(boq_name: str = None, sheet_names=None):
+def set_general_specs_sheet(boq_name: str = None, sheet_names=None, expected_current=None):
     """Designate a set of sheets as general-specifications sheets (replace-all semantics).
 
     Slice 2b-backend-3: sheet_names replaces the former single sheet_name_or_none param.
@@ -208,6 +211,35 @@ def set_general_specs_sheet(boq_name: str = None, sheet_names=None):
         _guard_sheet_not_parsing(boq_name, name)
         # A1: reject if ANY named sheet is Finalized (no partial write).
         _guard_sheet_not_finalized(boq_name, name)
+
+    # B3 / D11 (compare-and-set): the hub sends the general-specs set it LOADED as
+    # expected_current. Reject if it changed since (a concurrent designation by another user)
+    # instead of blindly replace-all-clobbering it -- turning a SILENT lost-update into a
+    # visible, recoverable conflict (the hub reloads + re-applies). Omitting expected_current
+    # (None) skips the check, so a legacy caller stays backward-compatible.
+    if expected_current is not None:
+        if isinstance(expected_current, str):
+            try:
+                expected_current = json.loads(expected_current)
+            except (ValueError, TypeError):
+                frappe.throw(
+                    "expected_current must be a JSON array string or a list.",
+                    title="Invalid JSON",
+                )
+        current = {
+            row.source_sheet_name
+            for row in frappe.get_all(
+                "BoQ General Specs Sheet",
+                filters={"parent": boq_name, "parenttype": "BOQs"},
+                fields=["source_sheet_name"],
+            )
+        }
+        if current != set(expected_current or []):
+            frappe.throw(
+                "The general-specs selection was changed by someone else since you loaded it. "
+                "Reload the BoQ and re-apply your change.",
+                title="Selection changed",
+            )
 
     # Replace-all: remove all existing designations, then insert one row per name.
     frappe.db.delete("BoQ General Specs Sheet", {"parent": boq_name, "parenttype": "BOQs"})
@@ -276,6 +308,13 @@ def set_sheet_config(boq_name: str = None, sheet_name: str = None, sheet_config=
     _guard_sheet_not_parsing(boq_name, sheet_name)
     # A1: reject config writes to a Finalized sheet (un-mark to edit).
     _guard_sheet_not_finalized(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): after the freeze guards, before the
+    # write. Rejects (BOQ_DRAFT_LOCKED) if ANOTHER user is editing this sheet's draft (config
+    # or review) fresh; refreshes/acquires for the holder. Shares this request's transaction
+    # (the trailing commit covers the lock touch). The spoke/review screens acquire on first
+    # edit-intent + broadcast; this is the durable server backstop.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     # Read current state for dirty-marker detection.
     current = frappe.db.get_value(
@@ -375,6 +414,10 @@ def set_sheet_work_packages(boq_name: str = None, sheet_name: str = None, work_h
     _guard_sheet_not_parsing(boq_name, sheet_name)
     # A1: reject config writes to a Finalized sheet (un-mark to edit).
     _guard_sheet_not_finalized(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     # Replace-all: clear existing, insert new
     frappe.db.delete("BoQ Sheet Work Package", {

@@ -84,6 +84,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, StructuralBreak, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -393,15 +394,26 @@ interface ReviewTreeProps {
   // panel display, search, filters, column selector, scroll-to-parent) stays live. The
   // backend enforces the same freeze, so this is the UI line of defence, not the only one.
   readOnly?: boolean;
+  // B1 (ADR-0011): acquire the draft single-editor lock on FIRST edit-intent. Called at the top of
+  // every REAL-edit funnel (value/text edits, reclassify/restructure opens, AI/Gemini accept,
+  // revert) -- NOT the annotation-only paths (saveRemark, dismissFlags). Idempotent on the page
+  // side (heldVersionRef), so firing it from multiple funnels is harmless. Optional: every existing
+  // caller that omits it renders exactly as before.
+  onEditIntent?: () => void;
   // DUAL-AI (ADR-0003 sec 8A): gates the second provider ("Gemini") column + detail-panel accept
   // block. Sourced from get_review_rows.gemini_enabled (Document AI Settings.boq_ai_enabled). When
   // false/undefined the Gemini column + block are NOT mounted -- the layout is byte-identical to
   // the Claude-only tree (totalCols / colSpans stay 8-based). ADDITIVE: every existing caller that
   // omits this prop renders exactly as before.
   geminiEnabled?: boolean;
+  // Full-screen mode support: when true, the parent (SheetReviewPage) is rendering this
+  // tree in an expanded/full-screen layout, so the table scroll container's max-h cap
+  // should relax to reclaim the vertical space the normal page chrome would otherwise use.
+  // Optional/defaulted so every existing caller renders exactly as before.
+  expanded?: boolean;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, geminiEnabled = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false }: ReviewTreeProps) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -501,6 +513,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Childless rows take the light 1-click confirm; rows with children open the staged modal.
   // children = review rows whose effective_parent_index === this row's row_index.
   const onPickClass = (row: ReviewRow, newClassification: string) => {
+    onEditIntent?.(); // B1: reclassify is a real edit -> acquire the draft lock on intent
     setRestructureError(null);
     const childCount = rows.filter(r => r.effective_parent_index === row.row_index).length;
     if (childCount === 0) {
@@ -514,6 +527,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // failure the dialog stays open with an inline error (no AlertDialogAction auto-close).
   const confirmChildlessReclassify = async () => {
     if (!childlessConfirm) return;
+    onEditIntent?.(); // B1: acquire the draft lock before the restructure write
     setRestructureError(null);
     try {
       const res = await restructureCall({
@@ -563,6 +577,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Otherwise (classification-only, or a CHILDLESS parent) the AI-3b-1 accept endpoint
   // path runs unchanged.
   const handleApplyAi = async (row: ReviewRow) => {
+    onEditIntent?.(); // B1: accepting an AI suggestion writes -> acquire the draft lock
     setAiActionError(null);
     const ai = aiSuggestionInfo(row);
     const clsIsChange = aiAcceptCls && ai.hasClass &&
@@ -645,6 +660,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // AI acceptance (either provider) or a manual edit. mutate-only refresh (no edited_at; the
   // re-fetch re-renders the row clean so the Revert button disappears and AI Apply re-enables).
   const handleRevertToParser = async (row: ReviewRow) => {
+    onEditIntent?.(); // B1: revert-to-parser rewrites the row -> acquire the draft lock
     setAiActionError(null);
     try {
       await revertToParserCall({
@@ -668,6 +684,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     presetRowParent?: number | null;
     presetParentMessage?: string;
   }) => {
+    onEditIntent?.(); // B1: a with-children Gemini accept opens the restructure modal -> acquire
     setRestructureModal({
       row: args.row,
       newClassification: args.newClassification,
@@ -904,6 +921,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
   const confirmValueSave = async () => {
     if (!pendingEdit) return;
+    onEditIntent?.(); // B1: a value edit writes -> acquire the draft lock before the save
     const { rowIndex, field, to, area, rateSubkey } = pendingEdit;
     setSaveError(null);
     try {
@@ -932,6 +950,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // On success advances the anchor + refreshes via onSaved (row flips to "Edited"
   // exactly like a numeric edit); failure surfaces inline in the still-open panel.
   const saveTextField = async (rowIndex: number, field: string, value: string) => {
+    onEditIntent?.(); // B1: a text edit writes -> acquire the draft lock before the save
     setSaveError(null);
     try {
       const res = await saveCall({
@@ -1631,7 +1650,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       </div>
       {/* Table scroll area -- max-h adjusted to account for controls bar height */}
-      <div className="overflow-auto max-h-[calc(100vh-16rem)]">
+      <div className={cn("overflow-auto", expanded ? "max-h-[calc(100vh-6rem)]" : "max-h-[calc(100vh-16rem)]")}>
         {/* B2a-fix OBS-1: clicking anywhere in the table body dismisses the single-open
             accordion (sets expandedFlagRow null). The Info button's stopPropagation
             prevents the opening click from immediately triggering this handler.
@@ -2291,7 +2310,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               {canChangeParent && !readOnly && (
                                 <button
                                   type="button"
-                                  onClick={() => setRestructureModal({ row, newClassification: row.effective_classification as string })}
+                                  onClick={() => { onEditIntent?.(); setRestructureModal({ row, newClassification: row.effective_classification as string }); }}
                                   className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 py-0.5 px-2 text-[10px] font-medium leading-none hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
                                 >
                                   Change parent
@@ -2487,166 +2506,187 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               onAccepted={(editedAt) => { onSaved?.(editedAt); }}
                             />
                           )}
-                          {/* C-v2: editable value inputs -- the flat numeric fields this sheet
-                              surfaces (per-area cells + text fields stay read-only here). Each
-                              commits via an explicit Apply button that opens the confirm dialog.
-                              Slice D1: the whole block is gated OUT when readOnly. */}
-                          {!readOnly && editableDescriptors.length > 0 && (
-                            <div className="mb-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                  fixed-width (w-36) fields sit close together then wrap to the next
-                                  row of 4, with no equal-grid dead space spreading them apart. */}
-                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                {editableDescriptors.map(d => {
-                                  const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                  const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                  const current = editInputs[d.value_field] ?? storedStr;
-                                  const dirty = current !== storedStr;
-                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                  return (
-                                    <div key={d.value_field} className="flex flex-col gap-1">
-                                      <label
-                                        htmlFor={`edit-${row.row_index}-${d.value_field}`}
-                                        className="text-[10px] text-muted-foreground"
-                                      >
-                                        {fieldLabel}
-                                      </label>
-                                      <div className="flex items-center gap-1">
-                                        <Input
-                                          id={`edit-${row.row_index}-${d.value_field}`}
-                                          type="number"
-                                          value={current}
-                                          onChange={(e) =>
-                                            setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                          }
-                                          className="h-7 text-xs w-36"
-                                        />
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs shrink-0"
-                                          disabled={!dirty || isSaving}
-                                          onClick={() => openValueConfirm(row, d, storedStr, current)}
-                                        >
-                                          Apply
-                                        </Button>
+                          {/* "Edit Row" accordion -- collapses the inline edit surfaces (values,
+                              text, per-area) behind one CLOSED-by-default toggle so the detail panel
+                              opens read-first. Only rendered when the sheet is editable AND at least
+                              one editable surface exists; on a read-only/finalized sheet none of the
+                              inner blocks render, so the accordion is suppressed entirely. Remarks is
+                              a SEPARATE section below (excluded by owner request). */}
+                          {!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0) && (
+                            <Accordion type="single" collapsible className="mb-2 border-t border-border/60 pt-1">
+                              <AccordionItem value="edit-row" className="border-none">
+                                {/* Compact INLINE trigger: neutralize shadcn's default `flex-1 justify-between`
+                                    (which strands the chevron at the far-right edge of this wide panel) so the
+                                    label + chevron sit together, left-aligned, matching the panel's other
+                                    text-[10px] uppercase section labels. */}
+                                <AccordionTrigger className="w-auto flex-none justify-start gap-1.5 rounded px-1.5 py-1 -ml-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:no-underline hover:text-foreground">
+                                  Edit Row
+                                </AccordionTrigger>
+                                <AccordionContent className="pb-0">
+                                  {/* C-v2: editable value inputs -- the flat numeric fields this sheet
+                                      surfaces (per-area cells + text fields stay read-only here). Each
+                                      commits via an explicit Apply button that opens the confirm dialog.
+                                      Slice D1: the whole block is gated OUT when readOnly. */}
+                                  {!readOnly && editableDescriptors.length > 0 && (
+                                    <div className="mb-2">
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
+                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                          fixed-width (w-36) fields sit close together then wrap to the next
+                                          row of 4, with no equal-grid dead space spreading them apart. */}
+                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                        {editableDescriptors.map(d => {
+                                          const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                          const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                          const current = editInputs[d.value_field] ?? storedStr;
+                                          const dirty = current !== storedStr;
+                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                          return (
+                                            <div key={d.value_field} className="flex flex-col gap-1">
+                                              <label
+                                                htmlFor={`edit-${row.row_index}-${d.value_field}`}
+                                                className="text-[10px] text-muted-foreground"
+                                              >
+                                                {fieldLabel}
+                                              </label>
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  id={`edit-${row.row_index}-${d.value_field}`}
+                                                  type="number"
+                                                  value={current}
+                                                  onChange={(e) =>
+                                                    setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                                  }
+                                                  className="h-7 text-xs w-36"
+                                                />
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="h-7 px-2 text-xs shrink-0"
+                                                  disabled={!dirty || isSaving}
+                                                  onClick={() => openValueConfirm(row, d, storedStr, current)}
+                                                >
+                                                  Apply
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
-                              block from the numeric one. Apply saves DIRECTLY (no confirm
-                              dialog); the value is a string. Shown only when the sheet maps
-                              the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                          {!readOnly && editableTextDescriptors.length > 0 && (
-                            <div className="mb-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                  fixed-width (w-36) fields sit close together then wrap to the next
-                                  row of 4, with no equal-grid dead space spreading them apart. */}
-                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                {editableTextDescriptors.map(d => {
-                                  const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                  const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                  const current = textInputs[d.value_field] ?? storedStr;
-                                  const dirty = current !== storedStr;
-                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                  return (
-                                    <div key={d.value_field} className="flex flex-col gap-1">
-                                      <label
-                                        htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
-                                        className="text-[10px] text-muted-foreground"
-                                      >
-                                        {fieldLabel}
-                                      </label>
-                                      <div className="flex items-center gap-1">
-                                        <Input
-                                          id={`edit-text-${row.row_index}-${d.value_field}`}
-                                          type="text"
-                                          value={current}
-                                          onChange={(e) =>
-                                            setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                          }
-                                          className="h-7 text-xs w-36"
-                                        />
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs shrink-0"
-                                          disabled={!dirty || isSaving}
-                                          onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
-                                        >
-                                          Apply
-                                        </Button>
+                                  )}
+                                  {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
+                                      block from the numeric one. Apply saves DIRECTLY (no confirm
+                                      dialog); the value is a string. Shown only when the sheet maps
+                                      the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
+                                  {!readOnly && editableTextDescriptors.length > 0 && (
+                                    <div className="mb-2">
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
+                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                          fixed-width (w-36) fields sit close together then wrap to the next
+                                          row of 4, with no equal-grid dead space spreading them apart. */}
+                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                        {editableTextDescriptors.map(d => {
+                                          const stored = (row as unknown as Record<string, unknown>)[d.value_field];
+                                          const storedStr = stored === null || stored === undefined ? "" : String(stored);
+                                          const current = textInputs[d.value_field] ?? storedStr;
+                                          const dirty = current !== storedStr;
+                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
+                                          return (
+                                            <div key={d.value_field} className="flex flex-col gap-1">
+                                              <label
+                                                htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
+                                                className="text-[10px] text-muted-foreground"
+                                              >
+                                                {fieldLabel}
+                                              </label>
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  id={`edit-text-${row.row_index}-${d.value_field}`}
+                                                  type="text"
+                                                  value={current}
+                                                  onChange={(e) =>
+                                                    setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
+                                                  }
+                                                  className="h-7 text-xs w-36"
+                                                />
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="h-7 px-2 text-xs shrink-0"
+                                                  disabled={!dirty || isSaving}
+                                                  onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
+                                                >
+                                                  Apply
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                          {/* C-v2d: editable PER-AREA values -- one input per area cell
-                              the sheet maps (qty/amount/rate by area). Each commits via
-                              the SAME confirm dialog as flat numeric edits (openAreaConfirm).
-                              Blank -> 0.0 (the area key stays). Shown only when the sheet
-                              maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                          {!readOnly && editableAreaDescriptors.length > 0 && (
-                            <div className="mb-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                              {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                  fixed-width (w-36) fields sit close together then wrap to the next
-                                  row of 4, with no equal-grid dead space spreading them apart. */}
-                              <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                {editableAreaDescriptors.map(d => {
-                                  const storedVal = resolveDescriptorValue(row, d);
-                                  const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
-                                  const current = areaInputs[d.col] ?? storedStr;
-                                  const dirty = current !== storedStr;
-                                  // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
-                                  const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                                  return (
-                                    <div key={d.col} className="flex flex-col gap-1">
-                                      <label
-                                        htmlFor={`edit-area-${row.row_index}-${d.col}`}
-                                        className="text-[10px] text-muted-foreground"
-                                      >
-                                        {fieldLabel}
-                                      </label>
-                                      <div className="flex items-center gap-1">
-                                        <Input
-                                          id={`edit-area-${row.row_index}-${d.col}`}
-                                          type="number"
-                                          value={current}
-                                          onChange={(e) =>
-                                            setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
-                                          }
-                                          className="h-7 text-xs w-36"
-                                        />
-                                        <Button
-                                          type="button"
-                                          size="sm"
-                                          variant="outline"
-                                          className="h-7 px-2 text-xs shrink-0"
-                                          disabled={!dirty || isSaving}
-                                          onClick={() => openAreaConfirm(row, d, storedStr, current)}
-                                        >
-                                          Apply
-                                        </Button>
+                                  )}
+                                  {/* C-v2d: editable PER-AREA values -- one input per area cell
+                                      the sheet maps (qty/amount/rate by area). Each commits via
+                                      the SAME confirm dialog as flat numeric edits (openAreaConfirm).
+                                      Blank -> 0.0 (the area key stays). Shown only when the sheet
+                                      maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
+                                  {!readOnly && editableAreaDescriptors.length > 0 && (
+                                    <div className="mb-2">
+                                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
+                                      {/* Fixed 4-per-row, content-sized, left-packed grid: the four
+                                          fixed-width (w-36) fields sit close together then wrap to the next
+                                          row of 4, with no equal-grid dead space spreading them apart. */}
+                                      <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
+                                        {editableAreaDescriptors.map(d => {
+                                          const storedVal = resolveDescriptorValue(row, d);
+                                          const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
+                                          const current = areaInputs[d.col] ?? storedStr;
+                                          const dirty = current !== storedStr;
+                                          // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
+                                          const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
+                                          return (
+                                            <div key={d.col} className="flex flex-col gap-1">
+                                              <label
+                                                htmlFor={`edit-area-${row.row_index}-${d.col}`}
+                                                className="text-[10px] text-muted-foreground"
+                                              >
+                                                {fieldLabel}
+                                              </label>
+                                              <div className="flex items-center gap-1">
+                                                <Input
+                                                  id={`edit-area-${row.row_index}-${d.col}`}
+                                                  type="number"
+                                                  value={current}
+                                                  onChange={(e) =>
+                                                    setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
+                                                  }
+                                                  className="h-7 text-xs w-36"
+                                                />
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="h-7 px-2 text-xs shrink-0"
+                                                  disabled={!dirty || isSaving}
+                                                  onClick={() => openAreaConfirm(row, d, storedStr, current)}
+                                                >
+                                                  Apply
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
+                                  )}
+                                  {/* Shared inline save error (numeric + text + per-area edits) */}
+                                  {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
+                                </AccordionContent>
+                              </AccordionItem>
+                            </Accordion>
                           )}
-                          {/* Shared inline save error (numeric + text + per-area edits) */}
-                          {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
                           {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
                               path (save_review_remark): saving a remark does NOT mark the row
                               "Edited". Read + edit here in the panel (no inline reveal row).

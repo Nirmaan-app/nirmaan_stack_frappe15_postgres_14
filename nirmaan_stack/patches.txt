@@ -130,3 +130,10 @@ nirmaan_stack.patches.v3_0.migrate_general_specs_to_child_table
 nirmaan_stack.patches.v3_0.migrate_boq_sheet_draft_status_rename
 
 nirmaan_stack.patches.v3_0.remove_commission_report_zones
+
+nirmaan_stack.patches.v3_0.backfill_project_expenses_status
+nirmaan_stack.patches.v3_0.backfill_non_project_expenses_status #v3
+nirmaan_stack.patches.v3_0.normalize_project_expense_types
+nirmaan_stack.patches.v3_0.boq_commit_current_unique_guard
+
+nirmaan_stack.patches.v3_0.backfill_committed_sheet_work_packages

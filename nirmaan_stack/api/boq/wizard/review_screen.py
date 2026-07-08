@@ -25,6 +25,9 @@ import json
 from typing import Any
 
 import frappe
+from frappe.utils import now_datetime
+
+from nirmaan_stack.api.boq.wizard import draft_lock
 
 from nirmaan_stack.services.boq_parser.classifier import (
     RowClassification,
@@ -1435,6 +1438,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "rows": [{<draft-shaped committed row>, ...}],   # ordered by sort_order
         "column_descriptors": [{col, role, area, value_field, value_key, rate_subkey}, ...],
         "commit_version": <int|None>,   # the current committed version of this sheet
+        "work_packages": [<work_header docname>, ...],   # Work Headers on the committed BoQ Sheet ([] if none)
       }
     `commit_version` (additive -- pricing-overlay slice) is the current committed BoQ Sheet's
     commit_version, the single source of truth a pricing overlay passes to get_sheet_pricing
@@ -1462,7 +1466,7 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     )
     if not sheet_doc:
         # No current committed sheet for this (boq, sheet) -> nothing committed yet.
-        return {"rows": [], "column_descriptors": [], "commit_version": None}
+        return {"rows": [], "column_descriptors": [], "commit_version": None, "work_packages": []}
 
     # Column descriptors: a PURE reuse of the draft-side builder on the committed config.
     # JSON columns may come back parsed (dict) or raw (str) depending on the read path; normalize.
@@ -1472,14 +1476,26 @@ def get_committed_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     }
     column_descriptors = _build_column_descriptors(sheet_config)
 
+    # Work-package assignments carried on the committed BoQ Sheet (child table; direct read
+    # so the pricing layer has the WP context without a second endpoint). Additive: one key.
+    wp_rows = frappe.db.get_all(
+        "BoQ Sheet Work Package",
+        filters={"parent": sheet_doc["name"], "parenttype": "BoQ Sheet"},
+        fields=["work_header"],
+        order_by="idx asc",
+    )
+    work_packages = [r["work_header"] for r in wp_rows if r.get("work_header")]
+
     # Current nodes + row assembly (factored into the shared tail). The CURRENT path pins
     # is_current=1 -- byte-for-byte the prior query (the version-aware twin omits it).
-    return _assemble_committed_rows(
+    result = _assemble_committed_rows(
         boq_name,
         {"boq": boq_name, "sheet": sheet_doc["name"], "is_current": 1},
         column_descriptors,
         sheet_doc.get("commit_version"),
     )
+    result["work_packages"] = work_packages
+    return result
 
 
 def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_version) -> dict:
@@ -1668,6 +1684,11 @@ def save_review_edit(
     _guard_sheet_not_frozen(boq_name, sheet_name)
     # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft (config or review) fresh; refresh/acquire for the holder. After the freeze
+    # guards, before the write; shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     # Slice C-v2d: a non-empty `area` routes to the per-area JSON write path; otherwise
     # this is exactly the flat-field path. An empty-string area is treated as no area.
@@ -1951,6 +1972,11 @@ def save_review_restructure(
     _guard_sheet_not_frozen(boq_name, sheet_name)
     # #164: a sheet whose parse is in flight is also read-only (worker is rebuilding rows).
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): a restructure rewrites parent pointers
+    # across MANY rows -- reject if another user is editing this sheet's draft fresh; refresh/
+    # acquire for the holder. After the freeze guards, before the batch cycle-guard/write.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     try:
         row_index = int(row_index)
@@ -2343,6 +2369,10 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     # A revert WRITES the human layer -> respect the same read-only backstops as the accept.
     _guard_sheet_not_frozen(boq_name, sheet_name)
     _guard_sheet_not_parsing(boq_name, sheet_name)
+
+    # Draft-tier single-editor lock (B1 / ADR-0011): reject if another user is editing this
+    # sheet's draft fresh; refresh/acquire for the holder. Shares this request's transaction.
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
 
     try:
         row_index = int(row_index)
@@ -2794,6 +2824,7 @@ def mark_sheet_parsed_check_done(
 def unmark_sheet_parsed_check_done(
     boq_name: str = None,
     sheet_name: str = None,
+    confirm_orphan=None,
 ) -> dict:
     """
     Revert a "Finalized" sheet back to "Parsed" (Slice D1 Un-mark).
@@ -2801,6 +2832,14 @@ def unmark_sheet_parsed_check_done(
     The inverse of mark_sheet_parsed_check_done: it lifts the read-only freeze so the
     review screen becomes editable again. There is NO integrity check -- moving a sheet
     BACKWARD is always allowed.
+
+    Directional state-floor guard (Phase C0 / ADR-0011): un-finalizing re-opens this sheet
+    for editable review (it is also the ONLY way to reach the "Parsed" reviewer window of a
+    committed sheet). If the CURRENT committed version already carries priced cells, those
+    edits will desync/orphan the committed pricing on the next re-commit. So when downstream
+    pricing exists this endpoint throws with ORPHAN_MARKER + the count UNLESS `confirm_orphan`
+    is truthy. The guard runs AFTER the precondition check but BEFORE the wizard_status write,
+    so a rejected un-finalize mutates nothing.
 
     Precondition: the sheet must currently be at "Finalized" (else frappe.throw).
 
@@ -2841,6 +2880,16 @@ def unmark_sheet_parsed_check_done(
             f"Current status: {current_status}.",
             title="Cannot un-mark",
         )
+
+    # Phase C0 / ADR-0011 directional state-floor guard: throw (with the orphan count +
+    # ORPHAN_MARKER) UNLESS confirmed, when un-finalizing would orphan priced cells on the
+    # current committed version. Placed AFTER validation, BEFORE any write -- a rejected
+    # un-finalize mutates nothing (count 0 -> no-op). Lazy import (module imports only frappe;
+    # kept local to this endpoint for a minimal, isolated diff).
+    from nirmaan_stack.api.boq.wizard import directional_guard
+    directional_guard.guard_no_downstream_orphan(
+        boq_name, sheet_name, confirm_orphan, "un-finalize"
+    )
 
     # Write "Parsed" directly -- bypasses set_sheet_status which rejects "Parsed".
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", "Parsed")

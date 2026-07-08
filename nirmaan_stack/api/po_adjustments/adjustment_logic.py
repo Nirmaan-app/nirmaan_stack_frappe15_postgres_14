@@ -151,6 +151,9 @@ def execute_adjustment(po_id, adjustments_json):
                     expense.amount = amount
                     expense.payment_date = nowdate()
                     expense.payment_by = frappe.session.user
+                    # The adjustment already moves money (paired payment is created
+                    # status="Paid"), so the expense is a completed payment -> Paid.
+                    expense.status = "Paid"
                     comment_text = entry.get("comment", "").strip()
                     expense.comment = f"{comment_text}" if comment_text else po_id
                     expense.save(ignore_permissions=True)
