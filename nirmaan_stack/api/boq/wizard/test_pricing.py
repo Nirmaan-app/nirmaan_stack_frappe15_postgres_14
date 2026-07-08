@@ -2751,6 +2751,7 @@ from nirmaan_stack.api.boq.wizard.export_writeback import (
     _generate_priced_workbook,
     _resolve_sheet_plan,
     _rightmost_mapped_col_index,
+    _safe_export_basename,
     _stamp_rates,
     _write_remark_column,
     export_priced_workbook,
@@ -2942,6 +2943,29 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
                 _assert_fidelity(base, bad)
         _assert_fidelity(base, dict(base))  # identical -> no raise
 
+    # -- _safe_export_basename (the download-filename base) ------------------
+    def test_safe_basename_prefers_display_name(self):
+        self.assertEqual(
+            _safe_export_basename("Tender ABC Project", "BOQ-26-00001"),
+            "Tender ABC Project")
+
+    def test_safe_basename_falls_back_to_docname_when_blank(self):
+        for blank in (None, "", "   "):
+            self.assertEqual(_safe_export_basename(blank, "BOQ-26-00001"), "BOQ-26-00001")
+
+    def test_safe_basename_strips_unsafe_chars(self):
+        # Slashes/colons etc. are illegal in filenames -> stripped, not left in.
+        self.assertEqual(
+            _safe_export_basename('Site A/B: Q1 "final"?', "BOQ-26-00001"),
+            "Site AB Q1 final")
+
+    def test_safe_basename_docname_fallback_when_all_chars_unsafe(self):
+        self.assertEqual(_safe_export_basename('/\\:*?"<>|', "BOQ-26-00001"), "BOQ-26-00001")
+
+    def test_safe_basename_collapses_whitespace(self):
+        self.assertEqual(
+            _safe_export_basename("  Tender   ABC  ", "BOQ-26-00001"), "Tender ABC")
+
 
 class TestExportWritebackEndToEnd(FrappeTestCase):
     """The worker against the committed fixture + a synthetic workbook injected (bypassing
@@ -3062,6 +3086,33 @@ class TestExportWritebackEndToEnd(FrappeTestCase):
         # last_exported_at stamped on the committed BoQ Sheet via set_value
         stamped = frappe.db.get_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at")
         self.assertIsNotNone(stamped, "last_exported_at stamped on the exported sheet")
+
+    def test_filename_uses_display_name_not_docname(self):
+        # The download filename mirrors the ORIGINAL uploaded BoQ name (the friendly
+        # boq_name field), not the docname primary key.
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(
+                self.boq, [self.sheet], path, display_name="Tender ABC Project"
+            )
+        finally:
+            _os.unlink(path)
+        self.assertTrue(res["filename"].startswith("Tender ABC Project_priced_"),
+                        f"friendly name expected, got {res['filename']!r}")
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertNotIn(self.boq, res["filename"], "docname must not leak into the filename")
+
+    def test_filename_falls_back_to_docname_when_no_display_name(self):
+        # display_name omitted (the pre-existing 3-arg call shape) -> docname fallback.
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertTrue(res["filename"].startswith(f"{self.boq}_priced_"),
+                        f"docname fallback expected, got {res['filename']!r}")
 
     def test_generate_priced_highlight_only_on_stamped_rate_cells(self):
         self._add_price(34, "E", 250.0)         # stamped rate cell -> teal

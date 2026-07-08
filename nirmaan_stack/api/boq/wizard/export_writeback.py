@@ -50,6 +50,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 from typing import Any
 
@@ -297,8 +298,26 @@ def _resolve_sheet_plan(boq_name: str, sheet_name: str) -> dict:
     return row
 
 
+# Characters illegal in a Windows/macOS filename (plus control chars). The friendly
+# display name is derived from an uploaded filename so it is usually clean, but we never
+# trust it blind before putting it into the Content-Disposition / download name.
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _safe_export_basename(display_name: str, docname: str) -> str:
+    """Return a filesystem-safe base name (NO extension, NO _priced_<ts> suffix) for the
+    priced-tender export. Prefers the friendly BOQs.boq_name field (e.g. "Tender ABC
+    Project"); falls back to the docname (e.g. "BOQ-26-00001") when the field is blank or
+    sanitizes down to nothing. The caller appends "_priced_<ts>.xlsx"."""
+    cleaned = _UNSAFE_FILENAME_CHARS.sub("", (display_name or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or docname
+
+
 # ── the worker (testable: takes an already-fetched workbook copy path) ─────────────
-def _generate_priced_workbook(boq_name: str, sheet_names: list[str], src_path: str) -> dict:
+def _generate_priced_workbook(
+    boq_name: str, sheet_names: list[str], src_path: str, display_name: str = None
+) -> dict:
     """Stamp the committed pricing/colors/remarks for each sheet onto the workbook at
     src_path (a throwaway COPY), run the fidelity guard, stamp last_exported_at per exported
     sheet, and return the download payload. src_path is loaded data_only=False so formulas
@@ -385,7 +404,9 @@ def _generate_priced_workbook(boq_name: str, sheet_names: list[str], src_path: s
     frappe.db.commit()
 
     ts = frappe.utils.now()[:19].replace("-", "").replace(":", "").replace(" ", "_")
-    filename = f"{boq_name}_priced_{ts}.xlsx"
+    # Filename mirrors the ORIGINAL uploaded BoQ name (the friendly boq_name field), NOT the
+    # docname -- boq_name here is the primary key, used above ONLY for the committed-tier lookups.
+    filename = f"{_safe_export_basename(display_name, boq_name)}_priced_{ts}.xlsx"
     return {
         "filename": filename,
         "content_type": _XLSX_CONTENT_TYPE,
@@ -419,7 +440,9 @@ def export_priced_workbook(boq_name: str = None, sheet_names: Any = None) -> dic
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
     names = _coerce_names(sheet_names)
 
-    source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
+    source_file_url, display_name = frappe.db.get_value(
+        "BOQs", boq_name, ["source_file_url", "boq_name"]
+    )
     if not source_file_url:
         frappe.throw(f"BOQs '{boq_name}' has no source_file_url set.", title="Missing source file")
 
@@ -429,7 +452,7 @@ def export_priced_workbook(boq_name: str = None, sheet_names: Any = None) -> dic
         fetched = _fetch_boq_file_to_tempfile(source_file_url)
         copy = fetched + ".work.xlsx"
         shutil.copy(fetched, copy)  # COPY-ON-WRITE -- stamp the copy, never the original temp/S3
-        return _generate_priced_workbook(boq_name, names, copy)
+        return _generate_priced_workbook(boq_name, names, copy, display_name)
     finally:
         for p in (fetched, copy):
             if p:
