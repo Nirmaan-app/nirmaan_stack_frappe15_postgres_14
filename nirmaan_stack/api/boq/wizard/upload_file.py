@@ -22,6 +22,15 @@ def _upload_status_key(job_id):
     return f"{_UPLOAD_STATUS_CACHE_PREFIX}::{job_id}"
 
 
+def _coerce_flag(value):
+    """Coerce a multipart form flag ('1'/'true'/'yes'/1/True) to int 0|1."""
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return 1 if value else 0
+    return 1 if str(value).strip().lower() in ("1", "true", "yes") else 0
+
+
 def _publish_and_record(payload, user):
     """Publish boq:wizard_parse_done (user-targeted) AND record the outcome in the
     cache keyed by the current RQ job id.
@@ -50,13 +59,27 @@ def _publish_and_record(payload, user):
 
 @frappe.whitelist()
 def upload_file():
-    """Validate, persist, enqueue async parse worker. Returns {job_id}."""
-    project_id = frappe.form_dict.get("project_id")
-    if not project_id:
-        frappe.throw("project_id is required.", title="Missing field: project_id")
+    """Validate, persist, enqueue async parse worker. Returns {job_id}.
 
-    if not frappe.db.exists("Projects", project_id):
-        frappe.throw(f"Project '{project_id}' not found.", title="Not found")
+    Template-authoring path (is_template=1, ADR-0013 D1/D10): a template is a
+    project-less BOQs doc authored by uploading, so project_id is OPTIONAL when
+    is_template is set. The non-template (project) path is unchanged.
+    """
+    is_template = _coerce_flag(frappe.form_dict.get("is_template"))
+
+    project_id = frappe.form_dict.get("project_id")
+    if not is_template:
+        if not project_id:
+            frappe.throw("project_id is required.", title="Missing field: project_id")
+
+        if not frappe.db.exists("Projects", project_id):
+            frappe.throw(f"Project '{project_id}' not found.", title="Not found")
+    else:
+        # Template authoring: project is optional/None. If a project IS supplied it
+        # must still exist; otherwise the template is project-less.
+        if project_id and not frappe.db.exists("Projects", project_id):
+            frappe.throw(f"Project '{project_id}' not found.", title="Not found")
+        project_id = project_id or None
 
     files = frappe.request.files
     if "file" not in files:
@@ -94,6 +117,7 @@ def upload_file():
         project_id=project_id,
         file_url=file_url,
         file_name=filename,
+        is_template=is_template,
     )
 
     return {"job_id": job.id if job else None}
@@ -124,8 +148,12 @@ def get_upload_status(job_id=None):
     return {"state": "done", **cached}
 
 
-def _upload_file_worker(project_id, file_url, file_name, user):
-    """Async worker: open workbook, create BOQs row + sheet_drafts, publish result."""
+def _upload_file_worker(project_id, file_url, file_name, user, is_template=0):
+    """Async worker: open workbook, create BOQs row + sheet_drafts, publish result.
+
+    is_template=1 (ADR-0013): stamp the created BOQs as a project-less template
+    (is_template=1, origin="upload"). project_id may be None in that case.
+    """
     frappe.set_user(user)
     worker_tmp = None
     try:
@@ -168,6 +196,10 @@ def _upload_file_worker(project_id, file_url, file_name, user):
         # Step 6: Create BOQs row.
         boq_doc = frappe.new_doc("BOQs")
         boq_doc.project = project_id
+        if is_template:
+            # ADR-0013: a template authored via upload is a project-less BOQs doc.
+            boq_doc.is_template = 1
+            boq_doc.origin = "upload"
         boq_doc.wizard_state = "In progress"
         boq_doc.boq_name = boq_name
         boq_doc.tax_treatment = "Pre-tax"
