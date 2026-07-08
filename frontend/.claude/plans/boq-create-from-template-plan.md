@@ -106,6 +106,24 @@ template (non-synthetic) row; refuse on upload-origin BOQ.
 **Tests:** a deselected orphan line item does NOT block finalize; excluded rows produce no nodes; included
 subset commits identically to a hand-equivalent upload BOQ.
 
+### T5b — Commit grid from review rows for template origin (Wave 2, DISCOVERED during build) `[backend]` ✅
+**Why (gap the plan missed):** `commit_pipeline.commit_boq` builds the committed GRID tier by re-opening the
+**source Excel** (`_extract_grid_rows`), and throws if there is no `source_file_url`. A template-cloned BoQ has
+no workbook → commit was impossible for template origin (contradicting D9 "post-finalize untouched"). Owner
+decision (2026-07-08): build the grid from the review rows (option A).
+- `commit_pipeline._invert_rows_to_grid(review_rows, sheet_config)` — PURE inverse of `column_role_map`
+  (col_letter → {role, area}) → grid_rows `[{row_number, cells:{col_letter: value}}]`; `_GRID_ROLE_SCALAR` +
+  `_GRID_ROLE_AREA` role→field maps; `row_number = source_row_number` (or `row_index` for synthetic rows).
+- `_template_grid_rows(...)` — DB wrapper: reads review rows filtered `is_excluded=0` (grid/node parity), or
+  seeds one cell row from `preamble_text` for a `grid_only` (general-specs) sheet.
+- `commit_boq` branches on `boq_doc.origin == "template"`: skip the source-file guard + workbook fetch/open;
+  per sheet use `_template_grid_rows` instead of `_extract_grid_rows`. Node tier unchanged (already reads rows).
+- **Safe because** a `grid_and_nodes` sheet's committed grid cells are WRITE-ONLY downstream (only the
+  general-specs reference view reads cells; pricing drives off the node tier). Upload-origin path byte-identical.
+**Tests:** `test_template_commit_grid` (9: pure inverter — scalar/area/None-omit/synthetic/JSON-coerce + DB
+wrapper is_excluded filter + grid_only seed). E2E verified: a real template-origin `commit_boq` with no
+source file commits, grid built from rows, `is_excluded=1` row absent. commit_pipeline 51 regression green.
+
 ### T6 — Template lifecycle endpoints + list-filter (Wave 2) `[backend]`
 **Why:** publish gate + management surface (D10); templates must not pollute project BOQ lists.
 - `create_from_template.py` (or `template_admin.py`): `publish_template` / `deprecate_template` /

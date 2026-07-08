@@ -99,10 +99,17 @@ The Review-and-Select screen is the **existing `SheetReviewPage`/`ReviewTree`** 
 lives in a pure, unit-tested `templateSelection.ts` (F4); per row-memo rules, selection reaches a row as its
 own slice, never the shared Set.
 
-### D9 — Post-finalize is untouched (Q8)
+### D9 — Post-finalize is untouched (Q8) — with the T5b grid amendment
 The template carries nothing for the pricing/tender stage. Commit → tender → pricing (including amount-formula
-declaration) run identically to the upload flow. The **only** change below finalize is the `is_excluded=0`
-filter (D5).
+declaration) run identically to the upload flow. The changes below finalize are limited to: the `is_excluded=0`
+filter (D5); and **T5b (discovered during build):** the commit pipeline builds the committed *grid* tier by
+re-opening the **source Excel** (`_extract_grid_rows`), which a template-cloned BoQ does not have. For
+`origin == "template"` the grid is instead reconstructed from the review rows by inverting
+`sheet_config.column_role_map` (`commit_pipeline._invert_rows_to_grid` / `_template_grid_rows`). This is safe
+because a `grid_and_nodes` sheet's committed grid cells are **write-only downstream** (nothing reads them back —
+pricing drives off the node tier; only the general-specs `grid_only` reference view reads cells, which is seeded
+from `preamble_text`). The node tier is unchanged (it already reads review rows, filtered `is_excluded=0`). The
+upload-origin commit path is byte-identical.
 
 ### D10 — Lifecycle, roles, execution (Q11, Q12, Q13, Q16, Q17)
 - **Status** `Draft → Published → Deprecated` on the template BOQ; only **Published** appears in the create
