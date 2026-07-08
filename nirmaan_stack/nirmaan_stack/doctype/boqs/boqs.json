@@ -27,7 +27,12 @@
   "parse_in_progress",
   "parse_job_id",
   "parse_enqueued_at",
-  "sheet_drafts"
+  "sheet_drafts",
+  "template_section",
+  "is_template",
+  "template_status",
+  "origin",
+  "source_template"
  ],
  "fields": [
   {
@@ -169,12 +174,49 @@
    "fieldtype": "Table",
    "label": "Sheet Drafts",
    "options": "BoQ Sheet Draft"
+  },
+  {
+   "fieldname": "template_section",
+   "fieldtype": "Section Break",
+   "label": "Template"
+  },
+  {
+   "default": "0",
+   "description": "1 = this is a reusable, project-less BoQ TEMPLATE (authored via the wizard, cloned by Create-from-Template). Filtered out of project BoQ lists. See ADR-0013.",
+   "fieldname": "is_template",
+   "fieldtype": "Check",
+   "label": "Is Template"
+  },
+  {
+   "default": "Draft",
+   "description": "Lifecycle of a template BoQ: Draft (authoring) -> Published (selectable in the Create-from-Template picker) -> Deprecated (hidden from the picker; existing clones unaffected). Meaningful only when is_template = 1.",
+   "fieldname": "template_status",
+   "fieldtype": "Select",
+   "label": "Template Status",
+   "options": "Draft\nPublished\nDeprecated"
+  },
+  {
+   "default": "upload",
+   "description": "How this BoQ was created: 'upload' (Excel ingest, re-parseable) or 'template' (cloned from a template; no source workbook, Configure/Parse suppressed). Origin-uniform per BoQ (ADR-0013 D4).",
+   "fieldname": "origin",
+   "fieldtype": "Select",
+   "label": "Origin",
+   "options": "upload\ntemplate",
+   "read_only": 1
+  },
+  {
+   "description": "For origin=template BoQs: the template BoQ this was cloned from (provenance / analytics). Null for upload BoQs and for templates themselves.",
+   "fieldname": "source_template",
+   "fieldtype": "Link",
+   "label": "Source Template",
+   "options": "BOQs",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-06 00:00:00.000000",
+ "modified": "2026-07-08 01:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BOQs",
