@@ -9,6 +9,7 @@ import { formatDate } from "@/utils/FormatDate";
 import { useFrappeGetDocList, useFrappeGetDoc } from "frappe-react-sdk";
 import { Fragment, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 
 /** PO-side totals for a single PO line, used for the PO / Invoiced comparison. */
@@ -61,7 +62,7 @@ export const InvoiceDataDialog = ({
     [visibleInvoices]
   );
 
-  const { data: attachmentDocs } = useFrappeGetDocList<NirmaanAttachment>(
+  const { data: attachmentDocs, isLoading: attachmentsLoading } = useFrappeGetDocList<NirmaanAttachment>(
     "Nirmaan Attachments",
     {
       fields: ["name", "attachment"],
@@ -81,14 +82,28 @@ export const InvoiceDataDialog = ({
     return map;
   }, [attachmentDocs]);
 
+  // `project` is passed as the project ID (docname); resolve it to the readable
+  // project_name for display. Falls back to the raw value if the fetch misses
+  // (e.g. a caller already passed a name).
+  const { data: projectDoc, isLoading: projectLoading } = useFrappeGetDoc<{ project_name?: string }>(
+    "Projects",
+    project,
+    open && project ? `InvoiceDataDialog-Project-${project}` : null
+  );
+  const projectLabel = projectDoc?.project_name || project;
+
   // PO line totals for the "PO / Invoiced" comparison. Fetched once per open
   // dialog; child rows resolve by their `name` (what line_mappings.po_item_row
   // stores) with item_id as a fallback for legacy / post-revision rows.
-  const { data: poDoc } = useFrappeGetDoc<{ items?: any[] }>(
+  const { data: poDoc, isLoading: poLoading } = useFrappeGetDoc<{ items?: any[] }>(
     "Procurement Orders",
     poNumber,
     open && poNumber && isPO ? `InvoiceDataDialog-PO-${poNumber}` : null
   );
+
+  // Skeleton the table while the dialog's shared fetches settle (PO items for the
+  // comparison + attachment URLs). The invoice rows then fetch their own mappings.
+  const tableLoading = !!poLoading || !!attachmentsLoading;
 
   const { poItemsByRow, poItemsById } = useMemo(() => {
     const byRow = new Map<string, POItemTotals>();
@@ -115,7 +130,9 @@ export const InvoiceDataDialog = ({
             {project && (
               <div className="flex items-center gap-2">
                 <Label className="text-red-700 min-w-[80px]">Project:</Label>
-                <span className="text-sm font-medium">{project}</span>
+                {projectLoading
+                  ? <Skeleton className="h-4 w-44" />
+                  : <span className="text-sm font-medium">{projectLabel}</span>}
               </div>
             )}
             {poNumber && (
@@ -146,7 +163,16 @@ export const InvoiceDataDialog = ({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visibleInvoices.length > 0 ? (
+              {tableLoading ? (
+                Array.from({ length: Math.max(visibleInvoices.length, 1) }).map((_, i) => (
+                  <TableRow key={`sk-${i}`}>
+                    <TableCell className="w-8" />
+                    {Array.from({ length: 5 }).map((__, j) => (
+                      <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : visibleInvoices.length > 0 ? (
                 visibleInvoices.map((inv) => (
                   <InvoiceRow
                     key={inv.name}
