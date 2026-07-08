@@ -193,6 +193,11 @@ passes `facetDoctype` to opt in. `<DataTable>` then renders a lazy `SelfFetching
 `facetFilterOptions` memo in new pages** — that legacy path is dual-supported but scheduled for
 sunset (ADR-0010 "Second proof" + Migration & sunset). `getColumnFacet` is the one typed reader.
 
+**Enforcement:** run `python3 scripts/residence_check.py` (from the app root, not `frontend/`)
+before committing — F2/F5 violation counts are ratcheted against `scripts/residence_baseline.json`
+(fail on increase). Before adding a helper for an existing domain concept, consult the domain
+doc's **`## Residence — concept → owner`** manifest (see `.claude/context/domain/procurement.md`).
+
 ---
 
 ## BoQ Wizard & Pricing Editor -- Frontend Conventions
