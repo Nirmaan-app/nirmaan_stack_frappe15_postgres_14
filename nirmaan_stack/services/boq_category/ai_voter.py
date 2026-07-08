@@ -35,13 +35,25 @@ _AI_TIMEOUT = 300
 _RETRIES = 3
 _DEFAULT_MODEL = "claude-opus-4-8"
 
-_PROMPT_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "prompts", "electrical_ai_category_prompt.md"
-)
+_PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
+
+# Per-discipline prompt files (parallel to runner._DISCIPLINE_ASSETS). An unknown discipline
+# raises -- the voter never silently sends the wrong discipline's prompt (HV-1).
+_DISCIPLINE_PROMPTS = {
+    "Electrical": "electrical_ai_category_prompt.md",
+    "HVAC": "hvac_ai_category_prompt.md",
+}
 
 
-def _read_prompt():
-    with open(_PROMPT_PATH, encoding="utf-8") as fh:
+def _prompt_path(discipline="Electrical"):
+    fname = _DISCIPLINE_PROMPTS.get(discipline)
+    if fname is None:
+        raise ValueError(f"no AI category prompt shipped for discipline {discipline!r}")
+    return os.path.join(_PROMPTS_DIR, fname)
+
+
+def _read_prompt(discipline="Electrical"):
+    with open(_prompt_path(discipline), encoding="utf-8") as fh:
         return fh.read()
 
 
@@ -128,7 +140,7 @@ def classify_rows_ai(items, discipline="Electrical", client=None):
 
     ruleset = load_ruleset(discipline=discipline)
     valid_ids = {c["category_id"] for c in ruleset["categories"]}
-    prompt_text = _read_prompt()
+    prompt_text = _read_prompt(discipline)
     prompt_version = _parse_prompt_version(prompt_text)
 
     settings = get_boq_ai_settings()

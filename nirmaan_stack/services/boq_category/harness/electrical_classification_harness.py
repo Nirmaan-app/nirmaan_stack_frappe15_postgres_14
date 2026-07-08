@@ -18,9 +18,32 @@ Usage: BOQ_HARNESS_INPUT=<labelled_xlsx_dir> env/bin/python \\
 import csv, json, os, sys, time, collections
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# DISCIPLINE SWITCH (HV-1): env BOQ_HARNESS_DISCIPLINE selects {discipline, BOQS, prompt}.
+# Default "Electrical" -> byte-identical to the certified electrical runs (BOQS + prompt +
+# classify_line discipline all unchanged when the env var is absent). "HVAC" points the run at
+# the 22-sheet HVAC corpus (12 distinct BoQs; the harness further restricts to the sheets that
+# carry User Category labels in BOQ_HARNESS_INPUT). An unknown value exits with a clear message.
+DISCIPLINE = os.environ.get("BOQ_HARNESS_DISCIPLINE", "Electrical")
+_DISCIPLINE_CFG = {
+    "Electrical": {
+        "boqs": ["BOQ-26-00007", "BOQ-26-00016", "BOQ-26-00019", "BOQ-26-00022", "BOQ-26-00024"],
+        "prompt": "electrical_ai_category_prompt.md",
+    },
+    "HVAC": {
+        # Distinct BoQs across the 22-sheet HVAC corpus (_classification_review/
+        # hvac_corpus_export/_MANIFEST.csv). Sheet-level scoping is by the labelled input.
+        "boqs": ["BOQ-26-00003", "BOQ-26-00004", "BOQ-26-00007", "BOQ-26-00009",
+                 "BOQ-26-00012", "BOQ-26-00013", "BOQ-26-00016", "BOQ-26-00017",
+                 "BOQ-26-00020", "BOQ-26-00023", "BOQ-26-00029", "BOQ-26-00033"],
+        "prompt": "hvac_ai_category_prompt.md",
+    },
+}
 # The canonical AI category prompt is version-controlled beside this module
-# (services/boq_category/prompts/), resolved relative to THIS file's location.
-PROMPT_PATH = os.path.abspath(os.path.join(HERE, "..", "prompts", "electrical_ai_category_prompt.md"))
+# (services/boq_category/prompts/), resolved per discipline relative to THIS file's location.
+_cfg = _DISCIPLINE_CFG.get(DISCIPLINE)
+PROMPT_PATH = os.path.abspath(os.path.join(
+    HERE, "..", "prompts", (_cfg or _DISCIPLINE_CFG["Electrical"])["prompt"]))
 # Labelled INPUT + run OUTPUT stay LOCAL and are NEVER written into the repo tree.
 # INPUT is env-overridable and defaults OUTSIDE the repo; OUTPUT is the required CLI arg.
 # Before running, point BOQ_HARNESS_INPUT at the folder of labelled *.xlsx.
@@ -30,7 +53,7 @@ SITES_DIR = os.environ.get("BOQ_HARNESS_SITES_DIR", "/workspace/development/frap
 SITE = os.environ.get("BOQ_HARNESS_SITE", "localhost")
 BATCH = 20
 AI_MAX_TOKENS = 8000
-BOQS = ["BOQ-26-00007", "BOQ-26-00016", "BOQ-26-00019", "BOQ-26-00022", "BOQ-26-00024"]
+BOQS = (_cfg or {}).get("boqs", [])
 
 LOCKED_COLS = ["project_name","boq_name","sheet_name","excel_row","sl_no","parent_excel_row",
     "classification","level","node_type","description","notes","rule_category","rule_score",
@@ -100,6 +123,10 @@ def _ai_batch(client, model, prompt_text, items, valid_ids):
 
 
 def main():
+    if _cfg is None:
+        print(f"STOP: unknown BOQ_HARNESS_DISCIPLINE {DISCIPLINE!r} "
+              f"(known: {sorted(_DISCIPLINE_CFG)})")
+        sys.exit(2)
     output_folder = os.path.abspath(sys.argv[1])
     os.makedirs(output_folder, exist_ok=True)
     os.chdir(SITES_DIR)
@@ -112,7 +139,7 @@ def main():
     if not api_key:
         print("STOP: AI key not configured"); sys.exit(3)
     model = settings.get("model") or "claude-opus-4-8"
-    valid_ids = {c["category_id"] for c in load_ruleset()["categories"]}
+    valid_ids = {c["category_id"] for c in load_ruleset(DISCIPLINE)["categories"]}
     client = anthropic.Anthropic(api_key=api_key)
     prompt_text = open(PROMPT_PATH, encoding="utf-8").read()
 
@@ -171,7 +198,7 @@ def main():
                 # (EARTH-ANC) match a real section header, not an incidental keyword in an ancestor note.
                 anc_headers = [str(sn)] + [str(a["description"] or "") for a in anc]
                 notes_list = [own_notes] if own_notes else []
-                res = classify_line(desc, anc_texts, notes_list, discipline="Electrical",
+                res = classify_line(desc, anc_texts, notes_list, discipline=DISCIPLINE,
                                     ancestor_headers=anc_headers)
                 rule_out[n["name"]] = res
                 # AI: structured nested tree (root-first, indented, notes per node) + sheet_name

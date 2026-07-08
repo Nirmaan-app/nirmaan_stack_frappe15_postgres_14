@@ -62,19 +62,30 @@ def _read_json(filename: str) -> dict:
         return json.load(fh)
 
 
+# Per-discipline asset files. scoring.json is SHARED (discipline-agnostic knobs); only the
+# category list + rule set are discipline-suffixed. Adding a discipline = one entry here plus
+# the two JSON files (HV-1). An unknown discipline still raises (unchanged contract).
+_DISCIPLINE_ASSETS = {
+    "Electrical": ("categories_electrical.json", "rules_electrical.json"),
+    "HVAC": ("categories_hvac.json", "rules_hvac.json"),
+}
+
+
 @lru_cache(maxsize=None)
 def load_ruleset(discipline: str = "Electrical") -> dict:
     """Load + cache the category/rule/scoring assets for a discipline.
 
     Returns a dict with keys: categories (list), rules (list), scoring (dict),
-    and a few derived lookups. Cached so repeated classify_line() calls do no I/O.
-    Currently only 'Electrical' is shipped; the signature is discipline-aware so
-    other disciplines can drop in <disc>-suffixed asset files later.
+    and a few derived lookups. Cached per discipline so repeated classify_line() calls
+    do no I/O. The category list + rules are discipline-suffixed (see _DISCIPLINE_ASSETS);
+    scoring.json is shared. An unknown discipline raises (unchanged contract).
     """
-    if discipline != "Electrical":
+    assets = _DISCIPLINE_ASSETS.get(discipline)
+    if assets is None:
         raise ValueError(f"no category ruleset shipped for discipline {discipline!r}")
-    categories = _read_json("categories_electrical.json")["categories"]
-    rules = _read_json("rules_electrical.json")["rules"]
+    categories_file, rules_file = assets
+    categories = _read_json(categories_file)["categories"]
+    rules = _read_json(rules_file)["rules"]
     scoring = _read_json("scoring.json")
 
     # Per-category exclusion guards (false-friend suppressors). Two kinds:
