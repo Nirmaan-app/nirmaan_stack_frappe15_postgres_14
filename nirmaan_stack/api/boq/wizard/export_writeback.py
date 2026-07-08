@@ -24,10 +24,12 @@ What it stamps, per ticked sheet, onto a fresh copy:
     the rates-only + formula-skip rule). Applied AFTER the user-color pass, so on a stamped
     rate cell that also carries a user color tag the system teal WINS (the one place a system
     fill beats a user fill -- the aid must be exhaustive over written cells).
-  - REMARKS (BoQ Cell Remark, per-row): a NEW TRAILING COLUMN one past the TRUE data edge
-    (the rightmost MAPPED column from the committed column_role_map -- NOT openpyxl
-    max_column, which is inflated by empty styled cells). A hard empty-column safety check
-    refuses to write if that column carries real data.
+  - REMARKS (BoQ Cell Remark, per-row): a NEW TRAILING COLUMN at the first genuinely-empty
+    column at/after the TRUE data edge (the rightmost MAPPED column from the committed
+    column_role_map -- NOT openpyxl max_column, which is inflated by empty styled cells). The
+    placement SCANS rightward past any pre-existing content (a stray annotation or a trailing
+    column the mapping did not cover -- e.g. an estimator note sitting one column past the
+    mapped edge) so the write-back NEVER overwrites real data yet never dead-ends the export.
 
 After stamping + saving the copy, a POST-SAVE FIDELITY ASSERTION re-opens the saved file
 and verifies the amount-formula count, merged-range count, worksheet count, and
@@ -70,6 +72,10 @@ _XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetm
 
 # The header label written atop the appended remark column.
 _REMARK_HEADER = "Nirmaan Remarks"
+
+# Excel's hard column ceiling (XFD). The remark-column scan is bounded by it so a pathological
+# fully-populated sheet fails loudly instead of looping forever.
+_MAX_EXCEL_COLS = 16384
 
 # Token -> Excel fill hex (ARGB without the alpha; openpyxl PatternFill accepts RRGGBB).
 # DECIDED HERE (Slice 5a -- the one place a color hex is chosen): light, distinct tints so
@@ -207,9 +213,11 @@ def _apply_colors(ws, color_rows: list[dict]) -> int:
 
 
 def _write_remark_column(ws, remark_rows: list[dict], column_role_map: dict, header_row) -> str:
-    """Append the remark column one past the TRUE data edge and write the header + each
-    remark at its excel_row. HARD SAFETY: refuse (throw) if the target column is not
-    genuinely empty across the sheet -- never overwrite real data. Returns the column letter."""
+    """Append the remark column at the first genuinely-empty column at/after the TRUE data
+    edge and write the header + each remark at its excel_row. SAFE PLACEMENT: scan rightward
+    past any column that carries real data (a stray annotation or a trailing column the mapping
+    did not cover) so the write-back never overwrites existing data AND never dead-ends the
+    export. Returns the column letter actually used."""
     rightmost = _rightmost_mapped_col_index(column_role_map)
     if rightmost <= 0:
         frappe.throw(
@@ -218,13 +226,17 @@ def _write_remark_column(ws, remark_rows: list[dict], column_role_map: dict, hea
             title="Remark column undefined",
         )
     target_idx = rightmost + 1
-    target_letter = get_column_letter(target_idx)
-    if not _col_is_empty(ws, target_idx):
-        frappe.throw(
-            f"Remark target column {target_letter} on sheet '{ws.title}' is not empty -- "
-            "refusing to overwrite existing data.",
-            title="Remark column not empty",
-        )
+    while not _col_is_empty(ws, target_idx):
+        # A pre-existing cell in this column (e.g. an estimator note one past the mapped edge)
+        # -- step right rather than clobber it. Bounded by Excel's column ceiling.
+        target_idx += 1
+        if target_idx > _MAX_EXCEL_COLS:
+            frappe.throw(
+                f"No empty column found on sheet '{ws.title}' to place the remark column "
+                f"(scanned past the {_MAX_EXCEL_COLS}-column limit).",
+                title="Remark column: no space",
+            )
+    target_letter = get_column_letter(target_idx)  # first empty column at/after the data edge
     hrow = header_row if (header_row and int(header_row) >= 1) else 1
     ws.cell(row=int(hrow), column=target_idx).value = _REMARK_HEADER
     for r in remark_rows:

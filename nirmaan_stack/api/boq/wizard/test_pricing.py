@@ -2904,11 +2904,43 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
         self.assertEqual(ws["J3"].value, "Nirmaan Remarks", "header at the data header row")
         self.assertEqual(ws["J34"].value, "check with Nitesh")
 
-    def test_write_remark_column_refuses_nonempty_target(self):
+    def test_write_remark_column_scans_past_nonempty_target(self):
+        # A pre-existing cell in the would-be remark column (J, = edge I + 1) must NOT dead-end
+        # the export -- the writer scans rightward to the first genuinely-empty column (K) and
+        # places there, leaving the existing data untouched.
         wb, ws = _new_ws()
-        ws["J10"] = "real data already here"   # J is the would-be remark column
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        ws["J10"] = "real data already here"
+        col = _write_remark_column(
+            ws, [{"excel_row": 34, "remark": "check with Nitesh"}], _FIX_ROLE_MAP, 3
+        )
+        self.assertEqual(col, "K", "scanned past the occupied J to the first empty column K")
+        self.assertEqual(ws["J10"].value, "real data already here", "pre-existing data untouched")
+        self.assertEqual(ws["K3"].value, "Nirmaan Remarks", "header at the data header row")
+        self.assertEqual(ws["K34"].value, "check with Nitesh")
+
+    def test_write_remark_column_scans_past_stray_far_row(self):
+        # Mirrors BOQ-26-00065 (Electrical): the tender's own "Remarks" is the mapped edge and a
+        # single stray estimator note sits far down in the very next column (J167 here). The
+        # writer must skip the whole occupied column J -- scanned across ALL rows -- and land at
+        # the first empty column K, never throwing.
+        wb, ws = _new_ws()
+        ws["J167"] = "Item description, scope & Quantities added."
+        col = _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        self.assertEqual(col, "K", "one stray cell far down still forces a skip to K")
+        self.assertEqual(
+            ws["J167"].value, "Item description, scope & Quantities added.",
+            "the stray note is preserved, never overwritten",
+        )
+        self.assertEqual(ws["K34"].value, "x")
+
+    def test_write_remark_column_scans_past_consecutive_occupied(self):
+        # Two occupied trailing columns in a row (J and K) -> land at L (first empty after both).
+        wb, ws = _new_ws()
+        ws["J10"] = "a"
+        ws["K200"] = "b"
+        col = _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        self.assertEqual(col, "L", "skips every occupied trailing column, not just the first")
+        self.assertEqual(ws["L34"].value, "x")
 
     def test_col_is_empty(self):
         wb, ws = _new_ws()
