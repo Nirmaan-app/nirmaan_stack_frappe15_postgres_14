@@ -829,14 +829,11 @@ def classify_row(
                     is_subtotal = True
                     break
 
-    if is_subtotal:
-        sl_c = _cell(_first_col("sl_no"))
-        return ClassifiedRow(
-            raw_row=raw_row,
-            classification=RowClassification.SUBTOTAL_MARKER,
-            sl_no_value=_to_str(sl_c.value) if sl_c else None,
-            description=_norm_desc(desc_raw) if desc_raw else None,
-        )
+    # No early return for a subtotal (No-attribute-loss / Option B): the row flows
+    # through the normal cell extraction below so unit / qty / rates / amounts /
+    # per-area dicts are captured onto the ClassifiedRow, then its classification is
+    # forced back to SUBTOTAL_MARKER just before the final return (the qty/unit
+    # heuristics must not re-derive it). `is_subtotal` (set above) carries that intent.
 
     # ---------------------------------------------------------------- #
     # Step 4: Rates (needed before qty finalization)                    #
@@ -1107,6 +1104,15 @@ def classify_row(
         if not has_any_content:
             classification = RowClassification.SPACER
             warnings = []
+
+    # A row detected as a subtotal in Step 3 keeps SUBTOTAL_MARKER regardless of what
+    # the qty/unit/ghost-note heuristics above derived — classification is a label, not
+    # a data filter (Option B). Warnings from the generic path (e.g. the "unclear
+    # classification — defaulted to note" default) are spurious for a subtotal and are
+    # dropped to match the pre-Option-B subtotal contract (which emitted none).
+    if is_subtotal:
+        classification = RowClassification.SUBTOTAL_MARKER
+        warnings = []
 
     return ClassifiedRow(
         raw_row=raw_row,

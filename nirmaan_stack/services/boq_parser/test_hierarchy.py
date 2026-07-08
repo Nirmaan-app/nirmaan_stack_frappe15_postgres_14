@@ -962,6 +962,93 @@ class TestResolvedRowMultiAreaFields(unittest.TestCase):
         self.assertEqual(preamble_row.qty_by_area_raw, {"Floor 1": 350.0})
         self.assertEqual(preamble_row.amount_by_area_raw, {"Floor 1": {"total": 60550.0}})
 
+    def test_resolver_carries_forward_qty_for_notes(self):
+        """
+        No-attribute-loss (Option B): after resolve_hierarchy(), a NOTE ResolvedRow
+        carries forward qty_by_area_raw/amount_by_area_raw + qty_total (from
+        qty_total_raw) + amount_total, identically to a LINE_ITEM/PREAMBLE. A
+        qty-bearing NOTE keeps its cells for the review row instead of having them
+        silently dropped at resolution (a genuine text note has qty_total_raw=None /
+        empty dicts, so the carry-forward is a no-op for it).
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import resolve_hierarchy
+
+        classified = ClassifiedRow(
+            raw_row=RawRow(row_number=1, cells={}),
+            classification=RowClassification.NOTE,
+            description="Rate includes all incidental fixings",
+            unit="Nos",
+            qty=12.0,
+            qty_total_raw=12.0,
+            amount_total=2400.0,
+            qty_by_area_raw={"Floor 1": 12.0},
+            amount_by_area_raw={"Floor 1": {"total": 2400.0}},
+        )
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+            },
+        )
+        result = resolve_hierarchy([classified], config, GlobalSettings())
+
+        note_row = next(
+            rr for rr in result.rows
+            if rr.classified_row.classification == RowClassification.NOTE
+        )
+        # Before the fix these were all dropped (None / {}).
+        self.assertEqual(note_row.qty_total, 12.0)
+        self.assertEqual(note_row.amount_total, 2400.0)
+        self.assertEqual(note_row.qty_by_area_raw, {"Floor 1": 12.0})
+        self.assertEqual(note_row.amount_by_area_raw, {"Floor 1": {"total": 2400.0}})
+
+    def test_resolver_carries_forward_qty_for_subtotals(self):
+        """
+        No-attribute-loss (Option B): after resolve_hierarchy(), a SUBTOTAL_MARKER
+        ResolvedRow carries forward qty_by_area_raw/amount_by_area_raw + qty_total
+        (from qty_total_raw) + amount_total, identically to a LINE_ITEM/PREAMBLE,
+        while keeping its tree fields empty (a subtotal is a boundary marker, not a
+        tree node). Before the fix a subtotal's cells were dropped at resolution.
+        """
+        from nirmaan_stack.services.boq_parser.classifier import RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import resolve_hierarchy
+
+        classified = ClassifiedRow(
+            raw_row=RawRow(row_number=1, cells={}),
+            classification=RowClassification.SUBTOTAL_MARKER,
+            description="TOTAL CARRIED OVER",
+            qty_total_raw=100.0,
+            amount_total=50000.0,
+            qty_by_area_raw={"Floor 1": 100.0},
+            amount_by_area_raw={"Floor 1": {"total": 50000.0}},
+        )
+        config = SheetConfig(
+            sheet_name="Test",
+            header_row=1,
+            column_role_map={
+                "A": ColumnRole(role="sl_no"),
+                "B": ColumnRole(role="description"),
+            },
+        )
+        result = resolve_hierarchy([classified], config, GlobalSettings())
+
+        subtotal_row = next(
+            rr for rr in result.rows
+            if rr.classified_row.classification == RowClassification.SUBTOTAL_MARKER
+        )
+        # Cells carried forward (all None / {} pre-fix):
+        self.assertEqual(subtotal_row.qty_total, 100.0)
+        self.assertEqual(subtotal_row.amount_total, 50000.0)
+        self.assertEqual(subtotal_row.qty_by_area_raw, {"Floor 1": 100.0})
+        self.assertEqual(subtotal_row.amount_by_area_raw, {"Floor 1": {"total": 50000.0}})
+        # Tree fields stay empty — a subtotal is still not placed in the tree.
+        self.assertIsNone(subtotal_row.parent_index)
+        self.assertIsNone(subtotal_row.level)
+        self.assertIsNone(subtotal_row.path)
+
 
 class TestZeroChildrenPreambleDemotion(unittest.TestCase):
     """Phase 2b.2 Part B2f — _apply_zero_children_preamble_demotion_post_pass."""
