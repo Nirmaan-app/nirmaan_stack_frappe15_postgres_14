@@ -799,11 +799,17 @@ export function InvoiceDialog<T extends DocumentType>({
   // amount field, so editing the value clears or re-triggers the warning.
   // Falls back to the autofill snapshot's PO total + existing-invoiced sum.
   const liveAmountValidation = useMemo(() => {
-    if (!autofillValidation?.applicable || !autofillValidation.amount || isEditMode) {
+    if (!autofillValidation?.applicable || !autofillValidation.amount) {
       return null;
     }
     const poTotal = autofillValidation.amount.po_total;
-    const existing = autofillValidation.amount.existing_invoiced_sum;
+    // When editing, this invoice is already inside existing_invoiced_sum — subtract its
+    // ORIGINAL amount so we don't double-count it (mirrors the backend's exclude_invoice_id
+    // in update_invoice_data._check_po_amount_overage).
+    const rawExisting = autofillValidation.amount.existing_invoiced_sum;
+    const existing = isEditMode
+      ? Math.max(0, rawExisting - (parseNumber(selectedInvoice?.invoice_amount) || 0))
+      : rawExisting;
     const current = parseNumber(invoiceData.amount) || 0;
     if (poTotal <= 0 || current <= 0) return null;
     const wouldBeTotal = existing + current;
@@ -817,14 +823,15 @@ export function InvoiceDialog<T extends DocumentType>({
       wouldBeTotal,
       wouldExceed,
     };
-  }, [autofillValidation, invoiceData.amount, isEditMode]);
+  }, [autofillValidation, invoiceData.amount, isEditMode, selectedInvoice]);
 
+  // Block on a GSTIN mismatch on BOTH create and edit. In edit these only carry a value
+  // after the attachment is replaced (a fresh extraction), so an edit that doesn't touch
+  // the file is unaffected; replacing it with a wrong-GSTIN invoice is now blocked too.
   const supplierGstinMismatch =
-    !isEditMode &&
     autofillValidation?.supplier_gstin?.match === false &&
     !!autofillValidation.supplier_gstin.message;
   const receiverGstinMismatch =
-    !isEditMode &&
     autofillValidation?.receiver_gstin?.match === false &&
     !!autofillValidation.receiver_gstin.message;
   // "Couldn't verify" cases — vendor/project has a GSTIN configured but AI
