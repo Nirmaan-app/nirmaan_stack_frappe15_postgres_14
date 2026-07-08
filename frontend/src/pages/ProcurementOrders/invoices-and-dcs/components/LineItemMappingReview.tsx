@@ -221,8 +221,8 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
           <thead className="bg-gray-50 text-gray-600">
             <tr>
               <th className="text-left px-2 py-1.5 font-medium">Invoice line</th>
-              <th className="text-right px-2 py-1.5 font-medium w-24">Qty <span className="font-normal text-gray-400">inv/PO</span></th>
-              <th className="text-right px-2 py-1.5 font-medium w-28">Rate <span className="font-normal text-gray-400">inv/PO</span></th>
+              <th className="text-right px-2 py-1.5 font-medium w-24">Qty</th>
+              <th className="text-right px-2 py-1.5 font-medium w-28">Rate</th>
               <th className="text-left px-2 py-1.5 font-medium w-[38%]">Maps to PO item</th>
             </tr>
           </thead>
@@ -260,27 +260,29 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
                     )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
-                    {editableQty ? (
-                      <div className="flex items-center justify-end gap-1">
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          className="w-14 h-7 rounded border px-1 text-right text-xs"
-                          value={qtyDraft[m.invoice_line_index] ?? (m.quantity ?? "")}
-                          onChange={(e) => handleQtyChange(m.invoice_line_index, e.target.value)}
-                        />
-                        <span className="text-gray-400">/ {poQty ?? "—"}{m.unit ? ` ${m.unit}` : ""}</span>
-                      </div>
-                    ) : (
-                      <>
-                        {m.quantity ?? "—"}
-                        <span className="text-gray-400"> / {poQty ?? "—"}{m.unit ? ` ${m.unit}` : ""}</span>
-                      </>
-                    )}
+                    <div className="flex flex-col items-end gap-0.5">
+                      {editableQty ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            className="w-16 h-7 rounded border px-1.5 text-right text-xs"
+                            value={qtyDraft[m.invoice_line_index] ?? (m.quantity ?? "")}
+                            onChange={(e) => handleQtyChange(m.invoice_line_index, e.target.value)}
+                          />
+                          {m.unit ? <span className="text-[11px] text-gray-500">{m.unit}</span> : null}
+                        </div>
+                      ) : (
+                        <span>{m.quantity ?? "—"}{m.unit ? <span className="text-gray-400"> {m.unit}</span> : null}</span>
+                      )}
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap">PO: {poQty ?? "—"}</span>
+                    </div>
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700 tabular-nums">
-                    {invRate != null ? formatToRoundedIndianRupee(invRate) : "—"}
-                    <span className="text-gray-400"> / {poRate != null ? formatToRoundedIndianRupee(poRate) : "—"}</span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span>{invRate != null ? formatToRoundedIndianRupee(invRate) : "—"}</span>
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap">PO: {poRate != null ? formatToRoundedIndianRupee(poRate) : "—"}</span>
+                    </div>
                   </td>
                   <td className="px-2 py-1.5">
                     <Select<Opt>
@@ -320,7 +322,7 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
       {/* Collapsible: full extraction + raw JSON */}
       <Accordion type="multiple" className="border rounded-md">
         <AccordionItem value="entities" className="border-b">
-          <AccordionTrigger className="px-3 py-2 text-xs hover:no-underline">
+          <AccordionTrigger className="px-3 py-2 text-xs font-medium text-green-900 bg-green-50 hover:bg-green-100/70 hover:no-underline">
             All extracted fields ({entities.length})
           </AccordionTrigger>
           <AccordionContent className="px-0 pb-0">
@@ -347,7 +349,7 @@ export const LineItemMappingReview = ({ extracted, poItems, lineMatch, onChange,
           </AccordionContent>
         </AccordionItem>
         <AccordionItem value="json" className="border-b-0">
-          <AccordionTrigger className="px-3 py-2 text-xs hover:no-underline">Raw JSON</AccordionTrigger>
+          <AccordionTrigger className="px-3 py-2 text-xs font-medium text-blue-800 bg-blue-50 hover:bg-blue-100/70 hover:no-underline">Raw JSON</AccordionTrigger>
           <AccordionContent>
             <pre className="font-mono text-[10px] leading-relaxed bg-gray-50 p-3 rounded max-h-72 overflow-auto">
               {JSON.stringify({ line_items: extracted?.line_items, line_match: lineMatch }, null, 2)}
