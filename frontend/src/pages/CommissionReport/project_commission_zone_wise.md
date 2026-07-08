@@ -159,3 +159,33 @@ The per-`templateId` dispatch is wrapped in a per-unit loop:
   print formats via Desk — keep these in sync if hand-editing.
 - Signatures only render when the project has a `Project TDS Setting`; otherwise the print shows a
   "set up Project TDS Setting" notice.
+
+---
+
+## 8. Per-unit single-page print layouts (2026-07)
+
+Extends §6. Several report types were restructured so a multi-unit report prints **one
+self-contained page per unit** — repeated header + that unit's content + its **own** signature —
+instead of one shared header + all units flowing + a single trailing signature. Each such report
+gets a **dedicated `{% elif tpl.templateId == … %}` branch** in `commission-printformat.html`
+(split out of the old shared "generic count-wise" branch so the other reports are untouched).
+
+**Pattern** (per unit): `{% for group/zone in units %}<div class="cv-<x>-page" style="page-break-inside: avoid;{% if not loop.first %} page-break-before: always;{% endif %}"> … repeated header table … unit particulars … content … render_signatures(…, margin="…") … </div>`. The §6 zone-level break (line ~214) combines with these per-unit breaks; the first unit of a **non-first zone** omits its own break so no blank page appears (capture `_zone_first = loop.first` before the inner loop for the guard).
+
+| Template (`templateId`) | One page = | Contents |
+|---|---|---|
+| `db-commissioning-report` | per **DB** | header + DB particulars + IR test + Functional Checklist + **Procedure as bullets** + signature (margin 100px). |
+| `lt-panel-commission-report` | per **panel** | **Page 1 = Panel Test Procedure once, NO header** (first zone only, even multi-zone); then one page per panel: header + panel particulars + Physical Test (10px) + IR test + signature (margin 18px). Panel particulars drop the 3-per-row empty padding cells. |
+| `sprinkler-pressure-test` | per **zone** | Procedure once (common, first zone); then per zone: header + checklist + Testing images (200px) + measured pressure + signature. |
+| `duct-pressure/smoke/light-testing-report` | per **equipment** | Dedicated branch. **Compact header** (ZONE+TEST TYPE on one line, DATE+NO. OF EQUIPMENTS on the next); equipment particulars no empty padding; Observations checklist + Testing Images (200px) + signature (margin 12px). |
+| `duct-cfm-report` (CFM/Air Balance) | per **equipment** | header + EQUIPMENT+AREA card + HVAC CFM readings table + signature (margin 40px). **Area is a per-grill column** (`rowsTable.area`) — restored to the readings table; readings font 11px, sized so ~15 rows fit one page. A **required equipment-level `area` groupField** was also added to the template `source_format` (fixture `commission_report_tasks.json` + DB). |
+
+**Landscape** (`ls-commission-printformat.html` → `LSProject Commission Report - Filled Task`):
+- `lt-cable-megger-test-report`: signatures render as **bordered boxes** (matching portrait, `.cv-sig-header`/`.cv-sig-box`) not underline lines; header puts **ZONE + DATE on one row**; a `MEGGER-FIT` compression style makes **≥5 cable rows + signature** fit one page (each "PASS" cell renders its ✓ on a 2nd line, doubling row height — moving ✓ inline is the pending readability fix).
+
+**`SIG_MARGINS`** (portrait, keyed by `task_name`): WLD 130→**120**, RR 130→**120** (a too-large margin pushed a content-heavy zone's signature to a 2nd page); **Gas Suppression 500→12** *and* its signature moved **inside the content cell** (like VESDA) + the 25-item checklist compressed (11px) so it fits one page/zone; **FA added at 12**.
+
+### Gotchas
+- **File ↔ DB drift (load-bearing):** the on-disk `.html` is only the source copy; the live **DB print-format record is what renders** (portrait `Project Commission Report - Filled Task`, landscape `LSProject …`). They drift when one is edited without the other — happened this session on the CFM branch, the panel physical-CSS, and the duct-cfm variation formula. **Apply every layout edit to BOTH**, and a full-branch rewrite re-syncs them.
+- **Fit is page-height-bound, not just font:** a unit can overflow because its content is genuinely > 1 page (Duct **Smoke**'s long remarks → 2 pages/equipment at any image size; Gas's 25 items) — compression + signature-margin only help to a point.
+- **"min N rows" = a page-height budget:** verify by rendering to **PDF and counting pages** (with a synthetic N-row injection into `response_data`, then restore), not by eyeballing the wizard.
