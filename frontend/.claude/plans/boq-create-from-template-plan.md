@@ -1,9 +1,213 @@
 # BoQ "Create from Template" — Implementation Plan
 
-**Status:** Proposed, pending owner sign-off (ADR-0013). **No code until reviewed.**
-**Design of record:** `docs/boq/create-from-template-locked-design.html` (18 decisions, Q1–Q18).
-**Decision record:** `docs/adr/0013-boq-create-from-template.md` (D1–D10).
-**Branch (when approved):** `feature/boq-create-from-template` off `develop`.
+**Status:** Backend v1 (T1–T6+T5b) **BUILT + committed** on the flagged-BOQs model. **Amendment A1
+(2026-07-08) redesigns the templating store** — see the **[A1 Revised Plan](#amendment-a1--revised-plan-2026-07-08)**
+below, which is now the authoritative execution plan. The original T1–T12 (further down) are retained as the
+baseline; A1 marks each as REPLACE / PRESERVE / REMOVE. **No code until this plan is reviewed.**
+**Decision record:** `docs/adr/0013-boq-create-from-template.md` (D1–D10 + **Amendment A1**).
+**Design of record:** `docs/boq/create-from-template-locked-design.html` (18 decisions; superseded by A1 on the
+store model).
+**Branch:** `feature/boq-create-from-template` off `develop` (local, not pushed).
+
+---
+
+## Amendment A1 — Revised plan (2026-07-08)
+
+**What A1 changes:** the templating *store* is redesigned (flagged-`BOQs` → dedicated `BoQ Template` doctype;
+N templates → one hand-edited master; upload-authoring → seed-once-from-committed + a React editor). The
+*create-flow* half is **preserved**. See ADR-0013 Amendment A1 for the decisions. This section supersedes the
+"Execution Strategy" + "Slice detail" below for the store half.
+
+### A1 BACKEND — AS-BUILT ✅ (2026-07-09, all green: 11 modules / 479 tests)
+Built via implement→adversarial-verify Workflows (4 impl agents + 4 skeptics). Files (all under `api/boq/wizard/`):
+`template_materialize.py` (A-T2 seed), rewritten `create_from_template.py` (A-T3 clone), collapsed
+`template_admin.py` (A-T4 `set_template_active`), new `template_edit.py` + extracted pure `row_renumber.py`
+(A-T5 editor), reworked `upload_file.py` (`is_template` → `is_template_source` + Admin/Estimates gate).
+Doctypes created/migrated via `reload_doc`: `BoQ Template`, `BoQ Template Sheet`, `BoQ Template Row`; `BOQs`
+lost `is_template`/`template_status` (orphan columns retained, harmless), gained `is_template_source`, kept
+`origin`, repointed `source_template`→`BoQ Template`; `boqs.py::before_insert` keys project-less on
+`is_template_source`.
+
+**Deltas from the plan (found in review + adversarial verify, all fixed + tested):**
+- **`BoQ Template Row` carries the full faithful subset:** added `sl_no_value`, `attached_notes`, **`row_notes`,
+  `append_notes_raw`** so a template clone reproduces byte-identical review rows (else per-item notes were lost
+  vs a direct upload).
+- **Collapse RE-HOMES, not drops:** `_collapse_to_single_area` re-homes per-area rate/amount roles to their
+  single-area scalars (keep-first-drop-rest), because dropping them left a purely area-split sheet (MEP
+  Electrical) **unpriceable** (the pricing editor derives its editable rate cell from `column_role_map`).
+- **Editor cycle guard:** `template_edit_row` rejects reparenting to a descendant (parity with the create-flow
+  RestructureModal guard).
+- **`template_reorder_sheets`** requires a complete duplicate-free permutation (a subset left colliding
+  `sheet_order`).
+- **Concurrent-seed advisory lock** (`pg_advisory_xact_lock`) in `set_as_master_template` enforces the singleton.
+- **Mid-flight guard:** `_clone_worker` fails `template_changed` if a requested sheet was removed between
+  validation and the async run.
+- **Role-gate** lookups aligned to the raw-user convention (`pricing.py`/`draft_lock.py`).
+
+**DEFERRED (known limitation, NOT fixed — out of A1 scope):** the `attached_to_index` **0-sentinel collision** —
+deleting a row above a note whose target sits at `row_index 1` shifts the target to `0` = "not attached",
+silently detaching the note. This is a **pre-existing shared defect** in `row_renumber._delete_remap_attached`
+(also reachable via the create-flow `template_rows.delete_review_row`); the proper fix redesigns the
+`attached_to_index` sentinel keyspace used across parse_run/review_screen/commit_pipeline with live data — a
+separate cross-cutting change. Documented here + in memory as a follow-up.
+
+**FE reuse-hardness flags (for the FE wave):** `ReviewTree` write path is hard-wired to `review_screen.*`
+endpoints (needs a write-endpoint adapter prop for the A-T8 template editor) and has **no memoized row** (needs
+a `pricingRowPropsAreEqual`-style memo row before adding a selection checkbox/qty for T10/T11). `is_template`
+lives only in `BoqProjectTab.tsx`; `origin`/`is_template_source`/`source_template` are net-new to the TS types.
+
+
+### Preserved from the built backend (NO code change) — the create-flow half
+These act on the *created project BoQ's* review rows and are agnostic to the template store. **Do not touch:**
+- `template_select.py` — `set_row_excluded` two-direction cascade (T3). ✅ keep + tests.
+- `template_rows.py` — `create_review_row`/`delete_review_row`, renumber-on-insert (T4). ✅ keep + tests.
+- `is_excluded` gate + commit filter (T5) in `commit_validation`/`review_screen`/`commit_pipeline`. ✅ keep.
+- commit-pipeline **T5b** — `_invert_rows_to_grid`/`_template_grid_rows`, `origin=="template"` branch. ✅ keep.
+- `BoQ Review Row.is_excluded`; `BOQs.origin`. ✅ keep.
+- FE parametric review (T10) + row create/delete UI (T11) — build as originally planned; also **reused** by the
+  new template editor (A-T8).
+
+### Removed from the built backend
+- `BOQs.is_template`, `BOQs.template_status` (fields + all references).
+- `upload_file.upload_file`'s `is_template` authoring param.
+- `template_admin.py`'s publish/deprecate/unpublish/**duplicate**/delete-of-N surface (collapses — see A-T4).
+- `create_from_template.list_templates` (N-templates reader → single-master reader, A-T3).
+- `BoqProjectTab.tsx`'s `is_template != 1` filter (seed BoQ is project-less + `is_template_source`-hidden).
+- Tests: `test_template_admin`; the flagged-BOQs parts of `test_create_from_template`.
+
+### A1 dependency graph
+```
+A-T1 (new doctypes + BOQs field migration) ──┬──► A-T2 (seed materialize: committed BoQ → BoQ Template)
+                                             ├──► A-T3 (rewrite create_from_template: clone FROM BoQ Template)
+                                             └──► A-T4 (lifecycle: is_active toggle + provenance + list cleanup)
+A-T1 ──► A-T5 (template-editor endpoints: CRUD on BoQ Template Row/Sheet, renumber-on-insert)
+
+A-T2 ──► A-T6 (FE: "Set as master template" action on a committed BoQ)
+A-T3 ──► A-T7 (FE: create entry — sheet-only picker of the master + clone-progress)   [reuses old T7]
+A-T4,A-T5 ──► A-T8 (FE: template-editor screen — reuse ReviewTree in edit mode + is_active)  [replaces old T8]
+ALL ──► A-T9 (E2E: seed→materialize→edit→create→select/qty→finalize→commit→tender)
+```
+Unchanged FE from the original plan (build as-is, after their backend deps): **T9** hub template-origin
+behavior, **T10** parametric review, **T11** create/delete row UI.
+
+### A1 Waves
+- **Wave A1 (blocking):** A-T1 — new doctypes + `BOQs` field migration.
+- **Wave A2 (parallel, after A-T1):** A-T2, A-T3, A-T4, A-T5 — four independent backend units.
+- **Wave A3 (parallel, after backend deps):** A-T6 (needs A-T2), A-T7 (needs A-T3), A-T8 (needs A-T4+A-T5),
+  plus the unchanged T9/T10/T11 (per their original deps).
+- **Wave A4 (after all):** A-T9 — end-to-end verify.
+
+Execute via Plan-to-Parallel (`TaskCreate → TaskUpdate deps → parallel general-purpose subagents`). Each
+subagent prompt carries the **why** (this A1 intent), exact files, the ADR-0013 A1 decision it implements, and
+the test/verify expectation. Adversarially verify (skeptic subagent or a verify workflow) before committing.
+
+### A1 Slice detail
+
+#### A-T1 — New template doctypes + `BOQs` field migration (Wave A1) `[backend]`
+**Why:** every store-half task reads the new doctypes; the flagged-BOQs fields must go.
+- New doctypes (create via bench/Desk tooling, not hand-edited JSON per repo rule; note the sanctioned-exception
+  discipline for the `BOQs` field changes):
+  - **`BoQ Template`**: `template_name` (Data), `is_active` (Check, default 0), `seeded_from_boq` (Data),
+    `seeded_at` (Datetime), `last_updated_by` (Data), `last_updated_on` (Datetime), child table `sheets`.
+  - **`BoQ Template Sheet`** (child of `BoQ Template`): `sheet_name` (Data), `sheet_order` (Int), `sheet_label`
+    (Data), `disposition` (Select: `data`/`general_specs`), `sheet_config` (JSON, single-area-normalized),
+    `work_packages` (JSON — list of `work_header` names), `preamble_text` (Text).
+  - **`BoQ Template Row`** (separate doctype): `template` (Link → BoQ Template), `sheet_name` (Data),
+    `row_index` (Int), `classification` (Data), `parent_index` (Int, **−1** sentinel), `attached_to_index`
+    (Int, **0** sentinel), `level` (Int), `path` (Data), `source_row_number` (Int), `description` (Text),
+    `unit` (Data), `make_model` (Text), `is_rate_only` (Check). **No** qty/rate/amount, **no** overlay fields.
+- `BOQs`: **remove** `is_template`, `template_status`; **add** `is_template_source` (Check, default 0);
+  **keep** `origin`; **change** `source_template` target `BOQs` → `BoQ Template`.
+- Migrate runtime DB (`reload_doc` for new doctypes; drop the two removed columns; verify each with
+  `frappe.db.has_column`). Update `boqs.py::before_insert` to key the project-less allowance on
+  `is_template_source` (was `is_template`).
+- **OPEN for plan review:** the field name `is_template_source` (see ADR A1-D4). Confirm or rename.
+**Done:** new doctypes + `is_template_source` exist on runtime DB; `is_template`/`template_status` gone; upload
+flow byte-unaffected.
+
+#### A-T2 — Seed materialize: committed BoQ → `BoQ Template` (Wave A2) `[backend]`
+**Why:** the one-time bootstrap that turns a curated committed BoQ into the master (A1-D2/D10).
+- New `api/boq/wizard/template_materialize.py`:
+  - `set_as_master_template(seed_boq)` — Admin+Estimates gated; asserts the seed BoQ is committed +
+    `is_template_source=1`. **Replaces** any existing master (raw-delete existing `BoQ Template Row`s + the
+    `BoQ Template` doc first — mind list-JSON `delete_doc` wall; use `frappe.db.delete` where needed). Reads the
+    seed's surviving `BoQ Review Row`s, resolves `effective_*` (reuse `review_screen.resolve_effective`),
+    **strips qty/rate/amount**, **collapses multi-area → single-area** in the per-sheet `sheet_config`, carries
+    WP grandchildren (direct `frappe.db` read) + general-specs `preamble_text`. Writes `BoQ Template` +
+    `BoQ Template Sheet` + `BoQ Template Row`s (bulk via `frappe.db`; list-JSON pre-serialize). Sets provenance
+    (`seeded_from_boq`, `seeded_at`, `last_updated_*`). Commit before any publish.
+  - `get_master_template_admin()` — the master + sheets + row counts, for the editor.
+**Tests:** materialize of a fixture committed BoQ yields structural-only rows (qty/rate blank), single-area
+`sheet_config`, correct `parent_index`/`attached_to_index` sentinels, WP + general-specs carried; re-run
+replaces cleanly (idempotent).
+
+#### A-T3 — Rewrite `create_from_template.py`: clone FROM `BoQ Template` (Wave A2) `[backend]`
+**Why:** create now sources the master doctype, not a flagged BoQ (A1-D2).
+- `get_master_template()` — the active master's sheets (name/label/order/disposition), for the create picker.
+  Role-gated to the 5 wizard roles. Returns nothing/inactive-guard when `is_active=0`.
+- `create_from_template(project, boq_name, sheet_names)` — **no `template_boq` arg** (one master). Validates
+  active master + non-empty sheet subset; creates the `BOQs` shell (`origin="template"`, `source_template=`the
+  master, project-bound, `boq_name` default `{project}_BOQ`, `wizard_state="Parsed"`, no `source_file_url`);
+  enqueues `_clone_worker`. `_clone_worker` reads `BoQ Template Row` (pre-flattened → **straight structural
+  copy** into `BoQ Review Row` at `Parsed`, `is_excluded=0`); rebuilds `BoQ Sheet Draft` at `Parsed` from
+  `BoQ Template Sheet` (`sheet_config`, WP grandchildren, general-specs membership). `get_clone_status` +
+  `boq:template_clone_done` unchanged.
+**Tests:** clone of a fixture master yields `Parsed` review rows matching the template's structure; WP +
+general-specs carried; qty/rate blank; only picked sheets present.
+
+#### A-T4 — Lifecycle + list cleanup (Wave A2) `[backend]`
+**Why:** singleton lifecycle + remove the N-template surface (A1-D10).
+- `set_template_active(active)` — Admin+Estimates gated toggle of the master's `is_active`; touches
+  `last_updated_*`.
+- **Delete** `template_admin.py`'s publish/deprecate/unpublish/duplicate/delete-of-N (and its tests). Any
+  still-needed read collapses into `get_master_template_admin` (A-T2).
+- Remove the `BoqProjectTab.tsx` `is_template != 1` filter; ensure `is_template_source` BoQs are hidden from
+  project-facing BoQ list queries instead.
+**Tests:** inactive master → `get_master_template` empty/guarded; role gate rejects a Project Lead toggling; a
+seed (`is_template_source`) BoQ absent from project BoQ lists.
+
+#### A-T5 — Template-editor endpoints (Wave A2) `[backend]`
+**Why:** admin-edits-directly needs CRUD on the master's rows/sheets (A1-D10), safe under the tree sentinels.
+- New `api/boq/wizard/template_edit.py` (Admin+Estimates gated), operating on `BoQ Template Row`/`Sheet`:
+  - Row CRUD **reusing the renumber-on-insert + remap logic from `template_rows.py`** (extract the pure
+    `_insert_shift`/`_delete_remap` helpers so both the review-row and template-row paths share them — F3-lite:
+    one parametric core, two thin callers): `template_create_row` / `template_edit_row` (description/unit/
+    classification/reparent) / `template_delete_row`.
+  - Sheet ops: `template_add_sheet` (hand-built new sheet — name/label/disposition/single-area `sheet_config`),
+    `template_remove_sheet`, `template_reorder_sheets`, `template_set_sheet_wp`.
+  - Every write touches `last_updated_*`; commit before return.
+**Tests:** insert/reparent preserves parent links + sentinels; delete re-points orphans; add/remove/reorder
+sheet; role gate; parity with `template_rows.py`'s shared helpers.
+
+#### A-T6 — FE: "Set as master template" action (Wave A3) `[frontend]`
+**Why:** the seed trigger (A1-D10). On a committed BoQ's hub/detail, an Admin+Estimates-only "Set as master
+template" button → confirm dialog (warns it **replaces** the current master) → `set_as_master_template` →
+progress/toast. Screen-scoped socket if long-job; shadcn + tokens only.
+**Verify:** action visible only to Admin+Estimates on a committed `is_template_source` BoQ; materialize
+populates the master.
+
+#### A-T7 — FE: create entry — sheet-only picker (Wave A3) `[frontend]`  *(revises old T7)*
+**Why:** the create spine, simplified to one master (A1-D10). `BoqPickerPage` 2nd option "Create from
+Template" → **no template-selection step** → checkbox picker of the **active master's** sheets
+(`get_master_template`) → name (`{project}_BOQ` editable) → create → "Building your BOQ…"
+(`boq:template_clone_done` + poll) → hub. If no active master, show a disabled/empty state.
+**Verify:** create yields a hub with exactly the picked sheets at Review-ready.
+
+#### A-T8 — FE: template-editor screen (Wave A3) `[frontend]`  *(replaces old T8)*
+**Why:** the admin editor (A1-D10). New route (Admin+Estimates gated; sidebar entry) that **reuses the
+parametric `ReviewTree` in a "template-edit" mode** against the `template_edit.py` endpoints: add/edit/delete/
+reparent rows (renumber-on-insert), add/remove/reorder sheets, edit `sheet_config`, `is_active` toggle +
+provenance display. Row-memo-safe (per-row slice, no shared Set). The tree component is parameterized on its
+data source (review rows vs template rows) so it is **one component, two callers**.
+**Verify:** edit persists to `BoQ Template Row`; a subsequent create-from-template reflects the edit;
+inactive-toggle hides it from the picker.
+
+#### A-T9 — E2E verification (Wave A4) `[verify]`
+Seed: upload `MEP BOQ..xlsx` as a project-less `is_template_source` BoQ → single-area configure → parse →
+review → commit → "Set as master template". Edit the master (add a row, add a sheet). Create-from-template into
+a test project (pick a subset) → select/prune + create a row + fill quantities → finalize (soft advisory, no
+block) → commit → open pricing/tender, confirm the included subset priced correctly. chrome-devtools on
+`:8080`; `tsc` delta-0; backend suites green (preserved T3/T4/T5/T5b + new A-T2/3/4/5).
 
 ---
 

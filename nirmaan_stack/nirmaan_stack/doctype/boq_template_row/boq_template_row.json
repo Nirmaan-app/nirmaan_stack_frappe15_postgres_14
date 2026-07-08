@@ -1,0 +1,216 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-07-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "template",
+  "sheet_name",
+  "position_section",
+  "source_row_number",
+  "row_index",
+  "classification",
+  "level",
+  "parent_index",
+  "path",
+  "attached_to_index",
+  "attached_notes",
+  "content_section",
+  "sl_no_value",
+  "description",
+  "unit",
+  "make_model",
+  "is_rate_only",
+  "row_notes",
+  "append_notes_raw"
+ ],
+ "fields": [
+  {
+   "fieldname": "template",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Template",
+   "options": "BoQ Template",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Sheet Name",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "position_section",
+   "fieldtype": "Section Break",
+   "label": "Position"
+  },
+  {
+   "fieldname": "source_row_number",
+   "fieldtype": "Int",
+   "label": "Source Row Number"
+  },
+  {
+   "fieldname": "row_index",
+   "fieldtype": "Int",
+   "label": "Row Index"
+  },
+  {
+   "fieldname": "classification",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Classification"
+  },
+  {
+   "fieldname": "level",
+   "fieldtype": "Int",
+   "label": "Level"
+  },
+  {
+   "default": "-1",
+   "description": "Parent row_index. -1 sentinel = no parent / root (0 is a valid row_index, so an unset Int default of 0 would falsely re-parent to row 0). Mirrors BoQ Review Row.parent_index.",
+   "fieldname": "parent_index",
+   "fieldtype": "Int",
+   "label": "Parent Index"
+  },
+  {
+   "fieldname": "path",
+   "fieldtype": "Data",
+   "label": "Path",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "Note-attachment target row_index. 0 sentinel = not attached (positive = a real target row_index). DIFFERS from parent_index's -1 sentinel -- mirrors BoQ Review Row.attached_to_index exactly.",
+   "fieldname": "attached_to_index",
+   "fieldtype": "Int",
+   "label": "Attached To Index"
+  },
+  {
+   "description": "Denormalized JSON list of note texts attached to this row (mirrors BoQ Review Row.attached_notes; the current clone preserves this). LIST-JSON: json.dumps before insert; raw frappe.db.delete (not delete_doc) when clearing template rows.",
+   "fieldname": "attached_notes",
+   "fieldtype": "JSON",
+   "label": "Attached Notes"
+  },
+  {
+   "fieldname": "content_section",
+   "fieldtype": "Section Break",
+   "label": "Content"
+  },
+  {
+   "fieldname": "sl_no_value",
+   "fieldtype": "Data",
+   "label": "Sl No Value"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit"
+  },
+  {
+   "fieldname": "make_model",
+   "fieldtype": "Text",
+   "label": "Make / Model"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_rate_only",
+   "fieldtype": "Check",
+   "label": "Rate Only"
+  },
+  {
+   "description": "Per-row notes text (mirrors BoQ Review Row.row_notes). Carried end-to-end so a template-cloned BoQ keeps the item's notes that a direct upload would (feeds BOQ Nodes.notes on commit). Scalar Text -- not list-JSON.",
+   "fieldname": "row_notes",
+   "fieldtype": "Text",
+   "label": "Row Notes"
+  },
+  {
+   "description": "Raw append-to-notes payload (mirrors BoQ Review Row.append_notes_raw). DICT-JSON -> auto-serialized (NOT in _LIST_JSON_FIELDS; do NOT json.dumps a dict). Feeds BOQ Nodes.append_notes_raw on commit.",
+   "fieldname": "append_notes_raw",
+   "fieldtype": "JSON",
+   "label": "Append Notes Raw"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Template Row",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

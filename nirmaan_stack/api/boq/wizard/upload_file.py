@@ -61,22 +61,38 @@ def _publish_and_record(payload, user):
 def upload_file():
     """Validate, persist, enqueue async parse worker. Returns {job_id}.
 
-    Template-authoring path (is_template=1, ADR-0013 D1/D10): a template is a
-    project-less BOQs doc authored by uploading, so project_id is OPTIONAL when
-    is_template is set. The non-template (project) path is unchanged.
+    Template-source authoring path (is_template_source=1, ADR-0013 A1-D4/D10): the master
+    template is SEEDED from a normally-committed, project-less scratch authoring BoQ. That
+    seed is authored by uploading with is_template_source=1, so project_id is OPTIONAL then.
+    The non-template (project) upload path is byte-identical.
     """
-    is_template = _coerce_flag(frappe.form_dict.get("is_template"))
+    is_template_source = _coerce_flag(frappe.form_dict.get("is_template_source"))
+
+    # Authoring the project-less template SEED is an Admin/Estimates action (ADR-0013 A1-D10),
+    # matching the gate on 'Set as master template'. The NORMAL project-upload path below stays
+    # ungated (byte-identical to pre-A1) -- only the is_template_source branch is restricted.
+    if is_template_source:
+        _u = frappe.session.user
+        _role = frappe.db.get_value("Nirmaan Users", _u, "role_profile")
+        if _u != "Administrator" and _role not in (
+            "Nirmaan Admin Profile",
+            "Nirmaan Estimates Executive Profile",
+        ):
+            frappe.throw(
+                "Only an Admin or Estimates Executive may author a template-source BoQ.",
+                frappe.PermissionError,
+            )
 
     project_id = frappe.form_dict.get("project_id")
-    if not is_template:
+    if not is_template_source:
         if not project_id:
             frappe.throw("project_id is required.", title="Missing field: project_id")
 
         if not frappe.db.exists("Projects", project_id):
             frappe.throw(f"Project '{project_id}' not found.", title="Not found")
     else:
-        # Template authoring: project is optional/None. If a project IS supplied it
-        # must still exist; otherwise the template is project-less.
+        # Template-source authoring: project is optional/None. If a project IS supplied it
+        # must still exist; otherwise the seed is project-less.
         if project_id and not frappe.db.exists("Projects", project_id):
             frappe.throw(f"Project '{project_id}' not found.", title="Not found")
         project_id = project_id or None
@@ -117,7 +133,7 @@ def upload_file():
         project_id=project_id,
         file_url=file_url,
         file_name=filename,
-        is_template=is_template,
+        is_template_source=is_template_source,
     )
 
     return {"job_id": job.id if job else None}
@@ -148,11 +164,13 @@ def get_upload_status(job_id=None):
     return {"state": "done", **cached}
 
 
-def _upload_file_worker(project_id, file_url, file_name, user, is_template=0):
+def _upload_file_worker(project_id, file_url, file_name, user, is_template_source=0):
     """Async worker: open workbook, create BOQs row + sheet_drafts, publish result.
 
-    is_template=1 (ADR-0013): stamp the created BOQs as a project-less template
-    (is_template=1, origin="upload"). project_id may be None in that case.
+    is_template_source=1 (ADR-0013 A1): stamp the created BOQs as a project-less template
+    SOURCE (is_template_source=1, origin="upload") -- the scratch authoring BoQ that is later
+    committed and promoted into the master template via 'Set as master template'. project_id
+    may be None in that case.
     """
     frappe.set_user(user)
     worker_tmp = None
@@ -196,9 +214,10 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template=0):
         # Step 6: Create BOQs row.
         boq_doc = frappe.new_doc("BOQs")
         boq_doc.project = project_id
-        if is_template:
-            # ADR-0013: a template authored via upload is a project-less BOQs doc.
-            boq_doc.is_template = 1
+        if is_template_source:
+            # ADR-0013 A1: a template-source authored via upload is a project-less BOQs doc
+            # (the scratch seed later promoted into the master template).
+            boq_doc.is_template_source = 1
             boq_doc.origin = "upload"
         boq_doc.wizard_state = "In progress"
         boq_doc.boq_name = boq_name

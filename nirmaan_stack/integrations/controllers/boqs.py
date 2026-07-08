@@ -4,20 +4,21 @@ from frappe import _
 
 
 def before_insert(doc, method):
-    # Template BoQs (Create-from-Template, ADR-0013) are project-less: an is_template
-    # BoQ is a reusable, curated skeleton not bound to any Projects row. Only real
-    # (upload/clone) BoQs require a project -- the upload path is byte-identical.
-    if not doc.is_template and not doc.project:
+    # Template-source BoQs (Create-from-Template, ADR-0013 A1) are project-less: a
+    # scratch authoring BoQ used to seed the master BoQ Template, not bound to any
+    # Projects row. Only real (upload/clone) BoQs require a project -- the upload path
+    # is byte-identical.
+    if not doc.get("is_template_source") and not doc.project:
         frappe.throw(_("Project is required"))
     if not doc.boq_name:
         frappe.throw(_("BoQ Name is required"))
 
-    if doc.is_template:
-        # Version-scope templates by boq_name across the template namespace (project is null).
+    if doc.get("is_template_source"):
+        # Version-scope template-source BoQs by boq_name across the project-less namespace.
         result = frappe.db.sql("""
             SELECT COALESCE(MAX(version), 0) + 1
             FROM "tabBOQs"
-            WHERE is_template = 1 AND boq_name = %s
+            WHERE is_template_source = 1 AND boq_name = %s
         """, (doc.boq_name,))
     else:
         result = frappe.db.sql("""

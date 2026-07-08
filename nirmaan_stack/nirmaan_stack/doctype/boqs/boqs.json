@@ -29,8 +29,7 @@
   "parse_enqueued_at",
   "sheet_drafts",
   "template_section",
-  "is_template",
-  "template_status",
+  "is_template_source",
   "origin",
   "source_template"
  ],
@@ -182,22 +181,14 @@
   },
   {
    "default": "0",
-   "description": "1 = this is a reusable, project-less BoQ TEMPLATE (authored via the wizard, cloned by Create-from-Template). Filtered out of project BoQ lists. See ADR-0013.",
-   "fieldname": "is_template",
+   "description": "1 = this is a project-less SCRATCH AUTHORING SOURCE for the master template (ADR-0013 A1-D4). Narrow single purpose: (1) permits the project-less insert in boqs.py before_insert, (2) hides the BoQ from project-facing lists, (3) gates the 'Set as master template' action. NOT 'this row is a template' -- the master template lives in the dedicated BoQ Template doctype. Replaced the retired is_template/template_status.",
+   "fieldname": "is_template_source",
    "fieldtype": "Check",
-   "label": "Is Template"
-  },
-  {
-   "default": "Draft",
-   "description": "Lifecycle of a template BoQ: Draft (authoring) -> Published (selectable in the Create-from-Template picker) -> Deprecated (hidden from the picker; existing clones unaffected). Meaningful only when is_template = 1.",
-   "fieldname": "template_status",
-   "fieldtype": "Select",
-   "label": "Template Status",
-   "options": "Draft\nPublished\nDeprecated"
+   "label": "Is Template Source"
   },
   {
    "default": "upload",
-   "description": "How this BoQ was created: 'upload' (Excel ingest, re-parseable) or 'template' (cloned from a template; no source workbook, Configure/Parse suppressed). Origin-uniform per BoQ (ADR-0013 D4).",
+   "description": "How this BoQ was created: 'upload' (Excel ingest, re-parseable) or 'template' (cloned from the master template; no source workbook, Configure/Parse suppressed). Origin-uniform per BoQ (ADR-0013 D4).",
    "fieldname": "origin",
    "fieldtype": "Select",
    "label": "Origin",
@@ -205,11 +196,11 @@
    "read_only": 1
   },
   {
-   "description": "For origin=template BoQs: the template BoQ this was cloned from (provenance / analytics). Null for upload BoQs and for templates themselves.",
+   "description": "For origin=template BoQs: the master BoQ Template this was cloned from (provenance / analytics). Null for upload BoQs. Repointed from BOQs -> BoQ Template in ADR-0013 A1.",
    "fieldname": "source_template",
    "fieldtype": "Link",
    "label": "Source Template",
-   "options": "BOQs",
+   "options": "BoQ Template",
    "read_only": 1
   }
  ],
