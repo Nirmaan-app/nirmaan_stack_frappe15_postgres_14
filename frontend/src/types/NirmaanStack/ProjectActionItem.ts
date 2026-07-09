@@ -16,6 +16,8 @@ export interface ActionItemRow {
   name: string;
   /** Projects docname — present on rows from BOTH endpoints (Surface A groups by this). */
   project: string;
+  /** Human-readable project name — hydrated by get_my_action_items (Surface A) only. */
+  project_name?: string | null;
   action_type: ActionItemType;
   /** v1 always "Procurement Orders". */
   reference_doctype: string;
