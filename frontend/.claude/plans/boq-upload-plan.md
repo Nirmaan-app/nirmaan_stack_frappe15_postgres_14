@@ -231,8 +231,10 @@ once-per-sheet **legacy detector**.
 **ReviewTree.tsx fan-out (~10 touch points):** the FIRST description column is the wide (`min-w-[280px]`)
 always-on anchor -- depth indent + `(no description)` fallback via a shared `DescriptionCellInner`; the
 REMAINING columns are narrower (`min-w-[160px]`) `sticky top-0 z-20 bg-muted` cells that JOIN the show/hide
-picker. A new `pickerColumns` abstraction (ordinary `displayDescriptors` + extra description cols) drives
-the picker + `hiddenColCount` + `totalCols`; `visibleCols` init/sync seed the extra description LETTERS from
+picker. A new `pickerColumns` abstraction drives the picker + `hiddenColCount` + `totalCols`; it lists the
+**extra description columns FIRST, then the ordinary descriptor columns** (MC-4-fix) so the picker mirrors
+the table's leftmost-description visual order (order is presentation-only -- the counts are order-independent
+`.filter`s); `visibleCols` init/sync seed the extra description LETTERS from
 the DESCRIPTORS (stable per sheet, so a cell edit never resets hidden columns). `totalCols` keeps base `8`
 (the first/legacy anchor) + extra visible description cols -> every `colSpan` (flag-reasons + detail panel)
 stays aligned. `FIXED_ROLE_DEDUPE` unchanged (description stays out of `displayDescriptors`; the fan-out
