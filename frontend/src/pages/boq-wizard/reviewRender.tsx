@@ -145,3 +145,60 @@ export function renderDescriptorCell(val: unknown): string {
   if (typeof val === "number") return fmtNum(val);
   return String(val);
 }
+
+// ── Faithful multi-column description (MC-4) ──────────────────────────────────
+//
+// The review screen fans the single Description anchor into one column per mapped
+// description column. These three pure helpers are the testable core.
+
+export interface DescriptionColumn {
+  col: string;        // Excel column letter
+  label: string;      // resolved header label (letter fallback), " 2"/" 3"-suffixed on dup
+  headerText: string; // rendered header: `${label} (${col})`, or bare `${col}` when label===col
+}
+
+// Column SET + ORDER from the role:"description" descriptors (backend emits one per
+// mapped column, already in Excel order). LABEL via union-across-rows: the first row
+// that carries a triple for this column wins (header_label is constant per column);
+// fall back to the column letter when NO row has a triple for it. Duplicate labels get
+// " 2"/" 3" suffixes in column order (render-time only). headerText avoids "C (C)".
+export function buildDescriptionColumns(
+  columnDescriptors: ColumnDescriptor[],
+  rows: ReviewRow[],
+): DescriptionColumn[] {
+  const descCols = columnDescriptors.filter(d => d.role === "description");
+
+  const labelFor = (col: string): string => {
+    for (const row of rows) {
+      const parts = row.description_parts_raw;
+      if (!Array.isArray(parts)) continue;
+      const triple = parts.find(t => t[0] === col);
+      if (triple && triple[1]) return triple[1];
+    }
+    return col; // no row carries this column -> bare Excel letter
+  };
+
+  const seen = new Map<string, number>(); // base label -> times used so far
+  return descCols.map(d => {
+    const base = labelFor(d.col);
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    const label = n === 1 ? base : `${base} ${n}`; // 2nd -> " 2", 3rd -> " 3"
+    const headerText = label === d.col ? d.col : `${label} (${d.col})`;
+    return { col: d.col, label, headerText };
+  });
+}
+
+// Per-cell value: the cell_text of this row's triple for `col`; absent/null/legacy -> "".
+export function descriptionCellValue(row: ReviewRow, col: string): string {
+  const parts = row.description_parts_raw;
+  if (!Array.isArray(parts)) return "";
+  const triple = parts.find(t => t[0] === col);
+  return triple ? (triple[2] ?? "") : "";
+}
+
+// Legacy-fallback detector: does ANY row in this sheet carry a non-empty parts list?
+// Pre-MC-2 drafts have all-null parts -> false -> the single-anchor legacy render.
+export function sheetHasDescriptionParts(rows: ReviewRow[]): boolean {
+  return rows.some(r => Array.isArray(r.description_parts_raw) && r.description_parts_raw.length > 0);
+}
