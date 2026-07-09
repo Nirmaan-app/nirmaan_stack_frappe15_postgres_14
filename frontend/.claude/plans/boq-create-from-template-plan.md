@@ -56,6 +56,41 @@ endpoints (needs a write-endpoint adapter prop for the A-T8 template editor) and
 a `pricingRowPropsAreEqual`-style memo row before adding a selection checkbox/qty for T10/T11). `is_template`
 lives only in `BoqProjectTab.tsx`; `origin`/`is_template_source`/`source_template` are net-new to the TS types.
 
+### A1 FRONTEND — AS-BUILT + LIVE E2E ✅ (2026-07-09, tsc delta-0)
+Built via two parallel FE Workflows. Commits: **Stage 1 `045782d8`**, **Stage 2 `9fcfc021`** (backend
+`f2f1dc15`) on `feature/boq-create-from-template`.
+- **Stage 1 (additive, default-off):** T9 hub template-origin suppression (`sheetCardStages` override), A-T6
+  "Set as master template" action (BoqHubPage; Admin/Estimates + `is_template_source` + committed), A-T7 create
+  entry (BoqPickerPage 2nd option → in-place `TemplateCreateFlow` → `get_master_template` → sheet picker →
+  `create_from_template` → clone-progress socket+poll → hub), A-T8 templates-admin SHELL (route
+  `/upload-boq/templates` + role-gated sidebar + `get_master_template_admin` + `is_active` + seed-from-workbook),
+  BoqProjectTab `is_template` cleanup, new TS types.
+- **Stage 2:** T10 `ReviewTree.selectable` (Include checkbox → `set_row_excluded` cascade + dimmed-excluded +
+  soft no-qty advisory; `templateSelection.ts` pure helpers) + T11 `canCreateRows` (insert/delete) — BOTH
+  default-off so the upload flow is byte-identical; SheetReviewPage gates on `origin==="template" && !readOnly`;
+  `get_review_rows` returns `is_excluded`. A-T8 **lean editor** (owner-chosen over ReviewTree-reuse):
+  `TemplateRowsEditor` (`get_template_rows` → indented tree; edit/insert/delete/reparent via `template_edit.*`,
+  cycle-safe parent picker) + TemplateEditorPage sheet selector + add/remove/reorder-sheet.
+- **LIVE E2E (chrome-devtools, jatin/PMO):** create-from-template → clone → template-origin hub (Configure/Parse
+  suppressed, "Cloned from template" subtitle) → review (Include checkboxes; deselecting a preamble cascades to
+  its subtree; advisory recomputes 4→2) → commit (General Specs committed v1 — the **T5b source-file-less commit
+  path**). All green.
+- **Bug found + fixed in E2E:** the selection checkbox double-acquired the draft lock (client `onEditIntent` +
+  server `set_row_excluded` raced on the lock's check-then-insert → "BoQ Sheet Pricing Lock … already exists").
+  Removed the redundant client acquire; `set_row_excluded` is the single lock authority for a selection toggle.
+- **RESIDUAL latent lock race (NOT fixed — follow-up):** `pricing_lock.acquire_or_refresh` is a non-atomic
+  check-then-insert, so two TRULY-concurrent acquires (e.g. two users on the same sheet at the same instant)
+  still race to a `DuplicateEntryError` instead of a graceful holder/reject. Harden by catching the dup +
+  re-resolving (same-user → refresh, other-user → BOQ_DRAFT_LOCKED). Affects the pricing/draft/config locks too.
+- **E2E env notes:** dev DB now has an active master `BOQTPL-00020` (E2E MEP Master, seeded programmatically) +
+  a demo BoQ `BOQ-26-00101` (left for exploration). Observed **90 stale `BoQ Sheet Pricing Lock` rows** for
+  BOQ-26-00101 with TEST sheet-names (RestructureSheet/EditSheet/Cascade…) by Administrator — a
+  test-DB→runtime-DB leakage worth investigating separately.
+
+**A1 STATUS: COMPLETE** (backend + frontend, committed, tsc delta-0, live-E2E-verified). Pending: push +
+owner (Nitesh) review; optional fast-follows = the residual lock-race hardening, and finalize+commit of a
+DATA sheet via the FE (backend-tested; needs Mark-Finalized-then-commit steps).
+
 
 ### Preserved from the built backend (NO code change) — the create-flow half
 These act on the *created project BoQ's* review rows and are agnostic to the template store. **Do not touch:**
