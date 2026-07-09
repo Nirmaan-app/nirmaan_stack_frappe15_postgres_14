@@ -86,6 +86,16 @@ export interface ComputeSheetStagesInput {
   hasPriorParse: boolean;
   /** This sheet's current committed-state, when committed (undefined => never committed). Lights ③. */
   committed?: CommittedSheetState;
+  /**
+   * ADR-0013 A1: this BoQ was cloned from the master template (BOQsDoc.origin === "template").
+   * A template BoQ has NO source workbook, so the Configure + Parse steps are meaningless: the
+   * stepper "starts at Review". When true (and the sheet is NOT an aside), stage ① collapses to a
+   * passive Config-Done summary (no Configure buttons) and the button-bearing zone moves to ②
+   * (Review). Aside sheets (skip/hidden/general specs) are unaffected -- their rail already
+   * collapses and carries no Configure buttons. Default false/undefined => upload origin
+   * (byte-identical to the pre-existing behaviour).
+   */
+  isTemplateOrigin?: boolean;
 }
 
 // ── Marker builders (keep the mapping table below terse + declarative) ─────────
@@ -103,8 +113,28 @@ const NOT_COMMITTED: StageMarker = mMuted("— not committed");
  * Deterministic and side-effect-free. The zone-mapping table (mockup §06 / plan WI-2 B-2) is
  * realised here as a switch; an unknown status falls back to the Pending shape (mirrors the old
  * `STATUS_PILL[...] ?? STATUS_PILL["Pending"]` fallback).
+ *
+ * PUBLIC entry point. Applies the ADR-0013 A1 template-origin override (Configure/Parse suppressed,
+ * stepper starts at ② Review) AFTER the base status mapping, so the switch below stays a pure
+ * status→shape table. Aside sheets (skip/hidden/general specs) keep their collapsed rail untouched.
  */
 export function computeSheetStages(input: ComputeSheetStagesInput): SheetStages {
+  const base = computeBaseStages(input);
+  if (input.isTemplateOrigin && base.aside === null) {
+    // Template origin: no source workbook -> Configure/Parse are meaningless. Stage ① collapses to
+    // a passive "Config Done" summary (no Configure buttons); the button-bearing zone moves to ②
+    // Review (or none when ② is N/A -- defensive; a normal-pipeline sheet always renders ②).
+    return {
+      ...base,
+      stage1: { state: "done", marker: CONFIG_DONE_SUMMARY },
+      buttonZone: base.stage2.state === "na" ? null : 2,
+    };
+  }
+  return base;
+}
+
+/** Base status→3-zone mapping (pre-template-override). Pure switch; see computeSheetStages. */
+function computeBaseStages(input: ComputeSheetStagesInput): SheetStages {
   // hasPriorParse stays in the input contract (plan WI-2 B-1) but the dirty "last parsed …"
   // sub is interpolated in the component from the live date -- the mapping itself doesn't branch on it.
   const { effectiveStatus, committed } = input;

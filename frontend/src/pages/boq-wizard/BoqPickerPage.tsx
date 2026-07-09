@@ -16,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileSpreadsheet, FolderPlus } from "lucide-react";
+import { FileSpreadsheet, FolderPlus, Layers } from "lucide-react";
 import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
 import { BoqUploadScreen } from "./BoqUploadScreen";
+import { TemplateCreateFlow } from "./TemplateCreateFlow";
 
 const BoqPickerPage = () => {
   const navigate = useNavigate();
@@ -27,6 +28,9 @@ const BoqPickerPage = () => {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(preSelectedId);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  // In-place mode flip (NO route change): "picker" shows the project chooser, "template"
+  // renders TemplateCreateFlow for the selected project (A-T7).
+  const [mode, setMode] = useState<"picker" | "template">("picker");
 
   // Keep dropdown in sync when URL param changes (back/forward navigation).
   useEffect(() => {
@@ -56,6 +60,17 @@ const BoqPickerPage = () => {
   // screen; the transition is driven by the ?project= query param.
   if (preSelectedId) {
     return <BoqUploadScreen projectId={preSelectedId} />;
+  }
+
+  // Create-from-Template mode (A-T7): rendered in-place for the selected project.
+  // Back flips the mode state -- no route change (deep-linkable upload path unchanged).
+  if (mode === "template" && selectedProjectId) {
+    return (
+      <TemplateCreateFlow
+        projectId={selectedProjectId}
+        onBack={() => setMode("picker")}
+      />
+    );
   }
 
   const handleContinue = () => {
@@ -121,6 +136,21 @@ const BoqPickerPage = () => {
           <span className="bg-background px-2 text-muted-foreground">or</span>
         </div>
       </div>
+
+      <Button
+        variant="outline"
+        className="w-full"
+        disabled={!selectedProjectId}
+        title={
+          selectedProjectId ? undefined : "Select a project first"
+        }
+        onClick={() => {
+          if (selectedProjectId) setMode("template");
+        }}
+      >
+        <Layers className="mr-2 h-4 w-4" />
+        Create from Template
+      </Button>
 
       <Button
         variant="outline"

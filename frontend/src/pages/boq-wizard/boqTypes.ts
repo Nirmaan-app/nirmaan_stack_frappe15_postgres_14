@@ -307,7 +307,50 @@ export interface BOQsDoc {
    * this to recover parseInFlight on hub mount (Bucket-2 Slice 2).
    */
   parse_in_progress?: 0 | 1;
+  /**
+   * How this BoQ was created (ADR-0013 A1). "upload" = normal Excel ingest (re-parseable);
+   * "template" = cloned from the master template (no source workbook -> Configure/Parse are
+   * SUPPRESSED in the hub, stepper starts at Review). Default "upload". BoQ-level marker.
+   */
+  origin?: "upload" | "template";
+  /** For origin="template": the master BoQ Template this was cloned from (provenance). */
+  source_template?: string;
+  /**
+   * 1 = this is a project-less SCRATCH AUTHORING BoQ for the master template (ADR-0013 A1).
+   * Authored via an is_template_source upload; once committed, the hub shows "Set as master
+   * template" (Admin/Estimates) which materializes it into the BoQ Template. Default 0.
+   */
+  is_template_source?: 0 | 1;
 }
+
+/** Payload of the "boq:template_clone_done" socket event (create_from_template._publish_and_record). */
+export interface TemplateCloneDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  /** error only: "template_changed" = a requested sheet was removed from the master mid-flight. */
+  error_code?: "internal" | "template_changed";
+}
+
+/** One sheet of the master template, from get_master_template (drives the create-time picker). */
+export interface MasterTemplateSheet {
+  sheet_name: string;
+  sheet_order: number;
+  sheet_label?: string | null;
+  disposition: "data" | "general_specs";
+}
+
+/**
+ * Response of create_from_template.get_master_template (ADR-0013 A1): the ONE active master +
+ * its sheets, or {active:false} when none is configured (there is NO template-selection step).
+ */
+export type MasterTemplateResponse =
+  | { active: false }
+  | {
+      active: true;
+      name: string;
+      template_name: string;
+      sheets: MasterTemplateSheet[];
+    };
 
 // ── Review screen types (Slice B1) ─────────────────────────────────────────────
 

@@ -25,7 +25,6 @@ interface BoqListRow {
   wizard_state: string;
   uploaded_at: string;
   creation: string;
-  is_template?: number;
 }
 
 const WIZARD_STATE_LABELS: Record<string, string> = {
@@ -43,10 +42,9 @@ const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
   const { data, isLoading, error } = useFrappeGetDocList<BoqListRow>(
     "BOQs",
     {
-      fields: ["name", "boq_name", "version", "wizard_state", "uploaded_at", "creation", "is_template"],
-      // Templates are project-less is_template=1 BOQs (ADR-0013); exclude them
-      // from every project BOQ list defensively.
-      filters: [["project", "=", projectId], ["is_template", "!=", 1]],
+      fields: ["name", "boq_name", "version", "wizard_state", "uploaded_at", "creation"],
+      // Project-less template seeds (ADR-0013 A1) are already excluded by the project filter.
+      filters: [["project", "=", projectId]],
       orderBy: { field: "uploaded_at", order: "desc" },
       limit: 50,
     },

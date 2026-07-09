@@ -396,6 +396,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/upload-boq/templates',
+          icon: FileSpreadsheet,
+          label: 'BoQ Templates',
+        },
+      ]
+      : []),
 
 
 
@@ -707,6 +716,7 @@ export function NewSidebar() {
     "pmo-dashboard",
     'commission-tracker',
     "upload-boq",
+    "upload-boq/templates",
 
   ]), [])
 
@@ -749,6 +759,7 @@ export function NewSidebar() {
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
     '/upload-boq': ['upload-boq'],
+    '/upload-boq/templates': ['upload-boq/templates'],
   }), []);
 
   const openKey = useMemo(() => {
@@ -859,7 +870,8 @@ export function NewSidebar() {
                     "Internal Transfer Memos",
                     "Warehouse",
                     "PMO Dashboard",
-                    "Upload BoQ"]).has(item?.label) ? (
+                    "Upload BoQ",
+                    "BoQ Templates"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
