@@ -84,6 +84,15 @@ class ClassifiedRow:
     # cell text coerced to str. Empty cells produce no key.
     append_notes_raw: dict[str, str] = field(default_factory=dict)
 
+    # Per-column description parts (MC-1). Keys are source column header strings
+    # (from SheetConfig.column_headers, else column letter), values the raw cell
+    # text, ordered by Excel column position. Mirrors append_notes_raw. The
+    # canonical `description` field above is these parts joined with " | "; this
+    # map preserves the original columns for later faithful display. Blank cells
+    # produce no key; populated uniformly on every row (empty when there is no
+    # description column or every description cell is blank).
+    description_parts_raw: dict[str, str] = field(default_factory=dict)
+
     # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
     # (a separate post-classification pass, not by classify_row). Always 0 / []
     # when rows are classified individually. Phase 3 wizard reads these to surface
@@ -302,6 +311,47 @@ def _norm_desc(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
+def _excel_col_sort_key(col_letter: str) -> tuple[int, str]:
+    """Sort key for Excel column letters: A..Z, then AA..ZZ (position order)."""
+    return (len(col_letter), col_letter)
+
+
+def _description_columns(sheet_config: SheetConfig) -> list[str]:
+    """Column letters mapped to the "description" role, in Excel column order."""
+    return sorted(
+        (col for col, cr in sheet_config.column_role_map.items()
+         if cr.role == "description"),
+        key=_excel_col_sort_key,
+    )
+
+
+def _description_parts(
+    raw_row: RawRow, sheet_config: SheetConfig
+) -> list[tuple[str, str]]:
+    """
+    Return (header_label, cell_text) for every column mapped with the
+    "description" role, in Excel column order (A, B, ... AA), skipping columns
+    whose cell text is blank/whitespace for this row (MC-1).
+
+    Single source of truth for BOTH the joined canonical description string
+    (" | ".join of the texts) AND the per-row description_parts_raw map.
+    header_label is sourced identically to append_notes_raw
+    (SheetConfig.column_headers, else the column letter). Coercion via _to_str
+    matches today's single-column desc_raw exactly, so a one-column sheet is
+    byte-identical to pre-MC-1 behaviour (single value, no separator, empty
+    string when the cell is blank/absent).
+    """
+    parts: list[tuple[str, str]] = []
+    for col_letter in _description_columns(sheet_config):
+        cell = raw_row.get_cell(col_letter)
+        text = _to_str(cell.value) if cell else ""
+        if not text:
+            continue
+        header_label = sheet_config.column_headers.get(col_letter, col_letter)
+        parts.append((header_label, text))
+    return parts
+
+
 def _is_cross_row_sum(formula: str, current_row: int) -> bool:
     """Return True iff the SUM() range references at least one cell in a row != current_row.
 
@@ -375,12 +425,14 @@ def _compute_preamble_candidate_score(
     score = 0
     signals: list[str] = []
 
-    # Find the description column letter from sheet config
-    desc_col: str | None = None
-    for col_letter, col_role in sheet_config.column_role_map.items():
-        if col_role.role == "description":
-            desc_col = col_letter
-            break
+    # Find the description column letter from sheet config. MC-1: description
+    # may map to multiple columns; the bold signal is a per-cell property, so
+    # (Option A) it reads the leftmost (Excel-first) description column, routed
+    # through the shared helper. Byte-identical when a single column is mapped.
+    # The description STRING signal below uses the `description` argument, which
+    # the caller passes as the already-joined ClassifiedRow.description.
+    desc_cols = _description_columns(sheet_config)
+    desc_col: str | None = desc_cols[0] if desc_cols else None
 
     # Signal 1: bold (+2)
     if desc_col:
@@ -808,8 +860,15 @@ def classify_row(
     # ---------------------------------------------------------------- #
     # Step 3: Subtotal marker                                            #
     # ---------------------------------------------------------------- #
-    desc_cell = _cell(_first_col("description"))
-    desc_raw = _to_str(desc_cell.value) if desc_cell else ""
+    # MC-1: join ALL mapped description columns (Excel order, " | " separator);
+    # a single description column stays byte-identical to pre-MC-1. The same
+    # parts feed description_parts_raw so the original columns survive for
+    # faithful display. Computed ONCE here; every downstream consumer of
+    # desc_raw (subtotal regex, subtotal-marker row, desc_text, the final
+    # description, classification) inherits the joined value.
+    _desc_parts = _description_parts(raw_row, sheet_config)
+    desc_raw = " | ".join(text for _, text in _desc_parts)
+    description_parts_raw = dict(_desc_parts)
 
     is_subtotal = False
     if desc_raw:
@@ -836,6 +895,7 @@ def classify_row(
             classification=RowClassification.SUBTOTAL_MARKER,
             sl_no_value=_to_str(sl_c.value) if sl_c else None,
             description=_norm_desc(desc_raw) if desc_raw else None,
+            description_parts_raw=description_parts_raw,
         )
 
     # ---------------------------------------------------------------- #
@@ -1007,8 +1067,8 @@ def classify_row(
     sl_c = _cell(_first_col("sl_no"))
     sl_no_value = _to_str(sl_c.value) if sl_c else ""
 
-    # TODO (Phase 2b.2): concatenate description_specs column (role not yet in
-    # config.py) with ' — ' separator when both columns have content.
+    # desc_raw is already the MC-1 join of all mapped description columns
+    # (Excel order, " | " separator); here it is only whitespace-normalized.
     desc_text = _norm_desc(desc_raw) if desc_raw else ""
 
     unit_c = _cell(_first_col("unit"))
@@ -1131,4 +1191,5 @@ def classify_row(
         amount_by_area_raw=amount_by_area_raw,
         rate_by_area_raw=rate_by_area_raw,
         append_notes_raw=append_notes_raw,
+        description_parts_raw=description_parts_raw,
     )

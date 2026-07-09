@@ -20,8 +20,13 @@ _AREA_COMPATIBLE_ROLES = {
     "rate_supply_by_area", "rate_install_by_area", "rate_combined_by_area",
 }
 
+# Roles that may appear on at most one column per sheet. "description" is
+# deliberately NOT a singleton (MC-1): a sheet may map the description role on
+# multiple columns, which the classifier joins in Excel column order with the
+# " | " separator into the single canonical description string the rest of the
+# pipeline uses, while also recording each original column in description_parts_raw.
 _SINGLETON_ROLES = {
-    "sl_no", "description", "unit", "qty_total",
+    "sl_no", "unit", "qty_total",
     "rate_supply", "rate_install", "rate_combined",
     "amount_total", "make_model", "row_notes", "reference_images",
 }

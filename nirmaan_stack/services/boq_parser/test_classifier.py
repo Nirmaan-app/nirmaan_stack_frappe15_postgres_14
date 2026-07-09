@@ -2582,5 +2582,162 @@ class TestBug10ClassifyRowGating(unittest.TestCase):
         )
 
 
+def _desc_config(desc_cols, headers=None, sheet_name="MultiDesc") -> SheetConfig:
+    """SheetConfig with A=sl_no and each letter in `desc_cols` mapped to the
+    description role. `headers` is an optional {col_letter: header_string} map."""
+    column_role_map: dict[str, ColumnRole] = {"A": ColumnRole(role="sl_no")}
+    for col in desc_cols:
+        column_role_map[col] = ColumnRole(role="description")
+    return SheetConfig(
+        sheet_name=sheet_name,
+        header_row=1,
+        column_role_map=column_role_map,
+        column_headers=headers or {},
+    )
+
+
+class TestMultiColumnDescription(unittest.TestCase):
+    """MC-1 — multiple description columns joined at parse with ' | ', plus the
+    faithful per-column description_parts_raw map."""
+
+    def test_two_description_columns_join_excel_order(self):
+        """Two description columns join in Excel column order with ' | '."""
+        config = _desc_config(["B", "C"])
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Supply of"},
+            "C": {"value": "MS pipe"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "Supply of | MS pipe")
+
+    def test_three_description_columns_join(self):
+        """Three description columns join left-to-right in Excel column order."""
+        config = _desc_config(["B", "C", "D"])
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Supply"},
+            "C": {"value": "and install"},
+            "D": {"value": "MS pipe"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "Supply | and install | MS pipe")
+
+    def test_blank_middle_description_column_skipped(self):
+        """A blank/whitespace middle description cell is skipped — no double ' | '."""
+        config = _desc_config(["B", "C", "D"])
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Supply"},
+            "C": {"value": "   "},   # whitespace-only -> skipped
+            "D": {"value": "MS pipe"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "Supply | MS pipe")
+        self.assertNotIn(" |  | ", result.description)
+
+    def test_mapping_order_differs_from_excel_order(self):
+        """When column_role_map insertion order != Excel order, Excel order wins."""
+        # Insert C before B in the mapping; Excel order is B then C.
+        column_role_map = {
+            "A": ColumnRole(role="sl_no"),
+            "C": ColumnRole(role="description"),
+            "B": ColumnRole(role="description"),
+        }
+        config = SheetConfig(sheet_name="OrderTest", header_row=1,
+                             column_role_map=column_role_map)
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "first"},
+            "C": {"value": "second"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "first | second")
+
+    def test_excel_order_multi_letter_columns(self):
+        """Excel order sorts single-letter before two-letter columns (Z before AA)."""
+        column_role_map = {
+            "A": ColumnRole(role="sl_no"),
+            "AA": ColumnRole(role="description"),
+            "Z": ColumnRole(role="description"),
+        }
+        config = SheetConfig(sheet_name="WideTest", header_row=1,
+                             column_role_map=column_role_map)
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "Z": {"value": "z-col"},
+            "AA": {"value": "aa-col"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "z-col | aa-col")
+
+    def test_single_description_column_byte_identical(self):
+        """Regression pin: one description column behaves exactly as pre-MC-1 —
+        a single stripped value, NO separator; the final description is
+        whitespace-collapsed by _norm_desc while the parts map keeps the raw
+        (end-stripped, internally-preserved) text."""
+        config = _desc_config(["B"])
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "  Section   header  "},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description, "Section header")
+        self.assertNotIn("|", result.description)
+        # parts map keeps end-stripped raw text (internal run preserved)
+        self.assertEqual(result.description_parts_raw, {"B": "Section   header"})
+
+    def test_description_parts_raw_labels_order_values(self):
+        """description_parts_raw: header labels from column_headers, Excel order,
+        raw (stripped) values; a blank column is absent from the map."""
+        config = _desc_config(
+            ["B", "C", "D"],
+            headers={"B": "Description", "C": "Specification", "D": "Remarks"},
+        )
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Supply"},
+            "C": {"value": "   "},   # blank -> absent from the map
+            "D": {"value": "MS pipe"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(
+            result.description_parts_raw,
+            {"Description": "Supply", "Remarks": "MS pipe"},
+        )
+        # dict preserves Excel-order insertion (blank C dropped)
+        self.assertEqual(
+            list(result.description_parts_raw.keys()), ["Description", "Remarks"]
+        )
+
+    def test_description_parts_raw_on_single_column_sheet(self):
+        """Uniform shape: the parts map is populated even on a single-column sheet."""
+        config = _desc_config(["B"], headers={"B": "Description"})
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Section header"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(result.description_parts_raw, {"Description": "Section header"})
+
+    def test_all_description_cells_blank(self):
+        """All description cells blank -> empty description + empty parts map,
+        identical to a single blank-description column (pre-MC-1 behaviour)."""
+        multi = _desc_config(["B", "C"])
+        single = _desc_config(["B"])
+        multi_result = classify_row(
+            _make_row(1, {"A": {"value": "1.0"}, "B": {"value": "  "}, "C": {"value": ""}}),
+            multi, _GS,
+        )
+        single_result = classify_row(
+            _make_row(1, {"A": {"value": "1.0"}, "B": {"value": "  "}}), single, _GS,
+        )
+        self.assertIsNone(multi_result.description)
+        self.assertEqual(multi_result.description_parts_raw, {})
+        # multi-blank behaves exactly like single-blank does today
+        self.assertEqual(multi_result.description, single_result.description)
+        self.assertEqual(multi_result.classification, single_result.classification)
+
+
 if __name__ == "__main__":
     unittest.main()
