@@ -2751,6 +2751,7 @@ from nirmaan_stack.api.boq.wizard.export_writeback import (
     _generate_priced_workbook,
     _resolve_sheet_plan,
     _rightmost_mapped_col_index,
+    _safe_export_basename,
     _stamp_rates,
     _write_remark_column,
     export_priced_workbook,
@@ -2903,11 +2904,43 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
         self.assertEqual(ws["J3"].value, "Nirmaan Remarks", "header at the data header row")
         self.assertEqual(ws["J34"].value, "check with Nitesh")
 
-    def test_write_remark_column_refuses_nonempty_target(self):
+    def test_write_remark_column_scans_past_nonempty_target(self):
+        # A pre-existing cell in the would-be remark column (J, = edge I + 1) must NOT dead-end
+        # the export -- the writer scans rightward to the first genuinely-empty column (K) and
+        # places there, leaving the existing data untouched.
         wb, ws = _new_ws()
-        ws["J10"] = "real data already here"   # J is the would-be remark column
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        ws["J10"] = "real data already here"
+        col = _write_remark_column(
+            ws, [{"excel_row": 34, "remark": "check with Nitesh"}], _FIX_ROLE_MAP, 3
+        )
+        self.assertEqual(col, "K", "scanned past the occupied J to the first empty column K")
+        self.assertEqual(ws["J10"].value, "real data already here", "pre-existing data untouched")
+        self.assertEqual(ws["K3"].value, "Nirmaan Remarks", "header at the data header row")
+        self.assertEqual(ws["K34"].value, "check with Nitesh")
+
+    def test_write_remark_column_scans_past_stray_far_row(self):
+        # Mirrors BOQ-26-00065 (Electrical): the tender's own "Remarks" is the mapped edge and a
+        # single stray estimator note sits far down in the very next column (J167 here). The
+        # writer must skip the whole occupied column J -- scanned across ALL rows -- and land at
+        # the first empty column K, never throwing.
+        wb, ws = _new_ws()
+        ws["J167"] = "Item description, scope & Quantities added."
+        col = _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        self.assertEqual(col, "K", "one stray cell far down still forces a skip to K")
+        self.assertEqual(
+            ws["J167"].value, "Item description, scope & Quantities added.",
+            "the stray note is preserved, never overwritten",
+        )
+        self.assertEqual(ws["K34"].value, "x")
+
+    def test_write_remark_column_scans_past_consecutive_occupied(self):
+        # Two occupied trailing columns in a row (J and K) -> land at L (first empty after both).
+        wb, ws = _new_ws()
+        ws["J10"] = "a"
+        ws["K200"] = "b"
+        col = _write_remark_column(ws, [{"excel_row": 34, "remark": "x"}], _FIX_ROLE_MAP, 3)
+        self.assertEqual(col, "L", "skips every occupied trailing column, not just the first")
+        self.assertEqual(ws["L34"].value, "x")
 
     def test_col_is_empty(self):
         wb, ws = _new_ws()
@@ -2941,6 +2974,29 @@ class TestExportWritebackPureHelpers(FrappeTestCase):
             with self.assertRaises(frappe.exceptions.ValidationError, msg=f"{k} divergence must raise"):
                 _assert_fidelity(base, bad)
         _assert_fidelity(base, dict(base))  # identical -> no raise
+
+    # -- _safe_export_basename (the download-filename base) ------------------
+    def test_safe_basename_prefers_display_name(self):
+        self.assertEqual(
+            _safe_export_basename("Tender ABC Project", "BOQ-26-00001"),
+            "Tender ABC Project")
+
+    def test_safe_basename_falls_back_to_docname_when_blank(self):
+        for blank in (None, "", "   "):
+            self.assertEqual(_safe_export_basename(blank, "BOQ-26-00001"), "BOQ-26-00001")
+
+    def test_safe_basename_strips_unsafe_chars(self):
+        # Slashes/colons etc. are illegal in filenames -> stripped, not left in.
+        self.assertEqual(
+            _safe_export_basename('Site A/B: Q1 "final"?', "BOQ-26-00001"),
+            "Site AB Q1 final")
+
+    def test_safe_basename_docname_fallback_when_all_chars_unsafe(self):
+        self.assertEqual(_safe_export_basename('/\\:*?"<>|', "BOQ-26-00001"), "BOQ-26-00001")
+
+    def test_safe_basename_collapses_whitespace(self):
+        self.assertEqual(
+            _safe_export_basename("  Tender   ABC  ", "BOQ-26-00001"), "Tender ABC")
 
 
 class TestExportWritebackEndToEnd(FrappeTestCase):
@@ -3062,6 +3118,33 @@ class TestExportWritebackEndToEnd(FrappeTestCase):
         # last_exported_at stamped on the committed BoQ Sheet via set_value
         stamped = frappe.db.get_value("BoQ Sheet", self.fixture["bqsh"], "last_exported_at")
         self.assertIsNotNone(stamped, "last_exported_at stamped on the exported sheet")
+
+    def test_filename_uses_display_name_not_docname(self):
+        # The download filename mirrors the ORIGINAL uploaded BoQ name (the friendly
+        # boq_name field), not the docname primary key.
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(
+                self.boq, [self.sheet], path, display_name="Tender ABC Project"
+            )
+        finally:
+            _os.unlink(path)
+        self.assertTrue(res["filename"].startswith("Tender ABC Project_priced_"),
+                        f"friendly name expected, got {res['filename']!r}")
+        self.assertTrue(res["filename"].endswith(".xlsx"))
+        self.assertNotIn(self.boq, res["filename"], "docname must not leak into the filename")
+
+    def test_filename_falls_back_to_docname_when_no_display_name(self):
+        # display_name omitted (the pre-existing 3-arg call shape) -> docname fallback.
+        self._add_price(34, "E", 250.0)
+        path = self._synthetic_path()
+        try:
+            res = _generate_priced_workbook(self.boq, [self.sheet], path)
+        finally:
+            _os.unlink(path)
+        self.assertTrue(res["filename"].startswith(f"{self.boq}_priced_"),
+                        f"docname fallback expected, got {res['filename']!r}")
 
     def test_generate_priced_highlight_only_on_stamped_rate_cells(self):
         self._add_price(34, "E", 250.0)         # stamped rate cell -> teal

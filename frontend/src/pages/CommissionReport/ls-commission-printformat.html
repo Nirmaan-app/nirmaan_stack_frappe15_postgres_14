@@ -103,10 +103,8 @@ body { font-family: "Inter", Helvetica, Arial, sans-serif; font-size: 10px; colo
 .cv-meas .cv-meas-lbl { font-weight: 700; width: 25%; }
 
 .cv-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 30px; page-break-inside: avoid; }
-.cv-sigs td { padding: 4px 8px; text-align: center; font-weight: 700; font-size: 10px; border: 0; vertical-align: bottom; }
-.cv-sigs .sig-line { height: 46px; border-bottom: 1px solid #000; margin-bottom: 4px; }
-.cv-sigs .sig-role { font-weight: 700; font-size: 10px; }
-.cv-sigs .sig-cap { font-weight: 400; font-size: 9px; color: #555; }
+.cv-sigs .cv-sig-header td { border: 1px solid #000; text-align: center; padding: 5px; font-size: 11px; font-weight: 700; }
+.cv-sigs .cv-sig-box td { border: 1px solid #000; height: 60px; text-align: center; vertical-align: middle; }
 
 .cv-error { padding: 12px; border: 1px solid #f00; background: #fee; color: #900; }
 
@@ -154,7 +152,7 @@ tr { page-break-inside: avoid; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr>{%- for label in ns_sigs.items -%}<td><div class="sig-line">&nbsp;</div><div class="sig-role">{{ label }}</div></td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -236,16 +234,24 @@ tr { page-break-inside: avoid; }
                    under a "VALUES IN MΩ" super-header. Pass cells show value + ✓. #}
             {%- set hvals = (rd.responses or {}).get(hdr_section.id, {}) if hdr_section else {} -%}
 
+                        <style>/* MEGGER-FIT */
+                .cv-tr-table .cv-tr-row td { height: auto !important; padding: 1px 3px !important; line-height: 1.05 !important; }
+                .cv-tr-table th, .cv-tr-table td { font-size: 8px !important; }
+                .cv-sigs { margin-top: 8px !important; }
+                .cv-sigs .cv-sig-box td { height: 28px !important; }
+            </style>
             <table class="cv-page-layout">
                 <tr><td class="cv-content-cell">
                     {% if hdr_section %}
                         <table class="cv-table">
-                            {% for f in (hdr_section.fields or []) %}
-                                {% if f.key in ['vendor', 'project', 'location', 'date'] %}
-                                    <tr><td class="cv-label">{{ f.label }}</td><td>{%- set v = hvals.get(f.key) -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
-                                    {% if _zlabel and f.key == 'location' %}<tr><td class="cv-label">ZONE</td><td><strong>{{ _zlabel }}</strong></td></tr>{% endif %}
-                                {% endif %}
-                            {% endfor %}
+                            <colgroup><col style="width:12%;"/><col style="width:48%;"/><col style="width:12%;"/><col style="width:28%;"/></colgroup>
+                            <tr><td class="cv-label">VENDOR</td><td colspan="3">{%- set v = hvals.get('vendor') -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                            <tr><td class="cv-label">PROJECT</td><td colspan="3">{%- set v = hvals.get('project') -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                            <tr><td class="cv-label">LOCATION</td><td colspan="3">{%- set v = hvals.get('location') -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td></tr>
+                            <tr>
+                                <td class="cv-label">ZONE</td><td>{% if _zlabel %}<strong>{{ _zlabel }}</strong>{% else %}<span class="cv-blank">&nbsp;</span>{% endif %}</td>
+                                <td class="cv-label">DATE</td><td>{%- set v = hvals.get('date') -%}{%- if v is none or v == '' -%}<span class="cv-blank">&nbsp;</span>{%- else -%}{{ v }}{%- endif -%}</td>
+                            </tr>
                         </table>
                         <div class="cv-spacer-md"></div>
                         <table class="cv-table">

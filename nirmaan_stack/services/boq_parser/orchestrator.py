@@ -79,17 +79,21 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
     corresponding per-area dict is populated, compute the total from the
     per-area sum.
     """
-    # No-attribute-loss (Option B): PREAMBLE rows are processed identically to
-    # LINE_ITEM so a preamble that carries source quantities/amounts gets its
-    # per-area output dicts + empty-total fallback populated rather than dropped.
-    # Genuine section-header preambles have empty per-area raw dicts, so every
-    # operation below is a no-op for them. SPACER / NOTE / subtotal / header_repeat
-    # remain skipped (they never become priceable nodes; the committed grid tier
-    # already preserves their raw cells faithfully).
+    # No-attribute-loss (Option B): PREAMBLE, NOTE and SUBTOTAL_MARKER rows are
+    # processed identically to LINE_ITEM so a row that carries source quantities/amounts
+    # gets its per-area output dicts + empty-total fallback populated rather than dropped.
+    # Genuine section headers / text notes / label subtotals have empty per-area raw
+    # dicts, so every operation below is a no-op for them; only rows that actually carry
+    # cells are affected. SPACER / HEADER_REPEAT stay skipped (a blank / repeated-header
+    # row has no cells to carry). None of these become priceable nodes (note / subtotal /
+    # header_repeat are grid-only at commit), so rollups are unaffected — this only
+    # enriches the review row.
     for row in resolved_rows:
         if row.classified_row.classification not in (
             RowClassification.LINE_ITEM,
             RowClassification.PREAMBLE,
+            RowClassification.NOTE,
+            RowClassification.SUBTOTAL_MARKER,
         ):
             continue
 
