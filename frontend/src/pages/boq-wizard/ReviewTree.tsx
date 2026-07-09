@@ -875,16 +875,19 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     () => (fanOut ? descriptionDescriptors.slice(1).map(d => d.col) : []),
     [fanOut, descriptionDescriptors],
   );
-  // The hideable-column universe for the picker + counts: ordinary descriptor columns
-  // PLUS the extra description columns. In legacy mode extraDescCols is empty, so this
-  // equals displayDescriptors and every downstream count is byte-identical to today.
+  // The hideable-column universe for the picker + counts: the extra description
+  // columns FIRST (they render leftmost in the table, so the picker mirrors that
+  // visual order) THEN the ordinary descriptor columns. Order is presentation-only
+  // here -- the two consumers (hiddenColCount, visibleDescriptorCount) are
+  // order-independent .filter counts. In legacy mode extraDescCols is empty, so
+  // this equals displayDescriptors and every downstream count is byte-identical.
   const pickerColumns = useMemo(
     () => [
+      ...extraDescCols.map(c => ({ col: c.col, label: c.headerText })),
       ...displayDescriptors.map(d => ({
         col: d.col,
         label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
       })),
-      ...extraDescCols.map(c => ({ col: c.col, label: c.headerText })),
     ],
     [displayDescriptors, extraDescCols],
   );
