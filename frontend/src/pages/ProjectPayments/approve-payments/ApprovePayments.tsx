@@ -223,7 +223,9 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   // makes zero extra requests.
   const { data: projectExpenses } = useFrappeGetDocList<ProjectExpenses>(
     "Project Expenses",
-    { fields: ["projects", "amount"], limit: 100000 },
+    // Only Paid expenses count toward the cashflow gap (mirrors projects.tsx +
+    // the backend _compute_cashflow_gap); Requested/Approved-but-unpaid don't.
+    { fields: ["projects", "amount"], filters: [["status", "=", "Paid"]], limit: 100000 },
     isCEOMode ? "ProjectExpenses_CEOPending" : null
   );
   const { data: projectInflows } = useFrappeGetDocList<ProjectInflows>(
