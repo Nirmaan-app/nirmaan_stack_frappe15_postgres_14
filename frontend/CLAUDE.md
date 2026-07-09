@@ -322,6 +322,16 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 
 - **Depth / indent comes from the `effective_parent_index` chain (`computeDepths`), NEVER the stored `level`** (which
   diverges after `human_parent` edits). `isVisible` walks from the PARENT, so a collapsed row stays visible.
+- **Description is a FAN-OUT of the original columns (MC-4), not the single joined anchor.** When any row carries
+  `description_parts_raw` (`sheetHasDescriptionParts`), the Description anchor becomes one column per mapped
+  description column via the pure helpers in `reviewRender.tsx` (`buildDescriptionColumns` / `descriptionCellValue`):
+  set+order from the `role:"description"` descriptors; per-cell value by `col_letter`; LABEL from the triples'
+  `header_label` **union-across-rows** (letter fallback), `" 2"/" 3"`-suffixed on duplicates. The FIRST column is the
+  always-on wide anchor (depth indent + `(no description)` fallback via the shared `DescriptionCellInner`); the rest
+  are narrower and join the `visibleCols` picker via `pickerColumns`. `totalCols` keeps base `8` + extra visible
+  description cols so `colSpan`s stay aligned. **LEGACY FALLBACK:** no parts on any row (pre-MC-2 drafts) -> the
+  single anchor renders via the SAME `DescriptionCellInner` (byte-identical). Search still reads the joined
+  `row.description` (unchanged); exports keep the single joined Description (MC-5/owner-deferred).
 - **Description search uses the shared `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`)** — token-AND, min
   length 2; fuzzy decides MEMBERSHIP, document order drives prev/next. ReviewTree + SheetSearchView both call it;
   RestructureModal inherits via SheetSearchView. Never inline a second matcher.
