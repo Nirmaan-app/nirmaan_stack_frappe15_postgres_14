@@ -883,7 +883,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // this equals displayDescriptors and every downstream count is byte-identical.
   const pickerColumns = useMemo(
     () => [
-      ...extraDescCols.map(c => ({ col: c.col, label: c.headerText })),
+      // Letter-first picker convention (matching the displayDescriptors label below),
+      // NOT the table-header `${label} (${col})` format. Bare letter when the resolved
+      // label IS the column letter (degenerate / pre-MC-3b) -- no dangling " — ".
+      ...extraDescCols.map(c => ({
+        col: c.col,
+        label: c.label === c.col ? c.col : `${c.col} — ${c.label}`,
+      })),
       ...displayDescriptors.map(d => ({
         col: d.col,
         label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
