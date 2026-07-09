@@ -38,8 +38,9 @@ JOINS all mapped description columns, in EXCEL COLUMN ORDER (A, B, ... AA -- sor
 NOT dict insertion order), with the separator `" | "` (space-pipe-space, ASCII), skipping columns whose
 cell text is blank/whitespace for that row, into the SINGLE canonical `description` string the whole
 pipeline already consumes. It ALSO records each original column's text in a NEW per-row parts map
-`description_parts_raw` (`{header label -> raw cell text}`, Excel order, blank cells absent), mirroring
-`append_notes_raw`, for later faithful display. **Single-description sheets are BYTE-IDENTICAL to
+`description_parts_raw` (originally `{header label -> raw cell text}`; **SUPERSEDED by MC-1b below ->
+an ordered LIST of `(col_letter, header_label, cell_text)` triples**, Excel order, blank cells absent),
+mirroring `append_notes_raw`, for later faithful display. **Single-description sheets are BYTE-IDENTICAL to
 pre-MC-1** (single stripped value, no separator; empty when the cell is blank/absent) -- a regression
 pin test + the entire existing suite prove it.
 
@@ -70,6 +71,29 @@ pin test + the entire existing suite prove it.
 transparently; `description_parts_raw` needs threading through `ResolvedRow` -> `flatten_resolved_row` ->
 `BoQ Review Row` -> commit -> `BOQ Nodes` and the review/pricing render surfaces before faithful
 per-column display exists end-to-end.
+
+### MC-1b -- parts shape fix: collision-proof triples COMPLETE
+
+Follow-on to MC-1 (tip `f5d61372`), BEFORE anything downstream consumes the field. `classifier.py` +
+`test_classifier.py` only. Baseline parser suite 603 -> 604, all green.
+
+**Problem:** MC-1's `{header label -> raw cell text}` dict silently DROPPED a column when two description
+columns shared an identical header (last-write-wins). **Fix (owner call 2026-07-09):** the STORED SHAPE
+of `ClassifiedRow.description_parts_raw` becomes an ORDERED LIST of `(col_letter, header_label, cell_text)`
+triples, Excel column order, blank cells still skipped. `col_letter` is UNIQUE -> collision-proof;
+`header_label` stays the ORIGINAL header text (NO de-duplication in storage). `_description_parts` returns
+the triples; the join site takes each triple's `cell_text`.
+
+**The canonical joined `description` string is UNTOUCHED** (byte-identical to MC-1 in every case) -- all
+join-string tests pass unmodified. The scorer bold signal is unchanged.
+
+**DISPLAY CONVENTION (recorded, NOT built here -- lands MC-4/MC-5):** at render time, duplicate header
+labels get ` 2`, ` 3` suffixes in column order (e.g. two "Description" columns render as "Description" +
+"Description 2"). Storage keeps the raw original labels; the suffixing is a pure render-time decoration.
+
+**Tests:** `TestMultiColumnDescription` parts assertions restated to the triple shape; NEW
+`test_duplicate_header_labels_both_survive` (identical headers -> BOTH parts kept, distinguished by
+`col_letter`, join string unaffected). `test_classifier` 133 -> 134.
 
 ## Classifier module -- CL-1a (service core) COMPLETE
 
