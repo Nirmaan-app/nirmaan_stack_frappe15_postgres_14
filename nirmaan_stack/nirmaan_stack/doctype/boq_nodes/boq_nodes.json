@@ -41,6 +41,7 @@
   "amount_override",
   "notes",
   "append_notes_raw",
+  "description_parts_raw",
   "edit_reason",
   "review_provenance_section",
   "review_row_name",
@@ -258,6 +259,12 @@
    "fieldname": "append_notes_raw",
    "fieldtype": "JSON",
    "label": "Append Notes Raw"
+  },
+  {
+   "description": "Per-column description parts carried verbatim from the review row: an ordered list of [col_letter, header_label, cell_text] triples (list, NOT a dict), Excel column order, blank cells skipped. Display-only; render-time de-dups duplicate headers. Distinct from description (the joined string).",
+   "fieldname": "description_parts_raw",
+   "fieldtype": "JSON",
+   "label": "Description Parts Raw"
   },
   {
    "description": "Transient: populated by frontend before user edit, cleared after audit entry is written",
