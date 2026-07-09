@@ -18,6 +18,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
     apply_auto_approval,
     evaluate_auto_approve_eligibility,
 )
+from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
 
 
 @frappe.whitelist()
@@ -38,6 +39,7 @@ def update_invoice_data(
     autofill_line_items_json: str = None,
     autofill_line_match_json: str = None,
     autofill_source_file_url: str = None,
+    rebuild_line_mappings: bool = False,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -132,11 +134,37 @@ def update_invoice_data(
                     "invoice_no": new_invoice_entry_data.get("invoice_no"),
                     "invoice_date": new_invoice_entry_data.get("date"),
                     "invoice_amount": new_invoice_entry_data.get("amount"),
+                    "is_credit_note": 1 if new_invoice_entry_data.get("is_credit_note") else 0,
                 })
-                
+
                 # If a new attachment was provided, update it
                 if attachment_id and attachment_id != vendor_invoice.invoice_attachment:
                     vendor_invoice.invoice_attachment = attachment_id
+
+                # Rebuild the verified line → PO-item mapping from the (corrected)
+                # mapping the frontend sent. Allowed for PENDING invoices, OR for a
+                # NIRMAAN ADMIN on any status (an admin may correct a locked/approved
+                # invoice's mapping). The child rows are fully regenerated; the audit
+                # snapshot is refreshed to match. invoice_qty resyncs via the
+                # recompute call (line ~244) before commit.
+                _admin_can_rebuild = (
+                    frappe.session.user == "Administrator"
+                    or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
+                )
+                if rebuild_line_mappings and (vendor_invoice.status == "Pending" or _admin_can_rebuild):
+                    # Use .set() (NOT direct attribute assignment) so the dict rows are
+                    # converted into child documents — a raw list of dicts left on the
+                    # attribute makes save() call .is_new() on a dict and blow up.
+                    vendor_invoice.set(
+                        "line_mappings",
+                        build_line_mapping_rows(autofill_line_match_json, doc),
+                    )
+                    vendor_invoice.autofill_used = 1
+                    vendor_invoice.autofill_line_match_json = autofill_line_match_json
+                    if autofill_line_items_json is not None:
+                        vendor_invoice.autofill_line_items_json = autofill_line_items_json
+                    if autofill_all_entities_json is not None:
+                        vendor_invoice.autofill_all_entities_json = autofill_all_entities_json
 
                 vendor_invoice.save(ignore_permissions=True)
             else:
@@ -213,6 +241,11 @@ def update_invoice_data(
                 },
                 update_modified=False
             )
+
+        # Refresh the stored per-item invoiced quantity from the invoice lines
+        # (new invoice → its matched lines now count toward each PO row).
+        if doctype == "Procurement Orders":
+            recompute_po_invoice_qty(docname)
 
         # --- Commit Transaction ---
         frappe.db.commit()
@@ -397,6 +430,7 @@ def create_vendor_invoice(
         "invoice_date": invoice_data.get("date"),
         "invoice_amount": invoice_data.get("amount"),
         "invoice_attachment": attachment_id,
+        "is_credit_note": 1 if invoice_data.get("is_credit_note") else 0,
         "status": "Pending",
         "uploaded_by": uploaded_by,
         "autofill_used": 1 if autofill_used else 0,
@@ -478,6 +512,13 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
         invoice = frappe.get_doc("Vendor Invoices", vendor_invoice_name)
         invoice_no = invoice.invoice_no
         attachment_id = invoice.invoice_attachment
+        # Capture the PO before deletion so we can refresh its per-item invoiced
+        # quantities once this invoice's lines are gone.
+        po_for_sync = (
+            invoice.document_name
+            if invoice.document_type == "Procurement Orders"
+            else None
+        )
 
         # 2. Delete associated attachment (if exists)
         if attachment_id:
@@ -509,6 +550,11 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
 
         # 4. Delete the Vendor Invoice document
         frappe.delete_doc("Vendor Invoices", vendor_invoice_name, ignore_permissions=True, force=True)
+
+        # 5. Refresh the PO's stored per-item invoiced quantities (this invoice's
+        # lines no longer count).
+        if po_for_sync:
+            recompute_po_invoice_qty(po_for_sync)
 
         # --- Commit Transaction ---
         frappe.db.commit()

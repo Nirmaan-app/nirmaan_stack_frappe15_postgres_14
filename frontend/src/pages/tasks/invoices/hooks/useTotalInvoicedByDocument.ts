@@ -20,7 +20,9 @@ export const useTotalInvoicedByDocument = () => {
     const { data, isLoading, error } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
         {
-            fields: ["document_type", "document_name", "invoice_amount"],
+            // These extra fields feed the InvoiceDataDialog opened from the
+            // "Invoice Total" cell (invoice list + attachment links).
+            fields: ["name", "document_type", "document_name", "invoice_amount", "invoice_no", "invoice_date", "status", "invoice_attachment", "project"],
             filters: [["status", "in", ["Pending", "Approved"]]],
             limit: 100000,
         },
@@ -37,11 +39,29 @@ export const useTotalInvoicedByDocument = () => {
         return map;
     }, [data]);
 
+    // Per-parent list of the invoices composing the running total (for the hover).
+    const invoicesMap = useMemo(() => {
+        const map = new Map<string, VendorInvoice[]>();
+        (data || []).forEach((row) => {
+            const key = `${row.document_type}|${row.document_name}`;
+            const list = map.get(key) || [];
+            list.push(row);
+            map.set(key, list);
+        });
+        return map;
+    }, [data]);
+
     const getTotalInvoiced = useCallback(
         (docName: string, docType: string) =>
             totalsMap.get(`${docType}|${docName}`) || 0,
         [totalsMap]
     );
 
-    return { getTotalInvoiced, isLoading, error };
+    const getInvoicesFor = useCallback(
+        (docName: string, docType: string): VendorInvoice[] =>
+            invoicesMap.get(`${docType}|${docName}`) || [],
+        [invoicesMap]
+    );
+
+    return { getTotalInvoiced, getInvoicesFor, isLoading, error };
 };

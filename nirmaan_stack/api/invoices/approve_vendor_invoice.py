@@ -7,6 +7,8 @@ This replaces the old update_task_status API that operated on Task documents.
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
+
 
 @frappe.whitelist()
 def approve_vendor_invoice(invoice_id: str, action: str, rejection_reason: str = None):
@@ -74,6 +76,11 @@ def approve_vendor_invoice(invoice_id: str, action: str, rejection_reason: str =
 
         # 4. Save the invoice
         invoice.save(ignore_permissions=True)
+
+        # 5. Refresh the PO's stored per-item invoiced quantities. A rejection
+        # pulls this invoice's lines out of the counted (Pending+Approved) set.
+        if invoice.document_type == "Procurement Orders":
+            recompute_po_invoice_qty(invoice.document_name)
 
         # --- Commit Transaction ---
         frappe.db.commit()

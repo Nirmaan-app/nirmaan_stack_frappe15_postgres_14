@@ -132,7 +132,7 @@ export const TaskHistoryTable: React.FC = () => {
         []
     );
 
-    const { getTotalInvoiced } = useTotalInvoicedByDocument();
+    const { getTotalInvoiced, getInvoicesFor } = useTotalInvoicedByDocument();
 
     // Columns for history view
     const columns = React.useMemo(
@@ -144,7 +144,8 @@ export const TaskHistoryTable: React.FC = () => {
                 getDeliveredAmount,
                 getAmount,
                 getVendorName,
-                getTotalInvoiced
+                getTotalInvoiced,
+                getInvoicesFor
             ),
         [
             getUserName,
@@ -154,6 +155,7 @@ export const TaskHistoryTable: React.FC = () => {
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,
+            getInvoicesFor,
         ]
     );
 

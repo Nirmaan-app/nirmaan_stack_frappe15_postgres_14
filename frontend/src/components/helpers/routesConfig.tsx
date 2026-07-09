@@ -130,6 +130,8 @@ const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
+// TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
+const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -148,6 +150,9 @@ export const appRoutes: RouteObject[] = [
         children: [
           // --- Dashboard ---
           { index: true, element: <Dashboard /> },
+
+          // Resolve Invoices — Admin tool (lazy → MUST be wrapped in Suspense, like every other lazy route)
+          { path: "resolve-invoices", element: <Suspense fallback={null}><ResolveInvoices /></Suspense> },
 
           // --- PRs & Milestones Section ---
           {

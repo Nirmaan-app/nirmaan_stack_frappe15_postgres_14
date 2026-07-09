@@ -3,10 +3,16 @@
  *
  * Updated to use VendorInvoice type instead of InvoiceApprovalTask.
  */
-import React from "react";
+import React, { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from 'react-router-dom';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
+import {
+    InvoiceMappingTable,
+    useInvoiceMatchedLines,
+    usePoItemTotals,
+} from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceLineMappingView";
+import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,6 +99,138 @@ const AutofillEntitiesHoverCard: React.FC<{ invoice: VendorInvoice }> = ({ invoi
 };
 
 /**
+ * "Invoice Amt" cell with a hover card. On hover-open (and only then, to avoid
+ * a fetch-per-row on render) it lazily loads a PO invoice's line mapping and
+ * shows the PO / Invoiced comparison. WO/SR or non-mapped invoices show a basic
+ * detail card (no, date, amount, status).
+ */
+const InvoiceAmtHoverCell: React.FC<{
+    invoice: VendorInvoice;
+    getVendorName?: (orderId: string, type: string) => string;
+}> = ({ invoice, getVendorName }) => {
+    const [open, setOpen] = useState(false);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const isPO = invoice.document_type === "Procurement Orders";
+    // Only autofilled PO invoices can carry a mapping; gate the fetch on the
+    // hover being open so a table of N rows fires nothing until hovered.
+    const candidate = open && isPO && !!invoice.autofill_used;
+    const { lines, hasMapping, isLoading } = useInvoiceMatchedLines(invoice.name, candidate);
+    const { poItemsByRow, poItemsById } = usePoItemTotals(invoice.document_name, candidate);
+
+    const amount = formatToRoundedIndianRupee(parseNumber(invoice.invoice_amount));
+    // Clicking opens the dialog for THIS invoice only (not the whole document).
+    const dialogInvoices = [invoice];
+
+    return (
+        <>
+        <HoverCard openDelay={150} closeDelay={100} onOpenChange={setOpen}>
+            <HoverCardTrigger asChild>
+                <div
+                    className="cursor-pointer text-blue-600 hover:text-blue-800 underline decoration-dotted underline-offset-2"
+                    onClick={() => setDialogOpen(true)}
+                >
+                    {amount}
+                </div>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-[440px] p-0 overflow-hidden" align="end">
+                <div className="bg-gray-50 border-b px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-gray-900 truncate">
+                            {invoice.invoice_no || "Invoice"}
+                        </span>
+                        {invoice.status && (
+                            <Badge
+                                variant={invoice.status === "Approved" ? "green" : invoice.status === "Rejected" ? "destructive" : "red"}
+                                className="text-[10px] px-1.5 py-0 shrink-0"
+                            >
+                                {invoice.status}
+                            </Badge>
+                        )}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-500">
+                        <span>{invoice.invoice_date ? formatDate(new Date(invoice.invoice_date), "dd-MMM-yyyy") : "—"}</span>
+                        <span className="text-gray-300">|</span>
+                        <span className="font-semibold text-gray-800">{amount}</span>
+                        {isPO && <span className="text-gray-300">|</span>}
+                        {isPO && (
+                            <Link
+                                to={`/purchase-orders/${invoice.document_name.replace(/\//g, "&=")}?tab=Dispatched+PO`}
+                                className="text-blue-600 hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {invoice.document_name}
+                            </Link>
+                        )}
+                    </div>
+                </div>
+                {hasMapping ? (
+                    <InvoiceMappingTable lines={lines} poItemsByRow={poItemsByRow} poItemsById={poItemsById} />
+                ) : (
+                    <div className="p-3 text-xs text-gray-500">
+                        {isLoading ? "Loading item mapping…" : "No item mapping for this invoice."}
+                    </div>
+                )}
+            </HoverCardContent>
+        </HoverCard>
+        <InvoiceDataDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            vendorInvoices={dialogInvoices}
+            visibleStatuses={["Pending", "Approved", "Rejected"]}
+            project={invoice.project}
+            poNumber={invoice.document_name}
+            documentType={invoice.document_type}
+            vendor={getVendorName?.(invoice.document_name, invoice.document_type)}
+        />
+        </>
+    );
+};
+
+/**
+ * "Invoice Total" cell — the running total for the parent PO/SR, clickable to
+ * open the InvoiceDataDialog (the same dialog the All-POs table uses) listing
+ * that document's invoices + per-invoice item mapping. The invoice list is
+ * already in memory (from useTotalInvoicedByDocument) — the dialog only fetches
+ * PO items / line mappings when opened.
+ */
+const InvoiceTotalCell: React.FC<{
+    invoice: VendorInvoice;
+    getTotalInvoiced?: (docName: string, docType: string) => number;
+    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[];
+    getVendorName?: (orderId: string, type: string) => string;
+}> = ({ invoice, getTotalInvoiced, getInvoicesFor, getVendorName }) => {
+    const [open, setOpen] = useState(false);
+
+    if (!getTotalInvoiced) return <span className="text-gray-400 italic">—</span>;
+    const total = getTotalInvoiced(invoice.document_name, invoice.document_type);
+    if (!total) return <span className="text-gray-400 italic">—</span>;
+
+    const invoices = getInvoicesFor?.(invoice.document_name, invoice.document_type) || [];
+
+    return (
+        <>
+            <div
+                className="underline cursor-pointer text-blue-600 hover:text-blue-800"
+                onClick={() => setOpen(true)}
+                title="View invoices for this document"
+            >
+                {formatToRoundedIndianRupee(total)}
+            </div>
+            <InvoiceDataDialog
+                open={open}
+                onOpenChange={setOpen}
+                vendorInvoices={invoices}
+                visibleStatuses={["Pending", "Approved"]}
+                project={invoice.project || invoices[0]?.project}
+                poNumber={invoice.document_name}
+                documentType={invoice.document_type}
+                vendor={getVendorName?.(invoice.document_name, invoice.document_type)}
+            />
+        </>
+    );
+};
+
+/**
  * Helper function for common columns shared between pending and history tables.
  */
 const getCommonColumns = (
@@ -104,7 +242,9 @@ const getCommonColumns = (
     // Returns sum of `invoice_amount` for all Vendor Invoices with same parent
     // (document_type + document_name) AND status in ['Pending', 'Approved'].
     // Same scope as `_existing_invoiced_sum` used by autofill validation.
-    getTotalInvoiced?: (docName: string, docType: string) => number
+    getTotalInvoiced?: (docName: string, docType: string) => number,
+    // Returns the individual invoices composing that total (for the hover breakdown).
+    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
 ): ColumnDef<VendorInvoice>[] => [
         {
             accessorKey: "document_name",
@@ -260,7 +400,10 @@ const getCommonColumns = (
                 />
             ),
             cell: ({ row }) => (
-                <div>{formatToRoundedIndianRupee(parseNumber(row.original.invoice_amount))}</div>
+                <InvoiceAmtHoverCell
+                    invoice={row.original}
+                    getVendorName={getVendorName}
+                />
             ),
             size: 150,
             sortingFn: 'alphanumeric',
@@ -278,16 +421,14 @@ const getCommonColumns = (
             // see how much of the order has been invoiced so far.
             id: "total_invoiced_for_parent",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Invoice Total" />,
-            cell: ({ row }) => {
-                if (!getTotalInvoiced) {
-                    return <span className="text-gray-400 italic">—</span>;
-                }
-                const total = getTotalInvoiced(row.original.document_name, row.original.document_type);
-                if (!total) {
-                    return <span className="text-gray-400 italic">—</span>;
-                }
-                return <div>{formatToRoundedIndianRupee(total)}</div>;
-            },
+            cell: ({ row }) => (
+                <InvoiceTotalCell
+                    invoice={row.original}
+                    getTotalInvoiced={getTotalInvoiced}
+                    getInvoicesFor={getInvoicesFor}
+                    getVendorName={getVendorName}
+                />
+            ),
             size: 160,
             enableSorting: false,
             meta: {
@@ -329,9 +470,10 @@ export const getPendingTaskColumns = (
     getAmount?: (orderId: string, statuses: string[]) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
-    getTotalInvoiced?: (docName: string, docType: string) => number
+    getTotalInvoiced?: (docName: string, docType: string) => number,
+    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getInvoicesFor),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -396,9 +538,10 @@ export const getTaskHistoryColumns = (
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getAmount?: (orderId: string, statuses: string[]) => number,
     getVendorName?: (orderId: string, type: string) => string,
-    getTotalInvoiced?: (docName: string, docType: string) => number
+    getTotalInvoiced?: (docName: string, docType: string) => number,
+    getInvoicesFor?: (docName: string, docType: string) => VendorInvoice[]
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getInvoicesFor),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
