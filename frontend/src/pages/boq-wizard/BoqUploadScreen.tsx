@@ -45,6 +45,9 @@ interface UploadStatusResponse {
 
 interface BoqUploadScreenProps {
   projectId: string;
+  /** A2: return to the mode chooser (in-place; no route change). When absent the footer Back
+   *  navigates to the project page as before -- upload flow byte-identical for old callers. */
+  onBack?: () => void;
 }
 
 /**
@@ -60,7 +63,7 @@ interface BoqUploadScreenProps {
  * Cleanup runs on unmount (socket.off). Guard: only acts when uploadStatus === "parsing"
  * to avoid reacting to events from concurrent uploads by other users.
  */
-export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
+export function BoqUploadScreen({ projectId, onBack }: BoqUploadScreenProps) {
   const navigate = useNavigate();
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -224,9 +227,12 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between border-t border-border pt-4">
-        <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}`)}>
+        <Button
+          variant="ghost"
+          onClick={() => (onBack ? onBack() : navigate(`/projects/${projectId}`))}
+        >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to project
+          {onBack ? "Back" : "Back to project"}
         </Button>
 
         <TooltipProvider>

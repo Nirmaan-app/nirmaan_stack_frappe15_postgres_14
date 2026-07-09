@@ -462,6 +462,13 @@ interface ReviewTreeProps {
   // should relax to reclaim the vertical space the normal page chrome would otherwise use.
   // Optional/defaulted so every existing caller renders exactly as before.
   expanded?: boolean;
+  // ── Create-from-Template (ADR-0013 A2) -- template-origin review customizations ──
+  // templateOrigin: the BoQ's origin === "template". When true the review screen hides the
+  // provenance/AI columns (Status, AI Rec, Gemini, Rate*, Amount*) and makes the Total-Quantity
+  // descriptor cell inline-editable. SEPARATE from templateControls (selectable||canCreateRows,
+  // which is readOnly-coupled) so provenance columns stay hidden even on a finalized/locked
+  // template sheet. DEFAULT false -> upload renders BYTE-IDENTICAL (every gate is a no-op).
+  templateOrigin?: boolean;
   // ── Create-from-Template (ADR-0013 T10/T11) -- DEFAULT-OFF regression-safe additions ──
   // selectable: render a per-eligible-row selection checkbox (preamble / line_item) that
   //   toggles is_excluded via template_select.set_row_excluded (server-side subtree/ancestor
@@ -478,7 +485,7 @@ interface ReviewTreeProps {
   onSelectionChanged?: () => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, selectable = false, canCreateRows = false, onSelectionChanged }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -928,8 +935,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
-    const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty } = useMemo(() => {
+    // A2: for template origin, additionally hide the pricing columns (Rate*/Amount*) -- they are
+    // populated later in the pricing editor, not at template review. This predicate matches ONLY
+    // rate*/amount* roles; it must NEVER match qty_total/qty/unit/make_model (qty_total must stay a
+    // visible + inline-editable descriptor -- the whole quantity-entry customization depends on it).
+    const displayDescriptors = columnDescriptors.filter(
+      d => !FIXED_ROLE_DEDUPE.has(d.role)
+        && !(templateOrigin && (d.role.startsWith("rate") || d.role.startsWith("amount"))),
+    );
     // MC-4: the role:"description" descriptors (excluded from displayDescriptors by
     // FIXED_ROLE_DEDUPE). Already in Excel order (backend sort). The fan-out replaces
     // the single Description anchor with one column per entry here.
@@ -971,8 +985,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       editableDescriptors,
       editableTextDescriptors,
       editableAreaDescriptors,
+      // A2 multi-area: true when this sheet has per-area qty columns. Drives the three-way cell
+      // logic below (single-area edits qty_total; multi-area edits per-area cells + renders the
+      // Total as a read-only sum). A pure function of the descriptors -> ref-stable per sheet.
+      hasPerAreaQty: displayDescriptors.some(d => d.value_field === "qty_by_area"),
     };
-  }, [columnDescriptors]);
+  }, [columnDescriptors, templateOrigin]);
 
   // append-to-notes-as-columns: render the combined "Append Notes" column only when
   // the sheet actually maps append-columns (no empty trailing column otherwise).
@@ -1047,7 +1065,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // displayDescriptors changes (e.g., navigating to a different sheet).
   const [visibleCols, setVisibleCols] = useState<Set<string>>(
     () => new Set([
-      ...columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role)).map(d => d.col),
+      ...columnDescriptors
+        .filter(d => !FIXED_ROLE_DEDUPE.has(d.role)
+          && !(templateOrigin && (d.role.startsWith("rate") || d.role.startsWith("amount"))))
+        .map(d => d.col),
       ...extraDescColLetters, // MC-4: extra (non-first) description columns are hideable
     ])
   );
@@ -1167,6 +1188,54 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
       setPendingEdit(null);
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
+    }
+  };
+
+  // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
+  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged. save_review_edit
+  // has NO separate server-side lock acquire, so the single client onEditIntent cannot create the
+  // duplicate-lock race that the T10 selection checkbox hit.
+  const saveQtyInline = async (row: ReviewRow, raw: string) => {
+    const prev = row.qty_total ?? "";
+    if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    onEditIntent?.(); // B1: acquire the draft lock on first edit-intent (client side only)
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: row.row_index,
+        field: "qty_total",
+        value: raw,
+        reason: "",
+      });
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
+    }
+  };
+
+  // A2 multi-area: inline PER-AREA qty edit -- silent save (field="qty_by_area", area=<name>),
+  // mirrors saveQtyInline. The server (_apply_and_save_row_edit) re-sums qty_total for template
+  // origin, so the read-only Total cell updates on the mutate() refresh after onSaved.
+  const saveAreaQtyInline = async (row: ReviewRow, d: ColumnDescriptor, raw: string) => {
+    const prev = row.qty_by_area?.[d.value_key as string] ?? "";
+    if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    onEditIntent?.(); // B1: client-side lock acquire (save_review_edit adds no server-side race)
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: row.row_index,
+        field: "qty_by_area",
+        area: d.value_key, // descriptor value_key == the area name
+        value: raw,
+        reason: "",
+      });
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
       setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     }
   };
@@ -1920,6 +1989,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
               </th>
+              {/* A2: Status + AI Rec provenance columns are HIDDEN for template origin (a clone has
+                  no AI layer). Wrapped together in one fragment; renders UNCHANGED when
+                  !templateOrigin (upload). MUST gate on the identical expression as the matching
+                  body cells + the totalCols base-8 decrement, or the grid misaligns. */}
+              {!templateOrigin && (<>
               {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left.
                   §9 #159: header-cell Popover filter (Edited / Original / All) on statusFilter. */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -2010,8 +2084,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   </Popover>
                 </div>
               </th>
+              </>)}
               {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
-                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled. */}
+                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled.
+                  A2: geminiEnabled is passed as (geminiEnabled && !isTemplateOrigin), so this is
+                  never mounted for template origin. */}
               {geminiEnabled && (
                 <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
               )}
@@ -2168,7 +2245,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // mode pickerColumns === displayDescriptors, so this is identical to before.
               const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
               // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
-              const totalCols = 8 + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              // A2: template origin hides the Status + AI Rec fixed anchors -> the base 8 drops by 2.
+              // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
+              const totalCols = (8 - (templateOrigin ? 2 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
@@ -2320,6 +2399,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       {row.source_row_number}
                     </td>
 
+                    {/* A2: Status + AI Rec cells HIDDEN for template origin -- gate on the IDENTICAL
+                        !templateOrigin expression as the matching headers, or the grid misaligns. */}
+                    {!templateOrigin && (<>
                     {/* Status (B2c): edit-provenance badge -- not frozen-left.
                         AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
                         -- an accepted suggestion writes to human_* and would otherwise read
@@ -2374,9 +2456,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         </div>
                       ) : null}
                     </td>
+                    </>)}
 
                     {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
-                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled. */}
+                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled.
+                        A2: geminiEnabled is false for template origin, so this never mounts. */}
                     {geminiEnabled && <GeminiBodyCell row={row} />}
 
                     {/* Sl.No */}
@@ -2523,16 +2607,59 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </td>
                     )}
 
-                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
+                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols.
+                        A2: for template origin the Total-Quantity (qty_total) cell is inline-editable
+                        (silent save on blur/Enter); every other descriptor cell stays read-only. */}
                     {displayDescriptors.map(d => {
                       if (!visibleCols.has(d.col)) return null;
                       const val = resolveDescriptorValue(row, d);
+                      // A2: single-area template -> the ONE qty_total cell is inline-editable;
+                      // gated OFF when multi-area (there the Total is a read-only summed cell).
+                      const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
+                        && d.value_key === null && d.value_field === "qty_total";
+                      // A2 multi-area -> each per-area qty cell is inline-editable.
+                      const isInlineAreaQty = templateOrigin && !readOnly
+                        && d.value_key !== null && d.value_field === "qty_by_area";
                       return (
                         <td
                           key={d.col}
                           className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
                         >
-                          {renderDescriptorCell(val)}
+                          {isInlineQty ? (
+                            <input
+                              key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
+                              type="number"
+                              inputMode="decimal"
+                              defaultValue={row.qty_total ?? ""}
+                              onBlur={(e) => saveQtyInline(row, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              placeholder="0"
+                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          ) : isInlineAreaQty ? (
+                            <input
+                              key={`qarea-${row.row_index}-${d.col}-${String(row.qty_by_area?.[d.value_key as string] ?? "blank")}`}
+                              type="number"
+                              inputMode="decimal"
+                              defaultValue={row.qty_by_area?.[d.value_key as string] ?? ""}
+                              onBlur={(e) => saveAreaQtyInline(row, d, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              placeholder="0"
+                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          ) : (
+                            renderDescriptorCell(val)
+                          )}
                         </td>
                       );
                     })}

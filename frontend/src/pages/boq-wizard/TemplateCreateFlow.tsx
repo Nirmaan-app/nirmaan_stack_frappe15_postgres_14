@@ -19,6 +19,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { DefineAreasDialog } from "./DefineAreasDialog";
 
 interface ProjectDoc {
   name: string;
@@ -102,6 +111,19 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
   const [boqName, setBoqName] = useState<string | null>(null);
   const defaultBoqName = projectName ? `${projectName}_BOQ` : "";
   const effectiveBoqName = boqName ?? defaultBoqName;
+  // A2: GST Treatment (-> BOQs.tax_treatment) + Notes carried from this form. Version is
+  // system-assigned by BOQs.before_insert (shown read-only), so it is NOT collected here.
+  const [taxTreatment, setTaxTreatment] = useState<"Pre-tax" | "Post-tax">("Pre-tax");
+  const [notes, setNotes] = useState("");
+  // A2 multi-area: default Single (Slice-1 clone, byte-identical). Multi opens a define-areas
+  // dialog; areas are defined ONCE for the whole BoQ and locked at create.
+  const [isMultiArea, setIsMultiArea] = useState(false);
+  const [areaBoxes, setAreaBoxes] = useState<string[]>([""]);
+  const [areasDialogOpen, setAreasDialogOpen] = useState(false);
+  const cleanAreas = useMemo(
+    () => areaBoxes.map((s) => s.trim()).filter(Boolean),
+    [areaBoxes],
+  );
 
   // Pre-select ALL sheets once, the first time the master arrives (most users clone the whole
   // template). A one-time seed -- a later clear-all must NOT be re-seeded.
@@ -213,6 +235,10 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
         project: projectId,
         boq_name: effectiveBoqName.trim(),
         sheet_names: orderedNames,
+        tax_treatment: taxTreatment,
+        notes: notes.trim() || undefined,
+        // A2: [] == single-area (Slice-1 clone, byte-identical); N names == multi-area.
+        areas: isMultiArea ? cleanAreas : [],
       });
       const msg = res?.message as
         | { job_id?: string; boq_id?: string }
@@ -367,7 +393,10 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
   }
 
   // ── Picker (idle) ───────────────────────────────────────────────────────────
-  const canCreate = selectedSheets.size > 0 && effectiveBoqName.trim().length > 0;
+  // A2: a multi-area BoQ needs >= 2 defined areas (a single "area" is just Single).
+  const areasReady = !isMultiArea || cleanAreas.length >= 2;
+  const canCreate =
+    selectedSheets.size > 0 && effectiveBoqName.trim().length > 0 && areasReady;
 
   return (
     <div className={wrapperClass}>
@@ -375,22 +404,119 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">BoQ name</CardTitle>
+          <CardTitle className="text-base font-semibold">BoQ details</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
-          <Label htmlFor="template-boq-name" className="text-xs text-muted-foreground">
-            This BoQ will be created from the{" "}
-            <span className="font-medium text-foreground">
-              {template.template_name}
-            </span>{" "}
-            template.
-          </Label>
-          <Input
-            id="template-boq-name"
-            value={effectiveBoqName}
-            onChange={(e) => setBoqName(e.target.value)}
-            placeholder="BoQ name"
-          />
+        <CardContent className="space-y-4">
+          {/* Name */}
+          <div className="space-y-1.5">
+            <Label htmlFor="template-boq-name" className="text-xs font-medium text-foreground">
+              BoQ name
+            </Label>
+            <Input
+              id="template-boq-name"
+              value={effectiveBoqName}
+              onChange={(e) => setBoqName(e.target.value)}
+              placeholder="BoQ name"
+            />
+            <p className="text-xs text-muted-foreground">
+              Created from the{" "}
+              <span className="font-medium text-foreground">{template.template_name}</span>{" "}
+              template.
+            </p>
+          </div>
+
+          {/* Version (read-only, system-assigned) + GST Treatment */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-foreground">Version</Label>
+              <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
+                Auto-assigned on create
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="template-gst" className="text-xs font-medium text-foreground">
+                GST Treatment
+              </Label>
+              <Select
+                value={taxTreatment}
+                onValueChange={(v) => setTaxTreatment(v as "Pre-tax" | "Post-tax")}
+              >
+                <SelectTrigger id="template-gst" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Pre-tax">Pre-tax</SelectItem>
+                  <SelectItem value="Post-tax">Post-tax</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* Notes (optional) */}
+          <div className="space-y-1.5">
+            <Label htmlFor="template-notes" className="text-xs font-medium text-foreground">
+              Notes <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="template-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any notes for this BoQ…"
+              rows={2}
+            />
+          </div>
+
+          {/* Area configuration (A2 multi-area) */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-foreground">Area configuration</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-md border border-input p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setIsMultiArea(false)}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    !isMultiArea
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Single area
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMultiArea(true);
+                    if (cleanAreas.length === 0) setAreaBoxes(["", ""]);
+                    setAreasDialogOpen(true);
+                  }}
+                  className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                    isMultiArea
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Multi area
+                </button>
+              </div>
+              {isMultiArea && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAreasDialogOpen(true)}
+                >
+                  Define areas{cleanAreas.length ? ` (${cleanAreas.length})` : ""}
+                </Button>
+              )}
+            </div>
+            {isMultiArea && (
+              <p className="text-xs text-muted-foreground">
+                {cleanAreas.length >= 2
+                  ? `Quantities split across: ${cleanAreas.join(", ")}. Total = their sum.`
+                  : "Add at least 2 areas — each becomes a per-area Quantity column; Total = their sum."}
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -454,11 +580,22 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
-        <Button disabled={!canCreate} onClick={handleCreate}>
+        <Button
+          disabled={!canCreate}
+          onClick={handleCreate}
+          title={!areasReady ? "Add at least 2 areas for a multi-area BoQ" : undefined}
+        >
           <Layers className="mr-2 h-4 w-4" />
           Create BoQ
         </Button>
       </div>
+
+      <DefineAreasDialog
+        open={areasDialogOpen}
+        onOpenChange={setAreasDialogOpen}
+        value={areaBoxes}
+        onChange={setAreaBoxes}
+      />
     </div>
   );
 }

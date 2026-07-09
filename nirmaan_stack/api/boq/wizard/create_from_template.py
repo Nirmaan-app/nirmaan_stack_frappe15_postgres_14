@@ -37,6 +37,10 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import get_boq_work_package
 # rejects a Python list on a JSON field ("Value for X cannot be a list"). Single source
 # of truth in parse_run; the clone mirrors the parser's insert path (CLAUDE.md gotcha).
 from nirmaan_stack.api.boq.wizard.parse_run import _LIST_JSON_FIELDS
+# A2 multi-area: real Excel-letter allocation for the synthesized per-area qty columns.
+# get_column_letter guarantees ^[A-Z]+$ keys -- the parser's SheetConfig validator (run live via
+# get_stale_sheets on every hub load) rejects any non-A-Z column_role_map key.
+from openpyxl.utils import column_index_from_string, get_column_letter
 
 
 # ---------------------------------------------------------------------------
@@ -252,8 +256,14 @@ def get_master_template():
     }
 
 
+# Allowed BOQs.tax_treatment Select options -- an invalid value would 500 on insert, so we
+# whitelist the incoming form value and fall back to the doctype default (A2: GST Treatment on
+# the create-from-template form).
+_ALLOWED_TAX = frozenset({"Pre-tax", "Post-tax"})
+
+
 @frappe.whitelist(methods=["POST"])
-def create_from_template(project=None, boq_name=None, sheet_names=None):
+def create_from_template(project=None, boq_name=None, sheet_names=None, tax_treatment=None, notes=None, areas=None):
     """Create a fresh project BOQs from the active master template, then enqueue the clone worker.
 
     There is ONE master, so there is NO `template_boq` argument -- this resolves the active
@@ -261,7 +271,8 @@ def create_from_template(project=None, boq_name=None, sheet_names=None):
     sheet_names is a NON-EMPTY de-duplicated subset of the master's sheet names. Creates the
     BOQs shell (origin="template", source_template=<master>, project-bound,
     wizard_state="Parsed", no source_file_url, is_template_source=0; version auto-computed by
-    BOQs.before_insert), commits it so the (async, possibly cross-process) worker can read it,
+    BOQs.before_insert; tax_treatment whitelisted to the Select options with a safe default, notes
+    verbatim), commits it so the (async, possibly cross-process) worker can read it,
     then enqueues _clone_worker.
 
     Returns {"job_id": <RQ id>, "boq_id": <new BOQs docname>}.
@@ -299,6 +310,20 @@ def create_from_template(project=None, boq_name=None, sheet_names=None):
     # sheet's draft + WP + every review row twice, corrupting the BoQ.
     sheet_names = list(dict.fromkeys(sheet_names))
 
+    # --- A2 multi-area: normalize `areas` (same JSON-string/list dual shape as sheet_names).
+    #     An empty list == single-area (Slice 1 behaviour, byte-identical). ---
+    if isinstance(areas, str):
+        try:
+            areas = json.loads(areas) if areas.strip() else []
+        except (ValueError, TypeError):
+            frappe.throw("areas must be a JSON array string or a list.", title="Invalid JSON")
+    if areas is None:
+        areas = []
+    if not isinstance(areas, list):
+        frappe.throw("areas must be a list of area names.", title="Invalid areas")
+    areas = [a for a in areas if isinstance(a, str) and a.strip()]
+    areas = list(dict.fromkeys(areas))  # order-preserving de-dup
+
     template_sheet_names = {
         s.sheet_name
         for s in frappe.get_all(
@@ -330,6 +355,15 @@ def create_from_template(project=None, boq_name=None, sheet_names=None):
     new_boq_doc.source_template = master.name
     new_boq_doc.source_file_url = None  # a template clone has no source workbook (A1-D2)
     new_boq_doc.wizard_state = "Parsed"
+    # A2: carry the GST Treatment + Notes from the create-from-template form. tax_treatment is a
+    # Select (Pre-tax/Post-tax) -- an invalid string 500s on insert, so whitelist + safe-default.
+    new_boq_doc.tax_treatment = tax_treatment if tax_treatment in _ALLOWED_TAX else "Pre-tax"
+    if notes:
+        new_boq_doc.notes = notes
+    # A2 multi-area: BOQs.area_dimensions is Small Text holding a JSON array (validated by
+    # _validate_area_dimensions via json.loads). Write only when multi-area; blank == single-area.
+    if areas:
+        new_boq_doc.area_dimensions = json.dumps(areas)
     new_boq_doc.insert(ignore_permissions=True)
 
     # Commit the shell BEFORE enqueue so the (async, possibly cross-process) worker can
@@ -343,6 +377,7 @@ def create_from_template(project=None, boq_name=None, sheet_names=None):
         new_boq=new_boq_doc.name,
         template=master.name,
         sheet_names=sheet_names,
+        areas=areas,
         user=frappe.session.user,
     )
 
@@ -421,7 +456,58 @@ def _sheet_work_packages(tmpl_sheet) -> list:
     return [wh for wh in wh_list if wh]
 
 
-def _clone_worker(new_boq, template, sheet_names, user):
+def _apply_areas_to_sheet_config(sheet_config, areas):
+    """A2 multi-area: the PURE inverse of template_materialize._collapse_to_single_area.
+
+    Rewrites a single-area DATA-sheet sheet_config into a MULTI-area one: drop the single
+    `{role:"qty_total"}` scalar (frees its letter) plus any stray bare `{role:"qty"}`, then append
+    N per-area `{role:"qty", area}` columns + exactly ONE trailing `{role:"qty_total"}` Total column
+    on fresh REAL Excel letters (^[A-Z]+$ via get_column_letter) strictly AFTER the sheet's last
+    used column, and set area_dimensions. The Total takes the HIGHEST letter so
+    review_screen._build_column_descriptors' (len,col) sort renders it AFTER every per-area column.
+
+    NEVER a synthetic non-A-Z key: SheetConfig.column_letters_must_be_valid (run live via
+    get_stale_sheets) rejects it. The parser caps qty_total at ONE, so dropping the old scalar
+    before adding the Total is mandatory.
+    """
+    cfg = dict(sheet_config or {})
+    role_map = cfg.get("column_role_map")
+    role_map = role_map if isinstance(role_map, dict) else {}
+    headers = cfg.get("column_headers")
+    headers = dict(headers) if isinstance(headers, dict) else {}
+
+    # Drop the single-area qty_total scalar + any bare qty (the singleton cap allows only ONE
+    # qty_total, so the old scalar MUST go before we append the Total).
+    new_map = {
+        c: e for c, e in role_map.items()
+        if not (isinstance(e, dict) and e.get("role") in ("qty_total", "qty"))
+    }
+
+    # Allocate N+1 fresh letters strictly after the last used column (role_map U headers),
+    # ascending -- append-after-max guarantees A-Z validity, no collision, Total sorts last.
+    used = set(role_map) | set(headers)
+    idx = max((column_index_from_string(c) for c in used), default=0)
+    free = []
+    while len(free) < len(areas) + 1:
+        idx += 1
+        letter = get_column_letter(idx)
+        if letter not in used:
+            free.append(letter)
+
+    # First N letters -> per-area qty (ascending == area order); last (highest) -> Total.
+    for letter, area in zip(free, areas):
+        new_map[letter] = {"role": "qty", "area": area}
+        headers.setdefault(letter, area)
+    new_map[free[-1]] = {"role": "qty_total"}
+    headers.setdefault(free[-1], "Total Quantity")
+
+    cfg["column_role_map"] = new_map
+    cfg["column_headers"] = headers
+    cfg["area_dimensions"] = list(areas)
+    return cfg
+
+
+def _clone_worker(new_boq, template, sheet_names, user, areas=None):
     """Async worker: clone the selected master sheets into new_boq at the Parsed baseline.
 
     Per selected master sheet (VERBATIM #152, ordered by sheet_order): (a) create a
@@ -469,6 +555,14 @@ def _clone_worker(new_boq, template, sheet_names, user):
         for sheet_name in selected:
             tmpl_sheet = tmpl_sheets_by_name[sheet_name]
             sheet_config = tmpl_sheet.sheet_config
+            # A2 multi-area: rewrite each DATA sheet's config to N per-area qty columns + one Total
+            # (general_specs sheets never carry quantities). areas=[] skips this entirely, so a
+            # single-area clone is byte-identical to Slice 1.
+            if areas and tmpl_sheet.disposition != "general_specs":
+                cfg = sheet_config
+                if isinstance(cfg, str):
+                    cfg = json.loads(cfg) if cfg else {}
+                sheet_config = _apply_areas_to_sheet_config(dict(cfg or {}), areas)
             if isinstance(sheet_config, (dict, list)):
                 sheet_config = json.dumps(sheet_config)
             new_doc.append(
@@ -520,6 +614,10 @@ def _clone_worker(new_boq, template, sheet_names, user):
         # and JSON handling. row_index is preserved verbatim, so effective_parent_index (a
         # template row_index) remains a valid pointer in the clone's row_index space.
         for sheet_name in selected:
+            # A2 multi-area: seed qty_by_area={area:0.0}+qty_total=0 on eligible rows of DATA
+            # sheets so the review renders a defined per-area grid + a numeric Total from the start
+            # ("0 by default"). general_specs sheets + single-area clones (areas=[]) skip seeding.
+            seed_areas = bool(areas) and tmpl_sheets_by_name[sheet_name].disposition != "general_specs"
             tmpl_rows = frappe.get_all(
                 "BoQ Template Row",
                 filters={"template": template, "sheet_name": sheet_name},
@@ -528,6 +626,11 @@ def _clone_worker(new_boq, template, sheet_names, user):
             )
             for tr in tmpl_rows:
                 row_dict = _copy_template_row(tr, new_boq, sheet_name)
+                if seed_areas and tr.get("classification") in ("line_item", "preamble"):
+                    # qty_by_area is dict-JSON (NOT in _LIST_JSON_FIELDS) -> assign the dict
+                    # directly; Frappe auto-serializes it on insert (never json.dumps a dict).
+                    row_dict["qty_by_area"] = {a: 0.0 for a in areas}
+                    row_dict["qty_total"] = 0
                 # Pre-serialize list-valued JSON fields (attached_notes etc.) exactly like
                 # the parser insert -- frappe.get_all returns JSON columns PARSED (as lists)
                 # in v15, and doc.insert() rejects a raw list on a JSON field. isinstance-

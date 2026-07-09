@@ -425,4 +425,158 @@ delta-0; backend suites green.
 - **Commit-before-publish** in the clone worker; draft-lock + freeze guards on every write endpoint.
 - **Docs discipline:** per-slice as-built detail goes to `boq-upload-plan.md` + the domain reference docs,
   NOT the always-loaded `CLAUDE.md` (guard hook enforces).
+
+---
+
+# ENHANCEMENT ROUND (A2) — 2026-07-09 — mode-selector + quantities + multi-area + admin polish
+
+**Status:** PLAN APPROVED (grill 2026-07-09, 10 decisions locked). Slice-1 implementation blueprint being
+produced by the `boq-template-slice1-blueprint` verification workflow (de-risks the synthetic-column seam).
+Owner (Abhishek) confirmed intent. Delivered as 3 reviewable slices, core-first.
+
+## Locked design decisions (Q1–Q10)
+1. **Areas are BoQ-wide** — one set applied to every data sheet (`BOQs.area_dimensions`); NOT per-sheet.
+2. **Finalize qty-gate** — SELECTED `line_item` rows must have Total Qty > 0 (multi-area = SUM across areas > 0);
+   preambles/headers + excluded rows never checked. Extends `templateSelection.countSelectedLineItemsNoQty`.
+3. **Inline grid qty editing** — type directly in the cell, save on blur/Enter (no per-cell confirm dialog);
+   multi-area **Total column is read-only** = live sum; single-area Total is the editable cell. Reuses
+   `save_review_edit` (accepts `qty_total` + `qty_by_area`). New inline-input work in `ReviewTree`, gated to
+   template-origin qty columns only — all other cells stay read-only.
+4. **Explicit mode selector** on `/upload-boq?project=<id>` — "Upload a BoQ" / "Create from Template"; the
+   right/details panel is HIDDEN until a mode is chosen. Remove "Create from Template" from the bare `/upload-boq`
+   picker (+ its orphaned `mode` state).
+5. **Whole-master reseed** — reuse `set_as_master_template` (no per-sheet reseed); warning copy = "replace the
+   existing template".
+6. **Seed dialog = entry only** — dialog hosts the Upload-BoQ entry (drop + template-source name/version/notes,
+   no project/customer); on parse success it closes and navigates to the new template-source BoQ's HUB for
+   Config→Parse→Review→Commit→"Set as master".
+7. **Sidebar audience = Admin + Estimates** — move "BoQ Templates" under "Admin Options" (`admin-actions`
+   children); make the group visible to Estimates for this one item; update `allKeys`/`groupMappings` + nested
+   active-highlight. (Group is otherwise Admin/PMO; do NOT add PMO to templates, do NOT drop Estimates.)
+8. **Version read-only** (system auto-increment Int, displayed only); **GST → `tax_treatment`** (Pre/Post-tax)
+   and **Notes → `notes`** are the editable inputs. No new version field.
+9. **Areas locked at create** — single/multi + names fixed for that BoQ; no post-create area editing in v1
+   (documented fast-follow). Per-sheet Config stays suppressed for template origin.
+10. **Phased, core-first** — Slice 1 (core + single-area) → Slice 2 (multi-area) → Slice 3 (admin polish).
+
+## Guardrails (all slices)
+- **Upload flow byte-identical** — every new backend param optional/additive; ALL review customizations + the
+  qty finalize-gate branch ONLY on `origin === "template"`. Upload-origin review renders + finalizes as today.
+- `tsc` delta-0 for `src/pages/boq-wizard/` (baseline 0). `python3 scripts/residence_check.py` before each commit.
+- `qty_by_area` is **dict-JSON** → assign directly, NEVER `json.dumps`. `attached_notes` stays list-JSON.
+- Lock stays **server-authoritative**; do NOT re-add a client `onEditIntent` (prior E2E bug). Sentinels −1 root /
+  0 not-attached. `sheet_name` verbatim. Commit-before-publish.
+
+## Slice 1 — Create-flow restructure + single-area quantities  *(IMPLEMENTED + UNIT-VERIFIED 2026-07-09; live E2E pending)*
+
+**AS-BUILT (2026-07-09):** all edits below landed. `tsc --noEmit` boq-wizard scope = **0 errors**;
+`test_create_from_template` **26** green (+3: tax/notes persist, invalid-tax default, 3-arg caller),
+`test_review_screen` **250** green (+3 `TestMarkTemplateQtyGate`: missing-qty blocks, qty-present
+finalizes, excluded no-qty doesn't block). Backend = `create_from_template.py` (additive
+tax_treatment/notes) + `review_screen.py` (template-only qty gate). Frontend = `ReviewTree.tsx`,
+`SheetReviewPage.tsx`, `boqTypes.ts` (review customizations, all `templateOrigin`-gated default-off) +
+`BoqPickerPage.tsx` (mode chooser, template button removed from bare page), `TemplateCreateFlow.tsx`
+(BoQ-details card: Version RO / GST / Notes), `BoqUploadScreen.tsx` (optional `onBack`). NOT synthetic
+columns — the master already carries `qty_total` (verified). **PENDING: live chrome-devtools E2E as
+Admin/Estimates; NOT committed yet.**
+
+**KEY VERIFIED FINDINGS (adversarial pass, 2 confirmed / 1 refuted):**
+- **NO synthetic column injection needed.** The active master `BOQTPL-00020` already carries a `qty_total`
+  `column_role_map` entry keyed by a REAL Excel letter on every DATA sheet (Electrical="F", HVAC/FA/PA/WLD/
+  Data&Networking="D", CCTV="C", Access="D"); general-specs sheets correctly carry none. The clone copies
+  `sheet_config` VERBATIM → `review_screen._build_column_descriptors` emits an editable `qty_total` descriptor
+  (visible + in `EDITABLE_VALUE_FIELDS`) for free. Commit: `_build_node_pass1` `qty=d.get("qty_total")` →
+  `BOQ Nodes.qty`. **Slice-1 backend needs ZERO column-map code.**
+- **REFUTED — never use a non-Excel-letter key.** The parser's `SheetConfig.column_letters_must_be_valid`
+  (`services/boq_parser/config.py:29`, `^[A-Z]+$`) runs LIVE on every hub load via `get_stale_sheets` — a
+  `__QTY__`/`__QTY__::<area>` key throws "Saved configuration is no longer valid" and spuriously flags the sheet.
+  Any future qty-column synthesis (or Slice-2 multi-area) MUST use REAL free Excel letters, not sentinels.
+- **CONFIRMED upload byte-identical** (all 10 FE edits are no-ops when `templateOrigin=false`) and **CONFIRMED
+  finalize gate is upload-safe** (scoped `if origin=='template'` inside `mark_sheet_parsed_check_done`).
+
+**Backend edits** (`api/boq/wizard/`):
+- `create_from_template.py` @256: add additive `tax_treatment=None, notes=None`; persist before insert @325-333
+  (`_ALLOWED_TAX={'Pre-tax','Post-tax'}`, default 'Pre-tax' on invalid; `if notes: doc.notes=notes`). version untouched.
+- `create_from_template.py` clone worker/`_copy_template_row`: **NO CHANGE** (sheet_config copied verbatim; qty blank).
+- `review_screen.py` `mark_sheet_parsed_check_done` @2722: read `origin`; extend the included-rows fetch @2794 with
+  `qty_total`; AFTER the structural `if breaks` return, add `if origin=='template':` qty-gap check (selected
+  `line_item`, falsy `qty_total` — STRICT, no rate-only exemption) → `{ok:False, breaks:[], qty_gap:N}`.
+
+**Frontend edits** (`src/pages/boq-wizard/`):
+- `BoqPickerPage.tsx`: on `?project=`, add mode chooser (`'choose'|'upload'|'template'`); route to `BoqUploadScreen`
+  or `TemplateCreateFlow`; REMOVE the bare-page Create-from-Template button + orphaned mode branch.
+- `TemplateCreateFlow.tsx`: add Version (read-only "Auto-assigned on create"), GST `Select`→`tax_treatment`, Notes
+  `Textarea`; extend `handleCreate` payload with `tax_treatment`+`notes`.
+- `ReviewTree.tsx`: new `templateOrigin?: boolean` (default false, SEPARATE from `templateControls`); extend
+  `displayDescriptors` filter @904 (+dep) to hide `role.startsWith('rate'|'amount')` for template; `totalCols` base
+  `8 → 8-(templateOrigin?2:0)` @2064; wrap Status (th @1842 / td @2225) + AI Rec (th @1887 / td @2248) in
+  `{!templateOrigin && …}`; inline uncontrolled numeric input for the `qty_total` descriptor cell @2394 (silent save
+  via existing `saveCall` on blur/Enter, `onEditIntent` client-lock only — NO server re-acquire).
+- `SheetReviewPage.tsx`: `geminiEnabled={geminiEnabled && !isTemplateOrigin}`; pass `templateOrigin={isTemplateOrigin}`;
+  wrap Run AI pass + compose Run Gemini with `!isTemplateOrigin`; add `qtyGap` to Mark-Finalized disabled+tooltip.
+- `templateSelection.ts`: **NO CHANGE** — the existing metric (selected `line_item` with falsy `qty_total`) is
+  already the STRICT rule (owner chose strict 2026-07-09: rate-only rows must also carry a qty; the inline cell
+  makes it satisfiable).
+
+**Highest-risk edit:** the `totalCols` base-8 decrement MUST land in the same change as the Status+AI-Rec hides, or
+the flag-reasons colSpan @2420 + detail-panel colSpan @2441 desync by 2. **New UI (mode chooser + form fields) via /frontend-design.**
+
+**Verify:** single-area template → review shows structural + Total Quantity only, rate/amount/Status/AI-Rec/Gemini
+hidden, tree intact on flagged/expanded rows → type qty inline → finalize blocked until selected line-items have qty
+→ commit builds nodes with scalar `qty`. Upload review unchanged. tsc delta-0; bench `test_create_from_template` +
+`test_review_screen` extended; vitest `templateSelection`.
+
+## Slice 2 — Multi-area (layers on Slice 1)  *(IMPLEMENTED + UNIT-VERIFIED 2026-07-09; live E2E pending)*
+
+**AS-BUILT (2026-07-09):** all edits below landed. `tsc` boq-wizard **0**; `test_create_from_template` **34**
+green (+8: pure `_apply_areas_to_sheet_config` ×2, worker multi-area rewrite/seed/single-area ×3, endpoint
+shell area_dimensions ×3), `test_review_screen` **252** green (+2 `TestTemplateResumQtyTotal`: template re-sum
+fires, upload does NOT). Backend = `create_from_template.py` (`areas` param + `_apply_areas_to_sheet_config`
+helper + shell `area_dimensions` + per-data-sheet config rewrite + row `qty_by_area` seeding) + `review_screen.py`
+(`_apply_and_save_row_edit` template-scoped `qty_total` re-sum). Frontend = new `DefineAreasDialog.tsx` +
+`TemplateCreateFlow.tsx` (Single/Multi toggle + areas payload + ≥2-area gate) + `ReviewTree.tsx` (`hasPerAreaQty`,
+`saveAreaQtyInline`, three-way cell: single-area `qty_total` inline / per-area `qty_by_area` inline / multi Total
+read-only). **Gotcha hit + fixed:** the sheet-config rewrite edit was initially missed (only seeding landed) →
+`test_multi_area_rewrites` caught it. Commit path unchanged (audit-confirmed). **PENDING: live E2E (multi-area
+create → per-area entry → summed Total → all-zero finalize block → commit round-trip); NOT committed yet.**
+
+**Design A ("un-collapse", the inverse of `_collapse_to_single_area`):** for areas `[X,Y]`, each DATA sheet's
+`column_role_map` DROPS its single `{role:"qty_total"}` entry and APPENDS, on fresh REAL Excel letters after the
+sheet's max column, `{role:"qty",area:X}` + `{role:"qty",area:Y}` + `{role:"qty_total"}` (Total LAST/highest →
+sorts after the area cols). Parser singleton cap ⇒ old qty_total MUST be dropped (only one allowed); `qty` is
+non-singleton ⇒ N allowed. Review emits N editable `qty_by_area` cells + 1 read-only Total; `qty_total=sum(areas)`
+maintained at one chokepoint. **NEVER a non-`^[A-Z]+$` key.**
+- **`create_from_template.py`:** `areas` param (JSON-string/list, normalize like `sheet_names`); write
+  `BOQs.area_dimensions = json.dumps(areas)` when non-empty; thread to `_clone_worker`; new pure
+  `_apply_areas_to_sheet_config` (openpyxl `get_column_letter`/`column_index_from_string`, append-after-max, Total
+  last); rewrite each sheet gated `areas and tmpl_sheet.disposition != "general_specs"`; seed eligible
+  (line_item/preamble) rows `qty_by_area={a:0.0}` (dict-JSON, ASSIGN DIRECT — not in `_LIST_JSON_FIELDS`) +
+  `qty_total=0`.
+- **`review_screen.py`:** re-sum in **`_apply_and_save_row_edit`** (task's "_apply_field_edit" was a MISNOMER),
+  AFTER `setattr(doc, field, current)`, gated `field=="qty_by_area" and origin=="template"` → `doc.qty_total =
+  sum(current.values())` (rides the existing `doc.save()`). Upload multi-area untouched (origin!="template").
+- **`TemplateCreateFlow.tsx` + new `DefineAreasDialog.tsx`:** Single/Multi toggle (default Single) + area-names
+  dialog (lean, from `SheetConfigPanel` Multi branch minus config side-effects); `handleCreate` threads
+  `areas: isMultiArea ? cleanAreas : []`; create gate needs ≥2 areas for Multi.
+- **`ReviewTree.tsx`:** `hasPerAreaQty = displayDescriptors.some(d=>d.value_field==="qty_by_area")` (returned from
+  the descriptor useMemo); Slice-1 `isInlineQty` gains `&& !hasPerAreaQty` (single-area only); new `isInlineAreaQty`
+  (`value_key!==null && value_field==="qty_by_area"`) → inline `saveAreaQtyInline` (field `qty_by_area`, `area`);
+  multi-area Total falls through to read-only `renderDescriptorCell(row.qty_total)`.
+- **Commit unchanged** — `_explode_area_children` + `node.qty=qty_total` + T5b `_invert_rows_to_grid` handle both
+  `qty` and `qty_total` cols (confirmed, degrades missing→blank). **Verify (open-risk #1) in test #7.**
+- **Verify:** single-area/upload byte-identical; `_apply_areas_to_sheet_config` unit + `SheetConfig.model_validate`
+  + `_build_column_descriptors` order; get_stale_sheets not-stale; seeding; re-sum (template vs upload); all-zero
+  finalize block; commit nodes + BOQ Node Qty By Area; tsc; live E2E.
+- **Open:** confirm `BoQ Template Sheet.disposition` field name (#2); seed-to-0 shows "0" in cells (matches "0 by
+  default"); area rename post-clone OUT of scope (areas locked at create per Q9).
+
+## Slice 3 — Templates-admin polish  *(uses `/frontend-design`)*
+- Sidebar move (Q7). `TemplateEditorPage` full-width (`flex-1 space-y-4`) + TABBED (header: template/sheet info +
+  Activate switch + Seed/Reseed; tabs MEP BoQ Details / Template Rows). `TemplateRowsEditor` fuzzy search
+  (`boqDescriptionSearch.ts`) + reworked add-above/below icons+placement. Seed/Reseed warning AlertDialog +
+  Upload-BoQ entry embedded in a dialog → navigate to hub on success.
+
+## Deferred (out of scope, documented)
+Post-create area editing; per-sheet area sets; per-sheet reseed; inline qty on upload-origin BoQs; the
+pre-existing `attached_to_index` 0-sentinel edge.
 ```

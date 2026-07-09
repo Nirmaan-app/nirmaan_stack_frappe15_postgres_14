@@ -52,6 +52,7 @@ import type {
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
+import { countSelectedLineItemsNoQty } from "./templateSelection";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 import { shouldExitFullscreenOnEsc } from "./PricingGrid";
 
@@ -635,6 +636,13 @@ const SheetReviewPage = () => {
       if (msg.ok) {
         closeMarkDialog();
         void boqMutate();
+      } else if (msg.qty_gap) {
+        // A2 (template origin): the server backstop found selected line items with no quantity.
+        // Re-fetch rows so the inline qty cells + the client qtyGap gate re-sync.
+        setMarkError(
+          `Enter a quantity for all ${msg.qty_gap} selected line item${msg.qty_gap === 1 ? "" : "s"} before finalizing.`,
+        );
+        void mutate();
       } else {
         // Defensive: a structural break appeared after the panel last refreshed. Keep the
         // dialog open, explain, and re-fetch breaks so the must-fix panel + disabled gate update.
@@ -740,6 +748,9 @@ const SheetReviewPage = () => {
   // externally-locked sheet freezes them exactly like every other write affordance. On an
   // upload BoQ (or when boq.origin is absent) both stay false -> ReviewTree is unaffected.
   const isTemplateOrigin = boq.origin === "template";
+  // A2: template-origin finalize gate -- count SELECTED line_item rows still missing a quantity
+  // (STRICT, rate-only NOT exempt). Upload origin -> 0 (countSelectedLineItemsNoQty is not called).
+  const qtyGap = isTemplateOrigin ? countSelectedLineItemsNoQty(rows) : 0;
 
   // Acquire the draft lock on FIRST edit-intent (ReviewTree threads this as onEditIntent, called
   // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens, AI
@@ -883,16 +894,20 @@ const SheetReviewPage = () => {
               variant="outline"
               className="gap-1.5"
               onClick={openMarkDialog}
-              disabled={reviewLoading || breaks.length > 0}
+              disabled={reviewLoading || breaks.length > 0 || qtyGap > 0}
               title={breaks.length > 0
                 ? "Fix the must-fix structural issues listed above before finalizing."
-                : undefined}
+                : qtyGap > 0
+                  ? `Enter a quantity for all ${qtyGap} selected line item${qtyGap === 1 ? "" : "s"} before finalizing.`
+                  : undefined}
             >
               <ShieldCheck className="h-4 w-4" />
               Mark Finalized
             </Button>
           )}
-          {/* AI-3a: Run AI pass. */}
+          {/* AI-3a: Run AI pass. A2: hidden for template origin (a clone has no AI layer, and the
+              AI Rec column that surfaces suggestions is hidden). */}
+          {!isTemplateOrigin && (<>
           <Button
             size="sm"
             variant="outline"
@@ -910,8 +925,10 @@ const SheetReviewPage = () => {
               <span>AI pass running&hellip;</span>
             </div>
           )}
-          {/* DUAL-AI (ADR-0003): Run Gemini -- gated on its OWN geminiEnabled flag. */}
-          {geminiEnabled && (
+          </>)}
+          {/* DUAL-AI (ADR-0003): Run Gemini -- gated on its OWN geminiEnabled flag.
+              A2: also hidden for template origin (no Gemini column on a clone). */}
+          {geminiEnabled && !isTemplateOrigin && (
             <Button
               size="sm"
               variant="outline"
@@ -1125,7 +1142,12 @@ const SheetReviewPage = () => {
           // B1: acquire the draft lock on FIRST real edit-intent (funneled inside ReviewTree).
           onEditIntent={ensureLockAcquired}
           // DUAL-AI (ADR-0003): mount the Gemini provider column + accept block when enabled.
-          geminiEnabled={geminiEnabled}
+          // A2: suppress the entire Gemini column for template origin via this single prop.
+          geminiEnabled={geminiEnabled && !isTemplateOrigin}
+          // A2: template-origin review customizations (hide Status/AI Rec/Rate*/Amount*, inline qty).
+          // NOT gated on !readOnly (unlike selectable/canCreateRows) -- provenance columns stay
+          // hidden even on a finalized/locked template sheet.
+          templateOrigin={isTemplateOrigin}
           // Full-screen toggle above -- relaxes ReviewTree's internal scroll-height cap in full-screen.
           expanded={expanded}
           // Create-from-Template (ADR-0013 T10/T11): row selection + row create/delete, template

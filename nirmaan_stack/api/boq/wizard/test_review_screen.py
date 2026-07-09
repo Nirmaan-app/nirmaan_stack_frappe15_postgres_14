@@ -2084,6 +2084,191 @@ class TestMarkSheetParsedCheckDone(FrappeTestCase):
 
 
 # ===========================================================================
+# Group 6b: mark_sheet_parsed_check_done -- template-origin qty gate (A2)
+# ===========================================================================
+
+class TestMarkTemplateQtyGate(FrappeTestCase):
+    """
+    A2: the template-origin finalize gate -- every SELECTED line_item must carry a quantity
+    (qty_total > 0; STRICT -- rate-only is NOT exempt) before a template-origin sheet finalizes.
+    Scoped to origin=="template": an upload-origin sheet with a no-qty line_item finalizes
+    unaffected (proven by TestMarkSheetParsedCheckDone.CleanSheet -- upload origin, no qty, ok).
+
+    TplQtySheet: preamble (row 0) + line_item child (row 1) -> structurally clean; row 1 carries
+                 NO quantity, so finalize is blocked with {ok:False, breaks:[], qty_gap:1} until a
+                 quantity is entered. A deselected (is_excluded=1) line_item is not gated.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Template Qty Gate BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.origin = "template"  # the gate ONLY fires for template origin
+        boq.append("sheet_drafts", {
+            "sheet_name": "TplQtySheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        # preamble + child line_item; structurally clean; qty_total left blank on the line_item.
+        _insert_rows(cls.boq_name, [
+            _minimal_row("TplQtySheet", 0, "preamble", parent_index=None),
+            _minimal_row("TplQtySheet", 1, "line_item", parent_index=0),
+        ])
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        """Reset the sheet to Parsed + the line_item to blank-qty / included before each test."""
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": "TplQtySheet"},
+            "name",
+        )
+        frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", "Parsed")
+        # qty_total is NOT NULL (default 0.0); the "missing quantity" state is 0 (falsy), not NULL.
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
+            {"qty_total": 0, "is_excluded": 0},
+        )
+        frappe.db.commit()
+
+    def _status(self) -> str:
+        return frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": self.boq_name, "parenttype": "BOQs", "sheet_name": "TplQtySheet"},
+            "wizard_status",
+        ) or ""
+
+    def test_missing_qty_blocks_finalize(self):
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="TplQtySheet",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result.get("qty_gap"), 1)
+        self.assertEqual(result.get("breaks"), [])
+        self.assertEqual(self._status(), "Parsed",
+                         "a template sheet must NOT finalize while a selected line item has no qty")
+
+    def test_qty_present_finalizes(self):
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
+            "qty_total", 12.5,
+        )
+        frappe.db.commit()
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="TplQtySheet",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "Finalized")
+        self.assertEqual(self._status(), "Finalized")
+
+    def test_excluded_no_qty_line_item_does_not_block(self):
+        # A deselected (is_excluded=1) line_item is outside the committed subset -> not gated.
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
+            "is_excluded", 1,
+        )
+        frappe.db.commit()
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="TplQtySheet",
+        )
+        self.assertTrue(result["ok"], "an excluded no-qty line_item must not block finalize")
+        self.assertEqual(self._status(), "Finalized")
+
+
+# ===========================================================================
+# Group 6c: A2 multi-area qty_total re-sum on per-area edit
+# ===========================================================================
+
+class TestTemplateResumQtyTotal(FrappeTestCase):
+    """A2 multi-area: a per-area qty edit on a TEMPLATE-origin sheet re-derives
+    qty_total = sum(qty_by_area) (so the read-only Total + the STRICT finalize gate + node.qty
+    stay correct). Upload origin is UNTOUCHED -- its parsed qty_total is authoritative."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        # Template-origin BoQ -> the re-sum fires.
+        tboq = frappe.new_doc("BOQs")
+        tboq.project = cls.test_project.name
+        tboq.boq_name = "Template Resum BoQ"
+        tboq.tax_treatment = "Pre-tax"
+        tboq.origin = "template"
+        tboq.area_dimensions = json.dumps(["Zone A", "Zone B"])
+        tboq.append("sheet_drafts", {
+            "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
+            "sheet_config": json.dumps({"area_dimensions": ["Zone A", "Zone B"]}),
+        })
+        tboq.insert(ignore_permissions=True)
+        cls.tpl_boq = tboq.name
+        # Upload-origin BoQ (origin defaults to "upload") -> the re-sum must NOT fire.
+        uboq = frappe.new_doc("BOQs")
+        uboq.project = cls.test_project.name
+        uboq.boq_name = "Upload Resum BoQ"
+        uboq.tax_treatment = "Pre-tax"
+        uboq.append("sheet_drafts", {
+            "sheet_name": "AreaSheet", "sheet_order": 1, "wizard_status": "Parsed",
+            "sheet_config": json.dumps({"area_dimensions": ["Zone A", "Zone B"]}),
+        })
+        uboq.insert(ignore_permissions=True)
+        cls.upl_boq = uboq.name
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete("BoQ Review Row", {"boq": cls.tpl_boq})
+        frappe.db.delete("BoQ Review Row", {"boq": cls.upl_boq})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def _seed_row(self, boq):
+        frappe.db.delete("BoQ Review Row", {"boq": boq})
+        row = _minimal_row("AreaSheet", 0, "line_item", parent_index=None)
+        row["qty_by_area"] = {"Zone A": 0.0, "Zone B": 0.0}
+        row["qty_total"] = 0
+        _insert_rows(boq, [row])
+        frappe.db.commit()
+
+    def _qty_total(self, boq):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": boq, "sheet_name": "AreaSheet", "row_index": 0},
+            "qty_total",
+        )
+
+    def test_template_per_area_edit_resums_qty_total(self):
+        self._seed_row(self.tpl_boq)
+        save_review_edit(boq_name=self.tpl_boq, sheet_name="AreaSheet",
+                         row_index=0, field="qty_by_area", value=10, area="Zone A")
+        self.assertEqual(self._qty_total(self.tpl_boq), 10.0, "qty_total = sum after first area")
+        save_review_edit(boq_name=self.tpl_boq, sheet_name="AreaSheet",
+                         row_index=0, field="qty_by_area", value=5, area="Zone B")
+        self.assertEqual(self._qty_total(self.tpl_boq), 15.0, "qty_total = sum across both areas")
+
+    def test_upload_per_area_edit_does_not_resum(self):
+        self._seed_row(self.upl_boq)
+        save_review_edit(boq_name=self.upl_boq, sheet_name="AreaSheet",
+                         row_index=0, field="qty_by_area", value=99, area="Zone A")
+        self.assertIn(self._qty_total(self.upl_boq), (0, 0.0),
+                      "upload-origin per-area edit must NOT re-sum qty_total")
+
+
+# ===========================================================================
 # Group 7: get_structural_breaks -- DB (Slice B1)
 # ===========================================================================
 

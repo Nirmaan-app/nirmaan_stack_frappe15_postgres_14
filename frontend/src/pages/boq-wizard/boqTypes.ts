@@ -1065,6 +1065,9 @@ export interface MarkParsedCheckDoneResponse {
   ok: boolean;
   breaks?: StructuralBreak[];
   status?: string;
+  // A2 (template origin): number of SELECTED line-item rows still missing a quantity. Present only
+  // on the {ok:false} template finalize-gate rejection; absent for the structural-break case.
+  qty_gap?: number;
 }
 
 /** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */

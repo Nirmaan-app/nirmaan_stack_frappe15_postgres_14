@@ -920,6 +920,14 @@ def _apply_and_save_row_edit(
             current[area] = new_val
         # Bare dict assign -- Frappe auto-serializes the JSON column on save (proven).
         setattr(doc, field, current)
+        # A2 multi-area (template origin ONLY): keep qty_total = sum(qty_by_area) so the read-only
+        # Total column, the STRICT finalize gate (qty_total>0), and commit's node.qty stay correct.
+        # Upload multi-area is untouched (origin != "template" -> its parsed qty_total is
+        # authoritative; sum-of-areas is informational). Rides the single doc.save() below.
+        if field == "qty_by_area" and frappe.db.get_value("BOQs", boq_name, "origin") == "template":
+            doc.qty_total = sum(
+                float(v) for v in current.values() if isinstance(v, (int, float))
+            )
         to_val = new_val
     else:
         # --- Flat-field path (capture from-value, then apply) ---
@@ -2825,7 +2833,8 @@ def mark_sheet_parsed_check_done(
         "BoQ Review Row",
         filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=["row_index", "source_row_number", "classification",
-                "human_classification", "parent_index", "human_parent", "human_is_root"],
+                "human_classification", "parent_index", "human_parent", "human_is_root",
+                "qty_total"],
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]
@@ -2842,6 +2851,22 @@ def mark_sheet_parsed_check_done(
         # FULLY HARD gate (S2): ANY structural break (#7 / #8 / cycle) blocks finalize,
         # REGARDLESS of confirm. No override path -- a finalized sheet must be committable.
         return {"ok": False, "breaks": breaks}
+
+    # A2 (template origin ONLY): every SELECTED line_item must carry a quantity before finalize.
+    # STRICT -- rate-only rows are NOT exempt (owner 2026-07-09); the inline Total-Quantity cell in
+    # the template review makes it satisfiable. Effective classification = human-else-raw (a clone
+    # has no AI layer, so classification already holds the lowercase 'line_item'). The is_excluded=0
+    # fetch above already scopes to the committed subset. Scoped to origin=="template" so the upload
+    # finalize path stays byte-identical (upload / NULL origin skips this entirely).
+    origin = frappe.db.get_value("BOQs", boq_name, "origin")
+    if origin == "template":
+        qty_gap = [
+            r for r in rows_as_dicts
+            if (r.get("human_classification") or r.get("classification")) == "line_item"
+            and not r.get("qty_total")
+        ]
+        if qty_gap:
+            return {"ok": False, "breaks": [], "qty_gap": len(qty_gap)}
 
     # No breaks -> finalize. Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)

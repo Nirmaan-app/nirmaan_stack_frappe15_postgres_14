@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileSpreadsheet, FolderPlus, Layers } from "lucide-react";
+import { ArrowLeft, FileSpreadsheet, FolderPlus, Layers } from "lucide-react";
 import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
 import { BoqUploadScreen } from "./BoqUploadScreen";
 import { TemplateCreateFlow } from "./TemplateCreateFlow";
@@ -28,22 +28,24 @@ const BoqPickerPage = () => {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(preSelectedId);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  // In-place mode flip (NO route change): "picker" shows the project chooser, "template"
-  // renders TemplateCreateFlow for the selected project (A-T7).
-  const [mode, setMode] = useState<"picker" | "template">("picker");
+  // A2: on the project-scoped screen (?project=<id>) the user first picks a creation MODE; the
+  // mode's details panel is NOT rendered until chosen. "choose" = the two-option chooser,
+  // "upload" = the upload two-pane, "template" = the create-from-template form. Template creation
+  // lives ONLY here now -- the bare /upload-boq page no longer offers it (A2 requirement E1).
+  const [projectMode, setProjectMode] = useState<"choose" | "upload" | "template">("choose");
 
-  // Keep dropdown in sync when URL param changes (back/forward navigation).
+  // Keep the dropdown in sync + reset the mode chooser when the URL project param changes
+  // (back/forward navigation, or a new ?project=).
   useEffect(() => {
     setSelectedProjectId(preSelectedId);
+    setProjectMode("choose");
   }, [preSelectedId]);
 
-  // Project list for the picker. This hook MUST run unconditionally and BEFORE
-  // the preSelectedId early-return below (Rules of Hooks). On the picker -> Continue
-  // SPA transition the SAME BoqPickerPage instance re-renders with preSelectedId
-  // flipping "" -> id; a hook placed after the early return would change the hook
-  // count between renders (React error #300 "rendered fewer hooks than expected",
-  // caught by the ErrorBoundary). The swrKey is null when a project is preselected,
-  // which disables the fetch (sdk gotcha) so we never load a list we won't render.
+  // Project list for the bare picker. This hook MUST run unconditionally and BEFORE the
+  // preSelectedId early-return below (Rules of Hooks) -- the SAME BoqPickerPage instance
+  // re-renders with preSelectedId flipping "" -> id on the Continue SPA transition; a hook
+  // after the early return would change the hook count (React #300). swrKey null disables the
+  // fetch when a project is preselected (sdk gotcha) so we never load a list we won't render.
   const { data: projects, isLoading } = useFrappeGetDocList(
     "Projects",
     {
@@ -55,21 +57,85 @@ const BoqPickerPage = () => {
     preSelectedId ? null : undefined
   );
 
-  // When a project is in the URL, hand off to the upload screen in-place.
-  // No routing change: the picker page owns both the picker UI and the upload
-  // screen; the transition is driven by the ?project= query param.
-  if (preSelectedId) {
-    return <BoqUploadScreen projectId={preSelectedId} />;
-  }
+  // A2: project name for the mode-chooser header -- only fetched when a project is preselected
+  // (swrKey null disables it otherwise; #frappe_get_doc gotcha -- 3rd arg is the swrKey).
+  const { data: preProject } = useFrappeGetDoc<{ name: string; project_name: string }>(
+    "Projects",
+    preSelectedId,
+    preSelectedId ? undefined : null
+  );
+  const preProjectName = preProject?.project_name ?? preSelectedId;
 
-  // Create-from-Template mode (A-T7): rendered in-place for the selected project.
-  // Back flips the mode state -- no route change (deep-linkable upload path unchanged).
-  if (mode === "template" && selectedProjectId) {
+  // ── Project-scoped screen (?project=<id>): mode chooser -> upload | template ──
+  if (preSelectedId) {
+    if (projectMode === "upload") {
+      return (
+        <BoqUploadScreen
+          projectId={preSelectedId}
+          onBack={() => setProjectMode("choose")}
+        />
+      );
+    }
+    if (projectMode === "template") {
+      return (
+        <TemplateCreateFlow
+          projectId={preSelectedId}
+          onBack={() => setProjectMode("choose")}
+        />
+      );
+    }
+    // mode === "choose": the two-option chooser. NO details panel until a mode is picked (A2).
     return (
-      <TemplateCreateFlow
-        projectId={selectedProjectId}
-        onBack={() => setMode("picker")}
-      />
+      <div className="flex-1 space-y-6 max-w-3xl mx-auto pt-8 pb-10">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">New BoQ</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            For <span className="font-medium text-foreground">{preProjectName}</span>. Choose how
+            you&apos;d like to create this Bill of Quantities.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setProjectMode("upload")}
+            className="group flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors group-hover:border-primary group-hover:text-primary">
+              <FileSpreadsheet className="h-4 w-4" />
+            </span>
+            <span className="text-sm font-semibold text-foreground">Upload a BoQ</span>
+            <span className="text-xs leading-relaxed text-muted-foreground">
+              Drop an .xlsx / .xlsm workbook, then configure, parse and review it.
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setProjectMode("template")}
+            className="group flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors group-hover:border-primary group-hover:text-primary">
+              <Layers className="h-4 w-4" />
+            </span>
+            <span className="text-sm font-semibold text-foreground">Create from Template</span>
+            <span className="text-xs leading-relaxed text-muted-foreground">
+              Start from the master template — pick sheets, then enter quantities.
+            </span>
+          </button>
+        </div>
+
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/projects/${preSelectedId}`)}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to project
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -84,6 +150,7 @@ const BoqPickerPage = () => {
     navigate(`/upload-boq?project=${newProjectId}`);
   };
 
+  // ── Bare page (/upload-boq, no project): project chooser + tendering create ───
   return (
     <div className="flex-1 space-y-6 max-w-lg mx-auto pt-8">
       <div>
@@ -127,30 +194,6 @@ const BoqPickerPage = () => {
           </Button>
         </CardContent>
       </Card>
-
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">or</span>
-        </div>
-      </div>
-
-      <Button
-        variant="outline"
-        className="w-full"
-        disabled={!selectedProjectId}
-        title={
-          selectedProjectId ? undefined : "Select a project first"
-        }
-        onClick={() => {
-          if (selectedProjectId) setMode("template");
-        }}
-      >
-        <Layers className="mr-2 h-4 w-4" />
-        Create from Template
-      </Button>
 
       <Button
         variant="outline"

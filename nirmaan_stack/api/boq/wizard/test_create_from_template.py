@@ -267,6 +267,67 @@ class TestCloneWorker(FrappeTestCase):
             order_by="row_index asc",
         )
 
+    # -- A2 multi-area helpers + tests ------------------------------------
+    def _run_clone_multi(self, sheet_names, areas, boq_name=None):
+        boq_name = boq_name or f"CLONE_{frappe.generate_hash(length=5)}"
+        shell = _make_target_shell(self.project.name, boq_name, self.master)
+        _clone_worker(shell, self.master, sheet_names, "Administrator", areas=areas)
+        return shell
+
+    def _sheet_config(self, boq, sheet):
+        raw = frappe.db.get_value(
+            "BoQ Sheet Draft",
+            {"parent": boq, "parenttype": "BOQs", "sheet_name": sheet},
+            "sheet_config",
+        )
+        return json.loads(raw) if isinstance(raw, str) else (raw or {})
+
+    def test_multi_area_rewrites_data_sheet_config(self):
+        from nirmaan_stack.services.boq_parser.config import SheetConfig
+        shell = self._run_clone_multi([_SHEET_A, _SHEET_G], ["Zone 1", "Zone 2"])
+        cfg = self._sheet_config(shell, _SHEET_A)
+        role_map = cfg["column_role_map"]
+        self.assertEqual(cfg["area_dimensions"], ["Zone 1", "Zone 2"])
+        area_of = {e["area"] for e in role_map.values() if e.get("role") == "qty"}
+        self.assertEqual(area_of, {"Zone 1", "Zone 2"})
+        self.assertEqual(
+            len([e for e in role_map.values() if e.get("role") == "qty_total"]), 1,
+            "exactly one qty_total (the Total column)",
+        )
+        # The live gate (get_stale_sheets) runs this validator on every hub load -> must accept
+        # the rewrite. sheet_name is injected by _validate_sheet_blob (the only required field).
+        SheetConfig.model_validate({**cfg, "sheet_name": _SHEET_A})
+        # general_specs sheet is NOT area-ified.
+        gcfg = self._sheet_config(shell, _SHEET_G)
+        self.assertEqual(gcfg.get("area_dimensions", []), [])
+
+    def test_multi_area_seeds_qty_by_area(self):
+        shell = self._run_clone_multi([_SHEET_A], ["Zone 1", "Zone 2"])
+        rows = frappe.get_all(
+            "BoQ Review Row",
+            filters={"boq": shell, "sheet_name": _SHEET_A},
+            fields=["row_index", "classification", "qty_by_area", "qty_total"],
+            order_by="row_index asc",
+        )
+        seeded = 0
+        for r in rows:
+            if r.classification in ("line_item", "preamble"):
+                qba = json.loads(r.qty_by_area) if isinstance(r.qty_by_area, str) else r.qty_by_area
+                self.assertEqual(qba, {"Zone 1": 0.0, "Zone 2": 0.0})
+                self.assertIn(r.qty_total, (0, 0.0))
+                seeded += 1
+        self.assertGreater(seeded, 0, "at least one eligible row must be qty-seeded")
+
+    def test_single_area_clone_unchanged(self):
+        # areas=[] -> byte-identical to Slice 1: no area_dimensions, no per-area qty columns.
+        shell = self._run_clone_multi([_SHEET_A], [])
+        cfg = self._sheet_config(shell, _SHEET_A)
+        self.assertEqual(cfg.get("area_dimensions", []), [])
+        self.assertFalse(
+            any(e.get("role") == "qty" for e in cfg.get("column_role_map", {}).values()),
+            "a single-area clone must not synthesize per-area qty columns",
+        )
+
     # -- tests -------------------------------------------------------------
     def test_copies_classification_verbatim(self):
         shell = self._run_clone([_SHEET_A])
@@ -423,6 +484,47 @@ class TestCloneWorker(FrappeTestCase):
 # Endpoint tests (create_from_template / get_master_template / role gate)
 # ---------------------------------------------------------------------------
 
+class TestApplyAreasToSheetConfig(FrappeTestCase):
+    """A2 multi-area: the PURE column_role_map rewrite (_apply_areas_to_sheet_config)."""
+
+    def test_rewrite_drops_qty_total_adds_area_cols_and_total(self):
+        import re
+        from openpyxl.utils import column_index_from_string
+        cfg = {
+            "header_row": 1,
+            "area_dimensions": [],
+            "column_role_map": {
+                "A": {"role": "sl_no"}, "B": {"role": "description"},
+                "F": {"role": "qty_total"},
+                "G": {"role": "rate_combined"}, "H": {"role": "amount_total"},
+            },
+        }
+        out = cft._apply_areas_to_sheet_config(cfg, ["Block X", "Block Y"])
+        role_map = out["column_role_map"]
+        self.assertNotIn("F", role_map, "the single-area qty_total letter must be dropped")
+        area_cols = {e["area"]: c for c, e in role_map.items() if e.get("role") == "qty"}
+        total_cols = [c for c, e in role_map.items() if e.get("role") == "qty_total"]
+        self.assertEqual(set(area_cols), {"Block X", "Block Y"})
+        self.assertEqual(len(total_cols), 1, "exactly one qty_total Total column")
+        self.assertEqual(out["area_dimensions"], ["Block X", "Block Y"])
+        self.assertTrue(all(re.match(r"^[A-Z]+$", c) for c in role_map),
+                        "every column key must be a real Excel letter (^[A-Z]+$)")
+        total_idx = column_index_from_string(total_cols[0])
+        self.assertTrue(
+            all(total_idx > column_index_from_string(c) for c in area_cols.values()),
+            "the Total column must sort after every per-area column",
+        )
+
+    def test_rewrite_is_idempotent_on_rerun(self):
+        cfg = {"header_row": 1, "area_dimensions": [],
+               "column_role_map": {"B": {"role": "description"}, "C": {"role": "qty_total"}}}
+        once = cft._apply_areas_to_sheet_config(cfg, ["Z1", "Z2"])
+        twice = cft._apply_areas_to_sheet_config(once, ["Z1", "Z2"])
+        rm = twice["column_role_map"]
+        self.assertEqual(len([e for e in rm.values() if e.get("role") == "qty_total"]), 1)
+        self.assertEqual({e["area"] for e in rm.values() if e.get("role") == "qty"}, {"Z1", "Z2"})
+
+
 class TestCreateFromTemplateEndpoint(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
@@ -473,6 +575,83 @@ class TestCreateFromTemplateEndpoint(FrappeTestCase):
                 sheet_names=json.dumps([_SHEET_A, _SHEET_B]),
             )
         self.assertEqual(frappe.db.get_value("BOQs", res["boq_id"], "boq_name"), "ExplicitName")
+
+    def test_create_persists_tax_treatment_and_notes(self):
+        # A2: the create-from-template form carries GST Treatment (-> tax_treatment) + Notes.
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-tax")
+            res = create_from_template(
+                project=self.project.name,
+                boq_name="TaxedBoQ",
+                sheet_names=[_SHEET_A],
+                tax_treatment="Post-tax",
+                notes="from the tender pack",
+            )
+        shell = frappe.get_doc("BOQs", res["boq_id"])
+        self.assertEqual(shell.tax_treatment, "Post-tax")
+        self.assertEqual(shell.notes, "from the tender pack")
+
+    def test_create_invalid_tax_treatment_defaults_pre_tax(self):
+        # A2: tax_treatment is a Select -- an invalid value must be whitelisted to a safe default,
+        # never passed through to 500 on insert.
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-bad-tax")
+            res = create_from_template(
+                project=self.project.name,
+                boq_name="BadTaxBoQ",
+                sheet_names=[_SHEET_A],
+                tax_treatment="Gibberish",
+            )
+        self.assertEqual(
+            frappe.db.get_value("BOQs", res["boq_id"], "tax_treatment"), "Pre-tax"
+        )
+
+    def test_create_three_arg_caller_still_works(self):
+        # A2 additive-kwargs proof: the pre-A2 3-arg signature must be unaffected; unspecified
+        # tax_treatment falls back to the safe default.
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-3arg")
+            res = create_from_template(self.project.name, "ThreeArgBoQ", [_SHEET_A])
+        shell = frappe.get_doc("BOQs", res["boq_id"])
+        self.assertEqual(shell.boq_name, "ThreeArgBoQ")
+        self.assertEqual(shell.tax_treatment, "Pre-tax")
+
+    def test_create_multi_area_writes_shell_area_dimensions(self):
+        # A2 multi-area: BOQs.area_dimensions (JSON string) is written + areas reach the worker.
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-ma")
+            res = create_from_template(
+                project=self.project.name,
+                boq_name="MultiAreaBoQ",
+                sheet_names=[_SHEET_A],
+                areas=["Tower A", "Tower B"],
+            )
+        raw = frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")
+        self.assertEqual(json.loads(raw), ["Tower A", "Tower B"])
+        _, kwargs = mock_enq.call_args
+        self.assertEqual(kwargs.get("areas"), ["Tower A", "Tower B"])
+
+    def test_create_single_area_leaves_shell_area_dimensions_blank(self):
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-sa")
+            res = create_from_template(
+                project=self.project.name, boq_name="SingleAreaBoQ",
+                sheet_names=[_SHEET_A], areas=[],
+            )
+        self.assertFalse(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions"))
+
+    def test_create_multi_area_accepts_json_string(self):
+        # areas arrives from the FE as a JSON string (like sheet_names).
+        with patch.object(cft.frappe, "enqueue") as mock_enq:
+            mock_enq.return_value = MagicMock(id="j-ma-json")
+            res = create_from_template(
+                project=self.project.name, boq_name="MultiAreaJsonBoQ",
+                sheet_names=json.dumps([_SHEET_A]), areas=json.dumps(["A1", "A2"]),
+            )
+        self.assertEqual(
+            json.loads(frappe.db.get_value("BOQs", res["boq_id"], "area_dimensions")),
+            ["A1", "A2"],
+        )
 
     def test_rejects_when_no_active_master(self):
         frappe.db.set_value("BoQ Template", self.master, "is_active", 0)
