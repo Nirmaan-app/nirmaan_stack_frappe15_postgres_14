@@ -429,6 +429,11 @@ export interface ReviewRow {
   make_model: string | null;
   is_rate_only: 0 | 1;
   is_synthetic: 0 | 1;
+  // ADR-0013 (Create-from-Template T10): durable per-row selection flag. 1 => the row is
+  // DESELECTED (excluded from the committed subset); 0/absent => selected (default). Inert
+  // on upload-origin BoQs (all rows stay 0). Toggled via template_select.set_row_excluded
+  // (server-side two-direction cascade). Optional -- older get_review_rows payloads omit it.
+  is_excluded?: 0 | 1;
   // quantities / rates / amounts
   qty_total: number | null;
   qty_by_area: Record<string, number> | null;

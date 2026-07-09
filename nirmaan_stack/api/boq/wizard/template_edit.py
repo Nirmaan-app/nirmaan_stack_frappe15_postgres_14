@@ -205,6 +205,36 @@ def _reparent_creates_cycle(template: str, sheet_name: str, row_index: int, new_
 
 
 # ---------------------------------------------------------------------------
+# Read endpoint (for the admin editor to render one sheet's row tree)
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def get_template_rows(template: str = None, sheet_name: str = None) -> dict:
+    """Return one sheet's BoQ Template Rows (ordered by row_index) for the admin editor.
+
+    Admin + Estimates gated. The client derives depth from the parent_index chain (mirroring
+    the review screen's computeDepths) -- parent_index carries the -1 root sentinel and
+    attached_to_index the 0 not-attached sentinel. Returns {"rows": [...]}.
+    """
+    _require_template_editor()
+    _assert_template(template)
+    if not sheet_name:
+        frappe.throw(_("sheet_name is required."), title="Missing field: sheet_name")
+
+    rows = frappe.db.get_all(
+        "BoQ Template Row",
+        filters={"template": template, "sheet_name": sheet_name},
+        fields=[
+            "name", "row_index", "classification", "parent_index", "attached_to_index",
+            "level", "path", "source_row_number", "sl_no_value", "description", "unit",
+            "make_model", "is_rate_only",
+        ],
+        order_by="row_index asc",  # never order_by `order` (PG reserved)
+    )
+    return {"rows": rows}
+
+
+# ---------------------------------------------------------------------------
 # Row CRUD endpoints
 # ---------------------------------------------------------------------------
 

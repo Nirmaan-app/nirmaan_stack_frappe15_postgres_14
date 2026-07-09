@@ -1170,6 +1170,9 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
         "row_notes", "append_notes_raw", "description_parts_raw",
         "classifier_warnings", "is_synthetic",
+        # ADR-0013 (Create-from-Template T10): per-row selection flag (1 = deselected). The
+        # template-flow review screen renders a checkbox from it; inert on upload BoQs (all 0).
+        "is_excluded",
         # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
         "human_classification", "human_parent", "human_is_root",
         "edit_log", "edited_by", "edited_at",

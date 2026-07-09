@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -105,7 +105,30 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RestructureModal } from "./RestructureModal";
+// Create-from-Template (ADR-0013 T10/T11): PURE selection/eligibility helpers. Imported so
+// the row-selection + create/delete affordances (behind default-OFF props) stay unit-testable.
+import {
+  isSelectableRow,
+  isRowExcluded,
+  countSelectedLineItemsNoQty,
+  rowPickerLabel,
+} from "./templateSelection";
 // Row-detail panel READ views: the ancestor chain + direct-children list (additive, no layout
 // change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
 import { ParentChain } from "./ParentChain";
@@ -439,9 +462,26 @@ interface ReviewTreeProps {
   // should relax to reclaim the vertical space the normal page chrome would otherwise use.
   // Optional/defaulted so every existing caller renders exactly as before.
   expanded?: boolean;
+  // ── Create-from-Template (ADR-0013 T10/T11) -- DEFAULT-OFF regression-safe additions ──
+  // selectable: render a per-eligible-row selection checkbox (preamble / line_item) that
+  //   toggles is_excluded via template_select.set_row_excluded (server-side subtree/ancestor
+  //   cascade). Excluded rows render dimmed. Template-origin BoQs only.
+  // canCreateRows: render a per-row actions menu (Insert above/below + Delete on synthetic
+  //   rows) driving template_rows.create_review_row / delete_review_row.
+  // When BOTH are false (every upload-flow caller) the tree renders BYTE-IDENTICAL to before:
+  // no extra column, no totalCols change, no opacity, no advisory line.
+  selectable?: boolean;
+  canCreateRows?: boolean;
+  // Invoked after a selection toggle / row create / row delete so the parent re-fetches
+  // get_review_rows (the server cascade flips is_excluded across the subtree / the keyspace
+  // is renumbered). SheetReviewPage wires this to mutate() (+ breaksMutate).
+  onSelectionChanged?: () => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, selectable = false, canCreateRows = false, onSelectionChanged }: ReviewTreeProps) {
+  // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
+  // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
+  const templateControls = selectable || canCreateRows;
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -596,6 +636,110 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const { call: revertToParserCall, loading: isRevertingToParser } = useFrappePostCall<{
     message: { ok: boolean; reverted_children: number[] };
   }>("nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser");
+
+  // ── Create-from-Template (ADR-0013 T10/T11) -- write paths (template-origin only) ─────
+  // T10: durable selection toggle. The server applies the two-direction cascade + re-emits
+  // the selection sets; we just re-fetch (onSelectionChanged) so is_excluded updates across
+  // the affected subtree / ancestor chain.
+  const { call: setRowExcludedCall } = useFrappePostCall<{
+    message: { status: string; excluded_indices: number[]; included_indices: number[] };
+  }>("nirmaan_stack.api.boq.wizard.template_select.set_row_excluded");
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  // T11: row create / delete (renumber-on-insert). create opens a small dialog; delete
+  // confirms in an AlertDialog (synthetic rows only). Both re-fetch on success.
+  const { call: createRowCall, loading: isCreatingRow } = useFrappePostCall<{
+    message: { status: string; new_row_index: number };
+  }>("nirmaan_stack.api.boq.wizard.template_rows.create_review_row");
+  const { call: deleteRowCall, loading: isDeletingRow } = useFrappePostCall<{
+    message: { status: string };
+  }>("nirmaan_stack.api.boq.wizard.template_rows.delete_review_row");
+  // Create-row dialog state (anchor + position) + the small form fields.
+  const [createDialog, setCreateDialog] = useState<{ anchorRowIndex: number; position: "above" | "below" } | null>(null);
+  const [createCls, setCreateCls] = useState<string>("line_item");
+  const [createDesc, setCreateDesc] = useState("");
+  const [createUnit, setCreateUnit] = useState("");
+  const [createParent, setCreateParent] = useState<string>("-1"); // "-1" => root
+  const [createError, setCreateError] = useState<string | null>(null);
+  // Delete-row confirm state.
+  const [deleteDialog, setDeleteDialog] = useState<ReviewRow | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // T10: advisory (non-blocking) count of SELECTED line items with no quantity.
+  const noQtyCount = useMemo(() => countSelectedLineItemsNoQty(rows), [rows]);
+
+  // T10: flip a row's selection. include=true -> excluded=0 (select + ancestor chain);
+  // include=false -> excluded=1 (deselect + descendant subtree). onEditIntent acquires the
+  // draft lock (the endpoint also acquires it server-side); re-fetch on success.
+  const handleToggleExcluded = async (row: ReviewRow, include: boolean) => {
+    // NO onEditIntent here: set_row_excluded acquires + enforces the draft single-editor lock
+    // server-side (its own guard). Firing the client-side lock acquire (onEditIntent) at the
+    // same instant as the server acquire RACES on the lock's check-then-insert ("BoQ Sheet
+    // Pricing Lock ... already exists") because a checkbox has no focus-then-save gap to
+    // sequence them (unlike a value edit). The server acquire is the single authority here.
+    setSelectionError(null);
+    try {
+      await setRowExcludedCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+        excluded: include ? 0 : 1,
+      });
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setSelectionError(getFrappeError(e) || "Could not update the selection. Please try again.");
+    }
+  };
+
+  // T11: open the create-row dialog anchored on `row`. Seeds the parent to the anchor's own
+  // effective parent (so a new row lands as a sibling by default) and resets the form.
+  const openCreateDialog = (row: ReviewRow, position: "above" | "below") => {
+    onEditIntent?.();
+    setCreateCls("line_item");
+    setCreateDesc("");
+    setCreateUnit("");
+    setCreateParent(String(row.effective_parent_index ?? -1));
+    setCreateError(null);
+    setCreateDialog({ anchorRowIndex: row.row_index, position });
+  };
+
+  const submitCreate = async () => {
+    if (!createDialog) return;
+    onEditIntent?.();
+    setCreateError(null);
+    try {
+      await createRowCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        anchor_row_index: createDialog.anchorRowIndex,
+        position: createDialog.position,
+        classification: createCls,
+        parent_index: createParent, // "-1" or a pre-insert row_index; backend int-coerces + remaps
+        description: createDesc,
+        unit: createUnit,
+      });
+      setCreateDialog(null);
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setCreateError(getFrappeError(e) || "Could not create the row. Please try again.");
+    }
+  };
+
+  const submitDelete = async () => {
+    if (!deleteDialog) return;
+    onEditIntent?.();
+    setDeleteError(null);
+    try {
+      await deleteRowCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: deleteDialog.row_index,
+      });
+      setDeleteDialog(null);
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setDeleteError(getFrappeError(e) || "Could not delete the row. Please try again.");
+    }
+  };
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
@@ -1579,6 +1723,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
+      {/* T10: soft, NON-BLOCKING advisory -- selected line items missing a quantity. */}
+      {selectable && noQtyCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {noQtyCount} selected line {noQtyCount === 1 ? "item has" : "items have"} no quantity.
+          </span>
+        </div>
+      )}
+      {/* T10/T11: inline selection error (kept off toasts -- wizard convention). */}
+      {selectionError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <span>{selectionError}</span>
+        </div>
+      )}
+
       <div className="rounded-md border border-border overflow-hidden">
       {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
@@ -1749,6 +1909,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             <tr className="border-b border-border">
               {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header. */}
               <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+              {/* T10/T11: template-controls column (select checkbox + row-actions menu).
+                  Rendered ONLY when selectable or canCreateRows -> the upload flow is unaffected. */}
+              {templateControls && (
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-24 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  {selectable ? "Include" : ""}
+                </th>
+              )}
               {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
@@ -2000,7 +2167,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // anchor; the extra visible description cols ride pickerColumns. In legacy
               // mode pickerColumns === displayDescriptors, so this is identical to before.
               const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
-              const totalCols = 8 + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
+              const totalCols = 8 + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
@@ -2079,6 +2247,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       // (mutually exclusive so the two ring widths can't conflict in Tailwind).
                       searchHitSet.has(row.row_index) && currentHitRowIdx !== row.row_index && "ring-1 ring-inset ring-blue-300 dark:ring-blue-700",
                       currentHitRowIdx === row.row_index && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+                      // T10: pruned (excluded) rows read as excluded -- dimmed (opacity is
+                      // orthogonal to the bg tiers above, so it composes without masking them).
+                      selectable && isRowExcluded(row) && "opacity-50",
                     )}
                   >
                     {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
@@ -2095,6 +2266,54 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           : <ChevronRight className="h-3 w-3" />}
                       </button>
                     </td>
+
+                    {/* T10/T11: template-controls cell -- selection checkbox (eligible rows) +
+                        row-actions menu. Only mounted when templateControls is on. stopPropagation
+                        so interacting here does not dismiss an open detail/flag panel. */}
+                    {templateControls && (
+                      <td className="px-2 py-1.5 align-top w-24 border-r border-border">
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {selectable && isSelectableRow(row) && (
+                            <Checkbox
+                              checked={!isRowExcluded(row)}
+                              onCheckedChange={(c) => { void handleToggleExcluded(row, c === true); }}
+                              aria-label={isRowExcluded(row) ? "Include this row" : "Exclude this row"}
+                            />
+                          )}
+                          {canCreateRows && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                                  aria-label="Row actions"
+                                  title="Insert or delete rows"
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={() => openCreateDialog(row, "above")}>
+                                  Insert row above
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openCreateDialog(row, "below")}>
+                                  Insert row below
+                                </DropdownMenuItem>
+                                {row.is_synthetic === 1 && (
+                                  <DropdownMenuItem
+                                    onClick={() => { setDeleteError(null); setDeleteDialog(row); }}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    Delete row
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </td>
+                    )}
 
                     {/* Excel Row */}
                     <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
@@ -3093,6 +3312,102 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}
+
+      {/* ── T11: create-row dialog (template-origin only) -- classification + description +
+          unit + optional parent. A plain Button (not DialogClose) so it stays open on a
+          backend error; the inline createError surfaces the real message. ── */}
+      <Dialog open={createDialog !== null} onOpenChange={(o) => { if (!o) setCreateDialog(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Insert row {createDialog?.position === "above" ? "above" : "below"}
+            </DialogTitle>
+            <DialogDescription>
+              The new row is inserted {createDialog?.position === "above" ? "above" : "below"} the
+              anchor and is selected by default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Classification</label>
+              <Select value={createCls} onValueChange={setCreateCls}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSIGNABLE_CLASSIFICATIONS.map((c) => (
+                    <SelectItem key={c} value={c} className="text-xs">{CLS_LABELS[c] ?? c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Description</label>
+              <Input
+                value={createDesc}
+                onChange={(e) => setCreateDesc(e.target.value)}
+                placeholder="Row description (optional)"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Unit</label>
+              <Input
+                value={createUnit}
+                onChange={(e) => setCreateUnit(e.target.value)}
+                placeholder="Unit (optional)"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Parent</label>
+              <Select value={createParent} onValueChange={setCreateParent}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="-1" className="text-xs">Top level (root)</SelectItem>
+                  {rows.map((r) => (
+                    <SelectItem key={r.row_index} value={String(r.row_index)} className="text-xs">
+                      {rowPickerLabel(r)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" disabled={isCreatingRow} onClick={() => setCreateDialog(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={isCreatingRow} onClick={() => { void submitCreate(); }}>
+              {isCreatingRow ? "Adding…" : "Add row"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── T11: delete-row confirm (template-origin, synthetic rows only). ── */}
+      <AlertDialog
+        open={deleteDialog !== null}
+        onOpenChange={(o) => { if (!o) { setDeleteDialog(null); setDeleteError(null); } }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this row?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialog
+                ? `This removes the row${deleteDialog.description ? ` "${deleteDialog.description}"` : ""} you created. Any child rows re-attach to its parent.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingRow}>Cancel</AlertDialogCancel>
+            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend error. */}
+            <Button variant="destructive" size="sm" disabled={isDeletingRow} onClick={() => { void submitDelete(); }}>
+              {isDeletingRow ? "Deleting…" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

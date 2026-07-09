@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.template_edit import (
+    get_template_rows,
     template_add_sheet,
     template_create_row,
     template_delete_row,
@@ -443,6 +444,13 @@ class TestTemplateEdit(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             template_edit_row(row_name=by_idx[0].name, parent_index=1)
         self.assertEqual(self._links()["P1"], "ROOT")
+
+    def test_get_template_rows(self):
+        res = get_template_rows(template=self.template, sheet_name=_TSHEET)
+        rows = res["rows"]
+        self.assertEqual([r.row_index for r in rows], [0, 1, 2, 3, 4])
+        self.assertEqual([r.description for r in rows], ["P1", "L1a", "P2", "L2a", "L2b"])
+        self.assertEqual([r.parent_index for r in rows], [-1, 0, -1, 2, 2])
 
     def test_set_sheet_wp_stores_list(self):
         res = template_set_sheet_wp(

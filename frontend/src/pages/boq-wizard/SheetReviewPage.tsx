@@ -734,6 +734,13 @@ const SheetReviewPage = () => {
   const draftLockedByAnother = !locksDisabledClient && (takenOver || draftEditable === false);
   const readOnly = isChecked || isParsing || draftLockedByAnother;
 
+  // ── Create-from-Template (ADR-0013 T10/T11): template-origin gate ──────────────
+  // Row selection + row create/delete are TEMPLATE-ORIGIN ONLY (the backend endpoints
+  // hard-reject upload BoQs). Gated additionally on !readOnly so a finalized / parsing /
+  // externally-locked sheet freezes them exactly like every other write affordance. On an
+  // upload BoQ (or when boq.origin is absent) both stay false -> ReviewTree is unaffected.
+  const isTemplateOrigin = boq.origin === "template";
+
   // Acquire the draft lock on FIRST edit-intent (ReviewTree threads this as onEditIntent, called
   // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens, AI
   // accept, revert; NOT the annotation-only remark/dismiss paths). Idempotent (heldVersionRef).
@@ -1121,6 +1128,13 @@ const SheetReviewPage = () => {
           geminiEnabled={geminiEnabled}
           // Full-screen toggle above -- relaxes ReviewTree's internal scroll-height cap in full-screen.
           expanded={expanded}
+          // Create-from-Template (ADR-0013 T10/T11): row selection + row create/delete, template
+          // -origin only + frozen with the rest when readOnly. Both false on an upload BoQ ->
+          // byte-identical to before. onSelectionChanged re-fetches rows (+ breaks) after the
+          // server cascade flips is_excluded / the keyspace is renumbered.
+          selectable={isTemplateOrigin && !readOnly}
+          canCreateRows={isTemplateOrigin && !readOnly}
+          onSelectionChanged={() => { void mutate(); void breaksMutate(); }}
         />
       )}
 
