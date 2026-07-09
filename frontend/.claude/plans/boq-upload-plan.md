@@ -234,7 +234,8 @@ REMAINING columns are narrower (`min-w-[160px]`) `sticky top-0 z-20 bg-muted` ce
 picker. A new `pickerColumns` abstraction drives the picker + `hiddenColCount` + `totalCols`; it lists the
 **extra description columns FIRST, then the ordinary descriptor columns** (MC-4-fix) so the picker mirrors
 the table's leftmost-description visual order (order is presentation-only -- the counts are order-independent
-`.filter`s); `visibleCols` init/sync seed the extra description LETTERS from
+`.filter`s), with description entries in the **letter-first** picker format `${col} — ${label}` (bare letter
+when degenerate) matching the other columns -- NOT the `${label} (${col})` table-header format (MC-4-fix2); `visibleCols` init/sync seed the extra description LETTERS from
 the DESCRIPTORS (stable per sheet, so a cell edit never resets hidden columns). `totalCols` keeps base `8`
 (the first/legacy anchor) + extra visible description cols -> every `colSpan` (flag-reasons + detail panel)
 stays aligned. `FIXED_ROLE_DEDUPE` unchanged (description stays out of `displayDescriptors`; the fan-out
