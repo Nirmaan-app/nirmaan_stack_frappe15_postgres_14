@@ -467,7 +467,7 @@ Owner (Abhishek) confirmed intent. Delivered as 3 reviewable slices, core-first.
 - Lock stays **server-authoritative**; do NOT re-add a client `onEditIntent` (prior E2E bug). Sentinels −1 root /
   0 not-attached. `sheet_name` verbatim. Commit-before-publish.
 
-## Slice 1 — Create-flow restructure + single-area quantities  *(IMPLEMENTED + UNIT-VERIFIED 2026-07-09; live E2E pending)*
+## Slice 1 — Create-flow restructure + single-area quantities  *(COMMITTED `6e1a9cb3` + LIVE-E2E-VERIFIED 2026-07-09)*
 
 **AS-BUILT (2026-07-09):** all edits below landed. `tsc --noEmit` boq-wizard scope = **0 errors**;
 `test_create_from_template` **26** green (+3: tax/notes persist, invalid-tax default, 3-arg caller),
@@ -526,7 +526,16 @@ hidden, tree intact on flagged/expanded rows → type qty inline → finalize bl
 → commit builds nodes with scalar `qty`. Upload review unchanged. tsc delta-0; bench `test_create_from_template` +
 `test_review_screen` extended; vitest `templateSelection`.
 
-## Slice 2 — Multi-area (layers on Slice 1)  *(IMPLEMENTED + UNIT-VERIFIED 2026-07-09; live E2E pending)*
+## Slice 2 — Multi-area (layers on Slice 1)  *(COMMITTED `6e1a9cb3` + LIVE-E2E-VERIFIED 2026-07-09)*
+
+**LIVE E2E (chrome-devtools, Administrator, :8080) — BOTH SLICES GREEN 2026-07-09:** single-area BOQ-26-00106
+(mode chooser → form → clone → review: Status/AI-Rec/Rate*/Amount*/Gemini HIDDEN + inline Total-Quantity +
+finalize gate disabled→enabled → inline save persisted → finalize → commit v1 → 15 Line-Item nodes qty=1) +
+multi-area BOQ-26-00107 (Multi toggle + DefineAreasDialog Tower A/B → clone → review: `I — Quantity·Tower A`,
+`J — Quantity·Tower B`, `K — Total Quantity` (real letters, area cols before Total) + per-area edit re-summed
+qty_total + read-only Total shows sum → finalize → commit v1 → 15 nodes qty=5 + `BOQ Node Qty By Area`
+Tower A=2/Tower B=3). Test BoQs cleaned up. **NOTE: master `BOQTPL-00020` reactivated (is_active=1) during E2E.**
+
 
 **AS-BUILT (2026-07-09):** all edits below landed. `tsc` boq-wizard **0**; `test_create_from_template` **34**
 green (+8: pure `_apply_areas_to_sheet_config` ×2, worker multi-area rewrite/seed/single-area ×3, endpoint
