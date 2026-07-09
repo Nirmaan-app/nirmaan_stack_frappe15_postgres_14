@@ -2598,7 +2598,8 @@ def _desc_config(desc_cols, headers=None, sheet_name="MultiDesc") -> SheetConfig
 
 class TestMultiColumnDescription(unittest.TestCase):
     """MC-1 — multiple description columns joined at parse with ' | ', plus the
-    faithful per-column description_parts_raw map."""
+    faithful per-column description_parts_raw list of (col_letter, header_label,
+    cell_text) triples (shape MC-1b — collision-proof by col_letter)."""
 
     def test_two_description_columns_join_excel_order(self):
         """Two description columns join in Excel column order with ' | '."""
@@ -2684,12 +2685,15 @@ class TestMultiColumnDescription(unittest.TestCase):
         result = classify_row(row, config, _GS)
         self.assertEqual(result.description, "Section header")
         self.assertNotIn("|", result.description)
-        # parts map keeps end-stripped raw text (internal run preserved)
-        self.assertEqual(result.description_parts_raw, {"B": "Section   header"})
+        # parts list keeps the (col_letter, header_label, raw text) triple;
+        # no header set -> label is the column letter; internal run preserved
+        self.assertEqual(
+            result.description_parts_raw, [("B", "B", "Section   header")]
+        )
 
-    def test_description_parts_raw_labels_order_values(self):
-        """description_parts_raw: header labels from column_headers, Excel order,
-        raw (stripped) values; a blank column is absent from the map."""
+    def test_description_parts_raw_triples_order_values(self):
+        """description_parts_raw: (col_letter, header_label, raw value) triples in
+        Excel column order; a blank column is absent from the list."""
         config = _desc_config(
             ["B", "C", "D"],
             headers={"B": "Description", "C": "Specification", "D": "Remarks"},
@@ -2697,31 +2701,53 @@ class TestMultiColumnDescription(unittest.TestCase):
         row = _make_row(1, {
             "A": {"value": "1.0"},
             "B": {"value": "Supply"},
-            "C": {"value": "   "},   # blank -> absent from the map
+            "C": {"value": "   "},   # blank -> absent from the list
             "D": {"value": "MS pipe"},
         })
         result = classify_row(row, config, _GS)
         self.assertEqual(
             result.description_parts_raw,
-            {"Description": "Supply", "Remarks": "MS pipe"},
+            [("B", "Description", "Supply"), ("D", "Remarks", "MS pipe")],
         )
-        # dict preserves Excel-order insertion (blank C dropped)
+        # list preserves Excel column order (blank C dropped)
         self.assertEqual(
-            list(result.description_parts_raw.keys()), ["Description", "Remarks"]
+            [p[0] for p in result.description_parts_raw], ["B", "D"]
         )
 
+    def test_duplicate_header_labels_both_survive(self):
+        """Two description columns with IDENTICAL headers keep BOTH parts,
+        distinguished by col_letter; the original header is preserved on both
+        (the point of the MC-1b triple shape -- the old dict collided them)."""
+        config = _desc_config(
+            ["B", "C"], headers={"B": "Description", "C": "Description"}
+        )
+        row = _make_row(1, {
+            "A": {"value": "1.0"},
+            "B": {"value": "Supply of"},
+            "C": {"value": "MS pipe"},
+        })
+        result = classify_row(row, config, _GS)
+        self.assertEqual(
+            result.description_parts_raw,
+            [("B", "Description", "Supply of"), ("C", "Description", "MS pipe")],
+        )
+        # the joined string is unaffected by the header collision
+        self.assertEqual(result.description, "Supply of | MS pipe")
+
     def test_description_parts_raw_on_single_column_sheet(self):
-        """Uniform shape: the parts map is populated even on a single-column sheet."""
+        """Uniform shape: the parts list is populated even on a single-column sheet."""
         config = _desc_config(["B"], headers={"B": "Description"})
         row = _make_row(1, {
             "A": {"value": "1.0"},
             "B": {"value": "Section header"},
         })
         result = classify_row(row, config, _GS)
-        self.assertEqual(result.description_parts_raw, {"Description": "Section header"})
+        self.assertEqual(
+            result.description_parts_raw, [("B", "Description", "Section header")]
+        )
 
     def test_all_description_cells_blank(self):
-        """All description cells blank -> empty description + empty parts map,
+        """All description cells blank -> empty description + empty parts list,
         identical to a single blank-description column (pre-MC-1 behaviour)."""
         multi = _desc_config(["B", "C"])
         single = _desc_config(["B"])
@@ -2733,7 +2759,7 @@ class TestMultiColumnDescription(unittest.TestCase):
             _make_row(1, {"A": {"value": "1.0"}, "B": {"value": "  "}}), single, _GS,
         )
         self.assertIsNone(multi_result.description)
-        self.assertEqual(multi_result.description_parts_raw, {})
+        self.assertEqual(multi_result.description_parts_raw, [])
         # multi-blank behaves exactly like single-blank does today
         self.assertEqual(multi_result.description, single_result.description)
         self.assertEqual(multi_result.classification, single_result.classification)

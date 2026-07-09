@@ -84,14 +84,17 @@ class ClassifiedRow:
     # cell text coerced to str. Empty cells produce no key.
     append_notes_raw: dict[str, str] = field(default_factory=dict)
 
-    # Per-column description parts (MC-1). Keys are source column header strings
-    # (from SheetConfig.column_headers, else column letter), values the raw cell
-    # text, ordered by Excel column position. Mirrors append_notes_raw. The
-    # canonical `description` field above is these parts joined with " | "; this
-    # map preserves the original columns for later faithful display. Blank cells
-    # produce no key; populated uniformly on every row (empty when there is no
-    # description column or every description cell is blank).
-    description_parts_raw: dict[str, str] = field(default_factory=dict)
+    # Per-column description parts (MC-1, shape MC-1b). An ORDERED LIST of
+    # (col_letter, header_label, cell_text) triples in Excel column order, blank
+    # cells skipped. Keyed by NOTHING -- col_letter is unique, so two description
+    # columns with IDENTICAL header labels never collide (the old dict shape lost
+    # one); the ORIGINAL header text is preserved on every triple (no
+    # de-duplication in storage). The canonical `description` field above is the
+    # cell_text parts joined with " | ". Display de-duplication (identical headers
+    # get " 2"/" 3" suffixes in column order) is a RENDER-TIME concern for
+    # MC-4/MC-5, not stored here. Populated uniformly on every row (empty list
+    # when there is no description column or every description cell is blank).
+    description_parts_raw: list[tuple[str, str, str]] = field(default_factory=list)
 
     # Preamble candidate metadata — populated by populate_preamble_candidate_scores()
     # (a separate post-classification pass, not by classify_row). Always 0 / []
@@ -327,28 +330,30 @@ def _description_columns(sheet_config: SheetConfig) -> list[str]:
 
 def _description_parts(
     raw_row: RawRow, sheet_config: SheetConfig
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     """
-    Return (header_label, cell_text) for every column mapped with the
-    "description" role, in Excel column order (A, B, ... AA), skipping columns
-    whose cell text is blank/whitespace for this row (MC-1).
+    Return (col_letter, header_label, cell_text) triples for every column mapped
+    with the "description" role, in Excel column order (A, B, ... AA), skipping
+    columns whose cell text is blank/whitespace for this row (MC-1, shape MC-1b).
 
     Single source of truth for BOTH the joined canonical description string
-    (" | ".join of the texts) AND the per-row description_parts_raw map.
-    header_label is sourced identically to append_notes_raw
-    (SheetConfig.column_headers, else the column letter). Coercion via _to_str
-    matches today's single-column desc_raw exactly, so a one-column sheet is
-    byte-identical to pre-MC-1 behaviour (single value, no separator, empty
+    (" | ".join of the cell_texts) AND the per-row description_parts_raw list.
+    col_letter is the unique, collision-proof key; header_label is sourced
+    identically to append_notes_raw (SheetConfig.column_headers, else the column
+    letter) and kept ORIGINAL (identical labels are NOT de-duplicated here --
+    that is a render-time concern, MC-4/MC-5). Coercion via _to_str matches
+    today's single-column desc_raw exactly, so a one-column sheet's joined string
+    is byte-identical to pre-MC-1 behaviour (single value, no separator, empty
     string when the cell is blank/absent).
     """
-    parts: list[tuple[str, str]] = []
+    parts: list[tuple[str, str, str]] = []
     for col_letter in _description_columns(sheet_config):
         cell = raw_row.get_cell(col_letter)
         text = _to_str(cell.value) if cell else ""
         if not text:
             continue
         header_label = sheet_config.column_headers.get(col_letter, col_letter)
-        parts.append((header_label, text))
+        parts.append((col_letter, header_label, text))
     return parts
 
 
@@ -867,8 +872,8 @@ def classify_row(
     # desc_raw (subtotal regex, subtotal-marker row, desc_text, the final
     # description, classification) inherits the joined value.
     _desc_parts = _description_parts(raw_row, sheet_config)
-    desc_raw = " | ".join(text for _, text in _desc_parts)
-    description_parts_raw = dict(_desc_parts)
+    desc_raw = " | ".join(text for _col, _hdr, text in _desc_parts)
+    description_parts_raw = _desc_parts
 
     is_subtotal = False
     if desc_raw:
