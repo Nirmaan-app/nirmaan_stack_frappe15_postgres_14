@@ -13,6 +13,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { ActionCenter } from "@/components/action-center/ActionCenter";
 
 interface DashboardCardProps {
   title: string;
@@ -99,7 +100,8 @@ export const ProjectManager = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="flex-1 p-6 md:p-8 space-y-8 bg-gray-50/50">
+    <div className="flex-1 flex flex-col bg-gray-50/50 xl:flex-row">
+      <div className="min-w-0 flex-1 space-y-8 p-6 md:p-8">
       {/* Quick Actions Section */}
       <section>
         <SectionHeader title="Quick Actions" />
@@ -193,6 +195,10 @@ export const ProjectManager = () => {
           />
         </div>
       </section>
+      </div>
+
+      {/* Action Center — reusable right rail */}
+      <ActionCenter />
     </div>
   );
 };

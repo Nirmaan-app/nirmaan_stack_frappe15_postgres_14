@@ -92,6 +92,29 @@ def _hydrate_po_fields(action_items):
     return action_items
 
 
+def _hydrate_project_names(action_items):
+    """Attach each row's human-readable `project_name` from its Projects link.
+
+    ONE bulk fetch over the distinct project docnames (no N+1). This replaces a
+    separate client-side "fetch every Projects row just for names" call — the panel
+    then needs only this single endpoint. Falls back to the docname if a project has
+    no `project_name`.
+    """
+    project_ids = list({row["project"] for row in action_items if row.get("project")})
+    name_map = {}
+    if project_ids:
+        for p in frappe.get_all(
+            "Projects",
+            filters={"name": ["in", project_ids]},
+            fields=["name", "project_name"],
+            limit_page_length=0,
+        ):
+            name_map[p["name"]] = p.get("project_name")
+    for row in action_items:
+        row["project_name"] = name_map.get(row.get("project")) or row.get("project")
+    return action_items
+
+
 @frappe.whitelist()
 def get_project_action_items(project_name):
     """Open action items for ONE project — caller MUST be able to access it (Surface B).
@@ -163,4 +186,5 @@ def get_my_action_items():
     # the dashboard panel needs no second fetch. (Surface B / get_project_action_items is
     # intentionally NOT enriched — it feeds counts only.)
     _hydrate_po_fields(action_items)
+    _hydrate_project_names(action_items)
     return {"action_items": action_items}

@@ -163,20 +163,21 @@ class TestCeoHoldCore(FrappeTestCase):
         self.assertEqual(row.status, "CEO Hold")
         self.assertEqual(row.ceo_hold_by, "ceo@test.com")
 
-    # --- sync_delivery_pending threshold (strict > 4) ------------------------- #
+    # --- sync_delivery_pending threshold (strict > limit) --------------------- #
 
     def test_sync_delivery_pending_threshold(self):
         p = _make_project("threshold", status="WIP")
+        limit = core.DN_PENDING_HOLD_THRESHOLD
 
-        core.sync_delivery_pending(p, 4)  # not over the limit → no hold
+        core.sync_delivery_pending(p, limit)  # at the limit → no hold
         self.assertEqual(core.active_sources(p), set())
         self.assertEqual(_status(p).status, "WIP")
 
-        core.sync_delivery_pending(p, 5)  # 5 > 4 → hold
+        core.sync_delivery_pending(p, limit + 1)  # over the limit → hold
         self.assertEqual(core.active_sources(p), {core.SOURCE_DN})
         self.assertEqual(_status(p).status, "CEO Hold")
 
-        core.sync_delivery_pending(p, 4)  # back to <= 4 → release
+        core.sync_delivery_pending(p, limit)  # back to the limit → release
         self.assertEqual(core.active_sources(p), set())
         self.assertEqual(_status(p).status, "WIP")
 

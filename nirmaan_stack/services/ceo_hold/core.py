@@ -39,8 +39,8 @@ _REASON_DOCTYPE = "CEO Hold Reason"
 SOURCE_CASHFLOW = "cashflow"
 SOURCE_DN = "dn_pending"
 
-# Delivery-pending hold trips STRICTLY above this many POs awaiting delivery (5+).
-DN_PENDING_HOLD_THRESHOLD = 4
+# Delivery-pending hold trips STRICTLY above this many POs awaiting delivery (11+).
+DN_PENDING_HOLD_THRESHOLD = 10
 
 # Status a project reverts to when the last hold lifts and Version history yields no
 # prior user-set status (mirrors the cashflow engine's original fallback).
