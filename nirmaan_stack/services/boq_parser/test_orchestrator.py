@@ -1,8 +1,12 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
+import os
+import tempfile
 import unittest
 from pathlib import Path
+
+import openpyxl
 
 from nirmaan_stack.services.boq_parser.tests.fixtures.generate_synthetic import (
     generate_all,
@@ -1250,8 +1254,11 @@ class TestPhase19cRealFixturesDTechCivilWorks(unittest.TestCase):
     Design notes:
       - Specs (G) is always blank in this fixture → Policy-X empty-cell-skip
         verified by asserting 'Specs'/'G' absent from every append_notes_raw.
-      - Workitem (E) deliberately omitted from column_headers → its key falls
-        back to the column letter 'E' (not 'Workitem').
+      - Workitem (E) is omitted from the STORED column_headers, but MC-3b now
+        captures it at parse time from the header_row (row 2: E='Workitem'), so
+        its append_notes_raw key is the REAL label 'Workitem' (the column-letter
+        fallback only survives for a genuinely blank header cell -- see
+        TestHeaderLabelCapture.test_blank_header_cell_falls_back_to_letter).
     """
 
     @classmethod
@@ -1343,27 +1350,28 @@ class TestPhase19cRealFixturesDTechCivilWorks(unittest.TestCase):
             self.assertNotIn("Specs", notes, f"'Specs' should never appear (blank cell): {notes}")
             self.assertNotIn("G", notes, f"'G' should never appear (Specs blank): {notes}")
 
-    def test_dtech_column_headers_fallback_to_column_letter(self):
+    def test_dtech_omitted_header_captured_from_header_row(self):
         """
-        Workitem (E) was omitted from column_headers. Its key in append_notes_raw
-        must be the column letter 'E', not 'Workitem'.
-        Xlsx row 3: E='POP Punning' → append_notes_raw['E'] == 'POP Punning'.
+        Workitem (E) is omitted from the STORED column_headers, but MC-3b captures
+        its label from the header_row (row 2: E='Workitem'), so its append_notes_raw
+        key is the REAL label 'Workitem' -- NOT the column letter 'E'.
+        Xlsx row 3: E='POP Punning' → append_notes_raw['Workitem'] == 'POP Punning'.
         """
         from nirmaan_stack.services.boq_parser.classifier import RowClassification
         matches = [
             rr for rr in self.sheet.resolved_rows
             if rr.classified_row.classification == RowClassification.LINE_ITEM
-            and rr.classified_row.append_notes_raw.get("E") == "POP Punning"
+            and rr.classified_row.append_notes_raw.get("Workitem") == "POP Punning"
         ]
         self.assertGreaterEqual(
             len(matches), 1,
-            "Expected rows with append_notes_raw['E']='POP Punning' (column-letter fallback)",
+            "Expected rows with append_notes_raw['Workitem']='POP Punning' (real label captured)",
         )
         row = matches[0]
         notes = row.classified_row.append_notes_raw
-        self.assertIn("E", notes)
-        self.assertEqual(notes["E"], "POP Punning")
-        self.assertNotIn("Workitem", notes)
+        self.assertIn("Workitem", notes)
+        self.assertEqual(notes["Workitem"], "POP Punning")
+        self.assertNotIn("E", notes)  # letter fallback superseded by the captured label
 
 
 # ================================================================ #
@@ -2013,6 +2021,183 @@ class TestBug17AloricaIntegration(unittest.TestCase):
             self.skipTest("alorica fixture missing")
         val = self._sl_no_for_row(52)
         self.assertEqual(val, "3.03", f"Expected '3.03', got {val!r}")
+
+
+class TestHeaderLabelCapture(unittest.TestCase):
+    """MC-3b: parse-time capture of real per-column header labels into
+    SheetConfig.column_headers (in-memory), which the classifier reads for the
+    description_parts_raw triple labels and the append_notes_raw keys. Uses a
+    bespoke minimal workbook built per-test into a tempfile (never a committed
+    binary)."""
+
+    def setUp(self):
+        self._tmp: list[str] = []
+
+    def tearDown(self):
+        for p in self._tmp:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+    def _wb_path(self, header_cells: dict, data_cells: dict, banner_cells: dict | None = None):
+        """Build a one-sheet ('Toilet') workbook: optional banner on row 1, the
+        header row, then one data row. Returns (path, header_row)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Toilet"
+        header_row = 1
+        if banner_cells:
+            for col, val in banner_cells.items():
+                ws[f"{col}1"] = val
+            header_row = 2
+        for col, val in header_cells.items():
+            ws[f"{col}{header_row}"] = val
+        for col, val in data_cells.items():
+            ws[f"{col}{header_row + 1}"] = val
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        wb.save(path)
+        self._tmp.append(path)
+        return path, header_row
+
+    @staticmethod
+    def _config(header_row: int, role_map: dict, column_headers: dict | None = None) -> MappingConfig:
+        return MappingConfig(
+            project="t",
+            master_boq=MasterBoqMetadata(boq_name="t"),
+            sheets=[SheetConfig(
+                sheet_name="Toilet",
+                header_row=header_row,
+                column_role_map={c: ColumnRole(role=r) for c, r in role_map.items()},
+                column_headers=column_headers or {},
+            )],
+        )
+
+    def _line_item_parts(self, parsed):
+        """description_parts_raw of the first row that has any parts."""
+        for rr in parsed.sheets[0].resolved_rows:
+            if rr.classified_row.description_parts_raw:
+                return rr.classified_row.description_parts_raw
+        return None
+
+    def _line_item_append_notes(self, parsed):
+        for rr in parsed.sheets[0].resolved_rows:
+            if rr.classified_row.append_notes_raw:
+                return rr.classified_row.append_notes_raw
+        return None
+
+    # -- positive: single-row header, multiple description columns --------------
+
+    def test_single_row_header_multi_description_real_labels(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "C": "Sub Category",
+                          "D": "Item Spec", "E": "Qty", "F": "Rate", "G": "Amount"},
+            data_cells={"A": 1, "B": "Toilet", "C": "WC", "D": "Wall-hung",
+                        "E": 1, "F": 100, "G": 100},
+        )
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "C": "description",
+                                "D": "description", "E": "qty", "F": "rate_supply",
+                                "G": "amount_total"})
+        parts = self._line_item_parts(parse_boq(path, cfg))
+        self.assertEqual(parts, [
+            ("B", "Main Category", "Toilet"),
+            ("C", "Sub Category", "WC"),
+            ("D", "Item Spec", "Wall-hung"),
+        ])
+
+    # -- positive: two-row header -> read the BOTTOM (sub-header) row ------------
+
+    def test_two_row_header_reads_sub_header_row_not_banner(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "C": "Sub Category",
+                          "D": "Item Spec", "E": "Qty", "F": "Rate", "G": "Amount"},
+            data_cells={"A": 1, "B": "Toilet", "C": "WC", "D": "Wall-hung",
+                        "E": 1, "F": 100, "G": 100},
+            banner_cells={"B": "TOILET WORKS BANNER"},  # row 1, above header_row=2
+        )
+        self.assertEqual(hr, 2)
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "C": "description",
+                                "D": "description", "E": "qty", "F": "rate_supply",
+                                "G": "amount_total"})
+        parts = self._line_item_parts(parse_boq(path, cfg))
+        # labels come from the sub-header row (row 2), NOT the banner (row 1)
+        self.assertEqual(parts, [
+            ("B", "Main Category", "Toilet"),
+            ("C", "Sub Category", "WC"),
+            ("D", "Item Spec", "Wall-hung"),
+        ])
+
+    # -- negative-ish: stored column_headers entry WINS -------------------------
+
+    def test_stored_column_headers_entry_wins(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "C": "Sub Category",
+                          "D": "Item Spec", "E": "Qty", "F": "Rate", "G": "Amount"},
+            data_cells={"A": 1, "B": "Toilet", "C": "WC", "D": "Wall-hung",
+                        "E": 1, "F": 100, "G": 100},
+        )
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "C": "description",
+                                "D": "description", "E": "qty", "F": "rate_supply",
+                                "G": "amount_total"},
+                           column_headers={"B": "CUSTOM LABEL"})
+        parts = self._line_item_parts(parse_boq(path, cfg))
+        self.assertEqual(parts, [
+            ("B", "CUSTOM LABEL", "Toilet"),   # stored value not overwritten
+            ("C", "Sub Category", "WC"),       # still captured
+            ("D", "Item Spec", "Wall-hung"),
+        ])
+
+    # -- negative: blank header cell -> letter fallback -------------------------
+
+    def test_blank_header_cell_falls_back_to_letter(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "C": "   ",  # whitespace -> blank
+                          "D": "Item Spec", "E": "Qty", "F": "Rate", "G": "Amount"},
+            data_cells={"A": 1, "B": "Toilet", "C": "WC", "D": "Wall-hung",
+                        "E": 1, "F": 100, "G": 100},
+        )
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "C": "description",
+                                "D": "description", "E": "qty", "F": "rate_supply",
+                                "G": "amount_total"})
+        parts = self._line_item_parts(parse_boq(path, cfg))
+        self.assertEqual(parts, [
+            ("B", "Main Category", "Toilet"),
+            ("C", "C", "WC"),                  # blank header -> Excel-letter fallback
+            ("D", "Item Spec", "Wall-hung"),
+        ])
+
+    # -- bonus: append_notes_raw keys get real labels too -----------------------
+
+    def test_append_notes_keys_get_real_labels(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "E": "Qty", "I": "Remarks"},
+            data_cells={"A": 1, "B": "Toilet", "E": 1, "I": "see drawing"},
+        )
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "E": "qty",
+                                "I": "append_to_notes"})
+        notes = self._line_item_append_notes(parse_boq(path, cfg))
+        self.assertEqual(notes, {"Remarks": "see drawing"})  # real label, not "I"
+
+    # -- regression: pre-filled column_headers behave identically ---------------
+
+    def test_prefilled_column_headers_unchanged(self):
+        path, hr = self._wb_path(
+            header_cells={"A": "Sl No", "B": "Main Category", "C": "Sub Category",
+                          "D": "Item Spec", "E": "Qty", "F": "Rate", "G": "Amount"},
+            data_cells={"A": 1, "B": "Toilet", "C": "WC", "D": "Wall-hung",
+                        "E": 1, "F": 100, "G": 100},
+        )
+        cfg = self._config(hr, {"A": "sl_no", "B": "description", "C": "description",
+                                "D": "description", "E": "qty", "F": "rate_supply",
+                                "G": "amount_total"},
+                           column_headers={"B": "PB", "C": "PC", "D": "PD"})
+        parts = self._line_item_parts(parse_boq(path, cfg))
+        self.assertEqual(parts, [
+            ("B", "PB", "Toilet"),
+            ("C", "PC", "WC"),
+            ("D", "PD", "Wall-hung"),
+        ])
 
 
 if __name__ == "__main__":

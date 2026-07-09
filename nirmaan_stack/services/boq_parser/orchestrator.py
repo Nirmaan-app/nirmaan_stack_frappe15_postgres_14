@@ -24,7 +24,7 @@ from nirmaan_stack.services.boq_parser.classifier import (
     classify_row,
     populate_preamble_candidate_scores,
 )
-from nirmaan_stack.services.boq_parser.config import MappingConfig
+from nirmaan_stack.services.boq_parser.config import MappingConfig, SheetConfig
 from nirmaan_stack.services.boq_parser.hierarchy import (
     ResolvedRow,
     _apply_priced_preamble_with_children_review_flag_post_pass,
@@ -130,6 +130,52 @@ def _apply_multi_area_post_pass(resolved_rows: list[ResolvedRow]) -> None:
 
 
 # ------------------------------------------------------------------
+# Header-label capture (MC-3b)
+# ------------------------------------------------------------------
+
+def _enrich_column_headers(reader: "BoqReader", sheet_config: SheetConfig) -> None:
+    """Fill sheet_config.column_headers from the header_row cell text (MC-3b).
+
+    SheetConfig.column_headers has no production writer, so header-label lookups
+    (description_parts_raw triples, append_notes_raw keys) fall back to the bare
+    column letter. Here, at parse time, we read the authoritative header_row and
+    capture each mapped column's header text.
+
+    Rules:
+      - STORED WINS: a column whose column_headers entry is already non-empty is
+        left untouched (user/future-UI authored labels are never overwritten).
+      - BLANK -> ABSENT: a blank/whitespace header cell leaves the column absent
+        from column_headers (the .get(col, col) letter fallback stays); never
+        store an empty string.
+      - TWO-ROW HEADERS: header_row is the single declared header row -- the
+        bottom sub-header row (the second tier sits ABOVE it, excluded from data);
+        so its cells are the real per-column labels.
+
+    IN-MEMORY ONLY: mutates the parser-input SheetConfig (built by
+    assemble_mapping_config from the stored blob). The stored
+    BoQ Sheet Draft.sheet_config is never written back -- the captured labels
+    reach downstream (MC-4/5) via the persisted description_parts_raw triples.
+    """
+    header_row = sheet_config.header_row
+    if header_row is None or not sheet_config.column_role_map:
+        return
+    hr = next(
+        reader.iter_rows(sheet_config.sheet_name, start_row=header_row, end_row=header_row),
+        None,
+    )
+    if hr is None:
+        return
+    for col in sheet_config.column_role_map:
+        existing = sheet_config.column_headers.get(col)
+        if existing and existing.strip():
+            continue  # STORED WINS
+        cell = hr.get_cell(col)
+        text = str(cell.value).strip() if cell and cell.value is not None else ""
+        if text:  # BLANK -> ABSENT (never store "")
+            sheet_config.column_headers[col] = text
+
+
+# ------------------------------------------------------------------
 # Orchestrator
 # ------------------------------------------------------------------
 
@@ -167,6 +213,11 @@ def parse_boq(file_path: str, config: MappingConfig) -> ParsedBoq:
 
         sheet_name = sheet_config.sheet_name
         header_row = sheet_config.header_row  # always set for non-skipped data sheets
+
+        # MC-3b: capture real per-column header labels from the header_row before
+        # classification (classify_row reads sheet_config.column_headers for both
+        # description_parts_raw triples and append_notes_raw keys). In-memory only.
+        _enrich_column_headers(reader, sheet_config)
 
         # Step 1: Collect rows (skip header row(s) and any declared skip rows)
         skip_rows: set[int] = set()
