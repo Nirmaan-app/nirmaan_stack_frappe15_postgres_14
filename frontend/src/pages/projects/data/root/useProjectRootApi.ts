@@ -13,15 +13,12 @@ import { captureApiError } from "@/utils/sentry/captureApiError";
 import { ProjectQueryKeys } from "@/pages/projects/queries";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
 
 
 export interface ProjectPOItemDataItem {
@@ -60,16 +57,6 @@ export const projectRootKeys = {
   procurementOrders: (projectId: string) => ["project-root", "procurementOrders", projectId] as const,
   approvedServiceRequests: (projectId: string) => ["project-root", "approvedServiceRequests", projectId] as const,
   projectsListInvoices: () => ["project-root", "projectsListInvoices"] as const,
-};
-
-export const useProjectStatusCountCall = () => {
-  const response = useFrappePostCall("frappe.client.get_count");
-  useApiErrorLogger(response.error, {
-    hook: "useProjectStatusCountCall",
-    api: "frappe.client.get_count",
-    feature: "project-root",
-  });
-  return response;
 };
 
 // Per-project financial rollup for the projects-list financial columns. ONE server
@@ -138,128 +125,11 @@ export const useTenderingProjectsCount = () => {
   return response;
 };
 
-export const useProjectsListPOData = () => {
-  const response = useFrappeGetDocList<ProcurementOrder>(
-    "Procurement Orders",
-    {
-      fields: [
-        "name",
-        "project",
-        "status",
-        "amount",
-        "tax_amount",
-        "total_amount",
-        "invoice_data",
-        "amount_paid",
-        "po_amount_delivered",
-      ],
-      filters: [["status", "not in", ["Merged", "Inactive"]]],
-      limit: 100000,
-    },
-    projectRootKeys.projectsListPOs()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListPOData",
-    api: "Procurement Orders List",
-    feature: "project-root",
-  });
-
-  return response;
-};
-
-export const useProjectsListSRData = () => {
-  // Downstream consumers (getAllSRsTotal) read `total_amount` and `gst` from
-  // the parent — no item-level fetch needed.
-  const response = useFrappeGetDocList<ServiceRequests>(
-    "Service Requests",
-    {
-      fields: ["name", "project", "status", "gst", "total_amount"],
-      filters: [["status", "=", "Approved"]],
-      limit: 100000,
-    },
-    projectRootKeys.projectsListSRs()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListSRData",
-    api: "Service Requests List",
-    feature: "project-root",
-  });
-
-  return response;
-};
-
-export const useProjectsListInflows = () => {
-  const response = useFrappeGetDocList<ProjectInflows>(
-    "Project Inflows",
-    { fields: ["project", "amount"], limit: 100000 },
-    projectRootKeys.projectsListInflows()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListInflows",
-    api: "Project Inflows List",
-    feature: "project-root",
-  });
-
-  return response;
-};
-
-export const useProjectsListPayments = () => {
-  const response = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      fields: ["project", "amount", "status"],
-      filters: [["status", "=", "Paid"]],
-      limit: 100000,
-    },
-    projectRootKeys.projectsListPayments()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListPayments",
-    api: "Project Payments List",
-    feature: "project-root",
-  });
-
-  return response;
-};
-export const useProjectsListExpenses = () => {
-  const response = useFrappeGetDocList<ProjectExpenses>(
-    "Project Expenses",
-    // Only Paid expenses count toward project financial totals.
-    { fields: ["projects", "amount"], filters: [["status", "=", "Paid"]], limit: 100000 },
-    projectRootKeys.projectsListExpenses()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListExpenses",
-    api: "Project Expenses List",
-    feature: "project-root",
-  });
-
-  return response;
-};
-
-export const useProjectsListProjectInvoices = () => {
-  const response = useFrappeGetDocList<ProjectInvoice>(
-    "Project Invoices",
-    {
-      fields: ["name", "project", "amount", "creation", "invoice_date"],
-      limit: 100000,
-    },
-    projectRootKeys.projectsListInvoices()
-  );
-
-  useApiErrorLogger(response.error, {
-    hook: "useProjectsListProjectInvoices",
-    api: "Project Invoice List",
-    feature: "project-root",
-  });
-
-  return response;
-};
+// NOTE: the six projects-list bulk hooks (PO / SR / inflow / payment / expense / invoice,
+// each limit:100000) were removed — the projects list now reads the server-side
+// `get_projects_financial_rollup` (useProjectsFinancialRollup above) instead of fetching
+// those whole tables and reducing them in the browser. Per-project financial data still
+// comes from useProjectViewFinancialData below.
 
 export const useProjectDocRealtime = (
   projectId: string,

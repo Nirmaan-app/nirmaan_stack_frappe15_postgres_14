@@ -333,25 +333,67 @@ def get_project_pr_status_counts(project_id: str):
     if not frappe.has_permission("Procurement Orders", "read"):
         frappe.throw(_("Not permitted to read Procurement Orders."), frappe.PermissionError)
 
-    pr_names = frappe.get_all(
+    # Parent rows in bulk (no per-doc get_doc).
+    prs = frappe.get_all(
         "Procurement Requests",
         filters={"project": project_id},
-        pluck="name",
-        limit_page_length=0
+        fields=["name", "workflow_state"],
+        limit_page_length=0,
     )
-    
-    po_names = frappe.get_all(
+    pos = frappe.get_all(
         "Procurement Orders",
-        filters={
-            "project": project_id,
-            "status": ["not in", ["Cancelled"]]
-        },
-        pluck="name",
-        limit_page_length=0
+        filters={"project": project_id, "status": ["not in", ["Cancelled"]]},
+        fields=["name", "procurement_request"],
+        limit_page_length=0,
     )
+    pr_names = [p["name"] for p in prs]
+    po_names = [p["name"] for p in pos]
 
-    project_prs_docs = [frappe.get_doc("Procurement Requests", name) for name in pr_names]
-    project_pos_docs = [frappe.get_doc("Procurement Orders", name) for name in po_names]
+    # Child rows in bulk, grouped by parent — this replaces hydrating EVERY PR and PO
+    # document (the former get_doc-per-name N+1: hundreds of doc loads on a large project).
+    # `_get_pr_derived_status_v2` only reads the order_list items (status + item_id) and
+    # the PO items (item_id), so we fetch just those two child tables.
+    pr_items_by_parent = {}
+    if pr_names:
+        for it in frappe.get_all(
+            "Procurement Request Item Detail",
+            filters={"parent": ["in", pr_names], "parentfield": "order_list"},
+            fields=["parent", "status", "item_id"],
+            limit_page_length=0,
+        ):
+            pr_items_by_parent.setdefault(it["parent"], []).append(
+                frappe._dict(status=it["status"], item_id=it["item_id"])
+            )
+    po_items_by_parent = {}
+    if po_names:
+        for it in frappe.get_all(
+            "Purchase Order Item",
+            filters={"parent": ["in", po_names]},
+            fields=["parent", "item_id"],
+            limit_page_length=0,
+        ):
+            po_items_by_parent.setdefault(it["parent"], []).append(
+                frappe._dict(item_id=it["item_id"])
+            )
+
+    # Lightweight doc-like objects so `_get_pr_derived_status_v2` is reused verbatim
+    # (byte-identical to the old get_doc path — same fields, same logic).
+    project_prs_docs = [
+        frappe._dict(
+            name=p["name"],
+            workflow_state=p["workflow_state"],
+            order_list=pr_items_by_parent.get(p["name"], []),
+        )
+        for p in prs
+    ]
+    project_pos_docs = [
+        frappe._dict(
+            name=p["name"],
+            procurement_request=p["procurement_request"],
+            items=po_items_by_parent.get(p["name"], []),
+        )
+        for p in pos
+    ]
 
     status_counts = {"New PR": 0, "Approved PO": 0, "Open PR": 0, "Deleted PR": 0}
     pr_statuses_dict = {}
