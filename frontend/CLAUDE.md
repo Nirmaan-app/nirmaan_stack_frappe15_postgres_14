@@ -246,6 +246,21 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 
 ### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
 
+- **Description is a FAN-OUT inside the frozen anchor pane (MC-5), not the single `a4` anchor.** When any row
+  carries `description_parts_raw` (`sheetHasDescriptionParts`), the Description anchor becomes one column per
+  mapped description column (Option-1 freeze: ALL inside the frozen pane; Category stays the first scrolling
+  column). **The whole colIndex algebra is parametric over a per-render `anchorWidthKeys` list -- the SINGLE
+  SOURCE OF TRUTH:** `effectiveAnchorCount = anchorWidthKeys.length`, `descriptorColStart = length + 1`. The
+  module consts `FIXED_ANCHOR_COUNT`/`DESCRIPTOR_COL_START` are retained ONLY as the legacy source + test
+  exports -- never read them for live geometry; use the per-render values (passed to the row as props). Fan-out
+  columns are width-keyed by Excel LETTER (`desc:<col>`, via `descriptionWidthKey`), seeded first 280 / extras
+  160 (`descriptionWidthSeeds`), and are READ-ONLY nav cells at colIndex `4..4+N-1` (`< descriptorColStart` ->
+  excluded from the rate path). Only the FIRST gets the depth indent + chevron + `(no description)` fallback via
+  the shared `DescriptionAnchorInner`. **LEGACY FALLBACK (permanent -- pre-MC-2 committed BoQs hit this screen
+  forever):** no parts -> `anchorWidthKeys = [a0..a4]` -> effectiveAnchorCount 5, byte-identical to today via the
+  SAME `DescriptionAnchorInner`. Labels/values via the MC-4 `reviewRender` helpers. **L7:** search + every save
+  payload's `description` (the copy-forward match guard) + rollup keep reading the joined `row.description` --
+  NEVER a per-column value there. `colIndexFromColKeyPure` resolves the `desc:<col>` keys.
 - **Row-memo anti-defeat rule:** the per-row `<tr>` is a `React.memo`'d `PricingGridRow` (exhaustive comparator
   `pricingRowPropsAreEqual`). NEVER pass a memoized row the shared `draftRates`/`proposedRates` object (a keystroke
   makes a new ref → all rows re-render → memo silently defeated); each row gets only its own slice via
