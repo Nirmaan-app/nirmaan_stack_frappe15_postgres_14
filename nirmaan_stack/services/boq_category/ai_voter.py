@@ -66,9 +66,21 @@ def _parse_prompt_version(text):
 def _extract_json_array(text):
     s = text.find("[")
     e = text.rfind("]")
-    if s == -1 or e == -1 or e < s:
-        raise ValueError("no JSON array in AI response")
-    return json.loads(text[s : e + 1])
+    if s != -1 and e != -1 and e >= s:
+        return json.loads(text[s : e + 1])
+    # Single-row batch (eligible % 20 == 1): the model may return a bare JSON
+    # object instead of a one-element array. Tolerate exactly that shape by
+    # wrapping it -- parse-shape only; id/category validation stays downstream,
+    # unchanged. A genuinely non-JSON reply (no braces) still raises loudly below,
+    # exactly as before, and a brace substring that is not valid JSON still raises
+    # from json.loads -- errors are never swallowed here.
+    obj_s = text.find("{")
+    obj_e = text.rfind("}")
+    if obj_s != -1 and obj_e != -1 and obj_e >= obj_s:
+        obj = json.loads(text[obj_s : obj_e + 1])
+        if isinstance(obj, dict):
+            return [obj]
+    raise ValueError("no JSON array in AI response")
 
 
 def _ai_item(item):
