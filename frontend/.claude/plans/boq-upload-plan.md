@@ -11188,3 +11188,20 @@ T5 all-green stub run -> `(ok, [])` shape, sheets processed in order; T6 `_write
 nirmaan_stack.services.boq_category.tests.test_hv2_voter_harness` (and `...test_runner_electrical` /
 `...test_runner_hvac` for regression).
 
+**HV-2b micro-slice (harness extractor dedupe) -- SUPERSEDES the HV-2 "harness keeps its OWN
+`_extract_json_array`, deliberately NOT patched" note above.** HV-2 left the harness carrying a duplicate
+extractor with the SAME pre-fix single-row bug, so the HV-2 live cert (LOWSIDE, 121 eligible rows -> a final
+batch of exactly 1) would have failed by construction. This slice DELETES the harness's local
+`_extract_json_array` and imports the voter's fixed one
+(`from nirmaan_stack.services.boq_category.ai_voter import _extract_json_array`, a top-level import -- the
+voter module is framework-free: stdlib + the pure runner, so it loads safely before `frappe.init()` in
+`main()`). The harness `_ai_batch` call site (`for el in _extract_json_array(text):`) is byte-identical; the
+array parse path is unchanged (electrical 82 + the HV-2 array tests are the proof). Contracts were verified
+identical before the swap (both take `text`, return a list of dicts, raise `ValueError` on no-array); the
+voter's is a strict superset (adds bare-object tolerance). ONE source of truth now -- do NOT reintroduce a
+local copy. **Tests:** `test_hv2_voter_harness.py` +3 (T7 harness `_ai_batch` parses a bare single-row object
+identically to the same object in a one-element array; a single-source-of-truth identity assertion
+`H._extract_json_array is ai_voter._extract_json_array`; T8 harness parse path on a non-JSON reply still
+raises). **Regression:** `test_runner_electrical` 82, `test_runner_hvac` 21, `test_hv2_voter_harness` 11 -> 14,
+all green. Suite totals: 82 + 21 + 14 = 117.
+
