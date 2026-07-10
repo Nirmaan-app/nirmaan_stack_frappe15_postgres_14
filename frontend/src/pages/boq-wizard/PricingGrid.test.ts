@@ -38,7 +38,14 @@ import {
   columnWidthKey,
   clampColumnWidth,
   clampRowHeight,
+  FIXED_ANCHOR_COUNT,
+  DESCRIPTOR_COL_START,
+  buildAnchorWidthKeys,
+  descriptionWidthSeeds,
+  colIndexFromColKeyPure,
+  descriptionWidthKey,
 } from "./PricingGrid";
+import type { DescriptionColumn } from "./reviewRender";
 import type {
   AmountFormulaNode,
   AmountFormulaRef,
@@ -1083,5 +1090,95 @@ describe("shouldExitFullscreenOnEsc", () => {
     expect(shouldExitFullscreenOnEsc({ key: "Enter", defaultPrevented: false }, null)).toBe(false);
     expect(shouldExitFullscreenOnEsc({ key: "ArrowDown", defaultPrevented: false }, null)).toBe(false);
     expect(shouldExitFullscreenOnEsc({ key: "Escape ", defaultPrevented: false }, null)).toBe(false);
+  });
+});
+
+// ── MC-5: description fan-out geometry (Option-1 freeze) ──────────────────────
+describe("MC-5 description fan-out geometry", () => {
+  const dcol = (col: string, label?: string): DescriptionColumn => {
+    const l = label ?? col;
+    return { col, label: l, headerText: l === col ? col : `${l} (${col})` };
+  };
+  const B = dcol("B", "Main Category");
+  const C = dcol("C", "Sub Category");
+  const D = dcol("D", "Item Spec");
+  const eac = (cols: DescriptionColumn[], fan: boolean) => buildAnchorWidthKeys(cols, fan).length;
+
+  describe("buildAnchorWidthKeys", () => {
+    it("legacy (no parts) -> today's [a0..a4]; length === FIXED_ANCHOR_COUNT", () => {
+      expect(buildAnchorWidthKeys([B], false)).toEqual(["a0", "a1", "a2", "a3", "a4"]);
+      expect(buildAnchorWidthKeys([B], false).length).toBe(FIXED_ANCHOR_COUNT);
+    });
+    it("fan-out -> a0..a3 + one letter-keyed slot per description column", () => {
+      expect(buildAnchorWidthKeys([B, C], true)).toEqual(["a0", "a1", "a2", "a3", "desc:B", "desc:C"]);
+      expect(buildAnchorWidthKeys([B, C, D], true)).toEqual(["a0", "a1", "a2", "a3", "desc:B", "desc:C", "desc:D"]);
+    });
+  });
+
+  describe("effective anchor count + descriptorColStart (= length, length+1)", () => {
+    it("legacy = 5 / 6, byte-identical to the module consts", () => {
+      expect(eac([B], false)).toBe(5);
+      expect(eac([B], false)).toBe(FIXED_ANCHOR_COUNT);
+      expect(eac([B], false) + 1).toBe(DESCRIPTOR_COL_START);
+    });
+    it("N=2 -> 6 anchors, descriptors start at 7; Category colIndex = 6", () => {
+      expect(eac([B, C], true)).toBe(6);
+      expect(eac([B, C], true) + 1).toBe(7);
+    });
+    it("N=3 -> 7 anchors, descriptors start at 8; Category colIndex = 7", () => {
+      expect(eac([B, C, D], true)).toBe(7);
+      expect(eac([B, C, D], true) + 1).toBe(8);
+    });
+  });
+
+  describe("descriptionWidthSeeds (split the 280 budget)", () => {
+    it("first 280, extras 160, keyed by desc:<letter>", () => {
+      expect(descriptionWidthSeeds([B, C, D])).toEqual({ "desc:B": 280, "desc:C": 160, "desc:D": 160 });
+    });
+    it("the first column reuses the exact Description seed (280) the legacy a4 had", () => {
+      expect(descriptionWidthSeeds([B])["desc:B"]).toBe(seedWidthPx("description"));
+    });
+  });
+
+  describe("descriptionWidthKey", () => {
+    it("keys a description column by Excel letter, distinct from descriptors' d:<col>", () => {
+      expect(descriptionWidthKey("C")).toBe("desc:C");
+      expect(descriptionWidthKey("C")).not.toBe(columnWidthKey("descriptor", "C"));
+    });
+  });
+
+  describe("colIndexFromColKeyPure -- fan-out (N=2)", () => {
+    const anchorKeys = buildAnchorWidthKeys([B, C], true); // [a0,a1,a2,a3,desc:B,desc:C]
+    const dcs = anchorKeys.length + 1; // descriptorColStart = 7
+    const descKeys = ["d:E", "d:F"];
+    const rci = dcs + descKeys.length; // remarksColIndex = 9
+    const resolve = (k: string | undefined) => colIndexFromColKeyPure(k, anchorKeys, descKeys, dcs, rci);
+
+    it("resolves the fan-out description keys to their anchor colIndices (4, 5)", () => {
+      expect(resolve("desc:B")).toBe(4);
+      expect(resolve("desc:C")).toBe(5);
+    });
+    it("description colIndices are < descriptorColStart (read-only, excluded from the rate path)", () => {
+      expect(resolve("desc:B")!).toBeLessThan(dcs);
+      expect(resolve("desc:C")!).toBeLessThan(dcs);
+    });
+    it("resolves fixed anchors, descriptors past descriptorColStart, remarks, and null for unknown", () => {
+      expect(resolve("a0")).toBe(0);
+      expect(resolve("a3")).toBe(3);
+      expect(resolve("d:E")).toBe(7);
+      expect(resolve("d:F")).toBe(8);
+      expect(resolve("remarks")).toBe(rci);
+      expect(resolve("nope")).toBeNull();
+      expect(resolve(undefined)).toBeNull();
+    });
+  });
+
+  describe("colIndexFromColKeyPure -- legacy = exactly today", () => {
+    const anchorKeys = buildAnchorWidthKeys([B], false); // [a0..a4]
+    const dcs = anchorKeys.length + 1; // 6 === DESCRIPTOR_COL_START
+    it("descriptorColStart === DESCRIPTOR_COL_START and a4 resolves to colIndex 4", () => {
+      expect(dcs).toBe(DESCRIPTOR_COL_START);
+      expect(colIndexFromColKeyPure("a4", anchorKeys, ["d:E"], dcs, 7)).toBe(4);
+    });
   });
 });
