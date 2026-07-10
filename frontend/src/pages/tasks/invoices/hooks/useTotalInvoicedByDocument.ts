@@ -7,39 +7,29 @@
  * used by autofill validation. Returns a getter the table columns can call
  * per row.
  *
- * Note: needs a separate fetch from the table's paginated query because the
- * Pending tab only fetches Pending rows, so Approved invoices for the same
- * parent wouldn't otherwise be visible to client-side aggregation.
+ * The aggregation runs server-side now (`get_invoice_totals_by_document`, a GROUP BY)
+ * and returns the `"<document_type>|<document_name>" -> total` map directly, instead of
+ * fetching every Pending/Approved Vendor Invoice (limit:100000) and reducing in the
+ * browser. Numbers are byte-identical (unrounded server SUM == the former parseNumber
+ * accumulation).
  */
 import { useCallback, useMemo } from "react";
-import { useFrappeGetDocList } from "frappe-react-sdk";
-import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
-import { parseNumber } from "@/utils/parseNumber";
+import { useFrappeGetCall } from "frappe-react-sdk";
 
 export const useTotalInvoicedByDocument = () => {
-    const { data, isLoading, error } = useFrappeGetDocList<VendorInvoice>(
-        "Vendor Invoices",
-        {
-            fields: ["document_type", "document_name", "invoice_amount"],
-            filters: [["status", "in", ["Pending", "Approved"]]],
-            limit: 100000,
-        },
+    const { data, isLoading, error } = useFrappeGetCall<{
+        message: Record<string, number>;
+    }>(
+        "nirmaan_stack.api.invoices.get_vendor_invoice_totals.get_invoice_totals_by_document",
+        undefined,
         "Recon-Total-Invoiced-By-Document"
     );
 
-    const totalsMap = useMemo(() => {
-        const map = new Map<string, number>();
-        (data || []).forEach((row) => {
-            const key = `${row.document_type}|${row.document_name}`;
-            const prev = map.get(key) || 0;
-            map.set(key, prev + parseNumber(row.invoice_amount));
-        });
-        return map;
-    }, [data]);
+    const totalsMap = useMemo(() => data?.message ?? {}, [data]);
 
     const getTotalInvoiced = useCallback(
         (docName: string, docType: string) =>
-            totalsMap.get(`${docType}|${docName}`) || 0,
+            totalsMap[`${docType}|${docName}`] || 0,
         [totalsMap]
     );
 

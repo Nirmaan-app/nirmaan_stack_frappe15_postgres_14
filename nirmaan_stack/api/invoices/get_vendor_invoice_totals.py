@@ -353,3 +353,30 @@ def get_invoice_totals_for_projects(project_ids: str = None):
         frappe.throw(
             _("An error occurred while fetching project invoice totals. Please check the error logs.")
         )
+
+
+@frappe.whitelist()
+def get_invoice_totals_by_document():
+    """Running invoiced total per (document_type, document_name) for status IN
+    ('Pending', 'Approved') — the reconciliation scope the invoice-task columns need
+    (mirrors _existing_invoiced_sum / the former client-side reduce in
+    useTotalInvoicedByDocument). GROUP BY in the DB → a flat map keyed
+    "<document_type>|<document_name>" so the frontend does an O(1) lookup instead of
+    fetching every Pending/Approved invoice (limit:100000). Sum is left unrounded to
+    match the client's parseNumber accumulation exactly."""
+    rows = frappe.db.sql(
+        """
+        SELECT document_type, document_name, SUM(invoice_amount) AS total
+        FROM `tabVendor Invoices`
+        WHERE status IN ('Pending', 'Approved')
+        GROUP BY document_type, document_name
+        """,
+        as_dict=True,
+    )
+    return {
+        "message": {
+            f"{r['document_type']}|{r['document_name']}": flt(r["total"])
+            for r in rows
+        },
+        "status": 200,
+    }

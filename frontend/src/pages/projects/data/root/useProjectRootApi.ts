@@ -72,6 +72,33 @@ export const useProjectStatusCountCall = () => {
   return response;
 };
 
+// Per-project financial rollup for the projects-list financial columns. ONE server
+// GROUP-BY aggregate call that replaces the six limit:100000 "fetch-all-then-reduce-in-JS"
+// list hooks below (POs / SRs / inflows / payments / expenses / invoices) + the credit
+// terms. The browser does a per-row dict lookup. Backend: get_projects_financial_rollup.
+export interface ProjectFinancialRollup {
+  total_project_invoiced: number;
+  po_wo_amount: number;
+  inflow: number;
+  outflow: number;
+  liabilities: number;
+  total_credit_purchase: number;
+  total_credit_paid: number;
+}
+export const useProjectsFinancialRollup = () => {
+  const response = useFrappeGetCall<{ message: Record<string, ProjectFinancialRollup> }>(
+    "nirmaan_stack.api.projects.project_aggregates.get_projects_financial_rollup",
+    undefined,
+    "projects-financial-rollup"
+  );
+  useApiErrorLogger(response.error, {
+    hook: "useProjectsFinancialRollup",
+    api: "get_projects_financial_rollup",
+    feature: "project-root",
+  });
+  return response;
+};
+
 export const useAllProjectsCount = () => {
   // "Total Projects" counts only awarded (Won) projects. Pre-Won stubs
   // (Tendering / Lost) are pipeline records and would distort the count.

@@ -8,7 +8,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Customers } from "@/types/NirmaanStack/Customers";
-import { useFrappeGetDoc, useFrappeGetDocCount } from "frappe-react-sdk";
+import { useFrappeGetDoc } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import React, { Suspense } from "react";
 import { TailSpin } from "react-loader-spinner";
 import {
@@ -136,21 +137,31 @@ export const CustomerOverview: React.FC<CustomerOverviewProps> = ({
     }
   );
 
-  // Fetch project counts for stats
-  const { data: totalProjectCount } = useFrappeGetDocCount(
-    "Projects",
-    customerId ? [["customer", "=", customerId]] : undefined
+  // Fetch project counts for stats — total + active (WIP) in ONE batch round-trip.
+  // Customer-scoped when a customerId is present (same `customer` filter), else global
+  // — identical doctype/filters/scope to the useFrappeGetDocCount calls it replaces.
+  const { data: countsData } = useCounts(
+    [
+      {
+        key: "total",
+        doctype: "Projects",
+        filters: customerId ? [["customer", "=", customerId]] : undefined,
+      },
+      {
+        key: "active",
+        doctype: "Projects",
+        filters: customerId
+          ? [
+              ["customer", "=", customerId],
+              ["status", "=", "WIP"],
+            ]
+          : undefined,
+      },
+    ],
+    `customer_overview_counts_${customerId || "all"}`
   );
-
-  const { data: activeProjectCount } = useFrappeGetDocCount(
-    "Projects",
-    customerId
-      ? [
-          ["customer", "=", customerId],
-          ["status", "=", "WIP"],
-        ]
-      : undefined
-  );
+  const totalProjectCount = countsData?.message?.total as number | undefined;
+  const activeProjectCount = countsData?.message?.active as number | undefined;
 
   // Format address for display
   const formattedAddress = useMemo(() => {

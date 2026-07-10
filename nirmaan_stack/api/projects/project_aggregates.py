@@ -525,7 +525,128 @@ def get_purchase_order_with_items(po_name: str):
 
     # On the server, frappe.get_doc ALWAYS fetches the full document with child tables.
     po_doc = frappe.get_doc("Procurement Orders", po_name)
-    
+
     # po_doc.as_dict() converts the entire document, including the list of items,
     # into a clean dictionary format that can be sent as JSON.
     return po_doc.as_dict()
+
+
+# --- Projects-list financial rollup (perf: server aggregate, not client fetch-all) -----
+
+_ROLLUP_KEYS = (
+    "total_project_invoiced",
+    "po_wo_amount",
+    "inflow",
+    "outflow",
+    "liabilities",
+    "total_credit_purchase",
+    "total_credit_paid",
+)
+
+
+@frappe.whitelist()
+def get_projects_financial_rollup():
+    """Per-project financial totals for the Projects-list financial columns.
+
+    Replaces the client-side fetch-all-then-reduce (the six `useProjectsList*` bulk hooks
+    at limit:100000 + `getProjectFinancials` in projects.tsx). Aggregates on the server and
+    returns one small dict; the browser does a per-row lookup.
+
+    Global (all projects) by design — the financial columns are shown only to privileged
+    roles (Admin / PMO / Accountant), and the client fetched global data too.
+
+    Byte-identical to the client math (rows fetched then summed with `flt`, mirroring the
+    frontend `parseNumber`, so NULL/blank -> 0 and mixed text/numeric storage is safe):
+      - total_project_invoiced = Σ Project Invoices.amount
+      - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Inactive) + Σ SR.total_amount (status=Approved)
+      - inflow                 = Σ Project Inflows.amount
+      - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
+      - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
+      - total_credit_purchase  = Σ PO Payment Terms.amount (payment_type=Credit) on those POs
+
+    `cashflow_gap` (= outflow + liabilities − inflow) and `project_value_gst` stay on the
+    client (the latter is a field on the Projects doc). Returns
+    ``{ project_name: { <_ROLLUP_KEYS> } }``.
+    """
+    rollup = {}
+
+    def bucket(project):
+        if not project:
+            return None
+        row = rollup.get(project)
+        if row is None:
+            row = {k: 0.0 for k in _ROLLUP_KEYS}
+            rollup[project] = row
+        return row
+
+    # total_project_invoiced — Project Invoices, no filter.
+    for r in frappe.get_all("Project Invoices", fields=["project", "amount"], limit_page_length=0):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["total_project_invoiced"] += flt(r.get("amount"))
+
+    # POs — po_wo_amount + liabilities (per-PO min), and the valid-PO -> project map for credit.
+    valid_po_project = {}
+    pos = frappe.get_all(
+        "Procurement Orders",
+        filters={"status": ["not in", ["Merged", "Inactive"]]},
+        fields=["name", "project", "total_amount", "po_amount_delivered", "amount_paid"],
+        limit_page_length=0,
+    )
+    for po in pos:
+        b = bucket(po.get("project"))
+        if b is None:
+            continue
+        b["po_wo_amount"] += flt(po.get("total_amount"))
+        delivered = flt(po.get("po_amount_delivered"))
+        paid = flt(po.get("amount_paid"))
+        b["liabilities"] += delivered - min(paid, delivered)
+        valid_po_project[po.get("name")] = po.get("project")
+
+    # SRs — po_wo_amount (Approved only).
+    for sr in frappe.get_all(
+        "Service Requests",
+        filters={"status": "Approved"},
+        fields=["project", "total_amount"],
+        limit_page_length=0,
+    ):
+        b = bucket(sr.get("project"))
+        if b is not None:
+            b["po_wo_amount"] += flt(sr.get("total_amount"))
+
+    # inflow — Project Inflows, no filter.
+    for r in frappe.get_all("Project Inflows", fields=["project", "amount"], limit_page_length=0):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["inflow"] += flt(r.get("amount"))
+
+    # outflow — Paid Payments + Paid Expenses (Expenses link field is `projects`, plural).
+    for r in frappe.get_all(
+        "Project Payments", filters={"status": "Paid"}, fields=["project", "amount"], limit_page_length=0
+    ):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["outflow"] += flt(r.get("amount"))
+    for r in frappe.get_all(
+        "Project Expenses", filters={"status": "Paid"}, fields=["projects", "amount"], limit_page_length=0
+    ):
+        b = bucket(r.get("projects"))
+        if b is not None:
+            b["outflow"] += flt(r.get("amount"))
+
+    # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
+    if valid_po_project:
+        for term in frappe.get_all(
+            "PO Payment Terms",
+            filters={"payment_type": "Credit", "parent": ["in", list(valid_po_project.keys())]},
+            fields=["parent", "amount", "term_status"],
+            limit_page_length=0,
+        ):
+            b = bucket(valid_po_project.get(term.get("parent")))
+            if b is not None:
+                amt = flt(term.get("amount"))
+                b["total_credit_purchase"] += amt
+                if term.get("term_status") == "Paid":
+                    b["total_credit_paid"] += amt
+
+    return rollup

@@ -112,10 +112,18 @@ export const NewInflowPayment: React.FC<NewInflowPaymentProps> = ({ refetch }) =
         "Customers", customersFetchOptions as any, customerQueryKey
     );
 
-    // Fetch existing inflows to calculate 'Total Amount Received' for a project
+    // Existing inflows for the 'Total Amount Received' figure — scoped to the SELECTED
+    // project only (getAmountReceivedForProject is only ever called with formState.project),
+    // so we fetch just that project's inflows instead of every inflow in the system
+    // (limit:100000). Same sum, tiny payload; refetches when the project changes.
     const { data: projectInflows, isLoading: projectInflowsLoading, mutate: projectInflowsMutate } = useFrappeGetDocList<ProjectInflowsType>(
-        "Project Inflows", { fields: ["project", "amount"], limit: 100000 }, // Fetch all, only needed fields
-        "AllProjectInflowsForValidation" // Specific key for SWR
+        "Project Inflows",
+        {
+            filters: formState.project ? [["project", "=", formState.project]] : undefined,
+            fields: ["project", "amount"],
+            limit: 0,
+        },
+        formState.project ? `ProjectInflowsForProject_${formState.project}` : null
     );
 
     // Invoices belonging to the currently selected project — populates the

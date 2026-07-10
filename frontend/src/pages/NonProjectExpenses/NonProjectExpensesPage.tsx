@@ -8,9 +8,9 @@ import memoize from "lodash/memoize";
 import {
   useFrappeDeleteDoc,
   useFrappeUpdateDoc,
-  useFrappeGetDocCount,
   useFrappeGetDocList,
 } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import { useToast } from "@/components/ui/use-toast";
 
 // --- UI Components ---
@@ -145,20 +145,27 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
   );
 
   // --- Per-status counts for the tab badges (whole dataset, not date-scoped) ---
-  const { data: requestedCount, mutate: mutateRequested } =
-    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Requested"]]);
-  const { data: approvedCount, mutate: mutateApproved } =
-    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Approved"]]);
-  const { data: paidCount, mutate: mutatePaid } =
-    useFrappeGetDocCount(DOCTYPE, [["status", "=", "Paid"]]);
-  const { data: allCount } = useFrappeGetDocCount(DOCTYPE, undefined);
+  // ONE batch round-trip (group-by status + an "all") via useCounts. Global scope —
+  // identical doctype/filters to the per-status useFrappeGetDocCount calls it replaces.
+  const { data: countsData, mutate: mutateCounts } = useCounts(
+    [
+      { key: "byStatus", doctype: DOCTYPE, group_field: "status" },
+      { key: "all", doctype: DOCTYPE },
+    ],
+    "npe_status_counts"
+  );
+  const npeByStatus = (countsData?.message?.byStatus ?? {}) as Record<string, number>;
+  const requestedCount = npeByStatus["Requested"] || 0;
+  const approvedCount = npeByStatus["Approved"] || 0;
+  const paidCount = npeByStatus["Paid"] || 0;
+  const allCount = (countsData?.message?.all as number) ?? 0;
 
   const statusTabs = useMemo(
     () => [
-      { label: "Requested", value: "Requested", count: requestedCount ?? 0 },
-      { label: "Approved", value: "Approved", count: approvedCount ?? 0 },
-      { label: "Paid", value: "Paid", count: paidCount ?? 0 },
-      { label: "All", value: "All", count: allCount ?? 0 },
+      { label: "Requested", value: "Requested", count: requestedCount },
+      { label: "Approved", value: "Approved", count: approvedCount },
+      { label: "Paid", value: "Paid", count: paidCount },
+      { label: "All", value: "All", count: allCount },
     ],
     [requestedCount, approvedCount, paidCount, allCount]
   );
@@ -289,6 +296,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         variant: "success",
       });
       refetch(); // Refetch table data
+      mutateCounts(); // keep the status-tab badges in sync immediately
     } catch (error: any) {
       toast({
         title: "Error",
@@ -313,9 +321,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
         variant: "success",
       });
       refetch();
-      mutateRequested();
-      mutateApproved();
-      mutatePaid();
+      mutateCounts();
     } catch (error: any) {
       toast({
         title: "Error",
@@ -494,9 +500,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
       <NewNonProjectExpense
         refetchList={() => {
           refetch();
-          mutateRequested();
-          mutateApproved();
-          mutatePaid();
+          mutateCounts();
         }}
       />
 
@@ -505,9 +509,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
           expenseToEdit={selectedExpenseForEdit}
           onSuccess={() => {
             refetch();
-            mutateRequested();
-            mutateApproved();
-            mutatePaid();
+            mutateCounts();
             setEditNonProjectExpenseDialog(false); // Close dialog on success
           }}
         />
@@ -522,9 +524,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             markAsPaid={markPaidMode}
             onSuccess={() => {
               refetch();
-              mutateRequested();
-              mutateApproved();
-              mutatePaid();
+              mutateCounts();
             }}
           />
           <UpdateInvoiceDetailsDialog
@@ -533,9 +533,7 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
             expense={selectedExpenseForUpdate}
             onSuccess={() => {
               refetch();
-              mutateRequested();
-              mutateApproved();
-              mutatePaid();
+              mutateCounts();
             }}
           />
         </>

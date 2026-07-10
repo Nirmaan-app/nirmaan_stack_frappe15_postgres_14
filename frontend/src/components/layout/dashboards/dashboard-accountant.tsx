@@ -1,4 +1,4 @@
-import { useFrappeGetDocCount } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import {
   ArrowUpRight,
   Banknote,
@@ -419,15 +419,25 @@ const SectionHeader: React.FC<SectionHeaderProps> = ({ title, subtitle }) => (
 // ============================================================================
 
 export const Accountant = () => {
-  // Fetch counts for stat cards
+  // Fetch counts for stat cards — one batched round-trip via useCounts.
+  const {
+    data: countsData,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useCounts(
+    STAT_CARDS.map((config) => ({
+      key: config.id,
+      doctype: config.doctype,
+      filters: config.filters,
+    })),
+    "dashboard-accountant-counts"
+  );
+
   const statCardData = STAT_CARDS.map((config) => ({
     ...config,
-    ...useFrappeGetDocCount(
-      config.doctype,
-      config.filters,
-      false,
-      `accountant_${config.id}_count`
-    ),
+    data: countsData?.message?.[config.id] as number | undefined,
+    isLoading: countsLoading,
+    error: countsError,
   }));
 
   return (
