@@ -21,6 +21,12 @@ Usage: BOQ_HARNESS_INPUT=<labelled_xlsx_dir> env/bin/python -u \\
 """
 import csv, json, os, sys, time, collections
 
+# Single source of truth for the AI-reply JSON parse (HV-2b): reuse the voter's fixed
+# extractor (tolerates a bare single-row object as well as an array) instead of a local
+# duplicate. ai_voter is framework-free (stdlib + the pure runner), so this top-level
+# import is safe even before frappe.init() in main().
+from nirmaan_stack.services.boq_category.ai_voter import _extract_json_array
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # DISCIPLINE SWITCH (HV-1): env BOQ_HARNESS_DISCIPLINE selects {discipline, BOQS, prompt}.
@@ -97,12 +103,6 @@ def _notes_text(node):
         elif isinstance(v, list): parts += [str(x).strip() for x in v if str(x).strip()]
         elif v: parts.append(str(v).strip())
     return " | ".join(p for p in parts if p)
-
-
-def _extract_json_array(text):
-    s = text.find("["); e = text.rfind("]")
-    if s == -1 or e == -1 or e < s: raise ValueError("no JSON array")
-    return json.loads(text[s:e + 1])
 
 
 def _ai_batch(client, model, prompt_text, items, valid_ids):

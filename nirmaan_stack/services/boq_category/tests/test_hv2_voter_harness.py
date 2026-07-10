@@ -177,5 +177,31 @@ class TestHarnessProgress(unittest.TestCase):
             self.assertIn("timestamp", data)
 
 
+class TestHarnessReusesVoterExtractor(unittest.TestCase):
+    """T7/T8 -- the harness parse path now reuses the voter's fixed extractor (HV-2b).
+
+    The harness carried its OWN duplicate _extract_json_array with the pre-HV-2 single-row
+    bug (a bare-object reply raised), so a live cert whose final batch was a single row would
+    fail by construction. The duplicate is gone; the harness imports the voter's extractor."""
+
+    # T7 (positive) -- the HARNESS _ai_batch path parses a bare single-row object identically
+    # to the same object inside a one-element array.
+    def test_t7_harness_parse_path_bare_object_matches_array(self):
+        items = [{"id": 42, "description": "x", "ancestor_chain": [], "notes": ""}]
+        out_obj = H._ai_batch(_FakeClient(_ROW_OBJECT), "m", "prompt", items, _VALID_IDS)
+        out_arr = H._ai_batch(_FakeClient(_ROW_ARRAY), "m", "prompt", items, _VALID_IDS)
+        self.assertEqual(out_obj, out_arr)
+        self.assertEqual(out_obj, {42: ("point_wiring", 0.9, "pts")})
+
+    # T7 (single source of truth) -- the harness name IS the voter's function, not a copy.
+    def test_t7_harness_extractor_is_voter_extractor(self):
+        self.assertIs(H._extract_json_array, ai_voter._extract_json_array)
+
+    # T8 (negative) -- a genuinely non-JSON reply through the harness parse path still raises.
+    def test_t8_harness_parse_path_non_json_raises(self):
+        with self.assertRaises(ValueError):
+            H._extract_json_array("sorry, I could not classify these rows")
+
+
 if __name__ == "__main__":
     unittest.main()
