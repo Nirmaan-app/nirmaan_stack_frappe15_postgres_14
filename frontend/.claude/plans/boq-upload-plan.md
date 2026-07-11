@@ -11408,3 +11408,31 @@ AUTHORITY on run state, not the captured stdout. Second lesson: the AI toggle
 (`"BOQ Upload Review AI Settings".enabled`) flipped OFF twice between runs -- always re-verify it
 immediately before a classify. `bench execute` also proved flaky (a spurious `NameError`); a direct
 `frappe.init` + `run(...)` invocation is the reliable driver for the retry.
+
+**D3d (micro) -- missing read indexes (editor cold-cache lag fix).** Recon after the corpus run: the
+pricing editor is FAST when warm (~54 ms total sheet-open across its 7 read endpoints, no N+1 -- all
+per-sheet bulk reads; annotations are bundled into `get_priced_rows`), but the heavy run (10k Row-Category
++ 4,158 snapshot writes + a 76-min classify) CHURNED the Postgres buffer cache, so the first opens after it
+hit COLD Seq Scans on the large un-indexed read tables -> `get_priced_rows` ~5.5 s cold, `get_committed_sheet_grid`
+322 ms cold. Root cause = two missing indexes (NOT table growth per se -- growth added only ~a few ms; the
+cache eviction EXPOSED pre-existing missing indexes). Fixed via `on_doctype_update` + `frappe.db.add_index`
+(idempotent, mirroring the snapshot doctype), read-path only, no query/endpoint/schema-field change:
+- **BoQ Committed Sheet Grid Row**: the standard child-table **`parent`** index (269,708 rows). EXPLAIN
+  flipped Seq Scan -> **Index Scan using `parent_index`**; `get_committed_sheet_grid` warm 29 -> ~8 ms.
+- **BoQ Row Category**: composite **(boq, sheet_name, committed_version, discipline, is_current)** = the exact
+  `get_sheet_categories` + `set_human_verdict` filter (10,173 rows incl. 4,806 superseded). EXPLAIN flipped
+  Seq Scan -> **Bitmap Index Scan**; `get_sheet_categories` warm 3.7 -> ~1.9 ms; the click-path
+  `set_row_category` scans drop the same way. The cold spike (full-table scans) collapses to index lookups and
+  no longer scales with the table.
+- **MIGRATE GOTCHA (documented):** `bench migrate` (63 s) did NOT create the indexes -- Frappe runs
+  `on_doctype_update` only on doctype SCHEMA SYNC (fresh install / JSON-hash change), and a controller-only
+  change of an unchanged doctype is skipped; `bench reload-doctype` also did not trigger it. On this existing DB
+  the indexes were applied by invoking `on_doctype_update()` directly (the identical, sanctioned code) + `ANALYZE`.
+  On a fresh env / when these doctypes next sync, it auto-creates. Deploy note: on existing environments this
+  index must be applied by a forced schema sync (or a direct `on_doctype_update` run) -- a plain migrate won't.
+- **FOLLOW-UP (systemic, NOT fixed here):** the missing child-table `parent` index is site-wide -- **119 of 125
+  child tables lack it** (only 6 Frappe-core tables have one; a Frappe-on-PostgreSQL behaviour). Other large app
+  child tables also seq-scan by parent: Project Progress Report Work Milestones (90k), Procurement Request Item
+  Detail (26k), Purchase Order Item (25k), Delivery Note Item (19k), BOQ Node Qty By Area (11k), PR Tag Child
+  Table (9k), PO Payment Terms (7k), etc. A broad parent-index pass is a separate perf slice. Regression
+  129 + 30 + 26 + 5 unchanged.
