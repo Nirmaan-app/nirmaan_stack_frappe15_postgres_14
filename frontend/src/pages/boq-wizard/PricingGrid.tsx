@@ -1670,13 +1670,14 @@ interface PricingGridRowProps {
   /** Cluster B: per-cell reconciliation choice map (per-SHEET, reference-stable across a
    *  keystroke -- changes only on mutate, exactly like columnFormulas). */
   reconChoiceMap: Map<string, ReconChoice>;
-  /** CL-2: per-EXCEL-ROW category verdict map (per-SHEET, reference-stable across a keystroke --
-   *  built page-side, changes only on a classify mutate). Read-only display in the Category cell. */
-  categoriesByExcelRow: Map<number, SheetCategoryRow>;
-  /** CL-6: sheet-has-run flag (grid-level; = categoriesByExcelRow.size > 0). Gates click-to-edit on
-   *  a blank eligible cell. Deliberately NOT in pricingRowPropsAreEqual: it is a pure function of
-   *  categoriesByExcelRow (which IS compared), so it can never change without that map's reference
-   *  changing -- the row already re-renders on that. */
+  /** CL-2 / P1: THIS row's category verdict entry ONLY (per-row prop, NOT the whole map) -- so a
+   *  verdict pick re-renders just the picked row, not all 870 rows. pricingRowPropsAreEqual compares
+   *  it by reference; the page rebuilds only the changed row's entry (the optimistic override), so
+   *  every other row's entry keeps its reference and is skipped. Read-only display in the Category cell. */
+  category?: SheetCategoryRow;
+  /** CL-6 / P1: sheet-has-run flag (grid-level; = categoriesByExcelRow.size > 0). Gates click-to-edit
+   *  on a blank eligible cell. NOW compared explicitly in pricingRowPropsAreEqual (P1 removed the
+   *  whole-map compare it used to piggyback on); it flips once, when the first classify lands. */
   hasRun: boolean;
   /** CL-3: id->label for the Category cell display (per-SHEET, reference-stable -- changes only on
    *  a catalog fetch, never on keystroke). */
@@ -1748,7 +1749,8 @@ export function pricingRowPropsAreEqual(
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
     prev.reconChoiceMap === next.reconChoiceMap &&
-    prev.categoriesByExcelRow === next.categoriesByExcelRow &&
+    prev.category === next.category &&
+    prev.hasRun === next.hasRun &&
     prev.categoryLabelById === next.categoryLabelById &&
     prev.onCategoryClick === next.onCategoryClick &&
     prev.override === next.override &&
@@ -1804,7 +1806,7 @@ const PricingGridRow = memo(function PricingGridRow({
   columnDescriptors,
   columnFormulas,
   reconChoiceMap,
-  categoriesByExcelRow,
+  category,
   hasRun,
   categoryLabelById,
   onCategoryClick,
@@ -2072,7 +2074,7 @@ const PricingGridRow = memo(function PricingGridRow({
           anchored to this cell (Enter on the focused cell does the same via handleGridKeyDown). */}
       {(() => {
         const colIndex = FIXED_ANCHOR_COUNT;
-        const cat = categoriesByExcelRow.get(row.source_row_number);
+        const cat = category;  // P1: this row's own entry (per-row prop), not a whole-map lookup
         const effective = cat?.effective_category_id ?? "";
         const state = deriveVerdictState(cat);
         const label = labelFor(effective, categoryLabelById);
@@ -3828,7 +3830,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       columnDescriptors={columnDescriptors}
       columnFormulas={columnFormulas}
       reconChoiceMap={reconChoiceMap}
-      categoriesByExcelRow={categoriesByExcelRow}
+      category={categoriesByExcelRow.get(row.source_row_number)}
       hasRun={hasRun}
       categoryLabelById={categoryLabelById}
       onCategoryClick={onCategoryClick}

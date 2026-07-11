@@ -997,8 +997,10 @@ const SheetPricingPage = () => {
         human_category_id: id,
         discipline: CLASSIFY_DISCIPLINE,
       });
-      await mutateCategories();
-      dropOverride();
+      // P1 perf: the optimistic override is AUTHORITATIVE for the picked cell -- do NOT refetch the
+      // whole sheet's categories here (mutateCategories forced a second full-grid pass + a 188 KB
+      // round-trip). The override persists for the session; the write lands in the DB and re-derives
+      // authoritatively on the next sheet load / classify run. On FAILURE we revert (below).
     } catch (e) {
       dropOverride();
       setSaveError(
