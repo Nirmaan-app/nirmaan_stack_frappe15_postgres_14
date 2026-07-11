@@ -11376,3 +11376,17 @@ its write path is exercised by the loader tests).**
 **Operational note for the eventual run:** AI toggle is currently `enabled=False` on this dev DB (key
 present) -- flip it before `classify` or the runner refuses (fail-fast). Recommended order: `classify` all 61
 -> then `label` (so machine + human verdicts sit on the same current committed version).
+
+**D3b (micro) -- batch-wise progress in classify mode:** the classify mode now wires
+`orchestrator.classify_sheet_rows`'s `progress_cb(done, total)` (CL-2 seam, verified: done = cumulative
+rows fed to the voter for the current sheet, clamped to total). Per callback it prints one line
+(`sheet i/N <name>: batch done/total rows`, flushed) AND refreshes a run-level `_PROGRESS.json`
+mirroring the HV-2 harness pattern: `{run_started_at, sheets_total, sheets_done, sheets_failed:[...],
+current_sheet, current_batch_done, current_batch_total, rows_done_total, updated_at}`, rewritten per
+batch + per-sheet terminal. `_PROGRESS.json` lives in `progress_out` (new optional `run(...,
+progress_out=...)` kwarg / `--progress-out`), default a `<corpus>_classify_progress` sibling folder,
+guarded against `_classification_review/`. `rows_done_total` accumulates across sheets (base += each
+sheet's `eligible_classified`). resolve + label modes unchanged; additive kwarg (backwards-compatible).
+Smokes: resolve still resolves 61; the AI-toggle pre-flight still fires BEFORE any classify work (no
+progress dir, no writes); `_write_progress` writes valid JSON with all 9 keys. Regression 129 + 30 + 26
++ 5 unchanged.
