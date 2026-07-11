@@ -11311,3 +11311,68 @@ guard refuses with exit 2. Regression `test_runner_electrical` 82 + `test_runner
 **Invocation:** `BOQ_SWEEP_INPUT=<labelled_dir> env/bin/python
 apps/nirmaan_stack/nirmaan_stack/services/boq_category/harness/decay_sweep.py --out <OUTPUT_DIR>`
 
+
+## Classifier eval -- D3a ground-truth snapshot store + corpus classify-and-label runner COMPLETE
+
+The eval truth substrate: a new snapshot doctype + a corpus runner, on `feature/boq-classification-eval`
+(one feat commit + this docs commit). Backend + a new doctype (MIGRATE -- Abhishek heads-up owed at
+push). No existing classifier code touched.
+
+**Owner decisions tonight (2026-07-11) -- the truth model:**
+- **Truth = FREEZE SNAPSHOTS, not live human edits.** Live `BoQ Row Category` rows are WORKING STATE: a
+  re-classify supersedes them and human verdicts intentionally do NOT carry forward. **The earlier
+  carry-forward plan (D3 recon #4) is DROPPED -- stranding is now INTENTIONAL.** Ground truth is banked
+  out-of-band and is PERMANENT.
+- **Freeze/Unfreeze lifecycle (deferred to the eval-cockpit arc, NOT this build):** a Freeze event locks
+  classification + banks the snapshot; Unfreeze is required before any re-classify; snapshots are never
+  deleted (unfreeze never deletes). For NOW, Freeze would lock CLASSIFICATION ONLY; the Freeze/Unfreeze
+  button + its `human_category_id` write-back-at-new-version is the cockpit arc. The button is SEPARATE
+  from the pricing freeze (placement + state mitigations to be handled in that arc).
+- **Labels -> snapshot (Option A):** the team's Excel labels load into the snapshot store, NOT into
+  `human_category_id` (live rows untouched). Dev-DB target.
+
+**New doctype `BoQ Category Truth Snapshot`** (`nirmaan_stack/doctype/boq_category_truth_snapshot/`): one
+record per (snapshot event x row). Fields mirror `BoQ Row Category` naming -- `boq` (Link BOQs, indexed),
+`sheet_name` (Data, VERBATIM #152), `excel_row` (Int), `discipline` (Data, default Electrical),
+`committed_version` (Int, current AT snapshot time), `label_category_id` (Data, frozen-vocab id),
+`snapshot_batch` (Data, indexed -- one shared id per freeze/load event), `source` (Select:
+`Bulk-loaded ground truth` / `Frozen in product`), `snapshot_at` (Datetime), `snapshot_by` (Data). Minimal
+controller: `validate` rejects an empty `label_category_id`; `on_doctype_update` adds a composite READ
+index `(boq, sheet_name, excel_row, discipline, snapshot_batch)` for the cockpit join (a plain index, not a
+hard unique -- logical uniqueness is enforced by the loader; migrate-safe). No workflow/submit.
+**`bench migrate` run + table/columns VERIFIED present.**
+
+**Corpus runner `services/boq_category/harness/corpus_classify_and_label.py`** -- a bench-execute tool
+(reuses `decay_sweep`'s corpus parsing) with three INDEPENDENT modes; corpus via env `BOQ_CORPUS_INPUT`
+or the `corpus` kwarg (never inside `_classification_review/`):
+- `resolve` (DRY) -- resolve every file to its `is_current=1` committed sheet by (boq, VERBATIM sheet_name,
+  TRIM fallback); print per-sheet file-LI vs committed-eligible + flag gaps. NO writes.
+- `classify` -- REFUSES to start if `"BOQ Upload Review AI Settings".enabled` is OFF (else the whole corpus
+  classifies AI-off: rule-only, every row Needs review). Per sheet: `orchestrator.classify_sheet_rows` +
+  progress print; HARD-ASSERT `summary["ai_status"] == "ran"` else mark the sheet FAILED and CONTINUE
+  (per-sheet isolation); ok/failed summary. NO snapshot writes.
+- `label` -- load LINE ITEM `team_classification` into the snapshot store: validate the whole corpus
+  vocabulary FIRST (abort on out-of-vocab, no writes), ONE `snapshot_batch` per load,
+  `source="Bulk-loaded ground truth"`, `snapshot_by="ground-truth-bulk"`, `committed_version` = the sheet's
+  current version, one commit per sheet; SKIP a label whose `excel_row` has no current eligible node (prints
+  a skip report -- expect ~12 on `BOQ-26-00007`, which re-committed v3 with 261 committed LI vs 273 file
+  LI); idempotent -- refuses a second bulk load covering a sheet unless `force_new_batch=True`.
+- **VERBATIM fix (found in test):** the snapshot stores the COMMITTED `BoQ Sheet.sheet_name` (authoritative,
+  from the DB), not the file's column, so a snapshot row's `sheet_name` is byte-identical to Row Category's
+  and the durable-address join holds (trailing-space #152).
+
+**Resolve smoke (in-session, no writes):** all **61 files resolve, 0 misses**, file LineItems **4,335**,
+committed eligible **5,367**; the `BOQ-26-00007` gap prints. classify/label NOT run in-session (AI cost /
+operational, owner-gated).
+
+**Tests:** new DB module `nirmaan_stack/api/boq/wizard/test_truth_snapshot.py` -- **5 tests, all green**
+(seeds a committed sheet + a tiny CSV corpus + drives the real loader): load inserts eligible labels + skips
+the non-eligible one + reads back fields intact; controller rejects empty `label_category_id`; out-of-vocab
+aborts with NO writes; idempotence refuse + `force_new_batch` banks a second batch; a snapshot row joins to a
+`BoQ Row Category` current row by `(boq, sheet_name, excel_row, discipline)`. **Regression: pure suites 129 +
+DB `test_classify` 30 + `test_row_category` 26 all unchanged; runner itself has no unittest (harness-stays-thin;
+its write path is exercised by the loader tests).**
+
+**Operational note for the eventual run:** AI toggle is currently `enabled=False` on this dev DB (key
+present) -- flip it before `classify` or the runner refuses (fail-fast). Recommended order: `classify` all 61
+-> then `label` (so machine + human verdicts sit on the same current committed version).
