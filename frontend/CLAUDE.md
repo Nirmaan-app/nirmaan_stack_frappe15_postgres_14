@@ -251,6 +251,10 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   makes a new ref → all rows re-render → memo silently defeated); each row gets only its own slice via
   `groupDraftsByRow` (ref-reused). Per-sheet/grid-level props (formula map, recon map, `expanded`, `hiddenCols`,
   search-hit booleans) must flip identically for all rows; never add an inline-arrow callback prop to a row.
+  **Per-row-collection rule (P1):** the SAME rule applies to any per-row collection (categories, and future
+  overlays) — flow it to a row as its OWN per-row entry compared BY VALUE (`category` = `map.get(source_row_number)`,
+  passed in `renderRow`), NEVER the whole Map/collection compared by identity in the row comparator (a single
+  edit rebuilds the collection → all rows re-render). The whole Map may live at the GRID level (keydown, size gates).
 - **Read-only gating = PRESENCE of the save callback** (`onSaveRate` / `onSaveRemark` / `onSaveColor` / ...). The
   page withholds them when locked / taken-over / grid-only. Do NOT add a second per-cell `editable` signal.
 - **Rate-edit gate is ASYMMETRIC by node_type (owner-locked):** editable iff `override || node_type === "Line Item"
