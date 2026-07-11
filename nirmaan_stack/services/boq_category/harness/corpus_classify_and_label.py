@@ -14,7 +14,11 @@ verbatim sheet_name column -- same parsing as harness/decay_sweep, whose helpers
               ("BOQ Upload Review AI Settings".enabled) is OFF -- otherwise the whole corpus
               would classify AI-off (rule-only, every row Needs review). Hard-asserts
               summary["ai_status"] == "ran" per sheet; a miss marks the sheet FAILED and the run
-              CONTINUES (per-sheet isolation). NO snapshot writes.
+              CONTINUES (per-sheet isolation). NO snapshot writes. Emits per-BATCH progress: one
+              stdout line per orchestrator progress_cb (sheet i/N <name>: batch done/total rows) +
+              a run-level _PROGRESS.json (in progress_out, default a '<corpus>_classify_progress'
+              sibling folder; never inside _classification_review/) refreshed per batch + per-sheet
+              terminal -- mirrors the HV-2 harness _PROGRESS.json pattern.
   label    -- Load the team's Excel labels (team_classification on LINE ITEM rows) into the
               PERMANENT "BoQ Category Truth Snapshot" store (NOT into human_category_id -- live
               BoQ Row Category rows are untouched working state). Validates every label against
@@ -38,6 +42,7 @@ Canonical invocation (bench execute -- provides the frappe/DB context):
   # classify: {'mode': 'classify', ...}   label: {'mode': 'label', ...}
   # force a fresh bulk batch over already-covered sheets: {'mode': 'label', 'force_new_batch': True}
 """
+import json
 import os
 
 import frappe
@@ -134,7 +139,23 @@ def _mode_resolve(corpus, discipline):
     return {"files": len(sheets), "misses": len(misses)}
 
 
-def _mode_classify(corpus, discipline):
+def _default_progress_dir(corpus):
+    """A /tmp-style sibling of the corpus folder (NEVER inside _classification_review/): the run's
+    OWN progress folder, holding _PROGRESS.json. Mirrors the HV-2 harness runtime-artifact pattern."""
+    base = os.path.abspath(corpus).rstrip(os.sep)
+    return base + "_classify_progress"
+
+
+def _write_progress(progress_dir, state):
+    """Write/overwrite _PROGRESS.json in the run's OWN progress folder (a runtime artifact only --
+    stamps updated_at each call). Mirrors electrical_classification_harness._write_progress."""
+    state["updated_at"] = frappe.utils.now()
+    with open(os.path.join(progress_dir, "_PROGRESS.json"), "w", encoding="utf-8") as fh:
+        json.dump(state, fh, indent=2, default=str)
+
+
+def _mode_classify(corpus, discipline, progress_out=None):
+    # PRE-FLIGHT (before ANY classify work): refuse if the AI toggle is off.
     from nirmaan_stack.api.boq.wizard.ai_settings import get_boq_ai_settings
     settings = get_boq_ai_settings()
     if not settings.get("enabled"):
@@ -143,33 +164,73 @@ def _mode_classify(corpus, discipline):
             f"back AI-off: rule-only, every row Needs review). Enable it, then re-run.",
             title="AI disabled")
 
-    sheets = [s for s in _resolve_sheets(corpus, discipline) if s["matched"]]
-    ok, failed = [], []
-    for s in sheets:
-        tag = f"[{s['boq']}] {s['sheet_name'].strip()}"
+    progress_dir = progress_out or _default_progress_dir(corpus)
+    if "_classification_review" in os.path.abspath(progress_dir).split(os.sep):
+        frappe.throw("--progress-out must not be inside _classification_review/ (untouchable).",
+                     title="Bad progress-out")
+    os.makedirs(progress_dir, exist_ok=True)
 
-        def _progress(done, total, _tag=tag):
-            print(f"  {_tag}: {done}/{total}", flush=True)
+    sheets = [s for s in _resolve_sheets(corpus, discipline) if s["matched"]]
+    total_sheets = len(sheets)
+    state = {
+        "run_started_at": frappe.utils.now(),
+        "sheets_total": total_sheets,
+        "sheets_done": 0,
+        "sheets_failed": [],
+        "current_sheet": None,
+        "current_batch_done": 0,
+        "current_batch_total": 0,
+        "rows_done_total": 0,
+        "updated_at": None,
+    }
+    _write_progress(progress_dir, state)
+
+    ok, failed = [], []
+    rows_base = 0  # rows classified in already-finished sheets (base for the current sheet's counter)
+    for i, s in enumerate(sheets, start=1):
+        tag = f"[{s['boq']}] {s['sheet_name'].strip()}"
+        state["current_sheet"] = f"{i}/{total_sheets} {tag}"
+        state["current_batch_done"] = 0
+        state["current_batch_total"] = 0
+
+        def _progress(done, total, _tag=tag, _i=i, _base=rows_base):
+            print(f"  sheet {_i}/{total_sheets} {_tag}: batch {done}/{total} rows", flush=True)
+            state["current_batch_done"] = done
+            state["current_batch_total"] = total
+            state["rows_done_total"] = _base + done
+            _write_progress(progress_dir, state)
 
         try:
             summary = orchestrator.classify_sheet_rows(
                 s["boq"], s["sheet_name"], discipline, progress_cb=_progress)
             if summary.get("ai_status") != "ran":
                 failed.append((tag, f"ai_status={summary.get('ai_status')!r}"))
+                state["sheets_failed"].append({"sheet": f"{i}/{total_sheets} {tag}",
+                                               "error": f"ai_status={summary.get('ai_status')!r}"})
                 print(f"  FAILED {tag}: ai_status={summary.get('ai_status')!r} (not 'ran')", flush=True)
-                continue
-            ok.append(tag)
-            print(f"  OK {tag}: classified={summary.get('eligible_classified')} "
-                  f"auto={summary.get('auto_accepted')} review={summary.get('needs_review')}", flush=True)
+            else:
+                ok.append(tag)
+                state["sheets_done"] += 1
+                print(f"  OK {tag}: classified={summary.get('eligible_classified')} "
+                      f"auto={summary.get('auto_accepted')} review={summary.get('needs_review')}", flush=True)
+            rows_base += (summary.get("eligible_classified") or 0)
         except Exception as exc:
             failed.append((tag, repr(exc)))
+            state["sheets_failed"].append({"sheet": f"{i}/{total_sheets} {tag}", "error": repr(exc)})
             print(f"  FAILED {tag}: {exc!r}", flush=True)
-    print(f"\nCLASSIFY DONE: ok={len(ok)}  failed={len(failed)}")
+        # per-sheet terminal update
+        state["rows_done_total"] = rows_base
+        state["current_batch_done"] = 0
+        state["current_batch_total"] = 0
+        _write_progress(progress_dir, state)
+
+    progress_path = os.path.join(progress_dir, "_PROGRESS.json")
+    print(f"\nCLASSIFY DONE: ok={len(ok)}  failed={len(failed)}  progress={progress_path}")
     if failed:
         print("FAILED sheets:")
         for tag, why in failed:
             print(f"  {tag}: {why}")
-    return {"ok": len(ok), "failed": len(failed)}
+    return {"ok": len(ok), "failed": len(failed), "progress": progress_path}
 
 
 def _mode_label(corpus, discipline, force_new_batch):
@@ -254,9 +315,11 @@ def _mode_label(corpus, discipline, force_new_batch):
 
 
 # --------------------------------------------------------------------------- entrypoint
-def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=False):
+def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=False, progress_out=None):
     """bench-execute entrypoint. mode in {resolve, classify, label}. corpus via arg or env
-    BOQ_CORPUS_INPUT. See the module docstring for the canonical invocation."""
+    BOQ_CORPUS_INPUT. progress_out (classify only, optional) = the folder for the run-level
+    _PROGRESS.json; defaults to a sibling '<corpus>_classify_progress' folder, never inside
+    _classification_review/. See the module docstring for the canonical invocation."""
     corpus = corpus or os.environ.get("BOQ_CORPUS_INPUT")
     if not corpus:
         frappe.throw("No corpus folder -- pass corpus=... or set BOQ_CORPUS_INPUT.", title="Missing corpus")
@@ -273,7 +336,7 @@ def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=Fa
     if mode == "resolve":
         return _mode_resolve(corpus, discipline)
     if mode == "classify":
-        return _mode_classify(corpus, discipline)
+        return _mode_classify(corpus, discipline, progress_out=progress_out)
     if mode == "label":
         return _mode_label(corpus, discipline, force_new_batch)
     frappe.throw(f"Unknown mode {mode!r} (expected resolve | classify | label).", title="Bad mode")
