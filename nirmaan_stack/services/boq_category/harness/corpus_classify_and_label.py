@@ -67,16 +67,24 @@ def _verbatim_sheet_name(rows):
     return sorted(vals, key=len)[-1] if vals else ""
 
 
-def _resolve_sheets(corpus, discipline):
+def _resolve_sheets(corpus, discipline, only_boq=None, only_sheet=None):
     """Resolve every corpus file to its is_current=1 committed sheet. Returns a list of dicts:
     {file, boq, sheet_name(verbatim), matched(bool), sheet_doc, cv, file_li, file_labelled,
-    elig, elig_li}. No writes."""
+    elig, elig_li}. No writes.
+
+    Optional SUBSET filter (for a targeted re-run): only_boq restricts to one BoQ id (filename
+    prefix, exact); only_sheet restricts to the sheet whose TRIMMED name equals only_sheet (trimmed)."""
     files = ds.corpus_files(corpus)
+    want_sheet = only_sheet.strip() if only_sheet else None
     out = []
     for p in files:
         boq = os.path.basename(p).split("__")[0]
+        if only_boq and boq != only_boq:
+            continue
         _hdr, rows = ds.load_file(p)
         sn = _verbatim_sheet_name(rows)
+        if want_sheet and sn.strip() != want_sheet:
+            continue
         file_li = sum(1 for r in rows if ds._norm(r.get("node_type")) == "Line Item")
         file_lab = sum(1 for r in rows if ds._norm(r.get("node_type")) == "Line Item"
                        and ds._norm(r.get("team_classification")))
@@ -154,7 +162,7 @@ def _write_progress(progress_dir, state):
         json.dump(state, fh, indent=2, default=str)
 
 
-def _mode_classify(corpus, discipline, progress_out=None):
+def _mode_classify(corpus, discipline, progress_out=None, only_boq=None, only_sheet=None):
     # PRE-FLIGHT (before ANY classify work): refuse if the AI toggle is off.
     from nirmaan_stack.api.boq.wizard.ai_settings import get_boq_ai_settings
     settings = get_boq_ai_settings()
@@ -170,7 +178,10 @@ def _mode_classify(corpus, discipline, progress_out=None):
                      title="Bad progress-out")
     os.makedirs(progress_dir, exist_ok=True)
 
-    sheets = [s for s in _resolve_sheets(corpus, discipline) if s["matched"]]
+    sheets = [s for s in _resolve_sheets(corpus, discipline, only_boq=only_boq, only_sheet=only_sheet)
+              if s["matched"]]
+    if not sheets:
+        frappe.throw("No sheets matched the subset filter (only_boq / only_sheet).", title="Empty subset")
     total_sheets = len(sheets)
     state = {
         "run_started_at": frappe.utils.now(),
@@ -315,11 +326,14 @@ def _mode_label(corpus, discipline, force_new_batch):
 
 
 # --------------------------------------------------------------------------- entrypoint
-def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=False, progress_out=None):
+def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=False, progress_out=None,
+        only_boq=None, only_sheet=None):
     """bench-execute entrypoint. mode in {resolve, classify, label}. corpus via arg or env
     BOQ_CORPUS_INPUT. progress_out (classify only, optional) = the folder for the run-level
     _PROGRESS.json; defaults to a sibling '<corpus>_classify_progress' folder, never inside
-    _classification_review/. See the module docstring for the canonical invocation."""
+    _classification_review/. only_boq / only_sheet (CLASSIFY mode only, optional) restrict the run to
+    ONE BoQ / ONE sheet -- for a targeted re-run of a failed sheet (resolve + label modes ignore them,
+    behaviour unchanged). See the module docstring for the canonical invocation."""
     corpus = corpus or os.environ.get("BOQ_CORPUS_INPUT")
     if not corpus:
         frappe.throw("No corpus folder -- pass corpus=... or set BOQ_CORPUS_INPUT.", title="Missing corpus")
@@ -336,7 +350,8 @@ def run(mode="resolve", corpus=None, discipline="Electrical", force_new_batch=Fa
     if mode == "resolve":
         return _mode_resolve(corpus, discipline)
     if mode == "classify":
-        return _mode_classify(corpus, discipline, progress_out=progress_out)
+        return _mode_classify(corpus, discipline, progress_out=progress_out,
+                              only_boq=only_boq, only_sheet=only_sheet)
     if mode == "label":
         return _mode_label(corpus, discipline, force_new_batch)
     frappe.throw(f"Unknown mode {mode!r} (expected resolve | classify | label).", title="Bad mode")
