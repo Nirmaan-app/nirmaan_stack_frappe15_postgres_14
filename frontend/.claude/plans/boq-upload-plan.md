@@ -11390,3 +11390,21 @@ sheet's `eligible_classified`). resolve + label modes unchanged; additive kwarg 
 Smokes: resolve still resolves 61; the AI-toggle pre-flight still fires BEFORE any classify work (no
 progress dir, no writes); `_write_progress` writes valid JSON with all 9 keys. Regression 129 + 30 + 26
 + 5 unchanged.
+
+**D3c (micro) -- sheet-subset filter + the first operational corpus run.** classify mode gains an
+optional `(only_boq, only_sheet)` subset filter (`_resolve_sheets` grows two kwargs, default None = all
+sheets; threaded through `_mode_classify` + `run()`; **classify-mode ONLY -- resolve + label untouched**;
+empty subset throws). For a targeted re-run of one failed sheet instead of re-classifying the whole
+corpus. **Operational run (dev DB, 2026-07-11):** the full 61-sheet electrical corpus classified in ~76
+min (~290 opus batches over 5,367 eligible rows) -- **60/61 clean** on the first pass, with ONE sheet
+(`BOQ-26-00005/Electrical`) failing on a transient `APIConnectionError` (per-sheet isolation held: it
+committed 0 rows and the run continued). The subset filter then re-classified just that sheet
+(`only_boq='BOQ-26-00005', only_sheet='Electrical'` -> classified=186, auto=126, review=60, `ai_status`
+== ran), filling the single gap -> **final 61/61, 5,367 current Electrical Row Category rows** (all
+`prompt_version=v1.3`, `model=claude-opus-4-8`). **Monitoring lesson:** the background-task stdout view
+went STALE mid-run (docker-exec buffering made it look killed at sheet 51 when it had actually reached
+61); `_PROGRESS.json` (written directly to the container FS per batch) + a per-sheet DB reconcile are the
+AUTHORITY on run state, not the captured stdout. Second lesson: the AI toggle
+(`"BOQ Upload Review AI Settings".enabled`) flipped OFF twice between runs -- always re-verify it
+immediately before a classify. `bench execute` also proved flaky (a spurious `NameError`); a direct
+`frappe.init` + `run(...)` invocation is the reliable driver for the retry.
