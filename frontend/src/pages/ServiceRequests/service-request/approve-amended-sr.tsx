@@ -19,7 +19,7 @@ import { useVendorsList } from "@/pages/ProcurementRequests/VendorQuotesSelectio
 import { NirmaanComments } from "@/types/NirmaanStack/NirmaanComments";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
 import { NirmaanVersions as NirmaanVersionsType } from "@/types/NirmaanStack/NirmaanVersions";
-import TextArea from "antd/es/input/TextArea";
+import { Textarea } from "@/components/ui/textarea";
 import { useFrappeCreateDoc, useFrappeDeleteDoc, useFrappeDocumentEventListener, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { CheckCheck, Undo2, X } from 'lucide-react';
 import { useEffect, useState } from "react";
@@ -419,7 +419,7 @@ const ApproveAmendSOPage = ({ so_data, versionsData, usersList }: ApproveAmendPO
                         <DialogTitle>{actionType === 'approve' ? 'Approve Amendments' : 'Revert to Original'}</DialogTitle>
                         <DialogDescription>Add a comment for this action.</DialogDescription>
                     </DialogHeader>
-                    <TextArea
+                    <Textarea
                         rows={3}
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}

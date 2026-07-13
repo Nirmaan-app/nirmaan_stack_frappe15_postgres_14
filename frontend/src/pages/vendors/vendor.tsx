@@ -1,6 +1,5 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ConfigProvider, Menu, MenuProps } from "antd";
 
 import { useVendorData } from './hooks/useVendorData';
 import { useVendorProjects, useVendorCategories, useVendorServiceRequestCounts } from './data/useVendorQueries';
@@ -32,7 +31,7 @@ const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTabl
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
 
-type MenuItem = Required<MenuProps>["items"][number];
+type MenuItem = { label: string; key: string };
 
 export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
@@ -108,7 +107,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const approvedCount = approvedSRs?.length || 0;
     const finalizedCount = finalizedSRs?.length || 0;
 
-    const handleMenuClick: MenuProps["onClick"] = useCallback((e: any) => setCurrentTab(e.key), []);
+    const handleMenuClick = useCallback((key: string) => setCurrentTab(key), []);
 
 
     if (vendorLoading) return <div className="p-6"><OverviewSkeleton2 /></div>;
@@ -237,19 +236,23 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 }
             </div>
 
-            <ConfigProvider
-                theme={{
-                    components: {
-                        Menu: {
-                            horizontalItemSelectedColor: "#D03B45",
-                            itemSelectedBg: "#FFD3CC",
-                            itemSelectedColor: "#D03B45",
-                        },
-                    },
-                }}
-            >
-                <Menu selectedKeys={[currentTab]} onClick={handleMenuClick} mode="horizontal" items={menuItems} />
-            </ConfigProvider>
+            <div className="flex flex-wrap gap-1 overflow-x-auto border-b border-border">
+                {menuItems.map((it) => (
+                    <button
+                        key={it.key}
+                        type="button"
+                        onClick={() => handleMenuClick(it.key)}
+                        className={cn(
+                            "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+                            currentTab === it.key
+                                ? "border-primary text-primary"
+                                : "border-transparent text-muted-foreground hover:text-foreground"
+                        )}
+                    >
+                        {it.label}
+                    </button>
+                ))}
+            </div>
 
             <div className="mt-6">
                 <Suspense fallback={<LoadingFallback />}>

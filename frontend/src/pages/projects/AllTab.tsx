@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { ConfigProvider, Table } from "antd";
+import { SimpleTable } from "@/components/ui/simple-table";
 import { useMemo } from "react";
 
 interface AllTabProps {
@@ -111,9 +111,7 @@ export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProj
     <div className="w-full">
       {Object.keys(totalsAmounts)?.length !== 0 ? (
         <div className="overflow-x-auto">
-          <ConfigProvider>
-            <Table dataSource={tableRows} columns={columns} />
-          </ConfigProvider>
+          <SimpleTable dataSource={tableRows} columns={columns} />
         </div>
       ) : (
         <div className="h-[10vh] flex items-center justify-center">

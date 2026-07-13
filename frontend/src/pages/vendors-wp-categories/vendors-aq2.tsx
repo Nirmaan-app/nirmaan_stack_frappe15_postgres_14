@@ -2,7 +2,6 @@ import { useUserData } from "@/hooks/useUserData";
 import WorkPackageSelect from "@/components/custom-select/work-package-select";//genral custom selecter
 import CategorySelect from "@/components/custom-select/category-select";//genral custom selecter
 import { useState, useEffect } from "react"; // 1. Import useEffect
-import { App } from "antd";
 import ApprovedQuotationsTable from "../ApprovedQuotationsFlow/ApprovedQuotationsTable";
 
 export default function VendorsAQ2() {

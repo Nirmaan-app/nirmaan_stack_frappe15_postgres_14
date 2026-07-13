@@ -19,7 +19,7 @@ import formatToIndianRupee, {
 } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { computeLossPercent, isHighLoss } from "@/utils/lossPercent";
-import TextArea from "antd/es/input/TextArea";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useFrappeCreateDoc,
   useFrappeDocumentEventListener,
@@ -577,10 +577,10 @@ export const SBQuotesSelectionReview: React.FC = () => {
                                               <p className="text-xs font-medium text-red-600 mb-1">
                                                 Reason <span className="font-normal">(required)</span>
                                               </p>
-                                              <TextArea
+                                              <Textarea
                                                 className="bg-red-50 border-red-200 text-xs"
                                                 placeholder="Reason for high loss..."
-                                                autoSize={{ minRows: 2, maxRows: 4 }}
+                                                rows={2}
                                                 value={justifications[item.name] || ""}
                                                 onChange={(e) =>
                                                   setJustifications((prev) => ({
@@ -753,7 +753,7 @@ export const SBQuotesSelectionReview: React.FC = () => {
                         <h4 className="font-bold">
                           Any remarks for the Project Lead?
                         </h4>
-                        <TextArea
+                        <Textarea
                           className="border-green-400 focus:border-green-800 bg-green-200"
                           placeholder="type here..."
                           value={comment}
@@ -844,7 +844,6 @@ export default SBQuotesSelectionReview;
 // } from "@/utils/FormatPrice";
 // import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 // import { parseNumber } from "@/utils/parseNumber";
-// import TextArea from "antd/es/input/TextArea";
 // import {
 //   useFrappeCreateDoc,
 //   useFrappeDocumentEventListener,
@@ -1636,7 +1635,7 @@ export default SBQuotesSelectionReview;
 //                         <h4 className="font-bold">
 //                           Any remarks for the Project Lead?
 //                         </h4>
-//                         <TextArea
+//                         <Textarea
 //                           className="border-green-400 focus:border-green-800 bg-green-200"
 //                           placeholder="type here..."
 //                           value={comment}

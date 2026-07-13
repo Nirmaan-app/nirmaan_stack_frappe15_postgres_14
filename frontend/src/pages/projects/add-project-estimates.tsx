@@ -1,7 +1,8 @@
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { ConfigProvider, Radio, Table } from "antd";
+import { SimpleTable as Table, PassThrough as ConfigProvider } from "@/components/ui/simple-table";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Trash } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -842,13 +843,10 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
                     {
                         options && (
-                            <Radio.Group
+                            <SegmentedControl
                                 options={options}
                                 value={selectedPackage}
-                                defaultValue="All"
-                                optionType="button"
-                                buttonStyle="solid"
-                                onChange={(e) => handleSetSelectedPackage(e.target.value)}
+                                onValueChange={handleSetSelectedPackage}
                             />
                         )
                     }

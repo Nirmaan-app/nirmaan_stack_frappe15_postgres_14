@@ -1,7 +1,6 @@
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { DownOutlined } from "@ant-design/icons";
-import { Tree } from "antd";
+import { ChevronRight } from "lucide-react";
 
 
 interface CustomHoverCardProps {
@@ -16,6 +15,30 @@ interface CustomHoverCardProps {
     [key: string]: any;
   };
 }
+
+// Recursive Tailwind tree: a native <details> disclosure per branch (chevron rotates
+// on open), indent guide via border-l; leaves are plain rows.
+const TreeNodes = ({ nodes }: { nodes: any[] }) => (
+  <ul className="space-y-0.5">
+    {nodes?.map((n) => (
+      <li key={n.key}>
+        {n.children?.length ? (
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-1 py-0.5 text-sm hover:text-primary">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" />
+              <span>{n.title}</span>
+            </summary>
+            <div className="ml-2 mt-0.5 border-l pl-3">
+              <TreeNodes nodes={n.children} />
+            </div>
+          </details>
+        ) : (
+          <div className="py-0.5 pl-[22px] text-sm text-muted-foreground">{n.title}</div>
+        )}
+      </li>
+    ))}
+  </ul>
+);
 
 export const CustomHoverCard: React.FC<CustomHoverCardProps> = ({
   totalPosRaised,
@@ -95,12 +118,7 @@ export const CustomHoverCard: React.FC<CustomHoverCardProps> = ({
             <h3 className="font-semibold text-lg mb-2">
               Total Spent Breakdown
             </h3>
-            <Tree
-              showLine
-              switcherIcon={<DownOutlined />}
-              defaultExpandedKeys={["0-0"]}
-              treeData={generateTreeData()}
-            />
+            <TreeNodes nodes={generateTreeData()} />
           </div>
         ) : (
           <div className="flex items-center justify-center font-semibold text-xs">

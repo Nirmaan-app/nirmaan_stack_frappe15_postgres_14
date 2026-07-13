@@ -23,8 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import { useUserData } from '@/hooks/useUserData';
 import formatToIndianRupee from '@/utils/FormatPrice';
-import type { TableColumnsType, TableProps } from 'antd';
-import { ConfigProvider, Table } from 'antd';
 import { useFrappeCreateDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { ArrowBigUpDash, ArrowLeft, CheckCheck, Info, MessageCircleMore, Pencil, Undo2 } from 'lucide-react';
 import { useEffect, useState } from "react";

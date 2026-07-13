@@ -37,11 +37,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
-import {
-  ConfigProvider,
-  Menu,
-  MenuProps
-} from "antd";
 import { FrappeDoc } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
@@ -373,7 +368,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
 
-  const handlePageChange: MenuProps['onClick'] = useCallback((e) => {
+  const handlePageChange = useCallback((e: { key: string }) => {
     const newPage = e.key as ProjectPageTabValue;
     if (activePage !== newPage) {
       setActivePage(newPage);
@@ -385,7 +380,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   }, [activePage]);
 
-  type MenuItem = Required<MenuProps>["items"][number];
+  type MenuItem = { label: React.ReactNode; key: string };
 
   // Roles that can see all tabs (privileged users)
   const PRIVILEGED_ROLES = [
