@@ -187,6 +187,19 @@ interface ClassifyStatusResponse {
 // CL-2: only the Electrical engine is wired in v1 (matches the ClassifySheetDialog gating).
 const CLASSIFY_DISCIPLINE = "Electrical";
 
+// T1 reconnect-gate: the editor's socket self-heal refetches (get_priced_rows + get_sheet_categories)
+// must fire ONLY on a GENUINE reconnect (a connect that followed a disconnect), never on the initial
+// mount connect (the page's normal SWR fetch already ran), and at most once per debounce window even
+// if a flapping dev socket reconnects faster. Pure so it is unit-tested in reconnectGate.test.ts.
+export const RECONNECT_REFETCH_DEBOUNCE_MS = 30_000;
+
+export function shouldRefetchOnConnect(
+  state: { sawDisconnect: boolean; lastRefetchAt: number },
+  now: number,
+): boolean {
+  return state.sawDisconnect && now - state.lastRefetchAt >= RECONNECT_REFETCH_DEBOUNCE_MS;
+}
+
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
   const navigate = useNavigate();
@@ -465,6 +478,12 @@ const SheetPricingPage = () => {
   const [showNeedsReview, setShowNeedsReview] = useState(false);
   const classifyRunningRef = useRef(false);
 
+  // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
+  // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
+  // flapping socket is debounced to <=1 refetch pair per RECONNECT_REFETCH_DEBOUNCE_MS.
+  const sawDisconnectRef = useRef(false);
+  const lastReconnectRefetchRef = useRef(0);
+
   // ── CL-3: category verdict picker (page-owned open-state; reset on a tab switch below) ──
   // pickerState holds the target row + the clicked cell element (the picker's virtual anchor);
   // null when closed. onCategoryClick is a STABLE callback the grid calls on a Category-cell click
@@ -694,16 +713,14 @@ const SheetPricingPage = () => {
       setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
     };
     const onDone = (p: ClassifyDonePayload) => applyClassifyDone(p);
-    const onReconnect = () => {
-      void mutateCategories();
-    };
+    // NOTE (T1): the reconnect self-heal (refetch categories) moved to the consolidated,
+    // reconnect-GATED + debounced effect below -- it no longer fires on every connect (incl. the
+    // initial mount connect). The progress/done handlers here are unchanged.
     socket.on("boq:classify_sheet_progress", onProgress);
     socket.on("boq:classify_sheet_done", onDone);
-    socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:classify_sheet_progress", onProgress);
       socket.off("boq:classify_sheet_done", onDone);
-      socket.off("connect", onReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, boqId, sheetName, applyClassifyDone]);
@@ -801,14 +818,54 @@ const SheetPricingPage = () => {
         void mutate();
       }
     };
-    const onReconnect = () => { void mutate(); };
+    // NOTE (T1): the reconnect self-heal (re-read authoritative lock state) moved to the
+    // consolidated, reconnect-GATED + debounced effect below. The boq:lock_changed handler above
+    // (which still calls mutate() on a takeover/release) is unchanged.
     socket.on("boq:lock_changed", handler);
-    socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:lock_changed", handler);
-      socket.off("connect", onReconnect);
     };
   }, [socket, mutate]);
+
+  // T1 reconnect-gate: ONE consolidated socket self-heal. The dev socket flaps (~11 reconnects in
+  // minutes); the old per-effect `socket.on("connect", () => mutate()/mutateCategories())` fired on
+  // EVERY connect (incl. the initial mount one), each refetch minting new data identities -> a full
+  // non-memoized grid reconcile -> the continuous idle re-render storm seen in the trace. Now: refetch
+  // BOTH (get_priced_rows + get_sheet_categories) only on a GENUINE reconnect (a connect that followed
+  // a disconnect), skipping the initial connect, and debounced to <=1 pair per RECONNECT_REFETCH_
+  // DEBOUNCE_MS. Refs only -> this effect adds NO re-render source. mutate/mutateCategories are stable
+  // SWR mutators. Classify-completion, freeze/unfreeze, and lock_changed mutate() paths are untouched.
+  useEffect(() => {
+    if (!socket) return;
+    const onDisconnect = () => {
+      sawDisconnectRef.current = true;
+    };
+    const onConnect = () => {
+      const now = Date.now();
+      if (
+        !shouldRefetchOnConnect(
+          { sawDisconnect: sawDisconnectRef.current, lastRefetchAt: lastReconnectRefetchRef.current },
+          now,
+        )
+      ) {
+        // Initial connect (no disconnect seen) OR a flap within the debounce window: skip. Leave
+        // sawDisconnectRef true on a debounced skip so a later connect past the window still heals.
+        return;
+      }
+      lastReconnectRefetchRef.current = now;
+      sawDisconnectRef.current = false;
+      // eslint-disable-next-line no-console
+      console.log("[pricing] reconnect refetch");
+      void mutate();
+      void mutateCategories();
+    };
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect", onConnect);
+    };
+  }, [socket, mutate, mutateCategories]);
 
   // Heartbeat (A2): while we HOLD the lock, refresh it every ~30s so an active editor is never
   // taken over mid-session (the 120s edit-driven TTL would otherwise lapse without saves). A
