@@ -754,6 +754,18 @@ export interface GetPricedRowsResponse {
    * cross-user; re-commit starts a fresh version UNLOCKED (the lock never carries forward).
    */
   is_locked: boolean;
+  /**
+   * Deliberate per-sheet CLASSIFICATION freeze (a SEPARATE feature from the pricing is_locked).
+   * When true, category verdict writes + re-classify are rejected server-side; the Category picker
+   * never opens + the Classify button is disabled. PRICING STAYS LIVE -- do NOT OR this into the
+   * `locked` gate. Toggled by freeze_classification / unfreeze_classification; persisted on BoQ
+   * Sheet, cross-user; re-commit starts a fresh version UNFROZEN. false for an uncommitted sheet.
+   */
+  classification_frozen: boolean;
+  /** The user who froze the classification (null when not frozen). */
+  frozen_by: string | null;
+  /** When the classification was frozen (null when not frozen). */
+  frozen_at: string | null;
 }
 
 // ── Slice 4b-A: the computed review-flag layer (Cluster A) ───────────────────────

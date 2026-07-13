@@ -26,6 +26,9 @@ from nirmaan_stack.services.boq_category import engines, orchestrator, persist
 from nirmaan_stack.services.boq_category.runner import load_ruleset
 
 _ROW_CATEGORY = "BoQ Row Category"
+_BOQ_SHEET = "BoQ Sheet"
+_TRUTH_SNAPSHOT = "BoQ Category Truth Snapshot"
+_FROZEN_SNAPSHOT_SOURCE = "Frozen in product"
 
 _STATUS_PREFIX = "boq_classify_status"
 _MARKER_PREFIX = "boq_classify_marker"
@@ -113,6 +116,26 @@ def _resolve_committed_version(boq, sheet_name):
     return sheets[0]["commit_version"] if sheets else None
 
 
+def _current_sheet_name(boq, sheet_name, committed_version):
+    """The docname of the is_current=1 BoQ Sheet for (boq, sheet_name, committed_version), or
+    None. sheet_name VERBATIM (#152)."""
+    return frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq, "sheet_name": sheet_name, "commit_version": committed_version, "is_current": 1},
+        "name",
+    )
+
+
+def _guard_classification_not_frozen(boq, sheet_name, committed_version):
+    """Block a category verdict write / re-classify on a classification-frozen sheet. Mirrors
+    pricing._guard_sheet_not_locked: called AFTER the target resolve and BEFORE any write / enqueue,
+    so a frozen sheet short-circuits and mutates NOTHING (reject-mutates-nothing). PURELY ADDITIVE:
+    an unfrozen sheet passes through byte-for-byte. The single frozen-state read lives in
+    persist.is_sheet_classification_frozen (service layer). sheet_name VERBATIM (#152)."""
+    if persist.is_sheet_classification_frozen(boq, sheet_name, committed_version):
+        frappe.throw(persist._FROZEN_WRITE_MESSAGE, title="Classification frozen")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────────
 @frappe.whitelist()
 def list_engines():
@@ -142,10 +165,15 @@ def start_classify(boq=None, sheet_name=None, discipline="Electrical", scope=Non
             f"Classification engine '{discipline}' is not available yet.", title="Engine unavailable"
         )
 
-    if _resolve_committed_version(boq, sheet_name) is None:
+    _cv_for_guard = _resolve_committed_version(boq, sheet_name)
+    if _cv_for_guard is None:
         frappe.throw(
             f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed"
         )
+
+    # A classification-frozen sheet rejects a re-classify BEFORE the enqueue (reject-mutates-
+    # nothing). Unfreeze to re-classify. The orchestrator carries a defence-in-depth copy.
+    _guard_classification_not_frozen(boq, sheet_name, _cv_for_guard)
 
     # scope may arrive as a JSON string from the HTTP POST body.
     if isinstance(scope, str):
@@ -359,6 +387,10 @@ def set_row_category(boq=None, sheet_name=None, excel_row=None, human_category_i
             f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed"
         )
 
+    # A classification-frozen sheet rejects a verdict write BEFORE any DML (reject-mutates-nothing).
+    # persist.set_human_verdict carries a defence-in-depth copy of this same guard.
+    _guard_classification_not_frozen(boq, sheet_name, cv)
+
     # Validate against the frozen category set (allow "" -> clear back to the machine verdict).
     val = (human_category_id or "").strip()
     if val:
@@ -401,4 +433,193 @@ def get_category_catalog(discipline="Electrical"):
         "categories": [
             {"id": c["category_id"], "label": (c.get("name") or c["category_id"])} for c in cats
         ],
+    }
+
+
+# ── Freeze / Unfreeze classification ───────────────────────────────────────────────
+def _eligible_nodes(boq, sheet_name, committed_version):
+    """The current committed eligible rows (node_type in {Line Item, Preamble}, is_current=1) for
+    the sheet, as [{excel_row, node_type}]. excel_row = BOQ Nodes.source_row_number. Empty when the
+    sheet is uncommitted. Mirrors the orchestrator's eligible-node read."""
+    sheet_doc = _current_sheet_name(boq, sheet_name, committed_version)
+    if not sheet_doc:
+        return []
+    nodes = frappe.get_all(
+        "BOQ Nodes",
+        filters={"boq": boq, "sheet": sheet_doc, "is_current": 1},
+        fields=["source_row_number", "node_type"],
+    )
+    return [
+        {"excel_row": n["source_row_number"], "node_type": (n.get("node_type") or "").strip()}
+        for n in nodes
+        if (n.get("node_type") or "").strip() in orchestrator._CLASSIFY_NT
+    ]
+
+
+@frappe.whitelist(methods=["POST"])
+def freeze_classification(boq_name=None, sheet_name=None, discipline="Electrical"):
+    """FREEZE a committed sheet's classification. THREE effects, all in ONE atomic transaction:
+      1. stamp every categorised eligible row's EFFECTIVE category (human if set else final) into
+         human_category_id IN PLACE (persist.stamp_human_verdicts_bulk, the set_human_verdict
+         idiom -- NOT freeze-and-supersede);
+      2. bank one BoQ Category Truth Snapshot row per categorised eligible row (source
+         'Frozen in product', ONE shared snapshot_batch for the event);
+      3. set classification_frozen / frozen_by / frozen_at on the is_current=1 BoQ Sheet.
+    Rows WITHOUT a category are skipped from stamping + banking (by design; get_freeze_summary
+    reports how many). While frozen, set_row_category AND start_classify are rejected; PRICING is
+    untouched. ATOMIC: one commit at the end; any failure rolls back so NOTHING is written.
+    Returns {rows_stamped, snapshots_banked, snapshot_batch, committed_version}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.freeze_classification
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if not engines.is_discipline_available(discipline):
+        frappe.throw(
+            f"Classification engine '{discipline}' is not available yet.", title="Engine unavailable"
+        )
+
+    cv = _resolve_committed_version(boq_name, sheet_name)
+    if cv is None:
+        frappe.throw(
+            f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed"
+        )
+    if persist.is_sheet_classification_frozen(boq_name, sheet_name, cv):
+        frappe.throw(
+            "Classification is already frozen for this sheet.", title="Already frozen"
+        )
+
+    # Effective category per current row (human if set else final) -- reuse get_sheet_categories'
+    # logic, don't fork it. Only rows with a non-blank effective category are stamped + banked.
+    cats = get_sheet_categories(boq_name, sheet_name, discipline)["categories"]
+    targets = [c for c in cats if (c.get("effective_category_id") or "").strip()]
+
+    batch = "gtfreeze-" + frappe.generate_hash(length=12)
+    user = frappe.session.user
+    now = frappe.utils.now()
+
+    try:
+        # (1) stamp human verdicts in place -- NO commit (the helper defers commit to us).
+        stamp_res = persist.stamp_human_verdicts_bulk(
+            boq_name, sheet_name, cv, discipline,
+            [{"excel_row": c["excel_row"], "human_category_id": c["effective_category_id"]}
+             for c in targets],
+            user=user,
+        )
+        # (2) bank one snapshot per categorised row -- source 'Frozen in product', shared batch.
+        for c in targets:
+            doc = frappe.new_doc(_TRUTH_SNAPSHOT)
+            doc.boq = boq_name
+            doc.sheet_name = sheet_name  # VERBATIM (#152)
+            doc.excel_row = c["excel_row"]
+            doc.discipline = discipline
+            doc.committed_version = cv
+            doc.label_category_id = c["effective_category_id"]
+            doc.snapshot_batch = batch
+            doc.source = _FROZEN_SNAPSHOT_SOURCE
+            doc.snapshot_at = now
+            doc.snapshot_by = user
+            doc.insert(ignore_permissions=True)
+        # (3) set the freeze flag on the committed BoQ Sheet (set_value, NOT doc.save -- the
+        # list-valued area_dimensions JSON throws on a full save).
+        bs_name = _current_sheet_name(boq_name, sheet_name, cv)
+        frappe.db.set_value(
+            _BOQ_SHEET,
+            bs_name,
+            {"classification_frozen": 1, "frozen_by": user, "frozen_at": now},
+            update_modified=False,
+        )
+        frappe.db.commit()  # single end-commit -- the whole freeze lands or nothing does.
+    except Exception:
+        frappe.db.rollback()
+        raise
+
+    return {
+        "rows_stamped": stamp_res["stamped"],
+        "snapshots_banked": len(targets),
+        "snapshot_batch": batch,
+        "committed_version": cv,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def unfreeze_classification(boq_name=None, sheet_name=None):
+    """UNFREEZE a committed sheet's classification: clear classification_frozen / frozen_by /
+    frozen_at ONLY. The banked snapshots stay permanent + the human stamps stay (unfreeze does NOT
+    revert them). Rejects if the sheet is not currently frozen. Returns {ok, committed_version}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.unfreeze_classification
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    cv = _resolve_committed_version(boq_name, sheet_name)
+    if cv is None:
+        frappe.throw(
+            f"No current committed sheet '{sheet_name}' for this BoQ.", title="Sheet not committed"
+        )
+    if not persist.is_sheet_classification_frozen(boq_name, sheet_name, cv):
+        frappe.throw("Classification is not frozen for this sheet.", title="Not frozen")
+
+    bs_name = _current_sheet_name(boq_name, sheet_name, cv)
+    frappe.db.set_value(
+        _BOQ_SHEET,
+        bs_name,
+        {"classification_frozen": 0, "frozen_by": None, "frozen_at": None},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    return {"ok": True, "committed_version": cv}
+
+
+@frappe.whitelist()
+def get_freeze_summary(boq_name=None, sheet_name=None, discipline="Electrical"):
+    """Read-only pre-freeze summary. Counts eligible rows (node_type in {Line Item, Preamble})
+    that have NO effective category, split by node_type, and reports the current freeze state.
+    Returns {uncategorised_preambles, uncategorised_line_items, frozen, frozen_by, frozen_at,
+    committed_version}. Graceful zeros for an uncommitted sheet.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.classify.get_freeze_summary
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    cv = _resolve_committed_version(boq_name, sheet_name)
+    if cv is None:
+        return {
+            "uncategorised_preambles": 0, "uncategorised_line_items": 0,
+            "frozen": False, "frozen_by": None, "frozen_at": None, "committed_version": None,
+        }
+
+    # Effective category by excel_row (missing row -> treated as blank / uncategorised).
+    cats = get_sheet_categories(boq_name, sheet_name, discipline)["categories"]
+    effective_by_row = {
+        c["excel_row"]: (c.get("effective_category_id") or "").strip() for c in cats
+    }
+
+    preambles = line_items = 0
+    for node in _eligible_nodes(boq_name, sheet_name, cv):
+        if effective_by_row.get(node["excel_row"], ""):
+            continue  # categorised
+        if node["node_type"] == "Preamble":
+            preambles += 1
+        elif node["node_type"] == "Line Item":
+            line_items += 1
+
+    bs_name = _current_sheet_name(boq_name, sheet_name, cv)
+    fields = frappe.db.get_value(
+        _BOQ_SHEET, bs_name, ["classification_frozen", "frozen_by", "frozen_at"], as_dict=True
+    ) or {}
+    return {
+        "uncategorised_preambles": preambles,
+        "uncategorised_line_items": line_items,
+        "frozen": bool(fields.get("classification_frozen")),
+        "frozen_by": fields.get("frozen_by"),
+        "frozen_at": fields.get("frozen_at"),
+        "committed_version": cv,
     }

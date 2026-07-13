@@ -2104,6 +2104,14 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # REASON distinct (a deliberate-lock teal banner vs the amber concurrency banner).
         # False for an uncommitted / grid-only sheet (no committed BoQ Sheet -> not locked).
         "is_locked": False,
+        # Deliberate per-sheet CLASSIFICATION freeze (separate feature from the pricing lock). A
+        # SEPARATE key -- the frontend reads it beside is_locked but does NOT OR it into the pricing
+        # `locked` gate (pricing stays live under a classification freeze). Toggled by
+        # freeze_classification / unfreeze_classification; persisted on BoQ Sheet, cross-user;
+        # re-commit starts a fresh version UNFROZEN. False for an uncommitted / grid-only sheet.
+        "classification_frozen": False,
+        "frozen_by": None,
+        "frozen_at": None,
     }
 
     # A committed sheet+version has a lock identity -> surface its current lock state.
@@ -2122,6 +2130,17 @@ def get_priced_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # Deliberate lock (persisted on BoQ Sheet) -- a pure read of the current committed
         # version's is_locked; rides the same committed-version branch.
         base["is_locked"] = bool(_get_sheet_is_locked(boq_name, sheet_name, commit_version))
+        # Classification freeze (persisted on BoQ Sheet, separate from is_locked) -- one pure read
+        # of the current committed version's freeze fields; rides the same committed-version branch.
+        _frozen_name = _current_sheet_name(boq_name, sheet_name, commit_version)
+        if _frozen_name:
+            _fz = frappe.db.get_value(
+                _BOQ_SHEET, _frozen_name,
+                ["classification_frozen", "frozen_by", "frozen_at"], as_dict=True,
+            ) or {}
+            base["classification_frozen"] = bool(_fz.get("classification_frozen"))
+            base["frozen_by"] = _fz.get("frozen_by")
+            base["frozen_at"] = _fz.get("frozen_at")
         # Amount formulas (F1): the current per-column formulas for this committed version,
         # shaped PER-COLUMN for the grid lookup (built once; NOT stamped onto any row).
         base["column_formulas"] = [

@@ -24,7 +24,18 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { formatDate } from "@/utils/FormatDate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -378,6 +389,27 @@ const SheetPricingPage = () => {
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
 
+  // ── Classification freeze (SEPARATE from the pricing lock) ────────────────────────
+  // Freeze banks a permanent truth snapshot + stamps effective categories into human_category_id
+  // + locks category editing (picker + re-classify), while PRICING stays live. Toggled here; the
+  // editor re-reads classification_frozen from get_priced_rows via mutate() after each POST.
+  const { call: freezeClassificationCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.freeze_classification",
+  );
+  const { call: unfreezeClassificationCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.unfreeze_classification",
+  );
+  const { call: getFreezeSummaryCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.get_freeze_summary",
+  );
+  const [freezeToggling, setFreezeToggling] = useState(false);
+  // The pre-freeze confirm dialog (holds the uncategorised counts from get_freeze_summary) and the
+  // unfreeze confirm dialog. null = closed.
+  const [freezeConfirm, setFreezeConfirm] = useState<
+    { uncategorised_preambles: number; uncategorised_line_items: number } | null
+  >(null);
+  const [unfreezeConfirm, setUnfreezeConfirm] = useState(false);
+
   // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
   // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
   // (the grid's onDirtyChange), heartbeat ~30s while holding it, release on leave (sendBeacon
@@ -440,8 +472,18 @@ const SheetPricingPage = () => {
   const [pickerState, setPickerState] = useState<{ excelRow: number; anchorEl: HTMLElement } | null>(
     null,
   );
+  // Mirrors classification_frozen so the STABLE onCategoryClick can short-circuit while frozen
+  // without becoming a new callback (which would defeat the grid's row memo). Set during render.
+  const classificationFrozenRef = useRef(false);
   const onCategoryClick = useCallback(
-    (excelRow: number, cellEl: HTMLElement) => setPickerState({ excelRow, anchorEl: cellEl }),
+    (excelRow: number, cellEl: HTMLElement) => {
+      // While frozen, the picker never opens -- clicking a Category cell shows a brief message.
+      if (classificationFrozenRef.current) {
+        setSaveError("Classification is frozen — unfreeze to make changes.");
+        return;
+      }
+      setPickerState({ excelRow, anchorEl: cellEl });
+    },
     [],
   );
 
@@ -896,6 +938,14 @@ const SheetPricingPage = () => {
   // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
   // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
   const isLocked = activeMessage?.is_locked ?? false;
+  // The CLASSIFICATION freeze (separate feature). Read beside isLocked but DELIBERATELY NOT ORed
+  // into `locked` -- pricing stays fully editable under a classification freeze. It gates ONLY the
+  // Category picker + the Classify button. A ref keeps onCategoryClick reference-stable (row-memo
+  // anti-defeat rule) while still seeing the current frozen state.
+  const classificationFrozen = activeMessage?.classification_frozen ?? false;
+  const frozenBy = activeMessage?.frozen_by ?? null;
+  const frozenAt = activeMessage?.frozen_at ?? null;
+  classificationFrozenRef.current = classificationFrozen;
   // Loading/error track the ACTIVE source (the history fetch while in history mode).
   const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
   const pricedError = isViewingHistory ? historyData === null : pricedData === null;
@@ -951,6 +1001,54 @@ const SheetPricingPage = () => {
       setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
     } finally {
       setLockToggling(false);
+    }
+  };
+
+  // Classification freeze toggle. Freeze first reads get_freeze_summary (so the confirm dialog can
+  // warn about uncategorised rows), then the confirm dialog POSTs freeze_classification. Unfreeze
+  // opens its own confirm dialog. Both mutate() so the editor re-reads classification_frozen.
+  // sheet_name VERBATIM (#152). Disabled while a POST is in flight.
+  const handleFreezeClick = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setFreezeToggling(true);
+    try {
+      const res = await getFreezeSummaryCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      const m = res?.message ?? {};
+      setFreezeConfirm({
+        uncategorised_preambles: m.uncategorised_preambles ?? 0,
+        uncategorised_line_items: m.uncategorised_line_items ?? 0,
+      });
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not read the freeze summary. Please try again.");
+    } finally {
+      setFreezeToggling(false);
+    }
+  };
+
+  const doFreeze = async () => {
+    setFreezeConfirm(null);
+    setFreezeToggling(true);
+    try {
+      await freezeClassificationCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not freeze the classification. Please try again.");
+    } finally {
+      setFreezeToggling(false);
+    }
+  };
+
+  const doUnfreeze = async () => {
+    setUnfreezeConfirm(false);
+    setFreezeToggling(true);
+    try {
+      await unfreezeClassificationCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not unfreeze the classification. Please try again.");
+    } finally {
+      setFreezeToggling(false);
     }
   };
 
@@ -1896,9 +1994,13 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || classifyRunning}
+            disabled={pricedLoading || pricedError || classifyRunning || classificationFrozen}
             onClick={() => setClassifyOpen(true)}
-            title="Run AI category classification over this sheet."
+            title={
+              classificationFrozen
+                ? "Unfreeze to re-classify."
+                : "Run AI category classification over this sheet."
+            }
           >
             {classifyRunning ? (
               <>
@@ -1912,6 +2014,39 @@ const SheetPricingPage = () => {
               </>
             )}
           </Button>
+
+          {/* ── Freeze / Unfreeze classification. Banks a permanent truth snapshot + stamps effective
+              categories into human_category_id + locks category editing (picker + re-classify), while
+              PRICING stays live. Reads classification_frozen off get_priced_rows (NOT the pricing
+              `locked` gate). Disabled while loading / classifying / uncommitted / toggling. ── */}
+          <Button
+            size="sm"
+            variant={classificationFrozen ? "default" : "outline"}
+            className="gap-1.5"
+            disabled={
+              pricedLoading || pricedError || classifyRunning || commitVersion === null || freezeToggling
+            }
+            onClick={classificationFrozen ? () => setUnfreezeConfirm(true) : handleFreezeClick}
+            title={
+              classificationFrozen
+                ? "Classification is frozen. Click to unfreeze and edit categories."
+                : "Freeze categories: bank a permanent snapshot and lock category editing."
+            }
+          >
+            {freezeToggling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Snowflake className="h-4 w-4" />
+            )}
+            {classificationFrozen ? "Unfreeze Classification" : "Freeze Classification"}
+          </Button>
+          {classificationFrozen && (
+            <span className="text-xs text-muted-foreground">
+              Frozen
+              {frozenAt ? ` · ${formatDate(frozenAt)}` : ""}
+              {frozenBy ? ` · ${frozenBy}` : ""}
+            </span>
+          )}
 
           {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
               unresolved Needs-review). VIEW-ONLY, mirrors the Show-unpriced toggle. ── */}
@@ -2207,6 +2342,57 @@ const SheetPricingPage = () => {
         onSelect={handleVerdictSelect}
         onClose={() => setPickerState(null)}
       />
+
+      {/* Freeze confirm -- warns when eligible rows have no category (they are skipped from the
+          snapshot, not blocked). Plain confirm when everything is categorised. */}
+      <AlertDialog open={!!freezeConfirm} onOpenChange={(o) => !o && setFreezeConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Freeze classification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {freezeConfirm &&
+              (freezeConfirm.uncategorised_preambles > 0 ||
+                freezeConfirm.uncategorised_line_items > 0) ? (
+                <>
+                  {freezeConfirm.uncategorised_preambles} preamble
+                  {freezeConfirm.uncategorised_preambles === 1 ? "" : "s"} and{" "}
+                  {freezeConfirm.uncategorised_line_items} line item
+                  {freezeConfirm.uncategorised_line_items === 1 ? "" : "s"} don&apos;t have a
+                  category. Freeze anyway?
+                </>
+              ) : (
+                <>
+                  This banks a permanent snapshot of the current categories and locks category
+                  editing. Pricing stays editable. Freeze?
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doFreeze}>Freeze</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unfreeze confirm -- verbatim owner copy. */}
+      <AlertDialog open={unfreezeConfirm} onOpenChange={setUnfreezeConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unfreeze classification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unfreezing unlocks category editing on this sheet. The frozen snapshot stays banked
+              permanently. If you re-classify, current human verdicts will not carry forward. Once
+              your edits are done, freeze the classification again to bank the updated truth.
+              Unfreeze?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doUnfreeze}>Unfreeze</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). For a grid-only
