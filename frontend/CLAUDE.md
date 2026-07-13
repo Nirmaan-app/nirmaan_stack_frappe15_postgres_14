@@ -329,6 +329,16 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
   `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
   REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
+- **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
+  handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
+  double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
+  because `PricingGrid` is `forwardRef` WITHOUT `React.memo`, each page re-render is a full-grid reconcile → a continuous
+  idle re-render storm (measured: ~92% main-thread saturation for a whole session). The rule: refetch ONLY on a GENUINE
+  reconnect (a `connect` that followed a `disconnect`, tracked via a REF — never state, or the tick itself re-renders)
+  and debounce to ≤1 refetch per ~30s (`shouldRefetchOnConnect` pure helper + `RECONNECT_REFETCH_DEBOUNCE_MS`). frappe-react-sdk's
+  SWR `revalidateOnReconnect` binds the browser `online` event, NOT the app socket, so socket flapping does NOT hit SWR —
+  do not add per-hook `revalidateOnReconnect:false` for socket reasons. (Memoizing `PricingGrid` is the deferred T2
+  source-independent kill.)
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
