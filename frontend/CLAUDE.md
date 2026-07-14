@@ -350,6 +350,19 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   passed to the grid re-defeats the memo with no error. **The three loading/`!boq`/`!sheetName` guards render as branches of the
   SINGLE `return` (NOT early returns)** so all derived state stays hook-legal — do not reintroduce an early return above the
   derived-state region (it makes the memoization illegal). Verify with React DevTools Profiler ("Why did this render?").
+- **Virtualized windowing (V1) — ONE virtualizer drives BOTH panes; classic path retained behind the A/B toggle.** The grid
+  windows rows via `@tanstack/react-virtual` when the page-owned `virtualized` prop is true (default ON, session-scoped); false =
+  the CLASSIC full render, **byte-identical to pre-V1** (the 143 `PricingGrid` tests certify it). ONE `useVirtualizer` instance is
+  the row-window authority for both panes: `getScrollElement` = `scrollPaneRef` (two-pane) / `containerRef` (single); both
+  `<tbody>`s render the SAME `getVirtualItems()` slice + identical `deriveSpacers` spacer `<tr>`s (never two synced virtualizers).
+  The render decision is `twoPane = selectRenderPath(...) === "twoPane"` (classic gates on `split`, virtualized on `frozen`); only
+  the `<tbody>` content changes (via `renderTbody`) — the pane/table JSX is shared. **Pane alignment = a shared per-row height:**
+  the MEASURED pane (scrolling / single) renders NATURAL height + `measureElement`; the frozen pane pads to `virtualItem.size`.
+  The freeze-measure-all `useLayoutEffect` is SKIPPED when `virtualized`. **Any new grid prop must stay identity-stable (the V0
+  shield);** `measureRef` is stable per virtualizer instance and is compared in `pricingRowPropsAreEqual`. Pure window helpers
+  live in `pricingVirtual.ts` (unit-tested). **V2 known gaps:** nav/search-jump to UNMOUNTED rows no-op (use `scrollToIndex` in
+  V2; classic toggle is the fallback), overlay close-on-scroll-out, RemarkCell durable re-key. Runtime behavior is an A/B
+  instrument — confirm the virtualized path live before relying on it; classic is the guaranteed fallback.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
