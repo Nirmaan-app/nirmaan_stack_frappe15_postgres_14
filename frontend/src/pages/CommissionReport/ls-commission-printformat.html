@@ -130,7 +130,7 @@ tr { page-break-inside: avoid; }
   - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[]) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], nirmaan_sign=False) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
@@ -152,7 +152,7 @@ tr { page-break-inside: avoid; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td{%- if label == "NIRMAAN" and nirmaan_sign %} style="background-image:url('{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}'); background-size:contain; background-position:center; background-repeat:no-repeat; -webkit-print-color-adjust:exact; print-color-adjust:exact;"{% endif %}>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -220,6 +220,7 @@ tr { page-break-inside: avoid; }
         {%- set _sig_rd = ((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {} -%}
         {%- set sig_disabled = _sig_rd.get("disabled") or [] -%}
         {%- set sig_enabled  = _sig_rd.get("enabled")  or [] -%}
+        {%- set sig_nirmaan  = _sig_rd.get("nirmaanSign") -%}
 
         {# Landscape-only print format. Add `{% elif tpl.templateId == "…" %}`
            branches here as more landscape reports are added. Portrait templates
@@ -357,7 +358,7 @@ tr { page-break-inside: avoid; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan) }}
                 </td></tr>
             </table>
 

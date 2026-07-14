@@ -145,7 +145,11 @@ const SignaturesPicker: React.FC<{
             name={fieldName}
             defaultValue={{ disabled: [], enabled: [] }}
             render={({ field }) => {
-                const value = (field.value || {}) as { disabled?: string[]; enabled?: string[] };
+                const value = (field.value || {}) as {
+                    disabled?: string[];
+                    enabled?: string[];
+                    nirmaanSign?: boolean;
+                };
                 const disabledList: string[] = Array.isArray(value.disabled) ? value.disabled : [];
                 const enabledList: string[] = Array.isArray(value.enabled) ? value.enabled : [];
 
@@ -156,6 +160,12 @@ const SignaturesPicker: React.FC<{
                 const totalCount = roles.length;
                 const tdsOnCount = roles.filter((r) => r.inTds).length;
                 const manualOnCount = roles.filter((r) => !r.inTds && enabledList.includes(r.key)).length;
+
+                // The Nirmaan (MEP) box can optionally print the company seal + signature
+                // instead of a blank box. Only relevant when the NIRMAAN role is included.
+                const nirmaanRole = roles.find((r) => r.key === 'mep_contractor' && r.label === 'NIRMAAN');
+                const nirmaanIncluded = nirmaanRole ? isChecked(nirmaanRole) : false;
+                const nirmaanSign = value.nirmaanSign === true;
 
                 const toggle = (r: RoleRow, nextChecked: boolean) => {
                     let nextDisabled = disabledList.slice();
@@ -169,7 +179,8 @@ const SignaturesPicker: React.FC<{
                             ? [...new Set([...nextEnabled, r.key])]
                             : nextEnabled.filter((k) => k !== r.key);
                     }
-                    field.onChange({ disabled: nextDisabled, enabled: nextEnabled });
+                    // Preserve nirmaanSign (and any other keys) when toggling roles.
+                    field.onChange({ ...value, disabled: nextDisabled, enabled: nextEnabled });
                 };
 
                 return (
@@ -322,6 +333,30 @@ const SignaturesPicker: React.FC<{
                                 );
                             })}
                         </div>
+
+                        {nirmaanIncluded && (
+                            <label className="flex cursor-pointer items-start gap-3 rounded-md border bg-muted/20 p-3">
+                                <Checkbox
+                                    checked={nirmaanSign}
+                                    disabled={forceReadonly}
+                                    onCheckedChange={(v) =>
+                                        !forceReadonly &&
+                                        field.onChange({ ...value, nirmaanSign: v === true })
+                                    }
+                                    className="mt-0.5"
+                                    aria-label="Affix Nirmaan seal and signature"
+                                />
+                                <span className="text-sm">
+                                    <span className="font-medium text-foreground">
+                                        Affix Nirmaan seal &amp; signature
+                                    </span>
+                                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                                        Prints the Nirmaan company seal in the NIRMAAN box. Leave off to
+                                        hand-sign &amp; stamp on the printed copy.
+                                    </span>
+                                </span>
+                            </label>
+                        )}
 
                         {includedCount === 0 && (
                             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
