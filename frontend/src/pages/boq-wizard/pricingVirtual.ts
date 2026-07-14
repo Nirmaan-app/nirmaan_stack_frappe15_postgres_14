@@ -78,6 +78,21 @@ export function clampIndex(index: number | null, rowCount: number): number | nul
   return Math.min(Math.max(0, index), rowCount - 1);
 }
 
+/**
+ * V1-FIX (max-of-both-panes): the alignment height for a virtualized row = the MAX natural content
+ * height across the panes (frozen + scrolling, or the single table). Robust regardless of which pane
+ * wraps -- it prevents the tall pane (e.g. Description, which the freeze layout puts frozen-left)
+ * from being padded DOWN to the short pane's height (the V1 misalignment + truncation bug). Ignores
+ * 0 / negative / non-finite (a pane with no row at this index, or an unmeasured one, contributes
+ * nothing); returns 0 when none is positive. The heights fed in must be NATURAL content heights
+ * (measured immune to the applied padding) so a padded pane never feeds its own padding back.
+ */
+export function maxRowHeight(heights: number[]): number {
+  let m = 0;
+  for (const h of heights) if (typeof h === "number" && Number.isFinite(h) && h > m) m = h;
+  return m;
+}
+
 /** The column count for a pane's spacer <td> colSpan (so the spacer spans the whole pane cleanly). */
 export function paneColSpan(
   pane: "frozen" | "scrolling" | undefined,

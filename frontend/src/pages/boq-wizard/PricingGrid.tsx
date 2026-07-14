@@ -88,10 +88,41 @@ import {
   DEFAULT_ROW_ESTIMATE_PX,
   ROW_OVERSCAN,
   deriveSpacers,
+  maxRowHeight,
   paneColSpan,
   seedEstimate,
   selectRenderPath,
 } from "./pricingVirtual";
+
+// V1-FIX: the NATURAL content height of a pane's row -- immune to the row's applied alignment
+// height. Because every cell is `align-top`, the cell's content wrapper sits at the top and does
+// NOT stretch when the <tr> is padded taller; so reading the tallest child's box height (+ the
+// cell's own vertical padding/border) yields the true content height regardless of padding. This is
+// what prevents the padded (short) pane from feeding its padding back into the max (no sticky-max).
+function paneNaturalHeight(tr: Element | null | undefined): number {
+  if (!tr) return 0;
+  let max = 0;
+  for (const cell of Array.from(tr.children)) {
+    const cs = getComputedStyle(cell as HTMLElement);
+    const chrome =
+      parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
+      parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    let content = 0;
+    const kids = (cell as HTMLElement).children;
+    if (kids.length > 0) {
+      for (const ch of Array.from(kids)) content = Math.max(content, ch.getBoundingClientRect().height);
+    } else {
+      // text-only cell (rare) -- the box minus chrome is the best available natural read.
+      content = Math.max(0, (cell as HTMLElement).getBoundingClientRect().height - chrome);
+    }
+    max = Math.max(max, content + chrome);
+  }
+  // NOTE: reads only the cells' non-stretching CONTENT wrappers (+ cell padding/border). Deliberately
+  // does NOT add the row's own border or any safety margin: a scrolling cell whose content wrapper
+  // STRETCHES with the row height would feed any added constant back in, inflating the row every frame
+  // (a runaway loop). This value is stable (converges) because it reads content, not the padded box.
+  return Math.ceil(max);
+}
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import {
@@ -1649,6 +1680,11 @@ interface PricingGridRowProps {
    *  (scrolling in two-pane, or the single table) in virtualized mode; undefined otherwise. It is
    *  reference-stable per virtualizer instance -> memo-safe (the comparator treats it as such). */
   measureRef?: (el: HTMLTableRowElement | null) => void;
+  /** V1-FIX: whether to clip the Description to `rowHeight`. TRUE in classic mode + for manually-
+   *  dragged virtualized rows (the applied height is authoritative -> clip to it). FALSE for AUTO
+   *  virtualized rows -> Description renders NATURAL so the row measures true content and the
+   *  max-of-both-panes alignment (not a clip) keeps the panes level. Stable per row -> memo-safe. */
+  clipDescription?: boolean;
   depth: number;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
@@ -1751,6 +1787,7 @@ export function pricingRowPropsAreEqual(
     prev.pane === next.pane &&
     prev.rowHeight === next.rowHeight &&
     prev.measureRef === next.measureRef && // stable per virtualizer instance -> never flips per render
+    prev.clipDescription === next.clipDescription && // stable per row (classic true / auto-virt false)
     prev.depth === next.depth &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
@@ -1809,6 +1846,7 @@ const PricingGridRow = memo(function PricingGridRow({
   pane,
   rowHeight,
   measureRef,
+  clipDescription = true,
   depth,
   parentExcelRow,
   flags,
@@ -2061,7 +2099,10 @@ const PricingGridRow = memo(function PricingGridRow({
             // description to it so a tall row cannot push this pane's <tr> past the matching row in
             // the other pane. Text still WRAPS (break-words) then clips from the top (align-top +
             // overflow hidden); the full text stays readable via the title below. No-op unfrozen.
-            ...(rowHeight != null
+            // V1-FIX: clip ONLY when clipDescription (classic + manual-drag rows). AUTO virtualized
+            // rows render the Description NATURAL so it is neither truncated nor mis-measured; their
+            // alignment comes from the max-of-both-panes row height, not a clip.
+            ...(rowHeight != null && clipDescription
               ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
               : {}),
           }}
@@ -3601,7 +3642,39 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     estimateSize: (index) =>
       seedEstimate(appliedRowHeight(rows[index]?.row_index), DEFAULT_ROW_ESTIMATE_PX),
     overscan: ROW_OVERSCAN,
+    // V1-FIX (max-of-both-panes): the virtualizer's size for a row = the MAX natural content height
+    // across BOTH panes (frozen + scrolling) -- NOT just the measured pane. This is what keeps the
+    // tall Description (frozen-left in this layout) from being padded down + truncated. Reads NATURAL
+    // content (paneNaturalHeight, immune to the applied padding) so the padded pane never sticks the
+    // max. Manual-drag precedence: a manually-sized row uses its explicit height (classic clip path).
+    // The `el` passed is the OBSERVED (scrolling / single) pane's <tr>; we look up the frozen twin by
+    // data-index. Frozen-only reflows (column resize / data change) are re-measured by the effect below.
+    measureElement: (el) => {
+      const iStr = (el as HTMLElement).dataset.index;
+      if (iStr == null) return DEFAULT_ROW_ESTIMATE_PX;
+      const idx = parseInt(iStr, 10);
+      const ri = rows[idx]?.row_index;
+      if (ri != null && manualRowHeights[ri] != null) return manualRowHeights[ri];
+      const sel = `tr[data-index="${idx}"]`;
+      const naturals = [
+        paneNaturalHeight(frozenPaneRef.current?.querySelector(sel)),
+        paneNaturalHeight(scrollPaneRef.current?.querySelector(sel)),
+        paneNaturalHeight(containerRef.current?.querySelector(sel)),
+      ];
+      return maxRowHeight(naturals) || DEFAULT_ROW_ESTIMATE_PX;
+    },
   });
+  // V1-FIX: re-measure the mounted window when the FROZEN (unobserved) pane may have reflowed --
+  // column-width changes (Description re-wrap) or a data/version change. TanStack observes only ONE
+  // element per index (the scrolling pane's, attached last), so a frozen-only reflow would otherwise
+  // be missed. Re-invoking measureElement on each mounted (observed) scrolling <tr> recomputes the
+  // max reading BOTH panes' CURRENT content. No-op unless virtualized + two-pane.
+  useEffect(() => {
+    if (!virtualized || !twoPaneRef.current) return;
+    const host = scrollPaneRef.current ?? containerRef.current;
+    host?.querySelectorAll("tr[data-index]").forEach((el) => rowVirtualizer.measureElement(el));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colWidths, rows, virtualized]);
   // V1 flip re-anchor (mid-state toggle, case a): the scroll element is the SAME div across a flip
   // (only the <tbody> content changes), so scrollTop is preserved. When flipping TO virtualized,
   // re-sync the virtualizer to that scrollTop so the window lands at/near the same top visible row
@@ -3871,24 +3944,21 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     virtualSize?: number,
   ) => {
     const selRange = rowSelectionRange(selRect, rowIdx);
-    // V1: in virtualized mode the MEASURED pane (scrolling in two-pane, or the single table) renders
-    // at NATURAL height (rowHeight undefined -> Description not clipped) so measureElement reads the
-    // true height; the FROZEN pane pads to that measured size (virtualSize) so the panes align.
-    // virtualSize is undefined in classic mode -> the classic `split ? applied : undefined` path
-    // (byte-for-byte unchanged).
-    const isMeasuredPane = pane !== "frozen";
-    const heightForRow =
-      virtualized && virtualSize != null
-        ? isMeasuredPane
-          ? undefined
-          : virtualSize
-        : split
-          ? appliedRowHeight(row.row_index)
-          : undefined;
+    // V1-FIX (max-of-both-panes): in virtualized mode BOTH panes render at the SAME size = the
+    // virtualizer's per-row `virtualSize` (= max natural content across both panes). Since a <tr>
+    // `height` is a table MINIMUM, the taller pane (Description, frozen-left here) reaches its
+    // content exactly and the shorter pane pads to it -> aligned, no truncation, symmetric box model
+    // (fixes the 1px drift). The Description clip is OFF for AUTO rows (so it renders natural and the
+    // measurement reads true content); a MANUALLY-dragged row keeps its explicit height WITH the clip
+    // (classic behaviour for that row). virtualSize undefined in classic mode -> the byte-identical
+    // `split ? applied : undefined` path, clip ON.
+    const ri = row.row_index;
+    const isManualRow = manualRowHeights[ri] != null;
+    const virt = virtualized && virtualSize != null;
+    const heightForRow = virt ? virtualSize : split ? appliedRowHeight(ri) : undefined;
+    const clipDescriptionForRow = virt ? isManualRow : true;
     const measureRefForRow =
-      virtualized && virtualSize != null && isMeasuredPane
-        ? rowVirtualizer.measureElement
-        : undefined;
+      virt && pane !== "frozen" ? rowVirtualizer.measureElement : undefined;
     return (
     <PricingGridRow
       key={row.row_index}
@@ -3896,6 +3966,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       rowIndex={rowIdx}
       pane={pane}
       rowHeight={heightForRow}
+      clipDescription={clipDescriptionForRow}
       measureRef={measureRefForRow}
       depth={depths.get(row.row_index) ?? 0}
       parentExcelRow={parentExcelRowOf(row, byIdx)}

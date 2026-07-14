@@ -8,7 +8,25 @@ import {
   topVisibleIndex,
   clampIndex,
   paneColSpan,
+  maxRowHeight,
 } from "./pricingVirtual";
+
+describe("maxRowHeight (V1-FIX max-of-both-panes)", () => {
+  it("takes the taller pane, order-independent (Description-frozen or Remarks-scrolling)", () => {
+    expect(maxRowHeight([21, 448])).toBe(448); // short scrolling + tall frozen Description
+    expect(maxRowHeight([448, 21])).toBe(448); // order-independent
+    expect(maxRowHeight([33, 80, 33])).toBe(80); // single table + a tall row
+  });
+  it("returns a single pane's height when only one row exists at the index", () => {
+    expect(maxRowHeight([33])).toBe(33);
+  });
+  it("ignores 0 / negative / non-finite / empty (no sticky from a padded-but-empty pane)", () => {
+    expect(maxRowHeight([0, 0])).toBe(0);
+    expect(maxRowHeight([])).toBe(0);
+    expect(maxRowHeight([-5, 33])).toBe(33);
+    expect(maxRowHeight([NaN, 33, Infinity])).toBe(33);
+  });
+});
 
 describe("selectRenderPath (toggle x frozen x split)", () => {
   it("empty when no rows, regardless of mode", () => {
