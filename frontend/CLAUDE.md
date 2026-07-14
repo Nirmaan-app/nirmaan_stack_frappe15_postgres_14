@@ -356,8 +356,16 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   the row-window authority for both panes: `getScrollElement` = `scrollPaneRef` (two-pane) / `containerRef` (single); both
   `<tbody>`s render the SAME `getVirtualItems()` slice + identical `deriveSpacers` spacer `<tr>`s (never two synced virtualizers).
   The render decision is `twoPane = selectRenderPath(...) === "twoPane"` (classic gates on `split`, virtualized on `frozen`); only
-  the `<tbody>` content changes (via `renderTbody`) — the pane/table JSX is shared. **Pane alignment = a shared per-row height:**
-  the MEASURED pane (scrolling / single) renders NATURAL height + `measureElement`; the frozen pane pads to `virtualItem.size`.
+  the `<tbody>` content changes (via `renderTbody`) — the pane/table JSX is shared. **Pane alignment = MAX-of-both-panes height
+  (V1-FIX): NEVER assume which pane is taller.** The freeze layout puts the wrapping **Description** in the FROZEN pane (through
+  the 5 anchors), so measuring only the scrolling pane truncates + mis-aligns. The custom `measureElement` reads BOTH panes' rows
+  by `data-index` and feeds `max(paneNaturalHeight(frozen), paneNaturalHeight(scroll))` to the ONE size cache; both panes get that
+  size as the `<tr>` height (a table MIN) → the taller reaches content, the shorter pads → aligned, no truncation. `paneNaturalHeight`
+  MUST read the non-stretching content wrapper (align-top), NOT the padded `<tr>` box (else the padded pane feeds its padding back =
+  sticky-max), and MUST NOT add the row border or any safety margin (a stretching scrolling cell feeds it back = runaway row growth).
+  `clipDescription` is OFF for auto virtualized rows, ON for classic + manual-drag rows. TanStack observes only the LAST element per
+  index (verified) → a `useEffect([colWidths, rows, virtualized])` re-measures for frozen-only reflows. Residual sub-pixel drift only
+  at fractional display DPR / browser zoom (two separate `border-collapse` tables) — 0px at 100% zoom.
   The freeze-measure-all `useLayoutEffect` is SKIPPED when `virtualized`. **Any new grid prop must stay identity-stable (the V0
   shield);** `measureRef` is stable per virtualizer instance and is compared in `pricingRowPropsAreEqual`. Pure window helpers
   live in `pricingVirtual.ts` (unit-tested). **V2 known gaps:** nav/search-jump to UNMOUNTED rows no-op (use `scrollToIndex` in
