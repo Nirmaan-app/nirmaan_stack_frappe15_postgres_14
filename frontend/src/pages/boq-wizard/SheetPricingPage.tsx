@@ -929,34 +929,16 @@ const SheetPricingPage = () => {
     void mutate();
   };
 
-  // ── Full-page spinner while the BOQs doc loads ──────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // ── Not-found state ─────────────────────────────────────────────────────────
-  if (!boq) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
-        <p className="font-medium text-foreground">BoQ not found</p>
-        <p className="text-sm text-muted-foreground">
-          No record found for &ldquo;{boqId}&rdquo;.
-        </p>
-        <Button variant="outline" className="mt-4" onClick={handleBack}>
-          Back to hub
-        </Button>
-      </div>
-    );
-  }
-
-  // ── Missing sheet name in URL (routing guarantees it, but be defensive) ─────
-  if (!sheetName) {
-    return <p className="p-6 text-sm text-destructive">Missing sheet identifier in URL.</p>;
-  }
+  // ── Guard screens (V0/T2) ────────────────────────────────────────────────────
+  // These were THREE early returns (isLoading / !boq / !sheetName). They are now conditional
+  // branches in the SINGLE return at the bottom (byte-identical JSX, same order) so that every
+  // derived-state const + handler below is a LEGAL hook position -- required to memoize them
+  // (useMemo/useCallback) for the React.memo(PricingGrid) shield (hooks-after-early-return is
+  // illegal). Everything from here to the return now also runs during the loading / no-data
+  // states, so it is undefined-safe by construction: rows / columnDescriptors / etc. default to
+  // [] (activeMessage read via ?.), and the `boq` doc is dereferenced ONLY inside the guarded
+  // MainContent branch of the return (never in a derivation above it). sheetName is never member-
+  // accessed (only value / ?? "").
 
   // Slice 3d: the BoQ's committed sheets in workbook order (sheet_order), for the tab
   // strip. Empty while the list loads -> the strip renders nothing (the grid never waits
@@ -979,8 +961,20 @@ const SheetPricingPage = () => {
   // below -- rowFlags/pricedCount/maps -- a smaller separate cost, deliberately out of scope.)
   const rawRows = activeMessage?.rows ?? [];
   const rowsSourceSig = isViewingHistory ? `v:${selectedVersion}` : "current";
-  const priorRowsForMerge = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
-  const rows = mergeRowsPreservingIdentity(priorRowsForMerge, rawRows);
+  // V0/T2: memoize the identity-preserving merge so `rows` keeps a STABLE array reference across
+  // re-renders that do NOT refetch (activeMessage unchanged -> rawRows is the same array -> cached).
+  // Without this, mergeRowsPreservingIdentity returns a fresh .map() array every render (rowMerge.ts),
+  // so the grid's `rows` prop churns and React.memo(PricingGrid) could NEVER bail. Reads the merge
+  // refs inside (intentionally NOT deps -- the identity-merge pattern); recomputes only on a real data
+  // change (rawRows) or a version/source switch (rowsSourceSig).
+  const rows = useMemo(
+    () => {
+      const prior = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
+      return mergeRowsPreservingIdentity(prior, rawRows);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawRows, rowsSourceSig],
+  );
   prevRowsRef.current = rows;
   rowsSourceSigRef.current = rowsSourceSig;
   const columnDescriptors = activeMessage?.column_descriptors ?? [];
@@ -1021,7 +1015,7 @@ const SheetPricingPage = () => {
   // viewer flips read-only within a socket round-trip -- not on a failed save. Idempotent per
   // version (heldVersionRef). A rejected acquire (someone else holds it fresh) flips us to
   // read-only via the same takeover banner. The save_* endpoints still enforce server-side.
-  const ensureLockAcquired = () => {
+  const ensureLockAcquired = useCallback(() => {
     if (locksDisabledClient) return;
     if (locked) return; // read-only (history / deliberate lock / already taken over)
     if (!boqId || !sheetName || commitVersion === null) return;
@@ -1035,14 +1029,18 @@ const SheetPricingPage = () => {
       if (isTakeoverError(msg)) setTakenOver(true); // someone else holds it fresh -> read-only
       // else: transient error -> a retry on the next edit will re-attempt.
     });
-  };
+    // heldVersionRef is a ref; setTakenOver is a stable setter -- both intentionally omitted.
+  }, [locksDisabledClient, locked, boqId, sheetName, commitVersion, acquirePricingLock]);
 
   // The grid's dirty signal doubles as first-edit-intent: keep the existing hasUnsaved wiring
   // AND acquire the lock the moment the sheet becomes dirty.
-  const handleDirtyChange = (dirty: boolean) => {
-    setHasUnsaved(dirty);
-    if (dirty) ensureLockAcquired();
-  };
+  const handleDirtyChange = useCallback(
+    (dirty: boolean) => {
+      setHasUnsaved(dirty);
+      if (dirty) ensureLockAcquired();
+    },
+    [ensureLockAcquired],
+  );
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -1168,7 +1166,7 @@ const SheetPricingPage = () => {
   // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
   // so the priced_* markers re-derive (no client-side marker logic). On throw it surfaces the
   // error inline AND re-throws so the grid keeps the optimistic draft (the user's input).
-  const handleSaveRate = async (cell: RateCellSaveArgs, rate: number) => {
+  const handleSaveRate = useCallback(async (cell: RateCellSaveArgs, rate: number) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to price.");
       throw new Error("no committed version");
@@ -1204,12 +1202,12 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, override, saveCellPrice, mutate]);
 
   // Slice 4a: save one row's remark (save_row_remark) -- a SEPARATE write path from rates,
   // mirroring handleSaveRate (in-flight count, takeover detection, mutate refresh). Blank
   // remark clears (backend). The grid renders read-only when this is withheld (locked).
-  const handleSaveRemark = async (args: RemarkSaveArgs) => {
+  const handleSaveRemark = useCallback(async (args: RemarkSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1235,11 +1233,11 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveRowRemark, mutate]);
 
   // Slice 4a: save N color cells (a single pick = 1, an apply-to-row = N) then ONE mutate.
   // The grid builds the cell list; the page owns the POSTs + the refetch. Blank color clears.
-  const handleSaveColor = async (argsList: ColorSaveArgs[]) => {
+  const handleSaveColor = useCallback(async (argsList: ColorSaveArgs[]) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1269,7 +1267,7 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveCellColor, mutate]);
 
   // Slice 4b-ACKNOWLEDGE: dismiss / un-dismiss one review-strip entry (save_cell_dismissal)
   // then ONE mutate so the dismissals list refetches + the strip filter re-derives. Mirrors
@@ -1308,7 +1306,7 @@ const SheetPricingPage = () => {
   // (save_cell_reconciliation_choice) then ONE mutate so reconciliation_choices refetches + the
   // grid cue, the strip, and the Summary totals re-derive. Mirrors handleSaveDismiss (in-flight,
   // takeover, mutate). `choice` null clears (revert to unset -> document default, D1).
-  const handleSaveReconChoice = async (args: ReconChoiceSaveArgs) => {
+  const handleSaveReconChoice = useCallback(async (args: ReconChoiceSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1335,13 +1333,13 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveCellReconChoice, mutate]);
 
   // Formula Builder F3: save one amount-column formula (save_amount_formula) then mutate so
   // column_formulas refetches + the header label updates. Mirrors handleSaveColor (in-flight,
   // takeover, mutate). The tree is sent as a JSON string; a null formula -> "" (the F1 clear
   // path). Withheld when locked (the grid then renders the header label read-only).
-  const handleSaveFormula = async (args: AmountFormulaSaveArgs) => {
+  const handleSaveFormula = useCallback(async (args: AmountFormulaSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to add a formula to.");
       throw new Error("no committed version");
@@ -1370,7 +1368,7 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveAmountFormula, mutate]);
 
   // Slice A (clipboard): the BATCH write path for a paste / cut / fill-down gesture. Fires each
   // write through the SAME save_cell_price / save_row_remark endpoints as the single-cell saves but
@@ -1380,7 +1378,7 @@ const SheetPricingPage = () => {
   // and STILL mutate()s so the grid reflects what DID land (no fake client-side atomicity). Each
   // write carries its resolved {cell/args, value} -- the single funnel a later Slice-B undo wrapper
   // can tap. Does NOT reshape handleSaveRate (the inline single-cell path stays byte-for-byte). */
-  const handleBatchWrite = async (writes: BatchWrite[]): Promise<BatchOutcome> => {
+  const handleBatchWrite = useCallback(async (writes: BatchWrite[]): Promise<BatchOutcome> => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to write to.");
       return { written: 0, failed: writes.length };
@@ -1435,7 +1433,7 @@ const SheetPricingPage = () => {
       setInFlight((n) => n - 1);
     }
     return { written, failed };
-  };
+  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, mutate]);
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,
@@ -1443,10 +1441,13 @@ const SheetPricingPage = () => {
   // new fetch). Plain consts (not useMemo) because they sit AFTER the early-return guards
   // (hooks-after-return is illegal); the page re-renders infrequently (saves / toggles),
   // never per keystroke (rate drafts live in the grid), so the recompute is cheap.
-  const rowFlags = new Map<number, RowReviewFlags>();
-  for (const r of rows) {
-    rowFlags.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
-  }
+  const rowFlags = useMemo(() => {
+    const m = new Map<number, RowReviewFlags>();
+    for (const r of rows) {
+      m.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
+    }
+    return m;
+  }, [rows, columnDescriptors, columnFormulas]);
   // MANDATORY amount-formula gate (Phase 5): per-SHEET completeness -- every amount column must
   // have a declared formula before ANY rate is editable. Plain derive from the data already in
   // hand (columnDescriptors + columnFormulas -- no new fetch). TRUE for a sheet with zero amount
@@ -1470,9 +1471,16 @@ const SheetPricingPage = () => {
   // so visibility/descendant math is filter-independent -- the canonical rule). Plain consts (not
   // useMemo) because they sit AFTER the early-return guards, matching the rowFlags pattern. Refs
   // are synced so the toggle/reveal callbacks (declared in the hook region) read current data.
-  const byRowIndex = new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r]));
+  // V0/T2: byRowIndex is memoized (it feeds the displayRows filter/collapse path -- keeping it
+  // stable lets displayRows stay referentially stable in the filtered/collapsed view too, which V1
+  // windowing leans on). byExcelRow only feeds a ref (byExcelRowRef, read by revealRow), so its
+  // identity is irrelevant -- left a plain const. childrenByParent is a grid prop -> memoized.
+  const byRowIndex = useMemo(
+    () => new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r])),
+    [rows],
+  );
   const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
-  const childrenByParent = buildChildrenByParent(rows);
+  const childrenByParent = useMemo(() => buildChildrenByParent(rows), [rows]);
   collapsedRef.current = collapsed;
   byRowIndexRef.current = byRowIndex;
   byExcelRowRef.current = byExcelRow;
@@ -1493,14 +1501,35 @@ const SheetPricingPage = () => {
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
   // moves any total or the N-of-M priceable count. The `=== rows` fast path (stable reference ->
   // the grid's byIdx/depths memos hold) is preserved when nothing is filtered or collapsed.
-  const displayRows =
-    !anyViewFilter && !collapseActive
-      ? rows
-      : rows.filter(
-          (r) =>
-            passesViewFilter(r) &&
-            (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
-        );
+  // V0/T2: memoized so the grid's `rows` prop stays referentially stable across re-renders that do
+  // not change the row set / filters / collapse. Fast path returns the (stable) `rows` when nothing
+  // is filtered/collapsed. `passesViewFilter` is a per-render closure over the LISTED deps, so it is
+  // referenced inside but deliberately not a dep (the underlying values are the real deps).
+  const displayRows = useMemo(
+    () =>
+      !anyViewFilter && !collapseActive
+        ? rows
+        : rows.filter(
+            (r) =>
+              passesViewFilter(r) &&
+              (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
+          ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      rows,
+      anyViewFilter,
+      collapseActive,
+      showOnlyUnpriced,
+      showNeedsReview,
+      showSpacers,
+      showNotes,
+      showSubtotals,
+      categoriesByExcelRow,
+      columnDescriptors,
+      collapsed,
+      byRowIndex,
+    ],
+  );
 
   // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
   // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
@@ -1576,7 +1605,26 @@ const SheetPricingPage = () => {
     hasError: saveError !== null,
   });
 
-  return (
+  // V0/T2: the three former early-return guard screens, now branches of the SINGLE return (order +
+  // JSX byte-identical to the originals). MainContent (the else branch) only evaluates when all
+  // guards pass, so `boq.boq_name` etc. inside it are safe.
+  return isLoading ? (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  ) : !boq ? (
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
+      <p className="font-medium text-foreground">BoQ not found</p>
+      <p className="text-sm text-muted-foreground">
+        No record found for &ldquo;{boqId}&rdquo;.
+      </p>
+      <Button variant="outline" className="mt-4" onClick={handleBack}>
+        Back to hub
+      </Button>
+    </div>
+  ) : !sheetName ? (
+    <p className="p-6 text-sm text-destructive">Missing sheet identifier in URL.</p>
+  ) : (
     <div
       // Slice 4c: ONE JSX tree -- only THIS wrapper's className flips between embedded and the
       // fixed inset-0 full-viewport overlay (covers the app shell, like the house Dialog/Sheet

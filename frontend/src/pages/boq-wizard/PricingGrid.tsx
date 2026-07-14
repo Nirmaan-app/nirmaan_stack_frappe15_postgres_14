@@ -2401,7 +2401,12 @@ const PricingGridRow = memo(function PricingGridRow({
 }, pricingRowPropsAreEqual);
 PricingGridRow.displayName = "PricingGridRow";
 
-export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
+// V0/T2: React.memo shield. A page-level re-render with UNCHANGED grid props (e.g. the reconnect/
+// poll/save-status churn) now bails here instead of re-executing the whole grid body + running
+// pricingRowPropsAreEqual across every row. This is only sound because SheetPricingPage keeps ALL
+// grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
+// future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
+export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
   { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
   ref,
 ) {
@@ -4048,6 +4053,6 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     </div>
     </>
   );
-});
+}));
 
 PricingGrid.displayName = "PricingGrid";
