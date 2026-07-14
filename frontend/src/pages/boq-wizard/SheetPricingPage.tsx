@@ -561,6 +561,12 @@ const SheetPricingPage = () => {
   // OFF for grid-only general-specs sheets (they render via SheetDataGrid, out of scope).
   const [frozen, setFrozen] = useState(false);
 
+  // V1 (T2 windowing A/B toggle): render the grid with @tanstack/react-virtual windowing (only the
+  // visible rows + overscan mounted) vs the CLASSIC full-render path. Session-scoped, DEFAULT ON
+  // each open (no persistence). Flipping never remounts / reloads / touches data / drafts / undo /
+  // lock -- only which rows are in the DOM. Classic is the byte-identical fallback (the A/B instrument).
+  const [virtualized, setVirtualized] = useState(true);
+
   // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
   // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
   // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
@@ -854,8 +860,6 @@ const SheetPricingPage = () => {
       }
       lastReconnectRefetchRef.current = now;
       sawDisconnectRef.current = false;
-      // eslint-disable-next-line no-console
-      console.log("[pricing] reconnect refetch");
       void mutate();
       void mutateCategories();
     };
@@ -1878,6 +1882,25 @@ const SheetPricingPage = () => {
             {frozen ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
             {frozen ? "Unfreeze" : "Freeze columns"}
           </Button>
+          {/* V1 A/B toggle (windowed vs classic render). Small + unobtrusive (ghost, muted); session-
+              scoped, default ON. Flipping never remounts / touches data / drafts / lock. Classic is
+              the byte-identical fallback. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5 text-muted-foreground"
+            aria-pressed={virtualized}
+            onClick={() => setVirtualized((v) => !v)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title={
+              virtualized
+                ? "Windowed rendering is ON (faster on big sheets). Click to use the classic full render."
+                : "Classic full render. Click to turn on windowed (faster) rendering."
+            }
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            {virtualized ? "Fast render: on" : "Fast render: off"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -2821,6 +2844,7 @@ const SheetPricingPage = () => {
             // per-sheet toggle; the grid measures + splits. Gated off for grid-only (this branch
             // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
             frozen={frozen}
+            virtualized={virtualized}
           />
         )}
         </div>

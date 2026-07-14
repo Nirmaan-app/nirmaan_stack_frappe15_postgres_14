@@ -81,8 +81,17 @@ import {
   renderDescriptorCell,
   resolveDescriptorValue,
 } from "./reviewRender";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
 import { descendantCount, rowHasDescendants } from "./collapse";
+import {
+  DEFAULT_ROW_ESTIMATE_PX,
+  ROW_OVERSCAN,
+  deriveSpacers,
+  paneColSpan,
+  seedEstimate,
+  selectRenderPath,
+} from "./pricingVirtual";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import {
@@ -1447,6 +1456,10 @@ interface PricingGridProps {
    * the toggle and gates it OFF for grid-only sheets (which render via SheetDataGrid, not here).
    */
   frozen?: boolean;
+  /** V1: windowed rendering (only visible rows + overscan mounted), via @tanstack/react-virtual.
+   * The PAGE owns the A/B toggle (default true each open, session-scoped). false = the CLASSIC
+   * render path, byte-identical to pre-V1. Stable boolean -> the V0 memo shield holds. */
+  virtualized?: boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1631,6 +1644,11 @@ interface PricingGridRowProps {
    *  clipped to it. undefined when not frozen -> natural wrap-and-grow height (unchanged). A
    *  per-row SCALAR (like depth / isCurrentHit) -> memo-safe. */
   rowHeight?: number;
+  /** V1 virtualization: the @tanstack/react-virtual measureElement callback, attached to this <tr>
+   *  so the virtualizer learns the row's real height on mount. Set ONLY for the MEASURED pane
+   *  (scrolling in two-pane, or the single table) in virtualized mode; undefined otherwise. It is
+   *  reference-stable per virtualizer instance -> memo-safe (the comparator treats it as such). */
+  measureRef?: (el: HTMLTableRowElement | null) => void;
   depth: number;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
@@ -1732,6 +1750,7 @@ export function pricingRowPropsAreEqual(
     prev.rowIndex === next.rowIndex &&
     prev.pane === next.pane &&
     prev.rowHeight === next.rowHeight &&
+    prev.measureRef === next.measureRef && // stable per virtualizer instance -> never flips per render
     prev.depth === next.depth &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
@@ -1789,6 +1808,7 @@ const PricingGridRow = memo(function PricingGridRow({
   rowIndex,
   pane,
   rowHeight,
+  measureRef,
   depth,
   parentExcelRow,
   flags,
@@ -1888,6 +1908,8 @@ const PricingGridRow = memo(function PricingGridRow({
 
   return (
     <tr
+      ref={measureRef} // V1: measureElement on the measured pane's <tr> (undefined otherwise)
+      data-index={rowIndex} // V1: @tanstack/react-virtual reads this to key its measurement cache
       className={cn(
         "border-b border-border",
         // Toolbar Part 1 -- search: the CURRENT hit row gets a solid yellow wash (a BACKGROUND,
@@ -2407,7 +2429,7 @@ PricingGridRow.displayName = "PricingGridRow";
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
 // future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2522,6 +2544,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(false);
+  // V1: mirrors `twoPane` (two-pane vs single) for the virtualizer's getScrollElement + the flip
+  // re-anchor -- a ref so those closures always read the current mode without re-registering.
+  const twoPaneRef = useRef(false);
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -3508,6 +3533,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // non-manual rows -- MANUAL rows (manualRowHeights) are never re-measured here, so a column
   // resize cannot clobber a user's dragged height (Option A).
   useLayoutEffect(() => {
+    // V1: the freeze-measure-ALL pass is SKIPPED on the virtualized path -- windowed rows measure on
+    // mount via the virtualizer (measureElement). Classic path unchanged. When the toggle flips back
+    // to classic (virtualized -> false) this effect re-runs (virtualized in deps) and measures.
+    if (virtualized) return;
     if (!frozen) {
       // Unfreeze: clear ONLY the auto-CAPTURED heights; PRESERVE manualRowHeights so a re-freeze
       // keeps the user's dragged rows (Option A). Functional no-op when already empty (no loop).
@@ -3533,7 +3562,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       if (tr) next[ri] = Math.ceil(tr.getBoundingClientRect().height);
     }
     setRowHeights(next);
-  }, [frozen, rows, rowHeights, manualRowHeights]);
+  }, [virtualized, frozen, rows, rowHeights, manualRowHeights]);
 
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
   const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
@@ -3556,7 +3585,33 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // commits only when every row has one; the same value is passed to both panes (-> aligned).
   const appliedRowHeight = (ri: number): number | undefined => manualRowHeights[ri] ?? rowHeights[ri];
   const split = frozen && rows.length > 0 && rows.every((r) => appliedRowHeight(r.row_index) != null);
-  splitRef.current = split;
+  // V1: `twoPane` decides two-pane vs single for BOTH modes -- classic gates on `split` (all rows
+  // measured), virtualized gates on `frozen` (the measure-all pass is skipped). splitRef mirrors
+  // twoPane so focusCell / jumpToRow retarget the correct scroll pane in either mode.
+  const twoPane =
+    selectRenderPath({ rowCount: rows.length, virtualized, frozen, split }) === "twoPane";
+  splitRef.current = twoPane;
+  twoPaneRef.current = twoPane;
+  // ONE virtualizer = the single row-window authority for BOTH panes (scrolling pane is the scroll
+  // authority in two-pane; containerRef in single). estimateSize seeds from the applied (manual /
+  // freeze-measured) height when known, else a default; measureElement refines it per mounted row.
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => (twoPaneRef.current ? scrollPaneRef.current : containerRef.current),
+    estimateSize: (index) =>
+      seedEstimate(appliedRowHeight(rows[index]?.row_index), DEFAULT_ROW_ESTIMATE_PX),
+    overscan: ROW_OVERSCAN,
+  });
+  // V1 flip re-anchor (mid-state toggle, case a): the scroll element is the SAME div across a flip
+  // (only the <tbody> content changes), so scrollTop is preserved. When flipping TO virtualized,
+  // re-sync the virtualizer to that scrollTop so the window lands at/near the same top visible row
+  // (any estimate drift corrects itself as windowed rows measure). No data / draft / lock touch.
+  useEffect(() => {
+    if (!virtualized) return;
+    const el = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (el) rowVirtualizer.scrollToOffset(el.scrollTop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized]);
   // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
   const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
@@ -3809,15 +3864,39 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       selectionAnchor.colIndex !== activeCell.colIndex)
       ? selectionRect(selectionAnchor, activeCell)
       : null;
-  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => {
+  const renderRow = (
+    row: PricedRow,
+    rowIdx: number,
+    pane?: "frozen" | "scrolling",
+    virtualSize?: number,
+  ) => {
     const selRange = rowSelectionRange(selRect, rowIdx);
+    // V1: in virtualized mode the MEASURED pane (scrolling in two-pane, or the single table) renders
+    // at NATURAL height (rowHeight undefined -> Description not clipped) so measureElement reads the
+    // true height; the FROZEN pane pads to that measured size (virtualSize) so the panes align.
+    // virtualSize is undefined in classic mode -> the classic `split ? applied : undefined` path
+    // (byte-for-byte unchanged).
+    const isMeasuredPane = pane !== "frozen";
+    const heightForRow =
+      virtualized && virtualSize != null
+        ? isMeasuredPane
+          ? undefined
+          : virtualSize
+        : split
+          ? appliedRowHeight(row.row_index)
+          : undefined;
+    const measureRefForRow =
+      virtualized && virtualSize != null && isMeasuredPane
+        ? rowVirtualizer.measureElement
+        : undefined;
     return (
     <PricingGridRow
       key={row.row_index}
       row={row}
       rowIndex={rowIdx}
       pane={pane}
-      rowHeight={split ? appliedRowHeight(row.row_index) : undefined}
+      rowHeight={heightForRow}
+      measureRef={measureRefForRow}
       depth={depths.get(row.row_index) ?? 0}
       parentExcelRow={parentExcelRowOf(row, byIdx)}
       flags={rowFlags?.get(row.row_index)}
@@ -3861,6 +3940,35 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       onRowResizePointerMove={onRowResizePointerMove}
       onRowResizePointerUp={onRowResizePointerUp}
     />
+    );
+  };
+
+  // V1: the <tbody> children for a pane. CLASSIC (virtualized off) = the full rows.map -- BYTE-
+  // IDENTICAL to pre-V1. VIRTUALIZED = a top spacer <tr>, the mounted window (renderRow given the
+  // virtualizer's per-row size), and a bottom spacer <tr>. BOTH panes call this with the SAME
+  // virtualItems -> identical vertical structure + identical spacer heights -> pane rows stay aligned.
+  const renderTbody = (pane?: "frozen" | "scrolling") => {
+    if (!virtualized) return rows.map((row, rowIdx) => renderRow(row, rowIdx, pane));
+    const items = rowVirtualizer.getVirtualItems();
+    const { paddingTop, paddingBottom } = deriveSpacers(items, rowVirtualizer.getTotalSize());
+    const colSpan = paneColSpan(pane, FIXED_ANCHOR_COUNT, visibleDescriptors.length);
+    return (
+      <>
+        {paddingTop > 0 && (
+          <tr aria-hidden>
+            <td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: 0 }} />
+          </tr>
+        )}
+        {items.map((vi) => {
+          const row = rows[vi.index];
+          return row ? renderRow(row, vi.index, pane, vi.size) : null;
+        })}
+        {paddingBottom > 0 && (
+          <tr aria-hidden>
+            <td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+          </tr>
+        )}
+      </>
     );
   };
 
@@ -3917,8 +4025,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     </DropdownMenu>
   );
 
-  // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
-  if (split) {
+  // ── Two-pane split. CLASSIC: freeze on AND heights captured (`split`). VIRTUALIZED: freeze on
+  //    (`twoPane = frozen`), windowed. Same JSX; the <tbody> content routes through renderTbody. ──
+  if (twoPane) {
     return (
       <>
       {clipboardNotice}
@@ -3959,7 +4068,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
                 <thead>
                   <tr>{anchorHeaderCells}</tr>
                 </thead>
-                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "frozen"))}</tbody>
+                <tbody>{renderTbody("frozen")}</tbody>
               </table>
             </div>
             {/* SCROLLING pane: descriptors + Remarks. Owns overflow-x AND overflow-y; mirrors its
@@ -3995,7 +4104,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
                     {remarksHeaderCell}
                   </tr>
                 </thead>
-                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "scrolling"))}</tbody>
+                <tbody>{renderTbody("scrolling")}</tbody>
               </table>
             </div>
           </div>
@@ -4047,7 +4156,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
             {remarksHeaderCell}
           </tr>
         </thead>
-        <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx))}</tbody>
+        <tbody>{renderTbody()}</tbody>
       </table>
       </CollapseContext.Provider>
     </div>
