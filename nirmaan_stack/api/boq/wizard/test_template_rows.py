@@ -161,6 +161,36 @@ class TestTemplateRows(FrappeTestCase):
         self.assertEqual(idxs, list(range(len(idxs))),
                          f"row_index must be contiguous 0..N-1, got {idxs}")
 
+    def _srns(self, boq, sheet=_TSHEET):
+        """source_row_number ('Excel Row') list ordered by row_index."""
+        rows = frappe.db.get_all(
+            "BoQ Review Row",
+            filters={"boq": boq, "sheet_name": sheet},
+            fields=["row_index", "source_row_number"],
+            order_by="row_index asc",
+        )
+        return [r.source_row_number for r in rows]
+
+    def _assert_srn_healthy(self, boq):
+        """Every source_row_number is > 0 and the sheet is a contiguous run
+        (srn == row_index + offset for one constant offset). This is exactly what the
+        source-row recompute (derive_source_row_offset + the whole-sheet stamp) guarantees;
+        it rules out the stray Excel-row-0 that corrupts the committed grid and HARD-CRASHES
+        the from-scratch priced export."""
+        srns = self._srns(boq)
+        self.assertTrue(all(s and s > 0 for s in srns),
+                        f"every source_row_number must be > 0 (no stray Excel row 0), got {srns}")
+        offset = srns[0]
+        self.assertEqual(srns, list(range(offset, offset + len(srns))),
+                         f"source_row_number must be contiguous from {offset}, got {srns}")
+
+    def _new_row_srn(self, boq, desc="NEW"):
+        return frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": boq, "sheet_name": _TSHEET, "description": desc},
+            "source_row_number",
+        )
+
     # -- create: order + parent-link preservation ---------------------------
 
     def test_insert_below_preserves_order_and_links(self):
@@ -414,3 +444,95 @@ class TestTemplateRows(FrappeTestCase):
             delete_review_row(boq_name=self.upload_boq, sheet_name=_TSHEET, row_index=4)
         self.assertEqual(self._descs_in_order(self.upload_boq),
                          ["P1", "L1a", "P2", "L2a", "L2b"])
+
+    # -- create/delete: source_row_number ("Excel Row") self-heal -----------
+    # A row inserted in the template flow arrives with source_row_number None -> 0
+    # (Int coercion) and the shift loop never touches source_row_number. Without the
+    # whole-sheet positional recompute a stray 0 corrupts the committed grid
+    # (row_number=0, collisions) and HARD-CRASHES the from-scratch priced export
+    # (openpyxl rejects row 0). Every insert/delete must leave the sheet's Excel-row
+    # numbering contiguous + non-zero, and any pre-existing stray 0 must self-heal.
+
+    def test_insert_above_recomputes_source_row_number(self):
+        # Insert at the very top (anchor idx0, above -> insertion_index 0).
+        create_review_row(
+            boq_name=self.tpl_boq, sheet_name=_TSHEET,
+            anchor_row_index=0, position="above",
+            classification="preamble", parent_index=-1, description="NEW",
+        )
+        self._assert_srn_healthy(self.tpl_boq)
+        self.assertGreater(self._new_row_srn(self.tpl_boq) or 0, 0)  # new row non-zero
+
+    def test_insert_middle_recomputes_source_row_number(self):
+        create_review_row(
+            boq_name=self.tpl_boq, sheet_name=_TSHEET,
+            anchor_row_index=1, position="below",
+            classification="line_item", parent_index=0, description="NEW",
+        )
+        self._assert_srn_healthy(self.tpl_boq)
+        self.assertGreater(self._new_row_srn(self.tpl_boq) or 0, 0)
+
+    def test_insert_end_recomputes_source_row_number(self):
+        create_review_row(
+            boq_name=self.tpl_boq, sheet_name=_TSHEET,
+            anchor_row_index=4, position="below",
+            classification="line_item", parent_index=2, description="NEW",
+        )
+        self._assert_srn_healthy(self.tpl_boq)
+        self.assertGreater(self._new_row_srn(self.tpl_boq) or 0, 0)
+
+    def test_delete_recomputes_source_row_number(self):
+        # Insert then delete the synthetic row -> sheet returns to healthy numbering.
+        create_review_row(
+            boq_name=self.tpl_boq, sheet_name=_TSHEET,
+            anchor_row_index=1, position="below",
+            classification="line_item", parent_index=0, description="NEW",
+        )
+        new_idx = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.tpl_boq, "sheet_name": _TSHEET, "description": "NEW"},
+            "row_index",
+        )
+        delete_review_row(boq_name=self.tpl_boq, sheet_name=_TSHEET, row_index=new_idx)
+        self._assert_srn_healthy(self.tpl_boq)
+
+    def test_stray_zero_source_row_number_self_heals_on_unrelated_insert(self):
+        # Simulate a pre-fix corruption: force L2b (idx4) source_row_number to 0.
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.tpl_boq, "sheet_name": _TSHEET, "row_index": 4},
+            "source_row_number", 0, update_modified=False,
+        )
+        frappe.db.commit()
+        self.assertEqual(self._srns(self.tpl_boq)[4], 0)  # corrupted precondition
+
+        # An UNRELATED insert (top of sheet) triggers the whole-sheet recompute.
+        create_review_row(
+            boq_name=self.tpl_boq, sheet_name=_TSHEET,
+            anchor_row_index=0, position="above",
+            classification="preamble", parent_index=-1, description="NEW",
+        )
+        # The stray 0 self-healed: every srn > 0 and the run is contiguous again.
+        self._assert_srn_healthy(self.tpl_boq)
+
+    def test_two_consecutive_inserts_offset_stays_stable(self):
+        # REGRESSION: two interior inserts must NOT erode the sheet offset. The pre-fix formula
+        # derived the offset from post-shift rows and dropped it by 1 per insert -> a real row
+        # back at source_row_number 0 (openpyxl priced-export crash). The offset must hold.
+        offset_before = self._srns(self.tpl_boq)[0]
+        for i in range(2):
+            create_review_row(
+                boq_name=self.tpl_boq, sheet_name=_TSHEET,
+                anchor_row_index=1, position="below",
+                classification="line_item", parent_index=0, description=f"NEW{i}",
+            )
+            self._assert_srn_healthy(self.tpl_boq)
+        self.assertEqual(
+            self._srns(self.tpl_boq)[0], offset_before,
+            "sheet offset drifted across consecutive inserts",
+        )
+        # 5 seed rows + 2 inserts, offset held -> contiguous [offset .. offset+6].
+        self.assertEqual(
+            self._srns(self.tpl_boq),
+            list(range(offset_before, offset_before + 7)),
+        )

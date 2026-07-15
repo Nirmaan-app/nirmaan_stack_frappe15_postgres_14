@@ -54,6 +54,7 @@ from nirmaan_stack.api.boq.wizard.row_renumber import (
     _delete_remap_attached,
     _insert_shift,
     _insert_shift_attached,
+    derive_source_row_offset,
 )
 
 
@@ -203,6 +204,19 @@ def create_review_row(
 
     insertion_index = anchor_row_index if position == "above" else anchor_row_index + 1
 
+    # Capture the sheet's stable Excel-row offset from the CONSISTENT pre-insert rows (before
+    # the shift below moves row_index). Stamped back after the insert as
+    # source_row_number = row_index + offset. Deriving it post-shift would erode the offset by
+    # 1 per interior insert (row_index moves, source_row_number does not) -> re-introduces srn 0.
+    _srn_offset = derive_source_row_offset(
+        (r.row_index, r.source_row_number)
+        for r in frappe.db.get_all(
+            "BoQ Review Row",
+            filters={"boq": boq_name, "sheet_name": sheet_name},
+            fields=["row_index", "source_row_number"],
+        )
+    )
+
     # --- Renumber-on-insert: shift row_index + remap pointers for every affected row ---
     rows = _load_pointer_rows(boq_name, sheet_name)
     for r in rows:
@@ -245,6 +259,24 @@ def create_review_row(
     doc.is_synthetic = 1          # user-created (the delete-eligibility signal)
     doc.chosen_source = "parser"
     doc.insert(ignore_permissions=True)
+
+    # --- Self-heal source_row_number ("Excel Row") for the WHOLE sheet -------------------
+    # The new synthetic row was inserted with source_row_number=None -> coerced to 0 by the
+    # Int field, and the shift loop above never touches source_row_number. A stray 0 corrupts
+    # the committed grid (row_number=0, collisions) and HARD-CRASHES the from-scratch priced
+    # export (openpyxl rejects row 0). Stamp the whole sheet srn = row_index + offset (offset
+    # captured pre-insert) so the new row gets a non-zero number and any pre-existing stray 0
+    # self-heals on this edit. Fix-forward, no backfill.
+    for _r in frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=["name", "row_index", "source_row_number"],
+    ):
+        _want = _r.row_index + _srn_offset
+        if _want != (_r.source_row_number or 0):
+            frappe.db.set_value(
+                "BoQ Review Row", _r.name, "source_row_number", _want, update_modified=False
+            )
 
     frappe.db.commit()
 
@@ -306,6 +338,17 @@ def delete_review_row(boq_name: str = None, sheet_name: str = None, row_index=No
     else:
         grandparent = -1
 
+    # Capture the stable Excel-row offset from the CONSISTENT pre-delete rows (before the
+    # reverse-renumber below moves row_index). Stamped back after as srn = row_index + offset.
+    _srn_offset = derive_source_row_offset(
+        (r.row_index, r.source_row_number)
+        for r in frappe.db.get_all(
+            "BoQ Review Row",
+            filters={"boq": boq_name, "sheet_name": sheet_name},
+            fields=["row_index", "source_row_number"],
+        )
+    )
+
     rows = _load_pointer_rows(boq_name, sheet_name)
 
     # Delete the row first (direct SQL delete -- BoQ Review Row has no controller hooks or
@@ -331,6 +374,22 @@ def delete_review_row(boq_name: str = None, sheet_name: str = None, row_index=No
             changed["attached_to_index"] = new_attached
         if changed:
             frappe.db.set_value("BoQ Review Row", r.name, changed)
+
+    # --- Self-heal source_row_number ("Excel Row") for the WHOLE sheet -------------------
+    # The reverse-renumber above shifts row_index but never touches source_row_number, so a
+    # gap / collision (or a pre-existing stray 0 left by an earlier insert) would persist.
+    # Stamp srn = row_index + offset (captured pre-delete) so it stays contiguous, non-zero,
+    # and self-heals on this edit. Fix-forward, no backfill.
+    for _r in frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name},
+        fields=["name", "row_index", "source_row_number"],
+    ):
+        _want = _r.row_index + _srn_offset
+        if _want != (_r.source_row_number or 0):
+            frappe.db.set_value(
+                "BoQ Review Row", _r.name, "source_row_number", _want, update_modified=False
+            )
 
     frappe.db.commit()
 

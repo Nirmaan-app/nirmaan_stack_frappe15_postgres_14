@@ -54,6 +54,7 @@ from nirmaan_stack.api.boq.wizard.row_renumber import (
     _delete_remap_attached,
     _insert_shift,
     _insert_shift_attached,
+    derive_source_row_offset,
 )
 
 # Roles allowed to seed / hand-edit the master template (ADR-0013 A1-D10). The Administrator
@@ -319,6 +320,19 @@ def template_create_row(
 
     insertion_index = anchor_row_index if position == "above" else anchor_row_index + 1
 
+    # Capture the sheet's stable Excel-row offset from the CONSISTENT pre-insert rows (before
+    # the shift below moves row_index). Stamped back after the insert as
+    # source_row_number = row_index + offset. Deriving it post-shift would erode the offset by
+    # 1 per interior insert (row_index moves, source_row_number does not) -> re-introduces srn 0.
+    _srn_offset = derive_source_row_offset(
+        (r.row_index, r.source_row_number)
+        for r in frappe.db.get_all(
+            "BoQ Template Row",
+            filters={"template": template, "sheet_name": sheet_name},
+            fields=["row_index", "source_row_number"],
+        )
+    )
+
     # --- Renumber-on-insert: shift row_index + remap pointers for every affected row ---
     for r in _load_row_pointers(template, sheet_name):
         old_idx = r.row_index
@@ -355,6 +369,21 @@ def template_create_row(
     doc.make_model = make_model or None
     doc.is_rate_only = 0
     doc.insert(ignore_permissions=True)
+
+    # Positional source_row_number ("Excel Row"): the insert shifted row_index but not
+    # source_row_number, and the new row carries None (-> Int 0). Stamp the whole sheet
+    # srn = row_index + offset (offset captured pre-insert) so the numbering stays contiguous
+    # and zero-free -- a stray 0 corrupts the committed grid (row_number=0 collisions) and
+    # HARD-CRASHES the from-scratch priced export (openpyxl rejects row 0). Fix-forward,
+    # template flow only; self-heals any pre-existing stray 0.
+    for _r in frappe.db.get_all(
+        "BoQ Template Row",
+        filters={"template": template, "sheet_name": sheet_name},
+        fields=["name", "row_index", "source_row_number"],
+    ):
+        _want = _r.row_index + _srn_offset
+        if _want != (_r.source_row_number or 0):
+            frappe.db.set_value("BoQ Template Row", _r.name, "source_row_number", _want)
 
     _touch_master(template)
     frappe.db.commit()
@@ -492,6 +521,17 @@ def template_delete_row(template: str = None, sheet_name: str = None, row_index=
         target.parent_index if (target.parent_index is not None and target.parent_index >= 0) else -1
     )
 
+    # Capture the stable Excel-row offset from the CONSISTENT pre-delete rows (before the
+    # reverse-renumber below moves row_index). Stamped back after as srn = row_index + offset.
+    _srn_offset = derive_source_row_offset(
+        (r.row_index, r.source_row_number)
+        for r in frappe.db.get_all(
+            "BoQ Template Row",
+            filters={"template": template, "sheet_name": sheet_name},
+            fields=["row_index", "source_row_number"],
+        )
+    )
+
     rows = _load_row_pointers(template, sheet_name)
 
     # Raw delete FIRST (attached_notes list-JSON wall -> never delete_doc), then remap.
@@ -513,6 +553,18 @@ def template_delete_row(template: str = None, sheet_name: str = None, row_index=
             changed["attached_to_index"] = new_attached
         if changed:
             frappe.db.set_value("BoQ Template Row", r.name, changed)
+
+    # Positional source_row_number ("Excel Row") after the reverse-renumber (which rewrote
+    # row_index but NOT source_row_number): stamp srn = row_index + offset (captured pre-delete)
+    # so the Excel-row numbering stays contiguous + zero-free. Fix-forward, template flow only.
+    for _r in frappe.db.get_all(
+        "BoQ Template Row",
+        filters={"template": template, "sheet_name": sheet_name},
+        fields=["name", "row_index", "source_row_number"],
+    ):
+        _want = _r.row_index + _srn_offset
+        if _want != (_r.source_row_number or 0):
+            frappe.db.set_value("BoQ Template Row", _r.name, "source_row_number", _want)
 
     _touch_master(template)
     frappe.db.commit()

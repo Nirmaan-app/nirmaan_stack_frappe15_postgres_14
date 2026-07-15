@@ -129,6 +129,30 @@ class TestTemplateEdit(FrappeTestCase):
         self.assertEqual(idxs, list(range(len(idxs))),
                          f"row_index must be contiguous 0..N-1, got {idxs}")
 
+    def _srns(self, sheet=_TSHEET):
+        """source_row_number ("Excel Row") ordered by row_index."""
+        return [
+            r.source_row_number
+            for r in frappe.db.get_all(
+                "BoQ Template Row",
+                filters={"template": self.template, "sheet_name": sheet},
+                fields=["row_index", "source_row_number"],
+                order_by="row_index asc",
+            )
+        ]
+
+    def _assert_srn_ok(self, sheet=_TSHEET):
+        """After any edit the Excel-row numbering must be: no 0 / None (openpyxl rejects row
+        0), all positive, and contiguous step-1 (== row_index + offset for a single offset)."""
+        srns = self._srns(sheet)
+        self.assertNotIn(0, srns, f"source_row_number must never be 0, got {srns}")
+        self.assertNotIn(None, srns, f"source_row_number must never be None, got {srns}")
+        self.assertTrue(all(s >= 1 for s in srns),
+                        f"every source_row_number must be >= 1, got {srns}")
+        offset = srns[0]
+        self.assertEqual(srns, [offset + i for i in range(len(srns))],
+                         f"source_row_number must be contiguous row_index+offset, got {srns}")
+
     def _sheets(self):
         return frappe.db.get_all(
             "BoQ Template Sheet",
@@ -200,7 +224,9 @@ class TestTemplateEdit(FrappeTestCase):
         self.assertEqual(row.is_rate_only, 0)
         self.assertEqual(row.unit, "nos")
         self.assertEqual(row.make_model, "ACME")
-        self.assertIn(row.source_row_number, (None, 0))  # hand-built: no source row
+        # Hand-built row has no source workbook row, but the positional recompute stamps it a
+        # real Excel row (row_index 1 + offset 2 = 3); it is NEVER left at the crash-inducing 0.
+        self.assertEqual(row.source_row_number, 3)
 
     def test_create_rejects_non_assignable_classification(self):
         with self.assertRaises(frappe.ValidationError):
@@ -275,6 +301,104 @@ class TestTemplateEdit(FrappeTestCase):
     def test_delete_rejects_missing_row(self):
         with self.assertRaises(frappe.ValidationError):
             template_delete_row(template=self.template, sheet_name=_TSHEET, row_index=99)
+
+    # -- source_row_number ("Excel Row") positional recompute ---------------
+    # Regression for the row_number=0 bug: a hand-built row (create) landed with
+    # source_row_number None -> Int 0, existing rows were never shifted, and the from-scratch
+    # priced export HARD-CRASHED (openpyxl rejects row 0). The recompute pass wired into both
+    # endpoints re-derives srn = row_index + offset for the whole sheet after every edit.
+    # Seed carries source_row_number = row_index + 2 (offset 2), the real header_row=1 shape.
+
+    def test_create_middle_recomputes_source_rows(self):
+        # Insert BELOW anchor 1 -> insertion_index 2; the new row (srn None->0) and the shifted
+        # rows are all renumbered. No 0 survives; numbering stays contiguous.
+        template_create_row(
+            template=self.template, sheet_name=_TSHEET,
+            anchor_row_index=1, position="below",
+            classification="line_item", parent_index=0, description="NEW",
+        )
+        self._assert_contiguous()
+        self._assert_srn_ok()
+        # The insert keeps the sheet's offset (2) STABLE (it must not erode) -> [2..7].
+        self.assertEqual(self._srns(), [2, 3, 4, 5, 6, 7])
+        new_srn = frappe.db.get_value(
+            "BoQ Template Row",
+            {"template": self.template, "sheet_name": _TSHEET, "description": "NEW"},
+            "source_row_number",
+        )
+        self.assertEqual(new_srn, 4)   # the once-0 new row (row_index 2) now carries Excel row 4
+
+    def test_create_above_recomputes_source_rows(self):
+        template_create_row(
+            template=self.template, sheet_name=_TSHEET,
+            anchor_row_index=2, position="above",
+            classification="preamble", parent_index=-1, description="NEW",
+        )
+        self._assert_contiguous()
+        self._assert_srn_ok()
+        new_srn = frappe.db.get_value(
+            "BoQ Template Row",
+            {"template": self.template, "sheet_name": _TSHEET, "description": "NEW"},
+            "source_row_number",
+        )
+        self.assertGreater(new_srn, 0)
+
+    def test_create_at_end_recomputes_source_rows(self):
+        # Insert BELOW the last row (anchor 4) -> insertion_index 5. No existing row shifts, so
+        # the offset (2) is preserved and the new tail row gets the next Excel row.
+        template_create_row(
+            template=self.template, sheet_name=_TSHEET,
+            anchor_row_index=4, position="below",
+            classification="line_item", parent_index=-1, description="NEW",
+        )
+        self._assert_contiguous()
+        self._assert_srn_ok()
+        self.assertEqual(self._srns(), [2, 3, 4, 5, 6, 7])
+        new_srn = frappe.db.get_value(
+            "BoQ Template Row",
+            {"template": self.template, "sheet_name": _TSHEET, "description": "NEW"},
+            "source_row_number",
+        )
+        self.assertEqual(new_srn, 7)
+
+    def test_delete_recomputes_source_rows(self):
+        # Delete P2 (row 2). Reverse-renumber then recompute -> contiguous, zero-free.
+        template_delete_row(template=self.template, sheet_name=_TSHEET, row_index=2)
+        self._assert_contiguous()
+        self._assert_srn_ok()
+        self.assertEqual(self._srns(), [2, 3, 4, 5])
+
+    def test_create_then_delete_never_leaves_zero_srn(self):
+        # Full round-trip: create a middle row (would-be srn 0) then delete it -> at no point
+        # does a persisted row keep source_row_number 0.
+        template_create_row(
+            template=self.template, sheet_name=_TSHEET,
+            anchor_row_index=1, position="below",
+            classification="line_item", parent_index=0, description="NEW",
+        )
+        self._assert_srn_ok()
+        new_idx = frappe.db.get_value(
+            "BoQ Template Row",
+            {"template": self.template, "sheet_name": _TSHEET, "description": "NEW"},
+            "row_index",
+        )
+        template_delete_row(template=self.template, sheet_name=_TSHEET, row_index=new_idx)
+        self._assert_contiguous()
+        self._assert_srn_ok()
+
+    def test_two_consecutive_middle_inserts_offset_stays_stable(self):
+        # REGRESSION: two interior inserts must NOT erode the sheet offset. The pre-fix formula
+        # derived the offset from post-shift rows and dropped it by 1 per insert -> a real row
+        # back at source_row_number 0 (which crashes the openpyxl priced export). Offset holds.
+        for i in range(2):
+            template_create_row(
+                template=self.template, sheet_name=_TSHEET,
+                anchor_row_index=1, position="below",
+                classification="line_item", parent_index=0, description=f"NEW{i}",
+            )
+            self._assert_srn_ok()
+        # 5 seed rows + 2 inserts, offset held at 2 -> contiguous [2..8].
+        self.assertEqual(self._srns(), [2, 3, 4, 5, 6, 7, 8])
 
     # -- edit: field patch + reparent validation ----------------------------
 

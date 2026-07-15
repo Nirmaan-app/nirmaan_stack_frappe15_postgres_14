@@ -82,3 +82,34 @@ def _delete_remap_attached(pointer, deleted_index: int) -> int:
     if pointer == deleted_index:
         return 0  # attached row deleted -> detach
     return pointer - 1 if pointer > deleted_index else pointer
+
+
+_SRN_OFFSET_FALLBACK = 2  # default header_row=1 -> data starts at Excel row 2 (all-synthetic sheet)
+
+
+def derive_source_row_offset(pairs):
+    """Stable data-start offset for a sheet's source_row_number ("Excel Row"), template flow.
+
+    A row freshly inserted in the template editor / Review phase gets source_row_number None
+    -> coerced to 0 by the Int field, and the shift loop moves row_index but NOT
+    source_row_number; a stray 0 corrupts the committed grid (row_number=0, collisions) and
+    HARD-CRASHES the from-scratch priced export (openpyxl rejects row 0). The callers fix this
+    by stamping source_row_number = row_index + offset across the whole sheet (fix-forward, no
+    backfill; self-heals stray 0s on the next edit). This returns that offset.
+
+    pairs: iterable of (row_index:int, source_row_number:int|None).
+    offset = min(source_row_number - row_index) over rows with source_row_number > 0,
+    else _SRN_OFFSET_FALLBACK when the sheet has no positively-numbered row (a brand-new /
+    all-synthetic sheet; header_row=1 -> data starts at Excel row 2).
+
+    MUST be derived from the CONSISTENT pre-operation rows -- i.e. the sheet state BEFORE an
+    insert/delete shifts row_index. Each insert/delete leaves the sheet consistent (srn ==
+    row_index + offset), so the pre-operation read is always consistent and the offset is
+    STABLE across repeated edits. Deriving it from POST-shift rows (row_index moved, srn did
+    not) erodes the offset by 1 per interior insert -- re-introducing the srn 0 this prevents.
+    A stray srn <= 0 is excluded from the min, so it never drags the offset down and is healed
+    by the stamp. A None source_row_number is treated as "no source row"."""
+    positives = [(int(ri), int(srn)) for ri, srn in pairs if srn and int(srn) > 0]
+    if not positives:
+        return _SRN_OFFSET_FALLBACK
+    return min(srn - ri for ri, srn in positives)

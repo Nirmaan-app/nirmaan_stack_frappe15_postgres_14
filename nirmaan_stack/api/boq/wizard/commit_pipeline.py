@@ -230,7 +230,7 @@ def _invert_rows_to_grid(review_rows: list[dict], sheet_config: dict) -> list[di
             if val is not None:
                 cells[col_letter] = val
         row_number = r.get("source_row_number")
-        if row_number is None:
+        if not row_number:  # 0 or None -> no real source row; fall back to positional index
             row_number = r.get("row_index")
         out.append({"row_number": row_number, "cells": cells})
     return out

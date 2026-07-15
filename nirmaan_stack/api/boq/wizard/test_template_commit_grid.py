@@ -95,6 +95,13 @@ class TestInvertRowsToGrid(FrappeTestCase):
         grid = _invert_rows_to_grid(rows, _CFG)
         self.assertEqual(grid[0]["row_number"], 4)
 
+    def test_zero_source_row_number_falls_back_to_row_index(self):
+        # source_row_number is a NOT-NULL Int coerced to 0 for un-healed old synthetic rows;
+        # a 0 must fall back to row_index (a row 0 crashes the from-scratch priced export).
+        rows = [{"row_index": 6, "source_row_number": 0, "description": "Stray zero"}]
+        grid = _invert_rows_to_grid(rows, _CFG)
+        self.assertEqual(grid[0]["row_number"], 6)
+
     def test_empty_role_map_yields_empty_cells(self):
         grid = _invert_rows_to_grid(
             [{"row_index": 0, "source_row_number": 1, "description": "x"}],
