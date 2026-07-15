@@ -387,10 +387,15 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **Per-row overlay open-state is keyed by the DURABLE excel row (`source_row_number`), NEVER the window array index (V2).**
   Under virtualized row recycling a collapse/filter reshuffle makes array index N map to a different row, so an index key
   mis-targets. The remark popover uses grid-level `openRemarkExcelRow`; the row prop `openRemark` stays a by-value boolean
-  (memo untouched). A per-row overlay whose row can scroll out of the window must close on scroll-out: the remark clears via
-  a `rowVirtualizer.range`-keyed effect (`shouldCloseOverlay`), the page-owned CategoryVerdictPicker via an
-  `IntersectionObserver` on its captured anchor (both VIRTUALIZED-gated so classic is byte-identical); a row-local overlay
-  (reconciliation chooser) closes for free on unmount.
+  (memo untouched).
+- **An in-row Radix popover in a VIRTUALIZED grid MUST close on VISIBILITY loss, NOT on unmount (V2-FIX).** The overscan
+  zone keeps a row MOUNTED while scrolled off-screen, so a mounted-set / unmount-only close leaves the open `PopoverContent`
+  collision-pinned into the viewport as a detached "ghost". Every in-row popover (RemarkCell, ColorPicker, ReconcileBadge)
+  closes via the shared `useCloseWhenScrolledOut(triggerRef, open, onClose)` hook -- an `IntersectionObserver` (viewport
+  root, threshold 0) on the trigger, gated on `virtualized` through `VirtualizedContext` (a context, NOT a row prop, so the
+  memo shield holds; classic stays byte-identical). Same shape as the page-owned CategoryVerdictPicker's IO close. The
+  grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
+  (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
