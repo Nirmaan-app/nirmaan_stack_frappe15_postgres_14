@@ -101,27 +101,18 @@ import {
 // what prevents the padded (short) pane from feeding its padding back into the max (no sticky-max).
 function paneNaturalHeight(tr: Element | null | undefined): number {
   if (!tr) return 0;
-  let max = 0;
-  for (const cell of Array.from(tr.children)) {
-    const cs = getComputedStyle(cell as HTMLElement);
-    const chrome =
-      parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
-      parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
-    let content = 0;
-    const kids = (cell as HTMLElement).children;
-    if (kids.length > 0) {
-      for (const ch of Array.from(kids)) content = Math.max(content, ch.getBoundingClientRect().height);
-    } else {
-      // text-only cell (rare) -- the box minus chrome is the best available natural read.
-      content = Math.max(0, (cell as HTMLElement).getBoundingClientRect().height - chrome);
-    }
-    max = Math.max(max, content + chrome);
-  }
-  // NOTE: reads only the cells' non-stretching CONTENT wrappers (+ cell padding/border). Deliberately
-  // does NOT add the row's own border or any safety margin: a scrolling cell whose content wrapper
-  // STRETCHES with the row height would feed any added constant back in, inflating the row every frame
-  // (a runaway loop). This value is stable (converges) because it reads content, not the padded box.
-  return Math.ceil(max);
+  // V1-FIX-2: measure the <tr>'s TRUE rendered box height (row border INCLUDED) -- the SAME basis
+  // classic uses (`ceil(single-table getBoundingClientRect().height)`). Because the box height is
+  // `max(true content, applied height)`, this is always >= the pane's content; so `ceil(max(frozen
+  // box, scroll box))` applied identically to BOTH panes makes NEITHER pane grow past it -> both pad
+  // -> identical heights -> 0 drift at ANY DPR (classic's proven behaviour). It is SELF-CORRECTING
+  // (content wins when content > applied) with a FIXPOINT (once applied = ceil(max) >= content, the
+  // box = applied = the measure -> stable) -> NO runaway. This deliberately REPLACES the V1-FIX
+  // content-wrapper sum, which omitted this row border (~1px short) and drove the per-row drift, and
+  // it does NOT read the inner content wrapper (which stretches and caused the earlier runaway). The
+  // sticky-on-in-place-shrink this introduces is cleared by rowVirtualizer.measure() on a column
+  // resize (endResize / autofitColumn), matching classic's rowHeights reset.
+  return Math.ceil((tr as HTMLElement).getBoundingClientRect().height);
 }
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
@@ -2581,6 +2572,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // re-measure (below) refreshes captured rows WITHOUT touching manual. BOTH reset on the
   // sheet/version remount (key={sheetName::version}) -- session+sheet scoped, no backend persist.
   const [manualRowHeights, setManualRowHeights] = useState<Record<number, number>>({});
+  // V1-FIX-2b: incremented at column drag-END / autofit ONLY (never streaming) to trigger the
+  // post-commit re-measure layout-effect that folds a frozen-only Description re-wrap into the shared
+  // virtualSize. A dedicated tick (not `colWidths`) keeps the re-measure off the per-stream-tick path.
+  const [resizeSettleTick, setResizeSettleTick] = useState(0);
   const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
@@ -3664,17 +3659,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       return maxRowHeight(naturals) || DEFAULT_ROW_ESTIMATE_PX;
     },
   });
-  // V1-FIX: re-measure the mounted window when the FROZEN (unobserved) pane may have reflowed --
-  // column-width changes (Description re-wrap) or a data/version change. TanStack observes only ONE
-  // element per index (the scrolling pane's, attached last), so a frozen-only reflow would otherwise
-  // be missed. Re-invoking measureElement on each mounted (observed) scrolling <tr> recomputes the
-  // max reading BOTH panes' CURRENT content. No-op unless virtualized + two-pane.
-  useEffect(() => {
-    if (!virtualized || !twoPaneRef.current) return;
-    const host = scrollPaneRef.current ?? containerRef.current;
-    host?.querySelectorAll("tr[data-index]").forEach((el) => rowVirtualizer.measureElement(el));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colWidths, rows, virtualized]);
+  // V1-FIX-2: frozen-pane (unobserved) reflows are handled WITHOUT a streaming effect --
+  //   - scroll-mount + any scrolling-pane reflow: caught by the scrolling <tr>'s measureRef (the ONLY
+  //     observed element per index; the frozen twin carries no measureRef, so there is no
+  //     last-attached contention). The measureElement it fires reads BOTH panes' <tr> boxes.
+  //   - a Description re-wrap from a COLUMN RESIZE (frozen-only, scrolling unchanged): the scrolling
+  //     ResizeObserver stays silent, so the drag-end / autofit path calls the two-phase
+  //     `remeasureVirtualRowsAfterResize` (below) -- clear sticky sizes, then re-invoke measureElement
+  //     on the mounted rows next frame. `measure()` ALONE is NOT enough (it clears but never re-reads
+  //     the frozen twin, and a shrunk row's <tr> min-height stays sticky) -- see that helper.
+  // (The prior [colWidths, rows] effect re-invoked measureElement on every stream tick -- removed;
+  //  its frozen-only-reflow coverage now lives in the drag-END helper, without the per-tick thrash.)
   // V1 flip re-anchor (mid-state toggle, case a): the scroll element is the SAME div across a flip
   // (only the <tbody> content changes), so scrollTop is preserved. When flipping TO virtualized,
   // re-sync the virtualizer to that scrollTop so the window lands at/near the same top visible row
@@ -3685,6 +3680,25 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     if (el) rowVirtualizer.scrollToOffset(el.scrollTop);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtualized]);
+  // V1-FIX-2b: the post-commit re-measure for a column-resize / autofit re-wrap (phase 2 of the
+  // two-phase in `remeasureVirtualRowsAfterResize`). `resizeSettleTick` bumps at drag-END only; by the
+  // time THIS layout-effect runs, the `measure()`-cleared render has COMMITTED, so the DOM shows each
+  // pane at its true (re-wrapped) natural height (frozen Description tall, scrolling short/estimate) --
+  // a guarantee the prior rAF could NOT make (it fired before the estimate-collapse render committed,
+  // so it re-measured stale/unmounted rows and the scrolling pane stuck at the 34px estimate). We now
+  // re-invoke measureElement on every MOUNTED row: it reads max(frozen, scrolling) with the settled
+  // DOM and writes the shared virtualSize -> the next render pads BOTH panes to it -> aligned. Skips
+  // the first mount (tick 0) and the classic path. No `colWidths` dep -> no per-stream-tick thrash.
+  useLayoutEffect(() => {
+    if (!virtualized || resizeSettleTick === 0) return;
+    const sp = scrollPaneRef.current;
+    if (!sp) return;
+    for (const vi of rowVirtualizer.getVirtualItems()) {
+      const el = sp.querySelector(`tr[data-index="${vi.index}"]`);
+      if (el) rowVirtualizer.measureElement(el as HTMLElement);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resizeSettleTick]);
   // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
   const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
@@ -3693,6 +3707,24 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
 
+  // V1-FIX-2b: after a column resize / autofit re-wraps the FROZEN Description, the scrolling pane's
+  // <tr> is UNCHANGED, so its ResizeObserver stays silent and the shared measureElement never
+  // re-fires -> the virtualizer keeps stale sizes and the two panes drift (measured live: ~300px on
+  // a 520->370 narrow, non-self-healing until a scroll forced a fresh window). `measure()` ALONE is
+  // insufficient: it clears the cache but nothing re-reads the frozen twin's new height. Mirror
+  // classic's two-phase reset instead -- (1) HERE: clear the sticky measured sizes so a SHRUNK row's
+  // <tr> min-height releases and its box collapses to true (re-wrapped) content, then bump
+  // `resizeSettleTick`; (2) the tick's post-commit `useLayoutEffect` (above) re-invokes measureElement
+  // on every MOUNTED row once the cleared render has committed, reads max(frozen, scrolling) with the
+  // settled DOM, and re-aligns both panes. Fired ONLY at drag-END / autofit (never streaming
+  // moveResize) -> no thrash; the exact spot + timing classic clears its captured heights. This is the
+  // last-attached-element (frozen-only-reflow) coverage the FIX-1 [colWidths, rows] effect provided,
+  // restored WITHOUT the per-stream-tick thrash that got it removed.
+  const remeasureVirtualRowsAfterResize = () => {
+    if (!virtualized) return;
+    rowVirtualizer.measure(); // drop sticky measured sizes -> shrunk rows collapse to true content
+    setResizeSettleTick((t) => t + 1); // -> the post-commit layout-effect re-measures the mounted rows
+  };
   // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
   // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
   const startResize = (key: string, isRate: boolean) => (e: ReactPointerEvent) => {
@@ -3716,7 +3748,13 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     // separate map, untouched) drops `split` to false for one render -> the single table re-renders
     // at natural height with the NEW column widths -> the measure layout-effect re-reads the true
     // natural heights -> split re-commits. All within a layout-effect cycle (pre-paint) -> no flash.
-    if (splitRef.current) setRowHeights({});
+    // V1-FIX-2: virtualized mode has no captured rowHeights; instead clear the virtualizer's sticky
+    // measured sizes so re-wrapped rows re-measure their NEW natural <tr> box (matches classic's reset
+    // here). On drag-END (not streaming moveResize) -> no thrash.
+    if (splitRef.current) {
+      setRowHeights({});
+      remeasureVirtualRowsAfterResize();
+    }
   };
   // Double-click autofit (D6): measure the column's natural content width. Under table-fixed the
   // colgroup clamps a cell's CLIENT width, but scrollWidth still reports the full content extent
@@ -3736,7 +3774,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     if (max > 0) {
       setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
       // Slice 2: autofit can re-wrap the Description -> re-measure captured rows (see endResize).
-      if (splitRef.current) setRowHeights({});
+      // V1-FIX-2: same virtualized reset as endResize.
+      if (splitRef.current) {
+        setRowHeights({});
+        remeasureVirtualRowsAfterResize();
+      }
     }
   };
   // The right-edge drag affordance rendered inside each header <th> (headers carry no other
