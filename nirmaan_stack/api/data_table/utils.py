@@ -244,6 +244,49 @@ def _parse_target_search_field(search_fields_input: str | None, doctype_for_log:
         
     return None
 
+def split_name_in_constraints(processed_filters: list) -> tuple[list, set | None]:
+    """Pull `name in [...]` filters out of a processed filter list so a downstream ORM query never inlines a
+    giant `name IN (...)` (the sqlparse 10,000-token trap). The JSON-field facet path above injects exactly
+    such a filter (see the `fieldtype == "JSON"` branch), and it can hold thousands of names.
+
+    Returns (remaining_filters, name_constraint) where name_constraint is the intersection of every pulled
+    `name in` set (AND semantics, matching how stacked filters combine), or None if none were present."""
+    name_sets = []
+    remaining = []
+    for f in processed_filters:
+        if not isinstance(f, (list, tuple)):
+            remaining.append(f)
+            continue
+        if len(f) == 4:
+            fname, fop, fval = f[1], f[2], f[3]
+        elif len(f) == 3:
+            fname, fop, fval = f[0], f[1], f[2]
+        else:
+            remaining.append(f)
+            continue
+        if fname == "name" and isinstance(fop, str) and fop.lower() == "in" and isinstance(fval, (list, tuple)):
+            name_sets.append(set(fval))
+        else:
+            remaining.append(f)
+    constraint = set.intersection(*name_sets) if name_sets else None
+    return remaining, constraint
+
+
+def enumerate_matching_names(doctype: str, filters: list, constraint: set | None = None) -> list:
+    """Return the names matching `filters` (a plain filter list with NO big `name in`), optionally
+    intersected with `constraint`. The generated `SELECT name ... WHERE <filters>` is a small, sqlparse-safe
+    query regardless of how many ROWS it returns; only the (removed) inlined IN list was ever the problem."""
+    from frappe.desk.reportview import execute as reportview_execute
+    names = [
+        d.get("name") for d in reportview_execute(
+            doctype=doctype, filters=filters, fields=["name"], limit_page_length=0
+        ) if d.get("name")
+    ]
+    if constraint is not None:
+        names = [n for n in names if n in constraint]
+    return names
+
+
 def _build_safe_sql_expression(expression_obj: dict, meta) -> str:
     if not isinstance(expression_obj, dict) or "function" not in expression_obj or "args" not in expression_obj:
         frappe.throw(_("Invalid custom aggregate expression format."))

@@ -27,6 +27,7 @@ Date semantics:
 from datetime import date, datetime, timedelta
 
 import frappe
+from frappe.utils import create_batch
 
 
 def _truthy(val):
@@ -126,13 +127,22 @@ def _desired_milestones(enabled_headers):
 	if not enabled_headers:
 		return []
 	week_fields = [f"week_{i}" for i in range(1, _NUM_WEEK_SLOTS + 1)]
-	return frappe.get_all(
-		"Work Milestones",
-		filters={"work_header": ["in", enabled_headers]},
-		fields=["work_milestone_name", "work_header"] + week_fields,
-		order_by="work_milestone_order asc, work_milestone_name asc",
-		limit=0,
-	)
+	# Chunk the header IN list to stay under the sqlparse 10k-token cap (prod).
+	# The list is bounded by the Work Headers master (a handful of rows), so this
+	# is always a single chunk in practice and the DB's collation ordering is
+	# preserved byte-for-byte. Do NOT re-sort the merged rows in Python: Postgres
+	# locale collation for work_milestone_name (e.g. '&' vs 'and') is not
+	# reproducible by a codepoint sort, which would silently change row order.
+	rows = []
+	for _chunk in create_batch(list(enabled_headers), 500):
+		rows += frappe.get_all(
+			"Work Milestones",
+			filters={"work_header": ["in", list(_chunk)]},
+			fields=["work_milestone_name", "work_header"] + week_fields,
+			order_by="work_milestone_order asc, work_milestone_name asc",
+			limit=0,
+		)
+	return rows
 
 
 def _reconcile_rows(sched_doc, project_doc):

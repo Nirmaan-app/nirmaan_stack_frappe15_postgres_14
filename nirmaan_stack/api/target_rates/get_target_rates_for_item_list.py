@@ -1,5 +1,24 @@
 import frappe
-from frappe.utils import cstr # cstr is useful for ensuring string type
+from frappe.utils import cstr, create_batch # cstr is useful for ensuring string type
+
+
+def _reorder_by(rows, order_by):
+    """Re-impose a Frappe-style `order_by` on a list merged from chunked queries so a multi-chunk result
+    matches the single-query order. Handles the common `field [asc|desc][, field2 ...]` form; a sort field
+    that was not fetched is skipped (those rows keep their concatenation order). NULLs are ordered the
+    PostgreSQL way (NULLS LAST for asc, NULLS FIRST for desc) so ties behave like the original query."""
+    if not rows or not order_by:
+        return
+    clauses = [c.strip() for c in str(order_by).split(",") if c.strip()]
+    # Apply least-significant clause first; Python's sort is stable, so this yields the correct multi-key order.
+    for clause in reversed(clauses):
+        parts = clause.split()
+        field = parts[0].strip("`").split(".")[-1].strip("`")
+        reverse = len(parts) > 1 and parts[1].lower() == "desc"
+        if field not in rows[0]:
+            continue
+        rows.sort(key=lambda r, _f=field: (r.get(_f) is None, r.get(_f)), reverse=reverse)
+
 
 @frappe.whitelist()
 def get_target_rates_for_item_list(item_ids_json, order_by="modified desc"):
@@ -32,18 +51,22 @@ def get_target_rates_for_item_list(item_ids_json, order_by="modified desc"):
         # Define fields to fetch for the parent "Target Rates"
         parent_fields = ["name", "item_name", "unit","make", "rate", "item_id", "creation", "modified"]
 
-        # Fetch parent "Target Rates" documents for the given item_ids
-        target_rates_list = frappe.get_all(
-            "Target Rates",
-            fields=parent_fields,
-            filters={
-                "item_id": ["in", item_ids_list]  # Use "in" operator for list filtering
-            },
-            # Pagination parameters (limit_start, limit_page_length) are removed
-            # as we are fetching for a specific list. If the list of item_ids
-            # can be extremely large, consider client-side batching or re-adding pagination.
-            order_by=order_by
-        )
+        # Fetch parent "Target Rates" documents for the given item_ids.
+        # The client-supplied item_ids_list can be large, so chunk the `item_id IN (...)` to keep the
+        # generated query under sqlparse's 10,000-token cap (validate_generated_query). Each Target Rate has
+        # exactly one item_id, so de-duping item_ids (IN already de-dupes) prevents a duplicate row when the
+        # same item_id would straddle two chunks; we then re-impose the global `order_by` on the merged list
+        # so the result order is byte-identical to the single-query result.
+        unique_item_ids = list(dict.fromkeys(item_ids_list))
+        target_rates_list = []
+        for chunk in create_batch(unique_item_ids, 500):
+            target_rates_list.extend(frappe.get_all(
+                "Target Rates",
+                fields=parent_fields,
+                filters={"item_id": ["in", list(chunk)]},  # Use "in" operator for list filtering
+                order_by=order_by
+            ))
+        _reorder_by(target_rates_list, order_by)
 
         if not target_rates_list:
             # It's valid to find no target rates for the given items

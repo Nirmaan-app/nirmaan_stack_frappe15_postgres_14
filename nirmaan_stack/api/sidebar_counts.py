@@ -165,42 +165,43 @@ def sidebar_counts(user: str) -> str:
         for s in ("Requested", "CEO Pending", "Approved", "Rejected", "Paid")
     }
     pay_counts["all"] = simple("Project Payments", {**pay_filters})
-    credit_po_filters = {} if is_full_access else {"project": ["in", user_projects]}
-    credit_po_filters["status"] = ["not in", ["Merged", "Inactive"]]
-
-    # Get the list of valid PO names once for reuse
-    valid_po_names = frappe.get_all("Procurement Orders", filters=credit_po_filters, pluck="name")
-
-    # Get term_status counts
-    credit_counts_raw = frappe.get_all(
-        "PO Payment Terms",
-        fields=["term_status", "count(name) as count"],
-        filters={
-            "payment_type": "Credit",
-            "parent": ["in", valid_po_names]
-        },
-        group_by="term_status"
-    )
-    credit_counts = {item.term_status.lower().replace(" ", ""): item.count for item in credit_counts_raw}
-    credit_counts["all"] = sum(credit_counts.values())
-
-    # Calculate "due" count for the Due tab:
-    # - Created terms with due_date <= today (overdue/due for payment)
-    # - Requested terms (payment has been requested)
-    # - Approved terms (payment approved, pending disbursement)
+    # Credit counts: PO Payment Terms (child of Procurement Orders) scoped to non-Merged/Inactive POs.
+    # Previously this plucked ALL valid PO names and passed `parent IN (<thousands>)`, which on prod
+    # (Frappe validate_generated_query + sqlparse 10k-token cap) throws SQLParseError. Rewritten as a JOIN
+    # to Procurement Orders -- constant token count, runs via frappe.db.sql (sqlparse-exempt), and reuses
+    # the _proj()/_params() project-scoping helpers above (ADR-0010: a count over many rows -> the DB).
     from datetime import date
     today = date.today().isoformat()
 
-    # Count Created terms with past due_date
-    created_due_count = frappe.db.count(
-        "PO Payment Terms",
-        filters={
-            "payment_type": "Credit",
-            "term_status": "Created",
-            "due_date": ["<=", today],
-            "parent": ["in", valid_po_names]
-        }
+    credit_counts_raw = frappe.db.sql(
+        f'''
+        SELECT t.term_status AS term_status, COUNT(t.name) AS count
+        FROM "tabPO Payment Terms" t
+        JOIN "tabProcurement Orders" po
+          ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
+        WHERE t.payment_type = 'Credit'
+          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+        GROUP BY t.term_status
+        ''',
+        _params({}), as_dict=True,
     )
+    credit_counts = {(r["term_status"] or "").lower().replace(" ", ""): r["count"] for r in credit_counts_raw}
+    credit_counts["all"] = sum(credit_counts.values())
+
+    # "due" = Created (past due_date) + Requested + Approved. Requested/Approved come from credit_counts;
+    # the Created-past-due count is the same JOIN with the extra term_status/due_date predicates.
+    created_due_count = frappe.db.sql(
+        f'''
+        SELECT COUNT(t.name)
+        FROM "tabPO Payment Terms" t
+        JOIN "tabProcurement Orders" po
+          ON po.name = t.parent AND t.parenttype = 'Procurement Orders'
+        WHERE t.payment_type = 'Credit' AND t.term_status = 'Created'
+          AND t.due_date <= %(today)s
+          AND po.status NOT IN ('Merged', 'Inactive'){_proj("po")}
+        ''',
+        _params({"today": today}),
+    )[0][0]
 
     # Count Requested terms
     requested_count = credit_counts.get("requested", 0)

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, create_batch
 from frappe.desk.reportview import execute as reportview_execute
 import json
 import hashlib
@@ -14,7 +14,8 @@ from .constants import (
 )
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
-    _parse_search_fields_input, _parse_target_search_field
+    _parse_search_fields_input, _parse_target_search_field,
+    split_name_in_constraints, enumerate_matching_names
 )
 from .aggregations import get_aggregates, get_group_by_results
 from .token_search import rank_parents_by_token_score, tokenize
@@ -28,6 +29,33 @@ from .token_search import rank_parents_by_token_score, tokenize
 # Raise if slow-search logs show late-modified full matches are missing from
 # the ranked head; lower if Python ranking shows up in the slow-query log.
 TOKEN_SCORE_MAX_CANDIDATES = 1000
+
+# Max names per `name IN (...)` chunk when hydrating a page of rows via reportview. Kept well under the
+# sqlparse 10,000-token cap that Frappe's validate_generated_query enforces (each name ~= 2-3 tokens, so
+# 2000 names ~= 4000-6000 tokens). Larger pages / exports are fetched in several chunks and concatenated.
+_HYDRATE_CHUNK = 2000
+
+
+def _hydrate_rows_by_names(doctype, fields, ordered_names):
+    """Fetch full rows for `ordered_names` via reportview, chunked so no single `name IN (...)` exceeds the
+    sqlparse token cap, and return them in `ordered_names` order. Shared by the ranked and the narrowed
+    non-ranked page paths so a large page/export can never build a giant IN list."""
+    if not ordered_names:
+        return []
+    rows = []
+    for chunk in create_batch(list(ordered_names), _HYDRATE_CHUNK):
+        chunk = list(chunk)
+        rows.extend(reportview_execute(**{
+            "doctype": doctype, "fields": fields,
+            "filters": [["name", "in", chunk]], "order_by": None,
+            "limit_start": 0, "limit_page_length": len(chunk),
+        }))
+    # order_by=None above means reportview would apply its own default ordering; re-impose the caller's
+    # order (rank order, or the DB-ordered page slice). This .sort is LOAD-BEARING, not cosmetic.
+    order_index = {n: i for i, n in enumerate(ordered_names)}
+    rows.sort(key=lambda r: order_index.get(dict(r).get("name") or "", len(ordered_names)))
+    return rows
+
 
 def get_list_with_count_enhanced_impl(
     doctype, 
@@ -85,6 +113,10 @@ def get_list_with_count_enhanced_impl(
         
         raw_base_filters_list = _parse_filters_input(filters, doctype)
         processed_base_filters = _process_filters_for_query(raw_base_filters_list, doctype)
+        # A JSON-field facet filter is injected by _process_filters_for_query as a ["<dt>","name","in",[...]]
+        # narrowing that can hold thousands of names. Pull it out so no ORM query inlines a giant IN; it is
+        # re-applied as an explicit name constraint (Python intersection / bounded SQL) below.
+        processed_base_filters, base_name_constraint = split_name_in_constraints(processed_base_filters)
         target_search_field_name = _parse_target_search_field(current_search_fields, doctype)
 
         _formatted_order_by = order_by or f"`tab{doctype}`.`modified` desc"
@@ -132,8 +164,11 @@ def get_list_with_count_enhanced_impl(
 
         data = []
         total_records = 0
-        final_matching_parent_names = [] 
+        final_matching_parent_names = []
         final_and_filters = list(processed_base_filters)
+        # When True, the page is fetched with a direct `WHERE <filters> LIMIT/OFFSET` (Frappe-native) and
+        # NO name materialization / no `name IN (...)`. Set only by the standard-search branch below.
+        use_direct_pagination = False
 
         # Strategy selection
         use_child_table_item_search = (
@@ -303,13 +338,36 @@ def get_list_with_count_enhanced_impl(
                 final_matching_parent_names = [r[0] for r in frappe.db.sql(data_names_sql, {"names_tuple": tuple(potential_parent_names)}, as_list=True) if r and r[0]]
                 total_records = len(final_matching_parent_names)
 
-        else: # Standard Search
+        else: # Standard Search -- Frappe-native: count via COUNT(*), page via direct LIMIT/OFFSET.
             if search_term and target_search_field_name:
                 for token in tokenize(search_term): final_and_filters.append([doctype, target_search_field_name, "like", f"%{token}%"])
-            count_fetch_args = {"doctype": doctype, "filters": final_and_filters, "fields": ["name"], "limit_page_length": 0}
-            all_matching_docs = reportview_execute(**count_fetch_args)
-            total_records = len(all_matching_docs)
-            final_matching_parent_names = [d.get("name") for d in all_matching_docs if d.get("name")]
+            if base_name_constraint is None:
+                # Total via a single COUNT(*) (frappe.db.count -> query builder, which bypasses the sqlparse
+                # gate). No enumeration of the full name set, no `name IN (...)`.
+                total_records = frappe.db.count(doctype, filters=final_and_filters)
+                use_direct_pagination = True
+                # Aggregates / group-by run over the WHOLE matching set, so they still need the name list.
+                # Enumerate it ONLY when configured: `SELECT name ... WHERE <filters>` is a small SQL string
+                # (sqlparse-safe regardless of row count), and the raw `name IN (...)` aggregate query runs via
+                # frappe.db.sql (also sqlparse-exempt). The page itself is fetched directly below -- never by IN.
+                if (aggregates_config or group_by_config) and not for_export_bool:
+                    final_matching_parent_names = [
+                        d.get("name") for d in reportview_execute(
+                            doctype=doctype, filters=final_and_filters, fields=["name"], limit_page_length=0
+                        ) if d.get("name")
+                    ]
+            else:
+                # A JSON-facet (or explicit) name narrowing is active: resolve the matched set (base filters
+                # intersected with the constraint) and page it via the narrowed non-ranked path below --
+                # never a giant `name IN (...)`.
+                final_matching_parent_names = enumerate_matching_names(doctype, final_and_filters, base_name_constraint)
+                total_records = len(final_matching_parent_names)
+
+        # Re-apply any name constraint pulled from the filters (JSON-facet narrowing) to the narrowed
+        # branches (child item-search / pending-filter). The standard branch already handled it inline.
+        if base_name_constraint is not None and not use_direct_pagination and final_matching_parent_names:
+            final_matching_parent_names = [n for n in final_matching_parent_names if n in base_name_constraint]
+            total_records = len(final_matching_parent_names)
 
         # Token-score ranking for item-search on opted-in doctypes.
         # Same matches and total_count as today — only order changes.
@@ -417,28 +475,29 @@ def get_list_with_count_enhanced_impl(
                 ranked_names = final_matching_parent_names
 
         # Final data fetch and results
-        if final_matching_parent_names:
+        if use_direct_pagination:
+            # Standard path: fetch the page directly with the base filters + LIMIT/OFFSET (Frappe-native).
+            # No name enumeration and no `name IN (...)`, so the generated query can never blow the token cap.
+            data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": final_and_filters, "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length})
+            data = reportview_execute(**data_args)
+        elif final_matching_parent_names:
             if should_rank and ranked_names:
+                # Ranking defines the order: take the page slice of ranked names and hydrate it (chunked so a
+                # large page can't build a giant IN). Order re-imposition happens inside the helper.
                 page_names = ranked_names[start:start + page_length]
-                limit_filters = [["name", "in", page_names]]
-                # order_by=None means "no explicit ORDER BY" — but Frappe's
-                # reportview will quietly apply its default (typically
-                # `modified desc`) when nothing is passed. That would override
-                # our ranking, so the .sort() below is LOAD-BEARING, not a
-                # cosmetic tidy-up. It re-imposes page_names order on the
-                # fetched rows. Do not remove without also forcing reportview
-                # to skip its default ordering.
-                data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": limit_filters, "order_by": None, "limit_start": 0, "limit_page_length": page_length})
-                data = reportview_execute(**data_args)
-                rank_index = {n: i for i, n in enumerate(page_names)}
-                def _rank_key(r):
-                    name = dict(r).get("name") or ""
-                    return rank_index.get(name, len(page_names))
-                data.sort(key=_rank_key)
+                data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
             else:
-                limit_filters = [["name", "in", final_matching_parent_names]]
-                data_args = frappe._dict({"doctype": doctype, "fields": parsed_select_fields_str_list, "filters": limit_filters, "order_by": _formatted_order_by, "limit_start": start, "limit_page_length": page_length})
-                data = reportview_execute(**data_args)
+                # Narrowed set (child-table item-search or pending-filter), no ranking. Let the DB order the
+                # full matched set and slice out the page NAMES via raw SQL (a bound tuple -> sqlparse-exempt),
+                # then hydrate those <= page_length names via reportview (chunked). Ordering is preserved
+                # exactly because the DB applies `_formatted_order_by` before the LIMIT/OFFSET.
+                page_names = frappe.db.sql(
+                    f"SELECT name FROM `tab{doctype}` WHERE name IN %(names)s "
+                    f"ORDER BY {_formatted_order_by} LIMIT %(pl)s OFFSET %(start)s",
+                    {"names": tuple(final_matching_parent_names), "pl": page_length, "start": start},
+                    pluck=True,
+                )
+                data = _hydrate_rows_by_names(doctype, parsed_select_fields_str_list, page_names)
         
         final_result = {
             "data": data,

@@ -25,7 +25,7 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import create_batch, now_datetime
 
 from nirmaan_stack.api.boq.wizard import draft_lock
 
@@ -1537,13 +1537,19 @@ def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_
     # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
     sortorder_by_name = {n["name"]: n["sort_order"] for n in nodes}
 
-    # Per-area children for these nodes, grouped by parent node name (one query).
+    # Per-area children for these nodes, grouped by parent node name.
+    # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token cap (prod:
+    # Frappe validate_generated_query + sqlparse 0.5.5). node_names scales with the number of
+    # committed BOQ Nodes on one sheet version -- hundreds-to-thousands, unbounded as BoQs grow.
+    # Chunking is a pure fan-out of the SAME (unordered) query, so results are byte-identical.
     node_names = [n["name"] for n in nodes]
-    children_rows = frappe.db.get_all(
-        "BOQ Node Qty By Area",
-        filters={"parent": ["in", node_names], "parenttype": "BOQ Nodes"},
-        fields=_COMMITTED_CHILD_FIELDS,
-    )
+    children_rows: list = []
+    for _chunk in create_batch(node_names, 500):
+        children_rows += frappe.db.get_all(
+            "BOQ Node Qty By Area",
+            filters={"parent": ["in", list(_chunk)], "parenttype": "BOQ Nodes"},
+            fields=_COMMITTED_CHILD_FIELDS,
+        )
     children_by_parent: dict = {}
     for c in children_rows:
         children_by_parent.setdefault(c["parent"], []).append(c)

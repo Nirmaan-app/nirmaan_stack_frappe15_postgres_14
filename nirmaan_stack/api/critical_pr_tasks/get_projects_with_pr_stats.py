@@ -1,6 +1,7 @@
 import frappe
 import json
 from collections import defaultdict
+from frappe.utils import create_batch
 
 from typing import Any, Dict, Set, TypedDict
 
@@ -107,12 +108,17 @@ def get_projects_with_critical_pr_stats():
     # 3. Fetch unique procurement packages from Project Work Package Category Make for each project
     project_ids = list(set(tag.get("project") for tag in tags if tag.get("project")))
     
-    # Efficiently fetch all relevant child table entries in one go
-    wp_makes = frappe.get_all(
-        "Project Work Package Category Make",
-        filters={"parent": ["in", project_ids], "parenttype": "Projects"},
-        fields=["parent", "procurement_package"]
-    )
+    # Efficiently fetch all relevant child table entries in one go.
+    # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token
+    # cap (prod: Frappe validate_generated_query + sqlparse 0.5.5). project_ids scales
+    # with the number of projects that have Critical PR Tags (ALL projects for Admin/PMO).
+    wp_makes = []
+    for _chunk in create_batch(project_ids, 500):
+        wp_makes += frappe.get_all(
+            "Project Work Package Category Make",
+            filters={"parent": ["in", list(_chunk)], "parenttype": "Projects"},
+            fields=["parent", "procurement_package"]
+        )
     
     project_pkgs_map = defaultdict(set)
     for entry in wp_makes:
@@ -189,12 +195,14 @@ def get_projects_with_critical_pr_stats():
     ]
     project_status_map = {}
     if project_ids_with_tags:
-        project_docs = frappe.get_all(
-            "Projects",
-            filters={"name": ["in", project_ids_with_tags]},
-            fields=["name", "status"],
-        )
-        project_status_map = {p.name: p.status or "" for p in project_docs}
+        # Chunk the IN list (sqlparse 10k-token cap); merge the per-chunk maps.
+        for _chunk in create_batch(project_ids_with_tags, 500):
+            project_docs = frappe.get_all(
+                "Projects",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "status"],
+            )
+            project_status_map.update({p.name: p.status or "" for p in project_docs})
 
     result = []
     for p_id in sorted(project_data.keys()):

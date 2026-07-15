@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import create_batch
 
 @frappe.whitelist()
 def get_material_plan_data(project=None, procurement_package=None, mode=None, po=None, search_type="po"):
@@ -28,13 +29,16 @@ def get_material_plan_data(project=None, procurement_package=None, mode=None, po
     
     if pr_ids:
         # We need the 'work_package' field from Procurement Requests
-        # This corresponds to the 'Procurement Package'
-        prs = frappe.get_all("Procurement Requests",
-            filters={"name": ["in", pr_ids]},
-            fields=["name", "work_package"]
-        )
-        for pr in prs:
-            pr_package_map[pr.name] = pr.work_package
+        # This corresponds to the 'Procurement Package'.
+        # Chunk the IN list (sqlparse 10k-token cap); pr_ids scales with the
+        # number of POs on the project.
+        for _chunk in create_batch(pr_ids, 500):
+            prs = frappe.get_all("Procurement Requests",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "work_package"]
+            )
+            for pr in prs:
+                pr_package_map[pr.name] = pr.work_package
 
     # 3. Associate POs with Packages
     # We will store (po_name, package_name) tuples or extend the dict
@@ -300,13 +304,16 @@ def get_all_project_pos(project):
     pr_package_map = {}
     
     if pr_ids:
-        prs = frappe.get_all("Procurement Requests",
-            filters={"name": ["in", pr_ids]},
-            fields=["name", "work_package"]
-        )
-        for pr in prs:
-            pr_package_map[pr.name] = pr.work_package
-    
+        # Chunk the IN list (sqlparse 10k-token cap); pr_ids scales with the
+        # number of POs on the project.
+        for _chunk in create_batch(pr_ids, 500):
+            prs = frappe.get_all("Procurement Requests",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "work_package"]
+            )
+            for pr in prs:
+                pr_package_map[pr.name] = pr.work_package
+
     import json
 
     # Fetch global critical POs for the project to flag them

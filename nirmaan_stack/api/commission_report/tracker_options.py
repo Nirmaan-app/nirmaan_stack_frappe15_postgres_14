@@ -2,7 +2,7 @@ import json
 from collections import defaultdict
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import getdate, create_batch
 
 @frappe.whitelist()
 def get_all_master_data():
@@ -39,15 +39,22 @@ def get_all_master_data():
     project_names = [p.get("name") for p in projects if p.get("name")]
     handover_dates = {}
     if project_names:
-        versions = frappe.get_all(
-            "Version",
-            filters={
-                "ref_doctype": "Projects",
-                "docname": ["in", project_names],
-            },
-            fields=["docname", "creation", "data"],
-            order_by="creation asc",
-        )
+        # Chunk the docname IN list so the generated query never exceeds the sqlparse
+        # 10k-token cap (prod: Frappe validate_generated_query + sqlparse 0.5.5). Version
+        # is a huge table and project_names scales with eligible Handover projects. Each
+        # docname lands in exactly one chunk and each chunk stays ordered by "creation asc",
+        # so the per-docname last-write-wins (latest matching version) result is preserved.
+        versions = []
+        for _chunk in create_batch(project_names, 500):
+            versions += frappe.get_all(
+                "Version",
+                filters={
+                    "ref_doctype": "Projects",
+                    "docname": ["in", list(_chunk)],
+                },
+                fields=["docname", "creation", "data"],
+                order_by="creation asc",
+            )
 
         for version in versions:
             raw_data = version.get("data")

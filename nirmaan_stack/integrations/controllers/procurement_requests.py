@@ -4,7 +4,7 @@ from ..Notifications.pr_notifications import PrNotification, get_admin_users, ge
 from frappe import _
 
 from frappe.model.document import Document
-from frappe.utils import flt, get_datetime, add_months, now_datetime
+from frappe.utils import flt, get_datetime, add_months, now_datetime, create_batch
 from datetime import datetime
 from functools import lru_cache
 import math # Though not used in the final version 3 logic, kept if needed later
@@ -577,11 +577,15 @@ def validate(doc, method):
         item_ids = list({item.item_id for item in to_source if item.item_id})
         billing_map = {}
         if item_ids:
-            for row in frappe.get_all(
-                "Items", filters={"name": ["in", item_ids]},
-                fields=["name", "billing_category"]
-            ):
-                billing_map[row.name] = row.billing_category
+            # Chunk the `name IN (...)` lookup: a very large PR would otherwise inline thousands of item_ids
+            # and blow sqlparse's 10,000-token cap (validate_generated_query) on EVERY save. item_ids is a
+            # de-duped set, so batching and merging into billing_map is byte-identical (dict keyed by name).
+            for chunk in create_batch(item_ids, 500):
+                for row in frappe.get_all(
+                    "Items", filters={"name": ["in", list(chunk)]},
+                    fields=["name", "billing_category"]
+                ):
+                    billing_map[row.name] = row.billing_category
         for item in to_source:
             master_status = billing_map.get(item.item_id)
             if item.category == "Additional Charges":

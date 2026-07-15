@@ -1,5 +1,6 @@
 import frappe
 from collections import defaultdict
+from frappe.utils import create_batch
 
 
 # Roles that require project-level filtering based on user permissions
@@ -148,12 +149,16 @@ def get_projects_with_critical_po_stats():
     ]
     project_status_map = {}
     if project_ids:
-        project_docs = frappe.get_all(
-            "Projects",
-            filters={"name": ["in", project_ids]},
-            fields=["name", "status"],
-        )
-        project_status_map = {p.name: p.status or "" for p in project_docs}
+        # Chunk the IN list so the generated query never exceeds the sqlparse
+        # 10k-token cap (prod). project_ids scales with the number of projects
+        # that have Critical PO Tasks (ALL projects for Admin/PMO).
+        for _chunk in create_batch(project_ids, 500):
+            project_docs = frappe.get_all(
+                "Projects",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "status"],
+            )
+            project_status_map.update({p.name: p.status or "" for p in project_docs})
 
     # Convert to list and clean up status_counts
     result = []
