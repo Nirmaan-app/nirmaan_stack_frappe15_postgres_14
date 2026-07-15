@@ -27,6 +27,283 @@ tsc delta-0, build green (2026-06-25; see §"Fuzzy description search" below). P
 ADDITIVE ParentChain + ChildrenList read components mounted in the EXISTING review-screen detail panel (clickable drill-nav;
 ORIGINAL single-column panel design UNCHANGED, a two-column revamp prototyped then reverted), 2026-06-25.
 
+## MC-1 -- multi-column Description: join at parse + faithful parts map (parser core) COMPLETE
+
+Branch `feature/boq-multicolumn-description` (off develop `dd60cc36`). Parser-core ONLY -- downstream
+tiers (reader, hierarchy, orchestrator, wizard endpoints, commit pipeline, doctypes, frontend)
+UNTOUCHED this slice. One feat commit + this docs commit. Baseline parser suite 594 -> 603, all green.
+
+**Design (owner-locked):** the `description` role may now be mapped on MULTIPLE columns. The parser
+JOINS all mapped description columns, in EXCEL COLUMN ORDER (A, B, ... AA -- sort key `(len, letter)`,
+NOT dict insertion order), with the separator `" | "` (space-pipe-space, ASCII), skipping columns whose
+cell text is blank/whitespace for that row, into the SINGLE canonical `description` string the whole
+pipeline already consumes. It ALSO records each original column's text in a NEW per-row parts map
+`description_parts_raw` (originally `{header label -> raw cell text}`; **SUPERSEDED by MC-1b below ->
+an ordered LIST of `(col_letter, header_label, cell_text)` triples**, Excel order, blank cells absent),
+mirroring `append_notes_raw`, for later faithful display. **Single-description sheets are BYTE-IDENTICAL to
+pre-MC-1** (single stripped value, no separator; empty when the cell is blank/absent) -- a regression
+pin test + the entire existing suite prove it.
+
+**What landed:**
+- **`config.py`** -- removed `"description"` from `_SINGLETON_ROLES`, so a sheet_config mapping the
+  description role on 2+ columns now VALIDATES (was rejected). All other singleton roles + per-area
+  uniqueness + area-declared checks UNCHANGED. Comment updated to state the multi-column intent.
+- **`classifier.py`** -- ONE shared source of truth: `_description_columns(sheet_config)` (description-role
+  columns in Excel order) + `_description_parts(raw_row, sheet_config)` (`(header_label, cell_text)` per
+  non-blank column, Excel order; header via `column_headers.get(col, col)` identical to `append_notes_raw`;
+  `_to_str` coercion == today's single-column `desc_raw`). The `classify_row` description read builds
+  `desc_raw = " | ".join(parts)` + `description_parts_raw = dict(parts)` ONCE; every downstream consumer of
+  `desc_raw` (subtotal regex, subtotal-marker row, `desc_text`, the final `description`, classification)
+  inherits the joined value. New dataclass field `ClassifiedRow.description_parts_raw` populated uniformly
+  on every row (subtotal-marker + main constructors). NOTE rows inherit the joined string for free (their
+  text IS `ClassifiedRow.description`). The candidate scorer's bold signal reads the LEFTMOST (Excel-first)
+  description column via the shared helper (Option A -- byte-identical single-column; bold is a per-cell
+  property so it cannot consume the joined string); its string-length signal already sees the joined value
+  via the passed-in `row_k.description`.
+- **Tests:** `test_config.py` swapped `test_two_description_columns_rejected` -> `_accepted` (the sibling
+  `test_two_qty_total_columns_rejected` keeps the singleton-negative proof). `test_classifier.py` new
+  `TestMultiColumnDescription` (9 cases): two/three-column join order, blank-middle skip (no double sep),
+  mapping-order-vs-Excel-order (Excel wins), multi-letter Z-before-AA order, single-column byte-identical
+  pin, parts-map labels/order/values, single-column parts map, all-description-blank equivalence to a
+  single blank column.
+
+**Downstream (NOT this slice, for later):** the reader/hierarchy/orchestrator carry the joined string
+transparently; `description_parts_raw` needs threading through `ResolvedRow` -> `flatten_resolved_row` ->
+`BoQ Review Row` -> commit -> `BOQ Nodes` and the review/pricing render surfaces before faithful
+per-column display exists end-to-end.
+
+### MC-1b -- parts shape fix: collision-proof triples COMPLETE
+
+Follow-on to MC-1 (tip `f5d61372`), BEFORE anything downstream consumes the field. `classifier.py` +
+`test_classifier.py` only. Baseline parser suite 603 -> 604, all green.
+
+**Problem:** MC-1's `{header label -> raw cell text}` dict silently DROPPED a column when two description
+columns shared an identical header (last-write-wins). **Fix (owner call 2026-07-09):** the STORED SHAPE
+of `ClassifiedRow.description_parts_raw` becomes an ORDERED LIST of `(col_letter, header_label, cell_text)`
+triples, Excel column order, blank cells still skipped. `col_letter` is UNIQUE -> collision-proof;
+`header_label` stays the ORIGINAL header text (NO de-duplication in storage). `_description_parts` returns
+the triples; the join site takes each triple's `cell_text`.
+
+**The canonical joined `description` string is UNTOUCHED** (byte-identical to MC-1 in every case) -- all
+join-string tests pass unmodified. The scorer bold signal is unchanged.
+
+**DISPLAY CONVENTION (recorded, NOT built here -- lands MC-4/MC-5):** at render time, duplicate header
+labels get ` 2`, ` 3` suffixes in column order (e.g. two "Description" columns render as "Description" +
+"Description 2"). Storage keeps the raw original labels; the suffixing is a pure render-time decoration.
+
+**Tests:** `TestMultiColumnDescription` parts assertions restated to the triple shape; NEW
+`test_duplicate_header_labels_both_survive` (identical headers -> BOTH parts kept, distinguished by
+`col_letter`, join string unaffected). `test_classifier` 133 -> 134.
+
+## MC-2 -- thread description_parts_raw to draft rows + BOQ Nodes COMPLETE
+
+Threads the MC-1/1b parts list from parser output to BOTH DB tiers (draft `BoQ Review Row` + committed
+`BOQ Nodes`) so MC-4/5 can render the original columns on the review screen and the pricing editor. Two
+commits (feat + this docs). Backend-only; `pricing.py` + frontend untouched. Migrated. Suites:
+parser 604 (unchanged), test_parse_run 99->102, test_commit_pipeline 51->54, test_review_screen 247->249,
+test_pricing 176 (inheritance regression-checked, unchanged).
+
+**LOAD-BEARING SERIALIZATION CONVENTION (list-JSON, NOT the dict append_notes_raw path):**
+`description_parts_raw` is a LIST (of `(col_letter, header_label, cell_text)` triples). Frappe's
+`get_valid_dict()` rejects raw Python lists on a JSON field, so at EVERY boundary it follows the list-JSON
+siblings (`attached_notes` / `classifier_warnings` / `edit_log`) -- explicit `json.dumps` on write,
+membership in the LIST parse-set on read -- NEVER the dict-valued `append_notes_raw` (which Frappe
+auto-serializes). It round-trips as a **list-of-lists** `[[col, header, text], ...]` on read (tuples not
+preserved).
+
+**Hop list as built** (EXPLICIT-COPY at every code hop; `ClassifiedRow`/`ResolvedRow` are BLOB-PASS -- no
+change to classifier.py/hierarchy.py):
+- **Doctypes (additive JSON field, `bench migrate`d; A5 has_column gate passed both):**
+  `description_parts_raw` on `boq_review_row.json` + `boq_nodes.json`. Migrate did NOT churn the JSONs
+  (clean 7-insertion additive diff each; no timestamp/reorder noise -> no reduction needed).
+- **`parse_run.py` (draft write):** `flatten_resolved_row` copies `cr.description_parts_raw`;
+  `_LIST_JSON_FIELDS` gains it so `_run_parse_worker` `json.dumps` it before `doc.insert()`; two docstrings
+  updated.
+- **`commit_pipeline.py` (draft -> BOQ Nodes):** fetched in `_REVIEW_ROW_FIELDS`, parsed in
+  `_JSON_FIELDS_TO_PARSE`, written in the **deferred list-JSON PASS 3** (`set_value(json.dumps)`, NOT
+  `_build_node_pass1` -- a list would trip the wall; empty list skipped like append_notes_raw), reconciled
+  via `_jsn`.
+- **`review_screen.py` (read feeds):** `get_review_rows` ships it (`all_fields` + `_JSON_LIST_FIELDS`, the
+  LIST set); the committed mapper `_committed_node_to_row` parses + emits it, **normalizing absent/NULL to
+  `[]`** (covers pre-MC-2 nodes AND empty-parts nodes the commit skips writing). `pricing.py`
+  `get_priced_rows`/`get_version_priced_rows` INHERIT it via the committed feed -- no pricing edit.
+
+**Display-only invariant:** no classification/pricing logic reads `description_parts_raw`; it is render data
+for MC-4/5, which apply the ` 2`/` 3` duplicate-header display suffixes.
+
+**Tests (+8):** test_parse_run round-trip (multi/single/empty -> list-of-lists via the draft insert);
+test_commit_pipeline (carried-verbatim onto BOQ Nodes, duplicate-header survival end-to-end, empty-parts
+no-crash + committed feed `[]`); test_review_screen (draft feed parsed list, committed feed parsed +
+absent->`[]`).
+
+## MC-3 -- wizard config UI: allow multiple Description column mappings COMPLETE
+
+Relaxes the FRONTEND config wizard to let a sheet map the `description` role on multiple columns (the
+backend already accepts them since MC-1). Frontend-only; two commits (feat + this docs). No backend, no
+schema, no render-surface change.
+
+**Verify-first (single-file enforcement, A1 held):** the config-wizard single-description enforcement lives
+ENTIRELY in `frontend/src/pages/boq-wizard/SheetConfigPanel.tsx` -- the `SINGLETON_ROLES` set (drives
+`usedSingletons` + the `isDisabled` role-picker gate), the Config-Done gate `roles.includes("description")`,
+and the hint string. No other wizard file enforces it.
+
+**The change:** removed `"description"` from `SINGLETON_ROLES` (mirrors the backend `config.py`
+`_SINGLETON_ROLES` edit) -- `usedSingletons` + `isDisabled` both key off the set, so the role stays
+selectable in every column's picker after being mapped once. **Config-Done gate UNCHANGED** --
+`roles.includes("description")` is already "at least one" (presence). Hint text -> "at least one Description
+(multiple allowed -- they combine in column order), one Quantity, one Rate, and one Amount column."
+Config-blob shape UNCHANGED (more `column_role_map` entries; `set_sheet_config` does no role validation).
+Purely permissive -- existing single-description configs behave identically.
+
+**MC-4/5 ENTRY POINTS (render surfaces, deliberately NOT touched this slice):** both assume a single
+description column via a `.find(d => d.role === "description")?.col` anchor lookup --
+`ReviewTree.tsx:768` (`descriptionLetter`, the fixed Description anchor column on the review screen) and
+`PricingGrid.tsx:2578` (`descriptionLetter`, the fixed Description anchor on the pricing editor). MC-4/5
+make these render the multi-column faithful `description_parts_raw` (with the ` 2`/` 3` duplicate-header
+display suffixes) instead of the single joined string.
+
+**Verification (frontend-only; no unit tests exist for SheetConfigPanel role logic, none created):** tsc
+wizard-scoped gate 0 errors; `yarn build` green (`built in 4m 10s`, known-benign large-chunk warnings only).
+
+## MC-3b -- capture column header labels at parse time COMPLETE
+
+`SheetConfig.column_headers` had NO production writer -> always `{}`, so every header-label lookup
+(`description_parts_raw` triple labels, `append_notes_raw` keys) fell back to the bare column LETTER for
+EVERY sheet. Owner Option B (2026-07-10): capture the real header text at PARSE time. Backend-only; two
+commits (feat + this docs). No schema. Parser suite 604 -> 610; test_parse_run 102 unchanged.
+
+**Seam = orchestrator.py (NOT parse_run.py).** `assemble_mapping_config` (parse_run) builds the
+parser-input `SheetConfig` from stored blobs with NO workbook open; the workbook is opened inside
+`parse_boq`, whose per-sheet loop has both the reader and the authoritative `header_row` AND runs before
+`classify_row` (the consumer of `column_headers`). New helper `orchestrator._enrich_column_headers(reader,
+sheet_config)` reads the `header_row` cells via `reader.iter_rows(start_row=end_row=header_row)` (no reader
+change) and fills `column_headers`. It lights up BOTH the description triples and the append-notes keys
+(classify_row reads `column_headers.get(col, col)` for each).
+
+**D1-D5 as built:**
+- **STORED WINS (D1):** a non-empty existing `column_headers[col]` is never overwritten.
+- **BOTTOM ROW (D2):** `header_row` is the single declared header row = the bottom sub-header row (the
+  second tier sits ABOVE it, excluded from data by the `row >= header_row` guard) -> its cells are the real
+  per-column labels; a banner row above is NOT read.
+- **BLANK -> ABSENT (D3):** a blank/whitespace header cell leaves the column absent from `column_headers`
+  (the letter fallback stays); never stores `""`.
+- **NO WRITE-BACK (D4):** enrichment is IN-MEMORY on the parser-input `SheetConfig`; the stored
+  `BoQ Sheet Draft.sheet_config` blob is never mutated, and the committed `BoQ Sheet.column_headers`
+  snapshot still snapshots the stored `{}`. **Labels reach MC-4/5 ONLY via the persisted
+  `description_parts_raw` triples' `header_label`.**
+- **SEAM (D5):** orchestrator.py only; reader.py + parse_run.py untouched.
+
+**LOCKED for MC-4/5 -- the label source (union-across-rows):** since `column_headers` is not written back
+and `column_descriptors` carry no per-column label, MC-4/5 read each description column's header label from
+`description_parts_raw[].header_label`, taking it from any row where that column's cell is non-blank (the
+label is constant per column). This covers every column with content in >=1 row; a description column blank
+in EVERY row (degenerate) shows the Excel letter -- accepted (owner, no write-back).
+
+**Backwards-compat:** enrichment only FILLS empty entries; pre-filled configs behave identically; existing
+sheets gain labels on their NEXT parse only (forward-only). The parts-map SHAPE is unchanged -- only label
+VALUES improve.
+
+**Tests (+6 in test_orchestrator, via a bespoke tempfile workbook -- never a committed binary):** single-row
+multi-description real labels, two-row header reads the sub-header row (not the banner), stored-entry-wins,
+blank-header letter fallback, append_notes real-label bonus, prefilled regression. **Also updated in-place:
+the pre-existing dtech letter-fallback test** -- its column E ("Workitem") has a real header, which MC-3b
+now captures, so its `append_notes_raw` key is the real label, NOT the letter "E" (the letter fallback now
+only survives a genuinely blank header; that coverage moved to the new blank-header test).
+
+## MC-4 -- review screen faithful multi-column description rendering COMPLETE
+
+Fans the review screen's single Description anchor (the joined string) into ONE COLUMN PER mapped
+description column, faithful originals. Frontend-only; two commits (feat + this docs). No backend/schema.
+`reviewRender.test.ts` 12 -> 25; tsc scoped gate 0 errors; build green.
+
+**Data source (locked, MC-3b):** every draft row ships `description_parts_raw` from `get_review_rows` --
+`[col_letter, header_label, cell_text]` triples (list-of-lists after JSON round-trip), real labels since
+MC-3b. Added `description_parts_raw: string[][] | null` to `ReviewRow` (boqTypes.ts).
+
+**Three pure helpers (reviewRender.tsx, unit-tested):** `buildDescriptionColumns(columnDescriptors, rows)`
+-- column SET+ORDER from the `role:"description"` descriptors (Excel order; NOT a single row's parts, since
+blanks are absent per-row); LABEL via **union-across-rows** (first row carrying a triple for the column
+wins; letter fallback when none); **" 2"/" 3" suffixes** on duplicate labels in column order; `headerText`
+= `` `${label} (${col})` `` or the bare letter when `label===col` (avoids "C (C)"). `descriptionCellValue(row,
+col)` -- per-cell text by `col_letter`; absent/null/legacy -> `""`. `sheetHasDescriptionParts(rows)` -- the
+once-per-sheet **legacy detector**.
+
+**ReviewTree.tsx fan-out (~10 touch points):** the FIRST description column is the wide (`min-w-[280px]`)
+always-on anchor -- depth indent + `(no description)` fallback via a shared `DescriptionCellInner`; the
+REMAINING columns are narrower (`min-w-[160px]`) `sticky top-0 z-20 bg-muted` cells that JOIN the show/hide
+picker. A new `pickerColumns` abstraction drives the picker + `hiddenColCount` + `totalCols`; it lists the
+**extra description columns FIRST, then the ordinary descriptor columns** (MC-4-fix) so the picker mirrors
+the table's leftmost-description visual order (order is presentation-only -- the counts are order-independent
+`.filter`s), with description entries in the **letter-first** picker format `${col} — ${label}` (bare letter
+when degenerate) matching the other columns -- NOT the `${label} (${col})` table-header format (MC-4-fix2); `visibleCols` init/sync seed the extra description LETTERS from
+the DESCRIPTORS (stable per sheet, so a cell edit never resets hidden columns). `totalCols` keeps base `8`
+(the first/legacy anchor) + extra visible description cols -> every `colSpan` (flag-reasons + detail panel)
+stays aligned. `FIXED_ROLE_DEDUPE` unchanged (description stays out of `displayDescriptors`; the fan-out
+REPLACES the anchor, does not duplicate into descriptors).
+
+**LEGACY FALLBACK (A10 compat contract):** when `sheetHasDescriptionParts(rows)` is false (drafts parsed
+pre-MC-2), the single Description anchor renders via the SAME shared `DescriptionCellInner` -- byte-identical
+screen. `pickerColumns === displayDescriptors` and `totalCols` are identical by construction. The shared
+inner (one source, not a drifting copy) IS the compat mechanism.
+
+**Verified unaffected, unmodified (per owner scope):** search (`fuzzyDescriptionMatchSet` on the still-present
+joined `row.description`), the row-level search-highlight ring, and the detail panel (never renders
+`row.description`). OUT OF SCOPE and untouched: `exportReviewCsv.ts` (exports keep the single joined
+Description -- owner-deferred), `PricingGrid.tsx` + pricing (MC-5), `SheetConfigPanel.tsx`, all backend.
+
+**Width choice:** first description column `min-w-[280px]` (unchanged from the old anchor); each extra
+description column `min-w-[160px]`.
+
+**Tests (+13):** `buildDescriptionColumns` (set/order, label union, letter fallback, " 2"/" 3" suffix,
+headerText formats incl. label==letter), `descriptionCellValue` (present/absent/null/legacy -> value/""),
+`sheetHasDescriptionParts` (carrying/all-null/empty). Existing 12 pass unmodified.
+
+## MC-5 -- pricing editor faithful description columns + Option-1 freeze COMPLETE
+
+Fans the pricing grid's single Description anchor into one column per mapped description column, all INSIDE
+the frozen anchor pane (Option 1), Category still the first scrolling column immediately after -- mirroring
+MC-4 under the pricing grid's colIndex coordinate system. Frontend-only, `PricingGrid.tsx` + its test; two
+commits. No backend/schema. `PricingGrid.test.ts` 131 -> 143; reviewRender 25 unchanged; tsc 0; build green.
+
+**THE SEAM (the arc's riskiest logic):** a per-render `anchorWidthKeys` list is the SINGLE SOURCE OF TRUTH.
+`effectiveAnchorCount = anchorWidthKeys.length`, `descriptorColStart = length + 1`. Every consumer that used
+the module const `FIXED_ANCHOR_COUNT`/`DESCRIPTOR_COL_START` (Category colIndex, nav pane boundary,
+`descriptorAt`, rate guard, Category Enter guard, `remarksColIndex`, `colIndexFromColKey`, `anchorPaneWidth`,
+`anchorCols` colgroup, `widthOf`) now reads the per-render value. **LEGACY-BY-CONSTRUCTION:** when no row
+carries `description_parts_raw` (`sheetHasDescriptionParts` false -- pre-MC-2 committed BoQs, which this
+screen serves indefinitely), `buildAnchorWidthKeys` returns today's `[a0..a4]` -> `effectiveAnchorCount = 5`,
+`descriptorColStart = 6`, byte-identical to the module consts. The exported `FIXED_ANCHOR_COUNT` /
+`DESCRIPTOR_COL_START` are retained as the legacy source + test exports.
+
+**Three new pure exported helpers** (the riskiest logic, made testable): `buildAnchorWidthKeys(descriptionColumns,
+fanOut)` (`[a0..a3, desc:<col>...]` fan-out / `[a0..a4]` legacy); `descriptionWidthSeeds(descriptionColumns)`
+(`desc:<firstCol>`->280, extras->160 -- the split-the-280-budget rule; drag-resize covers preference);
+`colIndexFromColKeyPure(colkey, anchorWidthKeys, descWidthKeys, descriptorColStart, remarksColIndex)`
+(extracted from the closure so the fan-out `desc:<col>` key resolution is unit-tested).
+
+**Fan-out columns:** width-keyed by EXCEL LETTER (`desc:<col>`, collision-free, distinct from descriptors'
+`d:<col>`); set/order/labels/values via the MC-4 `reviewRender` helpers (imported -- reviewRender is a leaf,
+no cycle). Each is a READ-ONLY nav cell at colIndex `4..4+N-1` (`< descriptorColStart` -> excluded from the
+rate/editable path). ONLY the first gets the depth indent + collapse chevron (which lives IN the description
+cell on this screen) + `(no description)` fallback + the 280 seed, via a shared `DescriptionAnchorInner` --
+**the SAME inner the legacy single anchor renders, so legacy is provably byte-identical** (A10). None get the
+priced-tint row background or the remark-color left border. The grid header is a single flat `<th>` row (no
+colspans) so the N columns are independent peers. Grid-level geometry (`descriptionColumns`, `fanOut`,
+`effectiveAnchorCount`, `descriptorColStart`) threads to the memoized row as props (identity for the columns,
+equality for the scalars); `descriptionColumns` is `useMemo`'d on `[columnDescriptors, rows]` and pricing
+`rows` is the stable committed set (edits go through `draftRates`), so the row memo is not defeated.
+
+**L7 joined-string guards UNCHANGED (correctness-critical):** search (`searchMatches`/`buildSearchHits`),
+every save payload's `description` (the copy-forward match guard -- the backend matches rows on the joined
+string), and the rollup/review-strip all keep reading `row.description`; the `buildRateCell` passthrough tests
+are untouched.
+
+**Tests:** +12 fan-out-geometry cases (anchor keys legacy/fan-out; effective count 4+N + legacy 5; Category
+colIndex; letter-keyed width seeds; `colIndexFromColKeyPure` resolution + read-only description colIndices;
+legacy = exactly today). **The two identified geometry fixtures needed NO change** -- `nextCell` is pure over
+`colCount`, and the `pricingRowPropsAreEqual` fixture tolerates the new (undefined-in-fixture) props -- they
+stand as the legacy single-description case. Helper semantics are already covered by `reviewRender.test.ts` (25).
+
 ## Classifier module -- CL-1a (service core) COMPLETE
 
 Backend-only service core for the rate-guidance classifier, landed on `feature/boq-phase-5` (one feat commit + this docs commit). NO endpoints, worker, or frontend this slice -- those are CL-1b/CL-2. Purely additive (no existing doctype / endpoint / parser / grid touched).

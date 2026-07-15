@@ -378,6 +378,10 @@ export interface ReviewRow {
   // content
   sl_no_value: string | null;
   description: string | null;
+  // MC-2: per-column description parts, ordered [col_letter, header_label, cell_text]
+  // triples (list-of-lists after JSON round-trip). Null/absent on pre-MC-2 drafts.
+  // Drives the MC-4 review-screen faithful multi-column description fan-out.
+  description_parts_raw: string[][] | null;
   unit: string | null;
   make_model: string | null;
   is_rate_only: 0 | 1;

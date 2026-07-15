@@ -135,6 +135,9 @@ _RESAVE_LIST_JSON_FIELDS: frozenset[str] = frozenset({
 _JSON_LIST_FIELDS: frozenset[str] = frozenset({
     "attached_notes", "classifier_warnings",
     "preamble_candidate_signals", "edit_log",
+    # MC-2: list of (col_letter, header_label, cell_text) triples -> list set,
+    # NOT the dict set (append_notes_raw). Round-trips as list-of-lists on read.
+    "description_parts_raw",
 })
 _JSON_DICT_FIELDS: frozenset[str] = frozenset({
     "qty_by_area", "amount_by_area", "rate_by_area", "append_notes_raw",
@@ -1157,7 +1160,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "qty_total", "qty_by_area",
         "rate_supply", "rate_install", "rate_combined", "rate_by_area",
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
-        "row_notes", "append_notes_raw",
+        "row_notes", "append_notes_raw", "description_parts_raw",
         "classifier_warnings", "is_synthetic",
         # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
         "human_classification", "human_parent", "human_is_root",
@@ -1302,7 +1305,7 @@ _COMMITTED_NODE_FIELDS = [
     "level", "code", "description", "unit", "make_model", "qty",
     "supply_rate", "install_rate", "combined_rate",
     "supply_amount", "install_amount", "total_amount",
-    "notes", "append_notes_raw",
+    "notes", "append_notes_raw", "description_parts_raw",
 ]
 # Per-area child fields (BOQ Node Qty By Area) re-collapsed into the nested *_by_area dicts.
 _COMMITTED_CHILD_FIELDS = [
@@ -1382,6 +1385,18 @@ def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) 
         except (ValueError, TypeError):
             apn = {}
 
+    # MC-2: description_parts_raw is a LIST (of triples), round-trips as
+    # list-of-lists; normalize absent/NULL (incl. pre-MC-2 nodes + empty-parts
+    # nodes the commit skips writing) to [] so the render contract is uniform.
+    dparts = node.get("description_parts_raw")
+    if isinstance(dparts, str) and dparts:
+        try:
+            dparts = json.loads(dparts)
+        except (ValueError, TypeError):
+            dparts = []
+    if not isinstance(dparts, list):
+        dparts = []
+
     row_class = node.get("row_class")
     return {
         "name": node.get("name"),
@@ -1405,6 +1420,7 @@ def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) 
         "make_model": node.get("make_model"),
         "row_notes": node.get("notes"),
         "append_notes_raw": apn,
+        "description_parts_raw": dparts,
         # money: word-order re-key back to the draft names (commit_pipeline reversed them)
         "qty_total": node.get("qty"),
         "rate_supply": node.get("supply_rate"),

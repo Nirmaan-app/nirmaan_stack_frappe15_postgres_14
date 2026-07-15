@@ -926,6 +926,54 @@ class TestBoQReviewRowRoundTrip(FrappeTestCase):
             f"Root row effective_parent_index should be None, got {eff['effective_parent_index']!r}",
         )
 
+    # -- MC-2: description_parts_raw threads to the draft row as list-JSON --------
+
+    def _roundtrip_description_parts(self, description_parts_raw):
+        """Flatten a hand-built row carrying description_parts_raw, insert it, and
+        return the value read back from the BoQ Review Row (list-of-lists, since
+        json round-trip does not preserve tuples)."""
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+
+        raw = RawRow(row_number=5, cells={})
+        cr = ClassifiedRow(
+            raw_row=raw,
+            classification=RowClassification.LINE_ITEM,
+            description=" | ".join(t[2] for t in description_parts_raw) or None,
+            description_parts_raw=description_parts_raw,
+        )
+        rr = ResolvedRow(classified_row=cr, parent_index=None, level=0, path="")
+        d = flatten_resolved_row(rr, "TestSheet", 0)
+        # flatten copies the field verbatim (a Python list) before serialization
+        self.assertIsInstance(d["description_parts_raw"], list)
+        d["boq"] = self.boq_name
+        names = self._insert_rows([d])
+        dp = frappe.get_doc("BoQ Review Row", names[0]).description_parts_raw
+        if isinstance(dp, str):
+            dp = json.loads(dp)
+        return dp
+
+    def test_description_parts_raw_multi_roundtrips_list_of_lists(self):
+        """Multi-description parts survive the draft insert as an ordered
+        list-of-lists [[col, header, text], ...] (tuples not preserved)."""
+        dp = self._roundtrip_description_parts(
+            [("B", "Description", "Supply of"), ("C", "Spec", "MS pipe")]
+        )
+        self.assertEqual(
+            dp, [["B", "Description", "Supply of"], ["C", "Spec", "MS pipe"]]
+        )
+
+    def test_description_parts_raw_single_roundtrips_one_triple(self):
+        """A single description column yields a one-triple list."""
+        dp = self._roundtrip_description_parts([("B", "Description", "Section header")])
+        self.assertEqual(dp, [["B", "Description", "Section header"]])
+
+    def test_description_parts_raw_empty_roundtrips_empty_list(self):
+        """A row with no description content stores an empty list (not null-crash)."""
+        dp = self._roundtrip_description_parts([])
+        self.assertEqual(dp, [])
+
 
 # ---------------------------------------------------------------------------
 # Group 4: _run_parse_worker lifecycle (Slice 2)

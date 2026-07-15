@@ -120,6 +120,9 @@ import {
   renderDescriptorCell,
   ClassificationPill,
   CLS_LABELS,
+  buildDescriptionColumns,
+  descriptionCellValue,
+  sheetHasDescriptionParts,
 } from "./reviewRender";
 // DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
 // clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
@@ -180,6 +183,31 @@ function buildAreaColorMap(areas: string[]): Record<string, string> {
 
 const INDENT_PX = 20;
 const VISIBILITY_HOP_CAP = 60; // max ancestor chain length for isVisible check
+
+// MC-4: the shared inner of the Description anchor cell (depth indent + styled text +
+// "(no description)" fallback). Used by BOTH the legacy single anchor AND the FIRST
+// fan-out description column, so the legacy render stays byte-identical (one source,
+// no drifting copy -- the A10 compat mechanism). Extra fan-out columns render a simpler
+// span (no indent, no fallback) inline at the call site.
+function DescriptionCellInner(
+  { text, isPreamble, isLineItem, depth }:
+  { text: string; isPreamble: boolean; isLineItem: boolean; depth: number },
+) {
+  return (
+    <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
+      <span className={cn(
+        "leading-snug break-words min-w-0",
+        isPreamble && "font-medium text-foreground",
+        isLineItem && "text-foreground",
+        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+      )}>
+        {text || (
+          <span className="not-italic text-muted-foreground">(no description)</span>
+        )}
+      </span>
+    </div>
+  );
+}
 
 // Roles shown as fixed anchor columns; excluded from the descriptor-driven layer.
 // Exported for reuse by exportReviewCsv (Slice D2) so the CSV's data columns dedupe
@@ -756,8 +784,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
     const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
+    // MC-4: the role:"description" descriptors (excluded from displayDescriptors by
+    // FIXED_ROLE_DEDUPE). Already in Excel order (backend sort). The fan-out replaces
+    // the single Description anchor with one column per entry here.
+    const descriptionDescriptors = columnDescriptors.filter(d => d.role === "description");
     // append-to-notes-as-columns: the mapped append-columns, already in Excel-letter
     // order (the backend :649 sort). These ALSO render in-position as ordinary
     // descriptor columns (they're in displayDescriptors); this subset additionally
@@ -790,6 +822,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       appendDescriptors,
       slNoLetter,
       descriptionLetter,
+      descriptionDescriptors,
       areaColorMap: buildAreaColorMap(areas),
       editableDescriptors,
       editableTextDescriptors,
@@ -819,11 +852,60 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return parts.join(" | ");
   };
 
+  // MC-4: faithful multi-column description fan-out. LEGACY FALLBACK -- when no row
+  // in this sheet carries a non-empty description_parts_raw (drafts parsed pre-MC-2),
+  // fanOut is false and the single Description anchor renders exactly today's markup.
+  const fanOut = useMemo(() => sheetHasDescriptionParts(rows), [rows]);
+  // Column SET+ORDER+LABELS for the fan-out (labels union-across-rows; recomputes on
+  // row edits -- render-only, never touches visibleCols).
+  const descriptionColumns = useMemo(
+    () => buildDescriptionColumns(columnDescriptors, rows),
+    [columnDescriptors, rows],
+  );
+  // Description columns AFTER the first are hideable; the first stays an always-on
+  // anchor (like the legacy single Description column). Render objects (with labels).
+  const extraDescCols = useMemo(
+    () => (fanOut ? descriptionColumns.slice(1) : []),
+    [fanOut, descriptionColumns],
+  );
+  // STABLE hideable-letters for visibleCols init/sync -- sourced from the DESCRIPTORS
+  // (stable per sheet), NOT from the row-derived labels, so a cell edit never resets
+  // visibleCols. fanOut is a per-sheet boolean (does not flip on edits).
+  const extraDescColLetters = useMemo(
+    () => (fanOut ? descriptionDescriptors.slice(1).map(d => d.col) : []),
+    [fanOut, descriptionDescriptors],
+  );
+  // The hideable-column universe for the picker + counts: the extra description
+  // columns FIRST (they render leftmost in the table, so the picker mirrors that
+  // visual order) THEN the ordinary descriptor columns. Order is presentation-only
+  // here -- the two consumers (hiddenColCount, visibleDescriptorCount) are
+  // order-independent .filter counts. In legacy mode extraDescCols is empty, so
+  // this equals displayDescriptors and every downstream count is byte-identical.
+  const pickerColumns = useMemo(
+    () => [
+      // Letter-first picker convention (matching the displayDescriptors label below),
+      // NOT the table-header `${label} (${col})` format. Bare letter when the resolved
+      // label IS the column letter (degenerate / pre-MC-3b) -- no dangling " — ".
+      ...extraDescCols.map(c => ({
+        col: c.col,
+        label: c.label === c.col ? c.col : `${c.col} — ${c.label}`,
+      })),
+      ...displayDescriptors.map(d => ({
+        col: d.col,
+        label: `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`,
+      })),
+    ],
+    [displayDescriptors, extraDescCols],
+  );
+
   // B1.1b-ii FEAT A: visible descriptor columns.
   // Lazy-initialized to all descriptor cols on mount; re-synced via useEffect when
   // displayDescriptors changes (e.g., navigating to a different sheet).
   const [visibleCols, setVisibleCols] = useState<Set<string>>(
-    () => new Set(columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role)).map(d => d.col))
+    () => new Set([
+      ...columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role)).map(d => d.col),
+      ...extraDescColLetters, // MC-4: extra (non-first) description columns are hideable
+    ])
   );
   // B1.1b-ii FEAT B: annotation-row visibility toggles (independent).
   const [showSpacers, setShowSpacers] = useState(true);
@@ -1106,11 +1188,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return () => clearTimeout(timer);
   }, [highlightedIdx]);
 
-  // B1.1b-ii: sync visibleCols to all descriptor cols when descriptors change.
+  // B1.1b-ii: sync visibleCols to all hideable cols when descriptors change.
   // Fires on mount (harmless redundancy with lazy init) and on prop changes.
+  // MC-4: extraDescColLetters is a stable per-sheet array (sourced from the
+  // descriptors, not row-derived labels), so a cell edit does NOT re-fire this
+  // effect and reset the user's hidden columns.
   useEffect(() => {
-    setVisibleCols(new Set(displayDescriptors.map(d => d.col)));
-  }, [displayDescriptors]);
+    setVisibleCols(new Set([...displayDescriptors.map(d => d.col), ...extraDescColLetters]));
+  }, [displayDescriptors, extraDescColLetters]);
 
   // C-v2: seed editable-value inputs when the detail panel opens or row data
   // changes (e.g. after a save -> mutate() refreshes rows; the inputs re-seed to
@@ -1336,7 +1421,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     );
   }
 
-  const hiddenColCount = displayDescriptors.filter(d => !visibleCols.has(d.col)).length;
+  const hiddenColCount = pickerColumns.filter(c => !visibleCols.has(c.col)).length;
 
   return (
     <div className="space-y-3">
@@ -1497,8 +1582,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       <div className="rounded-md border border-border overflow-hidden">
       {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
-        {/* Feature 1: column-subset selector (only when descriptor columns exist) */}
-        {displayDescriptors.length > 0 && (
+        {/* Feature 1: column-subset selector (only when hideable columns exist --
+            MC-4: ordinary descriptor columns + extra description fan-out columns) */}
+        {pickerColumns.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
               <button
@@ -1523,23 +1609,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 Data columns
               </p>
               <div className="space-y-1">
-                {displayDescriptors.map(d => {
-                  const colLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                  return (
-                    <label
-                      key={d.col}
-                      htmlFor={`vis-col-${d.col}`}
-                      className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      <Checkbox
-                        id={`vis-col-${d.col}`}
-                        checked={visibleCols.has(d.col)}
-                        onCheckedChange={() => toggleCol(d.col)}
-                      />
-                      {colLabel}
-                    </label>
-                  );
-                })}
+                {pickerColumns.map(c => (
+                  <label
+                    key={c.col}
+                    htmlFor={`vis-col-${c.col}`}
+                    className="flex items-center gap-2 py-0.5 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <Checkbox
+                      id={`vis-col-${c.col}`}
+                      checked={visibleCols.has(c.col)}
+                      onCheckedChange={() => toggleCol(c.col)}
+                    />
+                    {c.label}
+                  </label>
+                ))}
               </div>
             </PopoverContent>
           </Popover>
@@ -1818,10 +1901,30 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   </Popover>
                 </div>
               </th>
-              {/* Description: letter from the description descriptor col, if mapped */}
-              <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
-                {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-              </th>
+              {/* MC-4: Description fan-out -- one <th> per mapped description column when
+                  the sheet carries description_parts_raw; else the single legacy anchor
+                  (byte-identical). First column = wide always-on anchor; the rest are
+                  narrower and hide/show via visibleCols. headerText is `Label (Col)`
+                  (or the bare letter when no real label was captured). */}
+              {fanOut ? descriptionColumns.map((c, i) => {
+                const isFirst = i === 0;
+                if (!isFirst && !visibleCols.has(c.col)) return null;
+                return (
+                  <th
+                    key={c.col}
+                    className={cn(
+                      "px-2 py-2 text-left font-medium text-muted-foreground whitespace-nowrap sticky top-0 z-20 bg-muted",
+                      isFirst ? "min-w-[280px]" : "min-w-[160px] border-l border-border",
+                    )}
+                  >
+                    {c.headerText}
+                  </th>
+                );
+              }) : (
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground min-w-[280px] whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+                </th>
+              )}
               {/* Descriptor-driven columns: only rendered when col is in visibleCols */}
               {displayDescriptors.map(d => {
                 if (!visibleCols.has(d.col)) return null;
@@ -1892,7 +1995,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // DUAL-AI (ADR-0003): +1 when the Gemini column is mounted (geminiEnabled) -- the
               // 9th fixed anchor sits between AI Rec and Sl.No. Drives EVERY colSpan below (the
               // flag-reasons row + the inline detail-panel row both span totalCols).
-              const visibleDescriptorCount = displayDescriptors.filter(d => visibleCols.has(d.col)).length;
+              // MC-4: pickerColumns = ordinary descriptor cols + extra (non-first)
+              // description fan-out cols. Base 8 still counts the FIRST/legacy Description
+              // anchor; the extra visible description cols ride pickerColumns. In legacy
+              // mode pickerColumns === displayDescriptors, so this is identical to before.
+              const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
               const totalCols = 8 + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
@@ -2154,22 +2261,48 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </div>
                     </td>
 
-                    {/* Description (B1.1b-iii): text only; depth indent moved here.
-                        paddingLeft = depth * INDENT_PX applied to the content wrapper. */}
-                    <td className="px-2 py-1.5 align-top">
-                      <div style={{ paddingLeft: `${depth * INDENT_PX}px` }}>
-                        <span className={cn(
-                          "leading-snug break-words min-w-0",
-                          isPreamble && "font-medium text-foreground",
-                          isLineItem && "text-foreground",
-                          !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-                        )}>
-                          {row.description || (
-                            <span className="not-italic text-muted-foreground">(no description)</span>
-                          )}
-                        </span>
-                      </div>
-                    </td>
+                    {/* MC-4: Description fan-out body cells. FIRST column = the anchor
+                        (depth indent + "(no description)" fallback via the shared inner);
+                        EXTRA columns = plain per-column values (blank when the row has no
+                        triple), hide/show via visibleCols. LEGACY (no parts) = the single
+                        anchor via the SAME shared inner -> byte-identical. */}
+                    {fanOut ? descriptionColumns.map((c, i) => {
+                      const isFirst = i === 0;
+                      if (!isFirst && !visibleCols.has(c.col)) return null;
+                      if (isFirst) {
+                        return (
+                          <td key={c.col} className="px-2 py-1.5 align-top">
+                            <DescriptionCellInner
+                              text={descriptionCellValue(row, c.col)}
+                              isPreamble={isPreamble}
+                              isLineItem={isLineItem}
+                              depth={depth}
+                            />
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={c.col} className="px-2 py-1.5 align-top border-l border-border">
+                          <span className={cn(
+                            "leading-snug break-words min-w-0",
+                            isPreamble && "font-medium text-foreground",
+                            isLineItem && "text-foreground",
+                            !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                          )}>
+                            {descriptionCellValue(row, c.col)}
+                          </span>
+                        </td>
+                      );
+                    }) : (
+                      <td className="px-2 py-1.5 align-top">
+                        <DescriptionCellInner
+                          text={row.description ?? ""}
+                          isPreamble={isPreamble}
+                          isLineItem={isLineItem}
+                          depth={depth}
+                        />
+                      </td>
+                    )}
 
                     {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
                     {displayDescriptors.map(d => {
