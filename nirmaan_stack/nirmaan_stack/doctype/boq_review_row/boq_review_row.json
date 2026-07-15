@@ -48,6 +48,7 @@
   "notes_section",
   "row_notes",
   "append_notes_raw",
+  "description_parts_raw",
   "warnings_section",
   "classifier_warnings",
   "flags_section",
@@ -307,6 +308,12 @@
    "fieldname": "append_notes_raw",
    "fieldtype": "JSON",
    "label": "Append Notes Raw"
+  },
+  {
+   "description": "Per-column description parts carried verbatim from the parser: an ordered list of [col_letter, header_label, cell_text] triples (list, NOT a dict), Excel column order, blank cells skipped. Display-only; render-time de-dups duplicate headers.",
+   "fieldname": "description_parts_raw",
+   "fieldtype": "JSON",
+   "label": "Description Parts Raw"
   },
   {
    "fieldname": "warnings_section",

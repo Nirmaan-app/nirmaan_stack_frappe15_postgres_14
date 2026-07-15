@@ -159,6 +159,18 @@ rate cell; a user color on a non-stamped cell is untouched); RULE 3 only stamped
 A fill changes no value/formula -> the fidelity assertion is unaffected. NO schema/migrate. test_pricing 145->151 (+6),
 live-verified on 145 Electrical. **NEXT = Slice 5b (hub UI).**
 
+**Amendment (download filename = original uploaded BoQ name, 2026-07-08):** the export filename now mirrors the ORIGINAL
+uploaded BoQ name (the friendly `BOQs.boq_name` FIELD, e.g. `Tender ABC Project_priced_<ts>.xlsx`) instead of the docname
+(`BOQ-26-00001_priced_<ts>.xlsx`). Root cause was a variable-shadowing trap: `_generate_priced_workbook`'s `boq_name` param is
+the DOCNAME (the committed-tier `{"boq": boq_name}` lookups need the PK) but the filename line read the same name as if it were
+the friendly field. Fix: `export_priced_workbook` fetches `boq_name` (the field) alongside `source_file_url` in the SAME
+`get_value` and threads it as a NEW optional `display_name` arg to `_generate_priced_workbook` (default `None` -> the ~7 existing
+3-arg call sites keep the docname fallback, so no existing test/behavior changed). Filename base is built by the pure helper
+`_safe_export_basename(display_name, docname)`: prefers `display_name`, strips filename-illegal chars (`\ / : * ? " < > |` +
+control), collapses whitespace, falls back to docname when blank/all-unsafe. The `_`->space lossiness from upload
+(`upload_file.py` `base.replace("_"," ")`) is unavoidable + acceptable (the friendly field IS the app's notion of the BoQ name).
+Frontend UNCHANGED (it uses `result.filename` verbatim). test_pricing +7 (176->183). No schema/migrate.
+
 **get_committed_state Slice-5b staleness additions (relocated):** **Phase 5 Slice 5b -- TWO MORE ADDITIVE fields (`last_exported_at` + `pricing_changed_since_export`):** `last_exported_at` rides the EXISTING second BoQ Sheet `is_current=1` lookup (one field added to its `fields=[...]` -- no new query). `pricing_changed_since_export` (bool) = `max(priced_at over BoQ Cell Pricing, colored_at over BoQ Cell Color, remarked_at over BoQ Cell Remark)` for the sheet's CURRENT `commit_version` (`is_current=1`) > `last_exported_at`; content-exists-but-never-exported -> True; nothing -> False. **Version-isolated** -- the new module helper `_latest_change_by_sheet_version(boq)` runs THREE GROUPED queries (one per overlay tier) keyed `(sheet_name, committed_version)` so an OLD version's timestamp never marks the current version stale; `_is_changed_since_export(latest_change, last_exported_at)` is the pure rule (normalizes both via `frappe.utils.get_datetime`). Existing return keys UNCHANGED. Drives the Slice-5b "Download priced tender" picker sub-labels + the per-card "priced since last export" chip. `test_commit_gate` 20 -> 27 (+7 `TestGetCommittedStateStaleness`).
 
 

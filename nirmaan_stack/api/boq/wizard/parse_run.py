@@ -35,10 +35,13 @@ logger = logging.getLogger(__name__)
 # These MUST be pre-serialized via json.dumps() before doc.insert().
 # The four dict-type JSON fields (qty_by_area, amount_by_area, rate_by_area, append_notes_raw)
 # are passed as Python dicts and auto-serialized by Frappe -- do NOT dumps those.
+# description_parts_raw is a LIST (of (col_letter, header_label, cell_text) triples), so it
+# belongs HERE with the list-JSON fields, NOT with the dict append_notes_raw (MC-2).
 _LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes",
     "classifier_warnings",
     "preamble_candidate_signals",
+    "description_parts_raw",
 })
 
 # ---------------------------------------------------------------------------
@@ -394,14 +397,15 @@ def flatten_resolved_row(
 
     JSON fields (attached_notes, qty_by_area, amount_by_area, rate_by_area,
     classifier_warnings, preamble_candidate_signals,
-    append_notes_raw) are returned as Python objects (lists and dicts).
+    append_notes_raw, description_parts_raw) are returned as Python objects
+    (lists and dicts).
 
     Frappe insert behaviour for JSON fieldtype:
       - dict values: auto-serialized by Frappe (pass as-is)
       - list values: REJECTED by Frappe with "cannot be a list" unless the caller
         pre-serializes them via json.dumps() before doc.insert(). The list fields
         are: attached_notes, classifier_warnings,
-        preamble_candidate_signals.
+        preamble_candidate_signals, description_parts_raw.
 
     The 'boq' field is NOT included here; flatten_parsed_boq injects it.
 
@@ -458,6 +462,9 @@ def flatten_resolved_row(
         "row_notes": cr.row_notes,
         # dict[str, str] -- stored as JSON object
         "append_notes_raw": cr.append_notes_raw,
+        # list[(col_letter, header_label, cell_text)] -- LIST-JSON (json.dumps
+        # via _LIST_JSON_FIELDS before insert), NOT a dict like append_notes_raw
+        "description_parts_raw": cr.description_parts_raw,
         "is_synthetic": resolved_row.is_synthetic,
     }
 

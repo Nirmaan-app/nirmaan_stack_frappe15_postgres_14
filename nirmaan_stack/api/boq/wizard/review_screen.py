@@ -25,7 +25,7 @@ import json
 from typing import Any
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import create_batch, now_datetime
 
 from nirmaan_stack.api.boq.wizard import draft_lock
 
@@ -123,18 +123,29 @@ _REMARK_MAX_LEN = 250
 _EDIT_LOG_FIELD = "edit_log"
 
 # The 4 parser-output list-JSON fields that must be re-serialized before doc.save()
-# in save_review_edit. frappe.get_doc() returns them as Python lists; Frappe's
-# get_valid_dict rejects Python lists for JSON fieldtype. edit_log is handled
-# separately (rebuilt in full above the save call).
+# in _apply_and_save_row_edit (save_review_edit / save_review_restructure). The parser
+# stores these as JSON *strings* (parse_run._LIST_JSON_FIELDS json.dumps() before insert),
+# but frappe.get_doc() HYDRATES a JSON field back into a Python list on load -- and
+# get_valid_dict rejects a Python list for a JSON field on save. So every edit must
+# re-serialize them before doc.save(). edit_log is handled separately (rebuilt in full
+# above the save call).
+# MUST stay in sync with parse_run._LIST_JSON_FIELDS: description_parts_raw (MC-2,
+# c99ffff0) was registered at the write + read boundaries but was MISSING here, so any
+# edit re-save of a row carrying it threw "Value for Description Parts Raw cannot be a
+# list" -- added below.
 _RESAVE_LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes", "classifier_warnings",
     "preamble_candidate_signals",
+    "description_parts_raw",
 })
 
 # JSON fields returned as parsed Python objects in get_review_rows responses
 _JSON_LIST_FIELDS: frozenset[str] = frozenset({
     "attached_notes", "classifier_warnings",
     "preamble_candidate_signals", "edit_log",
+    # MC-2: list of (col_letter, header_label, cell_text) triples -> list set,
+    # NOT the dict set (append_notes_raw). Round-trips as list-of-lists on read.
+    "description_parts_raw",
 })
 _JSON_DICT_FIELDS: frozenset[str] = frozenset({
     "qty_by_area", "amount_by_area", "rate_by_area", "append_notes_raw",
@@ -1157,7 +1168,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "qty_total", "qty_by_area",
         "rate_supply", "rate_install", "rate_combined", "rate_by_area",
         "amount_total", "amount_supply", "amount_install", "amount_by_area",
-        "row_notes", "append_notes_raw",
+        "row_notes", "append_notes_raw", "description_parts_raw",
         "classifier_warnings", "is_synthetic",
         # human-edit layer (Slice A) + human-root override (Slice 1b-alpha)
         "human_classification", "human_parent", "human_is_root",
@@ -1302,7 +1313,7 @@ _COMMITTED_NODE_FIELDS = [
     "level", "code", "description", "unit", "make_model", "qty",
     "supply_rate", "install_rate", "combined_rate",
     "supply_amount", "install_amount", "total_amount",
-    "notes", "append_notes_raw",
+    "notes", "append_notes_raw", "description_parts_raw",
 ]
 # Per-area child fields (BOQ Node Qty By Area) re-collapsed into the nested *_by_area dicts.
 _COMMITTED_CHILD_FIELDS = [
@@ -1382,6 +1393,18 @@ def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) 
         except (ValueError, TypeError):
             apn = {}
 
+    # MC-2: description_parts_raw is a LIST (of triples), round-trips as
+    # list-of-lists; normalize absent/NULL (incl. pre-MC-2 nodes + empty-parts
+    # nodes the commit skips writing) to [] so the render contract is uniform.
+    dparts = node.get("description_parts_raw")
+    if isinstance(dparts, str) and dparts:
+        try:
+            dparts = json.loads(dparts)
+        except (ValueError, TypeError):
+            dparts = []
+    if not isinstance(dparts, list):
+        dparts = []
+
     row_class = node.get("row_class")
     return {
         "name": node.get("name"),
@@ -1405,6 +1428,7 @@ def _committed_node_to_row(node: dict, children: list, sortorder_by_name: dict) 
         "make_model": node.get("make_model"),
         "row_notes": node.get("notes"),
         "append_notes_raw": apn,
+        "description_parts_raw": dparts,
         # money: word-order re-key back to the draft names (commit_pipeline reversed them)
         "qty_total": node.get("qty"),
         "rate_supply": node.get("supply_rate"),
@@ -1521,13 +1545,19 @@ def _assemble_committed_rows(boq_name, node_filters, column_descriptors, commit_
     # name -> sort_order, so parent_node (a node NAME) resolves to the parent's row_index.
     sortorder_by_name = {n["name"]: n["sort_order"] for n in nodes}
 
-    # Per-area children for these nodes, grouped by parent node name (one query).
+    # Per-area children for these nodes, grouped by parent node name.
+    # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token cap (prod:
+    # Frappe validate_generated_query + sqlparse 0.5.5). node_names scales with the number of
+    # committed BOQ Nodes on one sheet version -- hundreds-to-thousands, unbounded as BoQs grow.
+    # Chunking is a pure fan-out of the SAME (unordered) query, so results are byte-identical.
     node_names = [n["name"] for n in nodes]
-    children_rows = frappe.db.get_all(
-        "BOQ Node Qty By Area",
-        filters={"parent": ["in", node_names], "parenttype": "BOQ Nodes"},
-        fields=_COMMITTED_CHILD_FIELDS,
-    )
+    children_rows: list = []
+    for _chunk in create_batch(node_names, 500):
+        children_rows += frappe.db.get_all(
+            "BOQ Node Qty By Area",
+            filters={"parent": ["in", list(_chunk)], "parenttype": "BOQ Nodes"},
+            fields=_COMMITTED_CHILD_FIELDS,
+        )
     children_by_parent: dict = {}
     for c in children_rows:
         children_by_parent.setdefault(c["parent"], []).append(c)

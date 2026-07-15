@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt # Use flt for safe float conversion
+from frappe.utils import flt, create_batch # Use flt for safe float conversion
 import json
 from frappe.utils.caching import redis_cache
 
@@ -63,19 +63,21 @@ def get_project_sr_summary_aggregates(project_id: str):
     total_amount_paid_for_srs = 0
     if sr_names:
         sum_field = "sum(CAST(amount as numeric)) as total_paid"
-        paid_payments_for_srs = frappe.get_all(
-            "Project Payments",
-            filters=[
-                ["status", "=", "Paid"],
-                ["document_type", "=", "Service Requests"],
-                ["document_name", "in", sr_names]
-            ],
-            fields=[sum_field]
-        )
-        if paid_payments_for_srs and paid_payments_for_srs[0] and paid_payments_for_srs[0].total_paid is not None:
-            total_amount_paid_for_srs = flt(paid_payments_for_srs[0].total_paid)
-        else:
-            print(f"DEBUG: No 'Paid' payments found for SRs: {sr_names} or sum was null.")
+        # Chunk the `document_name IN (...)` list so the generated query never exceeds sqlparse's
+        # 10,000-token cap (a project can have thousands of approved SRs). SUM is associative, so adding
+        # the per-chunk partial sums is byte-identical to one big IN query.
+        for chunk in create_batch(sr_names, 500):
+            paid_payments_for_srs = frappe.get_all(
+                "Project Payments",
+                filters=[
+                    ["status", "=", "Paid"],
+                    ["document_type", "=", "Service Requests"],
+                    ["document_name", "in", list(chunk)]
+                ],
+                fields=[sum_field]
+            )
+            if paid_payments_for_srs and paid_payments_for_srs[0] and paid_payments_for_srs[0].total_paid is not None:
+                total_amount_paid_for_srs += flt(paid_payments_for_srs[0].total_paid)
 
     print(f"DEBUG: Returning SR Aggregates: GST Total={total_sr_value_inc_gst}, Paid Total={total_amount_paid_for_srs}")
 
@@ -470,25 +472,26 @@ def get_project_po_summary_aggregates(project_id: str):
         total_gst_on_items += po_data_item.get("tax_amount", 0.0)
         final_total_gst += po_data_item.get("tax_amount", 0.0)
 
-    po_names = po_amounts_dict.keys()
+    po_names = list(po_amounts_dict.keys())
     total_amount_paid_for_pos = 0.0
     if po_names:
         # sum_field = "sum(CAST(COALESCE(amount, 0) AS numeric)) as total_paid"
         sum_field = "sum(CAST(amount as numeric)) as total_paid"
 
-        paid_payments_for_pos = frappe.get_all(
-            "Project Payments",
-            filters=[
-                ["status", "=", "Paid"],
-                ["document_type", "=", "Procurement Orders"],
-                ["document_name", "in", po_names]
-            ],
-            fields=[sum_field]
-        )
-        if paid_payments_for_pos and paid_payments_for_pos[0] and paid_payments_for_pos[0].total_paid is not None:
-            total_amount_paid_for_pos = flt(paid_payments_for_pos[0].total_paid)
-        else:
-            print(f"DEBUG: No 'Paid' payments found for POs: {po_names} or sum was null/0.")
+        # Chunk the `document_name IN (...)` list (a project can have thousands of POs) to stay under
+        # sqlparse's 10,000-token cap. SUM is associative -> per-chunk partial sums add up byte-identically.
+        for chunk in create_batch(po_names, 500):
+            paid_payments_for_pos = frappe.get_all(
+                "Project Payments",
+                filters=[
+                    ["status", "=", "Paid"],
+                    ["document_type", "=", "Procurement Orders"],
+                    ["document_name", "in", list(chunk)]
+                ],
+                fields=[sum_field]
+            )
+            if paid_payments_for_pos and paid_payments_for_pos[0] and paid_payments_for_pos[0].total_paid is not None:
+                total_amount_paid_for_pos += flt(paid_payments_for_pos[0].total_paid)
             
     result = {
         "total_po_value_inc_gst": round(total_po_value_inc_gst, 2),

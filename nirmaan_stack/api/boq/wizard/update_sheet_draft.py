@@ -1,7 +1,7 @@
 import json
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import create_batch, now_datetime
 
 from nirmaan_stack.api.boq.wizard import draft_lock
 
@@ -466,16 +466,22 @@ def get_boq_work_packages(boq_name: str = None) -> dict:
 
     draft_name_to_sheet = {d.name: d.sheet_name for d in drafts}
 
-    # One query: all work-package rows for those draft rows.
-    pkg_rows = frappe.db.get_all(
-        "BoQ Sheet Work Package",
-        filters={
-            "parent": ("in", list(draft_name_to_sheet.keys())),
-            "parenttype": "BoQ Sheet Draft",
-        },
-        fields=["parent", "work_header"],
-        order_by="creation asc",
-    )
+    # All work-package rows for those draft rows. Chunk the IN list so the generated query never
+    # exceeds the sqlparse 10k-token cap (prod: Frappe validate_generated_query + sqlparse 0.5.5).
+    # Behavior is identical: each draft name falls entirely within ONE chunk, so every work-package
+    # row for a given sheet is returned by a single "creation asc" query -- the per-sheet order (the
+    # only order that matters after grouping below) is preserved byte-for-byte.
+    pkg_rows: list = []
+    for _chunk in create_batch(list(draft_name_to_sheet.keys()), 500):
+        pkg_rows += frappe.db.get_all(
+            "BoQ Sheet Work Package",
+            filters={
+                "parent": ("in", list(_chunk)),
+                "parenttype": "BoQ Sheet Draft",
+            },
+            fields=["parent", "work_header"],
+            order_by="creation asc",
+        )
 
     result: dict = {}
     for row in pkg_rows:

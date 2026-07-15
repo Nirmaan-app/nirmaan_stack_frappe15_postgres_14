@@ -139,7 +139,7 @@ _REVIEW_ROW_FIELDS = [
     "qty_total", "qty_by_area",
     "rate_supply", "rate_install", "rate_combined", "rate_by_area",
     "amount_total", "amount_supply", "amount_install", "amount_by_area",
-    "row_notes", "append_notes_raw", "attached_notes",
+    "row_notes", "append_notes_raw", "attached_notes", "description_parts_raw",
     "edit_log", "edited_by", "edited_at", "remarks",
 ]
 
@@ -658,6 +658,7 @@ def _write_committed_boq_sheet(
 _JSON_FIELDS_TO_PARSE = (
     "qty_by_area", "rate_by_area", "amount_by_area",
     "attached_notes", "append_notes_raw", "edit_log",
+    "description_parts_raw",
 )
 
 
@@ -765,6 +766,11 @@ def _commit_node_tree(
         elog = d.get("edit_log")
         if elog:
             updates["edit_log"] = json.dumps(elog)
+        # MC-2: description_parts_raw is a LIST (of triples) -> deferred list-JSON,
+        # NOT the pass-1 dict path used by append_notes_raw.
+        dparts = d.get("description_parts_raw")
+        if dparts:
+            updates["description_parts_raw"] = json.dumps(dparts)
         if updates:
             frappe.db.set_value(_NODE_DOCTYPE, name, updates, update_modified=False)
 
@@ -1072,6 +1078,7 @@ def _reconcile_node_tree(
         "is_rate_only", "is_synthetic",
         "human_classification", "human_parent", "human_is_root",
         "notes", "append_notes_raw", "attached_notes", "edit_log",
+        "description_parts_raw",
         *_NODE_MONEY_FIELDS,
     ]
 
@@ -1130,6 +1137,7 @@ def _reconcile_node_tree(
         _jsn("append_notes_raw", d.get("append_notes_raw"))
         _jsn("attached_notes", d.get("attached_notes"))
         _jsn("edit_log", d.get("edit_log"))
+        _jsn("description_parts_raw", d.get("description_parts_raw"))
 
         # --- DERIVED: parent_node = captured eff-parent map (NOT re-run resolve_effective) ---
         expected_parent = name_by_idx.get(eff_parent_by_idx.get(idx))

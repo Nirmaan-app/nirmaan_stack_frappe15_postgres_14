@@ -155,8 +155,8 @@ class TestCommitPipeline(FrappeTestCase):
     def _seed_review_row(self, sheet, row_index, classification, **kw):
         """Insert one BoQ Review Row for the node-tree tests. dict-JSON fields
         (qty_by_area / rate_by_area / amount_by_area / append_notes_raw) pass as dicts;
-        list-JSON fields (attached_notes / edit_log) are json.dumps'd (Frappe rejects a
-        raw list on insert)."""
+        list-JSON fields (attached_notes / edit_log / description_parts_raw) are
+        json.dumps'd (Frappe rejects a raw list on insert)."""
         doc = frappe.new_doc("BoQ Review Row")
         doc.boq = self.boq_name
         doc.sheet_name = sheet
@@ -175,7 +175,7 @@ class TestCommitPipeline(FrappeTestCase):
         for f in ("qty_by_area", "rate_by_area", "amount_by_area", "append_notes_raw"):
             if f in kw:
                 setattr(doc, f, kw[f])
-        for f in ("attached_notes", "edit_log"):
+        for f in ("attached_notes", "edit_log", "description_parts_raw"):
             if f in kw:
                 setattr(doc, f, json.dumps(kw[f]))
         doc.insert(ignore_permissions=True)
@@ -509,6 +509,59 @@ class TestCommitPipeline(FrappeTestCase):
         self.assertEqual(self._pj(node.append_notes_raw), {"Z": "extra"})
         self.assertEqual(self._pj(node.attached_notes), ["n1", "n2"])
         self.assertEqual(self._pj(node.edit_log), [{"field": "qty_total", "from": 1, "to": 2}])
+
+    # -- MC-2: description_parts_raw threads draft row -> committed BOQ Nodes -----
+
+    def test_description_parts_raw_carried_verbatim(self):
+        """The parts list survives the commit verbatim onto BOQ Nodes as
+        list-of-lists (a successful commit also proves reconciliation passes with
+        the new field present -- _reconcile_node_tree would throw otherwise)."""
+        self._seed_review_row(
+            "HVAC", 0, "line_item", description="Supply of | MS pipe", sl_no_value="1",
+            qty_total=1.0,
+            description_parts_raw=[["B", "Description", "Supply of"], ["C", "Spec", "MS pipe"]],
+        )
+        res = self._commit("HVAC", "finalized")
+        nm = self._nodes_for_sheet(res["boq_sheet_name"])[0].name
+        node = frappe.get_doc(_NODE, nm)
+        self.assertEqual(
+            self._pj(node.description_parts_raw),
+            [["B", "Description", "Supply of"], ["C", "Spec", "MS pipe"]],
+        )
+
+    def test_description_parts_raw_duplicate_headers_survive_commit(self):
+        """Two parts with IDENTICAL headers both survive the commit hop verbatim,
+        distinguished by col_letter (collision-proof end-to-end, MC-1b shape)."""
+        self._seed_review_row(
+            "HVAC", 0, "line_item", description="Supply of | MS pipe", sl_no_value="1",
+            qty_total=1.0,
+            description_parts_raw=[["B", "Description", "Supply of"], ["C", "Description", "MS pipe"]],
+        )
+        res = self._commit("HVAC", "finalized")
+        nm = self._nodes_for_sheet(res["boq_sheet_name"])[0].name
+        node = frappe.get_doc(_NODE, nm)
+        self.assertEqual(
+            self._pj(node.description_parts_raw),
+            [["B", "Description", "Supply of"], ["C", "Description", "MS pipe"]],
+        )
+
+    def test_description_parts_raw_empty_commits_and_feeds_empty_list(self):
+        """A node committed from a row with EMPTY parts does not crash the commit
+        (PASS-3 skips the empty list, mirroring append_notes_raw) and the committed
+        read feed normalizes the absent value to [] -- never null."""
+        from nirmaan_stack.api.boq.wizard.review_screen import get_committed_rows
+        self._seed_review_row(
+            "HVAC", 0, "line_item", description="Item", sl_no_value="1",
+            qty_total=1.0, description_parts_raw=[],
+        )
+        res = self._commit("HVAC", "finalized")
+        nm = self._nodes_for_sheet(res["boq_sheet_name"])[0].name
+        node = frappe.get_doc(_NODE, nm)
+        # empty list is skipped at write (like append_notes_raw) -> stored NULL
+        self.assertIn(self._pj(node.description_parts_raw), (None, []))
+        # the committed read feed normalizes absent -> []
+        rows = get_committed_rows(self.boq_name, "HVAC")["rows"]
+        self.assertEqual(rows[0]["description_parts_raw"], [])
 
     def test_per_area_children_nested_preserves_granularity(self):
         """NESTED rate/amount per area -> each kind preserved on its own child column

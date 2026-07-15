@@ -18,6 +18,9 @@ import {
   computeDepths,
   resolveDescriptorValue,
   renderDescriptorCell,
+  buildDescriptionColumns,
+  descriptionCellValue,
+  sheetHasDescriptionParts,
 } from "./reviewRender";
 import type { ReviewRow, ColumnDescriptor } from "./boqTypes";
 
@@ -110,5 +113,101 @@ describe("renderDescriptorCell", () => {
 
   it("renders a string verbatim via String()", () => {
     expect(renderDescriptorCell("Mtr")).toBe("Mtr");
+  });
+});
+
+// ── MC-4 faithful multi-column description helpers ────────────────────────────
+
+function descCol(col: string): ColumnDescriptor {
+  return { col, role: "description", area: null, value_field: "description", value_key: null, rate_subkey: null };
+}
+function rowParts(row_index: number, parts: string[][] | null): ReviewRow {
+  return { row_index, description_parts_raw: parts } as unknown as ReviewRow;
+}
+
+describe("buildDescriptionColumns", () => {
+  it("takes the column set + order from the role:description descriptors", () => {
+    const cols = buildDescriptionColumns(
+      [descCol("B"), descCol("C"), descCol("D")],
+      [rowParts(0, [["B", "Main Category", "Toilet"], ["C", "Sub Category", "WC"], ["D", "Item Spec", "Wall-hung"]])],
+    );
+    expect(cols.map(c => c.col)).toEqual(["B", "C", "D"]);
+    expect(cols.map(c => c.label)).toEqual(["Main Category", "Sub Category", "Item Spec"]);
+  });
+
+  it("resolves each label by union across rows (first row carrying the column wins)", () => {
+    const cols = buildDescriptionColumns(
+      [descCol("B")],
+      [rowParts(0, []), rowParts(1, [["B", "Real Label", "x"]])],
+    );
+    expect(cols[0].label).toBe("Real Label");
+  });
+
+  it("falls back to the column letter when no row carries the column", () => {
+    const cols = buildDescriptionColumns(
+      [descCol("B"), descCol("C")],
+      [rowParts(0, [["B", "Main Category", "Toilet"]])], // no C triple anywhere
+    );
+    const c = cols.find(x => x.col === "C")!;
+    expect(c.label).toBe("C");
+    expect(c.headerText).toBe("C"); // bare letter -> not "C (C)"
+  });
+
+  it("suffixes duplicate labels with ' 2'/' 3' in column order", () => {
+    const cols = buildDescriptionColumns(
+      [descCol("B"), descCol("C"), descCol("D")],
+      [rowParts(0, [["B", "Description", "a"], ["C", "Description", "b"], ["D", "Description", "c"]])],
+    );
+    expect(cols.map(c => c.label)).toEqual(["Description", "Description 2", "Description 3"]);
+    expect(cols.map(c => c.headerText)).toEqual([
+      "Description (B)", "Description 2 (C)", "Description 3 (D)",
+    ]);
+  });
+
+  it("formats headerText as `label (col)` for a real label", () => {
+    const cols = buildDescriptionColumns(
+      [descCol("B")],
+      [rowParts(0, [["B", "Main Category", "Toilet"]])],
+    );
+    expect(cols[0].headerText).toBe("Main Category (B)");
+  });
+
+  it("renders just the letter when the resolved label IS the column letter", () => {
+    const cols = buildDescriptionColumns([descCol("B")], []); // no rows -> letter fallback
+    expect(cols[0].label).toBe("B");
+    expect(cols[0].headerText).toBe("B");
+  });
+});
+
+describe("descriptionCellValue", () => {
+  it("returns the cell_text of the row's triple for the column", () => {
+    expect(descriptionCellValue(rowParts(0, [["B", "H", "Val"]]), "B")).toBe("Val");
+  });
+
+  it("returns '' when the column has no triple in the row (blank cell)", () => {
+    expect(descriptionCellValue(rowParts(0, [["B", "H", "Val"]]), "C")).toBe("");
+  });
+
+  it("returns '' when parts is null", () => {
+    expect(descriptionCellValue(rowParts(0, null), "B")).toBe("");
+  });
+
+  it("returns '' for a legacy row (description_parts_raw field absent)", () => {
+    expect(descriptionCellValue({ row_index: 0 } as unknown as ReviewRow, "B")).toBe("");
+  });
+});
+
+describe("sheetHasDescriptionParts", () => {
+  it("is true when at least one row carries a non-empty parts list", () => {
+    expect(sheetHasDescriptionParts([rowParts(0, null), rowParts(1, [["B", "H", "x"]])])).toBe(true);
+  });
+
+  it("is false when every row has null parts (legacy sheet)", () => {
+    expect(sheetHasDescriptionParts([rowParts(0, null), rowParts(1, null)])).toBe(false);
+  });
+
+  it("is false for an empty rows array or an empty parts list", () => {
+    expect(sheetHasDescriptionParts([])).toBe(false);
+    expect(sheetHasDescriptionParts([rowParts(0, [])])).toBe(false);
   });
 });

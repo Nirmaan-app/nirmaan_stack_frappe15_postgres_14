@@ -246,6 +246,21 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 
 ### Pricing editor (`PricingGrid.tsx` / `SheetPricingPage.tsx`) -- LOAD-BEARING invariants
 
+- **Description is a FAN-OUT inside the frozen anchor pane (MC-5), not the single `a4` anchor.** When any row
+  carries `description_parts_raw` (`sheetHasDescriptionParts`), the Description anchor becomes one column per
+  mapped description column (Option-1 freeze: ALL inside the frozen pane; Category stays the first scrolling
+  column). **The whole colIndex algebra is parametric over a per-render `anchorWidthKeys` list -- the SINGLE
+  SOURCE OF TRUTH:** `effectiveAnchorCount = anchorWidthKeys.length`, `descriptorColStart = length + 1`. The
+  module consts `FIXED_ANCHOR_COUNT`/`DESCRIPTOR_COL_START` are retained ONLY as the legacy source + test
+  exports -- never read them for live geometry; use the per-render values (passed to the row as props). Fan-out
+  columns are width-keyed by Excel LETTER (`desc:<col>`, via `descriptionWidthKey`), seeded first 280 / extras
+  160 (`descriptionWidthSeeds`), and are READ-ONLY nav cells at colIndex `4..4+N-1` (`< descriptorColStart` ->
+  excluded from the rate path). Only the FIRST gets the depth indent + chevron + `(no description)` fallback via
+  the shared `DescriptionAnchorInner`. **LEGACY FALLBACK (permanent -- pre-MC-2 committed BoQs hit this screen
+  forever):** no parts -> `anchorWidthKeys = [a0..a4]` -> effectiveAnchorCount 5, byte-identical to today via the
+  SAME `DescriptionAnchorInner`. Labels/values via the MC-4 `reviewRender` helpers. **L7:** search + every save
+  payload's `description` (the copy-forward match guard) + rollup keep reading the joined `row.description` --
+  NEVER a per-column value there. `colIndexFromColKeyPure` resolves the `desc:<col>` keys.
 - **Row-memo anti-defeat rule:** the per-row `<tr>` is a `React.memo`'d `PricingGridRow` (exhaustive comparator
   `pricingRowPropsAreEqual`). NEVER pass a memoized row the shared `draftRates`/`proposedRates` object (a keystroke
   makes a new ref → all rows re-render → memo silently defeated); each row gets only its own slice via
@@ -401,6 +416,16 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 
 - **Depth / indent comes from the `effective_parent_index` chain (`computeDepths`), NEVER the stored `level`** (which
   diverges after `human_parent` edits). `isVisible` walks from the PARENT, so a collapsed row stays visible.
+- **Description is a FAN-OUT of the original columns (MC-4), not the single joined anchor.** When any row carries
+  `description_parts_raw` (`sheetHasDescriptionParts`), the Description anchor becomes one column per mapped
+  description column via the pure helpers in `reviewRender.tsx` (`buildDescriptionColumns` / `descriptionCellValue`):
+  set+order from the `role:"description"` descriptors; per-cell value by `col_letter`; LABEL from the triples'
+  `header_label` **union-across-rows** (letter fallback), `" 2"/" 3"`-suffixed on duplicates. The FIRST column is the
+  always-on wide anchor (depth indent + `(no description)` fallback via the shared `DescriptionCellInner`); the rest
+  are narrower and join the `visibleCols` picker via `pickerColumns`. `totalCols` keeps base `8` + extra visible
+  description cols so `colSpan`s stay aligned. **LEGACY FALLBACK:** no parts on any row (pre-MC-2 drafts) -> the
+  single anchor renders via the SAME `DescriptionCellInner` (byte-identical). Search still reads the joined
+  `row.description` (unchanged); exports keep the single joined Description (MC-5/owner-deferred).
 - **Description search uses the shared `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`)** — token-AND, min
   length 2; fuzzy decides MEMBERSHIP, document order drives prev/next. ReviewTree + SheetSearchView both call it;
   RestructureModal inherits via SheetSearchView. Never inline a second matcher.

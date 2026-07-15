@@ -6,6 +6,7 @@ Updated in v3.0 to query from Vendor Invoices doctype directly.
 
 import frappe
 from frappe import _
+from frappe.utils import create_batch
 
 
 @frappe.whitelist()
@@ -101,12 +102,16 @@ def generate_all_po_invoice_data(start_date=None, end_date=None):
         po_ids = list(set(inv.get("document_name") for inv in invoices if inv.get("document_name")))
         po_gst_map = {}
         if po_ids:
-            pos = frappe.get_all(
-                "Procurement Orders",
-                filters={"name": ["in", po_ids]},
-                fields=["name", "project_gst"]
-            )
-            po_gst_map = {p["name"]: p["project_gst"] for p in pos}
+            # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token cap (prod:
+            # Frappe validate_generated_query + sqlparse 0.5.5). po_ids scales with the number of distinct
+            # POs that have approved invoices -- unbounded on a mature DB.
+            for _chunk in create_batch(po_ids, 500):
+                pos = frappe.get_all(
+                    "Procurement Orders",
+                    filters={"name": ["in", list(_chunk)]},
+                    fields=["name", "project_gst"]
+                )
+                po_gst_map.update({p["name"]: p["project_gst"] for p in pos})
 
         # Process invoices and calculate metrics
         invoice_entries = []
