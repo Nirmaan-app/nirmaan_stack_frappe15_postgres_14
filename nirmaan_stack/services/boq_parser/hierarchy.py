@@ -560,7 +560,17 @@ def resolve_hierarchy(
                 new_style = _detect_level_1_style(classified_rows, current_index + 1)
                 if new_style is not None:
                     level_1_style = new_style
-            resolved.append(ResolvedRow(classified_row=classified_row))
+            resolved.append(ResolvedRow(
+                classified_row=classified_row,
+                # No-attribute-loss (Option B): a SUBTOTAL_MARKER carries its source
+                # qty/amount forward identically to the LINE_ITEM / PREAMBLE branches so
+                # its cells survive to the review row. A genuine label-only subtotal has
+                # qty_total_raw=None / empty per-area dicts, so this is a no-op for it.
+                qty_by_area_raw=classified_row.qty_by_area_raw,
+                amount_by_area_raw=classified_row.amount_by_area_raw,
+                qty_total=classified_row.qty_total_raw,
+                amount_total=classified_row.amount_total,
+            ))
             continue
 
         # ---------------------------------------------------------- #
@@ -730,6 +740,14 @@ def resolve_hierarchy(
                 classified_row=classified_row,
                 attached_to_index=attached_to_index,
                 parent_index=note_parent_index,
+                # No-attribute-loss (Option B): a NOTE carries its source qty/amount
+                # forward identically to the LINE_ITEM / PREAMBLE branches. A genuine
+                # text note has qty_total_raw=None / empty per-area dicts, so this is a
+                # no-op for it; a qty-bearing NOTE keeps its cells for the review row.
+                qty_by_area_raw=classified_row.qty_by_area_raw,
+                amount_by_area_raw=classified_row.amount_by_area_raw,
+                qty_total=classified_row.qty_total_raw,
+                amount_total=classified_row.amount_total,
             ))
             continue
 

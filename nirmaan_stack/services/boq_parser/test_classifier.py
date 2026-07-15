@@ -177,6 +177,29 @@ class TestClassifier(unittest.TestCase):
         result = classify_row(row, _basic_sheet_config(), _GS)
         self.assertEqual(result.classification, RowClassification.SUBTOTAL_MARKER)
 
+    def test_subtotal_preserves_cell_data(self):
+        """No-attribute-loss (Option B): a SUBTOTAL_MARKER now flows through the normal
+        cell extraction and keeps its unit / qty / amount cells (classification is a
+        label, not a data filter). Pre-fix the subtotal early-return dropped everything
+        but sl_no + description. Warnings stay empty (the generic-path 'unclear
+        classification' default is spurious for a subtotal)."""
+        row = _make_row(6, {
+            "A": {"value": "5."},
+            "B": {"value": "TOTAL CARRIED OVER"},   # text pattern → subtotal
+            "C": {"value": "Nos"},
+            "D": {"value": 100},
+            "F": {"value": 50000},
+        })
+        result = classify_row(row, _basic_sheet_config(), _GS)
+        self.assertEqual(result.classification, RowClassification.SUBTOTAL_MARKER)
+        # Cells preserved (all None pre-fix):
+        self.assertEqual(result.unit, "Nos")
+        self.assertEqual(result.qty, 100.0)
+        self.assertEqual(result.amount_supply, 50000.0)
+        self.assertEqual(result.description, "TOTAL CARRIED OVER")
+        self.assertEqual(result.sl_no_value, "5.")
+        self.assertEqual(result.warnings, [])
+
     # ---------------------------------------------------------------- #
     # Test 7 — subtotal via SUM formula                                  #
     # ---------------------------------------------------------------- #

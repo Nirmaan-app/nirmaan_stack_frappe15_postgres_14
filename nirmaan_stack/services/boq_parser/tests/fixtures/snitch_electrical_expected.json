@@ -78,63 +78,63 @@
       "subtotal_markers": [
         {
           "resolved_idx": 9,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL - ELECTRICAL WORKS",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 109,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 121,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 181,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 303,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 343,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 392,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 513,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
         },
         {
           "resolved_idx": 520,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL CARRIED OVER TO SUMMARY",
           "path": null,
           "level": null
@@ -232,7 +232,7 @@
       "subtotal_markers": [
         {
           "resolved_idx": 14,
-          "sl_no_value": "",
+          "sl_no_value": null,
           "description": "TOTAL - SUPPLY OF LIGHTS",
           "path": null,
           "level": null

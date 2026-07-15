@@ -292,8 +292,9 @@ class TestMultiAreaPostPass(unittest.TestCase):
     def test_spacer_rows_skipped(self):
         """SPACER rows are skipped by the post-pass gate: even with per-area raw data
         present, qty_by_area/amount_by_area stay {} and no warnings.  No-attribute-loss
-        (Option B) widened the gate to LINE_ITEM + PREAMBLE only; SPACER/NOTE/subtotal/
-        header_repeat never become priceable nodes, so they remain excluded."""
+        (Option B) widened the gate to LINE_ITEM + PREAMBLE + NOTE + SUBTOTAL_MARKER; only
+        SPACER / HEADER_REPEAT remain excluded (a blank / repeated-header row has no cells
+        to carry)."""
         from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
         from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
         from nirmaan_stack.services.boq_parser.reader import RawRow
@@ -309,6 +310,34 @@ class TestMultiAreaPostPass(unittest.TestCase):
         _apply_multi_area_post_pass([row])
         self.assertEqual(row.qty_by_area, {})
         self.assertEqual(row.amount_by_area, {})
+
+    def test_note_and_subtotal_rows_now_processed(self):
+        """No-attribute-loss (Option B): NOTE and SUBTOTAL_MARKER rows carrying per-area
+        data now have their per-area output dicts populated by the post-pass, instead of
+        being dropped. Mirrors test_preamble_rows_now_processed."""
+        from nirmaan_stack.services.boq_parser.classifier import ClassifiedRow, RowClassification
+        from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
+        from nirmaan_stack.services.boq_parser.reader import RawRow
+
+        for cls in (RowClassification.NOTE, RowClassification.SUBTOTAL_MARKER):
+            row = ResolvedRow(
+                classified_row=ClassifiedRow(
+                    raw_row=RawRow(row_number=1, cells={}),
+                    classification=cls,
+                ),
+                qty_by_area_raw={"Floor 1": 4.0, "Floor 2": 6.0},
+                amount_by_area_raw={"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}},
+                qty_total=10.0,
+                amount_total=500.0,
+            )
+            _apply_multi_area_post_pass([row])
+            self.assertEqual(row.qty_by_area, {"Floor 1": 4.0, "Floor 2": 6.0}, msg=str(cls))
+            self.assertEqual(
+                row.amount_by_area,
+                {"Floor 1": {"total": 200.0}, "Floor 2": {"total": 300.0}},
+                msg=str(cls),
+            )
+            self.assertEqual(row.qty_total, 10.0, msg=str(cls))
 
     # ---------------------------------------------------------------- #
     # Test 3b — PREAMBLE rows now processed (no-attribute-loss)        #

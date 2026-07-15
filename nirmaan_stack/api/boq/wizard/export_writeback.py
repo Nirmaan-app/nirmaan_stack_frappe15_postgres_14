@@ -24,10 +24,12 @@ What it stamps, per ticked sheet, onto a fresh copy:
     the rates-only + formula-skip rule). Applied AFTER the user-color pass, so on a stamped
     rate cell that also carries a user color tag the system teal WINS (the one place a system
     fill beats a user fill -- the aid must be exhaustive over written cells).
-  - REMARKS (BoQ Cell Remark, per-row): a NEW TRAILING COLUMN one past the TRUE data edge
-    (the rightmost MAPPED column from the committed column_role_map -- NOT openpyxl
-    max_column, which is inflated by empty styled cells). A hard empty-column safety check
-    refuses to write if that column carries real data.
+  - REMARKS (BoQ Cell Remark, per-row): a NEW TRAILING COLUMN at the first genuinely-empty
+    column at/after the TRUE data edge (the rightmost MAPPED column from the committed
+    column_role_map -- NOT openpyxl max_column, which is inflated by empty styled cells). The
+    placement SCANS rightward past any pre-existing content (a stray annotation or a trailing
+    column the mapping did not cover -- e.g. an estimator note sitting one column past the
+    mapped edge) so the write-back NEVER overwrites real data yet never dead-ends the export.
 
 After stamping + saving the copy, a POST-SAVE FIDELITY ASSERTION re-opens the saved file
 and verifies the amount-formula count, merged-range count, worksheet count, and
@@ -50,6 +52,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 from typing import Any
 
@@ -69,6 +72,10 @@ _XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetm
 
 # The header label written atop the appended remark column.
 _REMARK_HEADER = "Nirmaan Remarks"
+
+# Excel's hard column ceiling (XFD). The remark-column scan is bounded by it so a pathological
+# fully-populated sheet fails loudly instead of looping forever.
+_MAX_EXCEL_COLS = 16384
 
 # Token -> Excel fill hex (ARGB without the alpha; openpyxl PatternFill accepts RRGGBB).
 # DECIDED HERE (Slice 5a -- the one place a color hex is chosen): light, distinct tints so
@@ -206,9 +213,11 @@ def _apply_colors(ws, color_rows: list[dict]) -> int:
 
 
 def _write_remark_column(ws, remark_rows: list[dict], column_role_map: dict, header_row) -> str:
-    """Append the remark column one past the TRUE data edge and write the header + each
-    remark at its excel_row. HARD SAFETY: refuse (throw) if the target column is not
-    genuinely empty across the sheet -- never overwrite real data. Returns the column letter."""
+    """Append the remark column at the first genuinely-empty column at/after the TRUE data
+    edge and write the header + each remark at its excel_row. SAFE PLACEMENT: scan rightward
+    past any column that carries real data (a stray annotation or a trailing column the mapping
+    did not cover) so the write-back never overwrites existing data AND never dead-ends the
+    export. Returns the column letter actually used."""
     rightmost = _rightmost_mapped_col_index(column_role_map)
     if rightmost <= 0:
         frappe.throw(
@@ -217,13 +226,17 @@ def _write_remark_column(ws, remark_rows: list[dict], column_role_map: dict, hea
             title="Remark column undefined",
         )
     target_idx = rightmost + 1
-    target_letter = get_column_letter(target_idx)
-    if not _col_is_empty(ws, target_idx):
-        frappe.throw(
-            f"Remark target column {target_letter} on sheet '{ws.title}' is not empty -- "
-            "refusing to overwrite existing data.",
-            title="Remark column not empty",
-        )
+    while not _col_is_empty(ws, target_idx):
+        # A pre-existing cell in this column (e.g. an estimator note one past the mapped edge)
+        # -- step right rather than clobber it. Bounded by Excel's column ceiling.
+        target_idx += 1
+        if target_idx > _MAX_EXCEL_COLS:
+            frappe.throw(
+                f"No empty column found on sheet '{ws.title}' to place the remark column "
+                f"(scanned past the {_MAX_EXCEL_COLS}-column limit).",
+                title="Remark column: no space",
+            )
+    target_letter = get_column_letter(target_idx)  # first empty column at/after the data edge
     hrow = header_row if (header_row and int(header_row) >= 1) else 1
     ws.cell(row=int(hrow), column=target_idx).value = _REMARK_HEADER
     for r in remark_rows:
@@ -297,8 +310,26 @@ def _resolve_sheet_plan(boq_name: str, sheet_name: str) -> dict:
     return row
 
 
+# Characters illegal in a Windows/macOS filename (plus control chars). The friendly
+# display name is derived from an uploaded filename so it is usually clean, but we never
+# trust it blind before putting it into the Content-Disposition / download name.
+_UNSAFE_FILENAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def _safe_export_basename(display_name: str, docname: str) -> str:
+    """Return a filesystem-safe base name (NO extension, NO _priced_<ts> suffix) for the
+    priced-tender export. Prefers the friendly BOQs.boq_name field (e.g. "Tender ABC
+    Project"); falls back to the docname (e.g. "BOQ-26-00001") when the field is blank or
+    sanitizes down to nothing. The caller appends "_priced_<ts>.xlsx"."""
+    cleaned = _UNSAFE_FILENAME_CHARS.sub("", (display_name or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or docname
+
+
 # ── the worker (testable: takes an already-fetched workbook copy path) ─────────────
-def _generate_priced_workbook(boq_name: str, sheet_names: list[str], src_path: str) -> dict:
+def _generate_priced_workbook(
+    boq_name: str, sheet_names: list[str], src_path: str, display_name: str = None
+) -> dict:
     """Stamp the committed pricing/colors/remarks for each sheet onto the workbook at
     src_path (a throwaway COPY), run the fidelity guard, stamp last_exported_at per exported
     sheet, and return the download payload. src_path is loaded data_only=False so formulas
@@ -385,7 +416,9 @@ def _generate_priced_workbook(boq_name: str, sheet_names: list[str], src_path: s
     frappe.db.commit()
 
     ts = frappe.utils.now()[:19].replace("-", "").replace(":", "").replace(" ", "_")
-    filename = f"{boq_name}_priced_{ts}.xlsx"
+    # Filename mirrors the ORIGINAL uploaded BoQ name (the friendly boq_name field), NOT the
+    # docname -- boq_name here is the primary key, used above ONLY for the committed-tier lookups.
+    filename = f"{_safe_export_basename(display_name, boq_name)}_priced_{ts}.xlsx"
     return {
         "filename": filename,
         "content_type": _XLSX_CONTENT_TYPE,
@@ -419,7 +452,9 @@ def export_priced_workbook(boq_name: str = None, sheet_names: Any = None) -> dic
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
     names = _coerce_names(sheet_names)
 
-    source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
+    source_file_url, display_name = frappe.db.get_value(
+        "BOQs", boq_name, ["source_file_url", "boq_name"]
+    )
     if not source_file_url:
         frappe.throw(f"BOQs '{boq_name}' has no source_file_url set.", title="Missing source file")
 
@@ -429,7 +464,7 @@ def export_priced_workbook(boq_name: str = None, sheet_names: Any = None) -> dic
         fetched = _fetch_boq_file_to_tempfile(source_file_url)
         copy = fetched + ".work.xlsx"
         shutil.copy(fetched, copy)  # COPY-ON-WRITE -- stamp the copy, never the original temp/S3
-        return _generate_priced_workbook(boq_name, names, copy)
+        return _generate_priced_workbook(boq_name, names, copy, display_name)
     finally:
         for p in (fetched, copy):
             if p:
