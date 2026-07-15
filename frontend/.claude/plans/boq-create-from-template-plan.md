@@ -599,10 +599,30 @@ pre-existing `attached_to_index` 0-sentinel edge.
 
 # RECTIFICATION ROUND (R) — 2026-07-15 — owner review fixes + from-scratch priced export
 
-**Status:** PLAN — grill-locked (`/grill-with-docs` + `/domain-modeling`, 9 decisions, 2026-07-15); design of
-record = **ADR-0013 Amendment A2** + **CONTEXT.md** term updates. Awaiting plan-review go-ahead before code.
-Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) stays ON HOLD**
-until this round lands.
+**Status:** ✅ **AS-BUILT + LIVE-E2E-VERIFIED (2026-07-15)** — grill-locked (`/grill-with-docs` +
+`/domain-modeling`, 9 decisions); design of record = **ADR-0013 Amendment A2** + **CONTEXT.md** terms.
+Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) stays ON HOLD.**
+
+**Commits:** `dd1a2391` docs (ADR A2 + this plan + CONTEXT) · `686c44ce` Wave 1 (R-T1/R-T2/R-T4) ·
+`612cf6f3` Wave 2 (R-T3/R-T5) · `cc99d44e` R-T3 export refinement (blank unpriced rate/amount).
+**Gate (all green):** tsc boq-wizard **0** · `test_create_from_template` **35** · `test_review_screen` **252**
+· `test_export_writeback` **22**.
+**Built via implement→adversarial-verify Workflows** (Wave 1 + Wave 2); every confirmed finding fixed
+(R-T2 medium: non-qty rows showed "0" → blank; R-T4 sheet-deselection dirty-guard + single-doc header fetch;
+R-T3 medium: amount formulas on every row → priced-rows-only + skip committed-grid rate/amount 0s).
+**Env repair (pre-existing):** the `BoQ Template` doctype metadata had been dropped from the runtime DB by a
+develop-branch `bench migrate` (tables+data intact, tabDocType rows gone → `get_meta` failed → the live template
+flow was broken); owner ran `bench migrate` on this branch to restore it. Fixed 1 surfaced test failure (the
+`_SHEET_A` fixture lacked a `qty_total` anchor — unrealistic; made it realistic). `BOQTPL-00020` was `is_active=0`
+and reactivated (the intended state; it flips off periodically — investigate).
+**LIVE E2E (chrome-devtools, Administrator, :8080, 2026-07-15):** R-T4 one-screen toggle (no chooser gate) ✓ ·
+R-T5 Tower A/Tower B badges + ✕-remove + Edit ✓ · fresh multi-area clone `BOQ-26-00117` (PA+Make List) via the
+real worker → review shows `D·Tower A E·Tower B F·Total Quantity` (**area cols before Total**, R-T1) ✓ · live-sum
+Total (Tower A=5, Tower B=3 → **Total=8** as-you-type, R-T2) ✓ · **in-app "Download priced tender" on committed
+`BOQ-26-00107` → 200 + valid .xlsx** (R-T3 — the original "source file missing" pain, fixed) ✓. Export also
+proven against real committed data (00107 → Summary + GST@18% + cross-sheet formulas + synthesized headers +
+live amount formulas + `=SUM` Total). Test clone cleaned up. **Aside:** `sidebar_counts` endpoint returns 500
+in this dev env (pre-existing, UNRELATED to this round — flagged for separate investigation).
 
 Four owner rectifications to the shipped A2 build:
 1. **R1 — one-screen mode selector.** Fold Upload-vs-Template selection into a persistent toggle at the top of the
