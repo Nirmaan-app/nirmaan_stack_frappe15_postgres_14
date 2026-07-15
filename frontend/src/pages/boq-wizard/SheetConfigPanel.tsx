@@ -142,8 +142,11 @@ const AREA_REQUIRED_ROLES = new Set([
 ]);
 
 // Roles of which at most ONE column may hold each (disabled in other rows' dropdowns).
+// "description" is intentionally NOT here (MC-3, mirroring the backend config.py
+// _SINGLETON_ROLES edit): a sheet may map the description role on MULTIPLE columns,
+// which the parser combines in Excel column order into the one canonical description.
 const SINGLETON_ROLES = new Set([
-  "sl_no", "description", "unit", "qty_total",
+  "sl_no", "unit", "qty_total",
   "rate_supply", "rate_install", "rate_combined",
   "amount_total", "make_model", "row_notes", "reference_images",
 ]);
@@ -1769,7 +1772,7 @@ export function SheetConfigPanel({
           )}
           {allSectionsConfirmed && !parserRequiredSatisfied && (
             <p className="text-xs text-muted-foreground pl-6">
-              Map at minimum: one Description, one Quantity, one Rate, and one Amount column.
+              Map at minimum: at least one Description (multiple allowed &mdash; they combine in column order), one Quantity, one Rate, and one Amount column.
             </p>
           )}
           {allSectionsConfirmed && parserRequiredSatisfied && !hasWorkPackage && (

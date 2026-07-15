@@ -80,7 +80,11 @@ import {
   computeDepths,
   renderDescriptorCell,
   resolveDescriptorValue,
+  buildDescriptionColumns,
+  descriptionCellValue,
+  sheetHasDescriptionParts,
 } from "./reviewRender";
+import type { DescriptionColumn } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
 import { descendantCount, rowHasDescendants } from "./collapse";
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
@@ -302,6 +306,67 @@ export function seedForWidthKey(key: string): number {
   if (key === "a4") return seedWidthPx("description");
   if (key === REMARKS_WIDTH_KEY) return seedWidthPx("w-48");
   return seedWidthPx("w-28");
+}
+
+// ── MC-5: faithful multi-column description in the frozen anchor pane ──────────
+//
+// The pricing grid's whole colIndex algebra is parametric over the anchor width-key
+// list. In FAN-OUT mode the single Description anchor (`a4`) is replaced by one
+// letter-keyed slot per mapped description column (`desc:<col>`); the 4 non-description
+// anchors (a0..a3) are unchanged. In LEGACY mode (no row carries description_parts_raw)
+// the list is exactly today's `[a0..a4]`, so effectiveAnchorCount = 5 and every derived
+// index is byte-identical to before. effectiveAnchorCount === anchorWidthKeys.length.
+
+/** Width-state key for one description fan-out column. Letter-keyed (survives a change
+ *  to the mapped description set), distinct from descriptors' `d:<col>`. */
+export function descriptionWidthKey(col: string): string {
+  return `desc:${col}`;
+}
+
+/** The per-render anchor width-key list -- the single source of truth for the anchor
+ *  count and every colIndex derived from it. Legacy -> the today [a0..a4] list. */
+export function buildAnchorWidthKeys(
+  descriptionColumns: readonly DescriptionColumn[],
+  fanOut: boolean,
+): string[] {
+  // Legacy = today's [a0..a4]. Fan-out = the 4 non-description anchors (a0..a3) + one
+  // letter-keyed slot per description column. ANCHOR_WIDTH_KEYS is the single legacy source.
+  if (!fanOut) return [...ANCHOR_WIDTH_KEYS];
+  return [
+    ...ANCHOR_WIDTH_KEYS.slice(0, 4),
+    ...descriptionColumns.map((c) => descriptionWidthKey(c.col)),
+  ];
+}
+
+/** Split-the-budget seeds for the fan-out description columns: first 280 (the old
+ *  Description width), extras 160 (matching MC-4). Keyed by `desc:<col>`; drag-resize
+ *  covers user preference. Empty in legacy (the single `a4` seed = 280 is used instead). */
+export function descriptionWidthSeeds(
+  descriptionColumns: readonly DescriptionColumn[],
+): Record<string, number> {
+  const seeds: Record<string, number> = {};
+  descriptionColumns.forEach((c, i) => {
+    seeds[descriptionWidthKey(c.col)] = i === 0 ? seedWidthPx("description") : 160;
+  });
+  return seeds;
+}
+
+/** Resolve a clicked cell's grid colIndex from its data-colkey, PURE over the geometry.
+ *  Anchor keys (a0..a3 + the fan-out desc:<col> slots) index into anchorWidthKeys;
+ *  Remarks -> remarksColIndex; descriptor `d:<col>` keys -> descriptorColStart + position. */
+export function colIndexFromColKeyPure(
+  colkey: string | undefined,
+  anchorWidthKeys: readonly string[],
+  descWidthKeys: readonly string[],
+  descriptorColStart: number,
+  remarksColIndex: number,
+): number | null {
+  if (!colkey) return null;
+  const anchor = anchorWidthKeys.indexOf(colkey);
+  if (anchor >= 0) return anchor;
+  if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
+  const idx = descWidthKeys.indexOf(colkey);
+  return idx >= 0 ? descriptorColStart + idx : null;
 }
 
 /** Clamp a dragged width up to the column's floor: rate columns can't go below the rate input's
@@ -1616,6 +1681,49 @@ function RowChevron({ rowIndex }: { rowIndex: number }) {
   );
 }
 
+// MC-5: the shared inner of the Description ANCHOR cell (depth indent + collapse chevron +
+// styled text + "(no description)" fallback + the frozen-pane row-height clip). Used by BOTH
+// the LEGACY single anchor AND the FIRST fan-out description column, so the legacy render
+// stays byte-identical (one source, no drifting copy -- the A10 compat mechanism). The extra
+// fan-out columns render a simpler span (no indent, no chevron, no fallback) inline.
+function DescriptionAnchorInner({
+  text, depth, rowHeight, rowIndex, isPreamble, isLineItem,
+}: {
+  text: string | null;
+  depth: number;
+  rowHeight: number | null | undefined;
+  rowIndex: number;
+  isPreamble: boolean;
+  isLineItem: boolean;
+}) {
+  return (
+    <div
+      style={{
+        paddingLeft: `${depth * INDENT_PX}px`,
+        ...(rowHeight != null
+          ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
+          : {}),
+      }}
+      className="flex items-start gap-1 min-w-0"
+    >
+      <RowChevron rowIndex={rowIndex} />
+      <span
+        title={text ?? undefined}
+        className={cn(
+          "leading-snug break-words min-w-0",
+          isPreamble && "font-medium text-foreground",
+          isLineItem && "text-foreground",
+          !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+        )}
+      >
+        {text || (
+          <span className="not-italic text-muted-foreground">(no description)</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 interface PricingGridRowProps {
   // ── per-row data (changes -> this row re-renders) ──
   row: PricedRow;
@@ -1694,6 +1802,11 @@ interface PricingGridRowProps {
   colCount: number;
   rowCount: number;
   remarksColIndex: number;
+  // MC-5: fan-out geometry (grid-level -- flip identically for all rows).
+  effectiveAnchorCount: number;
+  descriptorColStart: number;
+  descriptionColumns: DescriptionColumn[];
+  fanOut: boolean;
   commitRate: (row: PricedRow, d: ColumnDescriptor, rawValue: string) => void;
   scheduleAutoSave: (row: PricedRow, d: ColumnDescriptor) => void;
   onCellFocus: (r: number, c: number) => void;
@@ -1760,6 +1873,12 @@ export function pricingRowPropsAreEqual(
     prev.colCount === next.colCount &&
     prev.rowCount === next.rowCount &&
     prev.remarksColIndex === next.remarksColIndex &&
+    // MC-5: grid-level fan-out geometry (scalars by value, columns by identity -- the
+    // memo is referentially stable per sheet, so this never defeats the row memo).
+    prev.effectiveAnchorCount === next.effectiveAnchorCount &&
+    prev.descriptorColStart === next.descriptorColStart &&
+    prev.descriptionColumns === next.descriptionColumns &&
+    prev.fanOut === next.fanOut &&
     prev.commitRate === next.commitRate &&
     prev.scheduleAutoSave === next.scheduleAutoSave &&
     prev.onCellFocus === next.onCellFocus &&
@@ -1817,6 +1936,10 @@ const PricingGridRow = memo(function PricingGridRow({
   colCount,
   rowCount,
   remarksColIndex,
+  effectiveAnchorCount,
+  descriptorColStart,
+  descriptionColumns,
+  fanOut,
   commitRate,
   scheduleAutoSave,
   onCellFocus,
@@ -2020,45 +2143,75 @@ const PricingGridRow = memo(function PricingGridRow({
       >
         <ClassificationPill cls={row.effective_classification} />
       </td>
-      {/* Description (col 4): depth indent + per-classification styling. A normal resizable
-          column -- dragging it re-wraps + re-grows. */}
-      <td
-        {...tdFocusProps(4)}
-        data-colkey="a4"
-        className={cn("px-2 py-1.5 align-top border-r border-border", cellNavClass(4))}
-      >
-        {/* Collapse/expand: the chevron + "+N hidden" sit at the depth indent (where the
-            hierarchy lives), before the description text, so they nest with the tree. The
-            chevron reads CollapseContext (NOT a row prop) -> the row memo is untouched (R6). */}
-        <div
-          style={{
-            paddingLeft: `${depth * INDENT_PX}px`,
-            // Frozen-left Slice 1: when a captured row height is applied, clip the (still-wrapped)
-            // description to it so a tall row cannot push this pane's <tr> past the matching row in
-            // the other pane. Text still WRAPS (break-words) then clips from the top (align-top +
-            // overflow hidden); the full text stays readable via the title below. No-op unfrozen.
-            ...(rowHeight != null
-              ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
-              : {}),
-          }}
-          className="flex items-start gap-1 min-w-0"
-        >
-          <RowChevron rowIndex={row.row_index} />
-          <span
-            title={row.description ?? undefined}
-            className={cn(
-              "leading-snug break-words min-w-0",
-              isPreamble && "font-medium text-foreground",
-              isLineItem && "text-foreground",
-              !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
-            )}
+      {/* MC-5: Description fan-out. FAN-OUT -> one read-only nav cell per mapped description
+          column, all inside the frozen anchor pane; the FIRST is the wide anchor (depth indent +
+          chevron + "(no description)" fallback via the shared inner), the rest are plain per-
+          col_letter values (blank when the row has no triple), each with the row-height clip.
+          LEGACY (no parts) -> the single a4 anchor via the SAME shared inner (byte-identical).
+          Every description cell is READ-ONLY (colIndex < descriptorColStart -> excluded from the
+          rate path); none get priced-tint or the remark-color border. */}
+      {fanOut
+        ? descriptionColumns.map((c, i) => {
+            const isFirst = i === 0;
+            const colIndex = 4 + i; // 4 non-description anchors precede the description columns
+            const value = descriptionCellValue(row, c.col);
+            return (
+              <td
+                key={c.col}
+                {...tdFocusProps(colIndex)}
+                data-colkey={descriptionWidthKey(c.col)}
+                className={cn("px-2 py-1.5 align-top border-r border-border", cellNavClass(colIndex))}
+              >
+                {isFirst ? (
+                  <DescriptionAnchorInner
+                    text={value}
+                    depth={depth}
+                    rowHeight={rowHeight}
+                    rowIndex={row.row_index}
+                    isPreamble={isPreamble}
+                    isLineItem={isLineItem}
+                  />
+                ) : (
+                  <div
+                    style={
+                      rowHeight != null
+                        ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
+                        : {}
+                    }
+                    className="min-w-0"
+                  >
+                    <span
+                      title={value || undefined}
+                      className={cn(
+                        "leading-snug break-words min-w-0",
+                        isPreamble && "font-medium text-foreground",
+                        isLineItem && "text-foreground",
+                        !isPreamble && !isLineItem && "text-muted-foreground italic text-[11px]",
+                      )}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                )}
+              </td>
+            );
+          })
+        : (
+          <td
+            {...tdFocusProps(4)}
+            data-colkey="a4"
+            className={cn("px-2 py-1.5 align-top border-r border-border", cellNavClass(4))}
           >
-            {row.description || (
-              <span className="not-italic text-muted-foreground">(no description)</span>
-            )}
-          </span>
-        </div>
-      </td>
+            <DescriptionAnchorInner
+              text={row.description}
+              depth={depth}
+              rowHeight={rowHeight}
+              rowIndex={row.row_index}
+              isPreamble={isPreamble}
+              isLineItem={isLineItem}
+            />
+          </td>
+        )}
         </>
       )}
       {pane !== "frozen" && (
@@ -2071,7 +2224,7 @@ const PricingGridRow = memo(function PricingGridRow({
           CL-3: a CLASSIFIED row is click-to-edit -- onClick opens the page-owned verdict picker
           anchored to this cell (Enter on the focused cell does the same via handleGridKeyDown). */}
       {(() => {
-        const colIndex = FIXED_ANCHOR_COUNT;
+        const colIndex = effectiveAnchorCount;
         const cat = categoriesByExcelRow.get(row.source_row_number);
         const effective = cat?.effective_category_id ?? "";
         const state = deriveVerdictState(cat);
@@ -2137,7 +2290,7 @@ const PricingGridRow = memo(function PricingGridRow({
       {/* Descriptor-driven data cells: editable rate inputs, live-amount cells, and read-only
           qty/other cells. */}
       {displayDescriptors.map((d, dIdx) => {
-        const colIndex = DESCRIPTOR_COL_START + dIdx;
+        const colIndex = descriptorColStart + dIdx;
         // ── Slice 4a: per-cell color (the SEPARATE left-border channel) + the picker
         //    trigger (editable only when onSaveColor is present). ──
         const cellColor = row.color_by_cell?.[d.col];
@@ -2579,6 +2732,25 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     [columnDescriptors],
   );
 
+  // MC-5: faithful multi-column description fan-out geometry. anchorWidthKeys is the
+  // single source -- effectiveAnchorCount = its length, descriptorColStart = that + 1.
+  // LEGACY (no row carries parts) -> anchorWidthKeys = [a0..a4] -> 5/6, byte-identical.
+  const descriptionColumns = useMemo(
+    () => buildDescriptionColumns(columnDescriptors, rows),
+    [columnDescriptors, rows],
+  );
+  const fanOut = useMemo(() => sheetHasDescriptionParts(rows), [rows]);
+  const anchorWidthKeys = useMemo(
+    () => buildAnchorWidthKeys(descriptionColumns, fanOut),
+    [descriptionColumns, fanOut],
+  );
+  const effectiveAnchorCount = anchorWidthKeys.length;
+  const descriptorColStart = effectiveAnchorCount + 1; // +1 for the read-only Category column
+  const descWidthSeeds = useMemo(
+    () => descriptionWidthSeeds(descriptionColumns),
+    [descriptionColumns],
+  );
+
   // Editor perf fix (item 1, the load-bearing slice): per-row draft / proposal sub-maps (FULL
   // `${row_index}:${col}` keys), reference-reused via groupDraftsByRow so each memoized row
   // gets ONLY its own slice -- NEVER the shared draftRates/proposedRates object. The ref holds
@@ -2701,7 +2873,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // FIXED_ANCHOR_COUNT + dIdx; anchors use 0..4).
   // Nav dims over the VISIBLE descriptor set (column-hide aware) so the matrix stays consistent
   // with what is rendered -- a hidden column is absent from the matrix + the ref map.
-  const remarksColIndex = DESCRIPTOR_COL_START + visibleDescriptors.length;
+  const remarksColIndex = descriptorColStart + visibleDescriptors.length;
   const colCount = remarksColIndex + 1;
   const anyCellActive = activeCell !== null;
 
@@ -2745,7 +2917,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
     if (splitRef.current) {
       el.focus({ preventScroll: true });
-      if (c >= FIXED_ANCHOR_COUNT) {
+      if (c >= effectiveAnchorCount) {
         el.scrollIntoView({ block: "nearest", inline: "nearest" });
       } else {
         scrollPaneRef.current
@@ -2819,8 +2991,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
 
   // The descriptor at a grid colIndex (descriptor columns only), else null.
   const descriptorAt = (c: number): ColumnDescriptor | null =>
-    c >= DESCRIPTOR_COL_START && c <= remarksColIndex - 1
-      ? (visibleDescriptors[c - DESCRIPTOR_COL_START] ?? null)
+    c >= descriptorColStart && c <= remarksColIndex - 1
+      ? (visibleDescriptors[c - descriptorColStart] ?? null)
       : null;
   // A target cell's kind: remark (last col), rate (a rate descriptor), else "other" (anchor/amount/qty).
   const cellKindAt = (c: number): CellKind => {
@@ -3213,15 +3385,16 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // <body>, so it is never clipped by a pane's overflow + gets Esc / click-away / focus for free.
 
   // Resolve a clicked cell's grid colIndex from its EXISTING data-colkey (every cell carries one:
-  // a0..a4 anchors / "d:<col>" descriptors / "remarks"). No new per-cell attribute needed.
-  const colIndexFromColKey = (colkey: string | undefined): number | null => {
-    if (!colkey) return null;
-    const anchor = ANCHOR_WIDTH_KEYS.indexOf(colkey as (typeof ANCHOR_WIDTH_KEYS)[number]);
-    if (anchor >= 0) return anchor; // a0..a4 -> 0..4
-    if (colkey === REMARKS_WIDTH_KEY) return remarksColIndex;
-    const idx = visibleDescriptors.findIndex((d) => columnWidthKey("descriptor", d.col) === colkey);
-    return idx >= 0 ? DESCRIPTOR_COL_START + idx : null;
-  };
+  // a0..a3 + the fan-out desc:<col> anchors / "d:<col>" descriptors / "remarks"). MC-5: the pure
+  // colIndexFromColKeyPure resolves the fan-out description keys via anchorWidthKeys.
+  const colIndexFromColKey = (colkey: string | undefined): number | null =>
+    colIndexFromColKeyPure(
+      colkey,
+      anchorWidthKeys,
+      visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col)),
+      descriptorColStart,
+      remarksColIndex,
+    );
 
   // Compute each menu item's enabled state for a target rect NOW (open-time), reading the
   // NON-reactive clipboardRef FRESH (a render-time disabled prop would read stale). Copy needs any
@@ -3280,10 +3453,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // Commit the active cell IF it is an editable rate cell (locked: explicit commit-on-move;
   // the committedAttemptRef dedupe absorbs the trailing onBlur -> no double-save).
   const commitActiveRate = (cell: CellCoord) => {
-    if (!onSaveRate || cell.colIndex < DESCRIPTOR_COL_START) return;
+    if (!onSaveRate || cell.colIndex < descriptorColStart) return;
     // colIndex is over the VISIBLE descriptor set (column-hide aware) -- reverse-map through the
     // SAME visibleDescriptors the cells render from, else a hidden column would shift the lookup.
-    const d = visibleDescriptors[cell.colIndex - DESCRIPTOR_COL_START];
+    const d = visibleDescriptors[cell.colIndex - descriptorColStart];
     if (!d || !isRateDescriptor(d)) return;
     const row = rows[cell.rowIndex];
     if (!row) return;
@@ -3364,10 +3537,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     // the page wired onCategoryClick AND (the row is already classified OR it is an eligible blank
     // cell on a run sheet -- SAME gate as the click path); a non-editable / unwired cell falls
     // through to the generic Enter->down so nav is unchanged there.
-    if (activeCell.colIndex === FIXED_ANCHOR_COUNT && e.key === "Enter" && onCategoryClick) {
+    if (activeCell.colIndex === effectiveAnchorCount && e.key === "Enter" && onCategoryClick) {
       const r = rows[activeCell.rowIndex];
       const cat = r ? categoriesByExcelRow.get(r.source_row_number) : undefined;
-      const el = cellRefs.current.get(navKey(activeCell.rowIndex, FIXED_ANCHOR_COUNT));
+      const el = cellRefs.current.get(navKey(activeCell.rowIndex, effectiveAnchorCount));
       if (r && (isRowEditable(cat) || (isPriceableType(r.node_type) && hasRun)) && el) {
         e.preventDefault();
         onCategoryClick(r.source_row_number, el as HTMLElement);
@@ -3529,12 +3702,14 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   }, [frozen, rows, rowHeights, manualRowHeights]);
 
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
-  const widthOf = (key: string): number => colWidths[key] ?? seedForWidthKey(key);
+  // MC-5: a fan-out description column (desc:<col>) seeds from descWidthSeeds (first 280,
+  // extras 160); a0..a4 / d:<col> / remarks seed from seedForWidthKey. A dragged width wins.
+  const widthOf = (key: string): number => colWidths[key] ?? descWidthSeeds[key] ?? seedForWidthKey(key);
   const descWidthKeys = visibleDescriptors.map((d) => columnWidthKey("descriptor", d.col));
   // table-fixed needs an explicit total width (NOT w-full -- w-full would let table-fixed
   // redistribute slack and break the authoritative colgroup widths).
   const totalWidth =
-    ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0) +
+    anchorWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     CATEGORY_COL_WIDTH + // CL-2: the read-only Category column (fixed width, no colWidths entry)
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
@@ -3552,7 +3727,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   splitRef.current = split;
   // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
-  const anchorPaneWidth = ANCHOR_WIDTH_KEYS.reduce((s, k) => s + widthOf(k), 0);
+  const anchorPaneWidth = anchorWidthKeys.reduce((s, k) => s + widthOf(k), 0);
   const scrollPaneTableWidth =
     CATEGORY_COL_WIDTH + // CL-2: the read-only Category column leads the scrolling pane
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
@@ -3656,7 +3831,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // ── Frozen-left Slice 1: shared colgroup / header fragments + the row factory. Rendered into
   //    ONE table when unfrozen, or split across the two panes when frozen -- the SAME <col>/<th>
   //    from the SAME colWidths map (never duplicated) and the SAME PricingGridRow props. ──
-  const anchorCols = ANCHOR_WIDTH_KEYS.map((k) => (
+  const anchorCols = anchorWidthKeys.map((k) => (
     <col key={k} style={{ width: `${widthOf(k)}px` }} />
   ));
   const descriptorCols = visibleDescriptors.map((d) => (
@@ -3703,16 +3878,33 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
         <span className="block truncate">Classification</span>
         {resizeHandle("a3", false)}
       </th>
-      <th
-        data-colkey="a4"
-        title="Description"
-        className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
-      >
-        <span className="block truncate">
-          {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
-        </span>
-        {resizeHandle("a4", false)}
-      </th>
+      {/* MC-5: Description header fan-out -- one <th> per mapped description column (fan-out),
+          else the single legacy anchor (byte-identical). headerText = `Label (Col)` or the bare
+          letter when no real label was captured; keys/resize by desc:<col> letter. */}
+      {fanOut
+        ? descriptionColumns.map((c) => (
+            <th
+              key={c.col}
+              data-colkey={descriptionWidthKey(c.col)}
+              title={c.headerText}
+              className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+            >
+              <span className="block truncate">{c.headerText}</span>
+              {resizeHandle(descriptionWidthKey(c.col), false)}
+            </th>
+          ))
+        : (
+          <th
+            data-colkey="a4"
+            title="Description"
+            className="px-2 py-2 text-left font-medium text-muted-foreground border-r border-border sticky top-0 z-20 bg-muted"
+          >
+            <span className="block truncate">
+              {descriptionLetter ? `Description (${descriptionLetter})` : "Description"}
+            </span>
+            {resizeHandle("a4", false)}
+          </th>
+        )}
     </>
   );
 
@@ -3841,6 +4033,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       colCount={colCount}
       rowCount={rows.length}
       remarksColIndex={remarksColIndex}
+      effectiveAnchorCount={effectiveAnchorCount}
+      descriptorColStart={descriptorColStart}
+      descriptionColumns={descriptionColumns}
+      fanOut={fanOut}
       commitRate={commitRate}
       scheduleAutoSave={scheduleAutoSave}
       onCellFocus={onCellFocus}

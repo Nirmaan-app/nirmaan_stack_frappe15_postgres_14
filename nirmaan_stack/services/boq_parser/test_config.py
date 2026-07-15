@@ -152,17 +152,21 @@ class TestMappingConfig(unittest.TestCase):
                 },
             )
 
-    def test_two_description_columns_rejected(self):
-        """Two columns with role='description' in one sheet raises ValidationError."""
-        with self.assertRaises(ValidationError):
-            SheetConfig(
-                sheet_name="Duplicate",
-                header_row=1,
-                column_role_map={
-                    "B": ColumnRole(role="description"),
-                    "C": ColumnRole(role="description"),
-                },
-            )
+    def test_two_description_columns_accepted(self):
+        """Two columns with role='description' in one sheet VALIDATE (MC-1 —
+        description is no longer a singleton; the parser joins the columns at
+        parse time). The sibling test_two_qty_total_columns_rejected above proves
+        other singleton roles still reject duplicates."""
+        s = SheetConfig(
+            sheet_name="MultiDesc",
+            header_row=1,
+            column_role_map={
+                "B": ColumnRole(role="description"),
+                "C": ColumnRole(role="description"),
+            },
+        )
+        roles = [cr.role for cr in s.column_role_map.values()]
+        self.assertEqual(roles.count("description"), 2)
 
     # ------------------------------------------------------------------ #
     # Test 6 — empty sheets list                                           #

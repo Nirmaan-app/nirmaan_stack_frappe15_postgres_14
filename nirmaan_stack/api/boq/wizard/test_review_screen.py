@@ -2458,6 +2458,37 @@ class TestGetReviewRowsColumnDescriptors(FrappeTestCase):
                 f"append_notes_raw must be dict|None, got {type(r['append_notes_raw'])}",
             )
 
+    def test_description_parts_raw_shipped_parsed(self):
+        """MC-2: get_review_rows ships description_parts_raw as a parsed list (or
+        None on legacy rows), never a raw JSON string; a populated value comes back
+        as a list-of-lists [[col, header, text], ...]."""
+        result = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+        for r in result["rows"]:
+            self.assertIn("description_parts_raw", r)
+            self.assertTrue(
+                r["description_parts_raw"] is None or isinstance(r["description_parts_raw"], list),
+                f"description_parts_raw must be list|None, got {type(r['description_parts_raw'])}",
+            )
+        # positive: a populated (json-string) value round-trips as a parsed list-of-lists
+        doc = frappe.new_doc("BoQ Review Row")
+        doc.boq = self.boq_name
+        doc.sheet_name = "ConfigSheet"
+        doc.row_index = 99
+        doc.source_row_number = 99
+        doc.classification = "line_item"
+        doc.description_parts_raw = json.dumps([["B", "Description", "X"], ["C", "Spec", "Y"]])
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        try:
+            res2 = get_review_rows(boq_name=self.boq_name, sheet_name="ConfigSheet")
+            row = next(r for r in res2["rows"] if r["row_index"] == 99)
+            self.assertEqual(
+                row["description_parts_raw"], [["B", "Description", "X"], ["C", "Spec", "Y"]]
+            )
+        finally:
+            frappe.db.delete("BoQ Review Row", {"name": doc.name})
+            frappe.db.commit()
+
     def test_no_sheet_config_returns_empty_descriptors(self):
         """Sheet with no sheet_config must return column_descriptors: []."""
         result = get_review_rows(boq_name=self.boq_name, sheet_name="NoConfigSheet")
@@ -4234,6 +4265,31 @@ class TestGetCommittedRows(FrappeTestCase):
         self.assertEqual(set(res.keys()), {"rows", "column_descriptors", "commit_version", "work_packages"})
         self.assertEqual(res["commit_version"], 1,
                          "get_committed_rows returns the current committed commit_version (fixture = 1)")
+
+    def test_description_parts_raw_committed_feed_parsed(self):
+        """MC-2: the committed feed (_committed_node_to_row) emits description_parts_raw
+        as a parsed list-of-lists; a node without parts normalizes to [] (never null)."""
+        pre = self.fixture["preamble"]
+        frappe.db.set_value(
+            "BOQ Nodes", pre, "description_parts_raw",
+            json.dumps([["B", "Description", "LT"], ["C", "Spec", "CABLES"]]),
+            update_modified=False,
+        )
+        frappe.db.commit()
+        try:
+            rows = get_committed_rows(boq_name=self.boq_name, sheet_name=self.sheet_name)["rows"]
+            # row_index == sort_order on the committed tier
+            by_so = {r["row_index"]: r for r in rows}
+            self.assertEqual(
+                by_so[0]["description_parts_raw"],
+                [["B", "Description", "LT"], ["C", "Spec", "CABLES"]],
+            )
+            # a line item (sort_order 1) has no parts -> normalized to []
+            self.assertEqual(by_so[1]["description_parts_raw"], [])
+        finally:
+            frappe.db.set_value("BOQ Nodes", pre, "description_parts_raw", None,
+                                update_modified=False)
+            frappe.db.commit()
 
 
 # ===========================================================================
