@@ -147,6 +147,10 @@ import {
   descriptionCellValue,
   sheetHasDescriptionParts,
 } from "./reviewRender";
+// A2-D1 (decision D5): isolated per-row per-area qty cells with LOCAL draft state so the
+// multi-area "Total Quantity" cell live-sums as the user types, WITHOUT re-rendering the
+// (non-memoized) whole tree on a keystroke. See AreaQtyCells.tsx for the alignment contract.
+import { AreaQtyCells } from "./AreaQtyCells";
 // DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
 // clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
 // the gemini endpoints. Mounted ADDITIVELY beside the Claude pieces (Nitesh's stay untouched).
@@ -935,7 +939,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty } = useMemo(() => {
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
     // A2: for template origin, additionally hide the pricing columns (Rate*/Amount*) -- they are
     // populated later in the pricing editor, not at template review. This predicate matches ONLY
     // rate*/amount* roles; it must NEVER match qty_total/qty/unit/make_model (qty_total must stay a
@@ -975,6 +979,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const editableAreaDescriptors = displayDescriptors.filter(
       d => d.value_key !== null && EDITABLE_AREA_FIELDS.has(d.value_field),
     );
+    // A2-D1 (decision D5): the ordered per-area qty descriptors + the flat qty_total descriptor,
+    // delegated together to <AreaQtyCells> in the multi-area template body. filter() preserves
+    // displayDescriptors order (Excel-letter sort), and the backend inserts the area cols
+    // CONTIGUOUSLY right before Total (R-T1), so [area cols..., Total] render as one aligned block.
+    const areaQtyDescriptors = displayDescriptors.filter(
+      d => d.value_key !== null && d.value_field === "qty_by_area",
+    );
+    const qtyTotalDescriptor = displayDescriptors.find(
+      d => d.value_key === null && d.value_field === "qty_total",
+    ) ?? null;
     return {
       displayDescriptors,
       appendDescriptors,
@@ -989,12 +1003,23 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       // logic below (single-area edits qty_total; multi-area edits per-area cells + renders the
       // Total as a read-only sum). A pure function of the descriptors -> ref-stable per sheet.
       hasPerAreaQty: displayDescriptors.some(d => d.value_field === "qty_by_area"),
+      areaQtyDescriptors,
+      qtyTotalDescriptor,
     };
   }, [columnDescriptors, templateOrigin]);
 
   // append-to-notes-as-columns: render the combined "Append Notes" column only when
   // the sheet actually maps append-columns (no empty trailing column otherwise).
   const hasAppendCombined = appendDescriptors.length > 0;
+
+  // A2-D1 (decision D5): in the multi-area template body the per-area qty cells + the Total cell
+  // are delegated to the isolated <AreaQtyCells> (live-sum Total, per-row local draft, no whole-tree
+  // re-render on keystroke). Same gate as the old inline per-area path
+  // (templateOrigin && !readOnly && hasPerAreaQty). firstAreaQtyCol anchors the whole block at the
+  // FIRST per-area descriptor position in the descriptor loop. Both are no-ops for upload / single-area
+  // / read-only sheets, so those paths stay byte-identical.
+  const multiAreaInline = templateOrigin && !readOnly && hasPerAreaQty;
+  const firstAreaQtyCol = areaQtyDescriptors[0]?.col ?? null;
 
   // append-to-notes-as-columns: build the combined-cell string for one row -- every
   // non-empty append value, in Excel-letter order, as "<header-else-letter>: <value>"
@@ -2611,15 +2636,37 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         A2: for template origin the Total-Quantity (qty_total) cell is inline-editable
                         (silent save on blur/Enter); every other descriptor cell stays read-only. */}
                     {displayDescriptors.map(d => {
+                      // A2-D1 (decision D5): multi-area template -> delegate the CONTIGUOUS per-area
+                      // qty cells + the qty_total cell to <AreaQtyCells> (live-sum Total + per-row
+                      // local draft; a keystroke re-renders ONLY that row's cells). Anchored at the
+                      // FIRST per-area descriptor and evaluated OUTSIDE the visibleCols guard below so
+                      // a hidden first-area col still anchors the block; <AreaQtyCells> emits the SAME
+                      // set of <td>s (each gated by visibleCols) in the SAME order the loop would have.
+                      if (multiAreaInline) {
+                        const isAreaQtyCol = d.value_key !== null && d.value_field === "qty_by_area";
+                        const isQtyTotalCol = d.value_key === null && d.value_field === "qty_total";
+                        if (isAreaQtyCol) {
+                          if (d.col !== firstAreaQtyCol) return null; // later area cols emitted by <AreaQtyCells>
+                          return (
+                            <AreaQtyCells
+                              key="area-qty-cells"
+                              row={row}
+                              areaDescriptors={areaQtyDescriptors}
+                              totalDescriptor={qtyTotalDescriptor}
+                              visibleCols={visibleCols}
+                              onSaveArea={saveAreaQtyInline}
+                            />
+                          );
+                        }
+                        if (isQtyTotalCol) return null; // Total emitted by <AreaQtyCells>
+                      }
                       if (!visibleCols.has(d.col)) return null;
                       const val = resolveDescriptorValue(row, d);
                       // A2: single-area template -> the ONE qty_total cell is inline-editable;
-                      // gated OFF when multi-area (there the Total is a read-only summed cell).
+                      // gated OFF when multi-area (there <AreaQtyCells> renders the Total as a
+                      // read-only summed cell).
                       const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
                         && d.value_key === null && d.value_field === "qty_total";
-                      // A2 multi-area -> each per-area qty cell is inline-editable.
-                      const isInlineAreaQty = templateOrigin && !readOnly
-                        && d.value_key !== null && d.value_field === "qty_by_area";
                       return (
                         <td
                           key={d.col}
@@ -2632,22 +2679,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               inputMode="decimal"
                               defaultValue={row.qty_total ?? ""}
                               onBlur={(e) => saveQtyInline(row, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              placeholder="0"
-                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-                            />
-                          ) : isInlineAreaQty ? (
-                            <input
-                              key={`qarea-${row.row_index}-${d.col}-${String(row.qty_by_area?.[d.value_key as string] ?? "blank")}`}
-                              type="number"
-                              inputMode="decimal"
-                              defaultValue={row.qty_by_area?.[d.value_key as string] ?? ""}
-                              onBlur={(e) => saveAreaQtyInline(row, d, e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") {
                                   e.preventDefault();

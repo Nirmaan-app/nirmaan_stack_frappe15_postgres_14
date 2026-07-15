@@ -48,6 +48,10 @@ interface BoqUploadScreenProps {
   /** A2: return to the mode chooser (in-place; no route change). When absent the footer Back
    *  navigates to the project page as before -- upload flow byte-identical for old callers. */
   onBack?: () => void;
+  /** ADR-0013 D2: hosted inside BoqPickerPage's one-screen mode toggle -> suppress this
+   *  component's own <h1> header + outer max-width wrapper (the host owns one header + width).
+   *  Absent = renders byte-identically to the standalone screen. */
+  embedded?: boolean;
 }
 
 /**
@@ -63,7 +67,7 @@ interface BoqUploadScreenProps {
  * Cleanup runs on unmount (socket.off). Guard: only acts when uploadStatus === "parsing"
  * to avoid reacting to events from concurrent uploads by other users.
  */
-export function BoqUploadScreen({ projectId, onBack }: BoqUploadScreenProps) {
+export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreenProps) {
   const navigate = useNavigate();
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -190,14 +194,20 @@ export function BoqUploadScreen({ projectId, onBack }: BoqUploadScreenProps) {
       : "All set -- click to continue";
 
   return (
-    <div className="flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10">
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Upload BoQ</h1>
-        {project?.project_name && (
-          <p className="mt-1 text-sm text-muted-foreground">{project.project_name}</p>
-        )}
-      </div>
+    <div
+      className={
+        embedded ? "space-y-6" : "flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10"
+      }
+    >
+      {/* ── Header (suppressed when embedded -- host owns the one header) ──── */}
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Upload BoQ</h1>
+          {project?.project_name && (
+            <p className="mt-1 text-sm text-muted-foreground">{project.project_name}</p>
+          )}
+        </div>
+      )}
 
       {/* ── Two-pane body ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

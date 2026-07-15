@@ -49,6 +49,14 @@ interface TemplateCreateFlowProps {
   projectId: string;
   /** Return to the picker (in-place mode flip; NO route change). Optional. */
   onBack?: () => void;
+  /** ADR-0013 D2: hosted inside BoqPickerPage's one-screen mode toggle -> suppress this
+   *  component's own <h1> header + outer max-width wrapper (the host owns one header + width).
+   *  Absent = renders byte-identically to the standalone screen. */
+  embedded?: boolean;
+  /** ADR-0013 D2 dirty-guard: report whether the user has entered work (typed name/notes,
+   *  non-default GST, multi-area, defined areas, or an in-flight clone) so the host can confirm
+   *  before discarding on a mode switch. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /** Local clone lifecycle. "building" = job enqueued, awaiting socket/poll. */
@@ -76,7 +84,12 @@ const CLONE_ERROR_FALLBACK =
  *
  * Socket is screen-scoped (FrappeContext), NOT registered in socketListeners.ts.
  */
-export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProps) {
+export function TemplateCreateFlow({
+  projectId,
+  onBack,
+  embedded,
+  onDirtyChange,
+}: TemplateCreateFlowProps) {
   const navigate = useNavigate();
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -216,6 +229,25 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
     applyCloneOutcome(msg.status, msg.error_code ?? null);
   }, [pollData, applyCloneOutcome]);
 
+  // ── Dirty-guard (ADR-0013 D2) ───────────────────────────────────────────────
+  // Any entered work makes this mode "dirty" so the host's mode toggle can confirm before
+  // discarding. boqName === null means the name field is still the untouched default.
+  const isDirty =
+    boqName !== null ||
+    notes.trim().length > 0 ||
+    taxTreatment !== "Pre-tax" ||
+    isMultiArea ||
+    cleanAreas.length > 0 ||
+    // sheet curation: any deselection from the all-selected default is in-progress work that a
+    // silent mode-switch would discard (remount re-seeds ALL sheets). activeSheets.length > 0
+    // avoids a spurious dirty flag in the one render before the seed effect runs.
+    (activeSheets.length > 0 && selectedSheets.size !== activeSheets.length) ||
+    cloneState !== "idle";
+  useEffect(() => {
+    // onDirtyChange is a stable setState ref from the host (or absent for standalone use).
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
   const handleCreate = async () => {
     if (
       selectedSheets.size === 0 ||
@@ -266,8 +298,8 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
 
   const isBusy = cloneState === "creating" || cloneState === "building";
 
-  // ── Header (shared across states) ───────────────────────────────────────────
-  const header = (
+  // ── Header (shared across states; suppressed when embedded -- host owns the one header) ──
+  const header = embedded ? null : (
     <div>
       <h1 className="text-2xl font-bold tracking-tight">Create BoQ from Template</h1>
       {projectName && (
@@ -276,7 +308,9 @@ export function TemplateCreateFlow({ projectId, onBack }: TemplateCreateFlowProp
     </div>
   );
 
-  const wrapperClass = "flex-1 space-y-6 max-w-2xl mx-auto pt-6 pb-10";
+  const wrapperClass = embedded
+    ? "space-y-6"
+    : "flex-1 space-y-6 max-w-2xl mx-auto pt-6 pb-10";
 
   // ── Loading the master template ─────────────────────────────────────────────
   if (templateLoading) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc } from "frappe-react-sdk";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,16 +10,29 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, FileSpreadsheet, FolderPlus, Layers } from "lucide-react";
+import { FileSpreadsheet, FolderPlus } from "lucide-react";
 import { TenderingProjectForm } from "@/pages/projects/tendering/TenderingProjectForm";
+import { useBoqWizardStore } from "@/zustand/useBoqWizardStore";
 import { BoqUploadScreen } from "./BoqUploadScreen";
 import { TemplateCreateFlow } from "./TemplateCreateFlow";
+
+type ProjectMode = "upload" | "template";
 
 const BoqPickerPage = () => {
   const navigate = useNavigate();
@@ -28,24 +41,28 @@ const BoqPickerPage = () => {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>(preSelectedId);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  // A2: on the project-scoped screen (?project=<id>) the user first picks a creation MODE; the
-  // mode's details panel is NOT rendered until chosen. "choose" = the two-option chooser,
-  // "upload" = the upload two-pane, "template" = the create-from-template form. Template creation
-  // lives ONLY here now -- the bare /upload-boq page no longer offers it (A2 requirement E1).
-  const [projectMode, setProjectMode] = useState<"choose" | "upload" | "template">("choose");
+  // ADR-0013 D2: on the project-scoped screen (?project=<id>) the creation mode is a PERSISTENT
+  // top-of-screen toggle -- the chosen sub-component renders inline BELOW it on ONE screen (no
+  // full-screen chooser gate). Default "upload". Template creation lives ONLY here (A2 req E1).
+  const [projectMode, setProjectMode] = useState<ProjectMode>("upload");
+  // Dirty-guard plumbing: templateDirty is reported up by TemplateCreateFlow (upload dirtiness is
+  // read imperatively from the store); pendingMode holds the target while the confirm is open.
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [pendingMode, setPendingMode] = useState<ProjectMode | null>(null);
 
-  // Keep the dropdown in sync + reset the mode chooser when the URL project param changes
-  // (back/forward navigation, or a new ?project=).
+  // Reset to the default mode when the URL project param changes (back/forward, or a new
+  // ?project=).
   useEffect(() => {
     setSelectedProjectId(preSelectedId);
-    setProjectMode("choose");
+    setProjectMode("upload");
+    setTemplateDirty(false);
   }, [preSelectedId]);
 
-  // Project list for the bare picker. This hook MUST run unconditionally and BEFORE the
-  // preSelectedId early-return below (Rules of Hooks) -- the SAME BoqPickerPage instance
-  // re-renders with preSelectedId flipping "" -> id on the Continue SPA transition; a hook
-  // after the early return would change the hook count (React #300). swrKey null disables the
-  // fetch when a project is preselected (sdk gotcha) so we never load a list we won't render.
+  // Projects list for the bare-page dropdown. Disabled on the scoped screen (swrKey null) so we
+  // don't load 1000 rows just to read one project name. Both hooks below MUST run unconditionally
+  // and BEFORE the preSelectedId early-return (Rules of Hooks) -- the SAME BoqPickerPage instance
+  // re-renders with preSelectedId flipping "" -> id on the Continue SPA transition; a hook after
+  // the early return would change the hook count (React #300).
   const { data: projects, isLoading } = useFrappeGetDocList(
     "Projects",
     {
@@ -54,87 +71,120 @@ const BoqPickerPage = () => {
       limit: 1000,
       orderBy: { field: "project_name", order: "asc" },
     },
-    preSelectedId ? null : undefined
+    preSelectedId ? null : undefined,
   );
-
-  // A2: project name for the mode-chooser header -- only fetched when a project is preselected
-  // (swrKey null disables it otherwise; #frappe_get_doc gotcha -- 3rd arg is the swrKey).
-  const { data: preProject } = useFrappeGetDoc<{ name: string; project_name: string }>(
+  // Single project doc for the scoped-screen header name. SWR-shares the identical fetch the
+  // mounted child (BoqUploadScreen / TemplateCreateFlow) already makes, so no extra request.
+  const { data: scopedProject } = useFrappeGetDoc(
     "Projects",
     preSelectedId,
-    preSelectedId ? undefined : null
+    preSelectedId ? undefined : null,
   );
-  const preProjectName = preProject?.project_name ?? preSelectedId;
 
-  // ── Project-scoped screen (?project=<id>): mode chooser -> upload | template ──
+  // ── Project-scoped screen (?project=<id>): one-screen mode toggle ──
   if (preSelectedId) {
-    if (projectMode === "upload") {
-      return (
-        <BoqUploadScreen
-          projectId={preSelectedId}
-          onBack={() => setProjectMode("choose")}
-        />
-      );
-    }
-    if (projectMode === "template") {
-      return (
-        <TemplateCreateFlow
-          projectId={preSelectedId}
-          onBack={() => setProjectMode("choose")}
-        />
-      );
-    }
-    // mode === "choose": the two-option chooser. NO details panel until a mode is picked (A2).
+    const scopedProjectName = scopedProject?.project_name ?? "";
+
+    // Switch modes, but confirm first if the mode being LEFT has in-progress work. Upload
+    // dirtiness is read imperatively from the store (no parent subscription); template dirtiness
+    // is the flag TemplateCreateFlow reports via onDirtyChange.
+    const requestSwitch = (target: ProjectMode) => {
+      if (target === projectMode) return;
+      let currentDirty = templateDirty;
+      if (projectMode === "upload") {
+        const st = useBoqWizardStore.getState();
+        currentDirty = st.droppedFile !== null || st.uploadStatus !== "idle";
+      }
+      if (currentDirty) {
+        setPendingMode(target);
+      } else {
+        setProjectMode(target);
+        setTemplateDirty(false);
+      }
+    };
+
+    const confirmSwitch = () => {
+      if (pendingMode) {
+        setProjectMode(pendingMode);
+        setTemplateDirty(false);
+      }
+      setPendingMode(null);
+    };
+
     return (
-      <div className="flex-1 space-y-6 max-w-3xl mx-auto pt-8 pb-10">
+      <div className="flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10">
+        {/* Shared header (the host owns the one header for both modes) */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">New BoQ</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            For <span className="font-medium text-foreground">{preProjectName}</span>. Choose how
-            you&apos;d like to create this Bill of Quantities.
-          </p>
+          {scopedProjectName && (
+            <p className="mt-1 text-sm text-muted-foreground">{scopedProjectName}</p>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* Persistent mode toggle (segmented, styled like the Single/Multi area toggle) */}
+        <div className="inline-flex rounded-md border border-input p-0.5">
           <button
             type="button"
-            onClick={() => setProjectMode("upload")}
-            className="group flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => requestSwitch("upload")}
+            className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+              projectMode === "upload"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors group-hover:border-primary group-hover:text-primary">
-              <FileSpreadsheet className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-semibold text-foreground">Upload a BoQ</span>
-            <span className="text-xs leading-relaxed text-muted-foreground">
-              Drop an .xlsx / .xlsm workbook, then configure, parse and review it.
-            </span>
+            Upload a BoQ
           </button>
-
           <button
             type="button"
-            onClick={() => setProjectMode("template")}
-            className="group flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => requestSwitch("template")}
+            className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+              projectMode === "template"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors group-hover:border-primary group-hover:text-primary">
-              <Layers className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-semibold text-foreground">Create from Template</span>
-            <span className="text-xs leading-relaxed text-muted-foreground">
-              Start from the master template — pick sheets, then enter quantities.
-            </span>
+            Create from Template
           </button>
         </div>
 
-        <div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(`/projects/${preSelectedId}`)}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to project
-          </Button>
-        </div>
+        {/* Active sub-component -- only the chosen one is mounted (preserves each mode's
+            store-reset + socket lifecycle). NO onBack -> footer Back navigates to the project. */}
+        {projectMode === "upload" ? (
+          <BoqUploadScreen projectId={preSelectedId} embedded />
+        ) : (
+          <TemplateCreateFlow
+            projectId={preSelectedId}
+            embedded
+            onDirtyChange={setTemplateDirty}
+          />
+        )}
+
+        {/* Dirty-guard confirm before discarding in-progress work on a mode switch */}
+        <AlertDialog
+          open={pendingMode !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingMode(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Discard current work?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You&apos;ve started{" "}
+                {projectMode === "upload"
+                  ? "uploading a BoQ"
+                  : "creating a BoQ from the template"}
+                . Switching will discard what you&apos;ve entered so far.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep editing</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmSwitch}>
+                Discard and switch
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }

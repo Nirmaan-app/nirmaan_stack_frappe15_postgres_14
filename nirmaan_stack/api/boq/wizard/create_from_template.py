@@ -457,18 +457,24 @@ def _sheet_work_packages(tmpl_sheet) -> list:
 
 
 def _apply_areas_to_sheet_config(sheet_config, areas):
-    """A2 multi-area: the PURE inverse of template_materialize._collapse_to_single_area.
+    """A2-D1 multi-area: a TRUE Excel INSERT-COLUMN immediately before the Total-Quantity column.
 
-    Rewrites a single-area DATA-sheet sheet_config into a MULTI-area one: drop the single
-    `{role:"qty_total"}` scalar (frees its letter) plus any stray bare `{role:"qty"}`, then append
-    N per-area `{role:"qty", area}` columns + exactly ONE trailing `{role:"qty_total"}` Total column
-    on fresh REAL Excel letters (^[A-Z]+$ via get_column_letter) strictly AFTER the sheet's last
-    used column, and set area_dimensions. The Total takes the HIGHEST letter so
-    review_screen._build_column_descriptors' (len,col) sort renders it AFTER every per-area column.
+    Rewrites a single-area DATA-sheet sheet_config into a MULTI-area one WITHOUT dropping or
+    re-minting the master Total column. The master's single `{role:"qty_total"}` column is the
+    anchor T (index t); we insert N = len(areas) per-area `{role:"qty", area}` columns at indices
+    [t .. t+N-1] (INPUT area order -> area1 = leftmost) and shift EVERY column at index >= t (the
+    Total itself + rate/amount/notes) RIGHT by N. Columns left of T are untouched. The kept Total
+    lands at t+N and PRESERVES its header; each inserted area column's header = the area name.
+    area_dimensions is set to the input areas.
 
-    NEVER a synthetic non-A-Z key: SheetConfig.column_letters_must_be_valid (run live via
-    get_stale_sheets) rejects it. The parser caps qty_total at ONE, so dropping the old scalar
-    before adding the Total is mandatory.
+    Keys are real Excel letters via get_column_letter (^[A-Z]+$) -- NEVER a synthetic sentinel
+    (SheetConfig.column_letters_must_be_valid, run live via get_stale_sheets, rejects it).
+
+    PURE (returns a new dict; the caller input is not mutated in place -- matching the prior
+    contract) + idempotent: any per-area qty columns a PRIOR run inserted are stripped before the
+    (re-)insert, so re-running never accumulates duplicate area columns or a second qty_total. If
+    the sheet has NO qty_total anchor the config is returned UNCHANGED (the caller only invokes
+    this for DATA sheets with non-empty areas; general-specs + single-area paths never reach here).
     """
     cfg = dict(sheet_config or {})
     role_map = cfg.get("column_role_map")
@@ -476,33 +482,51 @@ def _apply_areas_to_sheet_config(sheet_config, areas):
     headers = cfg.get("column_headers")
     headers = dict(headers) if isinstance(headers, dict) else {}
 
-    # Drop the single-area qty_total scalar + any bare qty (the singleton cap allows only ONE
-    # qty_total, so the old scalar MUST go before we append the Total).
-    new_map = {
-        c: e for c, e in role_map.items()
-        if not (isinstance(e, dict) and e.get("role") in ("qty_total", "qty"))
+    # Anchor: the master's single qty_total column. No anchor -> nothing to insert (unchanged).
+    total_col = next(
+        (c for c, e in role_map.items()
+         if isinstance(e, dict) and e.get("role") == "qty_total"),
+        None,
+    )
+    if total_col is None:
+        return cfg
+
+    n = len(areas)
+
+    # Idempotency: strip any per-area qty columns (+ their headers) a PRIOR run inserted, so a
+    # re-run starts from the single-Total shape and never accumulates duplicates. On a pristine
+    # master this is a no-op (a single-area master has no {role:"qty", area} columns).
+    prior_area_cols = {
+        c for c, e in role_map.items()
+        if isinstance(e, dict) and e.get("role") == "qty" and e.get("area")
     }
+    clean_map = {c: e for c, e in role_map.items() if c not in prior_area_cols}
+    clean_headers = {c: h for c, h in headers.items() if c not in prior_area_cols}
 
-    # Allocate N+1 fresh letters strictly after the last used column (role_map U headers),
-    # ascending -- append-after-max guarantees A-Z validity, no collision, Total sorts last.
-    used = set(role_map) | set(headers)
-    idx = max((column_index_from_string(c) for c in used), default=0)
-    free = []
-    while len(free) < len(areas) + 1:
-        idx += 1
-        letter = get_column_letter(idx)
-        if letter not in used:
-            free.append(letter)
+    # The anchor's index (unaffected by the strip -- qty_total is never a per-area qty column).
+    t = column_index_from_string(total_col)
 
-    # First N letters -> per-area qty (ascending == area order); last (highest) -> Total.
-    for letter, area in zip(free, areas):
+    # Shift every column at index >= t RIGHT by N (role_map + headers in LOCKSTEP), opening N empty
+    # slots at [t .. t+N-1] and moving the Total (and rate/amount/notes) to t+N and beyond. The
+    # Total's header rides along, preserved. Columns left of t are unchanged.
+    new_map = {}
+    for c, e in clean_map.items():
+        i = column_index_from_string(c)
+        new_map[get_column_letter(i + n) if i >= t else c] = e
+    new_headers = {}
+    for c, h in clean_headers.items():
+        i = column_index_from_string(c)
+        new_headers[get_column_letter(i + n) if i >= t else c] = h
+
+    # Fill the N opened slots with per-area qty columns in INPUT area order (leftmost = area1);
+    # each inserted column's header = the area name.
+    for offset, area in enumerate(areas):
+        letter = get_column_letter(t + offset)
         new_map[letter] = {"role": "qty", "area": area}
-        headers.setdefault(letter, area)
-    new_map[free[-1]] = {"role": "qty_total"}
-    headers.setdefault(free[-1], "Total Quantity")
+        new_headers[letter] = area
 
     cfg["column_role_map"] = new_map
-    cfg["column_headers"] = headers
+    cfg["column_headers"] = new_headers
     cfg["area_dimensions"] = list(areas)
     return cfg
 

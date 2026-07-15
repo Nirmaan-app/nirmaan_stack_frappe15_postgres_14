@@ -24,6 +24,7 @@ Run via the bench runner (NOT raw unittest -- see CLAUDE.md BoQ test-runner note
   bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_create_from_template
 """
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 import frappe
@@ -36,6 +37,7 @@ from nirmaan_stack.api.boq.wizard.create_from_template import (
     get_clone_status,
     get_master_template,
 )
+from nirmaan_stack.services.boq_parser.config import SheetConfig
 
 _SHEET_A = "Sheet A"
 _SHEET_B = "Sheet B"
@@ -44,7 +46,15 @@ _SHEET_TS = "Sheet TS "       # trailing space -- verbatim identity test (#152)
 _SHEET_CONFIG_A = {
     "header_row": 1,
     "area_dimensions": [],
-    "column_role_map": {"A": {"role": "sl_no"}, "B": {"role": "description"}},
+    # A realistic single-area DATA sheet carries a Total-Quantity column -- _collapse_to_single_area
+    # guarantees one on every collapsed master data sheet. The A2-D1 insert-before-Total rewrite
+    # anchors on it (C=qty_total here); multi-area then inserts the per-area qty cols before C and
+    # shifts qty_total right (C -> D/E...).
+    "column_role_map": {
+        "A": {"role": "sl_no"},
+        "B": {"role": "description"},
+        "C": {"role": "qty_total"},
+    },
 }
 
 
@@ -485,44 +495,114 @@ class TestCloneWorker(FrappeTestCase):
 # ---------------------------------------------------------------------------
 
 class TestApplyAreasToSheetConfig(FrappeTestCase):
-    """A2 multi-area: the PURE column_role_map rewrite (_apply_areas_to_sheet_config)."""
+    """A2-D1 multi-area: the PURE column INSERT-before-Total rewrite (_apply_areas_to_sheet_config).
 
-    def test_rewrite_drops_qty_total_adds_area_cols_and_total(self):
-        import re
-        from openpyxl.utils import column_index_from_string
+    The master Total-Quantity column is KEPT and shifted RIGHT by N; the N per-area qty columns
+    are inserted into the freed slots immediately BEFORE it; every rate/amount/notes column at or
+    after Total shifts right by N in lockstep; column_headers re-key in lockstep (area headers =
+    area names, Total header preserved).
+    """
+
+    def test_rewrite_inserts_area_cols_before_total_and_shifts_right(self):
+        # Realistic HVAC master: A=sl_no B=description C=unit D=qty_total E=rate_supply
+        # F=rate_install G=amount_supply H=amount_install I=amount_total J=row_notes.
         cfg = {
+            "sheet_name": "HVAC",
             "header_row": 1,
             "area_dimensions": [],
             "column_role_map": {
-                "A": {"role": "sl_no"}, "B": {"role": "description"},
-                "F": {"role": "qty_total"},
-                "G": {"role": "rate_combined"}, "H": {"role": "amount_total"},
+                "A": {"role": "sl_no"}, "B": {"role": "description"}, "C": {"role": "unit"},
+                "D": {"role": "qty_total"},
+                "E": {"role": "rate_supply"}, "F": {"role": "rate_install"},
+                "G": {"role": "amount_supply"}, "H": {"role": "amount_install"},
+                "I": {"role": "amount_total"}, "J": {"role": "row_notes"},
+            },
+            "column_headers": {
+                "A": "Sl. No.", "B": "Description", "C": "Unit", "D": "Total Qty",
+                "E": "Supply Rate", "F": "Install Rate", "G": "Supply Amount",
+                "H": "Install Amount", "I": "Total Amount", "J": "Notes",
             },
         }
-        out = cft._apply_areas_to_sheet_config(cfg, ["Block X", "Block Y"])
+        out = cft._apply_areas_to_sheet_config(cfg, ["Tower A", "Tower B"])
         role_map = out["column_role_map"]
-        self.assertNotIn("F", role_map, "the single-area qty_total letter must be dropped")
-        area_cols = {e["area"]: c for c, e in role_map.items() if e.get("role") == "qty"}
+
+        # For N=2 areas: D=qty(Tower A) E=qty(Tower B) F=qty_total G=rate_supply H=rate_install
+        # I=amount_supply J=amount_install K=amount_total L=row_notes.
+        self.assertEqual(role_map["A"], {"role": "sl_no"})
+        self.assertEqual(role_map["B"], {"role": "description"})
+        self.assertEqual(role_map["C"], {"role": "unit"})
+        self.assertEqual(role_map["D"], {"role": "qty", "area": "Tower A"})
+        self.assertEqual(role_map["E"], {"role": "qty", "area": "Tower B"})
+        self.assertEqual(role_map["F"], {"role": "qty_total"})  # KEPT, shifted D -> F
+        self.assertEqual(role_map["G"], {"role": "rate_supply"})
+        self.assertEqual(role_map["H"], {"role": "rate_install"})
+        self.assertEqual(role_map["I"], {"role": "amount_supply"})
+        self.assertEqual(role_map["J"], {"role": "amount_install"})
+        self.assertEqual(role_map["K"], {"role": "amount_total"})
+        self.assertEqual(role_map["L"], {"role": "row_notes"})
+
+        # Exactly one qty_total; area cols occupy the N letters immediately BEFORE the shifted Total.
         total_cols = [c for c, e in role_map.items() if e.get("role") == "qty_total"]
-        self.assertEqual(set(area_cols), {"Block X", "Block Y"})
-        self.assertEqual(len(total_cols), 1, "exactly one qty_total Total column")
-        self.assertEqual(out["area_dimensions"], ["Block X", "Block Y"])
+        self.assertEqual(total_cols, ["F"], "Total kept and shifted right by N, exactly once")
+        area_cols = {e["area"]: c for c, e in role_map.items() if e.get("role") == "qty"}
+        self.assertEqual(area_cols, {"Tower A": "D", "Tower B": "E"})
+
+        # column_headers re-keyed in lockstep: area headers = area names, Total header preserved,
+        # rate/amount/notes headers ride the shift.
+        headers = out["column_headers"]
+        self.assertEqual(headers["A"], "Sl. No.")
+        self.assertEqual(headers["B"], "Description")
+        self.assertEqual(headers["C"], "Unit")
+        self.assertEqual(headers["D"], "Tower A")       # inserted area header
+        self.assertEqual(headers["E"], "Tower B")       # inserted area header
+        self.assertEqual(headers["F"], "Total Qty")     # PRESERVED, shifted D -> F
+        self.assertEqual(headers["G"], "Supply Rate")
+        self.assertEqual(headers["H"], "Install Rate")
+        self.assertEqual(headers["I"], "Supply Amount")
+        self.assertEqual(headers["J"], "Install Amount")
+        self.assertEqual(headers["K"], "Total Amount")
+        self.assertEqual(headers["L"], "Notes")
+
+        self.assertEqual(out["area_dimensions"], ["Tower A", "Tower B"])
         self.assertTrue(all(re.match(r"^[A-Z]+$", c) for c in role_map),
                         "every column key must be a real Excel letter (^[A-Z]+$)")
-        total_idx = column_index_from_string(total_cols[0])
-        self.assertTrue(
-            all(total_idx > column_index_from_string(c) for c in area_cols.values()),
-            "the Total column must sort after every per-area column",
-        )
+
+        # The rewritten config must survive the live parser validator.
+        SheetConfig.model_validate({**cfg, **out})
+
+    def test_rewrite_no_qty_total_anchor_returns_unchanged(self):
+        cfg = {
+            "sheet_name": "NoTotal", "header_row": 1, "area_dimensions": [],
+            "column_role_map": {"A": {"role": "sl_no"}, "B": {"role": "description"}},
+        }
+        out = cft._apply_areas_to_sheet_config(cfg, ["Tower A"])
+        self.assertEqual(out["column_role_map"], cfg["column_role_map"])
+        self.assertEqual(out.get("area_dimensions"), [])
 
     def test_rewrite_is_idempotent_on_rerun(self):
-        cfg = {"header_row": 1, "area_dimensions": [],
-               "column_role_map": {"B": {"role": "description"}, "C": {"role": "qty_total"}}}
+        cfg = {
+            "sheet_name": "Idem", "header_row": 1, "area_dimensions": [],
+            "column_role_map": {
+                "B": {"role": "description"}, "C": {"role": "qty_total"},
+                "D": {"role": "rate_combined"}, "E": {"role": "amount_total"},
+            },
+            "column_headers": {"C": "Total Qty"},
+        }
         once = cft._apply_areas_to_sheet_config(cfg, ["Z1", "Z2"])
         twice = cft._apply_areas_to_sheet_config(once, ["Z1", "Z2"])
-        rm = twice["column_role_map"]
-        self.assertEqual(len([e for e in rm.values() if e.get("role") == "qty_total"]), 1)
-        self.assertEqual({e["area"] for e in rm.values() if e.get("role") == "qty"}, {"Z1", "Z2"})
+
+        for out in (once, twice):
+            rm = out["column_role_map"]
+            # Re-running never accumulates a second qty_total or duplicate per-area columns.
+            self.assertEqual(
+                len([e for e in rm.values() if e.get("role") == "qty_total"]), 1)
+            self.assertEqual(
+                {e["area"] for e in rm.values() if e.get("role") == "qty"}, {"Z1", "Z2"})
+            self.assertEqual(out["area_dimensions"], ["Z1", "Z2"])
+            # Total header still preserved after the strip-and-reinsert.
+            total_col = next(c for c, e in rm.items() if e.get("role") == "qty_total")
+            self.assertEqual(out["column_headers"][total_col], "Total Qty")
+            SheetConfig.model_validate({**cfg, **out})
 
 
 class TestCreateFromTemplateEndpoint(FrappeTestCase):
