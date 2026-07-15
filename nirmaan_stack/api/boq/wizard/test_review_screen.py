@@ -45,14 +45,16 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 
 # ---------------------------------------------------------------------------
 # Shared list-JSON fields for the _insert_rows helper.
-# Combines the 4 parser-output list fields (from parse_run._LIST_JSON_FIELDS)
-# and the new edit_log field added in Slice A.  All must be pre-serialized via
+# Combines the 4 parser-output list fields (from parse_run._LIST_JSON_FIELDS:
+# attached_notes, classifier_warnings, preamble_candidate_signals, description_parts_raw)
+# and the edit_log field added in Slice A.  All must be pre-serialized via
 # json.dumps() before doc.insert() per the Frappe list-JSON quirk.
 # ---------------------------------------------------------------------------
 _ALL_LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes",
     "classifier_warnings",
     "preamble_candidate_signals",
+    "description_parts_raw",
     "edit_log",
 })
 
@@ -3054,6 +3056,38 @@ class TestSaveReviewRestructure(FrappeTestCase):
         r3 = self._get_doc(3)
         self.assertEqual(r3.human_parent, -1, "an unrelated row must not be reparented")
         self.assertIsNone(r3.edited_at, "an unrelated row must not be stamped")
+
+    def test_reclassify_row_with_description_parts_raw_persists(self):
+        """Regression (MC-2 / description_parts_raw): reclassifying a row that carries a
+        populated description_parts_raw JSON list must NOT throw. The field is a JSON
+        fieldtype, so frappe.get_doc() hydrates the stored JSON string back into a Python
+        list; _apply_and_save_row_edit must re-serialize it (via _RESAVE_LIST_JSON_FIELDS)
+        before doc.save(), else Frappe's get_valid_dict rejects the list with
+        "Value for Description Parts Raw cannot be a list" (the production bug). This test
+        fails (the save raises ValidationError) if description_parts_raw is dropped from
+        _RESAVE_LIST_JSON_FIELDS.
+        """
+        parts = [["B", "Description", "Wiring of light fixture"], ["C", "Spec", "FRLS PVC"]]
+        row = _minimal_row(self.sheet_name, 5, "note", parent_index=0)
+        row["description_parts_raw"] = parts
+        _insert_rows(self.boq_name, [row])
+
+        # The reproduction: childless note -> preamble. Must NOT raise.
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=5, new_classification="preamble",
+            child_moves={},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["new_classification"], "preamble")
+
+        # The reclassify persisted AND description_parts_raw round-tripped intact.
+        r5 = self._get_doc(5)
+        self.assertEqual(r5.human_classification, "preamble")
+        self.assertEqual(
+            self._as_list(r5.description_parts_raw), parts,
+            "description_parts_raw must survive the edit re-save unchanged",
+        )
 
     # -- REJECT: FROM-but-not-TO (parser-only classes rejected as targets) --
 
