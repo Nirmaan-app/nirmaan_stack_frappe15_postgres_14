@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
+import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -59,6 +60,16 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
 
+    // Full-access users (Admin/PMO/Accountant/Accountant Lead) may see all POs, so the
+    // explicit ["project","in", <all ~140 projects>] filter below is redundant for them
+    // -- and cramming every project name into the GET URL exceeds nginx's request-line
+    // limit on prod, throwing a 400 on the global PO Wise / payments view. Drop it for
+    // them; keep it for scoped views and limited users (small project lists).
+    const { role, user_id } = useUserData();
+    const roleReady = role !== "Loading" && role !== "Error";
+    const isFullAccess = user_id === "Administrator" ||
+        ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+
     const projectFilters = useMemo(() => {
         const filters: ProjectFilter[] = []
         if (customerId) {
@@ -91,22 +102,34 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         projectPaymentsQueryKeys.projects(projectFilters)
     );
 
+    // Scope PO/SR fetches by project only when it's actually a subset: a scoped view
+    // (projectId/customerId) OR a non-full-access user. For a full-access user on the
+    // global view, `projects` is EVERY project -- listing them all in the GET URL is
+    // what triggers the 400 (nginx URL-too-long), so we omit it (they may see all POs).
+    const scopeByProject = (!isFullAccess) || !!projectId || !!customerId;
+    const projectInFilter: any[] = useMemo(
+        () => (scopeByProject && projects?.length
+            ? [["project", "in", projects.map(i => i?.name)]]
+            : []),
+        [scopeByProject, projects]
+    );
+
     const { data: purchaseOrders, isLoading: poLoading, error: poError, mutate: poMutate } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
         fields: ["*"],
-        filters: [["status", "not in", ["Cancelled", "Merged","Inactive"]], ["project", "in", projects?.map(i => i?.name)]],
+        filters: [["status", "not in", ["Cancelled", "Merged","Inactive"]], ...projectInFilter],
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
-        projects ? undefined : null
+        (projects && roleReady) ? undefined : null
     );
 
     const { data: serviceOrders, isLoading: srLoading, error: srError, mutate: srMutate } = useFrappeGetDocList<ServiceRequests>("Service Requests", {
         fields: ["*"],
-        filters: [["status", "=", "Approved"], ["project", "in", projects?.map(i => i?.name)]],
+        filters: [["status", "=", "Approved"], ...projectInFilter],
         limit: 0,
         orderBy: { field: "modified", order: "desc" },
     },
-        projects ? undefined : null
+        (projects && roleReady) ? undefined : null
     );
 
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>("Vendors", {

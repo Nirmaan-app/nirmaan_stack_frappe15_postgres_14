@@ -353,28 +353,33 @@ def get_project_pr_status_counts(project_id: str):
     # document (the former get_doc-per-name N+1: hundreds of doc loads on a large project).
     # `_get_pr_derived_status_v2` only reads the order_list items (status + item_id) and
     # the PO items (item_id), so we fetch just those two child tables.
+    # Chunk the `parent IN (...)` lists via create_batch. Bounded per project today, but
+    # chunking keeps a very large project from tripping sqlparse's 10k-token cap on prod
+    # and matches the pattern used elsewhere in this file.
     pr_items_by_parent = {}
     if pr_names:
-        for it in frappe.get_all(
-            "Procurement Request Item Detail",
-            filters={"parent": ["in", pr_names], "parentfield": "order_list"},
-            fields=["parent", "status", "item_id"],
-            limit_page_length=0,
-        ):
-            pr_items_by_parent.setdefault(it["parent"], []).append(
-                frappe._dict(status=it["status"], item_id=it["item_id"])
-            )
+        for chunk in create_batch(pr_names, 500):
+            for it in frappe.get_all(
+                "Procurement Request Item Detail",
+                filters={"parent": ["in", chunk], "parentfield": "order_list"},
+                fields=["parent", "status", "item_id"],
+                limit_page_length=0,
+            ):
+                pr_items_by_parent.setdefault(it["parent"], []).append(
+                    frappe._dict(status=it["status"], item_id=it["item_id"])
+                )
     po_items_by_parent = {}
     if po_names:
-        for it in frappe.get_all(
-            "Purchase Order Item",
-            filters={"parent": ["in", po_names]},
-            fields=["parent", "item_id"],
-            limit_page_length=0,
-        ):
-            po_items_by_parent.setdefault(it["parent"], []).append(
-                frappe._dict(item_id=it["item_id"])
-            )
+        for chunk in create_batch(po_names, 500):
+            for it in frappe.get_all(
+                "Purchase Order Item",
+                filters={"parent": ["in", chunk]},
+                fields=["parent", "item_id"],
+                limit_page_length=0,
+            ):
+                po_items_by_parent.setdefault(it["parent"], []).append(
+                    frappe._dict(item_id=it["item_id"])
+                )
 
     # Lightweight doc-like objects so `_get_pr_derived_status_v2` is reused verbatim
     # (byte-identical to the old get_doc path — same fields, same logic).
@@ -677,18 +682,23 @@ def get_projects_financial_rollup():
             b["outflow"] += flt(r.get("amount"))
 
     # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
+    # This is a CROSS-PROJECT rollup, so valid_po_project holds EVERY non-Merged/Inactive
+    # PO (thousands). Chunk the `parent IN (...)` list via create_batch so the generated
+    # query never exceeds sqlparse's 10k-token cap on prod (same fix as lines above). Each
+    # PO falls in exactly one chunk, so the sums just accumulate across batches.
     if valid_po_project:
-        for term in frappe.get_all(
-            "PO Payment Terms",
-            filters={"payment_type": "Credit", "parent": ["in", list(valid_po_project.keys())]},
-            fields=["parent", "amount", "term_status"],
-            limit_page_length=0,
-        ):
-            b = bucket(valid_po_project.get(term.get("parent")))
-            if b is not None:
-                amt = flt(term.get("amount"))
-                b["total_credit_purchase"] += amt
-                if term.get("term_status") == "Paid":
-                    b["total_credit_paid"] += amt
+        for chunk in create_batch(list(valid_po_project.keys()), 500):
+            for term in frappe.get_all(
+                "PO Payment Terms",
+                filters={"payment_type": "Credit", "parent": ["in", chunk]},
+                fields=["parent", "amount", "term_status"],
+                limit_page_length=0,
+            ):
+                b = bucket(valid_po_project.get(term.get("parent")))
+                if b is not None:
+                    amt = flt(term.get("amount"))
+                    b["total_credit_purchase"] += amt
+                    if term.get("term_status") == "Paid":
+                        b["total_credit_paid"] += amt
 
     return rollup
