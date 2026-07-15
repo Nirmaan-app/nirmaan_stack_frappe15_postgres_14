@@ -7,7 +7,7 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Layers, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Layers, Loader2, X } from "lucide-react";
 import type {
   MasterTemplateResponse,
   MasterTemplateSheet,
@@ -137,6 +137,10 @@ export function TemplateCreateFlow({
     () => areaBoxes.map((s) => s.trim()).filter(Boolean),
     [areaBoxes],
   );
+  // Index-safe removal: rebuild from cleanAreas (never index into areaBoxes, which may hold
+  // blank rows). Areas stay fully controlled by areaBoxes -> DefineAreasDialog needs no rewiring.
+  const removeArea = (idx: number) =>
+    setAreaBoxes(cleanAreas.filter((_, i) => i !== idx));
 
   // Pre-select ALL sheets once, the first time the master arrives (most users clone the whole
   // template). A one-time seed -- a later clear-all must NOT be re-seeded.
@@ -539,16 +543,39 @@ export function TemplateCreateFlow({
                   size="sm"
                   onClick={() => setAreasDialogOpen(true)}
                 >
-                  Define areas{cleanAreas.length ? ` (${cleanAreas.length})` : ""}
+                  Edit areas{cleanAreas.length ? ` (${cleanAreas.length})` : ""}
                 </Button>
               )}
             </div>
             {isMultiArea && (
-              <p className="text-xs text-muted-foreground">
-                {cleanAreas.length >= 2
-                  ? `Quantities split across: ${cleanAreas.join(", ")}. Total = their sum.`
-                  : "Add at least 2 areas — each becomes a per-area Quantity column; Total = their sum."}
-              </p>
+              <div className="space-y-1.5">
+                {cleanAreas.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {cleanAreas.map((area, idx) => (
+                      <Badge
+                        key={`${area}-${idx}`}
+                        variant="secondary"
+                        className="gap-1 pl-2 pr-1 text-xs font-normal"
+                      >
+                        <span className="max-w-[10rem] truncate">{area}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeArea(idx)}
+                          aria-label={`Remove area ${area}`}
+                          className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {cleanAreas.length >= 2
+                    ? "Each area becomes a per-area Quantity column; Total = their sum."
+                    : "Add at least 2 areas — each becomes a per-area Quantity column; Total = their sum."}
+                </p>
+              </div>
             )}
           </div>
         </CardContent>
