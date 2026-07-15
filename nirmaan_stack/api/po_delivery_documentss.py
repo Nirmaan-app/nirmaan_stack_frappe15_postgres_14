@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import create_batch
 import json
 
 
@@ -117,28 +118,37 @@ def _enrich_delivery_docs(docs):
     if not docs:
         return []
 
-    # Batch-fetch attachment URLs
+    # Batch-fetch attachment URLs. Chunk the IN list so the generated query never
+    # exceeds the sqlparse 10k-token cap (prod: Frappe validate_generated_query +
+    # sqlparse 0.5.5). These lists grow with the number of delivery docs a project-
+    # level caller (get_project_po_delivery_documents / get_all_delivery_documents)
+    # feeds in -- unbounded on a mature project.
     attachment_ids = [d.nirmaan_attachment for d in docs if d.nirmaan_attachment]
     attachment_url_map = {}
     if attachment_ids:
-        attachments = frappe.get_all(
-            "Nirmaan Attachments",
-            filters={"name": ["in", attachment_ids]},
-            fields=["name", "attachment"],
-        )
-        attachment_url_map = {a.name: a.attachment for a in attachments}
+        for _chunk in create_batch(attachment_ids, 500):
+            attachments = frappe.get_all(
+                "Nirmaan Attachments",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "attachment"],
+            )
+            attachment_url_map.update({a.name: a.attachment for a in attachments})
 
-    # Batch-fetch ALL child items in ONE query (fixes N+1)
+    # Batch-fetch ALL child items in ONE query (fixes N+1). Chunk the parent IN list
+    # (same sqlparse cap reason). Each parent lands in exactly one chunk, so per-parent
+    # "idx asc" ordering is preserved after grouping.
     parent_names = [doc.name for doc in docs]
     items_by_parent = {}
     if parent_names:
-        all_items = frappe.get_all(
-            "DC Item",
-            filters={"parent": ["in", parent_names], "parenttype": "PO Delivery Documents"},
-            fields=["name", "parent", "item_id", "item_name", "unit", "category", "quantity", "make", "idx"],
-            order_by="parent asc, idx asc",
-            limit=0,
-        )
+        all_items = []
+        for _chunk in create_batch(parent_names, 500):
+            all_items += frappe.get_all(
+                "DC Item",
+                filters={"parent": ["in", list(_chunk)], "parenttype": "PO Delivery Documents"},
+                fields=["name", "parent", "item_id", "item_name", "unit", "category", "quantity", "make", "idx"],
+                order_by="parent asc, idx asc",
+                limit=0,
+            )
         for item in all_items:
             parent = item.pop("parent")
             items_by_parent.setdefault(parent, []).append(item)
@@ -152,12 +162,14 @@ def _enrich_delivery_docs(docs):
     ]
     itm_source_map = {}
     if itm_names:
-        itm_rows = frappe.get_all(
-            "Internal Transfer Memo",
-            filters={"name": ["in", list(set(itm_names))]},
-            fields=["name", "source_project"],
-        )
-        itm_source_map = {r.name: r.source_project for r in itm_rows}
+        # Chunk the IN list (same sqlparse cap reason).
+        for _chunk in create_batch(list(set(itm_names)), 500):
+            itm_rows = frappe.get_all(
+                "Internal Transfer Memo",
+                filters={"name": ["in", list(_chunk)]},
+                fields=["name", "source_project"],
+            )
+            itm_source_map.update({r.name: r.source_project for r in itm_rows})
 
     # Assemble result
     result = []

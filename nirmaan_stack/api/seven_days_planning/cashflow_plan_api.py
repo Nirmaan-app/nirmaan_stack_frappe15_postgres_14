@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import create_batch
 
 @frappe.whitelist()
 def get_active_vendors():
@@ -38,13 +39,19 @@ def get_all_project_wos(project):
         for v in vendors:
             vendor_map[v.name] = v.vendor_name
 
-    # Batch-fetch child rows for all SRs in one query
+    # Batch-fetch child rows for all SRs, chunked so the generated IN() never
+    # exceeds the sqlparse 10k-token cap (prod). sr_names scales with the number
+    # of Service Requests on the project. Each SR's rows stay within one chunk,
+    # so per-parent order is preserved. Empty sr_names -> no chunks -> [] (same
+    # as the old parent-in-[""] no-match query).
     sr_names = [w["name"] for w in wo_list]
-    items_rows = frappe.get_all(
-        "Work Order Items",
-        fields=["parent", "item_name", "category"],
-        filters={"parent": ("in", sr_names), "parenttype": "Service Requests"} if sr_names else {"parent": ("in", [""])},
-    )
+    items_rows = []
+    for _chunk in create_batch(sr_names, 500):
+        items_rows += frappe.get_all(
+            "Work Order Items",
+            fields=["parent", "item_name", "category"],
+            filters={"parent": ("in", list(_chunk)), "parenttype": "Service Requests"},
+        )
     items_by_parent = {}
     for row in items_rows:
         items_by_parent.setdefault(row["parent"], []).append({

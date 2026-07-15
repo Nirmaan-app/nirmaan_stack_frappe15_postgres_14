@@ -1,7 +1,7 @@
 # nirmaan_stack/nirmaan_stack/api/vendor/get_vendor_po_invoices.py
 
 import frappe
-from frappe.utils import flt, get_datetime
+from frappe.utils import flt, get_datetime, create_batch
 
 @frappe.whitelist()
 def get_po_ledger_data(vendor_id):
@@ -88,15 +88,20 @@ def get_po_ledger_data(vendor_id):
 
     # --- Step 3: Fetch Invoices from Vendor Invoices doctype ---
     if doc_names:
-        vendor_invoices = frappe.get_all(
-            "Vendor Invoices",
-            filters={
-                "vendor": vendor_id,
-                "status": "Approved",
-                "document_name": ["in", doc_names]
-            },
-            fields=["name", "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount"]
-        )
+        # Chunk the document_name IN list so the generated query never exceeds the
+        # sqlparse 10k-token cap (prod: Frappe validate_generated_query + sqlparse
+        # 0.5.5). doc_names is one vendor's entire PO+SR history -- unbounded.
+        vendor_invoices = []
+        for _chunk in create_batch(doc_names, 500):
+            vendor_invoices += frappe.get_all(
+                "Vendor Invoices",
+                filters={
+                    "vendor": vendor_id,
+                    "status": "Approved",
+                    "document_name": ["in", list(_chunk)]
+                },
+                fields=["name", "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount"]
+            )
         print(f"DEBUG LEDGER: Found {len(vendor_invoices)} approved Vendor Invoices.")
 
         for invoice in vendor_invoices:
@@ -120,16 +125,19 @@ def get_po_ledger_data(vendor_id):
 
     # --- Step 4: Fetch Payments ---
     if doc_names:
-        payments = frappe.get_all(
-            "Project Payments",
-            filters={
-                "vendor": vendor_id,
-                "status": "Paid",
-                "document_type": ["in", ["Procurement Orders", "Service Requests"]],
-                "document_name": ["in", doc_names]
-            },
-            fields=["name", "payment_date", "creation", "amount", "utr", "document_name", "document_type"]
-        )
+        # Chunk the document_name IN list (same sqlparse 10k-token cap reason as Step 3).
+        payments = []
+        for _chunk in create_batch(doc_names, 500):
+            payments += frappe.get_all(
+                "Project Payments",
+                filters={
+                    "vendor": vendor_id,
+                    "status": "Paid",
+                    "document_type": ["in", ["Procurement Orders", "Service Requests"]],
+                    "document_name": ["in", list(_chunk)]
+                },
+                fields=["name", "payment_date", "creation", "amount", "utr", "document_name", "document_type"]
+            )
         print(f"DEBUG LEDGER: Found {len(payments)} total historical Project Payments.")
 
         for payment in payments:

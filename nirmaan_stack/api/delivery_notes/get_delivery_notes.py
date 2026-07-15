@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils import create_batch
 
 
 @frappe.whitelist()
@@ -69,17 +70,24 @@ def get_project_delivery_notes(project_id):
     if not notes:
         return []
 
+    # Chunk the parent IN list so the generated query never exceeds the sqlparse
+    # 10k-token cap (prod: Frappe validate_generated_query + sqlparse 0.5.5).
+    # note_names scales with the number of Delivery Notes in a project -- unbounded
+    # on a mature project. Each note_name lands in exactly one chunk, so per-parent
+    # "idx asc" ordering is preserved after grouping.
     note_names = [n.name for n in notes]
-    all_items = frappe.get_all(
-        "Delivery Note Item",
-        filters={"parent": ["in", note_names]},
-        fields=[
-            "name", "parent", "item_id", "item_name", "make", "unit",
-            "category", "procurement_package", "delivered_quantity"
-        ],
-        order_by="idx asc",
-        limit_page_length=0,
-    )
+    all_items = []
+    for _chunk in create_batch(note_names, 500):
+        all_items += frappe.get_all(
+            "Delivery Note Item",
+            filters={"parent": ["in", list(_chunk)]},
+            fields=[
+                "name", "parent", "item_id", "item_name", "make", "unit",
+                "category", "procurement_package", "delivered_quantity"
+            ],
+            order_by="idx asc",
+            limit_page_length=0,
+        )
 
     items_by_parent = {}
     for item in all_items:

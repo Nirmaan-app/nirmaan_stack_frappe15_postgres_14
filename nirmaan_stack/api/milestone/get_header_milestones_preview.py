@@ -1,7 +1,7 @@
 import json
 
 import frappe
-from frappe.utils import add_days, nowdate
+from frappe.utils import add_days, create_batch, nowdate
 
 
 @frappe.whitelist()
@@ -403,12 +403,19 @@ def _build_seed_from_project_master(project):
     if not enabled_header_names:
         return []
 
-    master_rows = frappe.get_all(
-        "Work Milestones",
-        filters={"work_header": ["in", enabled_header_names]},
-        fields=["work_milestone_name", "work_header"],
-        order_by="work_header asc, work_milestone_order asc, work_milestone_name asc",
-    )
+    # Chunk the header IN list to stay under the sqlparse 10k-token cap (prod).
+    # Bounded by the Work Headers master (a handful of rows) -> a single chunk in
+    # practice, so the DB's collation ordering is preserved byte-for-byte. Do NOT
+    # re-sort in Python: Postgres locale collation for work_milestone_name is not
+    # reproducible by a codepoint sort and would silently change row order.
+    master_rows = []
+    for _chunk in create_batch(list(enabled_header_names), 500):
+        master_rows += frappe.get_all(
+            "Work Milestones",
+            filters={"work_header": ["in", list(_chunk)]},
+            fields=["work_milestone_name", "work_header"],
+            order_by="work_header asc, work_milestone_order asc, work_milestone_name asc",
+        )
     return [
         {
             "work_milestone_name": r.work_milestone_name,

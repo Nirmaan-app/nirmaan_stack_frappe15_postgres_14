@@ -1,6 +1,7 @@
 import frappe
 from collections import defaultdict
 from datetime import date
+from frappe.utils import create_batch
 
 
 # Roles that require project-level filtering based on user permissions
@@ -152,15 +153,20 @@ def get_projects_with_cashflow_plan_stats():
 
     # 3. Fetch project name + lifecycle status for the projects that have plans.
     project_ids = list(projects_data.keys())
-    project_docs = frappe.get_all(
-        "Projects",
-        filters={"name": ["in", project_ids]},
-        fields=["name", "project_name", "status"]
-    )
-    project_meta_map = {
-        p.name: {"project_name": p.project_name, "status": p.status or ""}
-        for p in project_docs
-    }
+    # Chunk the IN list so the generated query never exceeds the sqlparse
+    # 10k-token cap (prod). project_ids scales with the number of projects
+    # that have Cashflow Plans (ALL projects for Admin/PMO).
+    project_meta_map = {}
+    for _chunk in create_batch(project_ids, 500):
+        project_docs = frappe.get_all(
+            "Projects",
+            filters={"name": ["in", list(_chunk)]},
+            fields=["name", "project_name", "status"]
+        )
+        project_meta_map.update({
+            p.name: {"project_name": p.project_name, "status": p.status or ""}
+            for p in project_docs
+        })
 
     # 4. Build result.
     result = []

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, create_batch
 from frappe.utils.caching import redis_cache
 
 def get_customer_financial_details(customer_id):
@@ -26,15 +26,23 @@ def get_customer_financial_details(customer_id):
 
         project_names = [p["name"] for p in projects]
 
-        # Fetch project payments
-        project_payments = frappe.get_all(
-            "Project Payments",
-            fields=["amount"],
-            filters={"project": ("in", project_names)},
-            limit=1000
-        )
+        # `project_names` feeds several `project IN (...)` lookups. A customer with many projects would
+        # inline thousands of names and blow sqlparse's 10,000-token cap (validate_generated_query). Chunk
+        # every project-scoped IN into <=500-name batches and concatenate — each row belongs to exactly one
+        # project (names are unique PKs), so no row is double-counted, and a single customer's row volume
+        # never reaches the per-chunk `limit`, so the merged result is byte-identical to the pre-chunk query.
 
-        # Fetch project inflows
+        # Fetch project payments
+        project_payments = []
+        for chunk in create_batch(project_names, 500):
+            project_payments.extend(frappe.get_all(
+                "Project Payments",
+                fields=["amount"],
+                filters={"project": ("in", list(chunk))},
+                limit=1000
+            ))
+
+        # Fetch project inflows (customer-scoped, not project-scoped -> bounded, no chunking needed)
         project_inflows = frappe.get_all(
             "Project Inflows",
             fields=["*"],
@@ -43,23 +51,27 @@ def get_customer_financial_details(customer_id):
         )
 
         # Fetch Procurement Orders
-        procurement_orders = frappe.get_all(
-            "Procurement Orders",
-            fields=["order_list", "loading_charges", "freight_charges"],
-            filters={"status": ("not in", ["Cancelled", "Merged", "PO Amendment","Inactive"]), "project": ("in", project_names)},
-            limit=100000,
-            order_by="modified desc"
-        )
+        procurement_orders = []
+        for chunk in create_batch(project_names, 500):
+            procurement_orders.extend(frappe.get_all(
+                "Procurement Orders",
+                fields=["order_list", "loading_charges", "freight_charges"],
+                filters={"status": ("not in", ["Cancelled", "Merged", "PO Amendment","Inactive"]), "project": ("in", list(chunk))},
+                limit=100000,
+                order_by="modified desc"
+            ))
 
         # Fetch Service Requests — `total_amount` is computed on every save (validate)
         # and already includes GST when sr.gst === "true".
-        service_requests = frappe.get_all(
-            "Service Requests",
-            fields=["name", "gst", "total_amount"],
-            filters={"status": "Approved", "project": ("in", project_names)},
-            limit=10000,
-            order_by="modified desc"
-        )
+        service_requests = []
+        for chunk in create_batch(project_names, 500):
+            service_requests.extend(frappe.get_all(
+                "Service Requests",
+                fields=["name", "gst", "total_amount"],
+                filters={"status": "Approved", "project": ("in", list(chunk))},
+                limit=10000,
+                order_by="modified desc"
+            ))
 
         # Calculate totals
         total_amount_paid = sum(cint(p["amount"]) for p in project_payments)
