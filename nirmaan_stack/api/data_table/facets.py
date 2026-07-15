@@ -8,7 +8,8 @@ import traceback
 from .constants import LINK_FIELD_MAP, CHILD_TABLE_ITEM_SEARCH_MAP, JSON_ITEM_SEARCH_DOCTYPE_MAP
 from .utils import (
     _parse_filters_input, _process_filters_for_query,
-    _parse_target_search_field
+    _parse_target_search_field,
+    split_name_in_constraints, enumerate_matching_names
 )
 from .token_search import tokenize
 
@@ -184,8 +185,12 @@ def get_facet_values_impl(
             isinstance(require_pending_items, str) and require_pending_items.lower() == 'true'
         ) or require_pending_items is True
 
-        names_query_args = {"doctype": doctype, "filters": processed_filters, "fields": ["name"], "limit_page_length": 0}
-        matching_names = [doc.get("name") for doc in reportview_execute(**names_query_args) if doc.get("name")]
+        # Pull any `name in [...]` narrowing (the JSON-facet filter injected by _process_filters_for_query,
+        # or the child/JSON item-search sets appended above) OUT of the filter list so this enumeration never
+        # inlines a giant IN (the sqlparse 10k-token trap); re-apply it as an explicit constraint. The
+        # generated `SELECT name ... WHERE <plain filters>` stays sqlparse-safe regardless of row count.
+        _plain_filters, _name_constraint = split_name_in_constraints(processed_filters)
+        matching_names = enumerate_matching_names(doctype, _plain_filters, _name_constraint)
         
         # --- Apply require_pending_items filter ---
         if require_pending_items_bool and matching_names:
