@@ -63,7 +63,7 @@
    "reqd": 1
   },
   {
-   "description": "When the holder last edited (saved a rate). The lock is STALE when now - last_edit_at > LOCK_STALE_SECONDS (300s = 5 min). Refreshed on every holder save (edit-driven expiry, no heartbeat).",
+   "description": "When the holder last edited (saved a rate). The lock is STALE when now - last_edit_at > LOCK_STALE_SECONDS (120s = 2 min). Refreshed on every holder save (edit-driven expiry, no heartbeat).",
    "fieldname": "last_edit_at",
    "fieldtype": "Datetime",
    "in_list_view": 1,
