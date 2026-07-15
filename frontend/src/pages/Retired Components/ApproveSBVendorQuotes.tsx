@@ -1,5 +1,5 @@
 import { ActionSummary } from '@/components/helpers/ActionSummary';
-import { ApproveVendorQuotesPRorSBAntDTable } from '@/components/helpers/ApproveVendorQuotesPRorSBAntDTable';
+
 import { ProcurementActionsHeaderCard } from "@/components/helpers/ProcurementActionsHeaderCard";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from "@/components/ui/button";
@@ -510,7 +510,7 @@ const generateActionSummary = useCallback((actionType : string) => {
                       )}
             <div className='mt-6 overflow-x-auto'>
                 {getFinalVendorQuotesData?.length > 0 ? (
-                    <ApproveVendorQuotesPRorSBAntDTable dataSource={dataSource} selectionMap={selectionMap} setSelectionMap={setSelectionMap} />
+                    <div />
               ) : (
                 <div className="h-[10vh] flex items-center justify-center">
                   No Results.

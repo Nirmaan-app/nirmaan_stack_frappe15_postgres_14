@@ -1,13 +1,12 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, Boxes, UserCheck, UserX, AlertTriangle } from "lucide-react";
-import { useFrappeGetDocCount } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
+import { useCounts, CountSpec } from "@/hooks/useCounts";
 import {
     ASSET_CATEGORY_DOCTYPE,
     ASSET_MASTER_DOCTYPE,
     ASSET_MANAGEMENT_DOCTYPE,
-    ASSET_CACHE_KEYS,
     AssetCategoryType,
 } from '../assets.constants';
 import { useAssetCategoryNamesByType } from '../hooks/useAssetCategoryNamesByType';
@@ -196,68 +195,36 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
  * so the Project/IT tabs don't issue these queries unnecessarily.
  */
 function useGlobalSummary(enabled: boolean): SummaryViewModel {
-    const {
-        data: categoriesCount,
-        isLoading: categoriesLoading,
-        error: categoriesError,
-    } = useFrappeGetDocCount(
-        ASSET_CATEGORY_DOCTYPE,
-        undefined,
-        false,
-        enabled ? ASSET_CACHE_KEYS.CATEGORIES_COUNT : null,
-    );
+    // ONE batch round-trip for every axis that's active on this tab. Each spec's
+    // exact filters (incl. the `is not set` operator) are preserved verbatim so the
+    // backend `frappe.db.count` reproduces the old per-count results byte-for-byte.
+    // `is not set` matches both NULL and ''; `in ["", null]` would be dropped by the
+    // count layer and return 0.
+    const specs: CountSpec[] = enabled
+        ? [
+            { key: "categories", doctype: ASSET_CATEGORY_DOCTYPE },
+            { key: "total", doctype: ASSET_MASTER_DOCTYPE },
+            { key: "assigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["current_assignee", "!=", ""]] },
+            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["current_assignee", "is", "not set"]] },
+            { key: "pendingDecl", doctype: ASSET_MANAGEMENT_DOCTYPE, filters: [["asset_declaration_attachment", "is", "not set"]] },
+        ]
+        : [];
 
-    const {
-        data: totalAssetsCount,
-        isLoading: assetsLoading,
-        error: assetsError,
-    } = useFrappeGetDocCount(
-        ASSET_MASTER_DOCTYPE,
-        undefined,
-        false,
-        enabled ? ASSET_CACHE_KEYS.TOTAL_ASSETS_COUNT : null,
-    );
+    // Content-hash swrKey (default): the key varies with the spec set, so toggling
+    // `enabled` (tab switch) refetches instead of serving a stale cache.
+    const { data, isLoading, error } = useCounts(specs);
+    const msg = data?.message;
 
-    const {
-        data: assignedAssetsCount,
-        isLoading: assignedLoading,
-    } = useFrappeGetDocCount(
-        ASSET_MASTER_DOCTYPE,
-        [["current_assignee", "!=", ""]],
-        false,
-        enabled ? ASSET_CACHE_KEYS.ASSIGNED_ASSETS_COUNT : null,
-    );
-
-    const {
-        data: unassignedAssetsCount,
-        isLoading: unassignedLoading,
-    } = useFrappeGetDocCount(
-        ASSET_MASTER_DOCTYPE,
-        // `is not set` matches both NULL and ''. `in ["", null]` would be
-        // dropped by frappe.client.get_count and return 0.
-        [["current_assignee", "is", "not set"]],
-        false,
-        enabled ? ASSET_CACHE_KEYS.UNASSIGNED_ASSETS_COUNT : null,
-    );
-
-    const {
-        data: pendingDeclarationCount,
-        isLoading: pendingLoading,
-    } = useFrappeGetDocCount(
-        ASSET_MANAGEMENT_DOCTYPE,
-        [["asset_declaration_attachment", "is", "not set"]],
-        false,
-        enabled ? ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT : null,
-    );
+    const categoriesCount = msg?.categories as number | undefined;
 
     return {
-        total: totalAssetsCount ?? 0,
-        assigned: assignedAssetsCount ?? 0,
-        unassigned: unassignedAssetsCount ?? 0,
-        pendingDecl: pendingDeclarationCount ?? 0,
+        total: (msg?.total as number) ?? 0,
+        assigned: (msg?.assigned as number) ?? 0,
+        unassigned: (msg?.unassigned as number) ?? 0,
+        pendingDecl: (msg?.pendingDecl as number) ?? 0,
         categories: categoriesCount ?? 0,
-        isLoading: enabled && (categoriesLoading || assetsLoading || assignedLoading || unassignedLoading || pendingLoading),
-        hasError: !!(categoriesError || assetsError),
+        isLoading: enabled && isLoading,
+        hasError: !!error,
         title: 'Assets Summary',
         totalLabel: 'Total Assets',
         categoriesLabel: 'Asset Categories',
@@ -282,65 +249,39 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
     const hasCategories = categoryNames.length > 0;
     const hasMasters = masterNames.length > 0;
 
-    const cacheKey = (project: string, it: string) =>
-        !enabled ? null : isProject ? project : it;
+    // ONE batch round-trip for the scoped axes. Each count's exact filters are
+    // preserved verbatim — the `asset_category in [...]` / `asset in [...]` scoping
+    // plus the `is not set` operator (matches both NULL and ''; `in ["", null]` would
+    // be silently dropped by the count layer, yielding 0 for NULL-only rows).
+    //
+    // The specs stay empty until the async-derived name lists arrive (hasCategories /
+    // hasMasters), so the content-hash swrKey only issues the scoped fetch once its
+    // `in [...]` inputs exist — never counting a different row set than before.
+    const specs: CountSpec[] = [];
+    if (enabled && hasCategories) {
+        specs.push(
+            { key: "total", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames]] },
+            { key: "assigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["current_assignee", "!=", ""]] },
+            { key: "unassigned", doctype: ASSET_MASTER_DOCTYPE, filters: [["asset_category", "in", categoryNames], ["current_assignee", "is", "not set"]] },
+        );
+    }
+    if (enabled && hasMasters) {
+        specs.push(
+            { key: "pendingDecl", doctype: ASSET_MANAGEMENT_DOCTYPE, filters: [["asset_declaration_attachment", "is", "not set"], ["asset", "in", masterNames]] },
+        );
+    }
 
-    const totalFilters = enabled && hasCategories ? [["asset_category", "in", categoryNames]] : undefined;
-    const assignedFilters = enabled && hasCategories
-        ? [["asset_category", "in", categoryNames], ["current_assignee", "!=", ""]]
-        : undefined;
-    // Use the Frappe `is not set` operator (matches both NULL and '') —
-    // sending `in ["", null]` through frappe.client.get_count silently drops
-    // the null value, yielding 0 when there are only NULL-valued rows.
-    const unassignedFilters = enabled && hasCategories
-        ? [["asset_category", "in", categoryNames], ["current_assignee", "is", "not set"]]
-        : undefined;
-    const pendingFilters = enabled && hasMasters
-        ? [["asset_declaration_attachment", "is", "not set"], ["asset", "in", masterNames]]
-        : undefined;
-
-    const totalKey = enabled && hasCategories
-        ? cacheKey(ASSET_CACHE_KEYS.PROJECT_TOTAL_ASSETS_COUNT, ASSET_CACHE_KEYS.IT_TOTAL_ASSETS_COUNT)
-        : null;
-    const assignedKey = enabled && hasCategories
-        ? cacheKey(ASSET_CACHE_KEYS.PROJECT_ASSIGNED_ASSETS_COUNT, ASSET_CACHE_KEYS.IT_ASSIGNED_ASSETS_COUNT)
-        : null;
-    const unassignedKey = enabled && hasCategories
-        ? cacheKey(ASSET_CACHE_KEYS.PROJECT_UNASSIGNED_ASSETS_COUNT, ASSET_CACHE_KEYS.IT_UNASSIGNED_ASSETS_COUNT)
-        : null;
-    const pendingKey = enabled && hasMasters
-        ? cacheKey(ASSET_CACHE_KEYS.PROJECT_PENDING_DECLARATION_COUNT, ASSET_CACHE_KEYS.IT_PENDING_DECLARATION_COUNT)
-        : null;
-
-    const {
-        data: totalCount,
-        isLoading: totalLoading,
-        error: totalError,
-    } = useFrappeGetDocCount(ASSET_MASTER_DOCTYPE, totalFilters as any, false, totalKey);
-
-    const {
-        data: assignedCount,
-        isLoading: assignedLoading,
-    } = useFrappeGetDocCount(ASSET_MASTER_DOCTYPE, assignedFilters as any, false, assignedKey);
-
-    const {
-        data: unassignedCount,
-        isLoading: unassignedLoading,
-    } = useFrappeGetDocCount(ASSET_MASTER_DOCTYPE, unassignedFilters as any, false, unassignedKey);
-
-    const {
-        data: pendingCount,
-        isLoading: pendingLoading,
-    } = useFrappeGetDocCount(ASSET_MANAGEMENT_DOCTYPE, pendingFilters as any, false, pendingKey);
+    const { data, isLoading: countsLoading, error: countsError } = useCounts(specs);
+    const msg = data?.message;
 
     const typeLabel = isProject ? 'Project' : 'IT';
 
     // If gates are closed (no categories / no masters), the counts are exactly 0
-    // and the corresponding fetch was disabled. Short-circuit cleanly.
-    const total = hasCategories ? (totalCount ?? 0) : 0;
-    const assigned = hasCategories ? (assignedCount ?? 0) : 0;
-    const unassigned = hasCategories ? (unassignedCount ?? 0) : 0;
-    const pendingDecl = hasMasters ? (pendingCount ?? 0) : 0;
+    // and the corresponding spec was never issued. Short-circuit cleanly.
+    const total = hasCategories ? ((msg?.total as number) ?? 0) : 0;
+    const assigned = hasCategories ? ((msg?.assigned as number) ?? 0) : 0;
+    const unassigned = hasCategories ? ((msg?.unassigned as number) ?? 0) : 0;
+    const pendingDecl = hasMasters ? ((msg?.pendingDecl as number) ?? 0) : 0;
     const categories = categoryNames.length;
 
     return {
@@ -352,10 +293,9 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         isLoading: enabled && (
             categoryNamesLoading
             || masterNamesLoading
-            || (hasCategories && (totalLoading || assignedLoading || unassignedLoading))
-            || (hasMasters && pendingLoading)
+            || ((hasCategories || hasMasters) && countsLoading)
         ),
-        hasError: !!totalError,
+        hasError: !!countsError,
         title: `${typeLabel} Assets Summary`,
         totalLabel: `Total ${typeLabel} Assets`,
         categoriesLabel: `${typeLabel} Asset Categories`,

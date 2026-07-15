@@ -12,13 +12,21 @@
 
 import React from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { useFrappeGetDocCount } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 
 const ExpenseLayout: React.FC = () => {
   const { pathname } = useLocation();
 
-  const { data: projectCount } = useFrappeGetDocCount("Project Expenses", undefined);
-  const { data: nonProjectCount } = useFrappeGetDocCount("Non Project Expenses", undefined);
+  // Both tab totals (global, no filters) in ONE batch round-trip via useCounts.
+  const { data: countsData } = useCounts(
+    [
+      { key: "project", doctype: "Project Expenses" },
+      { key: "nonProject", doctype: "Non Project Expenses" },
+    ],
+    "expense_layout_tab_counts"
+  );
+  const projectCount = countsData?.message?.project as number | undefined;
+  const nonProjectCount = countsData?.message?.nonProject as number | undefined;
 
   const tabs: { label: string; to: string; count?: number }[] = [
     { label: "Misc Project Expense", to: "/expense/project", count: projectCount },

@@ -1,19 +1,13 @@
-import {
-    ChartConfig,
-    ChartContainer,
-    ChartTooltip,
-    ChartTooltipContent,
-} from "@/components/ui/chart";
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-import { ConfigProvider, Radio, Table } from "antd";
+import { SimpleTable as Table, PassThrough as ConfigProvider } from "@/components/ui/simple-table";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Trash } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { useParams } from "react-router-dom";
 import ReactSelect from 'react-select';
-import { Label, Pie, PieChart } from "recharts";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "../../components/ui/alert-dialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -34,23 +28,79 @@ import {
 
 
 
-const chartConfig = {
-    visitors: {
-        label: "Visitors",
-    },
-    category1: {
-        label: "Category 1",
-        color: "hsl(var(--chart-1))",
-    },
-    category2: {
-        label: "Category 2",
-        color: "hsl(var(--chart-2))",
-    },
-    category3: {
-        label: "Category 3",
-        color: "hsl(var(--chart-3))",
-    },
-} satisfies ChartConfig;
+// Distinct color per slice with NO repeats at any count: step the hue wheel by the golden
+// angle (137.5°) so colors never recycle — even past 20/30+ slices — and neighbours stay
+// far apart. legend row i and donut slice i both call sliceColor(i), so they always match.
+const sliceColor = (i: number) => `hsl(${((i * 137.508) % 360).toFixed(1)} 70% 52%)`;
+
+// SVG donut: one <circle> per slice via stroke-dasharray (circumference ≈ 100, so the
+// dash values ARE percentages). Each slice is its own element, so it can carry a hover
+// tooltip showing name + amount — the thing a single conic-gradient can't do.
+const DonutChart = ({ data, centerLabel, formatValue }: {
+    data?: { name: string; value: number }[];
+    centerLabel: string;
+    formatValue: (v: number) => string;
+}) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [hover, setHover] = useState<{ name: string; value: number; x: number; y: number } | null>(null);
+
+    const items = data ?? [];
+    const n = items.length;
+    const sum = items.reduce((a, d) => a + (d.value || 0), 0) || 1;
+    // Give every slice a MINIMUM arc so a tiny amount (e.g. ₹100 of a large total) stays
+    // visible + hoverable instead of collapsing to a sub-pixel sliver; the remaining arc is
+    // shared proportionally by the real amounts, so bigger amounts still get bigger slices.
+    // The floor is capped so the minimums never exceed 80% of the ring. Tooltip/legend show
+    // the TRUE amount — only the drawn width is floored.
+    const MIN = n ? Math.min(2.5, 80 / n) : 0;
+    const rest = 100 - MIN * n;
+    let cumulative = 0;
+    const slices = items.map((d, i) => {
+        const pct = MIN + ((d.value || 0) / sum) * rest;
+        const slice = { name: d.name, value: d.value, color: sliceColor(i), pct, offset: 25 - cumulative };
+        cumulative += pct;
+        return slice;
+    });
+
+    const track = (e: { clientX: number; clientY: number }, name: string, value: number) => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        setHover({ name, value, x: e.clientX - rect.left, y: e.clientY - rect.top });
+    };
+
+    return (
+        <div ref={containerRef} className="relative mx-auto h-[280px] w-[280px]">
+            <svg viewBox="0 0 42 42" className="h-full w-full">
+                {slices.map((s, i) => (
+                    <circle
+                        key={i}
+                        cx="21" cy="21" r="15.915"
+                        fill="transparent"
+                        stroke={s.color}
+                        strokeWidth="8"
+                        strokeDasharray={`${s.pct} ${100 - s.pct}`}
+                        strokeDashoffset={s.offset}
+                        className="cursor-pointer transition-opacity hover:opacity-80"
+                        onMouseMove={(e) => track(e, s.name, s.value)}
+                        onMouseLeave={() => setHover(null)}
+                    />
+                ))}
+            </svg>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-base font-bold text-foreground">{centerLabel}</span>
+                <span className="text-xs text-muted-foreground">Total</span>
+            </div>
+            {hover && (
+                <div
+                    className="pointer-events-none absolute left-0 top-0 z-10 whitespace-nowrap rounded-md border bg-background px-2 py-1 text-xs shadow-md transition-transform duration-75 ease-out"
+                    style={{ transform: `translate(${hover.x}px, ${hover.y}px) translate(-50%, -130%)` }}
+                >
+                    <span className="font-medium">{hover.name}</span>: {formatValue(hover.value)}
+                </div>
+            )}
+        </div>
+    );
+};
 
 
 const AddProjectEstimates = ({ projectTab = false }) => {
@@ -634,7 +684,6 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
             const pieChartData = categoryTotals && Object.keys(categoryTotals)?.map((category) => ({
                 name: category,
                 value: categoryTotals[category]?.withoutGst,
-                fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
             }));
 
             setCategoryTotals(categoryTotals)
@@ -699,7 +748,6 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
     const pieChartData = workPackageTotals && Object.keys(workPackageTotals)?.map((wp) => ({
         name: wp,
         value: workPackageTotals[wp]?.withoutGst,
-        fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
     }));
 
     //   console.log("errorItems", errorItem)
@@ -746,41 +794,19 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
                                     <p className="font-bold text-lg text-gray-700">
                                         Overall Total: <span className="font-medium">{formatToIndianRupee(overallTotal?.withoutGst)}</span>
                                     </p>
-                                    <ul className="list-disc ml-6">
-                                        {workPackageTotals && Object.keys(workPackageTotals)?.map((wp) => (
-                                            <li>
+                                    <ul className="ml-1 space-y-1">
+                                        {workPackageTotals && Object.keys(workPackageTotals)?.map((wp, index) => (
+                                            <li key={wp} className="flex items-center gap-2">
+                                                <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: sliceColor(index) }} />
                                                 <span>{wp}: </span>
-                                                <span>{formatToIndianRupee(workPackageTotals[wp]?.withoutGst)}</span>
+                                                <span className="font-medium">{formatToIndianRupee(workPackageTotals[wp]?.withoutGst)}</span>
                                             </li>
                                         ))}
                                     </ul>
                                 </div>
-                                <ChartContainer
-                                    config={chartConfig}
-                                    className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
-                                >
-                                    <PieChart>
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                        <Pie data={pieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-                                            <Label
-                                                content={({ viewBox }) => {
-                                                    if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                                        return (
-                                                            <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                                                                <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
-                                                                    {formatToIndianRupee(overallTotal?.withoutGst)}
-                                                                </tspan>
-                                                                <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
-                                                                    Total
-                                                                </tspan>
-                                                            </text>
-                                                        );
-                                                    }
-                                                }}
-                                            />
-                                        </Pie>
-                                    </PieChart>
-                                </ChartContainer>
+                                <div className="flex-1 flex justify-center">
+                                    <DonutChart data={pieChartData} centerLabel={formatToIndianRupee(overallTotal?.withoutGst)} formatValue={formatToIndianRupee} />
+                                </div>
                             </CardContent>
                         ) : (
                             <CardContent className="flex items-center justify-center my-10 italic">
@@ -793,41 +819,19 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
                                         <p className="font-bold text-lg text-gray-700">
                                             Overall Total: <span className="font-medium">{formatToIndianRupee(overAllCategoryTotals?.withoutGst)}</span>
                                         </p>
-                                        <ul className="list-disc ml-6">
-                                            {categoryTotals && Object.keys(categoryTotals)?.map((cat) => (
-                                                <li>
+                                        <ul className="ml-1 space-y-1">
+                                            {categoryTotals && Object.keys(categoryTotals)?.map((cat, index) => (
+                                                <li key={cat} className="flex items-center gap-2">
+                                                    <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: sliceColor(index) }} />
                                                     <span>{cat}: </span>
-                                                    <span>{formatToIndianRupee(categoryTotals[cat]?.withoutGst)}</span>
+                                                    <span className="font-medium">{formatToIndianRupee(categoryTotals[cat]?.withoutGst)}</span>
                                                 </li>
                                             ))}
                                         </ul>
                                     </div>
-                                    <ChartContainer
-                                        config={chartConfig}
-                                        className="mx-auto w-full min-h-[250px] max-h-[300px] flex-1 flex justify-center"
-                                    >
-                                        <PieChart>
-                                            <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                            <Pie data={categoryWisePieChartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-                                                <Label
-                                                    content={({ viewBox }) => {
-                                                        if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                                            return (
-                                                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                                                                    <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">
-                                                                        {formatToIndianRupee(overAllCategoryTotals?.withoutGst)}
-                                                                    </tspan>
-                                                                    <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
-                                                                        Total
-                                                                    </tspan>
-                                                                </text>
-                                                            );
-                                                        }
-                                                    }}
-                                                />
-                                            </Pie>
-                                        </PieChart>
-                                    </ChartContainer>
+                                    <div className="flex-1 flex justify-center">
+                                        <DonutChart data={categoryWisePieChartData} centerLabel={formatToIndianRupee(overAllCategoryTotals?.withoutGst)} formatValue={formatToIndianRupee} />
+                                    </div>
                                 </CardContent>
                             ) : (
                                 <CardContent className="flex items-center justify-center my-10 italic">
@@ -839,13 +843,10 @@ export const AddProjectEstimatesPage = ({ project_data, estimates_data, estimate
 
                     {
                         options && (
-                            <Radio.Group
+                            <SegmentedControl
                                 options={options}
                                 value={selectedPackage}
-                                defaultValue="All"
-                                optionType="button"
-                                buttonStyle="solid"
-                                onChange={(e) => handleSetSelectedPackage(e.target.value)}
+                                onValueChange={handleSetSelectedPackage}
                             />
                         )
                     }

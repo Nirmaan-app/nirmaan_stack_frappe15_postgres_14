@@ -9,8 +9,6 @@ import { Projects as ProjectsType } from "@/types/NirmaanStack/Projects";
 import { SentBackCategory as SentBackCategoryType } from '@/types/NirmaanStack/SentBackCategory';
 import { formatDate } from '@/utils/FormatDate';
 import formatToIndianRupee from '@/utils/FormatPrice';
-import type { TableColumnsType, TableProps } from 'antd';
-import { ConfigProvider, Table } from 'antd';
 import { useFrappeCreateDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig } from "frappe-react-sdk";
 import { BookOpenText, CheckCheck, ListChecks, MessageCircleMore, MoveDown, MoveUp, SendToBack, Undo2 } from 'lucide-react';
 import { useEffect, useState } from "react";

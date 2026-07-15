@@ -8,7 +8,6 @@ import { useParams } from "react-router-dom";
 // import { Button } from "../ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil2Icon } from "@radix-ui/react-icons";
-// import { Button, Layout } from 'antd';
 import logo from "@/assets/logo-svg.svg";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { SRDetailsCard } from "./components/SRDetailsCard";

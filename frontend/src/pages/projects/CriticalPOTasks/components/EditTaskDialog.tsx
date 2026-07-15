@@ -1,5 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
@@ -50,7 +55,6 @@ import {
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { useUpdateCriticalPOTask } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
-import { DatePicker } from "antd";
 import dayjs from "dayjs";
 import ReactSelect from "react-select";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -482,17 +486,28 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Revised Deadline (Optional)</FormLabel>
-                  <FormControl>
-                    <DatePicker
-                      format="YYYY-MM-DD"
-                      className="w-full"
-                      value={field.value ? dayjs(field.value) : null}
-                      onChange={(date) => {
-                        field.onChange(date ? date.format("YYYY-MM-DD") : "");
-                      }}
-                      placeholder="Select revised deadline"
-                    />
-                  </FormControl>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <FormControl>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn("w-full justify-start text-left font-normal", !field.value && "text-muted-foreground")}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value || "Select revised deadline"}
+                        </Button>
+                      </FormControl>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={field.value ? new Date(field.value) : undefined}
+                        onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                   <FormMessage />
                 </FormItem>
               )}

@@ -37,11 +37,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
-import {
-  ConfigProvider,
-  Menu,
-  MenuProps
-} from "antd";
 import { FrappeDoc } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
@@ -373,7 +368,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // const [makesTab] = useStateSyncedWithParams<string>("makesTab", makeOptions?.[0]?.value)
 
-  const handlePageChange: MenuProps['onClick'] = useCallback((e) => {
+  const handlePageChange = useCallback((e: { key: string }) => {
     const newPage = e.key as ProjectPageTabValue;
     if (activePage !== newPage) {
       setActivePage(newPage);
@@ -385,7 +380,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     }
   }, [activePage]);
 
-  type MenuItem = Required<MenuProps>["items"][number];
+  type MenuItem = { label: React.ReactNode; key: string };
 
   // Roles that can see all tabs (privileged users)
   const PRIVILEGED_ROLES = [
@@ -1078,56 +1073,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // console.log("total-po-amt-with-gst", totalPOAmountWithGST)
 
-  // const categoryTotals = po_item_data?.reduce((acc, item) => {
-  //   const category = acc[item.category] || { withoutGst: 0, withGst: 0 };
-
-  //   const itemTotal = parseFloat(item.quantity) * parseFloat(item.quote);
-  //   const itemTotalWithGst = itemTotal * (1 + parseFloat(item.tax) / 100);
-
-  //   category.withoutGst += itemTotal;
-  //   category.withGst += itemTotalWithGst;
-
-  //   acc[item.category] = category;
-  //   return acc;
-  // }, {});
-
-  // const overallTotal = Object.values(categoryTotals || [])?.reduce(
-  //   (acc, totals) => ({
-  //     withoutGst: acc.withoutGst + totals.withoutGst,
-  //     withGst: acc.withGst + totals.withGst,
-  //   }),
-  //   { withoutGst: 0, withGst: 0 }
-  // );
-
-  // const pieChartData = Object.keys(categoryTotals || []).map((category) => ({
-  //   name: category,
-  //   value: categoryTotals[category].withGst,
-  //   fill: `#${Math.floor(Math.random() * 16777215).toString(16)}`, // Random colors
-  // }));
-
-  // const getChartData = (po_item_data) => {
-  //   const aggregatedData = {};
-
-  //   po_item_data?.forEach((item) => {
-  //     const date = formatDate(item.creation.split(" ")[0]); // Extract date only
-  //     const baseTotal = parseFloat(item.quote) * parseFloat(item.quantity);
-  //     const totalWithGST = baseTotal * (1 + parseFloat(item.tax) / 100);
-
-  //     if (!aggregatedData[date]) {
-  //       aggregatedData[date] = { withGST: 0, withoutGST: 0 };
-  //     }
-  //     aggregatedData[date].withoutGST += baseTotal;
-  //     aggregatedData[date].withGST += totalWithGST;
-  //   });
-
-  //   return Object.keys(aggregatedData || []).map((date) => ({
-  //     date,
-  //     withoutGST: aggregatedData[date].withoutGST,
-  //     withGST: aggregatedData[date].withGST,
-  //   }));
-  // };
-
-  // const chartData = getChartData(po_item_data); // Now ready for use in Recharts
 
   const [popOverOpen, setPopOverOpen] = useState(false);
 

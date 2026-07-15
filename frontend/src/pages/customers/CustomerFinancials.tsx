@@ -8,7 +8,7 @@ import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-import { Radio } from "antd";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useFrappeGetCall } from "frappe-react-sdk";
 import React, { Suspense, useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
@@ -121,13 +121,10 @@ const amountsSummaryItems = useMemo(() => [
           </Card> 
 
             {financialTabs && (
-                  <Radio.Group
+                  <SegmentedControl
                       options={financialTabs}
-                      defaultValue="All Payments"
-                      optionType="button"
-                      buttonStyle="solid"
                       value={tab}
-                      onChange={(e) => onClick(e.target.value)}
+                      onValueChange={onClick}
                   />
               )}
 

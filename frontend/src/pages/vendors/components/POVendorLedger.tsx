@@ -4,7 +4,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import { useLedgerVendorDoc, useLedgerData } from '../data/useVendorQueries';
 import { useUpdateVendorDoc } from '../data/useVendorMutations';
 import Fuse from 'fuse.js';
-import { Radio } from 'antd';
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Button } from '@/components/ui/button';
 import { FileUp } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -212,19 +212,11 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
                           <FileUp className="mr-2 h-4 w-4" /> Export
                         </Button>
                     )}
-                    <Radio.Group value={activeSubTab} onChange={(e) => setActiveSubTab(e.target.value)} optionType="button" buttonStyle="solid">
-
-                        
-                         {/* {(vendorType === 'Material' || vendorType === 'Material & Service') && (
-                            <Radio.Button value="poLedger">PO Ledger</Radio.Button>
-                        )}
-                        
-                        {(vendorType === 'Service' || vendorType === 'Material & Service') && (
-                            <Radio.Button value="srLedger">SR Ledger</Radio.Button>
-                        )}
-                         */}
-                        <Radio.Button value="invoicesLedger">Invoices Ledger</Radio.Button>
-                    </Radio.Group>
+                    <SegmentedControl
+                        value={activeSubTab}
+                        onValueChange={setActiveSubTab}
+                        options={[{ label: "Invoices Ledger", value: "invoicesLedger" }]}
+                    />
                 </div>
             </div>
 
@@ -266,7 +258,6 @@ export default POVendorLedger;
 // import React, { useMemo, useState, useCallback } from 'react';
 // import { useFrappeGetCall, useFrappeGetDoc, useFrappeUpdateDoc } from 'frappe-react-sdk';
 // import Fuse from 'fuse.js';
-// import { Radio } from 'antd';
 // import { Button } from '@/components/ui/button';
 // import { FileUp } from 'lucide-react';
 // import { Skeleton } from '@/components/ui/skeleton';

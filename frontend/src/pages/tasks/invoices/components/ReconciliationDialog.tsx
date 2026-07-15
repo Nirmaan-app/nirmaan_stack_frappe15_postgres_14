@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { DatePicker } from "antd";
 import dayjs from "dayjs";
-import { FileCheck2, ExternalLink } from "lucide-react";
+import { FileCheck2, ExternalLink, CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 
 import {
     Dialog,
@@ -201,16 +204,29 @@ export const ReconciliationDialog: React.FC<ReconciliationDialogProps> = ({
                             <Label htmlFor="reconciled-date" className="text-sm font-medium">
                                 Reconciled Date
                             </Label>
-                            <DatePicker
-                                id="reconciled-date"
-                                value={reconciledDate ? dayjs(reconciledDate) : null}
-                                onChange={(date) => setReconciledDate(date ? date.format("YYYY-MM-DD") : null)}
-                                format="DD-MM-YYYY"
-                                className="w-full"
-                                disabled={isProcessing}
-                                disabledDate={(current) => current && current > dayjs().endOf("day")}
-                                placeholder="Select reconciliation date"
-                            />
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        id="reconciled-date"
+                                        type="button"
+                                        variant="outline"
+                                        disabled={isProcessing}
+                                        className={cn("w-full justify-start text-left font-normal", !reconciledDate && "text-muted-foreground")}
+                                    >
+                                        <CalendarIcon className="mr-2 h-4 w-4" />
+                                        {reconciledDate ? format(new Date(reconciledDate), "dd-MM-yyyy") : "Select reconciliation date"}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={reconciledDate ? new Date(reconciledDate) : undefined}
+                                        onSelect={(date) => setReconciledDate(date ? format(date, "yyyy-MM-dd") : null)}
+                                        disabled={(date) => date > new Date()}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
                             <p className="text-xs text-muted-foreground">
                                 Date when this invoice was reconciled
                             </p>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Building2, ChevronDown, FolderKanban, CalendarPlus } from "lucide-react";
-import { useFrappeGetDocCount, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import { TailSpin } from "react-loader-spinner";
 import { CUSTOMER_DOCTYPE } from '../customers.constants';
 import { cn } from "@/lib/utils";
@@ -140,13 +141,13 @@ export const CustomersSummaryCard: React.FC = () => {
     const [isExpanded, setIsExpanded] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
 
-    // Fetch total count
-    const { data: totalCountData, isLoading: totalCountLoading } = useFrappeGetDocCount(
-        CUSTOMER_DOCTYPE,
-        undefined,
-        false,
+    // Fetch total count (global, no filters) via useCounts. The separate customer-stats
+    // postcall below is left as-is (not a count — can't fold into the batch endpoint).
+    const { data: countsData, isLoading: totalCountLoading } = useCounts(
+        [{ key: "total", doctype: CUSTOMER_DOCTYPE }],
         `${CUSTOMER_DOCTYPE}_total_summary`
     );
+    const totalCountData = countsData?.message?.total as number | undefined;
 
     // Fetch customer stats
     const { call: getCustomerStats } = useFrappePostCall(

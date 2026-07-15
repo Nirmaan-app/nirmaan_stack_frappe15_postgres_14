@@ -1,7 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { Projects } from "@/types/NirmaanStack/Projects";
-import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import { CheckCircle2, Coins, FileText, HardHat, ShoppingCart, Store } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { Link } from "react-router-dom";
@@ -20,30 +18,17 @@ export const EstimatesExecutive = () => {
 
     // const permissionsList = projectPermissions?.map((i) => i?.for_value)
 
-    const { data: projectsData, isLoading: projectsDataLoading } = useFrappeGetDocList<Projects>("Projects", {
-        fields: ["name"],
-        // filters: [["name", "in", permissionsList || []]],
-        limit: 10000
-    },
-        // (user_id === "Administrator" || !permissionsList) ? null : undefined
-    )
-
-    const { data: approved_quotes, isLoading: approved_quotes_loading } = useFrappeGetDocCount("Approved Quotations");
-
-    const { data: PO_COUNT, isLoading: PO_COUNT_LOADING } = useFrappeGetDocList<ProcurementOrder>("Procurement Orders", {
-        fields: ["name"],
-        filters: [["status", "not in", ["Merged"]]],
-        limit: 100000
-    },
-    )
-
-    const { data: vendorsCount, isLoading: vendorsCountLoading } = useFrappeGetDocCount("Vendors");
-
-    // TDS Repository count
-    const { data: tdsCount, isLoading: tdsCountLoading } = useFrappeGetDocCount("TDS Repository");
-
-    // Approved Work Orders count
-    const { data: approvedWOCount, isLoading: approvedWOCountLoading } = useFrappeGetDocCount("Service Requests", [["status", "=", "Approved"]]);
+    const { data, isLoading } = useCounts(
+        [
+            { key: "projects", doctype: "Projects" },
+            { key: "approvedQuotes", doctype: "Approved Quotations" },
+            { key: "purchaseOrders", doctype: "Procurement Orders", filters: [["status", "not in", ["Merged"]]] },
+            { key: "vendors", doctype: "Vendors" },
+            { key: "tds", doctype: "TDS Repository" },
+            { key: "approvedWO", doctype: "Service Requests", filters: [["status", "=", "Approved"]] },
+        ],
+        "dashboard-estimates-executive-counts"
+    );
 
     return (
         <>
@@ -61,8 +46,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(projectsDataLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (projectsData?.length)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.projects as number)}
                             </div>
                             {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
@@ -78,8 +63,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(approved_quotes_loading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (approved_quotes)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.approvedQuotes as number)}
                             </div>
                             {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
@@ -95,8 +80,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(approvedWOCountLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (approvedWOCount)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.approvedWO as number)}
                             </div>
                         </CardContent>
                     </Link>
@@ -111,8 +96,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(PO_COUNT_LOADING) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (PO_COUNT?.length)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.purchaseOrders as number)}
                             </div>
                             {/* <p className="text-xs text-muted-foreground">COUNT</p> */}
                         </CardContent>
@@ -128,8 +113,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(vendorsCountLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (vendorsCount)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.vendors as number)}
                             </div>
                         </CardContent>
                     </Link>
@@ -144,8 +129,8 @@ export const EstimatesExecutive = () => {
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold">
-                                {(tdsCountLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
-                                    : (tdsCount)}
+                                {(isLoading) ? (<TailSpin visible={true} height="30" width="30" color="#D03B45" ariaLabel="tail-spin-loading" radius="1" wrapperStyle={{}} wrapperClass="" />)
+                                    : (data?.message?.tds as number)}
                             </div>
                         </CardContent>
                     </Link>

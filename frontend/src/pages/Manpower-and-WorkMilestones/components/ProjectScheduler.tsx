@@ -1159,16 +1159,7 @@ const SchedulerGroupRow: React.FC<SchedulerGroupRowProps> = ({
                       </Tooltip>
                     )}
                   </div>
-                  {/* SLOT BAR — hidden for now
-                  <div className="border-l">
-                    <SchedulerBar
-                      milestone={m}
-                      barColor={barColor}
-                      markerLeftPct={markerLeftPct}
-                      selectedDateObj={selectedDateObj}
-                    />
-                  </div>
-                  */}
+                  
                 </div>
               );
             })
@@ -1179,106 +1170,5 @@ const SchedulerGroupRow: React.FC<SchedulerGroupRowProps> = ({
   );
 };
 
-interface SchedulerBarProps {
-  milestone: SchedulerMilestoneRow;
-  barColor: string;
-  markerLeftPct: number | null;
-  selectedDateObj: Date | null;
-}
-
-const SchedulerBar: React.FC<SchedulerBarProps> = ({
-  milestone,
-  barColor,
-  markerLeftPct,
-  selectedDateObj,
-}) => {
-  const { firstWeekIdx, lastWeekIdx, weeks, weightage, startDate, endDate, durationDays } =
-    milestone;
-
-  return (
-    <div
-      className="relative grid h-14"
-      style={{ gridTemplateColumns: `repeat(${NUM_WEEK_SLOTS}, minmax(0, 1fr))` }}
-    >
-      {Array.from({ length: NUM_WEEK_SLOTS }, (_, i) => (
-        <div key={i} className="border-r last:border-r-0" />
-      ))}
-
-      {firstWeekIdx !== -1 &&
-        weeks.map((val, i) => {
-          if (val <= 0) return null;
-          const prev = i > 0 ? weeks[i - 1] : 0;
-          const isReached100 = val >= 100 && prev < 100;
-          return (
-            <Tooltip key={`tgt-${i}`}>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn(
-                    'absolute top-0 -translate-x-1/2 text-[9px] font-semibold leading-tight px-1 rounded-sm border cursor-help z-20',
-                    isReached100
-                      ? 'bg-green-100 text-green-800 border-green-300'
-                      : 'bg-white text-gray-700 border-gray-200',
-                  )}
-                  style={{ left: `${((i + 0.5) / NUM_WEEK_SLOTS) * 100}%` }}
-                >
-                  {val}%
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <div className="font-semibold">Slot {i + 1} target</div>
-                <div>Cumulative: {val}%</div>
-                {prev > 0 && val > prev && (
-                  <div className="text-gray-300">+{val - prev}% this slot</div>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          );
-        })}
-
-      {firstWeekIdx !== -1 && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className={cn(
-                'absolute top-5 bottom-2 rounded-md flex items-center justify-end px-2 text-[10px] font-medium text-white shadow-sm cursor-help',
-                barColor,
-              )}
-              style={{
-                left: `${(firstWeekIdx / NUM_WEEK_SLOTS) * 100}%`,
-                width: `${((lastWeekIdx - firstWeekIdx + 1) / NUM_WEEK_SLOTS) * 100}%`,
-              }}
-            >
-              {weeks[lastWeekIdx]}%
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs space-y-0.5">
-            <div className="font-semibold pb-1.5 mb-1.5 border-b-2 border-white/70">
-              {milestone.work_milestone_name}
-            </div>
-            {startDate && <div>Start: <span className="font-medium">{formatDate(startDate)}</span></div>}
-            {endDate && <div>End: <span className="font-medium">{formatDate(endDate)}</span></div>}
-            <div>Duration: {durationDays} day{durationDays === 1 ? '' : 's'}</div>
-            <div>Weightage: {weightage}</div>
-            <div>Cumulative target: {weeks[lastWeekIdx]}%</div>
-          </TooltipContent>
-        </Tooltip>
-      )}
-
-      {markerLeftPct !== null && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className="absolute top-0 bottom-0 w-px bg-blue-600/70 z-10 cursor-help"
-              style={{ left: `${markerLeftPct}%` }}
-            />
-          </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">
-            {selectedDateObj ? `As of ${formatDate(selectedDateObj)}` : ''}
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </div>
-  );
-};
 
 export default ProjectScheduler;

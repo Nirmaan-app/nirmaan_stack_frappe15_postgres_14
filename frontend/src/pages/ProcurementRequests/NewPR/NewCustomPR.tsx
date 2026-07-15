@@ -475,7 +475,6 @@ export const NewCustomPR: React.FC<NewCustomPRProps> = ({ resolve = false }) => 
 // import { Vendors } from "@/types/NirmaanStack/Vendors";
 // import formatToIndianRupee from "@/utils/FormatPrice";
 // import { parseNumber } from "@/utils/parseNumber";
-// import { Table as AntTable, ConfigProvider } from "antd";
 // import {
 //     useFrappeFileUpload,
 //     useFrappeGetDocList,

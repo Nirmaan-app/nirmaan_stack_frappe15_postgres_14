@@ -1,5 +1,5 @@
 import { useDocCountStore } from "@/zustand/useDocCountStore";
-import { useFrappeGetDocCount, useFrappeGetDocList } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import {
   LucideIcon,
   FileText,
@@ -421,27 +421,20 @@ const getNestedCount = (
 export default function ProcurementDashboard() {
   const { counts } = useDocCountStore();
 
-  // Fetch doc counts for general actions
+  // Fetch doc counts for general actions — one batched round-trip via useCounts.
   const {
-    data: vendor_list,
-    isLoading: vendor_list_loading,
-    error: vendor_list_error,
-  } = useFrappeGetDocCount("Vendors");
-  const {
-    data: item_list,
-    isLoading: item_list_loading,
-    error: item_list_error,
-  } = useFrappeGetDocCount("Items");
-  const {
-    data: projects_data,
-    isLoading: projects_loading,
-    error: projects_error,
-  } = useFrappeGetDocList("Projects");
-  const {
-    data: approved_quotes,
-    isLoading: approved_quotes_loading,
-    error: approved_quotes_error,
-  } = useFrappeGetDocCount("Approved Quotations");
+    data: countsData,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useCounts(
+    [
+      { key: "projects", doctype: "Projects" },
+      { key: "vendors", doctype: "Vendors" },
+      { key: "items", doctype: "Items" },
+      { key: "approvedQuotes", doctype: "Approved Quotations" },
+    ],
+    "dashboard-procurement-counts"
+  );
 
   // Map doctype to fetched data
   const doctypeData: Record<
@@ -449,24 +442,24 @@ export default function ProcurementDashboard() {
     { count?: number; isLoading: boolean; error?: unknown }
   > = {
     projects: {
-      count: projects_data?.length,
-      isLoading: projects_loading,
-      error: projects_error,
+      count: countsData?.message?.projects as number,
+      isLoading: countsLoading,
+      error: countsError,
     },
     Vendors: {
-      count: vendor_list,
-      isLoading: vendor_list_loading,
-      error: vendor_list_error,
+      count: countsData?.message?.vendors as number,
+      isLoading: countsLoading,
+      error: countsError,
     },
     Items: {
-      count: item_list,
-      isLoading: item_list_loading,
-      error: item_list_error,
+      count: countsData?.message?.items as number,
+      isLoading: countsLoading,
+      error: countsError,
     },
     "Approved Quotations": {
-      count: approved_quotes,
-      isLoading: approved_quotes_loading,
-      error: approved_quotes_error,
+      count: countsData?.message?.approvedQuotes as number,
+      isLoading: countsLoading,
+      error: countsError,
     },
   };
 
