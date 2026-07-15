@@ -585,11 +585,46 @@ maintained at one chokepoint. **NEVER a non-`^[A-Z]+$` key.**
 - **Open:** confirm `BoQ Template Sheet.disposition` field name (#2); seed-to-0 shows "0" in cells (matches "0 by
   default"); area rename post-clone OUT of scope (areas locked at create per Q9).
 
-## Slice 3 — Templates-admin polish  *(uses `/frontend-design`)*
-- Sidebar move (Q7). `TemplateEditorPage` full-width (`flex-1 space-y-4`) + TABBED (header: template/sheet info +
-  Activate switch + Seed/Reseed; tabs MEP BoQ Details / Template Rows). `TemplateRowsEditor` fuzzy search
-  (`boqDescriptionSearch.ts`) + reworked add-above/below icons+placement. Seed/Reseed warning AlertDialog +
-  Upload-BoQ entry embedded in a dialog → navigate to hub on success.
+## Slice 3 — Templates-admin polish  *(uses `/frontend-design`)*  — ✅ AS-BUILT + LIVE-E2E-VERIFIED 2026-07-15
+
+**Status:** BUILT (implement→adversarial-verify Workflow, 3 impl + 3 skeptic agents, all "clean") + LIVE-E2E-VERIFIED
+(chrome-devtools, Administrator, :8080). Branch `feature/boq-create-from-template` (local/unpushed, **NOT committed
+yet**). Gate: `tsc` boq-wizard + NewSidebar **0** · `residence_check` all 5 rules holding (b3=39/b1=0/b2=8/f5=114/f2=200).
+
+**Owner decisions this round (2 forks resolved):** 4d reseed entry = **DROP-ZONE ONLY** (no name/version/notes panel —
+`upload_file` doesn't consume those for template-source uploads; they're set later in the hub; zero backend change,
+upload byte-identical) · 4c row search = **FILTER-TO-MATCHES + "N of M rows" count** (reuses shared
+`fuzzyDescriptionMatchSet`).
+
+**Files (frontend only, backend untouched):**
+- **4a `components/layout/NewSidebar.tsx`** — "BoQ Templates" moved from a top-level leaf INTO the `admin-actions`
+  ("Admin Options") group as a nested child. Group gate widened Admin/PMO→Admin/PMO/**Estimates**; children split into
+  role-conditional spreads (admin children = Admin/PMO; BoQ Templates = **Admin + Estimates**, NOT PMO). Highlight fix:
+  `selectedKeys` rewritten to LONGEST-MATCH (two-segment slug preferred when in `allKeys`) — `allKeys` already carried
+  `"upload-boq/templates"` as the ONLY two-segment entry, so it's surgical; `groupMappings.admin-actions` += the slug,
+  dead standalone `'/upload-boq/templates'` groupMapping removed, `"BoQ Templates"` removed from the leaf-discriminator
+  Set. `allKeys` unchanged.
+- **4b+4d `pages/boq-wizard/TemplateEditorPage.tsx`** — full-width (`flex-1 space-y-4`, no `max-w-4xl`) + shadcn `<Tabs>`
+  (token-clean, NOT the PackagesSettings pill-row) synced to `?tab=` via `useSearchParams`. Persistent header strip =
+  template name + Active `<Switch>` + "Seed / Re-seed" button. Tab **MEP BoQ Details** = provenance dl + sheets table +
+  add/remove/reorder-sheet toolbar (+ a read-only "Active: <sheet>" label since the row-editing Select moved). Tab
+  **Template Rows** = sheet Select + `<TemplateRowsEditor>` (props unchanged). 4d: reseed **AlertDialog** warning
+  (copy CONDITIONAL on `hasMaster` — "Re-seed…replaces existing" vs first-seed "Seed…creates") → **entry `Dialog`** with
+  a drag/drop drop-zone reusing the existing `triggerSeedUpload`/`applySeedOutcome`/socket/poll verbatim; NO
+  project/customer/name/version/notes fields; old direct-click seed buttons now route through the warning.
+- **4c `pages/boq-wizard/TemplateRowsEditor.tsx`** — search `<Input>` (imports shared `fuzzyDescriptionMatchSet`, filters
+  `visibleRows` while `computeTemplateDepths` stays over FULL rows so indent survives filtered-out ancestors) + "N of M"
+  count + distinct empty-states (0 rows vs 0 matches). Add-row icons `Plus`/`Plus rotate-45` → **`ArrowUpToLine` /
+  `ArrowDownToLine`** with a divider before edit/delete.
+
+**LIVE E2E (Administrator, :8080):** 4a — BoQ Templates renders as an Admin-Options CHILD, group auto-expands on
+`/upload-boq/templates`, sub-item lights (`bg-[#FFD3CC]`); `/upload-boq` still lights "Upload BoQ" (no regression). 4b —
+full-width tabbed page, header switch + Seed/Re-seed, `?tab=rows` URL sync. 4c — "cable" → **30 of 203 rows**, distinct
+arrow icons. 4d — warning ("Re-seed…replaces existing") → drop-zone-only entry (**0 non-file inputs**) → closed without
+upload; master `BOQTPL-00020` intact (active, 11 sheets). **NOT browser-tested:** the Estimates-only-child / PMO-no-templates
+gating (needs an Estimates/PMO login) — verified by code trace + adversarial skeptic instead.
+
+**Env for verify:** active master `BOQTPL-00020` ("MEP BOQ.", 11 sheets, seeded_from BOQ-26-00102), doctype meta intact.
 
 ## Deferred (out of scope, documented)
 Post-create area editing; per-sheet area sets; per-sheet reseed; inline qty on upload-origin BoQs; the
@@ -601,7 +636,8 @@ pre-existing `attached_to_index` 0-sentinel edge.
 
 **Status:** ✅ **AS-BUILT + LIVE-E2E-VERIFIED (2026-07-15)** — grill-locked (`/grill-with-docs` +
 `/domain-modeling`, 9 decisions); design of record = **ADR-0013 Amendment A2** + **CONTEXT.md** terms.
-Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) stays ON HOLD.**
+Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) — since done + E2E-verified
+2026-07-15; see the `## Slice 3` section above (was ON HOLD during this rectification round).**
 
 **Commits:** `dd1a2391` docs (ADR A2 + this plan + CONTEXT) · `686c44ce` Wave 1 (R-T1/R-T2/R-T4) ·
 `612cf6f3` Wave 2 (R-T3/R-T5) · `cc99d44e` R-T3 export refinement (blank unpriced rate/amount).

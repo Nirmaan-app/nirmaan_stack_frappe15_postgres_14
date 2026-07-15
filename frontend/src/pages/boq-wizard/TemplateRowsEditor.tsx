@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, Loader2, Pencil, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/table";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { ClassificationPill, CLS_LABELS } from "./reviewRender";
+import { fuzzyDescriptionMatchSet } from "./boqDescriptionSearch";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 // Tree indent mirrors ReviewTree.tsx's INDENT_PX idiom (imitated, not imported).
@@ -186,7 +187,19 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
   );
 
   const rows = useMemo(() => data?.message?.rows ?? [], [data]);
+  // Depths compute over the FULL rows (never the filtered set) so a matched row keeps
+  // its correct indent even when its ancestors are filtered out by the search.
   const depths = useMemo(() => computeTemplateDepths(rows), [rows]);
+
+  // 4c row search: FILTER-TO-MATCHES via the shared fuzzy matcher (token-AND, partial,
+  // min length 2). Below the 2-char threshold the full row list shows.
+  const [rowSearch, setRowSearch] = useState("");
+  const isSearching = rowSearch.trim().length >= 2;
+  const visibleRows = useMemo(() => {
+    if (rowSearch.trim().length < 2) return rows;
+    const matched = fuzzyDescriptionMatchSet(rows, rowSearch, (r) => r.description ?? "");
+    return rows.filter((r) => matched.has(r));
+  }, [rows, rowSearch]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const { call: createRow } = useFrappePostCall(
@@ -377,9 +390,45 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
 
   return (
     <div className="space-y-3">
+      {/* 4c: row search lives ABOVE the empty/table branch so it persists when a query
+          filters every row out (letting the user edit or clear the query). */}
+      {rows.length > 0 && (
+        <div className="flex items-center gap-2">
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={rowSearch}
+              onChange={(e) => setRowSearch(e.target.value)}
+              placeholder="Search rows by description…"
+              className="h-8 pl-7 pr-7 text-xs"
+              aria-label="Search rows by description"
+            />
+            {rowSearch !== "" && (
+              <button
+                type="button"
+                onClick={() => setRowSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          {isSearching && (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {visibleRows.length} of {rows.length} rows
+            </span>
+          )}
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           This sheet has no rows yet.
+        </p>
+      ) : visibleRows.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No rows match “{rowSearch.trim()}”.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
@@ -395,7 +444,7 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => {
+              {visibleRows.map((r) => {
                 const depth = depths.get(r.row_index) ?? 0;
                 return (
                   <TableRow key={r.name}>
@@ -433,7 +482,7 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
                             title="Insert row above"
                             onClick={() => openCreate(r, "above")}
                           >
-                            <Plus className="h-3.5 w-3.5" />
+                            <ArrowUpToLine className="h-3.5 w-3.5" />
                             <span className="sr-only">Insert above</span>
                           </Button>
                           <Button
@@ -444,9 +493,13 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
                             title="Insert row below"
                             onClick={() => openCreate(r, "below")}
                           >
-                            <Plus className="h-3.5 w-3.5 rotate-45" />
+                            <ArrowDownToLine className="h-3.5 w-3.5" />
                             <span className="sr-only">Insert below</span>
                           </Button>
+                          <span
+                            aria-hidden="true"
+                            className="mx-0.5 h-4 w-px bg-border"
+                          />
                           <Button
                             type="button"
                             variant="ghost"
@@ -568,13 +621,20 @@ export function TemplateRowsEditor({ template, sheetName, canEdit }: TemplateRow
                 value={form.parent}
                 onValueChange={(v) => setForm((f) => ({ ...f, parent: v }))}
               >
-                <SelectTrigger id="tpl-row-parent">
+                <SelectTrigger
+                  id="tpl-row-parent"
+                  className="h-auto min-h-9 items-start py-2 text-left [&>span]:line-clamp-none [&>span]:whitespace-normal [&>span]:break-words"
+                >
                   <SelectValue placeholder="Select a parent" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                   <SelectItem value={ROOT_SENTINEL}>Top level (root)</SelectItem>
                   {parentChoices.map((r) => (
-                    <SelectItem key={r.name} value={String(r.row_index)}>
+                    <SelectItem
+                      key={r.name}
+                      value={String(r.row_index)}
+                      className="items-start whitespace-normal break-words"
+                    >
                       #{r.row_index} · {clsLabel(r.classification) || "—"} ·{" "}
                       {r.description?.trim() || "(no description)"}
                     </SelectItem>

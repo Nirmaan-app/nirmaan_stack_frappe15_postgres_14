@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   FrappeConfig,
   FrappeContext,
@@ -61,6 +61,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { useUserData } from "@/hooks/useUserData";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -134,8 +141,20 @@ const SEED_ERROR_MSGS: Record<string, string> = {
  */
 export function TemplateEditorPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { socket } = useContext(FrappeContext) as FrappeConfig;
   const { user_id, role } = useUserData();
+
+  // Tabbed admin body: ?tab= drives the active tab (default "details").
+  const activeTab = searchParams.get("tab") === "rows" ? "rows" : "details";
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const next = new URLSearchParams(searchParams);
+      next.set("tab", value);
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
 
   const isAuthorized =
     user_id === "Administrator" ||
@@ -183,6 +202,11 @@ export function TemplateEditorPage() {
   const [seedJobId, setSeedJobId] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
 
+  // 4d: re-seed warning -> drop-zone entry dialog (no direct hidden-input click).
+  const [reseedWarnOpen, setReseedWarnOpen] = useState(false);
+  const [entryOpen, setEntryOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
   // Ref mirror so the socket / poll handlers guard on the live status without a
   // stale closure (there is no zustand store here; this replaces getState()).
   const seedStatusRef = useRef<SeedStatus>(seedStatus);
@@ -196,6 +220,7 @@ export function TemplateEditorPage() {
       if (seedStatusRef.current !== "parsing") return;
       if (status === "success" && boqName) {
         // Navigate to the freshly-authored seed BoQ hub (verbatim name).
+        setEntryOpen(false);
         navigate(`/upload-boq/hub/${boqName}`);
       } else if (status === "error") {
         setSeedError(SEED_ERROR_MSGS[errorCode ?? "internal"] ?? SEED_ERROR_MSGS.internal);
@@ -382,9 +407,9 @@ export function TemplateEditorPage() {
     }
   }
 
-  function onSeedFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file
+  // Shared accept path: the hidden <input> onChange AND the drop-zone onDrop both
+  // funnel a candidate file through the same extension guard + upload trigger.
+  function acceptSeedFile(file: File | null | undefined) {
     if (!file) return;
     const ext = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
     if (!ACCEPTED_EXTS.has(ext)) {
@@ -393,6 +418,12 @@ export function TemplateEditorPage() {
       return;
     }
     void triggerSeedUpload(file);
+  }
+
+  function onSeedFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    acceptSeedFile(file);
   }
 
   const seeding = seedStatus === "uploading" || seedStatus === "parsing";
@@ -454,7 +485,7 @@ export function TemplateEditorPage() {
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="flex-1 max-w-4xl mx-auto pt-6 pb-10">
+      <div className="flex-1 space-y-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading master template...
@@ -464,7 +495,7 @@ export function TemplateEditorPage() {
   }
 
   return (
-    <div className="flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10">
+    <div className="flex-1 space-y-4">
       {/* ── Header ───────────────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">BoQ Templates</h1>
@@ -486,11 +517,10 @@ export function TemplateEditorPage() {
               master template.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {seedStatusBanner}
+          <CardContent>
             <Button
               disabled={seeding}
-              onClick={() => seedInputRef.current?.click()}
+              onClick={() => setReseedWarnOpen(true)}
             >
               <Upload className="mr-2 h-4 w-4" />
               Seed the master template from a workbook
@@ -499,20 +529,20 @@ export function TemplateEditorPage() {
         </Card>
       ) : (
         <>
-          {/* ── Master template card ─────────────────────────────────────── */}
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
-              <div className="min-w-0">
-                <CardTitle className="text-base font-semibold truncate">
-                  {master?.template_name || master?.name}
-                </CardTitle>
-                <CardDescription>
-                  {isActive
-                    ? "Active -- offered in Create from template."
-                    : "Inactive -- hidden from Create from template."}
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
+          {/* ── Persistent header strip: identity + activate + re-seed ────── */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background p-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">
+                {master?.template_name || master?.name}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {isActive
+                  ? "Active -- offered in Create from template."
+                  : "Inactive -- hidden from Create from template."}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
                 <Label htmlFor="template-active" className="text-sm text-muted-foreground">
                   {isActive ? "Active" : "Inactive"}
                 </Label>
@@ -523,236 +553,245 @@ export function TemplateEditorPage() {
                   onCheckedChange={handleToggleActive}
                 />
               </div>
-            </CardHeader>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={seeding}
+                onClick={() => setReseedWarnOpen(true)}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Seed / Re-seed
+              </Button>
+            </div>
+          </div>
 
-            <CardContent className="space-y-6">
-              {/* Provenance */}
-              <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-muted-foreground">Seeded from</dt>
-                  <dd className="mt-0.5 text-foreground truncate">
-                    {master?.seeded_from_boq || "--"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Seeded at</dt>
-                  <dd className="mt-0.5 text-foreground">
-                    {master?.seeded_at ? formatDate(master.seeded_at) : "--"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Last updated by</dt>
-                  <dd className="mt-0.5 text-foreground truncate">
-                    {master?.last_updated_by || "--"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Last updated on</dt>
-                  <dd className="mt-0.5 text-foreground">
-                    {master?.last_updated_on ? formatDate(master.last_updated_on) : "--"}
-                  </dd>
-                </div>
-              </dl>
+          {/* ── Tabbed admin body ────────────────────────────────────────── */}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList>
+              <TabsTrigger value="details">MEP BoQ Details</TabsTrigger>
+              <TabsTrigger value="rows">Template Rows</TabsTrigger>
+            </TabsList>
 
-              {/* Sheets */}
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">
-                  Sheets ({master?.sheets?.length ?? 0})
-                </h3>
-                <div className="overflow-x-auto rounded-md border border-border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16">#</TableHead>
-                        <TableHead>Sheet</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right">Rows</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(master?.sheets ?? []).length === 0 ? (
+            {/* ── Details: provenance + sheets + sheet management ─────────── */}
+            <TabsContent value="details">
+              <Card>
+                <CardContent className="space-y-6 pt-6">
+                  {/* Provenance */}
+                  <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+                    <div>
+                      <dt className="text-muted-foreground">Seeded from</dt>
+                      <dd className="mt-0.5 text-foreground truncate">
+                        {master?.seeded_from_boq || "--"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Seeded at</dt>
+                      <dd className="mt-0.5 text-foreground">
+                        {master?.seeded_at ? formatDate(master.seeded_at) : "--"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Last updated by</dt>
+                      <dd className="mt-0.5 text-foreground truncate">
+                        {master?.last_updated_by || "--"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">Last updated on</dt>
+                      <dd className="mt-0.5 text-foreground">
+                        {master?.last_updated_on ? formatDate(master.last_updated_on) : "--"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {/* Sheet management toolbar */}
+                  <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      Sheets ({master?.sheets?.length ?? 0})
+                    </h3>
+                    {isTemplateAdmin && (
+                      <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                        {effectiveSheet && (
+                          <span className="mr-1 text-xs text-muted-foreground">
+                            Active:{" "}
+                            <span className="text-foreground">{effectiveSheet.trim()}</span>
+                          </span>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          title="Move sheet earlier"
+                          disabled={sheetOpBusy || effectiveIndex <= 0}
+                          onClick={() => handleMoveSheet(-1)}
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                          <span className="sr-only">Move earlier</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 px-2"
+                          title="Move sheet later"
+                          disabled={
+                            sheetOpBusy ||
+                            effectiveIndex < 0 ||
+                            effectiveIndex >= sheetNames.length - 1
+                          }
+                          onClick={() => handleMoveSheet(1)}
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                          <span className="sr-only">Move later</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          disabled={sheetOpBusy}
+                          onClick={() => {
+                            setSheetOpError(null);
+                            setAddSheetOpen(true);
+                          }}
+                        >
+                          <Plus className="mr-1 h-4 w-4" />
+                          Add sheet
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-destructive hover:text-destructive"
+                          disabled={sheetOpBusy || !effectiveSheet}
+                          onClick={() => {
+                            setSheetOpError(null);
+                            if (effectiveSheet) setRemoveSheetTarget(effectiveSheet);
+                          }}
+                        >
+                          <Trash2 className="mr-1 h-4 w-4" />
+                          Remove sheet
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {sheetOpError && (
+                    <p className="text-sm text-destructive">{sheetOpError}</p>
+                  )}
+
+                  {/* Sheets table */}
+                  <div className="overflow-x-auto rounded-md border border-border">
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell
-                            colSpan={4}
-                            className="text-center text-sm text-muted-foreground"
-                          >
-                            No sheets in this template.
-                          </TableCell>
+                          <TableHead className="w-16">#</TableHead>
+                          <TableHead>Sheet</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead className="text-right">Rows</TableHead>
                         </TableRow>
-                      ) : (
-                        (master?.sheets ?? []).map((s) => (
-                          <TableRow key={s.sheet_name}>
-                            <TableCell className="text-muted-foreground tabular-nums">
-                              {s.sheet_order}
-                            </TableCell>
-                            <TableCell className="font-medium text-foreground">
-                              {(s.sheet_label || s.sheet_name)?.trim()}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  s.disposition === "general_specs" ? "secondary" : "outline"
-                                }
-                              >
-                                {s.disposition === "general_specs"
-                                  ? "General specs"
-                                  : "Data"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-foreground">
-                              {s.row_count ?? "--"}
+                      </TableHeader>
+                      <TableBody>
+                        {(master?.sheets ?? []).length === 0 ? (
+                          <TableRow>
+                            <TableCell
+                              colSpan={4}
+                              className="text-center text-sm text-muted-foreground"
+                            >
+                              No sheets in this template.
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* Seed / re-seed */}
-              <div className="space-y-3 border-t border-border pt-4">
-                {seedStatusBanner}
-                <Button
-                  variant="outline"
-                  disabled={seeding}
-                  onClick={() => seedInputRef.current?.click()}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Seed / Re-seed from workbook
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ── Template rows editor + sheet-level controls ──────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex flex-row items-center gap-3">
-                <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <CardTitle className="text-base font-semibold">Template rows</CardTitle>
-                  <CardDescription>
-                    Edit the structure of each sheet in the master template.
-                  </CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Sheet toolbar */}
-              <div className="flex flex-wrap items-center gap-2">
-                {sheetNames.length > 0 ? (
-                  <div className="flex items-center gap-1.5">
-                    <Label
-                      htmlFor="tpl-sheet-select"
-                      className="text-sm text-muted-foreground"
-                    >
-                      Sheet
-                    </Label>
-                    <Select
-                      value={effectiveSheet ?? undefined}
-                      onValueChange={(v) => setSelectedSheet(v)}
-                    >
-                      <SelectTrigger id="tpl-sheet-select" className="h-8 w-[240px]">
-                        <SelectValue placeholder="Select a sheet" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sortedSheets.map((s) => (
-                          <SelectItem key={s.sheet_name} value={s.sheet_name}>
-                            {(s.sheet_label || s.sheet_name)?.trim()}
-                            {s.disposition === "general_specs"
-                              ? " (General specs)"
-                              : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        ) : (
+                          (master?.sheets ?? []).map((s) => (
+                            <TableRow key={s.sheet_name}>
+                              <TableCell className="text-muted-foreground tabular-nums">
+                                {s.sheet_order}
+                              </TableCell>
+                              <TableCell className="font-medium text-foreground">
+                                {(s.sheet_label || s.sheet_name)?.trim()}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    s.disposition === "general_specs"
+                                      ? "secondary"
+                                      : "outline"
+                                  }
+                                >
+                                  {s.disposition === "general_specs"
+                                    ? "General specs"
+                                    : "Data"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-foreground">
+                                {s.row_count ?? "--"}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
                   </div>
-                ) : (
-                  <span className="text-sm text-muted-foreground">
-                    No sheets yet.
-                  </span>
-                )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-                {isTemplateAdmin && (
-                  <div className="ml-auto flex items-center gap-1.5">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2"
-                      title="Move sheet earlier"
-                      disabled={sheetOpBusy || effectiveIndex <= 0}
-                      onClick={() => handleMoveSheet(-1)}
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                      <span className="sr-only">Move earlier</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2"
-                      title="Move sheet later"
-                      disabled={
-                        sheetOpBusy ||
-                        effectiveIndex < 0 ||
-                        effectiveIndex >= sheetNames.length - 1
-                      }
-                      onClick={() => handleMoveSheet(1)}
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                      <span className="sr-only">Move later</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8"
-                      disabled={sheetOpBusy}
-                      onClick={() => {
-                        setSheetOpError(null);
-                        setAddSheetOpen(true);
-                      }}
-                    >
-                      <Plus className="mr-1 h-4 w-4" />
-                      Add sheet
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-destructive hover:text-destructive"
-                      disabled={sheetOpBusy || !effectiveSheet}
-                      onClick={() => {
-                        setSheetOpError(null);
-                        if (effectiveSheet) setRemoveSheetTarget(effectiveSheet);
-                      }}
-                    >
-                      <Trash2 className="mr-1 h-4 w-4" />
-                      Remove sheet
-                    </Button>
+            {/* ── Rows: sheet picker + row editor ────────────────────────── */}
+            <TabsContent value="rows">
+              <Card>
+                <CardContent className="space-y-4 pt-6">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
+                    {sheetNames.length > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        <Label
+                          htmlFor="tpl-sheet-select"
+                          className="text-sm text-muted-foreground"
+                        >
+                          Sheet
+                        </Label>
+                        <Select
+                          value={effectiveSheet ?? undefined}
+                          onValueChange={(v) => setSelectedSheet(v)}
+                        >
+                          <SelectTrigger id="tpl-sheet-select" className="h-8 w-[240px]">
+                            <SelectValue placeholder="Select a sheet" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sortedSheets.map((s) => (
+                              <SelectItem key={s.sheet_name} value={s.sheet_name}>
+                                {(s.sheet_label || s.sheet_name)?.trim()}
+                                {s.disposition === "general_specs"
+                                  ? " (General specs)"
+                                  : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        No sheets yet.
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {sheetOpError && (
-                <p className="text-sm text-destructive">{sheetOpError}</p>
-              )}
-
-              {effectiveSheet ? (
-                <TemplateRowsEditor
-                  template={templateName}
-                  sheetName={effectiveSheet}
-                  canEdit={isTemplateAdmin}
-                />
-              ) : (
-                <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  Add a sheet to start building the template.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+                  {effectiveSheet ? (
+                    <TemplateRowsEditor
+                      template={templateName}
+                      sheetName={effectiveSheet}
+                      canEdit={isTemplateAdmin}
+                    />
+                  ) : (
+                    <p className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                      Add a sheet to start building the template.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
 
           {/* ── Add sheet dialog ─────────────────────────────────────────── */}
           <Dialog
@@ -854,6 +893,86 @@ export function TemplateEditorPage() {
           </AlertDialog>
         </>
       )}
+
+      {/* ── Re-seed warning (empty-state seed + header re-seed) ───────────── */}
+      <AlertDialog open={reseedWarnOpen} onOpenChange={setReseedWarnOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {hasMaster ? "Re-seed master template?" : "Seed master template?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {hasMaster
+                ? "This replaces the existing master template. The new sheets must go through Config → Parse → Review → Commit again before the template is usable. Continue?"
+                : "This creates the master template from an authoring workbook. The new sheets must go through Config → Parse → Review → Commit before the template is usable. Continue?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setReseedWarnOpen(false);
+                setEntryOpen(true);
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Seed / re-seed entry: drop-zone only (no name/version/notes) ──── */}
+      <Dialog
+        open={entryOpen}
+        onOpenChange={(o) => {
+          if (!o && !seeding) setEntryOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Seed / Re-seed from workbook</DialogTitle>
+            <DialogDescription>
+              Upload an authoring workbook. It is parsed into a project-less scratch BoQ you
+              configure, review, and commit before it becomes the master template.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {seedStatusBanner}
+            {!seeding && (
+              <div
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  "flex cursor-pointer flex-col items-center gap-3 rounded-lg border-2 border-dashed p-10 transition-colors",
+                  dragging
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50 hover:bg-muted/30"
+                )}
+                onClick={() => seedInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") seedInputRef.current?.click();
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  acceptSeedFile(e.dataTransfer.files[0]);
+                }}
+              >
+                <Upload className="h-8 w-8 text-muted-foreground" />
+                <div className="text-center">
+                  <p className="font-medium text-foreground">Drop a .xlsx / .xlsm here</p>
+                  <p className="mt-1 text-sm text-muted-foreground">or click to browse</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

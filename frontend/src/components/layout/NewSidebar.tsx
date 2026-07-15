@@ -220,24 +220,33 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
+    ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile" || role == "Nirmaan Estimates Executive Profile"
       ? [
         {
           key: "admin-actions",
           icon: Shapes,
           label: "Admin Options",
           children: [
-            { key: "/projects", label: "Projects" },
-            { key: "/users", label: "Users" },
-            { key: "/products", label: "Products" },
-            { key: "/asset-management", label: "Assets" },
-            { key: "/vendors", label: "Vendors" },
-            { key: "/customers", label: "Customers" },
-            { key: "/packages-settings", label: "Packages Settings" },
-            { key: "/tds-repository", label: "TDS Repository" },
-            { key: "/project-gst", label: "Project GST" },
-            // { key: "/all-AQs", label: "Approved Quotations" },
-            //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
+            ...(user_id == "Administrator" || role == "Nirmaan Admin Profile" || role == "Nirmaan PMO Executive Profile"
+              ? [
+                { key: "/projects", label: "Projects" },
+                { key: "/users", label: "Users" },
+                { key: "/products", label: "Products" },
+                { key: "/asset-management", label: "Assets" },
+                { key: "/vendors", label: "Vendors" },
+                { key: "/customers", label: "Customers" },
+                { key: "/packages-settings", label: "Packages Settings" },
+                { key: "/tds-repository", label: "TDS Repository" },
+                { key: "/project-gst", label: "Project GST" },
+                // { key: "/all-AQs", label: "Approved Quotations" },
+                //  { key: "/vendors-aq2", label: "AQ2 Vendors" },
+              ]
+              : []),
+            ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
+              ? [
+                { key: "/upload-boq/templates", label: "BoQ Templates" },
+              ]
+              : []),
           ],
         },
       ]
@@ -393,15 +402,6 @@ export function NewSidebar() {
           key: '/upload-boq',
           icon: FileSpreadsheet,
           label: 'Upload BoQ',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/upload-boq/templates',
-          icon: FileSpreadsheet,
-          label: 'BoQ Templates',
         },
       ]
       : []),
@@ -721,13 +721,16 @@ export function NewSidebar() {
   ]), [])
 
   const selectedKeys = useMemo(() => {
-    const pathKey = location.pathname.slice(1).split("/")[0];
-    return allKeys.has(pathKey) ? pathKey : "";
+    const segs = location.pathname.slice(1).split("/");
+    const twoSeg = segs.slice(0, 2).join("/");
+    if (segs.length >= 2 && allKeys.has(twoSeg)) return twoSeg;
+    const first = segs[0] ?? "";
+    return allKeys.has(first) ? first : "";
   }, [location.pathname]);
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -759,7 +762,6 @@ export function NewSidebar() {
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
     '/upload-boq': ['upload-boq'],
-    '/upload-boq/templates': ['upload-boq/templates'],
   }), []);
 
   const openKey = useMemo(() => {
@@ -870,8 +872,7 @@ export function NewSidebar() {
                     "Internal Transfer Memos",
                     "Warehouse",
                     "PMO Dashboard",
-                    "Upload BoQ",
-                    "BoQ Templates"]).has(item?.label) ? (
+                    "Upload BoQ"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"
