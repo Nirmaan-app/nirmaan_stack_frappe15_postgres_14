@@ -58,6 +58,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
@@ -929,6 +930,42 @@ export function remarkPreview(remark: string | null | undefined, max = 60): stri
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
+// V2-FIX (overscan-zone ghost): whether the grid is rendering VIRTUALIZED. In-row popovers
+// (RemarkCell / ColorPicker / ReconcileBadge) read this to close on VISIBILITY loss -- a row
+// scrolled into the mounted-but-off-screen overscan zone would otherwise leave its Radix popover
+// collision-pinned into the viewport as a detached "ghost" (the mounted-set predicate can't see it).
+// Context (not a row prop) so the memo shield is untouched; it flips only when the A/B toggle flips.
+const VirtualizedContext = createContext(false);
+
+/**
+ * V2-FIX: close an in-row popover when its anchor scrolls OUT OF VIEW (not just on unmount).
+ * VIRTUALIZED-only (classic never unmounts + must stay byte-identical): when `open`, observe the
+ * trigger element with an IntersectionObserver (viewport root, threshold 0, the SAME pattern as the
+ * page-owned CategoryVerdictPicker) and call `onClose` on `!isIntersecting`. Closing discards any
+ * unsaved draft (owner-accepted). A no-op in classic mode or while closed.
+ */
+function useCloseWhenScrolledOut(
+  triggerRef: RefObject<HTMLElement>,
+  open: boolean,
+  onClose: () => void,
+): void {
+  const virtualized = useContext(VirtualizedContext);
+  useEffect(() => {
+    if (!virtualized || !open) return;
+    const el = triggerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => !e.isIntersecting)) onClose();
+      },
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized, open]);
+}
+
 /**
  * The trailing per-row Remarks cell. Click-to-open a small Textarea editor (mirrors the
  * review-screen remark idiom: own draft/loading/error state, a 250 counter, mutate-only
@@ -954,6 +991,10 @@ function RemarkCell({
   const [draft, setDraft] = useState(stored);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // V2-FIX: close (visibility-based) when the trigger scrolls off-view in virtualized mode, so the
+  // open editor never dangles as an overscan-zone ghost. Discards the unsaved draft (owner-accepted).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => onOpenChange(false));
 
   // Seed the editor from the stored value whenever it OPENS. `open` is grid-controlled now,
   // so opening BY KEYBOARD (the grid sets its state directly, not via onOpenChange) still
@@ -1002,6 +1043,7 @@ function RemarkCell({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           tabIndex={-1} // NOT a matrix tab-stop; the <td> is the nav focus target
           onClick={(e) => e.stopPropagation()}
@@ -1099,6 +1141,9 @@ function ColorPicker({
   // time, so there is never a moment a half-set intent is sent.
   const [armed, setArmed] = useState<string | null>(null);
   const [wholeRow, setWholeRow] = useState(false);
+  // V2-FIX: close on visibility loss in virtualized mode (overscan-zone ghost, same as RemarkCell).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => setOpen(false));
 
   // submit reads wholeRow LIVE at Apply-time; token is passed explicitly (armed, or "").
   const submit = (token: string) => {
@@ -1119,6 +1164,7 @@ function ColorPicker({
     >
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -1207,6 +1253,9 @@ function ReconcileBadge({
   onChoose?: (choice: ReconChoice | null) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
+  // V2-FIX: close on visibility loss in virtualized mode (overscan-zone ghost, same as RemarkCell).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => setOpen(false));
   const isResolved = resolved !== "unset";
   const title = isResolved
     ? resolved === "take_formula"
@@ -1245,6 +1294,7 @@ function ReconcileBadge({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           title={title}
           aria-label={title}
@@ -4212,7 +4262,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   //    (`twoPane = frozen`), windowed. Same JSX; the <tbody> content routes through renderTbody. ──
   if (twoPane) {
     return (
-      <>
+      <VirtualizedContext.Provider value={virtualized}>
       {clipboardNotice}
       {contextMenu}
       <div
@@ -4293,7 +4343,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           </div>
         </CollapseContext.Provider>
       </div>
-      </>
+      </VirtualizedContext.Provider>
     );
   }
 
@@ -4301,7 +4351,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   //    classes as before. The only inert differences: containerRef moved from the <table> to this
   //    wrapper (refs are not DOM) and the col/th/row JSX comes from the shared fragments above. ──
   return (
-    <>
+    <VirtualizedContext.Provider value={virtualized}>
     {clipboardNotice}
     {contextMenu}
     <div
@@ -4343,7 +4393,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       </table>
       </CollapseContext.Provider>
     </div>
-    </>
+    </VirtualizedContext.Provider>
   );
 }));
 
