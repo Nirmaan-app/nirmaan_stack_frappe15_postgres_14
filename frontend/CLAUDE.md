@@ -359,13 +359,18 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   the `<tbody>` content changes (via `renderTbody`) — the pane/table JSX is shared. **Pane alignment = MAX-of-both-panes height
   (V1-FIX): NEVER assume which pane is taller.** The freeze layout puts the wrapping **Description** in the FROZEN pane (through
   the 5 anchors), so measuring only the scrolling pane truncates + mis-aligns. The custom `measureElement` reads BOTH panes' rows
-  by `data-index` and feeds `max(paneNaturalHeight(frozen), paneNaturalHeight(scroll))` to the ONE size cache; both panes get that
-  size as the `<tr>` height (a table MIN) → the taller reaches content, the shorter pads → aligned, no truncation. `paneNaturalHeight`
-  MUST read the non-stretching content wrapper (align-top), NOT the padded `<tr>` box (else the padded pane feeds its padding back =
-  sticky-max), and MUST NOT add the row border or any safety margin (a stretching scrolling cell feeds it back = runaway row growth).
+  by `data-index` and feeds `ceil(max(paneNaturalHeight(frozen), paneNaturalHeight(scroll)))` to the ONE size cache; both panes get
+  that size as the `<tr>` height (a table MIN) → the taller reaches content, the shorter pads → aligned, no truncation. **`paneNaturalHeight`
+  MUST measure the `<tr>`'s TRUE box (`Math.ceil(tr.getBoundingClientRect().height)`, row border INCLUDED) — this is what makes both
+  panes match CLASSIC, which applies `ceil(single-table box)` to both (V1-FIX-2).** The `<tr>` box is SELF-CORRECTING (`max(content,
+  applied)`, a fixpoint) so it does NOT run away — do NOT revert to the old content-wrapper sum (it omitted the ~1px border → ~1px/row
+  drift at every DPR) and do NOT add the border to a content-wrapper measure (a stretching scrolling cell feeds it back = runaway).
   `clipDescription` is OFF for auto virtualized rows, ON for classic + manual-drag rows. TanStack observes only the LAST element per
-  index (verified) → a `useEffect([colWidths, rows, virtualized])` re-measures for frozen-only reflows. Residual sub-pixel drift only
-  at fractional display DPR / browser zoom (two separate `border-collapse` tables) — 0px at 100% zoom.
+  index (verified) → a frozen-only reflow (column-resize Description re-wrap; scrolling `<tr>` unchanged → ResizeObserver silent) is
+  covered by a **two-phase drag-END reset** (`remeasureVirtualRowsAfterResize`: `measure()` to clear sticky sizes, then a
+  `resizeSettleTick`-keyed `useLayoutEffect` re-invokes `measureElement` on the mounted rows POST-commit — never streaming, no thrash;
+  V1-FIX-2b). `measure()` alone is NOT enough (it clears but never re-reads the frozen twin; a shrunk row's min-height stays sticky).
+  Residual drift is <=0.31px at fractional display DPR / browser zoom (two separate `border-collapse` tables) — 0px at 100% zoom.
   The freeze-measure-all `useLayoutEffect` is SKIPPED when `virtualized`. **Any new grid prop must stay identity-stable (the V0
   shield);** `measureRef` is stable per virtualizer instance and is compared in `pricingRowPropsAreEqual`. Pure window helpers
   live in `pricingVirtual.ts` (unit-tested). **V2 known gaps:** nav/search-jump to UNMOUNTED rows no-op (use `scrollToIndex` in
