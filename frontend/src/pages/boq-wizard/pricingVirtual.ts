@@ -93,6 +93,35 @@ export function maxRowHeight(heights: number[]): number {
   return m;
 }
 
+/**
+ * V2 (nav/search to unmounted rows): the jump-target resolution. A focus/jump target that is
+ * already MOUNTED can be focused immediately; a target OUTSIDE the mounted window can only be
+ * reached in VIRTUALIZED mode by first scrolling the window to it (`scrollToIndex`) then focusing
+ * once it mounts; in CLASSIC mode every row is always mounted, so an unmounted target is impossible
+ * -> "noop" (defensive). `focusCell` / `jumpToRow` branch on this.
+ */
+export function resolveJumpAction(
+  isMounted: boolean,
+  virtualized: boolean,
+): "focus" | "scroll-then-focus" | "noop" {
+  if (isMounted) return "focus";
+  return virtualized ? "scroll-then-focus" : "noop";
+}
+
+/**
+ * V2 (overlay close-on-scroll-out): the out-of-window close predicate. An overlay anchored to a
+ * per-row cell (the remark popover, keyed by its durable excel row) must close when its anchor row
+ * leaves the mounted window. Returns true (CLOSE) iff a row is open AND its excel row is not among
+ * the currently-mounted excel rows. A closed overlay (null) never closes; an open row still in the
+ * window stays open.
+ */
+export function shouldCloseOverlay(
+  openExcelRow: number | null,
+  mountedExcelRows: ReadonlySet<number>,
+): boolean {
+  return openExcelRow != null && !mountedExcelRows.has(openExcelRow);
+}
+
 /** The column count for a pane's spacer <td> colSpan (so the spacer spans the whole pane cleanly). */
 export function paneColSpan(
   pane: "frozen" | "scrolling" | undefined,

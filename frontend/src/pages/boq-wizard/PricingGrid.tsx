@@ -90,8 +90,10 @@ import {
   deriveSpacers,
   maxRowHeight,
   paneColSpan,
+  resolveJumpAction,
   seedEstimate,
   selectRenderPath,
+  shouldCloseOverlay,
 } from "./pricingVirtual";
 
 // V1-FIX: the NATURAL content height of a pane's row -- immune to the row's applied alignment
@@ -2432,9 +2434,11 @@ const PricingGridRow = memo(function PricingGridRow({
           }
           open={openRemark}
           onOpenChange={(o) => {
-            setOpenRemark(rowIndex, o);
+            // V2: key the open-state by the DURABLE excel row (not the window array index).
+            setOpenRemark(row.source_row_number, o);
             // On close (Esc / Save / outside-click) restore focus to this cell so arrow-nav
-            // continues. An Enter-save's onMoveDown runs AFTER and wins.
+            // continues. An Enter-save's onMoveDown runs AFTER and wins. (focusCell still takes
+            // the array index -- it targets cellRefs, which is index-keyed.)
             if (!o) focusCell(rowIndex, remarksColIndex);
           }}
           onMoveDown={() => {
@@ -2539,9 +2543,11 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
   // Slice 4a.2: the remarks editor's open-state, LIFTED to the grid (was local to
   // RemarkCell) so the keyboard (Enter on the focused remarks cell) can open it, not just
-  // a click. Holds the ARRAY index (rowIdx) of the open row, or null. RemarkCell's
-  // draft/saving/error stay local; only open is controlled here.
-  const [openRemarkRowIdx, setOpenRemarkRowIdx] = useState<number | null>(null);
+  // a click. RemarkCell's draft/saving/error stay local; only open is controlled here.
+  // V2: keyed by the row's DURABLE excel row (source_row_number), NOT the window array index --
+  // under virtualized row recycling the array index N maps to a DIFFERENT row after a
+  // collapse/filter reshuffle, so an index key mis-targets the popover; the excel row is stable.
+  const [openRemarkExcelRow, setOpenRemarkExcelRow] = useState<number | null>(null);
   // Parent-jump landing flash: the Excel row currently flashed blue (null = none). Set by
   // jumpToRow, auto-cleared after 3s via flashTimeoutRef. Grid-level -- only the derived per-row
   // boolean (isJumpFlashRow) enters the row + the memo comparator. Resets for free on a
@@ -2583,6 +2589,16 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   // V1: mirrors `twoPane` (two-pane vs single) for the virtualizer's getScrollElement + the flip
   // re-anchor -- a ref so those closures always read the current mode without re-registering.
   const twoPaneRef = useRef(false);
+  // V2 (nav/search to unmounted rows): focusCell / jumpToRow are defined BEFORE the virtualizer, so
+  // they reach it through refs (assigned right after useVirtualizer, synced each render). virtualizedRef
+  // mirrors the `virtualized` prop; scrollRowIntoWindowRef scrolls the window to a row index so an
+  // OFF-window nav/jump target mounts before we focus it. Refs keep both closures reference-stable
+  // (deps [] / [onRevealRow]) -> the row memo (focusCell / onJumpToRow props) is untouched.
+  // align is "center" (NOT "auto"): with DYNAMIC row measurement, an unmeasured just-past-window row's
+  // ESTIMATED offset reads as already-visible, so "auto" no-ops and the row never mounts (live-verified
+  // arrow-nav stall at the window's bottom edge); "center" forces the scroll unconditionally -> mount.
+  const virtualizedRef = useRef(false);
+  const scrollRowIntoWindowRef = useRef<(idx: number) => void>(() => {});
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -2804,26 +2820,42 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   }, []);
 
   const focusCell = useCallback((r: number, c: number) => {
-    const el = cellRefs.current.get(navKey(r, c));
-    if (!el) return;
-    // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
-    // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
-    // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
-    // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
-    // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
-    if (splitRef.current) {
-      el.focus({ preventScroll: true });
-      if (c >= FIXED_ANCHOR_COUNT) {
-        el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      } else {
-        scrollPaneRef.current
-          ?.querySelector(`tr[data-rowidx="${r}"]`)
-          ?.scrollIntoView({ block: "nearest" });
+    // The focus itself, once the target <tr> is mounted (registered in cellRefs). Split-aware.
+    const doFocus = () => {
+      const el = cellRefs.current.get(navKey(r, c));
+      if (!el) return;
+      // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
+      // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
+      // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
+      // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
+      // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
+      if (splitRef.current) {
+        el.focus({ preventScroll: true });
+        if (c >= FIXED_ANCHOR_COUNT) {
+          el.scrollIntoView({ block: "nearest", inline: "nearest" });
+        } else {
+          scrollPaneRef.current
+            ?.querySelector(`tr[data-rowidx="${r}"]`)
+            ?.scrollIntoView({ block: "nearest" });
+        }
+        return;
       }
-      return;
+      el.focus();
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    // V2: an UNMOUNTED target (virtualized, off-window) can't be focused yet. Scroll the window to
+    // it (center it -- see scrollRowIntoWindowRef on why not "auto"), then focus after the mount
+    // re-render commits (the same reveal-then-defer scaffold jumpToRow uses; 50ms). Single-step
+    // arrow nav stays synchronous when the adjacent row is inside ROW_OVERSCAN (mounted -> "focus"
+    // path); crossing the overscan edge takes the scroll-then-focus path. Classic mode never has an
+    // unmounted target -> "noop".
+    const action = resolveJumpAction(cellRefs.current.has(navKey(r, c)), virtualizedRef.current);
+    if (action === "scroll-then-focus") {
+      scrollRowIntoWindowRef.current(r);
+      setTimeout(doFocus, 50);
+    } else if (action === "focus") {
+      doFocus();
     }
-    el.focus();
-    el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, []);
 
   // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
@@ -2842,8 +2874,9 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     const doScroll = () => {
       const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
       if (idx < 0) return;
-      const el = cellRefs.current.get(navKey(idx, 0));
-      if (el) {
+      const focusEl = () => {
+        const el = cellRefs.current.get(navKey(idx, 0));
+        if (!el) return;
         if (splitRef.current) {
           // Split: col-0 lives in the frozen pane. Focus it WITHOUT auto-scroll (avoids desyncing
           // the panes), then scroll the SCROLLING pane's counterpart <tr> -- its onScroll mirrors
@@ -2856,6 +2889,17 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
           el.focus();
           el.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+      };
+      // V2: a jump/search target OUTSIDE the mounted window (virtualized) no longer no-ops -- scroll
+      // the window to center it (see scrollRowIntoWindowRef), then focus once the mount re-render has
+      // committed (reveal-then-defer scaffold, 50ms). A mounted target focuses synchronously exactly
+      // as before; classic never has an unmounted target -> focusEl guards.
+      const action = resolveJumpAction(cellRefs.current.has(navKey(idx, 0)), virtualizedRef.current);
+      if (action === "scroll-then-focus") {
+        scrollRowIntoWindowRef.current(idx);
+        setTimeout(focusEl, 50);
+      } else {
+        focusEl();
       }
       // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
       // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
@@ -2873,9 +2917,10 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
   }, [onRevealRow]);
 
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
-  // passes its own array index; open=true makes it the single open editor, false closes it.
-  const setOpenRemark = useCallback((rowIndexArg: number, open: boolean) => {
-    setOpenRemarkRowIdx(open ? rowIndexArg : null);
+  // passes its own DURABLE excel row (source_row_number); open=true makes it the single open
+  // editor, false closes it. V2: keyed by excel row (see openRemarkExcelRow above).
+  const setOpenRemark = useCallback((excelRow: number, open: boolean) => {
+    setOpenRemarkExcelRow(open ? excelRow : null);
   }, []);
 
   // ── Slice A: in-grid clipboard (copy / cut / paste / fill-down) ──────────────────
@@ -3412,7 +3457,8 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
     // read-only cell). preventDefault stops the cell's native button/Enter side effects.
     if (activeCell.colIndex === remarksColIndex && e.key === "Enter" && onSaveRemark) {
       e.preventDefault();
-      setOpenRemarkRowIdx(activeCell.rowIndex);
+      // V2: open by the row's DURABLE excel row (the active cell is a mounted array index -> resolve).
+      setOpenRemarkExcelRow(rows[activeCell.rowIndex]?.source_row_number ?? null);
       return;
     }
     // Parent click-to-jump: Enter on the focused PARENT cell (col 2) jumps to the parent row
@@ -3659,6 +3705,30 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       return maxRowHeight(naturals) || DEFAULT_ROW_ESTIMATE_PX;
     },
   });
+  // V2: sync the refs the (earlier-defined) focusCell / jumpToRow read to reach the virtualizer for
+  // an off-window nav/jump target. Assigned each render -- the virtualizer instance is stable, so
+  // these never destabilize those useCallbacks (which read the refs, not these values).
+  virtualizedRef.current = virtualized;
+  scrollRowIntoWindowRef.current = (idx) =>
+    rowVirtualizer.scrollToIndex(idx, { align: "center" });
+  // V2 (overlay close-on-scroll-out): the remark popover lives INSIDE the row, so a scroll-out unmount
+  // already tears down its Radix portal (no orphan) -- but the grid-level open-state would otherwise
+  // linger and RE-OPEN on scroll-back. Clear it once the open row leaves the mounted window. Keyed on
+  // the virtualizer's window range so it re-checks on scroll; a no-op unless a remark is open AND we
+  // are virtualized. (The page-owned CategoryVerdictPicker has its own close-on-scroll-out in
+  // SheetPricingPage; the reconciliation chooser uses local state and closes on unmount for free.)
+  const windowStart = rowVirtualizer.range?.startIndex ?? null;
+  const windowEnd = rowVirtualizer.range?.endIndex ?? null;
+  useEffect(() => {
+    if (!virtualized || openRemarkExcelRow == null) return;
+    const mounted = new Set<number>();
+    for (const vi of rowVirtualizer.getVirtualItems()) {
+      const er = rows[vi.index]?.source_row_number;
+      if (er != null) mounted.add(er);
+    }
+    if (shouldCloseOverlay(openRemarkExcelRow, mounted)) setOpenRemarkExcelRow(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized, openRemarkExcelRow, windowStart, windowEnd]);
   // V1-FIX-2: frozen-pane (unobserved) reflows are handled WITHOUT a streaming effect --
   //   - scroll-mount + any scrolling-pane reflow: caught by the scrolling <tr>'s measureRef (the ONLY
   //     observed element per index; the frozen twin carries no measureRef, so there is no
@@ -4020,7 +4090,7 @@ export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(
       selRightCol={selRange ? selRange.right : null}
       skipColsCsv={skipFlash.get(rowIdx) ?? null}
       anyCellActive={anyCellActive}
-      openRemark={openRemarkRowIdx === rowIdx}
+      openRemark={openRemarkExcelRow === row.source_row_number}
       isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
       isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
       displayDescriptors={visibleDescriptors}

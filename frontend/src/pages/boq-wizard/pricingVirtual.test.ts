@@ -9,6 +9,8 @@ import {
   clampIndex,
   paneColSpan,
   maxRowHeight,
+  resolveJumpAction,
+  shouldCloseOverlay,
 } from "./pricingVirtual";
 
 describe("maxRowHeight (V1-FIX max-of-both-panes)", () => {
@@ -96,5 +98,32 @@ describe("paneColSpan (spacer <td> colSpan per pane)", () => {
     expect(paneColSpan("frozen", 5, 8)).toBe(5);
     expect(paneColSpan("scrolling", 5, 8)).toBe(1 + 8 + 1);
     expect(paneColSpan(undefined, 5, 8)).toBe(5 + 1 + 8 + 1);
+  });
+});
+
+describe("resolveJumpAction (V2 nav/search to unmounted rows)", () => {
+  it("a MOUNTED target focuses immediately, regardless of mode", () => {
+    expect(resolveJumpAction(true, true)).toBe("focus"); // virtualized + mounted
+    expect(resolveJumpAction(true, false)).toBe("focus"); // classic + mounted
+  });
+  it("an UNMOUNTED target in VIRTUALIZED mode scrolls the window first, then focuses", () => {
+    expect(resolveJumpAction(false, true)).toBe("scroll-then-focus");
+  });
+  it("an UNMOUNTED target in CLASSIC mode is impossible -> noop (defensive)", () => {
+    expect(resolveJumpAction(false, false)).toBe("noop");
+  });
+});
+
+describe("shouldCloseOverlay (V2 out-of-window close predicate)", () => {
+  it("CLOSES when the open row's excel row is NOT in the mounted window", () => {
+    expect(shouldCloseOverlay(800, new Set([10, 11, 12]))).toBe(true);
+    expect(shouldCloseOverlay(800, new Set())).toBe(true); // window emptied
+  });
+  it("STAYS OPEN when the open row IS in the mounted window", () => {
+    expect(shouldCloseOverlay(11, new Set([10, 11, 12]))).toBe(false);
+  });
+  it("never closes when nothing is open (null)", () => {
+    expect(shouldCloseOverlay(null, new Set())).toBe(false);
+    expect(shouldCloseOverlay(null, new Set([10, 11]))).toBe(false);
   });
 });

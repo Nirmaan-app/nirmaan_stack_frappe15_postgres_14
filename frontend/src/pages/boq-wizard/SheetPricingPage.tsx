@@ -567,6 +567,26 @@ const SheetPricingPage = () => {
   // lock -- only which rows are in the DOM. Classic is the byte-identical fallback (the A/B instrument).
   const [virtualized, setVirtualized] = useState(true);
 
+  // V2 (overlay close-on-scroll-out): the CategoryVerdictPicker is PAGE-owned and anchored to a
+  // captured grid cell (pickerState.anchorEl). In virtualized mode that cell's row can scroll out of
+  // the mounted window and unmount, leaving the popover dangling against a detached node. Watch the
+  // anchor with an IntersectionObserver (viewport root); when it leaves the viewport OR is removed
+  // from the DOM (both fire !isIntersecting), close the picker. VIRTUALIZED-ONLY -- in classic mode
+  // rows never unmount, so the picker's behaviour there is byte-identical (no observer attached).
+  useEffect(() => {
+    if (!virtualized || !pickerState) return;
+    const anchor = pickerState.anchorEl;
+    if (!anchor || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => !e.isIntersecting)) setPickerState(null);
+      },
+      { threshold: 0 },
+    );
+    io.observe(anchor);
+    return () => io.disconnect();
+  }, [virtualized, pickerState]);
+
   // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
   // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
   // the upstream displayRows filter (R4) and the descendant/visibility math needs the FULL rows
