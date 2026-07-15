@@ -123,12 +123,20 @@ _REMARK_MAX_LEN = 250
 _EDIT_LOG_FIELD = "edit_log"
 
 # The 4 parser-output list-JSON fields that must be re-serialized before doc.save()
-# in save_review_edit. frappe.get_doc() returns them as Python lists; Frappe's
-# get_valid_dict rejects Python lists for JSON fieldtype. edit_log is handled
-# separately (rebuilt in full above the save call).
+# in _apply_and_save_row_edit (save_review_edit / save_review_restructure). The parser
+# stores these as JSON *strings* (parse_run._LIST_JSON_FIELDS json.dumps() before insert),
+# but frappe.get_doc() HYDRATES a JSON field back into a Python list on load -- and
+# get_valid_dict rejects a Python list for a JSON field on save. So every edit must
+# re-serialize them before doc.save(). edit_log is handled separately (rebuilt in full
+# above the save call).
+# MUST stay in sync with parse_run._LIST_JSON_FIELDS: description_parts_raw (MC-2,
+# c99ffff0) was registered at the write + read boundaries but was MISSING here, so any
+# edit re-save of a row carrying it threw "Value for Description Parts Raw cannot be a
+# list" -- added below.
 _RESAVE_LIST_JSON_FIELDS: frozenset[str] = frozenset({
     "attached_notes", "classifier_warnings",
     "preamble_candidate_signals",
+    "description_parts_raw",
 })
 
 # JSON fields returned as parsed Python objects in get_review_rows responses
