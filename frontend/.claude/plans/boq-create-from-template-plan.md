@@ -528,6 +528,12 @@ hidden, tree intact on flagged/expanded rows → type qty inline → finalize bl
 
 ## Slice 2 — Multi-area (layers on Slice 1)  *(COMMITTED `6e1a9cb3` + LIVE-E2E-VERIFIED 2026-07-09)*
 
+> ⚠️ **COLUMN MODEL SUPERSEDED (2026-07-15) by `RECTIFICATION ROUND (R)` § R-T1 / ADR-0013 Amendment A2-D1.**
+> The "Design A un-collapse / append-after-max" algorithm below (drop `qty_total`, append area cols + a new Total
+> *after* the sheet's last column) is replaced by **insert-before-Total**: keep the master `qty_total`, insert the
+> area cols immediately before it, shift Total+rates+amounts+notes right by N. The per-area inline cells + read-only
+> summed Total (now **live** client-side) remain. Read R-T1 as current for the column layout.
+
 **LIVE E2E (chrome-devtools, Administrator, :8080) — BOTH SLICES GREEN 2026-07-09:** single-area BOQ-26-00106
 (mode chooser → form → clone → review: Status/AI-Rec/Rate*/Amount*/Gemini HIDDEN + inline Total-Quantity +
 finalize gate disabled→enabled → inline save persisted → finalize → commit v1 → 15 Line-Item nodes qty=1) +
@@ -588,4 +594,137 @@ maintained at one chokepoint. **NEVER a non-`^[A-Z]+$` key.**
 ## Deferred (out of scope, documented)
 Post-create area editing; per-sheet area sets; per-sheet reseed; inline qty on upload-origin BoQs; the
 pre-existing `attached_to_index` 0-sentinel edge.
-```
+
+---
+
+# RECTIFICATION ROUND (R) — 2026-07-15 — owner review fixes + from-scratch priced export
+
+**Status:** PLAN — grill-locked (`/grill-with-docs` + `/domain-modeling`, 9 decisions, 2026-07-15); design of
+record = **ADR-0013 Amendment A2** + **CONTEXT.md** term updates. Awaiting plan-review go-ahead before code.
+Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) stays ON HOLD**
+until this round lands.
+
+Four owner rectifications to the shipped A2 build:
+1. **R1 — one-screen mode selector.** Fold Upload-vs-Template selection into a persistent toggle at the top of the
+   project-scoped upload screen; drop the redundant full-screen "New BoQ" chooser gate (`projectMode==="choose"`).
+2. **R2 — areas as editable badges.** Show defined multi-area names as badges with ✕-remove + an Edit button.
+3. **R3 — insert-before-Total columns + live Total.** Multi-area qty columns go *before* the existing Total column
+   (Excel insert-column, shift-right); Total = live client-side sum. (ADR A2-D1.)
+4. **R4 — from-scratch priced download.** Generate the priced Excel from committed data for template BoQs — full
+   tender package (data sheets + Make List + computed Summary). Fixes the "source file missing" throw. (ADR A2-D2.)
+
+## Locked decisions (grill 2026-07-15) — rationale in ADR A2
+- **D4 (R3 backend):** rewrite `_apply_areas_to_sheet_config` to insert-before-Total / shift-right; keep the master
+  `qty_total` (repurposed as the sum); **supersedes** Slice-2 append-after-max.
+- **D5 (R3 frontend):** Total = live derived Σ in an isolated per-row `<AreaQtyCells>` component (blank=0 running
+  sum; save-on-blur; server authoritative; NOT a stored formula record).
+- **D1 (R1):** `BoqPickerPage` hosts one shared header + persistent Upload|Template toggle; active sub-component
+  inline via a new `embedded` prop on `BoqUploadScreen` + `TemplateCreateFlow`; only the active mode mounted;
+  toggle only on the project-scoped screen.
+- **D2 (R1):** default = Upload; dirty-guard confirm on switch (Upload dirty = `droppedFile` set or
+  `uploadStatus≠"idle"` — prevents stranding a created BoQ; Template dirty = fields typed / areas defined).
+- **D3 (R2):** flex-wrap badge row from `cleanAreas`; per-badge ✕ remove (index-safe via
+  `setAreaBoxes(cleanAreas.filter((_,i)=>i!==idx))`); one "Edit areas" button reopens `DefineAreasDialog`; ≥2-area
+  gate unchanged; `DefineAreasDialog` untouched (no `focusIndex`).
+- **D6 (R4):** amount cells = live Excel formulas (translate `BoQ Cell Amount Formula` AST → Excel `=…`);
+  qty+rate static; Total-Qty = `=SUM(areas)`; per-sheet grand-total row.
+- **D7 (R4):** from-scratch + light styling (synthesized bold headers, column widths, currency number-format,
+  thin borders). Original template formatting NOT reproduced (non-goal).
+- **D8 (R4):** full package — data sheets + Make List (verbatim `preamble_text` line-dump) + regenerated Summary
+  (per-sheet rollup, Particulars=`sheet_label`/name, Supply/Install/Total as **live cross-sheet formulas**;
+  `Total Excl. Taxes → GST @ 18% [Pre-tax only] → Grand Total`; Post-tax = amounts final, no GST line; drop the
+  6th per-sqft column).
+
+## Guardrails (this round)
+- **Upload flow byte-identical** — all gates `origin==="template"` / `templateOrigin` / `embedded` default-off;
+  single-area path unchanged. `tsc` boq-wizard delta-0. `python3 scripts/residence_check.py` before each commit.
+- `_apply_areas_to_sheet_config` operates on the **pristine master** config each run (idempotent); keys stay real
+  `^[A-Z]+$` (openpyxl `get_column_letter`); `qty_total` singleton preserved; **`column_headers` re-keyed in
+  lockstep with `column_role_map`** (the one shift hazard). `qty_by_area` dict-JSON (assign direct).
+- Export template branch: **reject-mutates-nothing** (no `last_exported_at` on failure); `frappe.db.set_value`
+  (not `doc.save()`) for list-JSON; `sheet_name` verbatim; S3 avoided entirely; upload path (`data_only=False`,
+  `_assert_fidelity`) untouched.
+- Lock stays **server-authoritative** (no client re-acquire). Sentinels −1 root / 0 not-attached.
+
+## Execution Strategy (plan-to-parallel — survives context clearing)
+Dependency-ordered; **R-T1 (backend column model) is foundational** — R-T3 (export) reads the committed layout it
+produces. Create tasks with `TaskCreate`, set deps with `TaskUpdate`, launch each wave as parallel subagents
+(worktree isolation where files overlap). `BOQ-26-00107` is **stale old-layout** test data — verify with a FRESH
+clone, do not migrate it.
+- **Wave 1 (parallel — disjoint files):** R-T1 (`create_from_template.py` + tests), R-T2 (`ReviewTree.tsx`),
+  R-T4 (`BoqPickerPage.tsx` + `BoqUploadScreen.tsx` + `TemplateCreateFlow.tsx`).
+- **Wave 2:** R-T5 (badges — `TemplateCreateFlow.tsx`, **after R-T4**: same file), R-T3 (export —
+  `export_writeback.py` + tests, **after R-T1**: reads new committed layout).
+- **Wave 3:** R-T6 live E2E.
+
+## Task detail
+
+### R-T1 — `_apply_areas_to_sheet_config` → insert-before-Total (Wave 1) `[backend]`
+- Rewrite the pure helper: find the master's single `{role:"qty_total"}` letter **T** (index *t*). Insert N
+  `{role:"qty",area}` at indices `[t … t+N-1]`; **shift every column with index ≥ t right by N** (qty_total→t+N;
+  rates/amounts/notes follow). Re-key `column_role_map` **and** `column_headers` together; set each area column's
+  header = area name; preserve Total's header; `area_dimensions = areas`. Keys via `get_column_letter` (real
+  `^[A-Z]+$`).
+- Idempotent on the pristine master (as today); gated to DATA sheets with non-empty `areas`; general-specs +
+  single-area untouched (byte-identical).
+- Tests (`TestApplyAreasToSheetConfig`): **invert** the old `assertNotIn('F', role_map)` → assert `qty_total`
+  KEPT + shifted; area cols sort immediately before Total; rates/amounts/notes shifted; `column_headers` lockstep;
+  `SheetConfig.model_validate` passes; `get_stale_sheets` not-stale; `qty_total` singleton; rewrite idempotency.
+  Reverify commit path (`node.qty=qty_total`, `_explode_area_children`) unchanged.
+
+### R-T2 — live-sum Total in an isolated per-row component (Wave 1) `[frontend]`
+- Extract the multi-area qty cells (per-area inputs + Total) from `ReviewTree`'s descriptor loop into a
+  self-contained `<AreaQtyCells row descriptors onSaveArea>` holding **local per-area draft state**.
+- Per-area input: controlled `value = draft[area] ?? saved`, `onChange` updates local draft, `onBlur`/Enter →
+  `saveAreaQtyInline` (persistence unchanged). Total cell = live `Σ (draft[area] ?? row.qty_by_area[area])`,
+  blank=0 (partial running sum), read-only. Only that row's cells re-render on keystroke — no whole-tree re-render,
+  no grid-level draft plumbing, no memo refactor. Reconcile local draft with server value after refetch (key on
+  saved value, mirroring the existing uncontrolled key). Single-area `isInlineQty` path unchanged.
+- `tsc` delta-0; vitest for the sum helper.
+
+### R-T3 — from-scratch template priced export (Wave 2, after R-T1) `[backend]`
+- `export_priced_workbook`: `is_template = BOQs.origin=='template'`; gate the `source_file_url` guard + S3 fetch +
+  copy + `_assert_fidelity` behind `if not is_template` (mirrors `commit_pipeline` D9/T5b).
+- Template branch: fresh `openpyxl.Workbook()`; per ticked DATA sheet (verbatim name) read `BoQ Committed Sheet
+  Grid` (is_current) + rows → write cells `{col_letter:value}` at `row_number`; **synthesize header labels** from
+  column roles/areas at `header_row`. Overlay rates from `BoQ Cell Pricing` (is_current, is_filled) via reused
+  `_stamp_rates`; reuse `_apply_colors`/`_apply_priced_highlight`/`_write_remark_column`. `_resolve_sheet_plan`
+  reads `column_role_map`/`header_row` from BoQ Sheet (works for template).
+- **Amounts** → live Excel formulas: translate each amount column's `BoQ Cell Amount Formula` AST → Excel
+  `=<qty_cell>*<rate_cell>` using the row's actual cell addresses (fail-safe blank on missing operand). Total-Qty
+  cell → `=SUM(<area cells>)` (multi) / static (single). Per-sheet **grand-total row** (`=SUM` per amount col).
+- **Light styling**: bold synthesized header row, column widths, currency number-format on rate/amount cols, thin
+  borders.
+- **Make List** sheet: verbatim line-dump of general-specs `preamble_text` into column A.
+- **Regenerated Summary** sheet: per-data-sheet rollup (Particulars=`sheet_label`/name), Supply/Install/Total as
+  **live cross-sheet formulas** → each sheet's grand-total cells; `Total Excl. Taxes` → `GST @ 18%` (only if
+  `tax_treatment=="Pre-tax"`) → `Grand Total`; Post-tax = amounts final (no GST line); drop the 6th per-sqft col.
+- Reject-mutates-nothing; `frappe.db.set_value` for `last_exported_at`; upload path byte-identical.
+- Tests: template export produces expected sheets (data + Make List + Summary) with correct cells / rates /
+  amount-formulas / SUM / grand-total; Pre-tax vs Post-tax Summary; upload export unchanged. **Verify on a fresh
+  clone** that `BoQ Cell Pricing.excel_row == committed grid row_number` (rate overlay lands on the right row).
+
+### R-T4 — one-screen mode selector (Wave 1) `[frontend]`
+- `BoqPickerPage`: `projectMode` → `"upload"|"template"` (default `"upload"`); **delete** the `"choose"` block +
+  the dead `preProject` fetch; render one shared header + a persistent segmented toggle; conditionally mount the
+  active sub-component inline (no `onBack`). Keep the two data hooks ABOVE the `if (preSelectedId)` early return
+  (React #300).
+- Add `embedded?: boolean` to `BoqUploadScreen` + `TemplateCreateFlow` (suppress own `<h1>` + outer width wrapper;
+  keep footers) — mirrors the existing `TenderingProjectForm embedded` pattern in this file.
+- **Dirty-guard** AlertDialog before switching if current mode dirty (Upload: `droppedFile` set or
+  `uploadStatus≠"idle"`; Template: panel fields typed / areas defined). Toggle only on the project-scoped screen;
+  bare `/upload-boq` project-picker unchanged. `tsc` delta-0. Toggle/header polish via `/frontend-design`.
+
+### R-T5 — areas as editable badges (Wave 2, after R-T4) `[frontend]`
+- `TemplateCreateFlow`: replace the comma-sentence (`~512-518`) with a flex-wrap `<Badge>` row from `cleanAreas`;
+  each badge = name + inline `<button><X/></button>` remove (index-safe:
+  `setAreaBoxes(cleanAreas.filter((_,i)=>i!==idx))`); one "Edit areas" button → existing `setAreasDialogOpen(true)`.
+  ≥2-area gate (`areasReady`/`canCreate`) unchanged; badges under the `isMultiArea` guard only (single-area
+  byte-identical); `DefineAreasDialog` untouched. `tsc` delta-0.
+
+### R-T6 — live E2E verification (Wave 3) `[verify]`
+- Fresh **single-area** + fresh **multi-area** clone (chrome-devtools, `:8080`). Verify: one-screen toggle +
+  dirty-guard; badges (add / ✕-remove / Edit); multi-area review shows area cols **before** Total + **live-sum
+  Total as you type**; finalize gate; commit; **price** the sheet(s); **download** priced Excel → data sheets
+  (live amount formulas + grand-total row), Make List, Summary (per-sheet rollup + `GST @ 18%` for Pre-tax);
+  upload flow unaffected. Fresh clones only (`BOQ-26-00107` is stale old-layout).

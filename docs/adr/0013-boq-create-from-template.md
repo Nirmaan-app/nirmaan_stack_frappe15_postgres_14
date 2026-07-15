@@ -11,6 +11,10 @@ flagged `BOQs` doc), seeded once from a committed BoQ and thereafter hand-edited
 D1, D2 (source), D4 (fields), and D10 in full; it reaffirms D3; D5–D9 and the create-flow mechanics are
 UNCHANGED.** Read A1 as the current design; the original D1–D10 below are retained as the historical baseline
 the grill started from.
+**Further amended by [Amendment A2](#amendment-a2--2026-07-15--insert-before-total-column-model--from-scratch-template-export) (2026-07-15):** the multi-area quantity-column model changes to
+**insert-before-Total** (supersedes the A2-enhancement Slice-2 "append-after-max" algorithm), and the
+template-origin **priced download is generated from scratch** from committed data (was impossible — no source
+workbook).
 
 Grill-locked design (18 decisions, Q1–Q18), resolved via `/grill-with-docs` 2026-07-08; **re-grilled on the
 templating system 2026-07-08 → Amendment A1**.
@@ -273,3 +277,87 @@ are hand-built (no bulk append — accepted, rare); editing a live master change
 (existing project BoQs are point-in-time clones, unaffected — same as before). **No data migration:** all
 existing BoQs are `is_template=0` and the branch is local/unpushed, so the flagged-BOQs paths are deleted with
 zero backfill.
+
+---
+
+## Amendment A2 — 2026-07-15 — insert-before-Total column model + from-scratch template export
+
+**Trigger.** After the A2 *enhancement round* shipped (an explicit Upload-vs-Template mode selector + user-entered
+single/multi-area quantities, plan Slices 1–2, commit `6e1a9cb3`, live-E2E-verified 2026-07-09), the owner
+reviewed the running build (2026-07-15) and requested four rectifications, grill-locked via `/grill-with-docs`
+(9 decisions). **Two are load-bearing and hard to reverse and are recorded here.** The other two — fold the mode
+selector into one screen (drop the redundant chooser gate); render defined areas as editable badges — are
+reversible presentation changes and live in the build plan (`RECTIFICATION ROUND (R)`), not this ADR.
+
+### A2-D1 — Multi-area quantity columns are inserted *before* the existing Total-Quantity column (supersedes the Slice-2 "append-after-max" model)
+
+The A2 Slice-2 algorithm ("un-collapse Design A") **dropped** the master sheet's single `qty_total` column and
+**appended** the N per-area `qty` columns + a fresh `qty_total` on new Excel letters *after the sheet's last
+occupied column*. On real master sheets that places the quantity columns after the rate/amount/notes columns
+(e.g. HVAC's areas at K/L, a new Total at M — past the notes column), mis-ordering the sheet.
+
+The new model is a true Excel **insert-column**: the master's existing `qty_total` column is **kept in place**;
+the N per-area `qty` columns are inserted **immediately before it**, and `qty_total` together with every column
+at or after it (rates, amounts, notes) is **shifted right by N**. The pre-existing Total-Quantity column is
+thereby **repurposed** as the summed total (`qty_total = Σ qty_by_area` — the same server chokepoint and read
+path as before) instead of being destroyed and re-minted at the end. The resulting order is
+`[descriptors][area₁…areaₙ][Total][rate…][amount…][notes]`.
+
+**Rationale.** (1) Correct ordering that matches how a human reads the sheet. (2) The append-after-max model is
+*forced* to mis-order: 8 of the 9 real master data sheets place `qty_total` flush against the descriptors
+(column D, no gap), so there are no free letters to slot area columns into before Total — a gap-fill strategy is
+infeasible and a shift is mandatory. (3) Keeping the one `qty_total` column (rather than drop-then-re-add) is
+strictly safer for the parser's `qty_total`-singleton invariant and preserves the Total's identity. Column keys
+stay real `^[A-Z]+$` letters (re-validated live by `get_stale_sheets`); `column_headers` is re-keyed in lockstep
+with `column_role_map` when columns shift (the single correctness hazard of a shift). Nodes are immune (no
+Excel-address field); the committed grid derives cell letters from the role map (self-consistent); template-BoQ
+letters are synthetic with no external consumer, so the re-letter carries no migration cost. On-screen column
+order is a pure Excel-letter sort, so the review grid follows the new letters with **no frontend ordering
+change**.
+
+**Total-Quantity display.** The multi-area Total is a **live, client-side derived sum** of the row's per-area
+cells (updates as the user types), computed in an isolated per-row component so only that row re-renders; the
+server stays authoritative (`qty_total = Σ qty_by_area` on each per-area save). It is a fixed derived sum, not a
+stored/editable formula record.
+
+### A2-D2 — A template-origin priced BoQ download is generated from scratch from committed data (new capability)
+
+A template-origin BoQ has **no source workbook** (`source_file_url = None`). The priced-download endpoint
+`export_priced_workbook` was copy-on-write over the original upload, so it threw `"BOQs '…' has no
+source_file_url set"` for every template BoQ.
+
+Reusing "the template Excel" is **infeasible**: the `BoQ Template` doctypes store no workbook, and the master's
+seed-source BoQ Excel cannot be reused because (a) multi-area BoQs synthesize per-area columns the seed Excel
+does not contain, (b) admin hand-edits diverge the template's rows from the seed Excel, and (c) the seed source
+is a single transient BoQ that may be deleted or file-cleaned.
+
+The download is therefore **generated from scratch** from the committed BoQ, mirroring the commit pipeline's
+existing `is_template` branch (D9 / T5b): an `is_template` branch in `export_priced_workbook` skips the
+`source_file_url` guard, the S3 fetch, and the original-workbook fidelity assertion, and builds a fresh workbook
+from the `BoQ Committed Sheet Grid` + `BoQ Cell Pricing`, reusing the existing rate/colour/remark stamping.
+Because the master carries no header labels, headers are **synthesized** from column roles/areas. Amounts are
+never persisted for a template BoQ (capture-only tier — node amounts are zero), so the deliverable is a **live**
+workbook: descriptors/quantities/rates are static values, the Total-Quantity is an Excel `=SUM(areas)`, and
+amount cells are Excel formulas translated from the stored `BoQ Cell Amount Formula` (a plain `qty × rate`),
+plus a per-sheet grand-total row.
+
+**Scope — full tender package.** The generated file is not just the priced data grids: it also includes the
+**Make List** (rendered verbatim from the general-specs `preamble_text` — its flattened `Description | Make`
+structure cannot be reliably re-tabulated) and a **regenerated computed Summary** — a per-data-sheet cost rollup
+(Supply / Install / Total as **live cross-sheet formulas** referencing each sheet's grand-total row, then `Total
+Excluding Taxes → GST @ 18% → Grand Total`). GST is a **fixed 18%**, applied only when the BoQ's `tax_treatment`
+is `Pre-tax`; a `Post-tax` BoQ treats the amounts as final (no GST line). The original Summary's per-sqft column
+is dropped (no total-area figure exists). The workbook is a plain grid with **light programmatic styling** (bold
+synthesized headers, column widths, currency number format, borders); the original template's exact visual
+formatting is **not** reproduced — it does not exist for a template BoQ, and matching it would require persisting
+a real workbook at seed time (an explicit non-goal).
+
+### A2 — consequences (delta)
+**Positive.** The multi-area sheet reads correctly and the pre-existing Total is preserved rather than re-minted;
+the priced download works for template BoQs and delivers a complete, live, styled tender package consistent with
+the upload-path download. **Negative / accepted.** The from-scratch export is a net-new builder (grid + Make List
++ computed Summary) that does not reproduce original spreadsheet formatting; a fixed 18% GST and the
+`Pre-tax`/`Post-tax` handling are baked into the Summary. **No data migration:** template-BoQ column letters are
+synthetic and the branch is local/unpushed, so the Slice-2 column layout is superseded with zero backfill
+(existing test BoQs such as `BOQ-26-00107` carry the old layout and are re-created for verification, not
+migrated).
