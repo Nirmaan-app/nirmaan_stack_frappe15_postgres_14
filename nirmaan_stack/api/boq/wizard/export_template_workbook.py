@@ -347,7 +347,13 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
     header_row = int(plan.header_row) if plan.header_row else 1
     cv = plan.commit_version
 
-    # (a) faithful grid cells.
+    # (a) faithful grid cells -- EXCEPT the rate/amount columns, which are owned by pricing
+    #     (step c) and the amount formulas (step d). A template BoQ's committed grid carries
+    #     placeholder 0s in those columns (_invert_rows_to_grid iterates the full role map), and
+    #     writing them would print 0 / 0.00 on UNPRICED rows. Skip them here so unpriced rows stay
+    #     blank; step (c) overlays real rates and step (d) writes amount formulas on priced rows.
+    currency_cols = {c for c, s in role_map.items()
+                     if isinstance(s, dict) and s.get("role") in _CURRENCY_ROLES}
     grid_rows = _read_grid_rows(boq_name, sheet_name)
     data_rows: list[int] = []
     for gr in grid_rows:
@@ -357,7 +363,7 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
         r = int(rn)
         data_rows.append(r)
         for col, val in (gr.get("cells") or {}).items():
-            if val is not None:
+            if val is not None and col not in currency_cols:
                 ws[f"{col}{r}"] = val
 
     # (b) synthesized header row (written AFTER the grid so it wins any collision).
@@ -380,20 +386,13 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
     _skipped, written = _stamp_rates(ws, pricing)
 
     # (d) AMOUNT cells as live Excel formulas (translate each current BoQ Cell Amount Formula).
-    #     Written ONLY on PRICEABLE rows -- those carrying a qty value and/or a stamped rate.
-    #     Non-line-item rows (section headings / preambles) have neither, so their amount cell
-    #     stays BLANK -- matching the on-screen pricing view (evaluateAmountCell blanks them) and
-    #     the upload path (which preserves the original workbook's blank amount cells there).
-    #     Without this gate a heading row's =qtyCell*rateCell (both blank) prints a spurious 0.00.
-    qty_cols = [c for c, s in role_map.items()
-                if isinstance(s, dict) and s.get("role") in ("qty", "qty_total")]
-    rate_rows = {int(p["excel_row"]) for p in pricing if p.get("excel_row") is not None}
-    qty_rows = {
-        int(gr["row_number"]) for gr in grid_rows
-        if gr.get("row_number") is not None
-        and any((gr.get("cells") or {}).get(c) is not None for c in qty_cols)
-    }
-    priceable_rows = qty_rows | rate_rows
+    #     Written ONLY on PRICED rows (a stamped rate exists for that row). This MIRRORS the
+    #     pricing editor's evaluateAmountCell -- an amount is BLANK unless the row is priced --
+    #     and the upload path (which preserves blank amount cells on unpriced/heading/group-
+    #     preamble rows). A pure group preamble is seeded with a qty but never priced, so gating
+    #     on qty would still print a spurious =qtyCell*rateCell -> 0.00 on it; gating on the rate
+    #     keeps those rows (and every unpriced row) blank, exactly like the on-screen grid.
+    priced_rows = {int(p["excel_row"]) for p in pricing if p.get("excel_row") is not None}
     formulas = frappe.get_all(
         _FORMULA,
         filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
@@ -407,8 +406,8 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
         if not target_col or ast is None:
             continue
         for r in data_rows:
-            if r not in priceable_rows:
-                continue  # non-priceable (heading/section) row -> blank amount, no spurious 0.00
+            if r not in priced_rows:
+                continue  # unpriced / heading / group-preamble row -> blank amount (no 0.00)
             body = ast_to_excel(ast, r, role_map)
             if body is not None:  # fail-safe: unresolved operand -> leave the cell BLANK
                 ws[f"{target_col}{r}"] = "=" + body
