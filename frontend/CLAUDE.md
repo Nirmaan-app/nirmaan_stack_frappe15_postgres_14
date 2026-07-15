@@ -373,9 +373,24 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   Residual drift is <=0.31px at fractional display DPR / browser zoom (two separate `border-collapse` tables) — 0px at 100% zoom.
   The freeze-measure-all `useLayoutEffect` is SKIPPED when `virtualized`. **Any new grid prop must stay identity-stable (the V0
   shield);** `measureRef` is stable per virtualizer instance and is compared in `pricingRowPropsAreEqual`. Pure window helpers
-  live in `pricingVirtual.ts` (unit-tested). **V2 known gaps:** nav/search-jump to UNMOUNTED rows no-op (use `scrollToIndex` in
-  V2; classic toggle is the fallback), overlay close-on-scroll-out, RemarkCell durable re-key. Runtime behavior is an A/B
-  instrument — confirm the virtualized path live before relying on it; classic is the guaranteed fallback.
+  live in `pricingVirtual.ts` (unit-tested). Runtime behavior is an A/B instrument — confirm the virtualized path live before
+  relying on it; classic is the guaranteed fallback.
+- **Off-window nav/jump = scrollToIndex-then-focus (V2), always `align:"center"`.** `focusCell` / `jumpToRow` reach the
+  virtualizer via reference-stable refs (`virtualizedRef` + `scrollRowIntoWindowRef`, assigned after `useVirtualizer`) so
+  they stay memo-safe; both branch on the pure `resolveJumpAction(isMounted, virtualized)` and, for a VIRTUALIZED off-window
+  target, `scrollToIndex(idx,{align:"center"})` then focus after a 50ms mount-defer. **NEVER `align:"auto"`** — with dynamic
+  row heights a near target's ESTIMATED offset reads as already-visible, so `"auto"` no-ops (arrow-nav stalls at the edge).
+  Search-jump to any row works; **arrow-nav across the window edge is focus-safe (never escapes to `document.body`) but does
+  NOT auto-scroll past the edge** — this virtualizer only re-windows on real wheel events, not programmatic scrolls (a V1
+  trait affecting the mounted-path `scrollIntoView` too), so the near-target `scrollToIndex` can't advance it; do not
+  re-attempt without reworking the virtualizer's scroll observation.
+- **Per-row overlay open-state is keyed by the DURABLE excel row (`source_row_number`), NEVER the window array index (V2).**
+  Under virtualized row recycling a collapse/filter reshuffle makes array index N map to a different row, so an index key
+  mis-targets. The remark popover uses grid-level `openRemarkExcelRow`; the row prop `openRemark` stays a by-value boolean
+  (memo untouched). A per-row overlay whose row can scroll out of the window must close on scroll-out: the remark clears via
+  a `rowVirtualizer.range`-keyed effect (`shouldCloseOverlay`), the page-owned CategoryVerdictPicker via an
+  `IntersectionObserver` on its captured anchor (both VIRTUALIZED-gated so classic is byte-identical); a row-local overlay
+  (reconciliation chooser) closes for free on unmount.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 
