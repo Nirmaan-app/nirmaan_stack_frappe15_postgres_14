@@ -23,7 +23,7 @@
 {%- set target = ns.target -%}
 
 {# Per-task signature top-margin (a CSS value). Tasks not listed fall back to the 30px CSS default. #}
-{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "12px", "RR Commissioning Report": "120px", "WLD Commissioning Report": "120px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px", "FA Commissioning Report": "12px"} -%}
+{%- set SIG_MARGINS = {"CCTV Commissioning Report": "120px", "Nitrogen Pressure Testing Report": "0px", "Access Control Commissioning Report": "100px", "Gas Supression System Commissioning Report": "12px", "RR Commissioning Report": "100px", "WLD Commissioning Report": "100px", "DX Commissioning Report": "0px", "VRF Commissioning Report": "0px", "FA Commissioning Report": "12px"} -%}
 
 <style>
 @page { size: A4 portrait; margin-left: 12mm; margin-right: 12mm; margin-top:1mm; }
@@ -119,7 +119,7 @@ thead { display: table-header-group; }
   - `enabled_keys`  = roles the user ticked manually    (TDS-off overridden on)
   No TDS Setting → red error banner asking the admin to configure it.
 #}
-{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], margin=None) -%}
+{% macro render_signatures(template_id, project_id, disabled_keys=[], enabled_keys=[], nirmaan_sign=False, margin=None) -%}
     {%- set tds_name = frappe.db.get_value("Project TDS Setting", {"tds_project_id": project_id}, "name") if project_id else none -%}
     {%- set tds = frappe.get_doc("Project TDS Setting", tds_name) if tds_name else none -%}
     {%- if not tds -%}
@@ -142,7 +142,7 @@ thead { display: table-header-group; }
             {%- if (tds.enable_mep_contractor or "mep_contractor" in ek) and "mep_contractor" not in dk -%}{%- set _ = ns_sigs.items.append("NIRMAAN")         -%}{%- endif -%}
         {%- endif -%}
         {%- if ns_sigs.items | length > 0 -%}
-            <table class="cv-sigs"{% if margin %} style="margin-top: {{ margin }} !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td>&nbsp;</td>{%- endfor -%}</tr></table>
+            <table class="cv-sigs"{% if margin %} style="margin-top: {{ margin }} !important;"{% endif %}><tr class="cv-sig-header">{%- for label in ns_sigs.items -%}<td>{{ label }}</td>{%- endfor -%}</tr><tr class="cv-sig-box">{%- for label in ns_sigs.items -%}<td{%- if label == "NIRMAAN" and nirmaan_sign %} style="background-image:url('{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}'); background-size:contain; background-position:center; background-repeat:no-repeat; -webkit-print-color-adjust:exact; print-color-adjust:exact;"{% endif %}>&nbsp;</td>{%- endfor -%}</tr></table>
         {%- endif -%}
     {%- endif -%}
 {%- endmacro %}
@@ -218,6 +218,7 @@ thead { display: table-header-group; }
         {%- set _sig_rd = ((rd.responses or {}).get(sig_section.id, {}) if sig_section else {}) or {} -%}
         {%- set sig_disabled = _sig_rd.get("disabled") or [] -%}
         {%- set sig_enabled  = _sig_rd.get("enabled")  or [] -%}
+        {%- set sig_nirmaan  = _sig_rd.get("nirmaanSign") -%}
 
         {% if tpl.templateId == "sprinkler-pressure-test" %}
 
@@ -343,7 +344,7 @@ thead { display: table-header-group; }
                     </table>
                 {% endif %}
                 <div style="height: 24px; font-size: 1px; line-height: 24px;">&nbsp;</div>
-                {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="0px") }}
+                {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin="0px") }}
             </div>
 
         {% elif tpl.templateId == "db-commissioning-report" %}
@@ -465,7 +466,7 @@ thead { display: table-header-group; }
                         {% endif %}
 
                         {# Signature -- repeated on every DB page #}
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="100px") }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin="100px") }}
                     </div>
                 {% endfor %}
             {% else %}
@@ -582,7 +583,7 @@ thead { display: table-header-group; }
                         {% endfor %}
 
                         {# Signature -- per panel #}
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="18px") }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin="18px") }}
                     </div>
                 {% endfor %}
             {% else %}
@@ -709,7 +710,7 @@ thead { display: table-header-group; }
                         {% endfor %}
 
                         {# Signature -- per equipment #}
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="12px") }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin="12px") }}
                     </div>
                 {% endfor %}
             {% else %}
@@ -762,7 +763,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -838,7 +839,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -902,7 +903,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1100,7 +1101,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1207,7 +1208,7 @@ thead { display: table-header-group; }
                         </table>
 
                         {# Signature -- per equipment #}
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin="40px") }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin="40px") }}
                     </div>
                 {% endfor %}
             {% else %}
@@ -1322,7 +1323,7 @@ thead { display: table-header-group; }
                     {% endif %}
                     {# Signature inside the content cell so it flows with the equipment
                        cards — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1444,7 +1445,7 @@ thead { display: table-header-group; }
                     {% endif %}
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1557,7 +1558,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1617,7 +1618,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1700,7 +1701,7 @@ thead { display: table-header-group; }
 
                 </td></tr>
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1820,7 +1821,7 @@ thead { display: table-header-group; }
 
                     {# Signature inside the content cell so it flows with the checklist
                        — avoids the wkhtmltopdf bottom-row forced break to a 2nd page. #}
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
             </table>
 
@@ -1930,12 +1931,12 @@ thead { display: table-header-group; }
                     {# VESDA: signature inside the content cell (flows with the checklist) to
                        beat the wkhtmltopdf bottom-row forced break; others keep the row. #}
                     {% if (target.task_name or '') in ["VESDA Commissioning Report", "Gas Supression System Commissioning Report"] %}
-                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                        {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                     {% endif %}
                 </td></tr>
                 {% if (target.task_name or '') not in ["VESDA Commissioning Report", "Gas Supression System Commissioning Report"] %}
                 <tr><td class="cv-bottom-cell">
-                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, margin=SIG_MARGINS.get(target.task_name or '')) }}
+                    {{ render_signatures(tpl.templateId, doc.project, sig_disabled, sig_enabled, sig_nirmaan, margin=SIG_MARGINS.get(target.task_name or '')) }}
                 </td></tr>
                 {% endif %}
             </table>

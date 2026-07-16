@@ -666,3 +666,187 @@ class TestSetRowCategory(FrappeTestCase):
         set_row_category(boq=self.boq, sheet_name=self.sheet, excel_row=11, human_category_id="earthing")
         res = set_row_category(boq=self.boq, sheet_name=self.sheet, excel_row=11, human_category_id="")
         self.assertEqual(res["effective_category_id"], "")  # final was "" (needs review)
+
+
+# ── FREEZE / UNFREEZE CLASSIFICATION ─────────────────────────────────────────────
+class TestFreezeClassification(FrappeTestCase):
+    """Freeze = stamp effective categories into human_category_id (in place) + bank one
+    BoQ Category Truth Snapshot batch (source 'Frozen in product') + set classification_frozen
+    on the committed BoQ Sheet, atomically. While frozen, verdict writes + re-classify are
+    rejected; pricing is untouched. Unfreeze clears the flag only (snapshots + stamps stay)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.boq = _new_boq(cls.project.name, "Freeze BoQ")
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.delete(classify._TRUTH_SNAPSHOT, {"boq": cls.boq})
+        frappe.db.delete(_ROW_CATEGORY, {"boq": cls.boq})
+        frappe.db.delete("BOQ Nodes", {"boq": cls.boq})
+        frappe.db.delete("BoQ Sheet", {"boq": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _seed(self):
+        """A fresh committed sheet (unique name so each test is isolated) with:
+        eligible + categorised: 10 Preamble, 11 Line Item (final=earthing), 12 Line Item
+        (human override db_switchgear so effective=human); eligible + UNcategorised: 13 Line
+        Item, 14 Preamble; ineligible: 15 spacer. Returns the sheet_name."""
+        sheet = "FZ " + frappe.generate_hash(length=6)
+        sd = _new_sheet(self.boq, sheet)
+        p = _node(self.boq, sd, "Preamble", 10, None, "SECTION", 1, level=0)
+        _node(self.boq, sd, "Line Item", 11, p, "earth strip", 2)
+        _node(self.boq, sd, "Line Item", 12, p, "gi earth strip", 3)
+        _node(self.boq, sd, "Line Item", 13, p, "uncategorised li", 4)
+        _node(self.boq, sd, "Preamble", 14, None, "UNCAT SECTION", 5, level=0)
+        _node(self.boq, sd, "Other", 15, p, "", 6, row_class="spacer")
+        frappe.db.commit()
+        persist.write_row_categories(
+            self.boq, sheet, 1, "Electrical", [_cat_row(10), _cat_row(11), _cat_row(12)]
+        )
+        # Row 12 gets a human override -> effective(12) = human (db_switchgear), not final.
+        persist.set_human_verdict(self.boq, sheet, 12, 1, "Electrical", "db_switchgear")
+        return sheet
+
+    def _human_by_row(self, sheet):
+        return {
+            r["excel_row"]: (r.get("human_category_id") or "")
+            for r in frappe.get_all(
+                _ROW_CATEGORY,
+                filters={"boq": self.boq, "sheet_name": sheet, "is_current": 1},
+                fields=["excel_row", "human_category_id"],
+            )
+        }
+
+    def test_freeze_sets_flag_stamps_and_banks(self):
+        sheet = self._seed()
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["rows_stamped"], 3)
+        self.assertEqual(res["snapshots_banked"], 3)
+        self.assertTrue(res["snapshot_batch"].startswith("gtfreeze-"))
+        self.assertEqual(res["committed_version"], 1)
+        # (3) flag set on the committed BoQ Sheet.
+        self.assertTrue(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        # (1) human_category_id == effective category on every categorised eligible row.
+        human = self._human_by_row(sheet)
+        self.assertEqual(human[10], "earthing")   # final adopted as human
+        self.assertEqual(human[11], "earthing")
+        self.assertEqual(human[12], "db_switchgear")  # human override preserved
+        # (2) one snapshot per categorised row, correct source/batch/address/label.
+        snaps = frappe.get_all(
+            classify._TRUTH_SNAPSHOT,
+            filters={"boq": self.boq, "sheet_name": sheet},
+            fields=["excel_row", "label_category_id", "source", "snapshot_batch",
+                    "discipline", "committed_version"],
+        )
+        self.assertEqual(len(snaps), 3)
+        self.assertTrue(all(s["source"] == "Frozen in product" for s in snaps))
+        self.assertEqual(len({s["snapshot_batch"] for s in snaps}), 1)  # ONE shared batch
+        self.assertTrue(all(s["discipline"] == "Electrical" for s in snaps))
+        self.assertTrue(all(s["committed_version"] == 1 for s in snaps))
+        by = {s["excel_row"]: s for s in snaps}
+        self.assertEqual(by[10]["label_category_id"], "earthing")
+        self.assertEqual(by[12]["label_category_id"], "db_switchgear")  # effective (human) banked
+        self.assertEqual(set(by), {10, 11, 12})  # 13/14 uncategorised -> NOT banked
+
+    def test_double_freeze_rejected(self):
+        sheet = self._seed()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        with self.assertRaises(frappe.ValidationError):
+            classify.freeze_classification(self.boq, sheet, "Electrical")
+
+    def test_unfreeze_clears_flag_only(self):
+        sheet = self._seed()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        classify.unfreeze_classification(self.boq, sheet)
+        self.assertFalse(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        # Snapshots are permanent -- unfreeze does NOT delete them.
+        self.assertEqual(
+            frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 3
+        )
+        # Human stamps stay (unfreeze does NOT revert them).
+        human = self._human_by_row(sheet)
+        self.assertEqual(human[11], "earthing")
+        self.assertEqual(human[12], "db_switchgear")
+
+    def test_verdict_write_rejected_while_frozen_mutates_nothing(self):
+        sheet = self._seed()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        before = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": sheet, "excel_row": 11, "is_current": 1},
+            fields=["name", "human_category_id", "category_version"],
+        )[0]
+        with self.assertRaises(frappe.ValidationError):
+            set_row_category(
+                boq=self.boq, sheet_name=sheet, excel_row=11,
+                human_category_id="db_switchgear", discipline="Electrical",
+            )
+        after = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": sheet, "excel_row": 11, "is_current": 1},
+            fields=["name", "human_category_id", "category_version"],
+        )[0]
+        self.assertEqual(before, after)  # reject-mutates-nothing
+
+    def test_start_classify_rejected_while_frozen(self):
+        sheet = self._seed()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        with mock.patch("frappe.enqueue") as enq:
+            with self.assertRaises(frappe.ValidationError):
+                start_classify(boq=self.boq, sheet_name=sheet, discipline="Electrical",
+                               scope={"mode": "sheet"})
+            enq.assert_not_called()  # rejected BEFORE the enqueue
+
+    def test_uncategorised_skipped_but_counted(self):
+        sheet = self._seed()
+        summ = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertEqual(summ["uncategorised_preambles"], 1)   # row 14
+        self.assertEqual(summ["uncategorised_line_items"], 1)  # row 13
+        self.assertFalse(summ["frozen"])
+        res = classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertEqual(res["snapshots_banked"], 3)  # 13/14 excluded from banking
+        summ2 = classify.get_freeze_summary(self.boq, sheet, "Electrical")
+        self.assertTrue(summ2["frozen"])
+        self.assertTrue(summ2["frozen_by"])
+        self.assertEqual(summ2["uncategorised_preambles"], 1)
+        self.assertEqual(summ2["uncategorised_line_items"], 1)
+
+    def test_recommit_resets_flag(self):
+        sheet = self._seed()
+        classify.freeze_classification(self.boq, sheet, "Electrical")
+        self.assertTrue(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        # Simulate a re-commit: freeze the prior v1 sheet (is_current=0), insert a fresh v2 current
+        # row (defaults classification_frozen=0). The freeze must NOT carry forward.
+        old = classify._current_sheet_name(self.boq, sheet, 1)
+        frappe.db.set_value("BoQ Sheet", old, "is_current", 0)
+        _new_sheet(self.boq, sheet, commit_version=2)
+        frappe.db.commit()
+        self.assertFalse(persist.is_sheet_classification_frozen(self.boq, sheet, 2))
+
+    def test_atomic_rollback_on_midbatch_failure(self):
+        sheet = self._seed()
+        real_new_doc = frappe.new_doc
+        state = {"n": 0}
+
+        def boom(doctype, *a, **k):
+            if doctype == classify._TRUTH_SNAPSHOT:
+                state["n"] += 1
+                if state["n"] == 2:  # blow up mid-batch (after the 1st snapshot inserted)
+                    raise RuntimeError("induced mid-batch failure")
+            return real_new_doc(doctype, *a, **k)
+
+        with mock.patch.object(frappe, "new_doc", side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                classify.freeze_classification(self.boq, sheet, "Electrical")
+        # Nothing landed: flag unset, zero snapshots, and the stamp on row 11 (which had no
+        # committed human before) rolled back to blank.
+        self.assertFalse(persist.is_sheet_classification_frozen(self.boq, sheet, 1))
+        self.assertEqual(
+            frappe.db.count(classify._TRUTH_SNAPSHOT, {"boq": self.boq, "sheet_name": sheet}), 0
+        )
+        self.assertFalse((self._human_by_row(sheet).get(11) or "").strip())

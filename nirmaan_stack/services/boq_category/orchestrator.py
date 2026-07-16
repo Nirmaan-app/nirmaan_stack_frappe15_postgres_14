@@ -85,6 +85,12 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
     sheet_doc = sheets[0]["name"]
     committed_version = sheets[0]["commit_version"]
 
+    # Defence-in-depth: a classification-frozen sheet rejects a re-classify here too (the primary
+    # guard is in start_classify, which blocks the enqueue). This backstops any DIRECT service /
+    # test caller of classify_sheet_rows. Reject-mutates-nothing: fires before any node read/write.
+    if persist.is_sheet_classification_frozen(boq, sheet_name, committed_version):
+        frappe.throw(persist._FROZEN_WRITE_MESSAGE, title="Classification frozen")
+
     def _in_range(row_number):
         if row_filter is None:
             return True

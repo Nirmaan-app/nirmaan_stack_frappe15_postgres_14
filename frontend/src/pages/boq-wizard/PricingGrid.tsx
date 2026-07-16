@@ -58,6 +58,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import { debounce, type DebouncedFunc } from "lodash";
@@ -84,9 +85,42 @@ import {
   descriptionCellValue,
   sheetHasDescriptionParts,
 } from "./reviewRender";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DescriptionColumn } from "./reviewRender";
 import { COLOR_TOKENS, ROLE_LABELS } from "./boqTypes";
 import { descendantCount, rowHasDescendants } from "./collapse";
+import {
+  DEFAULT_ROW_ESTIMATE_PX,
+  ROW_OVERSCAN,
+  deriveSpacers,
+  maxRowHeight,
+  paneColSpan,
+  resolveJumpAction,
+  seedEstimate,
+  selectRenderPath,
+  shouldCloseOverlay,
+} from "./pricingVirtual";
+
+// V1-FIX: the NATURAL content height of a pane's row -- immune to the row's applied alignment
+// height. Because every cell is `align-top`, the cell's content wrapper sits at the top and does
+// NOT stretch when the <tr> is padded taller; so reading the tallest child's box height (+ the
+// cell's own vertical padding/border) yields the true content height regardless of padding. This is
+// what prevents the padded (short) pane from feeding its padding back into the max (no sticky-max).
+function paneNaturalHeight(tr: Element | null | undefined): number {
+  if (!tr) return 0;
+  // V1-FIX-2: measure the <tr>'s TRUE rendered box height (row border INCLUDED) -- the SAME basis
+  // classic uses (`ceil(single-table getBoundingClientRect().height)`). Because the box height is
+  // `max(true content, applied height)`, this is always >= the pane's content; so `ceil(max(frozen
+  // box, scroll box))` applied identically to BOTH panes makes NEITHER pane grow past it -> both pad
+  // -> identical heights -> 0 drift at ANY DPR (classic's proven behaviour). It is SELF-CORRECTING
+  // (content wins when content > applied) with a FIXPOINT (once applied = ceil(max) >= content, the
+  // box = applied = the measure -> stable) -> NO runaway. This deliberately REPLACES the V1-FIX
+  // content-wrapper sum, which omitted this row border (~1px short) and drove the per-row drift, and
+  // it does NOT read the inner content wrapper (which stretches and caused the earlier runaway). The
+  // sticky-on-in-place-shrink this introduces is cleared by rowVirtualizer.measure() on a column
+  // resize (endResize / autofitColumn), matching classic's rowHeights reset.
+  return Math.ceil((tr as HTMLElement).getBoundingClientRect().height);
+}
 import { AmountFormulaBuilder } from "./AmountFormulaBuilder";
 import { bindRef, evaluateAmountColumn, pickFormula, type OperandLookup } from "./amountFormula";
 import {
@@ -961,6 +995,42 @@ export function remarkPreview(remark: string | null | undefined, max = 60): stri
   return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
+// V2-FIX (overscan-zone ghost): whether the grid is rendering VIRTUALIZED. In-row popovers
+// (RemarkCell / ColorPicker / ReconcileBadge) read this to close on VISIBILITY loss -- a row
+// scrolled into the mounted-but-off-screen overscan zone would otherwise leave its Radix popover
+// collision-pinned into the viewport as a detached "ghost" (the mounted-set predicate can't see it).
+// Context (not a row prop) so the memo shield is untouched; it flips only when the A/B toggle flips.
+const VirtualizedContext = createContext(false);
+
+/**
+ * V2-FIX: close an in-row popover when its anchor scrolls OUT OF VIEW (not just on unmount).
+ * VIRTUALIZED-only (classic never unmounts + must stay byte-identical): when `open`, observe the
+ * trigger element with an IntersectionObserver (viewport root, threshold 0, the SAME pattern as the
+ * page-owned CategoryVerdictPicker) and call `onClose` on `!isIntersecting`. Closing discards any
+ * unsaved draft (owner-accepted). A no-op in classic mode or while closed.
+ */
+function useCloseWhenScrolledOut(
+  triggerRef: RefObject<HTMLElement>,
+  open: boolean,
+  onClose: () => void,
+): void {
+  const virtualized = useContext(VirtualizedContext);
+  useEffect(() => {
+    if (!virtualized || !open) return;
+    const el = triggerRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => !e.isIntersecting)) onClose();
+      },
+      { threshold: 0 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized, open]);
+}
+
 /**
  * The trailing per-row Remarks cell. Click-to-open a small Textarea editor (mirrors the
  * review-screen remark idiom: own draft/loading/error state, a 250 counter, mutate-only
@@ -986,6 +1056,10 @@ function RemarkCell({
   const [draft, setDraft] = useState(stored);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // V2-FIX: close (visibility-based) when the trigger scrolls off-view in virtualized mode, so the
+  // open editor never dangles as an overscan-zone ghost. Discards the unsaved draft (owner-accepted).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => onOpenChange(false));
 
   // Seed the editor from the stored value whenever it OPENS. `open` is grid-controlled now,
   // so opening BY KEYBOARD (the grid sets its state directly, not via onOpenChange) still
@@ -1034,6 +1108,7 @@ function RemarkCell({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           tabIndex={-1} // NOT a matrix tab-stop; the <td> is the nav focus target
           onClick={(e) => e.stopPropagation()}
@@ -1131,6 +1206,9 @@ function ColorPicker({
   // time, so there is never a moment a half-set intent is sent.
   const [armed, setArmed] = useState<string | null>(null);
   const [wholeRow, setWholeRow] = useState(false);
+  // V2-FIX: close on visibility loss in virtualized mode (overscan-zone ghost, same as RemarkCell).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => setOpen(false));
 
   // submit reads wholeRow LIVE at Apply-time; token is passed explicitly (armed, or "").
   const submit = (token: string) => {
@@ -1151,6 +1229,7 @@ function ColorPicker({
     >
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -1239,6 +1318,9 @@ function ReconcileBadge({
   onChoose?: (choice: ReconChoice | null) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
+  // V2-FIX: close on visibility loss in virtualized mode (overscan-zone ghost, same as RemarkCell).
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useCloseWhenScrolledOut(triggerRef, open, () => setOpen(false));
   const isResolved = resolved !== "unset";
   const title = isResolved
     ? resolved === "take_formula"
@@ -1277,6 +1359,7 @@ function ReconcileBadge({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           title={title}
           aria-label={title}
@@ -1512,6 +1595,10 @@ interface PricingGridProps {
    * the toggle and gates it OFF for grid-only sheets (which render via SheetDataGrid, not here).
    */
   frozen?: boolean;
+  /** V1: windowed rendering (only visible rows + overscan mounted), via @tanstack/react-virtual.
+   * The PAGE owns the A/B toggle (default true each open, session-scoped). false = the CLASSIC
+   * render path, byte-identical to pre-V1. Stable boolean -> the V0 memo shield holds. */
+  virtualized?: boolean;
 }
 
 /** Slice 3c: imperative handle the page holds (via a ref) to force-flush pending saves. */
@@ -1687,11 +1774,15 @@ function RowChevron({ rowIndex }: { rowIndex: number }) {
 // stays byte-identical (one source, no drifting copy -- the A10 compat mechanism). The extra
 // fan-out columns render a simpler span (no indent, no chevron, no fallback) inline.
 function DescriptionAnchorInner({
-  text, depth, rowHeight, rowIndex, isPreamble, isLineItem,
+  text, depth, rowHeight, clipDescription = true, rowIndex, isPreamble, isLineItem,
 }: {
   text: string | null;
   depth: number;
   rowHeight: number | null | undefined;
+  // V1-FIX: clip the Description to rowHeight ONLY in classic + manual-drag rows. AUTO virtualized
+  // rows pass false -> render NATURAL so the row measures true content and the max-of-both-panes
+  // alignment (not a clip) keeps the panes level. Defaults true (classic / MC callers that don't pass it).
+  clipDescription?: boolean;
   rowIndex: number;
   isPreamble: boolean;
   isLineItem: boolean;
@@ -1700,7 +1791,7 @@ function DescriptionAnchorInner({
     <div
       style={{
         paddingLeft: `${depth * INDENT_PX}px`,
-        ...(rowHeight != null
+        ...(rowHeight != null && clipDescription
           ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
           : {}),
       }}
@@ -1739,6 +1830,16 @@ interface PricingGridRowProps {
    *  clipped to it. undefined when not frozen -> natural wrap-and-grow height (unchanged). A
    *  per-row SCALAR (like depth / isCurrentHit) -> memo-safe. */
   rowHeight?: number;
+  /** V1 virtualization: the @tanstack/react-virtual measureElement callback, attached to this <tr>
+   *  so the virtualizer learns the row's real height on mount. Set ONLY for the MEASURED pane
+   *  (scrolling in two-pane, or the single table) in virtualized mode; undefined otherwise. It is
+   *  reference-stable per virtualizer instance -> memo-safe (the comparator treats it as such). */
+  measureRef?: (el: HTMLTableRowElement | null) => void;
+  /** V1-FIX: whether to clip the Description to `rowHeight`. TRUE in classic mode + for manually-
+   *  dragged virtualized rows (the applied height is authoritative -> clip to it). FALSE for AUTO
+   *  virtualized rows -> Description renders NATURAL so the row measures true content and the
+   *  max-of-both-panes alignment (not a clip) keeps the panes level. Stable per row -> memo-safe. */
+  clipDescription?: boolean;
   depth: number;
   parentExcelRow: number | null;
   flags: RowReviewFlags | undefined;
@@ -1778,13 +1879,14 @@ interface PricingGridRowProps {
   /** Cluster B: per-cell reconciliation choice map (per-SHEET, reference-stable across a
    *  keystroke -- changes only on mutate, exactly like columnFormulas). */
   reconChoiceMap: Map<string, ReconChoice>;
-  /** CL-2: per-EXCEL-ROW category verdict map (per-SHEET, reference-stable across a keystroke --
-   *  built page-side, changes only on a classify mutate). Read-only display in the Category cell. */
-  categoriesByExcelRow: Map<number, SheetCategoryRow>;
-  /** CL-6: sheet-has-run flag (grid-level; = categoriesByExcelRow.size > 0). Gates click-to-edit on
-   *  a blank eligible cell. Deliberately NOT in pricingRowPropsAreEqual: it is a pure function of
-   *  categoriesByExcelRow (which IS compared), so it can never change without that map's reference
-   *  changing -- the row already re-renders on that. */
+  /** CL-2 / P1: THIS row's category verdict entry ONLY (per-row prop, NOT the whole map) -- so a
+   *  verdict pick re-renders just the picked row, not all 870 rows. pricingRowPropsAreEqual compares
+   *  it by reference; the page rebuilds only the changed row's entry (the optimistic override), so
+   *  every other row's entry keeps its reference and is skipped. Read-only display in the Category cell. */
+  category?: SheetCategoryRow;
+  /** CL-6 / P1: sheet-has-run flag (grid-level; = categoriesByExcelRow.size > 0). Gates click-to-edit
+   *  on a blank eligible cell. NOW compared explicitly in pricingRowPropsAreEqual (P1 removed the
+   *  whole-map compare it used to piggyback on); it flips once, when the first classify lands. */
   hasRun: boolean;
   /** CL-3: id->label for the Category cell display (per-SHEET, reference-stable -- changes only on
    *  a catalog fetch, never on keystroke). */
@@ -1844,6 +1946,8 @@ export function pricingRowPropsAreEqual(
     prev.rowIndex === next.rowIndex &&
     prev.pane === next.pane &&
     prev.rowHeight === next.rowHeight &&
+    prev.measureRef === next.measureRef && // stable per virtualizer instance -> never flips per render
+    prev.clipDescription === next.clipDescription && // stable per row (classic true / auto-virt false)
     prev.depth === next.depth &&
     prev.parentExcelRow === next.parentExcelRow &&
     prev.flags === next.flags &&
@@ -1861,7 +1965,8 @@ export function pricingRowPropsAreEqual(
     prev.columnDescriptors === next.columnDescriptors &&
     prev.columnFormulas === next.columnFormulas &&
     prev.reconChoiceMap === next.reconChoiceMap &&
-    prev.categoriesByExcelRow === next.categoriesByExcelRow &&
+    prev.category === next.category &&
+    prev.hasRun === next.hasRun &&
     prev.categoryLabelById === next.categoryLabelById &&
     prev.onCategoryClick === next.onCategoryClick &&
     prev.override === next.override &&
@@ -1906,6 +2011,8 @@ const PricingGridRow = memo(function PricingGridRow({
   rowIndex,
   pane,
   rowHeight,
+  measureRef,
+  clipDescription = true,
   depth,
   parentExcelRow,
   flags,
@@ -1923,7 +2030,7 @@ const PricingGridRow = memo(function PricingGridRow({
   columnDescriptors,
   columnFormulas,
   reconChoiceMap,
-  categoriesByExcelRow,
+  category,
   hasRun,
   categoryLabelById,
   onCategoryClick,
@@ -2009,6 +2116,8 @@ const PricingGridRow = memo(function PricingGridRow({
 
   return (
     <tr
+      ref={measureRef} // V1: measureElement on the measured pane's <tr> (undefined otherwise)
+      data-index={rowIndex} // V1: @tanstack/react-virtual reads this to key its measurement cache
       className={cn(
         "border-b border-border",
         // Toolbar Part 1 -- search: the CURRENT hit row gets a solid yellow wash (a BACKGROUND,
@@ -2167,6 +2276,7 @@ const PricingGridRow = memo(function PricingGridRow({
                     text={value}
                     depth={depth}
                     rowHeight={rowHeight}
+                    clipDescription={clipDescription}
                     rowIndex={row.row_index}
                     isPreamble={isPreamble}
                     isLineItem={isLineItem}
@@ -2174,7 +2284,10 @@ const PricingGridRow = memo(function PricingGridRow({
                 ) : (
                   <div
                     style={
-                      rowHeight != null
+                      // V1-FIX: clip ONLY when clipDescription (classic + manual-drag rows). AUTO
+                      // virtualized rows render NATURAL so the row measures true content (the
+                      // max-of-both-panes height, not a clip, keeps the panes level).
+                      rowHeight != null && clipDescription
                         ? { maxHeight: `${Math.max(0, rowHeight - DESC_CLIP_VPAD_PX)}px`, overflow: "hidden" }
                         : {}
                     }
@@ -2206,6 +2319,7 @@ const PricingGridRow = memo(function PricingGridRow({
               text={row.description}
               depth={depth}
               rowHeight={rowHeight}
+              clipDescription={clipDescription}
               rowIndex={row.row_index}
               isPreamble={isPreamble}
               isLineItem={isLineItem}
@@ -2224,8 +2338,11 @@ const PricingGridRow = memo(function PricingGridRow({
           CL-3: a CLASSIFIED row is click-to-edit -- onClick opens the page-owned verdict picker
           anchored to this cell (Enter on the focused cell does the same via handleGridKeyDown). */}
       {(() => {
+        // MC-5: colIndex tracks the PARAMETRIC anchor count (Category is the first right-pane cell,
+        // after the fan-out description columns). P1: `cat` is this row's OWN per-row prop, NOT a
+        // whole-map lookup -- passing `categoriesByExcelRow` into the memoized row defeats the memo.
         const colIndex = effectiveAnchorCount;
-        const cat = categoriesByExcelRow.get(row.source_row_number);
+        const cat = category;
         const effective = cat?.effective_category_id ?? "";
         const state = deriveVerdictState(cat);
         const label = labelFor(effective, categoryLabelById);
@@ -2529,9 +2646,11 @@ const PricingGridRow = memo(function PricingGridRow({
           }
           open={openRemark}
           onOpenChange={(o) => {
-            setOpenRemark(rowIndex, o);
+            // V2: key the open-state by the DURABLE excel row (not the window array index).
+            setOpenRemark(row.source_row_number, o);
             // On close (Esc / Save / outside-click) restore focus to this cell so arrow-nav
-            // continues. An Enter-save's onMoveDown runs AFTER and wins.
+            // continues. An Enter-save's onMoveDown runs AFTER and wins. (focusCell still takes
+            // the array index -- it targets cellRefs, which is index-keyed.)
             if (!o) focusCell(rowIndex, remarksColIndex);
           }}
           onMoveDown={() => {
@@ -2552,8 +2671,13 @@ const PricingGridRow = memo(function PricingGridRow({
 }, pricingRowPropsAreEqual);
 PricingGridRow.displayName = "PricingGridRow";
 
-export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
-  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false },
+// V0/T2: React.memo shield. A page-level re-render with UNCHANGED grid props (e.g. the reconnect/
+// poll/save-status churn) now bails here instead of re-executing the whole grid body + running
+// pricingRowPropsAreEqual across every row. This is only sound because SheetPricingPage keeps ALL
+// grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
+// future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
+export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
+  { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, onCategoryClick, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false },
   ref,
 ) {
   // Cluster B: per-cell reconciliation choice map (per-SHEET; reference-stable across a keystroke
@@ -2631,9 +2755,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   const cellRefs = useRef<Map<string, HTMLElement>>(new Map());
   // Slice 4a.2: the remarks editor's open-state, LIFTED to the grid (was local to
   // RemarkCell) so the keyboard (Enter on the focused remarks cell) can open it, not just
-  // a click. Holds the ARRAY index (rowIdx) of the open row, or null. RemarkCell's
-  // draft/saving/error stay local; only open is controlled here.
-  const [openRemarkRowIdx, setOpenRemarkRowIdx] = useState<number | null>(null);
+  // a click. RemarkCell's draft/saving/error stay local; only open is controlled here.
+  // V2: keyed by the row's DURABLE excel row (source_row_number), NOT the window array index --
+  // under virtualized row recycling the array index N maps to a DIFFERENT row after a
+  // collapse/filter reshuffle, so an index key mis-targets the popover; the excel row is stable.
+  const [openRemarkExcelRow, setOpenRemarkExcelRow] = useState<number | null>(null);
   // Parent-jump landing flash: the Excel row currently flashed blue (null = none). Set by
   // jumpToRow, auto-cleared after 3s via flashTimeoutRef. Grid-level -- only the derived per-row
   // boolean (isJumpFlashRow) enters the row + the memo comparator. Resets for free on a
@@ -2664,10 +2790,27 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // re-measure (below) refreshes captured rows WITHOUT touching manual. BOTH reset on the
   // sheet/version remount (key={sheetName::version}) -- session+sheet scoped, no backend persist.
   const [manualRowHeights, setManualRowHeights] = useState<Record<number, number>>({});
+  // V1-FIX-2b: incremented at column drag-END / autofit ONLY (never streaming) to trigger the
+  // post-commit re-measure layout-effect that folds a frozen-only Description re-wrap into the shared
+  // virtualSize. A dedicated tick (not `colWidths`) keeps the re-measure off the per-stream-tick path.
+  const [resizeSettleTick, setResizeSettleTick] = useState(0);
   const rowResizeRef = useRef<{ rowIndex: number; startY: number; startHeight: number } | null>(null);
   const frozenPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollPaneRef = useRef<HTMLDivElement | null>(null);
   const splitRef = useRef(false);
+  // V1: mirrors `twoPane` (two-pane vs single) for the virtualizer's getScrollElement + the flip
+  // re-anchor -- a ref so those closures always read the current mode without re-registering.
+  const twoPaneRef = useRef(false);
+  // V2 (nav/search to unmounted rows): focusCell / jumpToRow are defined BEFORE the virtualizer, so
+  // they reach it through refs (assigned right after useVirtualizer, synced each render). virtualizedRef
+  // mirrors the `virtualized` prop; scrollRowIntoWindowRef scrolls the window to a row index so an
+  // OFF-window nav/jump target mounts before we focus it. Refs keep both closures reference-stable
+  // (deps [] / [onRevealRow]) -> the row memo (focusCell / onJumpToRow props) is untouched.
+  // align is "center" (NOT "auto"): with DYNAMIC row measurement, an unmeasured just-past-window row's
+  // ESTIMATED offset reads as already-visible, so "auto" no-ops and the row never mounts (live-verified
+  // arrow-nav stall at the window's bottom edge); "center" forces the scroll unconditionally -> mount.
+  const virtualizedRef = useRef(false);
+  const scrollRowIntoWindowRef = useRef<(idx: number) => void>(() => {});
 
   // Slice 3c -- auto-save plumbing. Per-cell 1000ms debounced commit, keyed by cellKey.
   const debouncersRef = useRef<Map<string, DebouncedFunc<() => void>>>(new Map());
@@ -2908,26 +3051,44 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   }, []);
 
   const focusCell = useCallback((r: number, c: number) => {
-    const el = cellRefs.current.get(navKey(r, c));
-    if (!el) return;
-    // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
-    // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
-    // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
-    // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
-    // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
-    if (splitRef.current) {
-      el.focus({ preventScroll: true });
-      if (c >= effectiveAnchorCount) {
-        el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      } else {
-        scrollPaneRef.current
-          ?.querySelector(`tr[data-rowidx="${r}"]`)
-          ?.scrollIntoView({ block: "nearest" });
+    // V2: the focus itself, once the target <tr> is mounted (registered in cellRefs). Split-aware.
+    const doFocus = () => {
+      const el = cellRefs.current.get(navKey(r, c));
+      if (!el) return;
+      // Frozen-left Slice 1: when split, the SCROLLING pane owns vertical scroll (the frozen pane
+      // mirrors it via onScroll). Focusing a frozen (anchor) cell must NOT auto-scroll the frozen
+      // pane -- that would desync the two panes -- so focus with preventScroll and drive the scroll
+      // through the scrolling pane: a data cell scrolls itself (it lives there); an anchor cell
+      // scrolls its scrolling-pane counterpart <tr> (found by data-rowidx).
+      // MC-5: the anchor/descriptor boundary is the PARAMETRIC effectiveAnchorCount (fan-out
+      // description columns shift it), not the fixed constant.
+      if (splitRef.current) {
+        el.focus({ preventScroll: true });
+        if (c >= effectiveAnchorCount) {
+          el.scrollIntoView({ block: "nearest", inline: "nearest" });
+        } else {
+          scrollPaneRef.current
+            ?.querySelector(`tr[data-rowidx="${r}"]`)
+            ?.scrollIntoView({ block: "nearest" });
+        }
+        return;
       }
-      return;
+      el.focus();
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
+    // V2: an UNMOUNTED target (virtualized, off-window) can't be focused yet. Scroll the window to
+    // it (center it -- see scrollRowIntoWindowRef on why not "auto"), then focus after the mount
+    // re-render commits (the same reveal-then-defer scaffold jumpToRow uses; 50ms). Single-step
+    // arrow nav stays synchronous when the adjacent row is inside ROW_OVERSCAN (mounted -> "focus"
+    // path); crossing the overscan edge takes the scroll-then-focus path. Classic mode never has an
+    // unmounted target -> "noop".
+    const action = resolveJumpAction(cellRefs.current.has(navKey(r, c)), virtualizedRef.current);
+    if (action === "scroll-then-focus") {
+      scrollRowIntoWindowRef.current(r);
+      setTimeout(doFocus, 50);
+    } else if (action === "focus") {
+      doFocus();
     }
-    el.focus();
-    el.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, []);
 
   // Parent click-to-jump: scroll the grid to a row by its Excel row number. Resolves
@@ -2946,8 +3107,9 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     const doScroll = () => {
       const idx = rowsRef.current.findIndex((r) => r.source_row_number === excelRow);
       if (idx < 0) return;
-      const el = cellRefs.current.get(navKey(idx, 0));
-      if (el) {
+      const focusEl = () => {
+        const el = cellRefs.current.get(navKey(idx, 0));
+        if (!el) return;
         if (splitRef.current) {
           // Split: col-0 lives in the frozen pane. Focus it WITHOUT auto-scroll (avoids desyncing
           // the panes), then scroll the SCROLLING pane's counterpart <tr> -- its onScroll mirrors
@@ -2960,6 +3122,17 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
           el.focus();
           el.scrollIntoView({ behavior: "smooth", block: "center" });
         }
+      };
+      // V2: a jump/search target OUTSIDE the mounted window (virtualized) no longer no-ops -- scroll
+      // the window to center it (see scrollRowIntoWindowRef), then focus once the mount re-render has
+      // committed (reveal-then-defer scaffold, 50ms). A mounted target focuses synchronously exactly
+      // as before; classic never has an unmounted target -> focusEl guards.
+      const action = resolveJumpAction(cellRefs.current.has(navKey(idx, 0)), virtualizedRef.current);
+      if (action === "scroll-then-focus") {
+        scrollRowIntoWindowRef.current(idx);
+        setTimeout(focusEl, 50);
+      } else {
+        focusEl();
       }
       // Landing flash: tint the WHOLE target row blue for 3s so the landing is obvious (focus
       // alone cues only col 0). A new jump RESETS the timer -- rapid jumps don't stack; the
@@ -2977,9 +3150,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   }, [onRevealRow]);
 
   // Set THIS row's remarks editor open-state (stable, so the memoized row holds). The row
-  // passes its own array index; open=true makes it the single open editor, false closes it.
-  const setOpenRemark = useCallback((rowIndexArg: number, open: boolean) => {
-    setOpenRemarkRowIdx(open ? rowIndexArg : null);
+  // passes its own DURABLE excel row (source_row_number); open=true makes it the single open
+  // editor, false closes it. V2: keyed by excel row (see openRemarkExcelRow above).
+  const setOpenRemark = useCallback((excelRow: number, open: boolean) => {
+    setOpenRemarkExcelRow(open ? excelRow : null);
   }, []);
 
   // ── Slice A: in-grid clipboard (copy / cut / paste / fill-down) ──────────────────
@@ -3517,7 +3691,8 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     // read-only cell). preventDefault stops the cell's native button/Enter side effects.
     if (activeCell.colIndex === remarksColIndex && e.key === "Enter" && onSaveRemark) {
       e.preventDefault();
-      setOpenRemarkRowIdx(activeCell.rowIndex);
+      // V2: open by the row's DURABLE excel row (the active cell is a mounted array index -> resolve).
+      setOpenRemarkExcelRow(rows[activeCell.rowIndex]?.source_row_number ?? null);
       return;
     }
     // Parent click-to-jump: Enter on the focused PARENT cell (col 2) jumps to the parent row
@@ -3674,6 +3849,10 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // non-manual rows -- MANUAL rows (manualRowHeights) are never re-measured here, so a column
   // resize cannot clobber a user's dragged height (Option A).
   useLayoutEffect(() => {
+    // V1: the freeze-measure-ALL pass is SKIPPED on the virtualized path -- windowed rows measure on
+    // mount via the virtualizer (measureElement). Classic path unchanged. When the toggle flips back
+    // to classic (virtualized -> false) this effect re-runs (virtualized in deps) and measures.
+    if (virtualized) return;
     if (!frozen) {
       // Unfreeze: clear ONLY the auto-CAPTURED heights; PRESERVE manualRowHeights so a re-freeze
       // keeps the user's dragged rows (Option A). Functional no-op when already empty (no loop).
@@ -3699,7 +3878,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       if (tr) next[ri] = Math.ceil(tr.getBoundingClientRect().height);
     }
     setRowHeights(next);
-  }, [frozen, rows, rowHeights, manualRowHeights]);
+  }, [virtualized, frozen, rows, rowHeights, manualRowHeights]);
 
   // ── Resize: live width derivations (recomputed each render from colWidths) ──
   // MC-5: a fan-out description column (desc:<col>) seeds from descWidthSeeds (first 280,
@@ -3724,7 +3903,108 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   // commits only when every row has one; the same value is passed to both panes (-> aligned).
   const appliedRowHeight = (ri: number): number | undefined => manualRowHeights[ri] ?? rowHeights[ri];
   const split = frozen && rows.length > 0 && rows.every((r) => appliedRowHeight(r.row_index) != null);
-  splitRef.current = split;
+  // V1: `twoPane` decides two-pane vs single for BOTH modes -- classic gates on `split` (all rows
+  // measured), virtualized gates on `frozen` (the measure-all pass is skipped). splitRef mirrors
+  // twoPane so focusCell / jumpToRow retarget the correct scroll pane in either mode.
+  const twoPane =
+    selectRenderPath({ rowCount: rows.length, virtualized, frozen, split }) === "twoPane";
+  splitRef.current = twoPane;
+  twoPaneRef.current = twoPane;
+  // ONE virtualizer = the single row-window authority for BOTH panes (scrolling pane is the scroll
+  // authority in two-pane; containerRef in single). estimateSize seeds from the applied (manual /
+  // freeze-measured) height when known, else a default; measureElement refines it per mounted row.
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => (twoPaneRef.current ? scrollPaneRef.current : containerRef.current),
+    estimateSize: (index) =>
+      seedEstimate(appliedRowHeight(rows[index]?.row_index), DEFAULT_ROW_ESTIMATE_PX),
+    overscan: ROW_OVERSCAN,
+    // V1-FIX (max-of-both-panes): the virtualizer's size for a row = the MAX natural content height
+    // across BOTH panes (frozen + scrolling) -- NOT just the measured pane. This is what keeps the
+    // tall Description (frozen-left in this layout) from being padded down + truncated. Reads NATURAL
+    // content (paneNaturalHeight, immune to the applied padding) so the padded pane never sticks the
+    // max. Manual-drag precedence: a manually-sized row uses its explicit height (classic clip path).
+    // The `el` passed is the OBSERVED (scrolling / single) pane's <tr>; we look up the frozen twin by
+    // data-index. Frozen-only reflows (column resize / data change) are re-measured by the effect below.
+    measureElement: (el) => {
+      const iStr = (el as HTMLElement).dataset.index;
+      if (iStr == null) return DEFAULT_ROW_ESTIMATE_PX;
+      const idx = parseInt(iStr, 10);
+      const ri = rows[idx]?.row_index;
+      if (ri != null && manualRowHeights[ri] != null) return manualRowHeights[ri];
+      const sel = `tr[data-index="${idx}"]`;
+      const naturals = [
+        paneNaturalHeight(frozenPaneRef.current?.querySelector(sel)),
+        paneNaturalHeight(scrollPaneRef.current?.querySelector(sel)),
+        paneNaturalHeight(containerRef.current?.querySelector(sel)),
+      ];
+      return maxRowHeight(naturals) || DEFAULT_ROW_ESTIMATE_PX;
+    },
+  });
+  // V2: sync the refs the (earlier-defined) focusCell / jumpToRow read to reach the virtualizer for
+  // an off-window nav/jump target. Assigned each render -- the virtualizer instance is stable, so
+  // these never destabilize those useCallbacks (which read the refs, not these values).
+  virtualizedRef.current = virtualized;
+  scrollRowIntoWindowRef.current = (idx) =>
+    rowVirtualizer.scrollToIndex(idx, { align: "center" });
+  // V2 (overlay close-on-scroll-out): the remark popover lives INSIDE the row, so a scroll-out unmount
+  // already tears down its Radix portal (no orphan) -- but the grid-level open-state would otherwise
+  // linger and RE-OPEN on scroll-back. Clear it once the open row leaves the mounted window. Keyed on
+  // the virtualizer's window range so it re-checks on scroll; a no-op unless a remark is open AND we
+  // are virtualized. (The page-owned CategoryVerdictPicker has its own close-on-scroll-out in
+  // SheetPricingPage; the reconciliation chooser uses local state and closes on unmount for free.)
+  const windowStart = rowVirtualizer.range?.startIndex ?? null;
+  const windowEnd = rowVirtualizer.range?.endIndex ?? null;
+  useEffect(() => {
+    if (!virtualized || openRemarkExcelRow == null) return;
+    const mounted = new Set<number>();
+    for (const vi of rowVirtualizer.getVirtualItems()) {
+      const er = rows[vi.index]?.source_row_number;
+      if (er != null) mounted.add(er);
+    }
+    if (shouldCloseOverlay(openRemarkExcelRow, mounted)) setOpenRemarkExcelRow(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized, openRemarkExcelRow, windowStart, windowEnd]);
+  // V1-FIX-2: frozen-pane (unobserved) reflows are handled WITHOUT a streaming effect --
+  //   - scroll-mount + any scrolling-pane reflow: caught by the scrolling <tr>'s measureRef (the ONLY
+  //     observed element per index; the frozen twin carries no measureRef, so there is no
+  //     last-attached contention). The measureElement it fires reads BOTH panes' <tr> boxes.
+  //   - a Description re-wrap from a COLUMN RESIZE (frozen-only, scrolling unchanged): the scrolling
+  //     ResizeObserver stays silent, so the drag-end / autofit path calls the two-phase
+  //     `remeasureVirtualRowsAfterResize` (below) -- clear sticky sizes, then re-invoke measureElement
+  //     on the mounted rows next frame. `measure()` ALONE is NOT enough (it clears but never re-reads
+  //     the frozen twin, and a shrunk row's <tr> min-height stays sticky) -- see that helper.
+  // (The prior [colWidths, rows] effect re-invoked measureElement on every stream tick -- removed;
+  //  its frozen-only-reflow coverage now lives in the drag-END helper, without the per-tick thrash.)
+  // V1 flip re-anchor (mid-state toggle, case a): the scroll element is the SAME div across a flip
+  // (only the <tbody> content changes), so scrollTop is preserved. When flipping TO virtualized,
+  // re-sync the virtualizer to that scrollTop so the window lands at/near the same top visible row
+  // (any estimate drift corrects itself as windowed rows measure). No data / draft / lock touch.
+  useEffect(() => {
+    if (!virtualized) return;
+    const el = twoPaneRef.current ? scrollPaneRef.current : containerRef.current;
+    if (el) rowVirtualizer.scrollToOffset(el.scrollTop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtualized]);
+  // V1-FIX-2b: the post-commit re-measure for a column-resize / autofit re-wrap (phase 2 of the
+  // two-phase in `remeasureVirtualRowsAfterResize`). `resizeSettleTick` bumps at drag-END only; by the
+  // time THIS layout-effect runs, the `measure()`-cleared render has COMMITTED, so the DOM shows each
+  // pane at its true (re-wrapped) natural height (frozen Description tall, scrolling short/estimate) --
+  // a guarantee the prior rAF could NOT make (it fired before the estimate-collapse render committed,
+  // so it re-measured stale/unmounted rows and the scrolling pane stuck at the 34px estimate). We now
+  // re-invoke measureElement on every MOUNTED row: it reads max(frozen, scrolling) with the settled
+  // DOM and writes the shared virtualSize -> the next render pads BOTH panes to it -> aligned. Skips
+  // the first mount (tick 0) and the classic path. No `colWidths` dep -> no per-stream-tick thrash.
+  useLayoutEffect(() => {
+    if (!virtualized || resizeSettleTick === 0) return;
+    const sp = scrollPaneRef.current;
+    if (!sp) return;
+    for (const vi of rowVirtualizer.getVirtualItems()) {
+      const el = sp.querySelector(`tr[data-index="${vi.index}"]`);
+      if (el) rowVirtualizer.measureElement(el as HTMLElement);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resizeSettleTick]);
   // Pane widths from the SAME colWidths map (NO duplicate width state): frozen = the 5 anchors;
   // scrolling = the descriptors + Remarks. Their sum === totalWidth (the single-table width).
   const anchorPaneWidth = anchorWidthKeys.reduce((s, k) => s + widthOf(k), 0);
@@ -3733,6 +4013,24 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     descWidthKeys.reduce((s, k) => s + widthOf(k), 0) +
     widthOf(REMARKS_WIDTH_KEY);
 
+  // V1-FIX-2b: after a column resize / autofit re-wraps the FROZEN Description, the scrolling pane's
+  // <tr> is UNCHANGED, so its ResizeObserver stays silent and the shared measureElement never
+  // re-fires -> the virtualizer keeps stale sizes and the two panes drift (measured live: ~300px on
+  // a 520->370 narrow, non-self-healing until a scroll forced a fresh window). `measure()` ALONE is
+  // insufficient: it clears the cache but nothing re-reads the frozen twin's new height. Mirror
+  // classic's two-phase reset instead -- (1) HERE: clear the sticky measured sizes so a SHRUNK row's
+  // <tr> min-height releases and its box collapses to true (re-wrapped) content, then bump
+  // `resizeSettleTick`; (2) the tick's post-commit `useLayoutEffect` (above) re-invokes measureElement
+  // on every MOUNTED row once the cleared render has committed, reads max(frozen, scrolling) with the
+  // settled DOM, and re-aligns both panes. Fired ONLY at drag-END / autofit (never streaming
+  // moveResize) -> no thrash; the exact spot + timing classic clears its captured heights. This is the
+  // last-attached-element (frozen-only-reflow) coverage the FIX-1 [colWidths, rows] effect provided,
+  // restored WITHOUT the per-stream-tick thrash that got it removed.
+  const remeasureVirtualRowsAfterResize = () => {
+    if (!virtualized) return;
+    rowVirtualizer.measure(); // drop sticky measured sizes -> shrunk rows collapse to true content
+    setResizeSettleTick((t) => t + 1); // -> the post-commit layout-effect re-measures the mounted rows
+  };
   // Resize: pointer-capture drag on a column's right-edge handle. Updates only colWidths (grid
   // state) -> the colgroup + the frozen-offset vars recompute; the memoized rows are skipped.
   const startResize = (key: string, isRate: boolean) => (e: ReactPointerEvent) => {
@@ -3756,7 +4054,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     // separate map, untouched) drops `split` to false for one render -> the single table re-renders
     // at natural height with the NEW column widths -> the measure layout-effect re-reads the true
     // natural heights -> split re-commits. All within a layout-effect cycle (pre-paint) -> no flash.
-    if (splitRef.current) setRowHeights({});
+    // V1-FIX-2: virtualized mode has no captured rowHeights; instead clear the virtualizer's sticky
+    // measured sizes so re-wrapped rows re-measure their NEW natural <tr> box (matches classic's reset
+    // here). On drag-END (not streaming moveResize) -> no thrash.
+    if (splitRef.current) {
+      setRowHeights({});
+      remeasureVirtualRowsAfterResize();
+    }
   };
   // Double-click autofit (D6): measure the column's natural content width. Under table-fixed the
   // colgroup clamps a cell's CLIENT width, but scrollWidth still reports the full content extent
@@ -3776,7 +4080,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     if (max > 0) {
       setColWidths((prev) => ({ ...prev, [key]: clampColumnWidth(max + 24, isRate) }));
       // Slice 2: autofit can re-wrap the Description -> re-measure captured rows (see endResize).
-      if (splitRef.current) setRowHeights({});
+      // V1-FIX-2: same virtualized reset as endResize.
+      if (splitRef.current) {
+        setRowHeights({});
+        remeasureVirtualRowsAfterResize();
+      }
     }
   };
   // The right-edge drag affordance rendered inside each header <th> (headers carry no other
@@ -3994,15 +4302,37 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       selectionAnchor.colIndex !== activeCell.colIndex)
       ? selectionRect(selectionAnchor, activeCell)
       : null;
-  const renderRow = (row: PricedRow, rowIdx: number, pane?: "frozen" | "scrolling") => {
+  const renderRow = (
+    row: PricedRow,
+    rowIdx: number,
+    pane?: "frozen" | "scrolling",
+    virtualSize?: number,
+  ) => {
     const selRange = rowSelectionRange(selRect, rowIdx);
+    // V1-FIX (max-of-both-panes): in virtualized mode BOTH panes render at the SAME size = the
+    // virtualizer's per-row `virtualSize` (= max natural content across both panes). Since a <tr>
+    // `height` is a table MINIMUM, the taller pane (Description, frozen-left here) reaches its
+    // content exactly and the shorter pane pads to it -> aligned, no truncation, symmetric box model
+    // (fixes the 1px drift). The Description clip is OFF for AUTO rows (so it renders natural and the
+    // measurement reads true content); a MANUALLY-dragged row keeps its explicit height WITH the clip
+    // (classic behaviour for that row). virtualSize undefined in classic mode -> the byte-identical
+    // `split ? applied : undefined` path, clip ON.
+    const ri = row.row_index;
+    const isManualRow = manualRowHeights[ri] != null;
+    const virt = virtualized && virtualSize != null;
+    const heightForRow = virt ? virtualSize : split ? appliedRowHeight(ri) : undefined;
+    const clipDescriptionForRow = virt ? isManualRow : true;
+    const measureRefForRow =
+      virt && pane !== "frozen" ? rowVirtualizer.measureElement : undefined;
     return (
     <PricingGridRow
       key={row.row_index}
       row={row}
       rowIndex={rowIdx}
       pane={pane}
-      rowHeight={split ? appliedRowHeight(row.row_index) : undefined}
+      rowHeight={heightForRow}
+      clipDescription={clipDescriptionForRow}
+      measureRef={measureRefForRow}
       depth={depths.get(row.row_index) ?? 0}
       parentExcelRow={parentExcelRowOf(row, byIdx)}
       flags={rowFlags?.get(row.row_index)}
@@ -4013,14 +4343,14 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       selRightCol={selRange ? selRange.right : null}
       skipColsCsv={skipFlash.get(rowIdx) ?? null}
       anyCellActive={anyCellActive}
-      openRemark={openRemarkRowIdx === rowIdx}
+      openRemark={openRemarkExcelRow === row.source_row_number}
       isCurrentHit={isCurrentHitRow(row.source_row_number, currentHitExcelRow)}
       isJumpFlash={isJumpFlashRow(row.source_row_number, flashExcelRow)}
       displayDescriptors={visibleDescriptors}
       columnDescriptors={columnDescriptors}
       columnFormulas={columnFormulas}
       reconChoiceMap={reconChoiceMap}
-      categoriesByExcelRow={categoriesByExcelRow}
+      category={categoriesByExcelRow.get(row.source_row_number)}
       hasRun={hasRun}
       categoryLabelById={categoryLabelById}
       onCategoryClick={onCategoryClick}
@@ -4050,6 +4380,37 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
       onRowResizePointerMove={onRowResizePointerMove}
       onRowResizePointerUp={onRowResizePointerUp}
     />
+    );
+  };
+
+  // V1: the <tbody> children for a pane. CLASSIC (virtualized off) = the full rows.map -- BYTE-
+  // IDENTICAL to pre-V1. VIRTUALIZED = a top spacer <tr>, the mounted window (renderRow given the
+  // virtualizer's per-row size), and a bottom spacer <tr>. BOTH panes call this with the SAME
+  // virtualItems -> identical vertical structure + identical spacer heights -> pane rows stay aligned.
+  const renderTbody = (pane?: "frozen" | "scrolling") => {
+    if (!virtualized) return rows.map((row, rowIdx) => renderRow(row, rowIdx, pane));
+    const items = rowVirtualizer.getVirtualItems();
+    const { paddingTop, paddingBottom } = deriveSpacers(items, rowVirtualizer.getTotalSize());
+    // MC-5: span the PARAMETRIC anchor count (fan-out description columns shift it), not the fixed
+    // constant -- so the virtualizer spacer <tr> covers every frozen-pane column under fan-out.
+    const colSpan = paneColSpan(pane, effectiveAnchorCount, visibleDescriptors.length);
+    return (
+      <>
+        {paddingTop > 0 && (
+          <tr aria-hidden>
+            <td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: 0 }} />
+          </tr>
+        )}
+        {items.map((vi) => {
+          const row = rows[vi.index];
+          return row ? renderRow(row, vi.index, pane, vi.size) : null;
+        })}
+        {paddingBottom > 0 && (
+          <tr aria-hidden>
+            <td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+          </tr>
+        )}
+      </>
     );
   };
 
@@ -4106,10 +4467,11 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
     </DropdownMenu>
   );
 
-  // ── Frozen-left Slice 1: the TWO-PANE split (only when freeze is on AND heights are captured) ──
-  if (split) {
+  // ── Two-pane split. CLASSIC: freeze on AND heights captured (`split`). VIRTUALIZED: freeze on
+  //    (`twoPane = frozen`), windowed. Same JSX; the <tbody> content routes through renderTbody. ──
+  if (twoPane) {
     return (
-      <>
+      <VirtualizedContext.Provider value={virtualized}>
       {clipboardNotice}
       {contextMenu}
       <div
@@ -4148,7 +4510,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                 <thead>
                   <tr>{anchorHeaderCells}</tr>
                 </thead>
-                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "frozen"))}</tbody>
+                <tbody>{renderTbody("frozen")}</tbody>
               </table>
             </div>
             {/* SCROLLING pane: descriptors + Remarks. Owns overflow-x AND overflow-y; mirrors its
@@ -4184,13 +4546,13 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
                     {remarksHeaderCell}
                   </tr>
                 </thead>
-                <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx, "scrolling"))}</tbody>
+                <tbody>{renderTbody("scrolling")}</tbody>
               </table>
             </div>
           </div>
         </CollapseContext.Provider>
       </div>
-      </>
+      </VirtualizedContext.Provider>
     );
   }
 
@@ -4198,7 +4560,7 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
   //    classes as before. The only inert differences: containerRef moved from the <table> to this
   //    wrapper (refs are not DOM) and the col/th/row JSX comes from the shared fragments above. ──
   return (
-    <>
+    <VirtualizedContext.Provider value={virtualized}>
     {clipboardNotice}
     {contextMenu}
     <div
@@ -4236,12 +4598,12 @@ export const PricingGrid = forwardRef<PricingGridHandle, PricingGridProps>(funct
             {remarksHeaderCell}
           </tr>
         </thead>
-        <tbody>{rows.map((row, rowIdx) => renderRow(row, rowIdx))}</tbody>
+        <tbody>{renderTbody()}</tbody>
       </table>
       </CollapseContext.Provider>
     </div>
-    </>
+    </VirtualizedContext.Provider>
   );
-});
+}));
 
 PricingGrid.displayName = "PricingGrid";

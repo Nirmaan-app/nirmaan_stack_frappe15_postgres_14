@@ -27,8 +27,6 @@ import {
 import { TrendingDown, CheckCheck, TrendingUp } from 'lucide-react';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Table as ReactTable } from "@/components/ui/table";
-import { Space, Switch, Table, ConfigProvider } from 'antd';
-import type { TableColumnsType, TableProps } from 'antd';
 
 type TableRowSelection<T> = TableProps<T>['rowSelection'];
 

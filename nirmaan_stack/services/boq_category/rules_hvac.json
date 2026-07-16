@@ -1,0 +1,358 @@
+{
+  "discipline": "HVAC",
+  "version": "0.1-hv1-v0",
+  "note": "HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
+  "rules": [
+    {
+      "rule_id": "DUCT-KW",
+      "category_id": "hvac_ducting",
+      "signal_type": "item_keyword",
+      "match": ["ducting", "ductwork", "duct work", "gss duct", "gi duct", "sheet metal duct", "spiral duct", "oval duct", "pre insulated duct"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "exclude_if": ["ductable", "duct mounted", "duct-mounted", "duct sensor", "duct smoke"],
+      "plain": "Names sheet-metal ductwork (GI/GSS, spiral/oval/round) fabricated + installed by gauge/area.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "DUCT-ANC",
+      "category_id": "hvac_ducting",
+      "signal_type": "ancestor",
+      "match": ["ducting", "duct work", "sheet metal duct"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a Ducting section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "ADP-KW",
+      "category_id": "hvac_adp",
+      "signal_type": "item_keyword",
+      "match": ["diffuser", "grille", "grill", "damper", "fire damper", "volume control damper", "vcd", "spigot", "collar", "louver", "louvre", "register", "slot diffuser", "egg crate", "trap door", "canvas connection"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "An air-distribution product: grille/diffuser/damper (incl. fire damper)/VCD/louver/spigot/collar.",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "ADP-PLENUM",
+      "category_id": "hvac_adp",
+      "signal_type": "item_keyword",
+      "match": ["plenum"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "A plenum box is an air-distribution product (not an electrical/control panel).",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "ADP-ANC",
+      "category_id": "hvac_adp",
+      "signal_type": "ancestor",
+      "match": ["grille", "diffuser", "air distribution"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a grille/diffuser (air distribution) section.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "PIPE-KW",
+      "category_id": "hvac_piping",
+      "signal_type": "item_keyword",
+      "match": ["pipe", "piping", "chilled water pipe", "condenser water pipe", "refrigerant pipe", "refrigerant piping", "copper pipe", "drain pipe", "cpvc", "upvc", "ms pipe", "gi pipe"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "exclude_if": ["drain pump", "drip tray"],
+      "plain": "HVAC piping: chilled/condenser water, copper refrigerant, or drain pipe.",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "PIPE-ANC",
+      "category_id": "hvac_piping",
+      "signal_type": "ancestor",
+      "match": ["piping"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Piping section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "INS-KW",
+      "category_id": "hvac_insulation",
+      "signal_type": "item_keyword",
+      "match": ["insulation", "nitrile", "elastomeric", "fiberglass", "fibre glass", "fiber glass", "glasswool", "glass wool", "aluminium cladding", "acoustic lining", "thermal insulation"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "Duct/pipe thermal or acoustic insulation (nitrile/elastomeric/fiberglass/cladding).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "INS-ANC",
+      "category_id": "hvac_insulation",
+      "signal_type": "ancestor",
+      "match": ["insulation"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under an Insulation section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "VLV-KW",
+      "category_id": "hvac_valve_package",
+      "signal_type": "item_keyword",
+      "match": ["valve", "butterfly valve", "ball valve", "nrv", "non return valve", "non-return valve", "sluice valve", "globe valve", "balancing valve", "picv", "strainer", "rising spindle"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "ambiguous_with": ["hvac_chw_units", "hvac_ahu"],
+      "plain": "A valve or valve-assembly line (butterfly/NRV/balancing/PICV/strainer). A valve itemised INSIDE a CHW/AHU unit package may instead belong to that unit -- kept MED, not HIGH, without a Valves-section ancestor.",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "VLV-ANC",
+      "category_id": "hvac_valve_package",
+      "signal_type": "ancestor",
+      "match": ["valves"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Valves section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "VAV-KW",
+      "category_id": "hvac_vav_box",
+      "signal_type": "item_keyword",
+      "match": ["vav", "cav", "vav box", "variable air volume", "terminal box"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "A VAV/CAV terminal box (CFM-rated air terminal).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "VAV-ANC",
+      "category_id": "hvac_vav_box",
+      "signal_type": "ancestor",
+      "match": ["vav", "variable air volume"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a VAV section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "SNS-KW",
+      "category_id": "hvac_sensors",
+      "signal_type": "item_keyword",
+      "match": ["sensor", "thermostat", "transmitter", "co2 sensor", "co2", "iaq", "bacnet", "bms", "controller", "dp sensor", "pressure sensor", "temperature sensor", "humidity sensor", "air flow measuring station", "thermometer", "pressure gauge"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "ambiguous_with": ["hvac_vav_box"],
+      "plain": "A sensor, transmitter, thermostat, or BMS/BACnet controller / integration item.",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "SNS-ANC",
+      "category_id": "hvac_sensors",
+      "signal_type": "ancestor",
+      "match": ["sensors", "controls", "bms"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Sensors / Controls / BMS section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "FAN-KW",
+      "category_id": "hvac_fans",
+      "signal_type": "item_keyword",
+      "match": ["fan", "axial fan", "inline fan", "exhaust fan", "ventilation fan", "kitchen exhaust", "scrubber", "make-up air", "make up air", "propeller fan", "blower", "centrifugal fan"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "exclude_if": ["fan coil", "plug fan", "fan motor"],
+      "plain": "A ventilation/exhaust/axial/inline fan, kitchen exhaust, scrubber, or make-up air unit (NOT an FCU fan coil or an AHU plug fan).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "FAN-ANC",
+      "category_id": "hvac_fans",
+      "signal_type": "ancestor",
+      "match": ["ventilation", "exhaust fan", "fans"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Ventilation / Fans section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "CHW-KW",
+      "category_id": "hvac_chw_units",
+      "signal_type": "item_keyword",
+      "match": ["fan coil", "fcu", "csu", "chilled water unit", "chw fcu"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A chilled-water terminal unit (FCU / fan coil / CSU / chilled-water unit).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "CHW-CASSETTE",
+      "category_id": "hvac_chw_units",
+      "signal_type": "item_keyword",
+      "match": ["cassette", "hi-wall", "hi wall", "high wall", "ductable"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "ambiguous_with": ["hvac_dx_unit", "hvac_vrf"],
+      "plain": "A cassette/hi-wall/ductable terminal: CHW only WITH a chilled-water context; scored weak because bare it is ambiguous vs DX and VRF.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "CHW-ANC",
+      "category_id": "hvac_chw_units",
+      "signal_type": "ancestor",
+      "match": ["chilled water", "chw", "fan coil"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Chilled Water / FCU section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "DX-KW",
+      "category_id": "hvac_dx_unit",
+      "signal_type": "item_keyword",
+      "match": ["dx unit", "split ac", "split unit", "split air conditioner", "condensing unit", "inverter split"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A direct-expansion split unit / condensing unit (non-VRF).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "DX-CASSETTE",
+      "category_id": "hvac_dx_unit",
+      "signal_type": "item_keyword",
+      "match": ["cassette", "hi-wall", "hi wall", "high wall", "split"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "ambiguous_with": ["hvac_chw_units", "hvac_vrf"],
+      "plain": "A cassette/hi-wall/split terminal: DX only in a split/non-VRF context; scored weak because bare it is ambiguous vs CHW and VRF.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "VRF-KW",
+      "category_id": "hvac_vrf",
+      "signal_type": "item_keyword",
+      "match": ["vrf", "vrv", "odu", "idu", "outdoor unit", "indoor unit"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "exclude_if": ["cabling", "control cabling", "control cable", "power cable"],
+      "ambiguous_with": ["hvac_cables"],
+      "plain": "A VRF/VRV system unit (ODU/IDU). Owner rule: a cabling line between ODU and IDU is hvac_cables, so a VRF line naming cabling yields the category to Cables (excluded here).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "VRF-ANCIL",
+      "category_id": "hvac_vrf",
+      "signal_type": "item_keyword",
+      "match": ["refnet", "y-joint", "y joint", "refrigerant branch", "r410a", "refrigerant gas", "refrigerant charging", "ms stand for odu", "odu stand"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "A VRF ancillary: refnet/Y-joint, refrigerant gas topping, or ODU stand. NOTE: VRF control CABLING is hvac_cables, not here.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "VRF-ANC",
+      "category_id": "hvac_vrf",
+      "signal_type": "ancestor",
+      "match": ["vrf", "vrv", "vrf works"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under a VRF section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "CBL-KW",
+      "category_id": "hvac_cables",
+      "signal_type": "item_keyword",
+      "match": ["cable", "cabling", "control cable", "power cable", "control cabling", "cable tray", "perforated tray"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "HVAC power/control cabling or cable tray. OWNS VRF control cabling (VRF keeps only refnet/gas/stand ancillaries).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "CBL-ANC",
+      "category_id": "hvac_cables",
+      "signal_type": "ancestor",
+      "match": ["cabling", "cable tray"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "Sits under a Cabling / Cable Tray section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "AHU-KW",
+      "category_id": "hvac_ahu",
+      "signal_type": "item_keyword",
+      "match": ["ahu", "air handling unit", "air handling", "tfa", "treated fresh air", "cooling coil", "plug fan"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "plain": "An air handling unit / TFA unit / cooling coil / AHU accessory (incl. the AHU plug fan).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "AHU-ANC",
+      "category_id": "hvac_ahu",
+      "signal_type": "ancestor",
+      "match": ["ahu", "air handling"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "Sits under an AHU section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "PNL-KW",
+      "category_id": "hvac_panels",
+      "signal_type": "item_keyword",
+      "match": ["starter panel", "control panel", "vfd panel", "vfd", "mcc panel", "touch screen controller", "touchscreen", "dol starter", "star delta starter"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "exclude_if": ["double skin", "skin panel", "plenum"],
+      "plain": "A starter/control/VFD panel for HVAC equipment (NOT a double-skin AHU/plenum casing panel).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "PNL-ANC",
+      "category_id": "hvac_panels",
+      "signal_type": "ancestor",
+      "match": ["starter panel", "control panel"],
+      "match_mode": "any_token",
+      "weight": 0.35,
+      "plain": "Sits under a Panels section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "PMP-KW",
+      "category_id": "hvac_pumps",
+      "signal_type": "item_keyword",
+      "match": ["pump", "pump set", "primary pump", "secondary pump", "condenser pump", "chilled water pump"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "exclude_if": ["drain pump", "drip tray", "heat pump"],
+      "plain": "A CHW primary/secondary/condenser pump set (NOT a unit drain pump nor a VRF heat pump).",
+      "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "PMP-ANC",
+      "category_id": "hvac_pumps",
+      "signal_type": "ancestor",
+      "match": ["pumps", "pump set"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Pumps section header.",
+      "source": "corpus recon"
+    },
+    {
+      "rule_id": "MSC-KW",
+      "category_id": "hvac_misc",
+      "signal_type": "item_keyword",
+      "match": ["testing and balancing", "testing & balancing", "air balancing", "t&b", "chemical dosing", "chemical treatment", "water treatment", "vibration isolator", "vibration pad", "pressure testing", "duct cleaning", "dismantling", "recommissioning"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "A standalone HVAC service/hardware line: T&B/commissioning, water treatment, vibration isolators, dismantling/recommissioning. A positive read for genuine HVAC misc, NOT a fallback for uncertainty (that stays blank).",
+      "source": "pricing catalogue"
+    }
+  ]
+}

@@ -11344,3 +11344,738 @@ re-run now; it is certified at the next out-of-sample (Set-3) cycle. **All routi
 record (94.7% auto-accept @ 91.0%, the §21.6 cross-tab, the auto-accept error analysis, the escalation
 curve) remain v1.2-based** -- re-derive them on the Set-3 rerun if v1.3's boundary shift matters. No push.
 
+## HVAC engine -- Build slice HV-1 (assets + discipline unlock) COMPLETE
+
+Second-discipline groundwork for the rate-guidance classifier, on `feature/boq-classification-eval`
+(one feat commit + this docs commit). Creates the HVAC classification ASSETS and unlocks the three
+electrical-hardcoded seams so an HVAC eval run is possible. **The HVAC engine stays DISABLED in the
+registry** (`engines.py` untouched, `available=False`) -- enabling it is a separate, later, GATED slice.
+NO user-visible change; NO doctype change (no migrate); electrical behaviour byte-identical.
+
+**New assets (`services/boq_category/`):**
+- **`categories_hvac.json`** (`version 0.1-hv1-v0`) -- the 16 frozen HVAC categories, same shape/contract
+  as `categories_electrical.json` (`category_id`, `name`, `description`, `discipline`). ids/names match the
+  team labelling legend (`_classification_review/hvac_corpus_export/Categories_Legend.csv`): `hvac_ducting`,
+  `hvac_adp`, `hvac_piping`, `hvac_insulation`, `hvac_valve_package`, `hvac_vav_box`, `hvac_sensors`,
+  `hvac_fans`, `hvac_chw_units`, `hvac_dx_unit`, `hvac_vrf`, `hvac_cables`, `hvac_ahu`, `hvac_panels`,
+  `hvac_pumps`, `hvac_misc`.
+- **`rules_hvac.json`** (`version 0.1-hv1-v0`, UNMEASURED) -- HVAC ruleset v0, mirrors the electrical rule
+  grammar exactly (`rule_id`, `category_id`, `signal_type` item_keyword/ancestor, `match`, `match_mode`,
+  `weight`, `plain`, `source`). 35 rules across all 16 categories (per-category counts below). Weights follow
+  electrical convention (strong distinctive keyword 0.55-0.6, ancestor 0.40-0.45, ambiguous/supporting
+  0.30-0.45). **Collision owners encoded via `exclude_if` + weak weights** (owner-locked): ADP owns dampers
+  (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF ODU-IDU control cabling (VRF-KW `exclude_if`
+  cabling); cassette/hi-wall scored WEAK (0.35) in BOTH CHW and DX so a bare "1TR cassette" lands LOW not
+  false-HIGH; Panels `exclude_if` double-skin/plenum (that casing is AHU/ADP); Pumps + Piping `exclude_if`
+  drain-pump/drip-tray (that belongs to the unit).
+- **`prompts/hvac_ai_category_prompt.md`** (`version hvac-v1.0`, `model claude-opus-4-8`, UNMEASURED) --
+  the Option-B independent AI voter prompt, mirrors the electrical prompt section-for-section (role, 16
+  categories, the boundary/collision discriminators, Option-B independence, identical JSON output contract
+  `{id, category_id, confidence, brief_reason}`, same abstention rule).
+
+**Seam edits (electrical behaviour unchanged):**
+- **`runner.load_ruleset`** -- the raise-for-non-Electrical replaced by a `_DISCIPLINE_ASSETS` map
+  (`Electrical` -> electrical files, `HVAC` -> hvac files); `scoring.json` stays SHARED; an unknown discipline
+  still raises. `lru_cache` already keys per discipline.
+- **`ai_voter`** -- prompt path resolved per discipline via `_DISCIPLINE_PROMPTS` (`_prompt_path(discipline)`
+  + `_read_prompt(discipline)`); default arg stays `Electrical` (no signature break); `classify_rows_ai` passes
+  its `discipline` through. Unknown discipline raises.
+- **`harness/electrical_classification_harness.py`** -- a `BOQ_HARNESS_DISCIPLINE` env switch (default
+  `Electrical`) selects `{discipline, BOQS, prompt}`. HVAC BOQS = the 12 distinct BoQs of the 22-sheet corpus
+  (`_MANIFEST.csv`); sheet-level scoping stays by the labelled input. `classify_line` + `load_ruleset` +
+  `PROMPT_PATH` all take the switch; with no env var the electrical run is byte-identical (verified: default
+  DISCIPLINE=Electrical, same 5 BOQS, electrical prompt).
+
+**Tests:** new module `nirmaan_stack/services/boq_category/tests/test_runner_hvac.py` -- **21 tests, all
+green** (pure unittest, no frappe): assets well-formed (frozen 16, every rule targets a known category,
+unknown discipline raises, HVAC+Electrical both load with disjoint ids); 6 per-category positives
+(ducting / VRF ODU / valve / AHU / insulation / VAV -> expected category, non-ABSTAIN); 6 collision negatives
+(bare cassette NOT HIGH; fire damper -> adp not ducting; drain piping -> piping; double-skin -> not panels;
+drain pump -> pumps zeroed; VRF cabling -> cables, vrf zeroed); 2 contract (score in [0,1]; no-signal ->
+blank ABSTAIN); 3 ai_voter prompt resolution (HVAC path resolves + reads `hvac-v1.0`; electrical path
+unchanged incl. default arg; unknown discipline raises). **Electrical regression `test_runner_electrical`
+82 -> 82 (baseline unchanged).**
+
+**DEFERRED (gated, NOT this slice):** the `engines.py` registry flip (`hvac.available` True) is deliberately
+NOT done -- it is gated on (a) a tuned/measured HVAC ruleset, (b) a certified HVAC prompt (Set-1 HVAC eval
+cycle), and (c) a locked HVAC routing policy. Until the flip, `start_classify` / `set_row_category` /
+`get_category_catalog` still reject `discipline="HVAC"` via `is_discipline_available` (unchanged gate). Also
+still shared as-is (per the HV-1 recon): `routing.py` + `routing_config.json` (per-discipline routing is a
+later optional seam -- `route_r3d` already accepts an injected config), `scoring.json`, `orchestrator.py`,
+`context_builder.py`, `persist.py`, `classify.py`. `rules_hvac.json` v0 + the prompt are UNMEASURED --
+certified at the HVAC eval, not before.
+
+**Per-category rule counts (rules_hvac.json v0):** ducting 2, adp 3, piping 2, insulation 2, valve_package 2,
+vav_box 2, sensors 2, fans 2, chw_units 3, dx_unit 2, vrf 3, cables 2, ahu 2, panels 2, pumps 2, misc 1 (= 35).
+
+
+## HVAC engine -- Build slice HV-2 (voter single-row-batch parse fix + harness hardening) COMPLETE
+
+Two production fixes surfaced during the HVAC Set-1 baseline run, on `feature/boq-classification-eval`
+(one feat commit + this docs commit). BOTH are shape/plumbing only -- **NO classification behaviour
+changes**; electrical live behaviour is byte-identical. NO doctype change (no migrate); registry stays
+OFF (HV-1 gate untouched); `scoring.json` + `routing_config.json` stay SHARED and untouched.
+
+**Fix 1 -- voter single-row-batch parse (`services/boq_category/ai_voter.py`, permanent, ALL disciplines).**
+`_extract_json_array` previously found the outer `[`/`]` and RAISED `"no JSON array in AI response"` on any
+reply without them. When a batch carries exactly ONE row (eligible % 20 == 1) the model returns a bare JSON
+OBJECT instead of a one-element array, so the call crashed -- and this is the LIVE electrical engine (any
+sheet whose eligible count mod 20 == 1). The fix keeps the array path byte-identical (array found -> unchanged),
+and when there is NO array but a balanced `{...}` object substring, parses it and wraps it as a one-element
+list. Parse-shape ONLY: the id/category/confidence validation in `_ai_batch` is untouched, so a bare object and
+the same object inside a one-element array produce an IDENTICAL `{id: (cat, conf, reason)}` map. A genuinely
+non-JSON reply (no brackets, no braces) still raises the SAME `ValueError`; a brace substring that is not valid
+JSON still raises from `json.loads` -- errors are never swallowed (isolation is the harness's job, not the
+voter's). Single extraction seam only; the voter is otherwise unrestructured. (The harness keeps its OWN
+`_extract_json_array` with the old single-row limitation -- deliberately NOT patched this slice per scope;
+per-sheet isolation below MITIGATES it: a lone-row HVAC sheet is recorded FAILED and the run continues.)
+
+**Fix 2 -- harness hardening (`services/boq_category/harness/electrical_classification_harness.py`).** Three
+run-plumbing improvements, no scoring/output-content change on a clean run:
+- **Per-sheet failure isolation** -- new pure helper `_process_all_sheets(sheet_specs, process_one)` runs each
+  labelled sheet under try/except; an exception records that sheet FAILED (`{boq, sheet_name, error=repr(exc)}`)
+  and the run CONTINUES to the next sheet (was: one bad batch aborted the whole run). `main()` now builds the
+  ordered labelled-sheet spec list first (boq-then-sheet; unlabelled skipped -- a skip is not a failure), moves
+  the per-sheet body verbatim into a `_process_one(spec)` closure, and calls the helper. End-of-run summary
+  prints a `FAILED sheets=N:` block listing each failed sheet. The per-sheet CSV write + the `DONE rows=...` line
+  are byte-identical for a zero-failure run (`total_ai_calls` folded into `stats['ai_calls']`, same printed value).
+- **Per-batch progress** -- new pure helper `_write_progress(folder, **fields)` writes/overwrites `_PROGRESS.json`
+  in the run's OWN output folder (the CLI OUTPUT arg -- NEVER `_classification_review/`) after every AI batch,
+  carrying `{boq, sheet_name, batch, batches_total, rows_done, rows_total, timestamp}`; a terminal marker
+  (`{status:"done", sheets_ok, sheets_failed, failed}`) overwrites it at end-of-run. Runtime artifact only.
+- **Unbuffered invocation** -- all `print()` calls flushed (`flush=True`); the documented invocation now uses
+  `env/bin/python -u` so progress + `_PROGRESS.json` stream live for monitoring. Recorded in the module usage
+  header. Canonical form:
+  `BOQ_HARNESS_INPUT=<labelled_xlsx_dir> [BOQ_HARNESS_DISCIPLINE=HVAC] env/bin/python -u
+  nirmaan_stack/services/boq_category/harness/electrical_classification_harness.py <OUTPUT_FOLDER>`.
+
+**Tests:** new module `nirmaan_stack/services/boq_category/tests/test_hv2_voter_harness.py` -- **11 tests, all
+green** (pure unittest, no frappe, no live AI; a tiny Anthropic-shaped fake client returns fixed reply text).
+Coverage matrix: T1 bare-object reply -> one-element list, downstream IDENTICAL to a one-element array; T2
+well-formed array (and prose-framed array) -> unchanged; T3 non-JSON / unterminated / broken-object replies ->
+still raise; T4 a stubbed sheet that raises -> recorded FAILED, later sheets still processed, summary names it;
+T5 all-green stub run -> `(ok, [])` shape, sheets processed in order; T6 `_write_progress` emits `_PROGRESS.json`
+(TEMP dir) with the expected keys, refreshed each batch, into the given folder only. **Regression:
+`test_runner_electrical` 82 -> 82 and `test_runner_hvac` 21 -> 21, both green and unmodified.** Suite totals:
+82 + 21 + 11 = 114.
+
+**Test command form (VERIFIED module path -- the suites live under `services.boq_category.tests`, not
+`api.boq.wizard`):**
+`bench --site localhost run-tests --app nirmaan_stack --module
+nirmaan_stack.services.boq_category.tests.test_hv2_voter_harness` (and `...test_runner_electrical` /
+`...test_runner_hvac` for regression).
+
+**HV-2b micro-slice (harness extractor dedupe) -- SUPERSEDES the HV-2 "harness keeps its OWN
+`_extract_json_array`, deliberately NOT patched" note above.** HV-2 left the harness carrying a duplicate
+extractor with the SAME pre-fix single-row bug, so the HV-2 live cert (LOWSIDE, 121 eligible rows -> a final
+batch of exactly 1) would have failed by construction. This slice DELETES the harness's local
+`_extract_json_array` and imports the voter's fixed one
+(`from nirmaan_stack.services.boq_category.ai_voter import _extract_json_array`, a top-level import -- the
+voter module is framework-free: stdlib + the pure runner, so it loads safely before `frappe.init()` in
+`main()`). The harness `_ai_batch` call site (`for el in _extract_json_array(text):`) is byte-identical; the
+array parse path is unchanged (electrical 82 + the HV-2 array tests are the proof). Contracts were verified
+identical before the swap (both take `text`, return a list of dicts, raise `ValueError` on no-array); the
+voter's is a strict superset (adds bare-object tolerance). ONE source of truth now -- do NOT reintroduce a
+local copy. **Tests:** `test_hv2_voter_harness.py` +3 (T7 harness `_ai_batch` parses a bare single-row object
+identically to the same object in a one-element array; a single-source-of-truth identity assertion
+`H._extract_json_array is ai_voter._extract_json_array`; T8 harness parse path on a non-JSON reply still
+raises). **Regression:** `test_runner_electrical` 82, `test_runner_hvac` 21, `test_hv2_voter_harness` 11 -> 14,
+all green. Suite totals: 82 + 21 + 14 = 117.
+
+
+## Classifier eval -- Build slice D1 (proximity-decay mechanism, rules side) COMPLETE
+
+Rules-side proximity decay in the classification runner, on `feature/boq-classification-eval` (one
+feat commit + this docs commit). Decay = ancestor influence weakens with degree of separation. Pure
+mechanism only -- NO ruleset/prompt/scoring change, NO AI-side change, NO JSON `decay` block shipped
+(both disciplines run the flat default), so electrical + HVAC are byte-identical. Backend-only
+(runner.py + a new test module); frontend CLAUDE.md untouched (backend-only convention).
+
+**Locked design (owner decisions 2026-07-11 -- electrical-first reversal, shape A multiplicative, no
+hard veto, per-discipline config, separate rules/AI multipliers, AI side HELD):**
+- **Config surface** -- `load_ruleset(discipline)` now returns an additive `"decay"` dict read from the
+  discipline's `rules_<disc>.json` top-level `"decay"` key IF present, else the FLAT DEFAULT
+  `{"rules_multiplier": 1.0}`. No shipped rules file carries a decay block this build.
+- **Runtime override (the sweep lever)** -- `classify_line` gains a keyword-only `decay_override:
+  dict|None = None`. `None` -> use the ruleset config (flat today); provided -> it WINS. Lets the
+  offline sweep vary the multiplier in a pure loop with zero file edits.
+- **Guaranteed-identical default path** -- effective `m = rules_multiplier`. `m >= 1.0` (or
+  absent/malformed/`<= 0`) executes the EXISTING flat code path UNCHANGED (blob flatten + match),
+  byte-identical by construction. The decay branch is a guarded early-`continue` prepended to the
+  scoring loop; the flat block is verbatim pre-D1.
+- **Decay path (active only `0 < m < 1.0`)** -- for `signal_type == "ancestor"` rules: iterate the
+  ROOT-FIRST ancestor list (index 0 = sheet name = farthest, last = immediate parent `d=0`; distance
+  `d = (len-1) - index`), match each ancestor individually (same token semantics + `headers_only`
+  handling via the parallel `ancestor_headers` at the same index), and contribute ONCE at the NEAREST
+  matching ancestor's decayed weight `weight * (m ** d)` (no summing across matches -- kills
+  repeated-header double-count). The fired record carries `ancestor_distance` + `decayed_weight`.
+  Same treatment inside the `_infer_from_ancestors` abstain fallback (`_infer_from_ancestors_decayed`),
+  on TOP of the existing `inheritance_weight`/`inheritance_cap` knobs (decay multiplies, does not
+  replace). Agreement bonus / conflict penalty / exclusion zeroing / banding / inherited-below-HIGH
+  cap all downstream, unchanged. Helpers: `_rules_multiplier`, `_nearest_decayed_hit`,
+  `_infer_from_ancestors_decayed`.
+- **Known semantic difference (accepted, decay-mode only)** -- in decay mode a multi-token rule must
+  match WITHIN a single ancestor's text; the flat blob could incidentally match tokens ACROSS the
+  joined ancestors. Intentional (the cross-match is an artifact); exists only when `m < 1.0`.
+- **AI side HELD** -- `ai_voter` untouched; AI-side proximity decay is a later, separate build.
+
+**Tests:** new module `nirmaan_stack/services/boq_category/tests/test_decay.py` -- **12 tests, all
+green** (pure unittest, no frappe; real electrical ancestor rules `FLOOR SERVICE BOXES`->popup w0.5 /
+`SOCKET OUTLETS`->switches_sockets w0.4 against a proven-neutral line; expectations derived FROM the
+flat run, not hardcoded weights). Coverage: config-surface flat default (Electrical + HVAC); (a) d=0
+== flat; (b) d=2 -> weight*0.25, band MED->LOW; (c) near-beats-far winner flip vs flat; (d)
+nearest-match-once (d=0 & d=3 -> one contribution at d=0); (e) silent-parent fall-through (signal at
+d=1 -> m**1); (f) `None` and `{rules_multiplier:1.0}` both == pinned flat (ancestor + geometry inputs);
+(g) malformed/`<=0`/`>=1.0` override -> flat, no crash; (h) inheritance fallback decays by distance +
+stays below HIGH. **Regression (bench env python, from frappe-bench root): `test_runner_electrical`
+82, `test_runner_hvac` 21, `test_hv2_voter_harness` 14 -- ALL unchanged and green (117 -> 117), + 12
+new = 129.** Backwards-compat: `classify_line` still callable with all existing signatures (new param
+keyword-only, default None); `load_ruleset` keys additive -- the DB suites `test_classify` 30 +
+`test_row_category` 26 also green.
+
+
+## Classifier eval -- D2 decay sweep FINDINGS + D2c tool promotion COMPLETE
+
+Offline measurement of the D1 proximity-decay knob against the human-labelled electrical corpus
+(`Set2_Verdicts_Relabeled`: 61 files / 17 BoQs / **4,159 scorable line items** = Line Item rows with a
+non-blank `team_classification`), then promotion of the proven scratch sweep into a tracked tool. No
+runner/asset change this build (one NEW harness file + this docs commit); the D1 flat default stands,
+now as a MEASURED conclusion, not just a safe default.
+
+**D2 measured result (electrical) -- decay does NOT help; LOCKED FLAT (1.0):**
+- Flat `m=1.0` = **84.68%** (3522/4159). Across the full 20-value ladder (1.0 .. 0.05) accuracy stays
+  **84.61-84.76%** -- the best point beats flat by **+3 rows** (m=0.90/0.95), within noise. Blank/
+  route-to-human constant at 100; HIGH-band accuracy holds **96.5-96.7%** at every multiplier (NO 95%
+  guardrail breach anywhere); routing barely moves (auto-accept ~2971-2979 @ ~97.5%, AI held at the
+  Jul-4 export / prompt v1.2 era).
+- WHY flat: electrical line items are mostly carried by DIRECT keyword signals or single-level (d=0)
+  immediate-parent headers, so decay rarely bites. Where it does, the effects CANCEL: decay drains the
+  over-propagated `EARTHING` banner (gains `wiring_cabling` +10, `conduit_piping` +3 at m=0.15) but
+  over-suppresses legitimate distant sole-signal banners (`ups` **97.2% -> 88.8%**, the only >2pp
+  per-category move; `earthing` -3). Net ~0.
+- **D2b topmost-exempt variant shapes tested + REJECTED for electrical:** VARIANT A (topmost real
+  ancestor exempt) / VARIANT B (sheet + topmost exempt), per-rule contribution = MAX of per-ancestor
+  factors. Both RECOVER the ups/earthing losses (back to flat) but ERASE the wiring_cabling gains --
+  same-distance-banner cancellation (the winners and losers are the same kind of row: a topmost section
+  banner as the only ancestor signal). Both land TOTAL at ~84.68-84.71%, indistinguishable from flat.
+  The variant shapes are therefore NOT shipped in the tracked tool; a shape option gets built only if a
+  measured HVAC sweep wins with it.
+
+**Faithfulness caveat (accepted):** flat prediction vs the files' stored `rule_category` = 81.05%, but
+that column is a PRE-tuning2 (Jul-4) engine-tip export -- ~100% of the divergence maps to known runner
+advances (geometry -> junction_box/conduit, blank->placed via new ancestor rules, LF/MISC/popup
+propagation), with correctly-rebuilt ancestors. The feed reconstruction is faithful; the oracle is
+stale. Faithfulness is therefore REPORT-ONLY in the tool, never a gate (team labels are tip-independent).
+
+**D2c tool -- `services/boq_category/harness/decay_sweep.py` (NEW, tracked):** a parameterized offline
+sweep consolidating the D2 pipeline. Pure offline (imports only the framework-free `runner` +
+`routing`; NO frappe/DB/AI/network in the hot path). Feed rebuilt from `parent_excel_row`, byte-faithful
+to `context_builder.py:181-184` (context_builder itself is DB-bound and cannot be imported for a
+file-based tool). INPUT via env `BOQ_SWEEP_INPUT` or a positional arg (no default; never inside
+`_classification_review/`); `--discipline` (default Electrical), `--ladder` (comma-separated, default the
+20-value D2 ladder), `--out` (REQUIRED, must exist, refused if inside `_classification_review/`). Emits:
+faithfulness report (report-only + stale-oracle note), the main sweep table (printed + `sweep_table.csv`),
+`per_category_accuracy_matrix.csv` (categories x multipliers recall vs team labels, `*` = >2pp move), and
+per-candidate `per_category_delta_m*.csv` diagnostics. Routing-impact columns only when the corpus carries
+the AI columns, else skipped with a printed note (never invented). Canonical invocation in the module
+docstring. **Verification:** no new unittest module (offline analysis tool -- same harness-stays-thin
+convention as `electrical_classification_harness.py`; the logic it drives, `classify_line` decay, is
+covered by `test_decay.py`'s 12). SMOKE (in-session, `--ladder 1.0` on the Set2 corpus): reproduces
+**84.68% (3522/4159)** and denominator **4,159** exactly; the `--out inside _classification_review/`
+guard refuses with exit 2. Regression `test_runner_electrical` 82 + `test_runner_hvac` 21 +
+`test_hv2_voter_harness` 14 + `test_decay` 12 = **129, unchanged** (no runner code touched).
+
+**Invocation:** `BOQ_SWEEP_INPUT=<labelled_dir> env/bin/python
+apps/nirmaan_stack/nirmaan_stack/services/boq_category/harness/decay_sweep.py --out <OUTPUT_DIR>`
+
+
+## Classifier eval -- D3a ground-truth snapshot store + corpus classify-and-label runner COMPLETE
+
+The eval truth substrate: a new snapshot doctype + a corpus runner, on `feature/boq-classification-eval`
+(one feat commit + this docs commit). Backend + a new doctype (MIGRATE -- Abhishek heads-up owed at
+push). No existing classifier code touched.
+
+**Owner decisions tonight (2026-07-11) -- the truth model:**
+- **Truth = FREEZE SNAPSHOTS, not live human edits.** Live `BoQ Row Category` rows are WORKING STATE: a
+  re-classify supersedes them and human verdicts intentionally do NOT carry forward. **The earlier
+  carry-forward plan (D3 recon #4) is DROPPED -- stranding is now INTENTIONAL.** Ground truth is banked
+  out-of-band and is PERMANENT.
+- **Freeze/Unfreeze lifecycle (deferred to the eval-cockpit arc, NOT this build):** a Freeze event locks
+  classification + banks the snapshot; Unfreeze is required before any re-classify; snapshots are never
+  deleted (unfreeze never deletes). For NOW, Freeze would lock CLASSIFICATION ONLY; the Freeze/Unfreeze
+  button + its `human_category_id` write-back-at-new-version is the cockpit arc. The button is SEPARATE
+  from the pricing freeze (placement + state mitigations to be handled in that arc).
+- **Labels -> snapshot (Option A):** the team's Excel labels load into the snapshot store, NOT into
+  `human_category_id` (live rows untouched). Dev-DB target.
+
+**New doctype `BoQ Category Truth Snapshot`** (`nirmaan_stack/doctype/boq_category_truth_snapshot/`): one
+record per (snapshot event x row). Fields mirror `BoQ Row Category` naming -- `boq` (Link BOQs, indexed),
+`sheet_name` (Data, VERBATIM #152), `excel_row` (Int), `discipline` (Data, default Electrical),
+`committed_version` (Int, current AT snapshot time), `label_category_id` (Data, frozen-vocab id),
+`snapshot_batch` (Data, indexed -- one shared id per freeze/load event), `source` (Select:
+`Bulk-loaded ground truth` / `Frozen in product`), `snapshot_at` (Datetime), `snapshot_by` (Data). Minimal
+controller: `validate` rejects an empty `label_category_id`; `on_doctype_update` adds a composite READ
+index `(boq, sheet_name, excel_row, discipline, snapshot_batch)` for the cockpit join (a plain index, not a
+hard unique -- logical uniqueness is enforced by the loader; migrate-safe). No workflow/submit.
+**`bench migrate` run + table/columns VERIFIED present.**
+
+**Corpus runner `services/boq_category/harness/corpus_classify_and_label.py`** -- a bench-execute tool
+(reuses `decay_sweep`'s corpus parsing) with three INDEPENDENT modes; corpus via env `BOQ_CORPUS_INPUT`
+or the `corpus` kwarg (never inside `_classification_review/`):
+- `resolve` (DRY) -- resolve every file to its `is_current=1` committed sheet by (boq, VERBATIM sheet_name,
+  TRIM fallback); print per-sheet file-LI vs committed-eligible + flag gaps. NO writes.
+- `classify` -- REFUSES to start if `"BOQ Upload Review AI Settings".enabled` is OFF (else the whole corpus
+  classifies AI-off: rule-only, every row Needs review). Per sheet: `orchestrator.classify_sheet_rows` +
+  progress print; HARD-ASSERT `summary["ai_status"] == "ran"` else mark the sheet FAILED and CONTINUE
+  (per-sheet isolation); ok/failed summary. NO snapshot writes.
+- `label` -- load LINE ITEM `team_classification` into the snapshot store: validate the whole corpus
+  vocabulary FIRST (abort on out-of-vocab, no writes), ONE `snapshot_batch` per load,
+  `source="Bulk-loaded ground truth"`, `snapshot_by="ground-truth-bulk"`, `committed_version` = the sheet's
+  current version, one commit per sheet; SKIP a label whose `excel_row` has no current eligible node (prints
+  a skip report -- expect ~12 on `BOQ-26-00007`, which re-committed v3 with 261 committed LI vs 273 file
+  LI); idempotent -- refuses a second bulk load covering a sheet unless `force_new_batch=True`.
+- **VERBATIM fix (found in test):** the snapshot stores the COMMITTED `BoQ Sheet.sheet_name` (authoritative,
+  from the DB), not the file's column, so a snapshot row's `sheet_name` is byte-identical to Row Category's
+  and the durable-address join holds (trailing-space #152).
+
+**Resolve smoke (in-session, no writes):** all **61 files resolve, 0 misses**, file LineItems **4,335**,
+committed eligible **5,367**; the `BOQ-26-00007` gap prints. classify/label NOT run in-session (AI cost /
+operational, owner-gated).
+
+**Tests:** new DB module `nirmaan_stack/api/boq/wizard/test_truth_snapshot.py` -- **5 tests, all green**
+(seeds a committed sheet + a tiny CSV corpus + drives the real loader): load inserts eligible labels + skips
+the non-eligible one + reads back fields intact; controller rejects empty `label_category_id`; out-of-vocab
+aborts with NO writes; idempotence refuse + `force_new_batch` banks a second batch; a snapshot row joins to a
+`BoQ Row Category` current row by `(boq, sheet_name, excel_row, discipline)`. **Regression: pure suites 129 +
+DB `test_classify` 30 + `test_row_category` 26 all unchanged; runner itself has no unittest (harness-stays-thin;
+its write path is exercised by the loader tests).**
+
+**Operational note for the eventual run:** AI toggle is currently `enabled=False` on this dev DB (key
+present) -- flip it before `classify` or the runner refuses (fail-fast). Recommended order: `classify` all 61
+-> then `label` (so machine + human verdicts sit on the same current committed version).
+
+**D3b (micro) -- batch-wise progress in classify mode:** the classify mode now wires
+`orchestrator.classify_sheet_rows`'s `progress_cb(done, total)` (CL-2 seam, verified: done = cumulative
+rows fed to the voter for the current sheet, clamped to total). Per callback it prints one line
+(`sheet i/N <name>: batch done/total rows`, flushed) AND refreshes a run-level `_PROGRESS.json`
+mirroring the HV-2 harness pattern: `{run_started_at, sheets_total, sheets_done, sheets_failed:[...],
+current_sheet, current_batch_done, current_batch_total, rows_done_total, updated_at}`, rewritten per
+batch + per-sheet terminal. `_PROGRESS.json` lives in `progress_out` (new optional `run(...,
+progress_out=...)` kwarg / `--progress-out`), default a `<corpus>_classify_progress` sibling folder,
+guarded against `_classification_review/`. `rows_done_total` accumulates across sheets (base += each
+sheet's `eligible_classified`). resolve + label modes unchanged; additive kwarg (backwards-compatible).
+Smokes: resolve still resolves 61; the AI-toggle pre-flight still fires BEFORE any classify work (no
+progress dir, no writes); `_write_progress` writes valid JSON with all 9 keys. Regression 129 + 30 + 26
++ 5 unchanged.
+
+**D3c (micro) -- sheet-subset filter + the first operational corpus run.** classify mode gains an
+optional `(only_boq, only_sheet)` subset filter (`_resolve_sheets` grows two kwargs, default None = all
+sheets; threaded through `_mode_classify` + `run()`; **classify-mode ONLY -- resolve + label untouched**;
+empty subset throws). For a targeted re-run of one failed sheet instead of re-classifying the whole
+corpus. **Operational run (dev DB, 2026-07-11):** the full 61-sheet electrical corpus classified in ~76
+min (~290 opus batches over 5,367 eligible rows) -- **60/61 clean** on the first pass, with ONE sheet
+(`BOQ-26-00005/Electrical`) failing on a transient `APIConnectionError` (per-sheet isolation held: it
+committed 0 rows and the run continued). The subset filter then re-classified just that sheet
+(`only_boq='BOQ-26-00005', only_sheet='Electrical'` -> classified=186, auto=126, review=60, `ai_status`
+== ran), filling the single gap -> **final 61/61, 5,367 current Electrical Row Category rows** (all
+`prompt_version=v1.3`, `model=claude-opus-4-8`). **Monitoring lesson:** the background-task stdout view
+went STALE mid-run (docker-exec buffering made it look killed at sheet 51 when it had actually reached
+61); `_PROGRESS.json` (written directly to the container FS per batch) + a per-sheet DB reconcile are the
+AUTHORITY on run state, not the captured stdout. Second lesson: the AI toggle
+(`"BOQ Upload Review AI Settings".enabled`) flipped OFF twice between runs -- always re-verify it
+immediately before a classify. `bench execute` also proved flaky (a spurious `NameError`); a direct
+`frappe.init` + `run(...)` invocation is the reliable driver for the retry.
+
+**D3d (micro) -- missing read indexes (editor cold-cache lag fix).** Recon after the corpus run: the
+pricing editor is FAST when warm (~54 ms total sheet-open across its 7 read endpoints, no N+1 -- all
+per-sheet bulk reads; annotations are bundled into `get_priced_rows`), but the heavy run (10k Row-Category
++ 4,158 snapshot writes + a 76-min classify) CHURNED the Postgres buffer cache, so the first opens after it
+hit COLD Seq Scans on the large un-indexed read tables -> `get_priced_rows` ~5.5 s cold, `get_committed_sheet_grid`
+322 ms cold. Root cause = two missing indexes (NOT table growth per se -- growth added only ~a few ms; the
+cache eviction EXPOSED pre-existing missing indexes). Fixed via `on_doctype_update` + `frappe.db.add_index`
+(idempotent, mirroring the snapshot doctype), read-path only, no query/endpoint/schema-field change:
+- **BoQ Committed Sheet Grid Row**: the standard child-table **`parent`** index (269,708 rows). EXPLAIN
+  flipped Seq Scan -> **Index Scan using `parent_index`**; `get_committed_sheet_grid` warm 29 -> ~8 ms.
+- **BoQ Row Category**: composite **(boq, sheet_name, committed_version, discipline, is_current)** = the exact
+  `get_sheet_categories` + `set_human_verdict` filter (10,173 rows incl. 4,806 superseded). EXPLAIN flipped
+  Seq Scan -> **Bitmap Index Scan**; `get_sheet_categories` warm 3.7 -> ~1.9 ms; the click-path
+  `set_row_category` scans drop the same way. The cold spike (full-table scans) collapses to index lookups and
+  no longer scales with the table.
+- **MIGRATE GOTCHA (documented):** `bench migrate` (63 s) did NOT create the indexes -- Frappe runs
+  `on_doctype_update` only on doctype SCHEMA SYNC (fresh install / JSON-hash change), and a controller-only
+  change of an unchanged doctype is skipped; `bench reload-doctype` also did not trigger it. On this existing DB
+  the indexes were applied by invoking `on_doctype_update()` directly (the identical, sanctioned code) + `ANALYZE`.
+  On a fresh env / when these doctypes next sync, it auto-creates. Deploy note: on existing environments this
+  index must be applied by a forced schema sync (or a direct `on_doctype_update` run) -- a plain migrate won't.
+- **FOLLOW-UP (systemic, NOT fixed here):** the missing child-table `parent` index is site-wide -- **119 of 125
+  child tables lack it** (only 6 Frappe-core tables have one; a Frappe-on-PostgreSQL behaviour). Other large app
+  child tables also seq-scan by parent: Project Progress Report Work Milestones (90k), Procurement Request Item
+  Detail (26k), Purchase Order Item (25k), Delivery Note Item (19k), BOQ Node Qty By Area (11k), PR Tag Child
+  Table (9k), PO Payment Terms (7k), etc. A broad parent-index pass is a separate perf slice. Regression
+  129 + 30 + 26 + 5 unchanged.
+
+
+## D3d follow-up -- read-index migrate patch (deploy the two indexes to existing DBs) COMPLETE
+
+Branch `fix/boq-read-index-patch` off develop `a7b8237c`; patch commit `4aee8a89`, docs commit follows.
+The D3d indexes were added as `on_doctype_update` hooks (commit `dd4ba4a3`), but a TEST-SERVER DEPLOY
+confirmed the MIGRATE GOTCHA in the flesh: a plain `bench migrate` does NOT fire `on_doctype_update` for a
+controller-only change of an already-synced doctype, so every deployed environment silently MISSED both
+indexes and kept COLD Seq-Scanning the read tables (the same `get_priced_rows` ~5.5 s / `get_committed_sheet_grid`
+322 ms cold spikes the D3d EXPLAIN captured -- Seq Scan on `tabBoQ Committed Sheet Grid Row` by `parent`
+(269,708 rows) and on `tabBoQ Row Category` by the composite filter). This slice makes the fix ride migrate.
+
+- **The patch (`nirmaan_stack/patches/v3_0/add_boq_read_indexes.py`, NEW, single file).** `execute()` IMPORTS and
+  CALLS the two controllers' own `on_doctype_update()` -- `boq_committed_sheet_grid_row` (parent index) +
+  `boq_row_category` (composite (boq, sheet_name, committed_version, discipline, is_current)) -- then `ANALYZE`s
+  both tables (fresh index has no planner stats until analyzed) and `frappe.db.commit()`s (app norm; 51 v3_0
+  precedents, and the DDL precedent `boq_commit_current_unique_guard.py` commits the same way). CALL-the-hook,
+  do NOT re-inline `add_index`: the controllers stay the single source of truth for the index shape, so the
+  patch can never drift from the live schema-sync path. Idempotent -- `add_index` no-ops when the index exists.
+- **BoQ Category Truth Snapshot DELIBERATELY EXCLUDED (recon Q6).** Its `on_doctype_update` index shipped
+  ATOMICALLY with the NEW doctype (commit `8db7d5fb`) -- there was never a controller-only-change window for it,
+  so a fresh schema sync always fires the hook when its table is first created. No deployed env can be missing
+  it; adding it to the patch would be redundant.
+- **PENDING (Abhishek, external -- patches.txt is permanently out of scope for this slice).** Wire the patch by
+  adding this exact line under `[post_model_sync]` in `nirmaan_stack/patches.txt`:
+  `nirmaan_stack.patches.v3_0.add_boq_read_indexes`
+- **VERIFICATION (live idempotency run against the dev site DB, twice -- NOT a test suite; a patch module has no
+  unit-test harness precedent in this app).** NOTE: the dev DB did NOT already have the indexes (only the pkey) --
+  consistent with the bug, so this DOUBLED as a create-path proof. RUN 1 (indexes absent = the deploy scenario):
+  `execute()` completed with NO exception and CREATED exactly `parent_index` on `tabBoQ Committed Sheet Grid Row`
+  and `boq_sheet_name_committed_version_discipline_is_current_index` on `tabBoQ Row Category` (index defs match
+  the hook shapes byte-for-byte). RUN 2 (indexes now present = idempotency): completed with NO exception, `pg_indexes`
+  delta added=[] removed=[] on both tables -- a clean no-op, no duplicate index. Driver = direct `frappe.init` +
+  container `env/bin/python` (bench execute is flaky here -- spurious NameError, per the D3d note above).
+
+
+## Pricing editor -- Build slice P1 (click-path perf: drop refetch + per-row category prop) COMPLETE
+
+Frontend-only. Recon (2026-07-12) found the DB is fixed (reads 1-9 ms warm) but the editor still lags on a
+big sheet because a category verdict pick triggered (a) a redundant whole-sheet category refetch and (b) a
+re-render of ALL ~870 rows, TWICE. P1 lands recon fixes #1 + #2 (no backend/payload change, no
+virtualization):
+- **FIX 1 -- drop the redundant refetch (`SheetPricingPage.tsx handleVerdictSelect`).** On a successful pick,
+  the optimistic `categoryOverrides` entry is now AUTHORITATIVE -- the `await mutateCategories()` full refetch
+  (a 188 KB round-trip that forced a second full-grid pass) is REMOVED. The override persists for the session;
+  the write still lands in the DB (verified: category persists across a page refresh) and re-derives on the
+  next sheet load / classify. On FAILURE the override is reverted (`dropOverride`) + the existing inline
+  `saveError` strip surfaces the message -- no new UI, a failed write never leaves a lying cell.
+  `mutateCategories`' OTHER call sites (classify-run refetch) are untouched.
+- **FIX 2 -- per-row category prop (`PricingGrid.tsx`).** `PricingGridRow` no longer receives the whole
+  `categoriesByExcelRow` Map (which `pricingRowPropsAreEqual` compared by IDENTITY -> any new Map re-rendered
+  every row). It now receives `category` = THIS row's entry (`categoriesByExcelRow.get(source_row_number)`,
+  passed in the shared `renderRow` so both panes get it), compared by reference in the memo comparator; `hasRun`
+  is now compared explicitly (it used to piggyback on the map compare). Because a pick rebuilds ONLY the picked
+  excel_row's entry (a new optimistic object) and every other row keeps its `catData` object reference, ONLY the
+  picked row (+ its frozen-pane counterpart) re-renders -- proven from the comparator, not debug logging (none
+  shipped). The grid still holds the full Map for grid-level use (keydown Enter-to-open, `hasRun` = size>0).
+- **Verification:** `tsc --noEmit` clean on both touched files (pre-existing unrelated project errors remain --
+  baseline tsc is red, the app builds via vite); `yarn build` -> BUILD_OK_MARKER (in-container). Manual matrix
+  for the owner: open PUNE (loads normally) / pick a category (instant, no full-grid flash) / pick-wrong-then-clear
+  (reverts to machine answer) / refresh (pick persisted) / open 12-row CONVENTIONAL LIGHTING (normal) / classify
+  from the UI (categories refresh -- the non-pick refetch paths intact).
+- **Perf-slice backlog (owner-deferred, NOT this slice):** #3 virtualize the 870-row x 2-pane grid (the ceiling
+  fix for first-paint on big sheets) and #4 trim the `get_sheet_categories` payload (188 KB -> ~79 KB by dropping
+  `routing_reason` + unused rule/ai fields for the cell). Both remain open.
+
+### Slice freeze-classification -- Freeze/Unfreeze Classification (FULL-STACK, MIGRATE [3 additive BoQ Sheet fields], branch `feature/boq-classification-eval`, base tip 3ec61941, 2026-07-13)
+
+**What shipped.** A per-sheet classification Freeze in the pricing editor, beside the Classify button. Freeze = ONE atomic transaction: (1) stamp every categorised eligible row's EFFECTIVE category (human if set else final) into `human_category_id` IN PLACE (the `set_human_verdict` annotate idiom, NOT freeze-and-supersede); (2) bank one `BoQ Category Truth Snapshot` row per categorised eligible row (`source="Frozen in product"`, ONE shared `snapshot_batch = "gtfreeze-" + generate_hash(12)`, `snapshot_by` = session user) -- the doctype is consumed AS-IS (the `Frozen in product` source option already existed; NO schema change to the snapshot doctype); (3) set `classification_frozen`/`frozen_by`/`frozen_at` on the is_current=1 `BoQ Sheet`. Unfreeze clears the 3 flag fields ONLY -- snapshots stay permanent, human stamps stay (unfreeze does NOT revert them). While frozen: verdict writes (`set_row_category`) AND re-classify (`start_classify`) are rejected server-side; **pricing stays fully live** (the guard is classification-write-only).
+
+**Design decisions (owner-approved D1-D4).**
+- **D1** -- `freeze_classification` / `get_freeze_summary` take `discipline="Electrical"` (the spec omitted it, but stamping + banking need a discipline in the durable address; matches every sibling endpoint). `unfreeze_classification` takes only `(boq_name, sheet_name)`.
+- **D2** -- the freeze flag is SHEET-LEVEL (one `BoQ Sheet` field, mirroring `is_locked`), so freezing blocks verdict-writes/re-classify for ANY discipline on that sheet. Invisible today (only Electrical is live); a future 2nd discipline would share the flag.
+- **D3** -- **every-freeze human-stamp is atomic**: `persist.set_human_verdict` commits internally per call, so freeze CANNOT loop it. New `persist.stamp_human_verdicts_bulk(...)` stamps in place with NO commit (caller owns the single end-commit); freeze wraps stamp + snapshot-inserts + flag-set in `try/except -> frappe.db.rollback()` so a mid-batch failure leaves NOTHING written. Every freeze target already has a current `BoQ Row Category` record (a non-blank effective category implies one), so only the in-place branch is needed.
+- **D4** -- ONE shared frozen-reader `persist.is_sheet_classification_frozen(boq, sheet_name, committed_version)` (service layer, so both `classify.py` (api) and `orchestrator.py` (service) call it -- api->service is the only legal import direction).
+
+**Backend (endpoints + guard placement).**
+- `classify.freeze_classification` / `unfreeze_classification` (POST) / `get_freeze_summary` (bare read). `get_freeze_summary` counts eligible rows (`node_type in {Line Item, Preamble}`, is_current=1) with a BLANK effective category, split by node_type (the recon-Q8 server-side option -- no frontend join), + the current freeze state.
+- Guard `classify._guard_classification_not_frozen` (mirrors `pricing._guard_sheet_not_locked`): PRIMARY guards in `set_row_category` (after cv-resolve, before `set_human_verdict`) and `start_classify` (after the committed check, before enqueue -- reject-before-enqueue). DEFENCE-IN-DEPTH copies at `persist.set_human_verdict` top (bypassed by `stamp_human_verdicts_bulk`, which is guard-free) and `orchestrator.classify_sheet_rows` top (backstops direct service/test callers). Reject-mutates-nothing everywhere. Reject marker `persist._FROZEN_WRITE_MESSAGE`.
+- `pricing.get_priced_rows` gains `classification_frozen`/`frozen_by`/`frozen_at` (defaults `False`/`None`/`None`, populated in the existing `commit_version is not None` branch beside `is_locked`). Existing keys byte-identical.
+
+**Migrate (existing DBs).** 3 additive fields on `BoQ Sheet` in a new `classification_freeze_section` (`classification_frozen` Check default 0; `frozen_by` Data read_only; `frozen_at` Datetime read_only) -- mirror the `is_locked/locked_by/locked_at` trio EXACTLY. `bench migrate` required; verified 3 columns on `tabBoQ Sheet` via information_schema. Backward-compat: sheets with the fields absent/0 behave byte-identically (existing suites green).
+
+**Frontend (`SheetPricingPage.tsx` + `boqTypes.ts`).** Freeze/Unfreeze button in the bottom ribbon right after Classify (Snowflake icon; label toggles). Freeze-click -> `get_freeze_summary` -> `AlertDialog` ("X preambles and Y line items don't have a category. Freeze anyway?" when either > 0, else plain confirm) -> POST -> `mutate()`. Unfreeze-click -> verbatim-copy `AlertDialog` -> POST -> `mutate()`. While frozen: `onCategoryClick` short-circuits with a brief inline message (via a `classificationFrozenRef` -- keeps the callback reference-stable, row-memo untouched); Classify button disabled with "Unfreeze to re-classify"; muted "Frozen · <date> · <by>" line beside the button. `classification_frozen` reads off `activeMessage` beside `isLocked` and is DELIBERATELY NOT ORed into the pricing `locked` gate.
+
+**Tests + verification.** `test_classify` 30 -> **38** (+8: freeze sets flag/stamps/banks; double-freeze rejected; unfreeze clears flag only; verdict-write rejected-while-frozen mutates-nothing; start_classify rejected-while-frozen; uncategorised skipped-but-counted; re-commit resets flag; atomic rollback on induced mid-batch failure). Blast-radius green: `test_row_category` 26, `test_truth_snapshot` 5, `test_review_screen` 247, `test_pricing` 176. Frontend: wizard-scoped `tsc` 0 errors, `yarn build` OK, `vitest` 481 passed.
+
+### Slice T1 -- gate pricing-editor socket-reconnect refetch storm (FRONTEND, NO migrate, branch `feature/boq-classification-eval`, base tip a5b0f1a8, 2026-07-13)
+
+**Why (owner-verified evidence).** A DevTools perf trace of the big PUNE electrical sheet (4x CPU throttle) + two independent re-reads showed the pricing editor's main thread ~92% saturated for the WHOLE 5-min session: ~25 recurring ~9s (throttled ≈ 2.25s real) React reconcile passes of the entire grid, rooted in `performWorkUntilDeadline` (React scheduler), firing continuously INCLUDING stretches with ZERO user input and near-zero layout/paint (renders producing no visual change). Root cause (recon #56): the dev socket FLAPS (~11 reconnects in minutes, each connection living ~40s-2.4min), and the editor held TWO unconditional `socket.on("connect", ...)` self-heal handlers -- one refetching `get_sheet_categories` (classify effect), one refetching `get_priced_rows` (lock effect) -- that fired on EVERY connect (incl. the initial mount connect). Each refetch mints a new top-level data identity; because `PricingGrid` is `forwardRef` WITHOUT `React.memo` (only its rows are memoized), any `SheetPricingPage` re-render re-executes the whole grid body + runs `pricingRowPropsAreEqual` across all ~870x2 rows. So every reconnect => a full-grid reconcile; a flapping socket => the continuous idle loop.
+
+**What shipped (T1 -- kill the reconnect refetch storm).** In `SheetPricingPage.tsx` ONLY:
+- Removed the per-effect `socket.on("connect", onReconnect)` sub-handlers from BOTH the classify effect (was `mutateCategories()`) and the lock effect (was `mutate()`). Their other listeners (`boq:classify_sheet_progress`/`_done`; `boq:lock_changed` incl. its takeover/release `mutate()`) are UNCHANGED.
+- Added ONE consolidated, reconnect-GATED + debounced self-heal effect: it tracks `socket.on("disconnect")` via a ref and, on `connect`, refetches BOTH (`mutate()` + `mutateCategories()`) ONLY on a genuine reconnect (a connect that followed a disconnect) -- skipping the initial mount connect -- and at most once per `RECONNECT_REFETCH_DEBOUNCE_MS` (30s) even if the socket flaps faster. **Refs only** (`sawDisconnectRef`, `lastReconnectRefetchRef`) -- adds NO new re-render source. Emits one temporary debug line `[pricing] reconnect refetch` on a genuine gated refetch (survives for the owner's cert).
+- Pure exported helper `shouldRefetchOnConnect({sawDisconnect, lastRefetchAt}, now)` = `sawDisconnect && now - lastRefetchAt >= 30_000`.
+
+**SWR verification finding (step 2 -- change nothing).** Confirmed against the bundled SWR in `node_modules/frappe-react-sdk`: `revalidateOnReconnect` binds the browser `online`/`offline`/`visibilitychange` events (`addEventListener("online", ...)`), NOT the app Socket.IO socket. So a flapping app socket does NOT trigger SWR revalidation -- the ONLY reconnect-driven refetch was the two explicit connect handlers. No per-hook `revalidateOnReconnect:false` needed; the page's data hooks are left byte-identical.
+
+**Backward-compat.** A healthy (non-flapping) socket behaves identically EXCEPT the removed initial-connect double-fetch (the page's normal SWR mount fetch already covered it). Classify-completion refetch, freeze/unfreeze `mutate()`, and presence are untouched.
+
+**Tests + gates.** New `reconnectGate.test.ts` (5 vitest: initial-connect skipped; genuine reconnect fires; flap-within-window debounced; fires after window; boundary `>=` elapsed). vitest 481 -> **486**; wizard-scoped `tsc` 0 errors; `yarn build` OK. Scope: `SheetPricingPage.tsx` + the one test file + docs. **NOT this slice (deferred):** T2 = memoize `PricingGrid` (rides virtualization) -- the robust source-independent kill; and the socket-flap ROOT (FrappeProvider `socketPort`/transport) stays out of scope (app-level).
+
+### Slice V0 (T2) -- memoize PricingGrid + stabilize its props (the source-independent shield) (FRONTEND, NO migrate, branch `feature/boq-classification-eval`, base tip c123050d, 2026-07-14)
+
+**Why.** T1 gated the socket-reconnect refetch storm, but any page-level state churn (poll, save-status, socket, future triggers) still re-executed the whole grid because `PricingGrid` was `forwardRef` WITHOUT `React.memo` -- so every `SheetPricingPage` render re-ran the grid body + `pricingRowPropsAreEqual` across ~870x2 rows. V0 makes the grid **immune to page-level churn regardless of source**: wrap it in `React.memo` and stabilize every prop it receives.
+
+**The blocker + Option A (owner-approved).** The 7 handlers + the derived collections all sat AFTER three early-return guards (`if (isLoading) / if (!boq) / if (!sheetName)`), so wrapping them in `useCallback`/`useMemo` in place is a Rules-of-Hooks violation (hooks-after-early-return). **Fix: the three guards were converted from early returns into conditional branches of the SINGLE bottom `return`** (`isLoading ? <spinner> : !boq ? <notfound> : !sheetName ? <missing> : <MainContent>`), JSX byte-identical + same order. That makes every const below a legal hook position. Undefined-safety audit (the code between the old guards and the return now runs during loading/no-data): SAFE by construction -- `rows`/`columnDescriptors`/`columnFormulas`/`reconChoices`/`dismissals` all `?? []`, `activeMessage` read via `?.`, the `boq` doc is dereferenced ONLY inside the guarded MainContent branch (`boq.boq_name`/`boq.version` at the header), and `sheetName` is never member-accessed. Ref writes during loading (`prevRowsRef` etc.) write empty and are benign (identical to a fresh mount's first data render).
+
+**The corrected stabilization set = 12 items (the approved "10" was insufficient).** The dominant missed blocker: `mergeRowsPreservingIdentity` (`rowMerge.ts`) returns a fresh `.map()` array every render in steady state, so `rows` -> `displayRows` -> the grid's `rows` prop churned identity EVERY render, which alone would make `React.memo` never bail. Fixed in-file (rowMerge.ts untouched) by memoizing the merge.
+- **useMemo (5):** `rows` (`[rawRows, rowsSourceSig]`, reads merge refs inside -- THE linchpin), `rowFlags` (`[rows, columnDescriptors, columnFormulas]`), `byRowIndex` (`[rows]` -- 12th item, stabilizes the filtered/collapsed `displayRows` path V1 leans on; `byExcelRow` left plain -- ref-only), `childrenByParent` (`[rows]`), `displayRows` (`[rows, filters..., collapsed, byRowIndex, categoriesByExcelRow, columnDescriptors]`; fast-path returns the stable `rows`).
+- **useCallback (7):** `ensureLockAcquired` (transitive dep of `handleDirtyChange`), `handleDirtyChange`, `handleSaveRate`, `handleSaveRemark`, `handleSaveColor`, `handleSaveReconChoice`, `handleSaveFormula`, `handleBatchWrite`. Dep arrays verified: all `useFrappePostCall` `call` fns are `useCallback([])`-stable (SDK-verified), `mutate` is SWR-stable, and `commitVersion`/`override`/`boqId`/`sheetName`/`locked` are primitives stable across the churn -- so handler identity changes only on genuine data/lock change, never per render, with NO stale-closure risk (mutable state read via listed deps or functional `setInFlight(n=>...)` / refs). `handleSaveDismiss` is NOT wrapped -- it's a page review-strip handler, not a grid prop.
+- **`React.memo(PricingGrid)`:** `memo(forwardRef(function PricingGrid(...)))`; `memo` already imported; `displayName` retained. No `useContext` in the grid body (only the `RowChevron` child reads `CollapseContext`), so nothing else blocks the bail. Dead declared props `editable`/`lockInfo` (never destructured) left as-is (zero-risk).
+
+**Proof of effect.** Environment could NOT run the end-to-end "counter doesn't increment on a page-only re-render" observation (vitest is `environment: "node"` -- no jsdom/RTL by deliberate repo choice; `react-test-renderer` absent; the dev + backend servers were down this session). What WAS run: a throwaway node-env test asserting `PricingGrid.$$typeof === Symbol.for("react.memo")` wrapping a `forward_ref` -> **PASS** (memo wrapper empirically applied), deleted before commit. The prop-stability half is verified by code review + `tsc` (the 12 wraps). Owner recipe for a live confirm: React DevTools Profiler "Why did this render?" on the grid during a page-only re-render (e.g. open the Columns popover), or re-add a one-line `window.__pgRenders` counter and check it does not increment.
+
+**Backward-compat.** Render OUTPUT is byte-identical (guard screens included); only render FREQUENCY changes. **Gates:** vitest **486 -> 486** (all 143 PricingGrid tests green, unmodified -- A12: pure hook-wrapping + control-flow move + memo wrapper, no new pure logic factored out, so no new shipped tests); wizard `tsc` 0 errors; `yarn build` OK. Scope: `SheetPricingPage.tsx` + `PricingGrid.tsx` + docs. **Deferred:** V1 = `@tanstack/react-virtual` windowing (rides the now-stable `displayRows`); the tab-return-blank (Q10, a Chrome tab-discard cold remount, orthogonal); the socket-flap ROOT (app-level `FrappeProvider` transport).
+
+### Slice V1 -- virtualized pricing-grid windowing + A/B render-path toggle (FRONTEND, NO migrate, branch `feature/boq-classification-eval`, base tip 165f336f, 2026-07-14)
+
+**What shipped.** Windowed rendering of the pricing grid via `@tanstack/react-virtual` (already a dep; extends the in-repo `useVirtualizer` pattern -- first site to use `measureElement` + a two-pane setup), behind a page-owned **A/B toggle** (default ON each open, session-scoped, no persistence). Only visible rows + `ROW_OVERSCAN=12` mount, for BOTH panes in lockstep off ONE virtualizer instance.
+
+**Architecture.**
+- **ONE virtualizer** (`useVirtualizer`, count = `rows` [=`displayRows`], `getScrollElement` = `scrollPaneRef` in two-pane / `containerRef` in single, `estimateSize` = `seedEstimate(appliedRowHeight(...), DEFAULT_ROW_ESTIMATE_PX=34)`, overscan 12). Both `<tbody>`s render the SAME `getVirtualItems()` slice + identical `deriveSpacers` top/bottom spacer `<tr>`s -> identical vertical structure -> panes aligned. The existing `onScroll` mirror (`scrollPaneRef` -> `frozenPaneRef.scrollTop`) is preserved.
+- **Unified render decision (no classic-path duplication):** `const twoPane = selectRenderPath({rowCount, virtualized, frozen, split}) === "twoPane"` -- classic gates on `split` (all rows measured), virtualized gates on `frozen`. The pane/table/colgroup/header/scroll-ref JSX is UNCHANGED; only the `<tbody>` content routes through a new `renderTbody(pane)` that returns `rows.map(renderRow)` when `!virtualized` (**byte-identical classic**) or spacer+window when virtualized. `if (split)` became `if (twoPane)`; `splitRef` now mirrors `twoPane` so `focusCell`/`jumpToRow` retarget the correct pane in either mode.
+- **Height / the alignment circularity (the key risk).** Classic guarantees pane alignment by measuring the SINGLE table (all columns -> one height) BEFORE splitting. Windowed rows can't do that all-at-once. Resolution: in virtualized two-pane, the **scrolling pane** renders `rowHeight=undefined` (NATURAL, unclipped -- Description not truncated) with `measureElement` wired to its `<tr>` -> measures the true height `H`; the **frozen pane** renders `rowHeight = virtualItem.size` (=`H`) -> its short anchors PAD to `H`. Frozen is always <= scrolling (the 5 anchors carry no wrapping content), so no truncation. First paint uses the estimate for one frame, then corrects as the row measures (brief skeleton acceptable, owner Fork-1). Single-table virtualized: one `<tr>`, measureElement on it, no alignment concern. The **freeze-measure `useLayoutEffect` is SKIPPED when `virtualized`** (guarded, `virtualized` added to deps); the classic path is untouched. **Manual row drags keep working:** `manualRowHeights[ri]` still feeds `appliedRowHeight` -> the estimate seed, and the dragged row renders at that height -> `measureElement` reads it back.
+- **Memo shield (V0) intact.** New grid prop `virtualized` (stable boolean). `PricingGridRow` gains a `measureRef` prop (=`rowVirtualizer.measureElement`, stable per instance; set ONLY for the measured pane in virtualized mode) + `data-index={rowIndex}` on the `<tr>`; `pricingRowPropsAreEqual` gains `prev.measureRef === next.measureRef` (always-equal stable field). No page prop destabilized.
+- **Mid-flip:** the scroll element is the SAME div across a flip (only `<tbody>` content changes) so `scrollTop` is preserved; a `useEffect([virtualized])` re-syncs the virtualizer to that `scrollTop` on flip-to-virtualized (lands at/near the same top visible row; estimate drift self-corrects). The toggle is a button -> clicking it blurs the focused cell `<input>` -> the existing blur commit fires first. No remount / data / draft / undo / lock touch.
+- **Collapse:** `displayRows` shrinks/grows (V0 `useMemo`) -> virtualizer `count` changes -> re-windows natively; `row_index` keys stable.
+
+**Pure helpers (`pricingVirtual.ts`, 12 vitest tests):** `selectRenderPath`, `seedEstimate` (manual/measured wins else default), `deriveSpacers` (empty/single/full window + negative-clamp), `topVisibleIndex`/`clampIndex` (flip re-anchor), `paneColSpan` (spacer `<td>` colSpan per pane).
+
+**Data-addressed features unaffected (recon-verified):** saves / clipboard / undo-redo / freeze-unfreeze / lock / category picks operate on `rows`/`excel_row`/`row_index` (the in-memory array), so they work identically in windowed mode over mounted OR unmounted rows.
+
+**Tidy:** removed the temporary `[pricing] reconnect refetch` console.log from T1 (the gate logic stays).
+
+**V2 KNOWN GAPS (deferred, documented):**
+1. **Keyboard-nav + search-jump to UNMOUNTED rows.** `focusCell`/`jumpToRow` read `cellRefs` (mounted rows only); an offscreen target silently no-ops. V2 = `scrollToIndex`-then-focus. In V1 nav/search work WITHIN the mounted window; the classic toggle is the fallback.
+2. **Overlay close-on-scroll-out** (CategoryVerdictPicker `anchorEl`, RemarkCell) -- an open popover whose row scrolls out of the window dangles against a detached node. V2 = close-on-out-of-window.
+3. **RemarkCell durable re-key** (its open-state is array-index-keyed) -- V2.
+
+**Gates + verification limits.** wizard `tsc` 0 errors; vitest **486 -> 498** (12 new; all 143 PricingGrid tests green + UNMODIFIED -- they certify the classic path); `yarn build` OK. **Runtime virtualization behavior (pane alignment, scroll smoothness, measurement, mid-flip) is UNVERIFIED this session** -- the dev + backend servers were down, and vitest is node-env (no jsdom). This is by design an A/B instrument: **classic (toggle OFF) is the byte-identical guaranteed path; the virtualized path must be A/B-confirmed live by the owner.** Overscan 12 is a starting point to tune against a real 870-row sheet.
+
+**Retirement intent:** once the virtualized path is A/B-certified on real sheets, a later slice retires the classic path + the toggle (the classic branch exists only as the safety fallback during certification).
+
+### Slice V1-FIX -- frozen-pane misalignment + truncation in virtualized two-pane mode (FRONTEND, NO migrate, base tip fbf37594, 2026-07-14)
+
+**Bug (owner A/B cert, PUNE sheet).** Fast render ON + Freeze columns ON: panes scrolled in sync but ROW ALIGNMENT WAS WRONG throughout + Description TRUNCATED. **Root cause = pane-role INVERSION** the V1 design got backwards: `ANCHOR_WIDTH_KEYS = ["a0".."a4"]` = Excel Row / Sl.No / Parent / Classification / **Description**, so the FROZEN pane carries the heavily-wrapping **Description** (freeze "through Description"), while the SCROLLING pane holds the short numeric columns + Remarks. V1 measured the SHORT scrolling pane and padded the TALL frozen (Description) pane DOWN to it -> `DESC_CLIP` truncated Description (measured cut up to **427px**, 31/38 rows) + a ~1px/row drift accumulating to **~30px**.
+
+**Fix = max-of-both-panes (correct regardless of which pane wraps).** The virtualizer's per-row size = `max(paneNaturalHeight(frozen), paneNaturalHeight(scroll))`, applied to BOTH panes as the `<tr>` height (a table MIN): the taller pane reaches its content, the shorter pads -> aligned, no truncation. Key mechanics:
+- **`measureElement` (custom)** reads BOTH panes' rows by `data-index` (looks up the frozen twin of the observed scrolling row) and returns the max -> ONE size cache, fed the max, consumed by both panes.
+- **No sticky-max:** `paneNaturalHeight` measures each cell's NON-STRETCHING content wrapper (`align-top` -> doesn't grow with the row's padding), NOT the padded `<tr>` box -> the padded pane never feeds its padding back; the row shrinks when content shrinks.
+- **`clipDescription` prop** (PricingGridRow): the `DESC_CLIP` is OFF for AUTO virtualized rows (Description renders natural, measures true, no truncation) and ON for classic + manually-dragged rows. Stable per row -> V0 memo shield intact.
+- **Frozen-pane (unobserved) reflows:** VERIFIED against `@tanstack/virtual-core` that `elementsCache` observes only the LAST element per index (the scrolling twin) -- so a `useEffect([colWidths, rows, virtualized])` re-invokes `measureElement` on the mounted rows to catch frozen-only reflows (column resize / data change).
+- **Manual-drag precedence:** a manually-sized row returns its explicit height from `measureElement` (classic clip path), not the max.
+- Pure `maxRowHeight(heights[])` helper + 3 vitest (max order-independent; single; ignores 0/neg/NaN/empty).
+
+**Live acceptance gate (Chrome DevTools MCP, PUNE sheet, Fast+Freeze ON).** Truncation **0 of N at every scroll depth** (was 31/38, cuts to 427px). Alignment: **0px at scrollTop 0 and at multiple deep windows** (e.g. idx 439-479 = 0px); a residual **exactly 1.09px/row** appears only in some windows AT THE TEST BROWSER'S FRACTIONAL DISPLAY SCALING (DPR 0.90) -- it equals the fractional border between the two separate `border-collapse` tables, and the 0px windows prove it vanishes when rows land on the pixel grid (integer DPR / 100% zoom, the normal case). **STOP-and-report finding:** trying to close that last sub-pixel by adding the row border / a safety margin to `paneNaturalHeight` caused a RUNAWAY (a scrolling cell's content wrapper STRETCHES with the row, feeding the added constant back every frame -> rows inflated to ~5875px). Reverted to the stable content-only measure; the sub-pixel-at-fractional-DPR residual is left as a documented, inherent cross-table artifact.
+
+**Env note (recorded for future live testing):** the in-container Vite dev server (:8080) does NOT hot-reload host edits on this Docker-Desktop-Windows bind mount (inotify not propagated) -- a `touch` inside the container did not help either; a Vite RESTART is required to serve fresh code. The PWA service worker also caches assets (unregister it when testing new code). :8000 serves the last `yarn build`, but its Frappe routing 404s the SPA deep-link.
+
+**Gates:** wizard `tsc` 0; vitest **498 -> 501** (3 new maxRowHeight; 143 PricingGrid tests green + UNMODIFIED); `yarn build` OK. Classic path byte-identical; unfrozen-virtualized unaffected. Scope: `PricingGrid.tsx` + `pricingVirtual.ts` (+ test).
+
+### Slice V1-FIX-2 + V1-FIX-2b -- eliminate the per-row drift AT ANY DISPLAY SCALING + the resize self-heal gap (FRONTEND, NO migrate, base tip 3ec61941, 2026-07-15)
+
+**Acceptance bar (owner, non-negotiable):** CLASSIC MODE IS THE BENCHMARK -- on the same machine/browser/scaling where classic (Fast render OFF) + frozen renders both panes per-pixel aligned, virtualized + frozen must do the SAME, with NO dependence on OS display scale / browser zoom / DPR.
+
+**FIX-2 (the drift mechanism).** V1-FIX's `paneNaturalHeight` summed each cell's content-wrapper + padding but OMITTED the row's own 1px `border-b`, so `vi.size` landed ~1px SHORT of the scrolling pane's TRUE rendered height -> on scrolling-driven short rows the scrolling `<tr>` grew past the applied min -> per-row drift (measured live at DPR 0.90: frozen 35.99 / scrolling 37.083, **1.094px/row -> ~44px cumulative**). It is a REAL error at ALL DPRs, not a fractional-DPR artifact; classic is immune because it applies `ceil(single-table getBoundingClientRect().height)` (border INCLUDED, >= both contents) identically to both panes. **Fix:** `paneNaturalHeight` now measures the `<tr>`'s TRUE box (`Math.ceil((tr as HTMLElement).getBoundingClientRect().height)`, border INCLUDED) for both panes; `ceil(max(...))` is applied to both -> `>=` both contents -> both pad -> identical -> 0 drift at any DPR. The box measure is SELF-CORRECTING (box = max(true content, applied)) with a fixpoint -> no runaway (unlike the reverted V1-FIX content-wrapper + border attempt, which fed a constant back through a STRETCHING content wrapper -> ~5875px). The streaming `useEffect([colWidths, rows, virtualized])` was removed (see FIX-2b for its replacement).
+
+**FIX-2b (the resize self-heal gap -- found DURING the FIX-2 acceptance gate).** Confirming the owner-mandated "FIX-1 re-measure triggers survive" requirement, the live gate FAILED for a frozen-only Description re-wrap on a column resize: after a widen/narrow the two panes drifted **~270-300px** and did NOT self-heal until a scroll forced a fresh window (measured: scrolling pane stuck at the 34px estimate while frozen showed true content). Root cause: the scrolling pane's `<tr>` is UNCHANGED by a frozen-Description re-wrap, so its ResizeObserver stays silent and the shared `measureElement` never re-fires; `measure()` ALONE clears the cache but nothing re-reads the frozen twin's new height, and a shrunk row's `<tr>` min-height stays sticky. **Fix = a two-phase reset (mirrors classic's clear-then-remeasure), fired ONLY at drag-END / autofit (never streaming -> no thrash):** (1) `remeasureVirtualRowsAfterResize` calls `rowVirtualizer.measure()` (clear sticky sizes so a shrunk row collapses to true content) then bumps a dedicated `resizeSettleTick`; (2) a `resizeSettleTick`-keyed `useLayoutEffect` re-invokes `measureElement` on every MOUNTED row AFTER the cleared render has committed (a guarantee the first rAF attempt could NOT make -- it fired pre-commit and re-measured stale/unmounted rows, leaving the scrolling pane at the estimate). This restores the last-attached-element (frozen-only-reflow) coverage the removed `[colWidths, rows]` effect provided, WITHOUT the per-stream-tick thrash that got it removed.
+
+**Live dual-scaling acceptance gate (Chrome DevTools MCP, PUNE sheet ~870 rows, DPR 0.90 fractional -- the strict case; integer DPR is a strict subset):**
+- **VIRTUALIZED scroll, 5 depths (idx 0-751):** max cumulative delta **<=0.31px**, max per-row height diff **<=0.23px**, **0 truncation**, 0 rows >1px. (V1-FIX at the SAME DPR was 1.09px/row -> ~44px.)
+- **CLASSIC control, same 5 depths:** **0px** everywhere (all 870 rows, the benchmark).
+- **Resize self-heal, NO scroll:** WIDEN 280->520 shrank row2 462->222 with **both panes = 222** (0px cumulative, 0 truncation); NARROW 520->320 grew row2 222->398 with **both panes = 398** (0px, no runaway). Both self-heal IN PLACE without a scroll.
+
+Virtualized now matches classic to <=0.31px at fractional DPR 0.90 (-> 0 at integer DPR / 100% zoom) -> the owner's classic-is-benchmark bar is met.
+
+### Slice V2 -- unmount-safety retrofits for the virtualized pricing grid (FRONTEND, NO migrate, base tip 8e898738, 2026-07-15)
+
+Closes the three V1 KNOWN GAPS (nav/search-to-unmounted, overlay close-on-scroll-out, RemarkCell durable re-key)
+plus the tab-return rider. FRONTEND-ONLY; classic mode byte-identical (143 PricingGrid tests green + UNMODIFIED);
+memo shield (V0/T2) intact -- no new/destabilized row prop. Scope: `PricingGrid.tsx` + `SheetPricingPage.tsx` +
+`pricingVirtual.ts` (+ test).
+
+**1. Nav + search to UNMOUNTED rows.** Nav (`focusCell`) + jump/search (`jumpToRow`, the sole path -- imperative
+`scrollToRow` + search `stepHit` both delegate) now scroll the window to an off-window target before focusing,
+VIRTUALIZED-only. Two refs assigned right after `useVirtualizer` (both stable/cheap, synced each render like
+`rowsRef`/`splitRef`): `virtualizedRef` (mirrors the prop) + `scrollRowIntoWindowRef` (=`rowVirtualizer.scrollToIndex(idx,
+{align:"center"})`). `focusCell`/`jumpToRow` stay reference-stable (deps `[]`/`[onRevealRow]`, read only refs) -> the row
+memo (`focusCell`/`onJumpToRow` props) is untouched. Both branch on the pure `resolveJumpAction(isMounted, virtualized)`
+(`"focus"` | `"scroll-then-focus"` | `"noop"`): a mounted target focuses synchronously exactly as before; an off-window
+target (virtualized) does `scrollToIndex(center)` then focuses after the mount re-render commits (the reveal-then-defer
+scaffold, 50ms); classic never has an unmounted target -> `"noop"` / `focusEl` guards. **align is "center", NOT "auto":**
+with DYNAMIC row measurement an unmeasured just-past-window row's ESTIMATED offset reads as already-visible, so `"auto"`
+no-ops (live-verified arrow-nav stall at the bottom edge); `"center"` forces the scroll. Focus never lands on
+`document.body` mid-jump -- a col-0 (non-editable) cell isn't blurred by `commitActiveRate`, so focus stays on the current
+cell through the defer until it moves to the target.
+
+**2. Overlay close-on-scroll-out (virtualized).** (a) **CategoryVerdictPicker** (page-owned, anchored to a captured
+`pickerState.anchorEl` -- the only overlay that truly orphans): a `useEffect([pickerState, virtualized])` in
+`SheetPricingPage` attaches an `IntersectionObserver` (viewport root, threshold 0) on the anchor; `!isIntersecting`
+(scrolled off-screen OR removed from the DOM) -> `setPickerState(null)`. VIRTUALIZED-gated (classic never unmounts ->
+byte-identical). (b) **Remark popover** (rendered INSIDE the row -> Radix portal already tears down on unmount, no orphan):
+a grid effect keyed on `rowVirtualizer.range` (start/end) clears `openRemarkExcelRow` when its excel row leaves the mounted
+set (pure `shouldCloseOverlay(openExcelRow, mountedExcelRows)`) -- makes the close explicit and stops reopen-on-scroll-back.
+(c) **Reconciliation chooser** -- LOCAL state inside the row, auto-closes on unmount; no code change (verified graceful).
+
+**3. RemarkCell durable re-key.** `openRemarkRowIdx` (window array index) -> `openRemarkExcelRow` (`source_row_number`).
+`renderRow`: `openRemark={openRemarkExcelRow === row.source_row_number}` (was `=== rowIdx`); `setOpenRemark(excelRow, open)`
+(row calls it with `row.source_row_number`); the keydown Enter-opens-remark resolves `rows[activeCell.rowIndex]?.source_row_number`.
+The row prop `openRemark` stays a by-value boolean -> `pricingRowPropsAreEqual` UNCHANGED. Fixes the latent index-reuse
+mis-target under row recycling (a collapse/filter reshuffle made array index N map to a different row). Survey: no other
+per-row overlay state is array-index-keyed (category picker is already excel-row-keyed page-side; recon/color/formula are
+local or excel-keyed) -- nothing else needed re-keying.
+
+**4. RIDER (tab-return blank) -- INVESTIGATED, NO CHANGE (STOP, as planned).** Static + live finding: the loading gate
+(`return isLoading ? <spinner> ...`, SheetPricingPage) + the grid slot's `pricedLoading` both read SWR `data === undefined`,
+and the BOQs / get_priced_rows SWR keys are stable across a tab-return; SWR keeps `data` across a revalidation, so a
+window-refocus does NOT flip either gate. Live-confirmed: firing `focus` + `visibilitychange` (the signals SWR
+`revalidateOnFocus` listens to) left the grid fully rendered (38 rows, header, no spinner, no unmount). The gate is already
+revalidation-safe; the only way to blank is a genuine tab-DISCARD cold remount (no cache -> `isLoading`/`keepPreviousData`
+cannot help), which exceeds a small contained change. Per the rider's own stopping condition -> STOP, no code.
+
+**New pure helpers (`pricingVirtual.ts`, +6 vitest):** `resolveJumpAction(isMounted, virtualized)` (mounted->"focus";
+virtualized-unmounted->"scroll-then-focus"; classic-unmounted->"noop") + `shouldCloseOverlay(openExcelRow, mountedExcelRows)`
+(true iff open AND not in the mounted set; null/empty handled). Each positive + negative.
+
+**Gates:** wizard-scoped `tsc` **0** errors (changed files; app-wide pre-existing noise standing); vitest **501 -> 507**
+(6 new; all 143 PricingGrid tests green + UNMODIFIED); `yarn build` OK. Classic path byte-identical; unfrozen + frozen
+virtualized measure path untouched; freeze/lock/save unchanged.
+
+**Live check (Chrome DevTools MCP, PUNE ELECTRICAL BOQ = BOQ-26-00003 / BQSH-26-00258, 870 rows, Fast render ON;
+destaled: Vite restart + SW unregister):**
+- **(a) search-jump to an unmounted deep match -- PASS.** Search "earthing" (20 hits), stepped to the last hit
+  (Excel row 1371, array idx ~860): the window re-windowed from indices 0-21 to **841-869** (`scrollTop` 0 -> 30127),
+  the row MOUNTED, the yellow current-hit highlight applied, focus stayed on the search-nav button (NOT `document.body`).
+- **(b) arrow-nav across the window edge -- PARTIAL (focus-safe, no window advance).** Real + synthetic ArrowDown
+  advances focus through the mounted window and it NEVER escapes to `document.body` (the hard requirement -- verified it
+  stops on the last mounted cell, e.g. idx 844/35, never body), BUT the window does NOT auto-scroll PAST the edge on
+  arrow keys. Root cause (diagnosed live): this virtualizer container re-windows on REAL WHEEL events but NOT on
+  programmatic scrolls -- `scrollToIndex` for a target ADJACENT to the window is defeated by the dynamic-measurement
+  estimate error (a near target's estimated offset reads as already-visible), and the pre-existing mounted-path
+  `el.scrollIntoView` likewise doesn't advance it. This is a V1 architectural trait (affects the existing scrollIntoView
+  too), NOT a V2 regression -- V1 arrow-nav also stalled at the edge, additionally with search-jump broken. `scrollToIndex`
+  DOES work for the FAR jumps of check (a) (a large net scroll fires the event). The `"center"` fix is strictly better than
+  the shipped-first `"auto"` (it enables the verified search-jump) and harmless, so it is KEPT; a full arrow-edge fix would
+  mean changing how the virtualizer observes scroll (V1 territory) -> left as a documented residual.
+- **(c) remark scroll-out close + durable re-key -- PASS.** Opened the remark on array idx 16 (Excel 24) -> 1 popover;
+  scrolled it out (window -> 72-113, row unmounted) -> **popover CLOSED, 0 orphans**; scrolled back so idx 16 (Excel 24)
+  remounted -> **no spurious/mis-targeted reopen** (0 popovers) -- the durable excel-row key + scroll-out clear behave correctly.
+- **item-2 CategoryVerdictPicker close -- PASS.** Opened the verdict picker on the classified idx-0 "Panels" cell
+  (engine-scoped Electrical list) -> 1 popover; scrolled the anchor row out (window -> 16-53) -> **picker CLOSED, 0 orphans**
+  (IntersectionObserver), no dangle against a detached node.
+- **(d) tab-return -- PASS (no blank).** Backgrounded the tab + fired the SWR revalidation signals: grid stayed fully
+  rendered, no spinner, no unmount (rider verification -> no change needed).
+
+**V1 KNOWN GAPS status:** #1 nav/search-to-unmounted -> **CLOSED for search-jump; arrow-edge PARTIAL** (focus-safe, window
+non-advance documented above). #2 overlay close-on-scroll-out -> **CLOSED** (category picker + remark; recon already safe).
+#3 RemarkCell durable re-key -> **CLOSED**.
+
+### Slice V2-FIX -- in-row popover overscan-zone ghost (visible-vs-mounted gap) (FRONTEND, NO migrate, base tip e557b060, 2026-07-15)
+
+**Bug (owner screenshot-verified).** A remark popover open with typed text; a search-jump/scroll moved its anchor row
+OFF-SCREEN but it stayed MOUNTED (the overscan zone), so the V2 mounted-set close predicate
+(`shouldCloseOverlay` over `getVirtualItems()`, which INCLUDES overscan) never fired -> Radix collision-pinned the open
+`PopoverContent` into the viewport as a floating "ghost" detached from any row. The CategoryVerdictPicker was immune
+because its close is an `IntersectionObserver` on the anchor = VISIBILITY-based, not mounted-set.
+
+**Fix -- make the in-row popovers close on VISIBILITY loss (consistent with the picker), VIRTUALIZED-gated, all in
+`PricingGrid.tsx`:**
+- New `VirtualizedContext` (a boolean, provided around BOTH grid return trees -- twoPane + single -- next to the existing
+  `CollapseContext.Provider`; renders no DOM, flips only on the A/B toggle) so the in-row popovers learn `virtualized`
+  WITHOUT a new row prop (memo shield intact -- context is orthogonal to `pricingRowPropsAreEqual`).
+- New shared hook `useCloseWhenScrolledOut(triggerRef, open, onClose)`: when `open && virtualized`, observe the trigger
+  element with an `IntersectionObserver` (viewport root, threshold 0 -- the SAME pattern as the page-owned picker) and call
+  `onClose` on `!isIntersecting`. No-op in classic or while closed. Closing DISCARDS any unsaved draft (owner-accepted).
+- Wired into the three ghosting in-row popovers via a `ref` on each trigger button (Radix `asChild`/Slot composes the ref
+  -- no trigger-behaviour change): **RemarkCell** (`onClose=()=>onOpenChange(false)`, clears the grid-level
+  `openRemarkExcelRow`), **ColorPicker** (`setOpen(false)`), **ReconcileBadge** (`setOpen(false)`).
+- The existing grid-level `shouldCloseOverlay` mounted-set effect is KEPT as the remark **backstop** (unchanged).
+
+**In-row popover survey (all four):** RemarkCell (grid-level state) -> **ghosted, FIXED**. ColorPicker (local state,
+per-cell) -> **could ghost, FIXED** (same hook). ReconcileBadge (local state, per-cell) -> **could ghost, FIXED** (same
+hook). **AmountFormulaBuilder** -> **IMMUNE, no change** -- it renders in the STICKY `<th>` header (`sticky top-0`), which
+never scrolls off vertically, so it cannot become an overscan-zone ghost.
+
+**Invariant correction (supersedes the V2 wording "in-row popovers close on unmount"):** an in-row Radix popover in a
+VIRTUALIZED grid must close on VISIBILITY loss (IntersectionObserver on the trigger), NOT rely on unmount -- the overscan
+zone keeps the row mounted while off-screen, so unmount-only leaves a collision-pinned ghost. Unmount is the last-resort
+backstop, not the primary close.
+
+**Gates:** wizard-scoped `tsc` **0** (changed files); vitest **507 -> 507** (DOM/IntersectionObserver behaviour, no new
+pure logic -- the live check is the behavioural gate; all 143 PricingGrid tests green + UNMODIFIED); `yarn build` OK.
+Classic path byte-identical (the close is VIRTUALIZED-gated); V0 memo shield intact (context, not a row prop);
+FIX-2 measure path + V2's search-jump/nav/picker-close/durable-re-key untouched. Scope: `PricingGrid.tsx` ONLY (+ docs).
+
+**Live check (Chrome DevTools MCP, PUNE ELECTRICAL BOQ = BOQ-26-00003 / BQSH-26-00258, 870 rows, Fast render ON; destaled:
+Vite restart + SW unregister). See the V2-FIX report for the observed numbers per popover.**
+
+**Gates:** wizard-scoped `tsc` 0 (app-wide pre-existing tsc noise is standing, none in the changed files); vitest **501** (unchanged -- the change is DOM-measurement, not pure logic, so no new unit test; the live numeric gate is the behavioral acceptance test); `yarn build` OK. Classic path byte-identical (toggle OFF); unfrozen-virtualized unaffected; 143 PricingGrid tests green + UNMODIFIED. Scope: `PricingGrid.tsx` ONLY (+ docs). Env: same Vite-restart + SW-unregister dance as V1-FIX (Docker-Windows bind mount, no HMR).
+
+---
+
+### Absorb -- merge origin/develop 41ed67ba into feature/boq-classification-eval (merge commit 56b5cf85, base tip d545270f, merge-base dd60cc36, 2026-07-15)
+
+**What came in (63 files, +3582/-1017):** the MC PR merge ca9af2c9 -- the multi-column-description arc (parser /
+wizard / review + MC-5 pricing-grid fan-out with `anchorWidthKeys` Option-1 freeze + the `description_parts_raw` JSON-field
+migrates on `BOQ Nodes` + `BoQ Review Row`); the prod-outage IN-list fix pair 20ab3bf9 + 310363e2 (bound/chunk unbounded
+SQL `IN`-lists against the sqlparse 10k-token cap) + its docs 8ca5d9eb (`HANDOFF-sqlparse-in-list-token-limit-fix.md`);
+and the MC follow-up 41ed67ba (re-serialize `description_parts_raw` on review-row edit save).
+
+**Conflicts -- `PricingGrid.tsx` ONLY (4 hunks; every other file auto-merged clean, incl. `boqTypes.ts`, `ReviewTree.tsx`,
+all 3 CLAUDE.md/plan docs):**
+- **(1) import union** -- kept BOTH `useVirtualizer` (our V1) and `import type { DescriptionColumn }` (develop MC-5).
+- **(2) Description-cell render** -- took develop's MC-5 **fan-out** structure wholesale (`fanOut ? descriptionColumns.map(...)
+  : legacy single anchor`, both via the shared `DescriptionAnchorInner`; the row body is shared by the classic AND
+  virtualized paths) AND threaded our V1 **`clipDescription`** gate through it -- added the param to `DescriptionAnchorInner`
+  (clip only when `rowHeight != null && clipDescription`), to the non-first fan-out cell, and to both call sites. Rationale:
+  MC's fan-out must render in both paths, but an AUTO virtualized row must render Description NATURAL (never clipped) or the
+  FIX-2 max-of-both-panes measure loses its height authority and descriptions truncate.
+- **(3) Category-column body** -- `colIndex = effectiveAnchorCount` (develop's PARAMETRIC anchor count, MC-5 -- fan-out
+  columns shift the boundary) + `cat = category` (our P1 per-row prop, NOT `categoriesByExcelRow.get(row.source_row_number)`
+  -- a whole-Map lookup inside the memoized row defeats the row memo, a load-bearing invariant). Both plumbing paths already
+  survived the auto-merge into the props interface + comparator + `renderRow`.
+- **(4) `focusCell`** -- kept our V2 `doFocus` closure (the common post-conflict region closes it and calls it via
+  `resolveJumpAction`) and swapped `FIXED_ANCHOR_COUNT` -> develop's `effectiveAnchorCount` (MC-5).
+- **PLUS one auto-merged live-geometry parameterization (outside the conflict hunks, within the mandated "both intents
+  function" scope):** the V1 virtualizer spacer `paneColSpan(pane, FIXED_ANCHOR_COUNT, ...)` -- our construct develop never
+  saw -> `effectiveAnchorCount`, so the spacer `<tr>` spans every frozen-pane column under MC-5 fan-out. The remaining
+  `FIXED_ANCHOR_COUNT` refs are the const definitions + comments only (per the "never read for live geometry" invariant).
+
+**patches.txt reconciliation:** develop does NOT touch `nirmaan_stack/patches.txt` (empty merge-base->develop diff), so the
+merge left it untouched and the PRE-MERGE stash path never triggered. The standing local modification -- a DELETION of
+`nirmaan_stack.patches.v3_0.backfill_cashflow_gap_limited #v4` -- is pre-existing working-tree noise, NOT staged, NOT part of
+the merge. No decision required (it is a local removal predating this session, not a real local entry the merge lacks).
+
+**Gates (merged state, bench-verified fresh -- a code state nobody had run):**
+- `bench migrate` clean; `description_parts_raw` column verified True on `BOQ Nodes` + `BoQ Review Row`. Workers restart not
+  needed for the test suites (each spawns its own process); the live alignment gate ran against the mounted merged code.
+- **Backend -- OUR suites hold:** test_classify **38**, test_row_category **26**, test_truth_snapshot **5**. **MC-shared new
+  baselines:** test_review_screen 247 -> **250**, test_pricing 176 -> **185**, test_parse_run **102**, test_sheet_preview
+  **32**, test_commit_pipeline **54**. **MC parser suites:** test_classifier **135**, test_hierarchy **65**, test_orchestrator
+  **78**, test_config **34**.
+- **PRE-EXISTING FAILURE (merge-INDEPENDENT, NOT auto-fixed):** `test_update_sheet_draft` `TestMigrateWorkPackageToMulti`
+  3 errors -- `setUp` raw-SQL writes to the `work_package` column that our earlier multi-WP migration DROPPED
+  (`has_column("BoQ Sheet Draft","work_package")` = False). The test file is BYTE-IDENTICAL pre/post merge; develop touches
+  neither the `BoQ Sheet Draft` schema nor its `work_package` field (develop's only `work_package` refs are the unrelated
+  `Procurement Requests` field in the IN-list fix); it fails identically on pre-merge tip d545270f. Stale-migration test, not
+  a merge regression.
+- **Frontend:** wizard-scoped `tsc` **0** errors; vitest 507 -> **532** (PricingGrid **143** green + byte-identical classic
+  path, reviewRender **25**); `yarn build` OK.
+- **ALIGNMENT GATE (Chrome DevTools MCP, BOQ-26-00043 / sheet Toilet / BQSH-26-00566; Fast render ON + Freeze columns ON;
+  destaled -- Vite already up, SW unregistered).** This committed sheet renders the LEGACY single-description path
+  (`fanOut=[]`; `get_priced_rows` surfaces no description parts to the pricing grid) -- which is the branch our resolution
+  most heavily modified (`DescriptionAnchorInner` + the `clipDescription` gate). **FIX-2:** per-row frozen-vs-scrolling
+  top-edge delta = **0px** across 3 scroll depths (window firstIdx 0 -> 0 -> re-windowed **59-88**, each incl. heavily
+  wrapped rows in the frozen pane), zero rows >1px, **zero truncated descriptions**. Confirmed programmatic `scrollTop`
+  does NOT re-window (V1/V2 trait) -- real wheel events used. **V2-FIX:** remark popover opened on row 59, real-wheel
+  scrolled off the top -> popover CLOSED (no `[data-radix-popper-content-wrapper]`, no ghost textarea, trigger unmounted).
+  Live MC-5 FAN-OUT path not exercised (no committed sheet on the dev DB surfaces description parts to the pricing grid) --
+  covered instead by vitest reviewRender 25 + PricingGrid 143 (both test fan-out AND legacy) + `tsc` + the hunk-by-hunk
+  resolution.
+
+**Scope:** the merge commit is the resolution ONLY (PricingGrid.tsx hunks + auto-merged develop changes). NOT staged /
+NOT committed: `.claude/settings.local.json` + `patches.txt` (standing noise), `synthetic_*.xlsx` fixtures (re-saved by the
+parser test runs this session), build artifacts under `public/frontend` + `www/` (gitignored). NOT pushed (per spec).

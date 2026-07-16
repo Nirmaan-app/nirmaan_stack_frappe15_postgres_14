@@ -1,0 +1,188 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "BCTS-.YY.-.#####",
+ "creation": "2026-07-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "boq",
+  "sheet_name",
+  "excel_row",
+  "discipline",
+  "committed_version",
+  "label_section",
+  "label_category_id",
+  "snapshot_section",
+  "snapshot_batch",
+  "source",
+  "snapshot_at",
+  "snapshot_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Row Identity (at snapshot time)"
+  },
+  {
+   "description": "The workbook (BOQs) this ground-truth label belongs to. Denormalized (mirrors BoQ Row Category) so the snapshot is filterable + joinable by BoQ.",
+   "fieldname": "boq",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "BoQ",
+   "options": "BOQs",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The committed sheet name, stored VERBATIM (#152 -- never stripped/trimmed). Durable Excel-address identity component, matching BoQ Row Category.sheet_name.",
+   "fieldname": "sheet_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sheet Name",
+   "reqd": 1
+  },
+  {
+   "description": "The source Excel row number this label annotates (= BoQ Row Category.excel_row = BOQ Nodes.source_row_number). Durable identity component; a label is PER-ROW.",
+   "fieldname": "excel_row",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Excel Row",
+   "reqd": 1
+  },
+  {
+   "default": "Electrical",
+   "description": "The engine/discipline this label belongs to. IN the identity tuple (mirrors BoQ Row Category) so a second engine's label for the SAME Excel address coexists.",
+   "fieldname": "discipline",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Discipline",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "The committed-tier commit_version of the sheet current AT snapshot time. Anchors the label to a specific committed version.",
+   "fieldname": "committed_version",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Committed Version",
+   "reqd": 1
+  },
+  {
+   "fieldname": "label_section",
+   "fieldtype": "Section Break",
+   "label": "Ground-truth Label"
+  },
+  {
+   "description": "The frozen-vocabulary category id (categories_<discipline>.json) captured as ground truth at snapshot time. Non-empty (validated in the controller).",
+   "fieldname": "label_category_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label Category Id",
+   "reqd": 1
+  },
+  {
+   "fieldname": "snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Snapshot Provenance"
+  },
+  {
+   "description": "One shared id per freeze/load event -- every row banked in the same load carries the same snapshot_batch. Snapshots are PERMANENT (never deleted); a new event mints a new batch.",
+   "fieldname": "snapshot_batch",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Snapshot Batch",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Bulk-loaded ground truth",
+   "description": "How this snapshot was banked: a bulk load of the team's Excel labels, or a Freeze event in product.",
+   "fieldname": "source",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Source",
+   "options": "Bulk-loaded ground truth\nFrozen in product",
+   "reqd": 1
+  },
+  {
+   "description": "When this snapshot row was banked. Set by the write path.",
+   "fieldname": "snapshot_at",
+   "fieldtype": "Datetime",
+   "label": "Snapshot At",
+   "read_only": 1
+  },
+  {
+   "description": "Who/what banked this snapshot (e.g. 'ground-truth-bulk' for the Excel load, or a user for an in-product freeze).",
+   "fieldname": "snapshot_by",
+   "fieldtype": "Data",
+   "label": "Snapshot By"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 0,
+ "links": [],
+ "modified": "2026-07-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Category Truth Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

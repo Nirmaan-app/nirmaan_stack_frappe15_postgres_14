@@ -41,7 +41,7 @@ import { ServiceItemType } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { Table as AntTable, ConfigProvider } from "antd";
+import { SimpleTable as AntTable, PassThrough as ConfigProvider } from "@/components/ui/simple-table";
 import {
   useFrappeCreateDoc,
   useFrappeDocumentEventListener,

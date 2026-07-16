@@ -30,7 +30,11 @@
   "editor_lock_section",
   "is_locked",
   "locked_by",
-  "locked_at"
+  "locked_at",
+  "classification_freeze_section",
+  "classification_frozen",
+  "frozen_by",
+  "frozen_at"
  ],
  "fields": [
   {
@@ -190,6 +194,32 @@
    "fieldname": "locked_at",
    "fieldtype": "Datetime",
    "label": "Locked At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "classification_freeze_section",
+   "fieldtype": "Section Break",
+   "label": "Classification Freeze"
+  },
+  {
+   "default": "0",
+   "description": "Deliberate, user-controlled, per-sheet classification freeze (the classification twin of the pricing is_locked). When 1, category verdict writes (set_row_category) AND re-classify (start_classify) are rejected via _guard_classification_not_frozen; PRICING stays fully live (this flag is NOT ORed into the pricing lock). PERSISTED + cross-user; ANY user may toggle. Freeze also banks a permanent BoQ Category Truth Snapshot batch (source='Frozen in product') + stamps every categorised eligible row's effective category into human_category_id. Stamped via frappe.db.set_value (NOT doc.save -- the list-valued area_dimensions JSON throws on a full save). Re-commit INVALIDATES: a new commit_version inserts a fresh BoQ Sheet row that defaults classification_frozen=0.",
+   "fieldname": "classification_frozen",
+   "fieldtype": "Check",
+   "label": "Classification Frozen"
+  },
+  {
+   "description": "The user who last froze the classification (frappe.session.user). Cleared on unfreeze. Typed Data + read_only to mirror locked_by.",
+   "fieldname": "frozen_by",
+   "fieldtype": "Data",
+   "label": "Frozen By",
+   "read_only": 1
+  },
+  {
+   "description": "When the classification was last frozen. Cleared on unfreeze.",
+   "fieldname": "frozen_at",
+   "fieldtype": "Datetime",
+   "label": "Frozen At",
    "read_only": 1
   }
  ],

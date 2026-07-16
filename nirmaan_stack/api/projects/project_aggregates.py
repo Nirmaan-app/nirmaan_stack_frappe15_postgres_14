@@ -333,25 +333,72 @@ def get_project_pr_status_counts(project_id: str):
     if not frappe.has_permission("Procurement Orders", "read"):
         frappe.throw(_("Not permitted to read Procurement Orders."), frappe.PermissionError)
 
-    pr_names = frappe.get_all(
+    # Parent rows in bulk (no per-doc get_doc).
+    prs = frappe.get_all(
         "Procurement Requests",
         filters={"project": project_id},
-        pluck="name",
-        limit_page_length=0
+        fields=["name", "workflow_state"],
+        limit_page_length=0,
     )
-    
-    po_names = frappe.get_all(
+    pos = frappe.get_all(
         "Procurement Orders",
-        filters={
-            "project": project_id,
-            "status": ["not in", ["Cancelled"]]
-        },
-        pluck="name",
-        limit_page_length=0
+        filters={"project": project_id, "status": ["not in", ["Cancelled"]]},
+        fields=["name", "procurement_request"],
+        limit_page_length=0,
     )
+    pr_names = [p["name"] for p in prs]
+    po_names = [p["name"] for p in pos]
 
-    project_prs_docs = [frappe.get_doc("Procurement Requests", name) for name in pr_names]
-    project_pos_docs = [frappe.get_doc("Procurement Orders", name) for name in po_names]
+    # Child rows in bulk, grouped by parent — this replaces hydrating EVERY PR and PO
+    # document (the former get_doc-per-name N+1: hundreds of doc loads on a large project).
+    # `_get_pr_derived_status_v2` only reads the order_list items (status + item_id) and
+    # the PO items (item_id), so we fetch just those two child tables.
+    # Chunk the `parent IN (...)` lists via create_batch. Bounded per project today, but
+    # chunking keeps a very large project from tripping sqlparse's 10k-token cap on prod
+    # and matches the pattern used elsewhere in this file.
+    pr_items_by_parent = {}
+    if pr_names:
+        for chunk in create_batch(pr_names, 500):
+            for it in frappe.get_all(
+                "Procurement Request Item Detail",
+                filters={"parent": ["in", chunk], "parentfield": "order_list"},
+                fields=["parent", "status", "item_id"],
+                limit_page_length=0,
+            ):
+                pr_items_by_parent.setdefault(it["parent"], []).append(
+                    frappe._dict(status=it["status"], item_id=it["item_id"])
+                )
+    po_items_by_parent = {}
+    if po_names:
+        for chunk in create_batch(po_names, 500):
+            for it in frappe.get_all(
+                "Purchase Order Item",
+                filters={"parent": ["in", chunk]},
+                fields=["parent", "item_id"],
+                limit_page_length=0,
+            ):
+                po_items_by_parent.setdefault(it["parent"], []).append(
+                    frappe._dict(item_id=it["item_id"])
+                )
+
+    # Lightweight doc-like objects so `_get_pr_derived_status_v2` is reused verbatim
+    # (byte-identical to the old get_doc path — same fields, same logic).
+    project_prs_docs = [
+        frappe._dict(
+            name=p["name"],
+            workflow_state=p["workflow_state"],
+            order_list=pr_items_by_parent.get(p["name"], []),
+        )
+        for p in prs
+    ]
+    project_pos_docs = [
+        frappe._dict(
+            name=p["name"],
+            procurement_request=p["procurement_request"],
+            items=po_items_by_parent.get(p["name"], []),
+        )
+        for p in pos
+    ]
 
     status_counts = {"New PR": 0, "Approved PO": 0, "Open PR": 0, "Deleted PR": 0}
     pr_statuses_dict = {}
@@ -525,7 +572,133 @@ def get_purchase_order_with_items(po_name: str):
 
     # On the server, frappe.get_doc ALWAYS fetches the full document with child tables.
     po_doc = frappe.get_doc("Procurement Orders", po_name)
-    
+
     # po_doc.as_dict() converts the entire document, including the list of items,
     # into a clean dictionary format that can be sent as JSON.
     return po_doc.as_dict()
+
+
+# --- Projects-list financial rollup (perf: server aggregate, not client fetch-all) -----
+
+_ROLLUP_KEYS = (
+    "total_project_invoiced",
+    "po_wo_amount",
+    "inflow",
+    "outflow",
+    "liabilities",
+    "total_credit_purchase",
+    "total_credit_paid",
+)
+
+
+@frappe.whitelist()
+def get_projects_financial_rollup():
+    """Per-project financial totals for the Projects-list financial columns.
+
+    Replaces the client-side fetch-all-then-reduce (the six `useProjectsList*` bulk hooks
+    at limit:100000 + `getProjectFinancials` in projects.tsx). Aggregates on the server and
+    returns one small dict; the browser does a per-row lookup.
+
+    Global (all projects) by design — the financial columns are shown only to privileged
+    roles (Admin / PMO / Accountant), and the client fetched global data too.
+
+    Byte-identical to the client math (rows fetched then summed with `flt`, mirroring the
+    frontend `parseNumber`, so NULL/blank -> 0 and mixed text/numeric storage is safe):
+      - total_project_invoiced = Σ Project Invoices.amount
+      - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Inactive) + Σ SR.total_amount (status=Approved)
+      - inflow                 = Σ Project Inflows.amount
+      - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
+      - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
+      - total_credit_purchase  = Σ PO Payment Terms.amount (payment_type=Credit) on those POs
+
+    `cashflow_gap` (= outflow + liabilities − inflow) and `project_value_gst` stay on the
+    client (the latter is a field on the Projects doc). Returns
+    ``{ project_name: { <_ROLLUP_KEYS> } }``.
+    """
+    rollup = {}
+
+    def bucket(project):
+        if not project:
+            return None
+        row = rollup.get(project)
+        if row is None:
+            row = {k: 0.0 for k in _ROLLUP_KEYS}
+            rollup[project] = row
+        return row
+
+    # total_project_invoiced — Project Invoices, no filter.
+    for r in frappe.get_all("Project Invoices", fields=["project", "amount"], limit_page_length=0):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["total_project_invoiced"] += flt(r.get("amount"))
+
+    # POs — po_wo_amount + liabilities (per-PO min), and the valid-PO -> project map for credit.
+    valid_po_project = {}
+    pos = frappe.get_all(
+        "Procurement Orders",
+        filters={"status": ["not in", ["Merged", "Inactive"]]},
+        fields=["name", "project", "total_amount", "po_amount_delivered", "amount_paid"],
+        limit_page_length=0,
+    )
+    for po in pos:
+        b = bucket(po.get("project"))
+        if b is None:
+            continue
+        b["po_wo_amount"] += flt(po.get("total_amount"))
+        delivered = flt(po.get("po_amount_delivered"))
+        paid = flt(po.get("amount_paid"))
+        b["liabilities"] += delivered - min(paid, delivered)
+        valid_po_project[po.get("name")] = po.get("project")
+
+    # SRs — po_wo_amount (Approved only).
+    for sr in frappe.get_all(
+        "Service Requests",
+        filters={"status": "Approved"},
+        fields=["project", "total_amount"],
+        limit_page_length=0,
+    ):
+        b = bucket(sr.get("project"))
+        if b is not None:
+            b["po_wo_amount"] += flt(sr.get("total_amount"))
+
+    # inflow — Project Inflows, no filter.
+    for r in frappe.get_all("Project Inflows", fields=["project", "amount"], limit_page_length=0):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["inflow"] += flt(r.get("amount"))
+
+    # outflow — Paid Payments + Paid Expenses (Expenses link field is `projects`, plural).
+    for r in frappe.get_all(
+        "Project Payments", filters={"status": "Paid"}, fields=["project", "amount"], limit_page_length=0
+    ):
+        b = bucket(r.get("project"))
+        if b is not None:
+            b["outflow"] += flt(r.get("amount"))
+    for r in frappe.get_all(
+        "Project Expenses", filters={"status": "Paid"}, fields=["projects", "amount"], limit_page_length=0
+    ):
+        b = bucket(r.get("projects"))
+        if b is not None:
+            b["outflow"] += flt(r.get("amount"))
+
+    # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
+    # This is a CROSS-PROJECT rollup, so valid_po_project holds EVERY non-Merged/Inactive
+    # PO (thousands). Chunk the `parent IN (...)` list via create_batch so the generated
+    # query never exceeds sqlparse's 10k-token cap on prod (same fix as lines above). Each
+    # PO falls in exactly one chunk, so the sums just accumulate across batches.
+    if valid_po_project:
+        for chunk in create_batch(list(valid_po_project.keys()), 500):
+            for term in frappe.get_all(
+                "PO Payment Terms",
+                filters={"payment_type": "Credit", "parent": ["in", chunk]},
+                fields=["parent", "amount", "term_status"],
+                limit_page_length=0,
+            ):
+                b = bucket(valid_po_project.get(term.get("parent")))
+                if b is not None:
+                    amt = flt(term.get("amount"))
+                    b["total_credit_purchase"] += amt
+                    if term.get("term_status") == "Paid":
+                        b["total_credit_paid"] += amt
+
+    return rollup

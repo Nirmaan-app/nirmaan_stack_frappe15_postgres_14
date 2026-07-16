@@ -19,7 +19,7 @@ import formatToIndianRupee, {
 } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { computeLossPercent, isHighLoss } from "@/utils/lossPercent";
-import TextArea from "antd/es/input/TextArea";
+import { Textarea } from "@/components/ui/textarea";
 import {
   useFrappeDocumentEventListener,
   useFrappePostCall,
@@ -587,10 +587,10 @@ export const VendorsSelectionSummary: React.FC = () => {
                                           <p className="text-xs font-medium text-red-600 mb-1">
                                             Reason <span className="font-normal">(required)</span>
                                           </p>
-                                          <TextArea
+                                          <Textarea
                                             className="bg-red-50 border-red-200 text-xs"
                                             placeholder="Reason for high loss..."
-                                            autoSize={{ minRows: 2, maxRows: 4 }}
+                                            rows={2}
                                             value={justifications[item.name] || ""}
                                             onChange={(e) =>
                                               setJustifications((prev) => ({
@@ -786,7 +786,7 @@ export const VendorsSelectionSummary: React.FC = () => {
                  <div className="flex flex-col gap-4 mt-4">
                   <div className="flex flex-col gap-2 text-start">
                     <h4 className="font-bold text-sm">Remarks for Project Lead (Optional)</h4>
-                    <TextArea
+                    <Textarea
                       className="bg-slate-50"
                       placeholder="Type here..."
                       value={comment?.approving}
@@ -796,7 +796,7 @@ export const VendorsSelectionSummary: React.FC = () => {
                   {allDelayedItems.length > 0 && (
                     <div className="flex flex-col gap-2 text-start">
                       <h4 className="font-bold text-sm">Reason for delayed items (Optional)</h4>
-                      <TextArea
+                      <Textarea
                          className="bg-red-50 border-red-200"
                          placeholder="Reason..."
                          value={comment?.delaying}
@@ -860,7 +860,6 @@ export default VendorsSelectionSummary;
 // } from "@/utils/FormatPrice";
 // import getLowestQuoteFilled from "@/utils/getLowestQuoteFilled";
 // import { parseNumber } from "@/utils/parseNumber";
-// import TextArea from "antd/es/input/TextArea";
 // import {
 //   useFrappeDocumentEventListener,
 //   useFrappePostCall,
@@ -1620,7 +1619,7 @@ export default VendorsSelectionSummary;
 //                     <h4 className="font-bold">
 //                       Any remarks for the Project Lead?
 //                     </h4>
-//                     <TextArea
+//                     <Textarea
 //                       className="border-green-400 focus:border-green-800 bg-green-200"
 //                       placeholder="type here..."
 //                       value={comment?.approving}
@@ -1636,7 +1635,7 @@ export default VendorsSelectionSummary;
 //                     <h4 className="font-bold">
 //                       some items are delayed, any reason?
 //                     </h4>
-//                     <TextArea
+//                     <Textarea
 //                       className="border-primary focus:border-red-800 bg-red-200"
 //                       placeholder="type here..."
 //                       value={comment?.delaying}

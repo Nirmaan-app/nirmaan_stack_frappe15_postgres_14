@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link, useSearchParams } from "react-router-dom";
-import memoize from "lodash/memoize";
 import {
   CircleCheckBig,
   HardHat,
@@ -30,6 +29,7 @@ import {
 
 // --- Hooks & Utils ---
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useCounts } from "@/hooks/useCounts";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
@@ -37,13 +37,6 @@ import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { CEO_HOLD_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToLakhsNumber } from "@/utils/FormatPrice";
-import {
-  getTotalInflowAmount,
-  // getPOSTotals,
-  // getPOTotal,
-  getTotalAmountPaid,
-  getTotalExpensePaid,
-} from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 
 // --- Types ---
@@ -62,15 +55,8 @@ import { useUsersList } from "../ProcurementRequests/ApproveNewPR/hooks/useUsers
 import {
   useAllProjectsCount,
   useTenderingProjectsCount,
-  useProjectStatusCountCall,
-  useProjectsListExpenses,
-  useProjectsListInflows,
-  useProjectsListPayments,
-  useProjectsListPOData,
-  useProjectsListSRData,
-  useProjectsListProjectInvoices,
+  useProjectsFinancialRollup,
 } from "./data/root/useProjectRootApi";
-import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
 // --- Constants ---
 const DOCTYPE = "Projects";
@@ -337,7 +323,12 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   const [statusCounts, setStatusCounts] = useState<ProjectStatusCount[]>([]);
 
-  const { call } = useProjectStatusCountCall();
+  // Status tab counts — one GROUP BY round-trip via useCounts replaces the former
+  // per-status get_count fan-out (useProjectStatusCountCall). Byte-identical.
+  const { data: statusCountData } = useCounts(
+    [{ key: "byStatus", doctype: DOCTYPE, group_field: "status" }],
+    "projects-status-counts"
+  );
   const { data: all_projects_count } = useAllProjectsCount();
   const { data: tendering_projects_count } = useTenderingProjectsCount();
 
@@ -355,28 +346,16 @@ export const Projects: React.FC<ProjectsProps> = ({
   }, [user_id]);
 
   useEffect(() => {
-    const fetchCounts = async () => {
-      const countsPromises = PROJECT_STATUS_OPTIONS.map((status) =>
-        call({
-          doctype: DOCTYPE,
-          filters: { status: status.value },
-        })
-          .then((res) => ({
-            ...status,
-            count: res.message,
-            isLoading: false,
-          }))
-          .catch(() => ({
-            ...status,
-            count: 0, // Default to 0 on error
-            isLoading: false,
-          }))
-      );
-      const resolvedCounts = await Promise.all(countsPromises);
-      setStatusCounts(resolvedCounts as ProjectStatusCount[]);
-    };
-    fetchCounts();
-  }, []); // Runs once
+    // Map the single GROUP BY result onto the tab options; missing status -> 0.
+    const map = (statusCountData?.message?.byStatus as Record<string, number>) || {};
+    setStatusCounts(
+      PROJECT_STATUS_OPTIONS.map((status) => ({
+        ...status,
+        count: map[status.value] || 0,
+        isLoading: false,
+      })) as ProjectStatusCount[]
+    );
+  }, [statusCountData]);
 
   // --- Supporting Data & Hooks ---
   const {
@@ -389,159 +368,47 @@ export const Projects: React.FC<ProjectsProps> = ({
   //     "Procurement Requests", { fields: ["name", "project", "workflow_state", "procurement_list"], limit: 100000 }, "PRs_For_ProjectsList" // Fetch all for counts
   // );
 
-  // const { data: CreditData } = useCredits()
-  const { creditTerms: CreditData } = useProjectAllCredits(undefined);
-
-  // console.log("CreditData", CreditData);
-
+  // Server-side financial rollup — ONE aggregate call replaces the six limit:100000
+  // "fetch-all-then-reduce-in-JS" hooks (POs / SRs / inflows / payments / expenses /
+  // invoices) + useProjectAllCredits. Byte-identical numbers; the browser now does a
+  // per-row dict lookup instead of pulling whole tables and filtering client-side.
   const {
-    data: poData,
-    isLoading: poDataLoading,
-    error: poDataError,
-  } = useProjectsListPOData();
-
-  const {
-    data: srData,
-    isLoading: srDataLoading,
-    error: srDataError,
-  } = useProjectsListSRData();
-  const {
-    data: projectInflows,
-    isLoading: projectInflowsLoading,
-    error: projectInflowsError,
-  } = useProjectsListInflows();
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = useProjectsListPayments();
-  const {
-    data: projectExpenses,
-    isLoading: projectExpensesLoading,
-    error: projectExpensesError,
-  } = useProjectsListExpenses();
-  const {
-    data: projectInvoices,
-    isLoading: projectInvoicesLoading,
-    error: projectInvoicesError,
-  } = useProjectsListProjectInvoices();
+    data: financialRollupData,
+    isLoading: financialRollupLoading,
+    error: financialRollupError,
+  } = useProjectsFinancialRollup();
+  const financialRollup = financialRollupData?.message;
 
   // --- Memoized Lookups & Pre-processing for Column Calculations ---
 
   const getProjectFinancials = useMemo(() => {
-    if (
-      !poData ||
-      !srData ||
-      !projectInflows ||
-      !projectPayments ||
-      !projectExpenses ||
-      !projectInvoices ||
-      !CreditData
-    )
-      return () => ({
-        calculatedTotalProjectInvoiced: 0,
-        calculatedTotalInvoiced: 0,
-        calculatedTotalInflow: 0,
-        calculatedTotalOutflow: 0,
-        totalCreditPurchase: 0,
-        totalCreditPaid: 0,
-        totalLiabilities: 0,
-      });
-
-    // Pre-group data for efficiency
-    const posByProject = memoize((projId: string) =>
-      poData.filter((po) => po.project === projId)
-    );
-    const srsByProject = memoize((projId: string) =>
-      srData.filter((sr) => sr.project === projId)
-    );
-    const inflowsByProject = memoize((projId: string) =>
-      projectInflows.filter((pi) => pi.project === projId)
-    );
-    const paymentsByProject = memoize((projId: string) =>
-      projectPayments.filter((pp) => pp.project === projId)
-    );
-    const expensesByProject = memoize((projId: string) =>
-      projectExpenses.filter((pe) => pe.projects === projId)
-    );
-    const invoicesByProject = memoize((projId: string) =>
-      projectInvoices.filter((inv) => inv.project === projId)
-    );
-
-    // CreditData is now the raw list of all credit terms for all projects
-    const creditsByProject = memoize((projId: string) =>
-      CreditData.filter((cr) => cr.project == projId)
-    );
-
-    return memoize((projectId: string) => {
-      const relatedPOs = posByProject(projectId);
-      const relatedSRs = srsByProject(projectId);
-      const relatedInflows = inflowsByProject(projectId);
-      const relatedPayments = paymentsByProject(projectId);
-      const relatedExpenses = expensesByProject(projectId);
-
-      const projectCredits = creditsByProject(projectId);
-
-      const totalCreditPurchase = projectCredits.reduce(
-        (sum, term) => sum + parseNumber(term.amount),
-        0
-      );
-
-      const totalCreditPaid = projectCredits
-        .filter((cr) => cr.term_status === "Paid")
-        .reduce((sum, term) => sum + parseNumber(term.amount), 0);
-
-      // Both PO.total_amount and SR.total_amount are kept fresh by their
-      // doctype hooks and already include GST when applicable. No client-side
-      // GST math required — sum the parent values directly.
-      let totalInvoiced = relatedPOs.reduce((sum, po) => sum + parseNumber(po.total_amount), 0);
-      relatedSRs.forEach((sr) => {
-        totalInvoiced += parseNumber(sr.total_amount);
-      });
-
-      const ClientInvoices = invoicesByProject(projectId);
-      const totalProjectInvoiced = ClientInvoices.reduce(
-        (sum, inv) => sum + parseNumber(inv.amount),
-        0
-      );
-
-      const totalInflow = getTotalInflowAmount(relatedInflows);
-      const totalOutflow =
-        getTotalAmountPaid(relatedPayments) +
-        getTotalExpensePaid(relatedExpenses); // Already filtered for "Paid"
-
-      // Calculate Total Liabilities (Payable Amount Against Delivered - Amount Paid Against Delivered)
-      const totalPayableAgainstDelivered = relatedPOs.reduce(
-        (sum, po) => sum + parseNumber(po.po_amount_delivered || 0),
-        0
-      );
-      const totalPaidAgainstDelivered = relatedPOs.reduce((sum, po) => {
-        const amountPaid = parseNumber(po.amount_paid || 0);
-        const poAmountDelivered = parseNumber(po.po_amount_delivered || 0);
-        return sum + Math.min(amountPaid, poAmountDelivered);
-      }, 0);
-      const totalLiabilities =
-        totalPayableAgainstDelivered - totalPaidAgainstDelivered;
-
+    const rollup = financialRollup || {};
+    const ZERO = {
+      calculatedTotalProjectInvoiced: 0,
+      calculatedTotalInvoiced: 0,
+      calculatedTotalInflow: 0,
+      calculatedTotalOutflow: 0,
+      totalCreditPurchase: 0,
+      totalCreditPaid: 0,
+      totalLiabilities: 0,
+    };
+    // Per-row lookup into the server rollup. Same field mapping / numbers as the former
+    // client-side reduce (liabilities uses the per-PO min already applied server-side).
+    // A project with no financial activity (absent from the rollup) reads ZERO.
+    return (projectId: string) => {
+      const r = rollup[projectId];
+      if (!r) return ZERO;
       return {
-        calculatedTotalProjectInvoiced: totalProjectInvoiced,
-        calculatedTotalInvoiced: totalInvoiced,
-        calculatedTotalInflow: totalInflow,
-        calculatedTotalOutflow: totalOutflow,
-        totalCreditPurchase, // Renamed from relatedTotalBalanceCredit
-        totalCreditPaid,
-        totalLiabilities,
+        calculatedTotalProjectInvoiced: r.total_project_invoiced,
+        calculatedTotalInvoiced: r.po_wo_amount,
+        calculatedTotalInflow: r.inflow,
+        calculatedTotalOutflow: r.outflow,
+        totalCreditPurchase: r.total_credit_purchase,
+        totalCreditPaid: r.total_credit_paid,
+        totalLiabilities: r.liabilities,
       };
-    });
-  }, [
-    poData,
-    srData,
-    projectInflows,
-    projectPayments,
-    projectExpenses,
-    projectInvoices,
-    CreditData,
-  ]);
+    };
+  }, [financialRollup]);
 
   // const prStatusCountsByProject = useMemo(() => {
   //     if (!prData || !poData) return {};
@@ -914,22 +781,12 @@ export const Projects: React.FC<ProjectsProps> = ({
 
   // --- Combined Loading & Error States ---
   const isLoadingOverall =
-    poDataLoading ||
-    srDataLoading ||
-    projectInflowsLoading ||
-    projectPaymentsLoading ||
-    projectExpensesLoading ||
-    projectInvoicesLoading ||
+    financialRollupLoading ||
     listIsLoading ||
     userListLoading;
 
   const combinedErrorOverall =
-    poDataError ||
-    srDataError ||
-    projectInflowsError ||
-    projectPaymentsError ||
-    projectExpensesError ||
-    projectInvoicesError ||
+    financialRollupError ||
     userError ||
     listError;
 

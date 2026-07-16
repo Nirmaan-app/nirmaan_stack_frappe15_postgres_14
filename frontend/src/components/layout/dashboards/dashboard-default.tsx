@@ -1,4 +1,4 @@
-import { useFrappeGetDocCount } from "frappe-react-sdk";
+import { useCounts } from "@/hooks/useCounts";
 import {
   LucideIcon,
   HardHat,
@@ -285,14 +285,24 @@ export const DashboardMetricCard: React.FC<DashboardMetricCardProps> = ({
 // ============================================================================
 
 export default function DefaultDashboard() {
+  // One batched round-trip via useCounts replaces the per-doctype getDocCount fan-out.
+  const {
+    data: countsData,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useCounts(
+    DASHBOARD_METRICS_CONFIG.map((metric) => ({
+      key: metric.id,
+      doctype: metric.doctype,
+    })),
+    "dashboard-default-counts"
+  );
+
   const metricDataHooks = DASHBOARD_METRICS_CONFIG.map((metric) => ({
     ...metric,
-    ...useFrappeGetDocCount(
-      metric.doctype,
-      undefined,
-      false,
-      `${metric.doctype}_total_count`
-    ),
+    data: countsData?.message?.[metric.id] as number | undefined,
+    isLoading: countsLoading,
+    error: countsError,
   }));
 
   return (

@@ -4,7 +4,6 @@ import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUs
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest, ProcurementRequestItemDetail } from "@/types/NirmaanStack/ProcurementRequests";
 import { formatDate } from "@/utils/FormatDate";
-import { Timeline } from "antd";
 import { FrappeDoc, useFrappeDeleteDoc, useFrappeGetDoc, useFrappeGetDocList, useFrappeUpdateDoc, useSWRConfig,useFrappePostCall } from "frappe-react-sdk";
 import { FileSliders, ListChecks, MessageCircleMore, Settings2, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from "react";
@@ -381,11 +380,20 @@ useEffect(() => {
 
                             <div className="space-y-1 flex flex-col items-start justify-start">
                                 <Label className="text-slim text-red-300 mb-4 block">Comments:</Label>
-                                <Timeline
-                                    className="w-full"
-                                    mode={'left'}
-                                    items={itemsTimelineList}
-                                />
+                                <div className="w-full">
+                                    {itemsTimelineList?.map((it, i) => (
+                                        <div key={i} className="relative flex gap-3">
+                                            <div className="flex flex-col items-center">
+                                                <span className={`mt-1 h-3 w-3 shrink-0 rounded-full ring-2 ring-background ${it.color === "green" ? "bg-green-500" : it.color === "red" ? "bg-red-500" : it.color === "blue" ? "bg-blue-500" : "bg-gray-400"}`} />
+                                                {i < itemsTimelineList.length - 1 && <span className="w-px flex-1 bg-border" />}
+                                            </div>
+                                            <div className="min-w-0 flex-1 pb-4">
+                                                <div className="mb-1">{it.label}</div>
+                                                {it.children}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </CardContent>
                     </Card>

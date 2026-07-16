@@ -1,0 +1,103 @@
+{
+  "discipline": "HVAC",
+  "version": "0.1-hv1-v0",
+  "note": "The 16 HVAC pricing categories (Build slice HV-1). Same shape + contract as categories_electrical.json: category_id is stable, name is the human/AI display label (must match the team labelling legend Categories_Legend.csv), description is the human/AI reference. ABSTAIN returns a BLANK category_id ('') via scoring.novel_category_id (shared scoring.json). The engine stays DISABLED in engines.py until the ruleset is tuned + prompt certified + HVAC routing locked (registry flip is a separate gated slice).",
+  "categories": [
+    {
+      "category_id": "hvac_ducting",
+      "name": "Ducting",
+      "description": "GI/GSS/spiral/oval/round sheet-metal ductwork, gauge-based fabrication + installation (incl. PIR pre-insulated and fire-rated duct).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_adp",
+      "name": "ADP",
+      "description": "Air Distribution Products: grilles, diffusers, dampers (incl. fire dampers), VCDs, spigots, collars, plenums, trap doors, canvas connections.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_piping",
+      "name": "Piping",
+      "description": "All HVAC piping: chilled water, condenser water, refrigerant (copper), and drain (CPVC/uPVC/MS/GI).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_insulation",
+      "name": "Insulation",
+      "description": "Duct/pipe thermal + acoustic insulation: nitrile, elastomeric, fiberglass, glasswool, aluminium cladding, acoustic lining.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_valve_package",
+      "name": "Valve Package",
+      "description": "Valves and valve assemblies: butterfly, NRV, sluice, globe, balancing, PICV, strainers, rising spindle.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_vav_box",
+      "name": "VAV Box",
+      "description": "VAV/CAV terminal boxes, CFM-rated air terminals.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_sensors",
+      "name": "Sensors & Controls",
+      "description": "Sensors, transmitters, gauges, thermostats, BMS/BACnet controllers and integration items.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_fans",
+      "name": "Fans",
+      "description": "Ventilation/exhaust/axial/inline fans, kitchen exhaust, scrubbers, make-up air units.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_chw_units",
+      "name": "CHW Units",
+      "description": "Chilled-water terminal units: ductable, cassette, hi-wall, FCU.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_dx_unit",
+      "name": "DX Unit",
+      "description": "Direct-expansion splits: hi-wall, cassette, ductable (non-VRF refrigerant).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_vrf",
+      "name": "VRF",
+      "description": "VRF/VRV systems: ODU, IDU, refnet/Y-joints and VRF ancillaries (refrigerant gas topping, ODU stands).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_cables",
+      "name": "Cables",
+      "description": "HVAC power/control cabling AND cable trays (owns VRF control cabling).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_ahu",
+      "name": "AHU",
+      "description": "Air handling units, TFA units, cooling coils, AHU accessories.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_panels",
+      "name": "Panels",
+      "description": "Starter panels, control panels, VFD panels for HVAC equipment (NOT double-skin AHU/plenum casing panels).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_pumps",
+      "name": "Pumps",
+      "description": "CHW primary/secondary/condenser pump sets.",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_misc",
+      "name": "Misc",
+      "description": "Genuine HVAC lines fitting no other category: T&B/commissioning services, water treatment, vibration isolators, dismantling/recommissioning, misc hardware.",
+      "discipline": "HVAC"
+    }
+  ]
+}

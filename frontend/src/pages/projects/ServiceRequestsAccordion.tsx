@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import formatToIndianRupee, {formatToRoundedIndianRupee} from "@/utils/FormatPrice";
-import { ConfigProvider, Table } from "antd";
+import { SimpleTable } from "@/components/ui/simple-table";
 import { useMemo, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 
@@ -89,36 +89,30 @@ export const ServiceRequestsAccordion : React.FC<ServiceRequestsAccordionProps> 
     <div className="w-full">
       {(segregatedData || []).length > 0 ? (
         <div className="overflow-x-auto">
-          <ConfigProvider>
-            <Table
-              dataSource={segregatedData
-                ?.sort((a, b) =>
-                  Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
-                )
-                ?.map((key) => ({
-                  key: Object.values(key)[0]?.key,
-                  amount: Object.values(key)[0]?.amount,
-                  estimate_total: Object.values(key)[0]?.estimate_total,
-                  category: Object.keys(key)[0],
-                  items: Object.values(key)[0]?.children,
-                }))?.sort((a, b) => b?.estimate_total - a?.estimate_total)}
-              columns={columns}
-              pagination={false}
-              expandable={{
-                expandedRowKeys,
-                onExpandedRowsChange: setExpandedRowKeys,
-                expandedRowRender: (record) => (
-                  <Table
-                    dataSource={record.items}
-                    columns={innerColumns}
-                    pagination={false}
-                    rowKey={(item) => item.id || uuidv4()}
-                  />
-                ),
-              }}
-              rowKey="key"
-            />
-          </ConfigProvider>
+          <SimpleTable
+            dataSource={segregatedData
+              ?.sort((a, b) =>
+                Object.keys(a)[0]?.localeCompare(Object.keys(b)[0])
+              )
+              ?.map((key) => ({
+                key: Object.values(key)[0]?.key,
+                amount: Object.values(key)[0]?.amount,
+                estimate_total: Object.values(key)[0]?.estimate_total,
+                category: Object.keys(key)[0],
+                items: Object.values(key)[0]?.children,
+              }))?.sort((a, b) => b?.estimate_total - a?.estimate_total)}
+            columns={columns}
+            rowKey="key"
+            expandable={{
+              expandedRowRender: (record) => (
+                <SimpleTable
+                  dataSource={record.items}
+                  columns={innerColumns}
+                  rowKey={(item) => item.id || uuidv4()}
+                />
+              ),
+            }}
+          />
         </div>
       ) : (
         <div className="h-[10vh] flex items-center justify-center">

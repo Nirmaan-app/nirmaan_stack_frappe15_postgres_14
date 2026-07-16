@@ -13,6 +13,30 @@ insert a fresh current at max(category_version)+1.
 import frappe
 
 _ROW_CATEGORY = "BoQ Row Category"
+_BOQ_SHEET = "BoQ Sheet"
+
+# Reject marker for a write against a classification-frozen sheet. Mirrors pricing.py's
+# _LOCKED_WRITE_MESSAGE idiom (a stable, greppable string the frontend can match on).
+_FROZEN_WRITE_MESSAGE = (
+    "Classification is frozen for this sheet. Unfreeze to make changes."
+)
+
+
+def is_sheet_classification_frozen(boq, sheet_name, committed_version) -> int:
+    """1 iff the CURRENT committed BoQ Sheet for (boq, sheet_name, committed_version) is
+    classification-frozen; 0 when unfrozen OR no current row (an uncommitted / re-committed-away
+    version is not frozen -- pass-through). A pure read. THE single frozen-state reader: the
+    classify endpoints, this module's set_human_verdict guard, and the orchestrator all call it
+    (api -> service is the only legal import direction, so the reader lives here in the service
+    layer). sheet_name VERBATIM (#152)."""
+    name = frappe.db.get_value(
+        _BOQ_SHEET,
+        {"boq": boq, "sheet_name": sheet_name, "commit_version": committed_version, "is_current": 1},
+        "name",
+    )
+    if not name:
+        return 0
+    return 1 if frappe.db.get_value(_BOQ_SHEET, name, "classification_frozen") else 0
 
 
 def _identity_filters(boq, sheet_name, excel_row, committed_version, discipline):
@@ -116,6 +140,13 @@ def set_human_verdict(
     idiom (there is no prior current to freeze, so no freeze-and-supersede is needed on create).
     Returns {name, human_category_id}.
     """
+    # Defence-in-depth: a frozen sheet rejects any human-verdict write here too (the primary guard
+    # is in set_row_category). The freeze endpoint does NOT route through this function -- it uses
+    # stamp_human_verdicts_bulk (below), which is deliberately guard-free -- so its own stamping is
+    # never blocked by this check. Reject-mutates-nothing: this fires before any write.
+    if is_sheet_classification_frozen(boq, sheet_name, committed_version):
+        frappe.throw(_FROZEN_WRITE_MESSAGE, title="Classification frozen")
+
     names = _current_names(boq, sheet_name, excel_row, committed_version, discipline)
     if not names:
         # First-ever verdict on this address: create a current record. _next_version yields 1 for
@@ -149,3 +180,39 @@ def set_human_verdict(
     )
     frappe.db.commit()
     return {"name": name, "human_category_id": human_category_id or ""}
+
+
+def stamp_human_verdicts_bulk(boq, sheet_name, committed_version, discipline, stamps, user=None):
+    """Stamp human_category_id on many rows IN PLACE for one freeze event -- NO commit (the caller
+    owns the single end-commit so the whole freeze is atomic). The freeze-endpoint sibling of
+    set_human_verdict: it does NOT call is_sheet_classification_frozen (the freeze IS the write
+    that sets the flag, so a guard here would deadlock the operation) and it does NOT commit.
+
+    stamps: iterable of {excel_row, human_category_id}. Each row MUST already have an is_current=1
+    BoQ Row Category record -- freeze only ever stamps rows whose EFFECTIVE category is non-blank,
+    which implies a current record exists (get_sheet_categories reads current rows only). A stamp
+    for a row with no current record is SKIPPED (defensive; should not happen). Annotates in place
+    (same category_version) exactly like set_human_verdict's existing-record branch. sheet_name
+    VERBATIM (#152). Returns {stamped, skipped}."""
+    now = frappe.utils.now()
+    who = user or frappe.session.user
+    stamped = 0
+    skipped = 0
+    for s in stamps:
+        excel_row = s["excel_row"]
+        names = _current_names(boq, sheet_name, excel_row, committed_version, discipline)
+        if not names:
+            skipped += 1
+            continue
+        frappe.db.set_value(
+            _ROW_CATEGORY,
+            names[0],
+            {
+                "human_category_id": s.get("human_category_id") or "",
+                "human_verdict_at": now,
+                "human_verdict_by": who,
+            },
+            update_modified=False,
+        )
+        stamped += 1
+    return {"stamped": stamped, "skipped": skipped}

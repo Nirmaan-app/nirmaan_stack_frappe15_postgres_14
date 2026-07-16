@@ -62,20 +62,39 @@ def _read_json(filename: str) -> dict:
         return json.load(fh)
 
 
+# Per-discipline asset files. scoring.json is SHARED (discipline-agnostic knobs); only the
+# category list + rule set are discipline-suffixed. Adding a discipline = one entry here plus
+# the two JSON files (HV-1). An unknown discipline still raises (unchanged contract).
+_DISCIPLINE_ASSETS = {
+    "Electrical": ("categories_electrical.json", "rules_electrical.json"),
+    "HVAC": ("categories_hvac.json", "rules_hvac.json"),
+}
+
+
 @lru_cache(maxsize=None)
 def load_ruleset(discipline: str = "Electrical") -> dict:
     """Load + cache the category/rule/scoring assets for a discipline.
 
     Returns a dict with keys: categories (list), rules (list), scoring (dict),
-    and a few derived lookups. Cached so repeated classify_line() calls do no I/O.
-    Currently only 'Electrical' is shipped; the signature is discipline-aware so
-    other disciplines can drop in <disc>-suffixed asset files later.
+    and a few derived lookups. Cached per discipline so repeated classify_line() calls
+    do no I/O. The category list + rules are discipline-suffixed (see _DISCIPLINE_ASSETS);
+    scoring.json is shared. An unknown discipline raises (unchanged contract).
     """
-    if discipline != "Electrical":
+    assets = _DISCIPLINE_ASSETS.get(discipline)
+    if assets is None:
         raise ValueError(f"no category ruleset shipped for discipline {discipline!r}")
-    categories = _read_json("categories_electrical.json")["categories"]
-    rules = _read_json("rules_electrical.json")["rules"]
+    categories_file, rules_file = assets
+    categories = _read_json(categories_file)["categories"]
+    rules_doc = _read_json(rules_file)
+    rules = rules_doc["rules"]
     scoring = _read_json("scoring.json")
+
+    # D1 proximity decay (rules side): per-discipline config from the rules file's top-level
+    # "decay" key IF present, else the FLAT DEFAULT {"rules_multiplier": 1.0}. No shipped rules
+    # file carries a "decay" block today, so every discipline runs flat (byte-identical).
+    decay = rules_doc.get("decay")
+    if not isinstance(decay, dict):
+        decay = {"rules_multiplier": 1.0}
 
     # Per-category exclusion guards (false-friend suppressors). Two kinds:
     #   token  -- whole-token match (inline `exclude_if` on any rule, and
@@ -99,6 +118,7 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         "categories": categories,
         "rules": rules,
         "scoring": scoring,
+        "decay": decay,
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "name_by_cat": {c["category_id"]: c["name"] for c in categories},
@@ -201,6 +221,72 @@ def _infer_from_ancestors(anc_blob: str, ruleset: dict,
 
 
 # ---------------------------------------------------------------------------
+# D1 proximity decay (rules side) -- helpers. Active ONLY when the effective multiplier m < 1.0;
+# at m >= 1.0 (the flat default for every shipped discipline) none of these run and behaviour is
+# byte-identical to pre-D1.
+# ---------------------------------------------------------------------------
+
+def _rules_multiplier(decay_override: dict | None, ruleset: dict) -> float:
+    """Resolve the effective rules-side proximity multiplier m.
+
+    decay_override (when not None) WINS over the ruleset's per-discipline decay config. A missing
+    key / non-numeric / bool / value <= 0 all resolve to 1.0 (flat). Values >= 1.0 are returned
+    as-is and also mean flat -- the decay path is active only for 0 < m < 1.0. Never raises.
+    """
+    cfg = decay_override if decay_override is not None else ruleset.get("decay")
+    m = cfg.get("rules_multiplier") if isinstance(cfg, dict) else None
+    if isinstance(m, bool) or not isinstance(m, (int, float)) or m <= 0:
+        return 1.0
+    return float(m)
+
+
+def _nearest_decayed_hit(rule: dict, ancestor_texts, ancestor_headers, m: float, use_headers: bool):
+    """Decay-path per-ancestor match for one rule.
+
+    The feed is ROOT-FIRST: index 0 = sheet name (farthest), last element = immediate parent, so
+    distance d = (len - 1) - index (immediate parent d=0, grandparent d=1, ...). Matches the rule
+    against EACH ancestor's text individually (same token semantics; headers_only rules use the
+    parallel ancestor_headers list at the same index) and returns (d, decayed_weight) at the
+    NEAREST matching ancestor -- counted ONCE, no summing across matches -- where decayed_weight =
+    weight * (m ** d). Returns None if no ancestor matches.
+    """
+    texts = ancestor_texts or []
+    headers = ancestor_headers if ancestor_headers is not None else texts
+    match = rule["match"]
+    mode = rule.get("match_mode", "any_token")
+    weight = float(rule["weight"])
+    length = len(texts)
+    for i in range(length - 1, -1, -1):  # nearest ancestor (largest index, d=0) first
+        src = (headers[i] if i < len(headers) else texts[i]) if use_headers else texts[i]
+        if _tokens_present(match, mode, _norm(src)):
+            d = (length - 1) - i
+            return d, round(weight * (m ** d), 6)
+    return None
+
+
+def _infer_from_ancestors_decayed(ancestor_texts, ancestor_headers, ruleset: dict, m: float) -> dict:
+    """Decay-path variant of _infer_from_ancestors (the abstain fallback).
+
+    Same rule set (item_keyword + ancestor), but each rule is matched PER ANCESTOR and contributes
+    ONCE at its nearest matching ancestor's decayed weight (weight * m**d); different rules still
+    sum per category. Exclusion zeroing uses the flattened ancestor blob, exactly like the flat
+    variant. The caller's inheritance_weight / inheritance_cap treatment is unchanged (decay
+    multiplies the raw ancestor score; it does not replace those knobs).
+    """
+    sums: dict[str, float] = {}
+    for r in ruleset["rules"]:
+        stype = r.get("signal_type")
+        if stype not in ("item_keyword", "ancestor"):
+            continue
+        use_headers = stype == "ancestor" and bool(r.get("headers_only"))
+        hit = _nearest_decayed_hit(r, ancestor_texts, ancestor_headers, m, use_headers)
+        if hit is not None:
+            sums[r["category_id"]] = sums.get(r["category_id"], 0.0) + hit[1]
+    anc_blob = _norm(" ".join(ancestor_texts or []))
+    return {c: v for c, v in sums.items() if v > 0 and not _excluded(c, ruleset, anc_blob)}
+
+
+# ---------------------------------------------------------------------------
 # v2.1 tuning2: dimension-count geometry signals (conduit-dia / junction-box W x H x D)
 # ---------------------------------------------------------------------------
 # A bare size leaf under a raceway/conduit section carries no category word; the DIMENSION
@@ -272,6 +358,7 @@ def classify_line(
     *,
     discipline: str = "Electrical",
     ancestor_headers: list[str] | None = None,
+    decay_override: dict | None = None,
 ) -> dict:
     """Classify ONE committed BoQ line into an electrical pricing category.
 
@@ -294,6 +381,11 @@ def classify_line(
         so an incidental keyword in an ancestor NOTE ('the channels shall be earthed') does
         not false-fire a section-header rule. When None, headers_only rules fall back to the
         full ancestor blob (backward compatible for callers that do not pass headers).
+    decay_override : dict | None, keyword-only (D1 proximity decay, rules side)
+        The sweep lever. When None, the ruleset's per-discipline decay config is used (flat today).
+        When provided (e.g. {"rules_multiplier": 0.5}) it WINS, letting an offline sweep vary the
+        multiplier in a pure loop with zero file edits. Effective m >= 1.0 (or absent/malformed/<=0)
+        runs the flat path byte-identical to pre-D1; only 0 < m < 1.0 activates ancestor decay.
 
     Returns
     -------
@@ -323,6 +415,12 @@ def classify_line(
     # Falls back to the full ancestor blob when headers are not supplied (backward compatible).
     anc_headers_blob = _norm(" ".join(ancestor_headers)) if ancestor_headers is not None else anc_blob
 
+    # D1 proximity decay (rules side): effective multiplier m. decay_override (when not None) WINS
+    # over the ruleset's per-discipline decay config. m >= 1.0 (or absent/malformed/<=0) => the FLAT
+    # path runs byte-identical to pre-D1; the decay path is active ONLY for 0 < m < 1.0.
+    m = _rules_multiplier(decay_override, ruleset)
+    decay_active = m < 1.0
+
     # 1-2: gather fired rules per category, summing weights + tracking signal types
     fired: list[dict] = []
     sum_by_cat: dict[str, float] = {}
@@ -331,6 +429,28 @@ def classify_line(
         stype = r.get("signal_type")
         if stype not in ("item_keyword", "ancestor"):
             continue  # exclusion rules are handled in step 4, not scored positively
+        if decay_active and stype == "ancestor":
+            # DECAY PATH (0 < m < 1.0): match EACH ancestor individually; contribute ONCE at the
+            # nearest matching ancestor's decayed weight = weight * m**distance (immediate parent
+            # d=0). Direct (item_keyword) matches are NEVER decayed -- they fall through below.
+            hit = _nearest_decayed_hit(r, ancestor_texts, ancestor_headers, m, bool(r.get("headers_only")))
+            if hit is None:
+                continue
+            d, decayed_w = hit
+            cat = r["category_id"]
+            sum_by_cat[cat] = sum_by_cat.get(cat, 0.0) + decayed_w
+            sigtypes_by_cat.setdefault(cat, set()).add(stype)
+            fired.append({
+                "rule_id": r["rule_id"],
+                "signal_type": stype,
+                "category_id": cat,
+                "weight": float(r["weight"]),
+                "plain": r.get("plain", ""),
+                "ancestor_distance": d,
+                "decayed_weight": decayed_w,
+            })
+            continue
+        # FLAT PATH (m >= 1.0, and every item_keyword rule) -- UNCHANGED from pre-D1.
         if stype == "item_keyword":
             blob = desc_blob
         else:  # ancestor: headers_only rules see the header blob, others the full blob
@@ -366,7 +486,11 @@ def classify_line(
         # FIX 4: fragment inheritance. The line itself ABSTAINED -- before routing
         # to review (blank), see whether its ancestor chain alone resolves to EXACTLY ONE
         # dominant category. If so, inherit it DOWN-WEIGHTED (never HIGH).
-        inh = _infer_from_ancestors(anc_blob, ruleset, anc_headers_blob)
+        inh = (
+            _infer_from_ancestors_decayed(ancestor_texts, ancestor_headers, ruleset, m)
+            if decay_active
+            else _infer_from_ancestors(anc_blob, ruleset, anc_headers_blob)
+        )
         if inh:
             ranked_inh = sorted(inh.items(), key=lambda kv: (-kv[1], kv[0]))
             top_c, top_v = ranked_inh[0]

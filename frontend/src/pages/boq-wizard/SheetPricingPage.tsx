@@ -24,7 +24,18 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { formatDate } from "@/utils/FormatDate";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -175,6 +186,19 @@ interface ClassifyStatusResponse {
 }
 // CL-2: only the Electrical engine is wired in v1 (matches the ClassifySheetDialog gating).
 const CLASSIFY_DISCIPLINE = "Electrical";
+
+// T1 reconnect-gate: the editor's socket self-heal refetches (get_priced_rows + get_sheet_categories)
+// must fire ONLY on a GENUINE reconnect (a connect that followed a disconnect), never on the initial
+// mount connect (the page's normal SWR fetch already ran), and at most once per debounce window even
+// if a flapping dev socket reconnects faster. Pure so it is unit-tested in reconnectGate.test.ts.
+export const RECONNECT_REFETCH_DEBOUNCE_MS = 30_000;
+
+export function shouldRefetchOnConnect(
+  state: { sawDisconnect: boolean; lastRefetchAt: number },
+  now: number,
+): boolean {
+  return state.sawDisconnect && now - state.lastRefetchAt >= RECONNECT_REFETCH_DEBOUNCE_MS;
+}
 
 const SheetPricingPage = () => {
   const { boqId, sheetName } = useParams<{ boqId: string; sheetName: string }>();
@@ -378,6 +402,27 @@ const SheetPricingPage = () => {
   // In-flight guard for the lock toggle (disables it during the POST).
   const [lockToggling, setLockToggling] = useState(false);
 
+  // ── Classification freeze (SEPARATE from the pricing lock) ────────────────────────
+  // Freeze banks a permanent truth snapshot + stamps effective categories into human_category_id
+  // + locks category editing (picker + re-classify), while PRICING stays live. Toggled here; the
+  // editor re-reads classification_frozen from get_priced_rows via mutate() after each POST.
+  const { call: freezeClassificationCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.freeze_classification",
+  );
+  const { call: unfreezeClassificationCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.unfreeze_classification",
+  );
+  const { call: getFreezeSummaryCall } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.classify.get_freeze_summary",
+  );
+  const [freezeToggling, setFreezeToggling] = useState(false);
+  // The pre-freeze confirm dialog (holds the uncategorised counts from get_freeze_summary) and the
+  // unfreeze confirm dialog. null = closed.
+  const [freezeConfirm, setFreezeConfirm] = useState<
+    { uncategorised_preambles: number; uncategorised_line_items: number } | null
+  >(null);
+  const [unfreezeConfirm, setUnfreezeConfirm] = useState(false);
+
   // ── Single-editor concurrency lock -- realtime layer (A2 / ADR-0011) ──────────
   // The transient BoQ Sheet Pricing Lock now propagates LIVE: acquire on FIRST edit-intent
   // (the grid's onDirtyChange), heartbeat ~30s while holding it, release on leave (sendBeacon
@@ -433,6 +478,12 @@ const SheetPricingPage = () => {
   const [showNeedsReview, setShowNeedsReview] = useState(false);
   const classifyRunningRef = useRef(false);
 
+  // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
+  // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
+  // flapping socket is debounced to <=1 refetch pair per RECONNECT_REFETCH_DEBOUNCE_MS.
+  const sawDisconnectRef = useRef(false);
+  const lastReconnectRefetchRef = useRef(0);
+
   // ── CL-3: category verdict picker (page-owned open-state; reset on a tab switch below) ──
   // pickerState holds the target row + the clicked cell element (the picker's virtual anchor);
   // null when closed. onCategoryClick is a STABLE callback the grid calls on a Category-cell click
@@ -440,8 +491,18 @@ const SheetPricingPage = () => {
   const [pickerState, setPickerState] = useState<{ excelRow: number; anchorEl: HTMLElement } | null>(
     null,
   );
+  // Mirrors classification_frozen so the STABLE onCategoryClick can short-circuit while frozen
+  // without becoming a new callback (which would defeat the grid's row memo). Set during render.
+  const classificationFrozenRef = useRef(false);
   const onCategoryClick = useCallback(
-    (excelRow: number, cellEl: HTMLElement) => setPickerState({ excelRow, anchorEl: cellEl }),
+    (excelRow: number, cellEl: HTMLElement) => {
+      // While frozen, the picker never opens -- clicking a Category cell shows a brief message.
+      if (classificationFrozenRef.current) {
+        setSaveError("Classification is frozen — unfreeze to make changes.");
+        return;
+      }
+      setPickerState({ excelRow, anchorEl: cellEl });
+    },
     [],
   );
 
@@ -499,6 +560,32 @@ const SheetPricingPage = () => {
   // only (the grid measures heights at the freeze transition + renders the two-pane split). Gated
   // OFF for grid-only general-specs sheets (they render via SheetDataGrid, out of scope).
   const [frozen, setFrozen] = useState(false);
+
+  // V1 (T2 windowing A/B toggle): render the grid with @tanstack/react-virtual windowing (only the
+  // visible rows + overscan mounted) vs the CLASSIC full-render path. Session-scoped, DEFAULT ON
+  // each open (no persistence). Flipping never remounts / reloads / touches data / drafts / undo /
+  // lock -- only which rows are in the DOM. Classic is the byte-identical fallback (the A/B instrument).
+  const [virtualized, setVirtualized] = useState(true);
+
+  // V2 (overlay close-on-scroll-out): the CategoryVerdictPicker is PAGE-owned and anchored to a
+  // captured grid cell (pickerState.anchorEl). In virtualized mode that cell's row can scroll out of
+  // the mounted window and unmount, leaving the popover dangling against a detached node. Watch the
+  // anchor with an IntersectionObserver (viewport root); when it leaves the viewport OR is removed
+  // from the DOM (both fire !isIntersecting), close the picker. VIRTUALIZED-ONLY -- in classic mode
+  // rows never unmount, so the picker's behaviour there is byte-identical (no observer attached).
+  useEffect(() => {
+    if (!virtualized || !pickerState) return;
+    const anchor = pickerState.anchorEl;
+    if (!anchor || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => !e.isIntersecting)) setPickerState(null);
+      },
+      { threshold: 0 },
+    );
+    io.observe(anchor);
+    return () => io.disconnect();
+  }, [virtualized, pickerState]);
 
   // Hierarchy collapse/expand (per-sheet per-session; reset on a tab switch below). `collapsed`
   // holds the row_index of every collapsed parent. It lives HERE (the page) because it composes
@@ -652,16 +739,14 @@ const SheetPricingPage = () => {
       setClassifyProgress((prev) => reduceProgress(prev, { done: p.done, total: p.total }));
     };
     const onDone = (p: ClassifyDonePayload) => applyClassifyDone(p);
-    const onReconnect = () => {
-      void mutateCategories();
-    };
+    // NOTE (T1): the reconnect self-heal (refetch categories) moved to the consolidated,
+    // reconnect-GATED + debounced effect below -- it no longer fires on every connect (incl. the
+    // initial mount connect). The progress/done handlers here are unchanged.
     socket.on("boq:classify_sheet_progress", onProgress);
     socket.on("boq:classify_sheet_done", onDone);
-    socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:classify_sheet_progress", onProgress);
       socket.off("boq:classify_sheet_done", onDone);
-      socket.off("connect", onReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, boqId, sheetName, applyClassifyDone]);
@@ -759,14 +844,52 @@ const SheetPricingPage = () => {
         void mutate();
       }
     };
-    const onReconnect = () => { void mutate(); };
+    // NOTE (T1): the reconnect self-heal (re-read authoritative lock state) moved to the
+    // consolidated, reconnect-GATED + debounced effect below. The boq:lock_changed handler above
+    // (which still calls mutate() on a takeover/release) is unchanged.
     socket.on("boq:lock_changed", handler);
-    socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:lock_changed", handler);
-      socket.off("connect", onReconnect);
     };
   }, [socket, mutate]);
+
+  // T1 reconnect-gate: ONE consolidated socket self-heal. The dev socket flaps (~11 reconnects in
+  // minutes); the old per-effect `socket.on("connect", () => mutate()/mutateCategories())` fired on
+  // EVERY connect (incl. the initial mount one), each refetch minting new data identities -> a full
+  // non-memoized grid reconcile -> the continuous idle re-render storm seen in the trace. Now: refetch
+  // BOTH (get_priced_rows + get_sheet_categories) only on a GENUINE reconnect (a connect that followed
+  // a disconnect), skipping the initial connect, and debounced to <=1 pair per RECONNECT_REFETCH_
+  // DEBOUNCE_MS. Refs only -> this effect adds NO re-render source. mutate/mutateCategories are stable
+  // SWR mutators. Classify-completion, freeze/unfreeze, and lock_changed mutate() paths are untouched.
+  useEffect(() => {
+    if (!socket) return;
+    const onDisconnect = () => {
+      sawDisconnectRef.current = true;
+    };
+    const onConnect = () => {
+      const now = Date.now();
+      if (
+        !shouldRefetchOnConnect(
+          { sawDisconnect: sawDisconnectRef.current, lastRefetchAt: lastReconnectRefetchRef.current },
+          now,
+        )
+      ) {
+        // Initial connect (no disconnect seen) OR a flap within the debounce window: skip. Leave
+        // sawDisconnectRef true on a debounced skip so a later connect past the window still heals.
+        return;
+      }
+      lastReconnectRefetchRef.current = now;
+      sawDisconnectRef.current = false;
+      void mutate();
+      void mutateCategories();
+    };
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect", onConnect);
+    };
+  }, [socket, mutate, mutateCategories]);
 
   // Heartbeat (A2): while we HOLD the lock, refresh it every ~30s so an active editor is never
   // taken over mid-session (the 120s edit-driven TTL would otherwise lapse without saves). A
@@ -830,34 +953,16 @@ const SheetPricingPage = () => {
     void mutate();
   };
 
-  // ── Full-page spinner while the BOQs doc loads ──────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // ── Not-found state ─────────────────────────────────────────────────────────
-  if (!boq) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
-        <p className="font-medium text-foreground">BoQ not found</p>
-        <p className="text-sm text-muted-foreground">
-          No record found for &ldquo;{boqId}&rdquo;.
-        </p>
-        <Button variant="outline" className="mt-4" onClick={handleBack}>
-          Back to hub
-        </Button>
-      </div>
-    );
-  }
-
-  // ── Missing sheet name in URL (routing guarantees it, but be defensive) ─────
-  if (!sheetName) {
-    return <p className="p-6 text-sm text-destructive">Missing sheet identifier in URL.</p>;
-  }
+  // ── Guard screens (V0/T2) ────────────────────────────────────────────────────
+  // These were THREE early returns (isLoading / !boq / !sheetName). They are now conditional
+  // branches in the SINGLE return at the bottom (byte-identical JSX, same order) so that every
+  // derived-state const + handler below is a LEGAL hook position -- required to memoize them
+  // (useMemo/useCallback) for the React.memo(PricingGrid) shield (hooks-after-early-return is
+  // illegal). Everything from here to the return now also runs during the loading / no-data
+  // states, so it is undefined-safe by construction: rows / columnDescriptors / etc. default to
+  // [] (activeMessage read via ?.), and the `boq` doc is dereferenced ONLY inside the guarded
+  // MainContent branch of the return (never in a derivation above it). sheetName is never member-
+  // accessed (only value / ?? "").
 
   // Slice 3d: the BoQ's committed sheets in workbook order (sheet_order), for the tab
   // strip. Empty while the list loads -> the strip renders nothing (the grid never waits
@@ -880,8 +985,20 @@ const SheetPricingPage = () => {
   // below -- rowFlags/pricedCount/maps -- a smaller separate cost, deliberately out of scope.)
   const rawRows = activeMessage?.rows ?? [];
   const rowsSourceSig = isViewingHistory ? `v:${selectedVersion}` : "current";
-  const priorRowsForMerge = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
-  const rows = mergeRowsPreservingIdentity(priorRowsForMerge, rawRows);
+  // V0/T2: memoize the identity-preserving merge so `rows` keeps a STABLE array reference across
+  // re-renders that do NOT refetch (activeMessage unchanged -> rawRows is the same array -> cached).
+  // Without this, mergeRowsPreservingIdentity returns a fresh .map() array every render (rowMerge.ts),
+  // so the grid's `rows` prop churns and React.memo(PricingGrid) could NEVER bail. Reads the merge
+  // refs inside (intentionally NOT deps -- the identity-merge pattern); recomputes only on a real data
+  // change (rawRows) or a version/source switch (rowsSourceSig).
+  const rows = useMemo(
+    () => {
+      const prior = rowsSourceSigRef.current === rowsSourceSig ? prevRowsRef.current : [];
+      return mergeRowsPreservingIdentity(prior, rawRows);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawRows, rowsSourceSig],
+  );
   prevRowsRef.current = rows;
   rowsSourceSigRef.current = rowsSourceSig;
   const columnDescriptors = activeMessage?.column_descriptors ?? [];
@@ -896,6 +1013,14 @@ const SheetPricingPage = () => {
   // The DELIBERATE per-sheet lock (this slice). A SEPARATE reason from the concurrency verdict:
   // it ORs into `locked` (below) but keeps its own banner. Persisted on BoQ Sheet, cross-user.
   const isLocked = activeMessage?.is_locked ?? false;
+  // The CLASSIFICATION freeze (separate feature). Read beside isLocked but DELIBERATELY NOT ORed
+  // into `locked` -- pricing stays fully editable under a classification freeze. It gates ONLY the
+  // Category picker + the Classify button. A ref keeps onCategoryClick reference-stable (row-memo
+  // anti-defeat rule) while still seeing the current frozen state.
+  const classificationFrozen = activeMessage?.classification_frozen ?? false;
+  const frozenBy = activeMessage?.frozen_by ?? null;
+  const frozenAt = activeMessage?.frozen_at ?? null;
+  classificationFrozenRef.current = classificationFrozen;
   // Loading/error track the ACTIVE source (the history fetch while in history mode).
   const pricedLoading = isViewingHistory ? historyData === undefined : pricedData === undefined;
   const pricedError = isViewingHistory ? historyData === null : pricedData === null;
@@ -914,7 +1039,7 @@ const SheetPricingPage = () => {
   // viewer flips read-only within a socket round-trip -- not on a failed save. Idempotent per
   // version (heldVersionRef). A rejected acquire (someone else holds it fresh) flips us to
   // read-only via the same takeover banner. The save_* endpoints still enforce server-side.
-  const ensureLockAcquired = () => {
+  const ensureLockAcquired = useCallback(() => {
     if (locksDisabledClient) return;
     if (locked) return; // read-only (history / deliberate lock / already taken over)
     if (!boqId || !sheetName || commitVersion === null) return;
@@ -928,14 +1053,18 @@ const SheetPricingPage = () => {
       if (isTakeoverError(msg)) setTakenOver(true); // someone else holds it fresh -> read-only
       // else: transient error -> a retry on the next edit will re-attempt.
     });
-  };
+    // heldVersionRef is a ref; setTakenOver is a stable setter -- both intentionally omitted.
+  }, [locksDisabledClient, locked, boqId, sheetName, commitVersion, acquirePricingLock]);
 
   // The grid's dirty signal doubles as first-edit-intent: keep the existing hasUnsaved wiring
   // AND acquire the lock the moment the sheet becomes dirty.
-  const handleDirtyChange = (dirty: boolean) => {
-    setHasUnsaved(dirty);
-    if (dirty) ensureLockAcquired();
-  };
+  const handleDirtyChange = useCallback(
+    (dirty: boolean) => {
+      setHasUnsaved(dirty);
+      if (dirty) ensureLockAcquired();
+    },
+    [ensureLockAcquired],
+  );
 
   // The deliberate lock toggle: POST lock_sheet / unlock_sheet for the CURRENT committed version,
   // then mutate() so the editor re-reads is_locked (persisted + cross-user). sheet_name VERBATIM
@@ -951,6 +1080,54 @@ const SheetPricingPage = () => {
       setSaveError(getFrappeError(e) || "Could not change the sheet lock. Please try again.");
     } finally {
       setLockToggling(false);
+    }
+  };
+
+  // Classification freeze toggle. Freeze first reads get_freeze_summary (so the confirm dialog can
+  // warn about uncategorised rows), then the confirm dialog POSTs freeze_classification. Unfreeze
+  // opens its own confirm dialog. Both mutate() so the editor re-reads classification_frozen.
+  // sheet_name VERBATIM (#152). Disabled while a POST is in flight.
+  const handleFreezeClick = async () => {
+    if (commitVersion === null) return;
+    setSaveError(null);
+    setFreezeToggling(true);
+    try {
+      const res = await getFreezeSummaryCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      const m = res?.message ?? {};
+      setFreezeConfirm({
+        uncategorised_preambles: m.uncategorised_preambles ?? 0,
+        uncategorised_line_items: m.uncategorised_line_items ?? 0,
+      });
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not read the freeze summary. Please try again.");
+    } finally {
+      setFreezeToggling(false);
+    }
+  };
+
+  const doFreeze = async () => {
+    setFreezeConfirm(null);
+    setFreezeToggling(true);
+    try {
+      await freezeClassificationCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not freeze the classification. Please try again.");
+    } finally {
+      setFreezeToggling(false);
+    }
+  };
+
+  const doUnfreeze = async () => {
+    setUnfreezeConfirm(false);
+    setFreezeToggling(true);
+    try {
+      await unfreezeClassificationCall({ boq_name: boqId, sheet_name: decodedSheetName });
+      void mutate();
+    } catch (e) {
+      setSaveError(getFrappeError(e) || "Could not unfreeze the classification. Please try again.");
+    } finally {
+      setFreezeToggling(false);
     }
   };
 
@@ -997,8 +1174,10 @@ const SheetPricingPage = () => {
         human_category_id: id,
         discipline: CLASSIFY_DISCIPLINE,
       });
-      await mutateCategories();
-      dropOverride();
+      // P1 perf: the optimistic override is AUTHORITATIVE for the picked cell -- do NOT refetch the
+      // whole sheet's categories here (mutateCategories forced a second full-grid pass + a 188 KB
+      // round-trip). The override persists for the session; the write lands in the DB and re-derives
+      // authoritatively on the next sheet load / classify run. On FAILURE we revert (below).
     } catch (e) {
       dropOverride();
       setSaveError(
@@ -1011,7 +1190,7 @@ const SheetPricingPage = () => {
   // boq / sheet / committed_version + the rate, POSTs save_cell_price, then mutate()-refetches
   // so the priced_* markers re-derive (no client-side marker logic). On throw it surfaces the
   // error inline AND re-throws so the grid keeps the optimistic draft (the user's input).
-  const handleSaveRate = async (cell: RateCellSaveArgs, rate: number) => {
+  const handleSaveRate = useCallback(async (cell: RateCellSaveArgs, rate: number) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to price.");
       throw new Error("no committed version");
@@ -1047,12 +1226,12 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, override, saveCellPrice, mutate]);
 
   // Slice 4a: save one row's remark (save_row_remark) -- a SEPARATE write path from rates,
   // mirroring handleSaveRate (in-flight count, takeover detection, mutate refresh). Blank
   // remark clears (backend). The grid renders read-only when this is withheld (locked).
-  const handleSaveRemark = async (args: RemarkSaveArgs) => {
+  const handleSaveRemark = useCallback(async (args: RemarkSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1078,11 +1257,11 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveRowRemark, mutate]);
 
   // Slice 4a: save N color cells (a single pick = 1, an apply-to-row = N) then ONE mutate.
   // The grid builds the cell list; the page owns the POSTs + the refetch. Blank color clears.
-  const handleSaveColor = async (argsList: ColorSaveArgs[]) => {
+  const handleSaveColor = useCallback(async (argsList: ColorSaveArgs[]) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1112,7 +1291,7 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveCellColor, mutate]);
 
   // Slice 4b-ACKNOWLEDGE: dismiss / un-dismiss one review-strip entry (save_cell_dismissal)
   // then ONE mutate so the dismissals list refetches + the strip filter re-derives. Mirrors
@@ -1151,7 +1330,7 @@ const SheetPricingPage = () => {
   // (save_cell_reconciliation_choice) then ONE mutate so reconciliation_choices refetches + the
   // grid cue, the strip, and the Summary totals re-derive. Mirrors handleSaveDismiss (in-flight,
   // takeover, mutate). `choice` null clears (revert to unset -> document default, D1).
-  const handleSaveReconChoice = async (args: ReconChoiceSaveArgs) => {
+  const handleSaveReconChoice = useCallback(async (args: ReconChoiceSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to annotate.");
       throw new Error("no committed version");
@@ -1178,13 +1357,13 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveCellReconChoice, mutate]);
 
   // Formula Builder F3: save one amount-column formula (save_amount_formula) then mutate so
   // column_formulas refetches + the header label updates. Mirrors handleSaveColor (in-flight,
   // takeover, mutate). The tree is sent as a JSON string; a null formula -> "" (the F1 clear
   // path). Withheld when locked (the grid then renders the header label read-only).
-  const handleSaveFormula = async (args: AmountFormulaSaveArgs) => {
+  const handleSaveFormula = useCallback(async (args: AmountFormulaSaveArgs) => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to add a formula to.");
       throw new Error("no committed version");
@@ -1213,7 +1392,7 @@ const SheetPricingPage = () => {
     } finally {
       setInFlight((n) => n - 1);
     }
-  };
+  }, [commitVersion, boqId, sheetName, saveAmountFormula, mutate]);
 
   // Slice A (clipboard): the BATCH write path for a paste / cut / fill-down gesture. Fires each
   // write through the SAME save_cell_price / save_row_remark endpoints as the single-cell saves but
@@ -1223,7 +1402,7 @@ const SheetPricingPage = () => {
   // and STILL mutate()s so the grid reflects what DID land (no fake client-side atomicity). Each
   // write carries its resolved {cell/args, value} -- the single funnel a later Slice-B undo wrapper
   // can tap. Does NOT reshape handleSaveRate (the inline single-cell path stays byte-for-byte). */
-  const handleBatchWrite = async (writes: BatchWrite[]): Promise<BatchOutcome> => {
+  const handleBatchWrite = useCallback(async (writes: BatchWrite[]): Promise<BatchOutcome> => {
     if (commitVersion === null) {
       setSaveError("This sheet has no committed version to write to.");
       return { written: 0, failed: writes.length };
@@ -1278,7 +1457,7 @@ const SheetPricingPage = () => {
       setInFlight((n) => n - 1);
     }
     return { written, failed };
-  };
+  }, [commitVersion, boqId, sheetName, override, saveCellPrice, saveRowRemark, mutate]);
 
   // ── Slice 4b-A: the computed review-flag layer (Cluster A) ──────────────────────
   // Everything routes through the ONE shared priceability helper -- the in-grid markers,
@@ -1286,10 +1465,13 @@ const SheetPricingPage = () => {
   // new fetch). Plain consts (not useMemo) because they sit AFTER the early-return guards
   // (hooks-after-return is illegal); the page re-renders infrequently (saves / toggles),
   // never per keystroke (rate drafts live in the grid), so the recompute is cheap.
-  const rowFlags = new Map<number, RowReviewFlags>();
-  for (const r of rows) {
-    rowFlags.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
-  }
+  const rowFlags = useMemo(() => {
+    const m = new Map<number, RowReviewFlags>();
+    for (const r of rows) {
+      m.set(r.row_index, computeRowFlags(r, columnDescriptors, columnFormulas));
+    }
+    return m;
+  }, [rows, columnDescriptors, columnFormulas]);
   // MANDATORY amount-formula gate (Phase 5): per-SHEET completeness -- every amount column must
   // have a declared formula before ANY rate is editable. Plain derive from the data already in
   // hand (columnDescriptors + columnFormulas -- no new fetch). TRUE for a sheet with zero amount
@@ -1313,9 +1495,16 @@ const SheetPricingPage = () => {
   // so visibility/descendant math is filter-independent -- the canonical rule). Plain consts (not
   // useMemo) because they sit AFTER the early-return guards, matching the rowFlags pattern. Refs
   // are synced so the toggle/reveal callbacks (declared in the hook region) read current data.
-  const byRowIndex = new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r]));
+  // V0/T2: byRowIndex is memoized (it feeds the displayRows filter/collapse path -- keeping it
+  // stable lets displayRows stay referentially stable in the filtered/collapsed view too, which V1
+  // windowing leans on). byExcelRow only feeds a ref (byExcelRowRef, read by revealRow), so its
+  // identity is irrelevant -- left a plain const. childrenByParent is a grid prop -> memoized.
+  const byRowIndex = useMemo(
+    () => new Map<number, CollapseRow>(rows.map((r) => [r.row_index, r])),
+    [rows],
+  );
   const byExcelRow = new Map<number, CollapseRow>(rows.map((r) => [r.source_row_number, r]));
-  const childrenByParent = buildChildrenByParent(rows);
+  const childrenByParent = useMemo(() => buildChildrenByParent(rows), [rows]);
   collapsedRef.current = collapsed;
   byRowIndexRef.current = byRowIndex;
   byExcelRowRef.current = byExcelRow;
@@ -1336,14 +1525,35 @@ const SheetPricingPage = () => {
   // feed all read the UNFILTERED `rows`, so neither hiding a row-type NOR collapsing a subtree
   // moves any total or the N-of-M priceable count. The `=== rows` fast path (stable reference ->
   // the grid's byIdx/depths memos hold) is preserved when nothing is filtered or collapsed.
-  const displayRows =
-    !anyViewFilter && !collapseActive
-      ? rows
-      : rows.filter(
-          (r) =>
-            passesViewFilter(r) &&
-            (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
-        );
+  // V0/T2: memoized so the grid's `rows` prop stays referentially stable across re-renders that do
+  // not change the row set / filters / collapse. Fast path returns the (stable) `rows` when nothing
+  // is filtered/collapsed. `passesViewFilter` is a per-render closure over the LISTED deps, so it is
+  // referenced inside but deliberately not a dep (the underlying values are the real deps).
+  const displayRows = useMemo(
+    () =>
+      !anyViewFilter && !collapseActive
+        ? rows
+        : rows.filter(
+            (r) =>
+              passesViewFilter(r) &&
+              (!collapseActive || !isHiddenByCollapse(r, collapsed, byRowIndex)),
+          ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      rows,
+      anyViewFilter,
+      collapseActive,
+      showOnlyUnpriced,
+      showNeedsReview,
+      showSpacers,
+      showNotes,
+      showSubtotals,
+      categoriesByExcelRow,
+      columnDescriptors,
+      collapsed,
+      byRowIndex,
+    ],
+  );
 
   // Toolbar Part 1 -- description search. Hits are the Excel row numbers of matching rows. R3:
   // search PIERCES collapse -- hits are computed over the view-filtered set IGNORING collapse, so
@@ -1419,7 +1629,26 @@ const SheetPricingPage = () => {
     hasError: saveError !== null,
   });
 
-  return (
+  // V0/T2: the three former early-return guard screens, now branches of the SINGLE return (order +
+  // JSX byte-identical to the originals). MainContent (the else branch) only evaluates when all
+  // guards pass, so `boq.boq_name` etc. inside it are safe.
+  return isLoading ? (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  ) : !boq ? (
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-4">
+      <p className="font-medium text-foreground">BoQ not found</p>
+      <p className="text-sm text-muted-foreground">
+        No record found for &ldquo;{boqId}&rdquo;.
+      </p>
+      <Button variant="outline" className="mt-4" onClick={handleBack}>
+        Back to hub
+      </Button>
+    </div>
+  ) : !sheetName ? (
+    <p className="p-6 text-sm text-destructive">Missing sheet identifier in URL.</p>
+  ) : (
     <div
       // Slice 4c: ONE JSX tree -- only THIS wrapper's className flips between embedded and the
       // fixed inset-0 full-viewport overlay (covers the app shell, like the house Dialog/Sheet
@@ -1673,6 +1902,25 @@ const SheetPricingPage = () => {
             {frozen ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
             {frozen ? "Unfreeze" : "Freeze columns"}
           </Button>
+          {/* V1 A/B toggle (windowed vs classic render). Small + unobtrusive (ghost, muted); session-
+              scoped, default ON. Flipping never remounts / touches data / drafts / lock. Classic is
+              the byte-identical fallback. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="gap-1.5 text-muted-foreground"
+            aria-pressed={virtualized}
+            onClick={() => setVirtualized((v) => !v)}
+            disabled={pricedLoading || pricedError || rows.length === 0}
+            title={
+              virtualized
+                ? "Windowed rendering is ON (faster on big sheets). Click to use the classic full render."
+                : "Classic full render. Click to turn on windowed (faster) rendering."
+            }
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            {virtualized ? "Fast render: on" : "Fast render: off"}
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -1894,9 +2142,13 @@ const SheetPricingPage = () => {
             size="sm"
             variant="outline"
             className="gap-1.5"
-            disabled={pricedLoading || pricedError || classifyRunning}
+            disabled={pricedLoading || pricedError || classifyRunning || classificationFrozen}
             onClick={() => setClassifyOpen(true)}
-            title="Run AI category classification over this sheet."
+            title={
+              classificationFrozen
+                ? "Unfreeze to re-classify."
+                : "Run AI category classification over this sheet."
+            }
           >
             {classifyRunning ? (
               <>
@@ -1910,6 +2162,39 @@ const SheetPricingPage = () => {
               </>
             )}
           </Button>
+
+          {/* ── Freeze / Unfreeze classification. Banks a permanent truth snapshot + stamps effective
+              categories into human_category_id + locks category editing (picker + re-classify), while
+              PRICING stays live. Reads classification_frozen off get_priced_rows (NOT the pricing
+              `locked` gate). Disabled while loading / classifying / uncommitted / toggling. ── */}
+          <Button
+            size="sm"
+            variant={classificationFrozen ? "default" : "outline"}
+            className="gap-1.5"
+            disabled={
+              pricedLoading || pricedError || classifyRunning || commitVersion === null || freezeToggling
+            }
+            onClick={classificationFrozen ? () => setUnfreezeConfirm(true) : handleFreezeClick}
+            title={
+              classificationFrozen
+                ? "Classification is frozen. Click to unfreeze and edit categories."
+                : "Freeze categories: bank a permanent snapshot and lock category editing."
+            }
+          >
+            {freezeToggling ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Snowflake className="h-4 w-4" />
+            )}
+            {classificationFrozen ? "Unfreeze Classification" : "Freeze Classification"}
+          </Button>
+          {classificationFrozen && (
+            <span className="text-xs text-muted-foreground">
+              Frozen
+              {frozenAt ? ` · ${formatDate(frozenAt)}` : ""}
+              {frozenBy ? ` · ${frozenBy}` : ""}
+            </span>
+          )}
 
           {/* ── CL-2: "show only needs-review" view filter (rows whose category verdict is an
               unresolved Needs-review). VIEW-ONLY, mirrors the Show-unpriced toggle. ── */}
@@ -2205,6 +2490,57 @@ const SheetPricingPage = () => {
         onSelect={handleVerdictSelect}
         onClose={() => setPickerState(null)}
       />
+
+      {/* Freeze confirm -- warns when eligible rows have no category (they are skipped from the
+          snapshot, not blocked). Plain confirm when everything is categorised. */}
+      <AlertDialog open={!!freezeConfirm} onOpenChange={(o) => !o && setFreezeConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Freeze classification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {freezeConfirm &&
+              (freezeConfirm.uncategorised_preambles > 0 ||
+                freezeConfirm.uncategorised_line_items > 0) ? (
+                <>
+                  {freezeConfirm.uncategorised_preambles} preamble
+                  {freezeConfirm.uncategorised_preambles === 1 ? "" : "s"} and{" "}
+                  {freezeConfirm.uncategorised_line_items} line item
+                  {freezeConfirm.uncategorised_line_items === 1 ? "" : "s"} don&apos;t have a
+                  category. Freeze anyway?
+                </>
+              ) : (
+                <>
+                  This banks a permanent snapshot of the current categories and locks category
+                  editing. Pricing stays editable. Freeze?
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doFreeze}>Freeze</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unfreeze confirm -- verbatim owner copy. */}
+      <AlertDialog open={unfreezeConfirm} onOpenChange={setUnfreezeConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unfreeze classification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Unfreezing unlocks category editing on this sheet. The frozen snapshot stays banked
+              permanently. If you re-classify, current human verdicts will not carry forward. Once
+              your edits are done, freeze the classification again to bank the updated truth.
+              Unfreeze?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doUnfreeze}>Unfreeze</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Editor note ───────────────────────────────────────────────────────
           Muted-strip convention (mirrors the review screen). For a grid-only
@@ -2528,6 +2864,7 @@ const SheetPricingPage = () => {
             // per-sheet toggle; the grid measures + splits. Gated off for grid-only (this branch
             // is the non-grid-only PricingGrid; SheetDataGrid never receives it).
             frozen={frozen}
+            virtualized={virtualized}
           />
         )}
         </div>

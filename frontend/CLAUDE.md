@@ -266,6 +266,10 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   makes a new ref → all rows re-render → memo silently defeated); each row gets only its own slice via
   `groupDraftsByRow` (ref-reused). Per-sheet/grid-level props (formula map, recon map, `expanded`, `hiddenCols`,
   search-hit booleans) must flip identically for all rows; never add an inline-arrow callback prop to a row.
+  **Per-row-collection rule (P1):** the SAME rule applies to any per-row collection (categories, and future
+  overlays) — flow it to a row as its OWN per-row entry compared BY VALUE (`category` = `map.get(source_row_number)`,
+  passed in `renderRow`), NEVER the whole Map/collection compared by identity in the row comparator (a single
+  edit rebuilds the collection → all rows re-render). The whole Map may live at the GRID level (keydown, size gates).
 - **Read-only gating = PRESENCE of the save callback** (`onSaveRate` / `onSaveRemark` / `onSaveColor` / ...). The
   page withholds them when locked / taken-over / grid-only. Do NOT add a second per-cell `editable` signal.
 - **Rate-edit gate is ASYMMETRIC by node_type (owner-locked):** editable iff `override || node_type === "Line Item"
@@ -332,6 +336,81 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
   needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
   routing literal are unchanged).
+- **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
+  rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
+  DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
+  the Category picker + the Classify button. The Freeze/Unfreeze button sits in the bottom ribbon after Classify; freeze-click
+  reads `get_freeze_summary` then confirms (warns on uncategorised eligible rows), unfreeze uses the verbatim owner-copy
+  `AlertDialog`; both `mutate()` to re-read the flag (the `lock_sheet`/`handleToggleLock` pattern). While frozen,
+  `onCategoryClick` short-circuits with a brief inline message via a `classificationFrozenRef` — the callback stays
+  REFERENCE-STABLE (row-memo anti-defeat rule); NEVER thread a per-row `frozen` prop through `pricingRowPropsAreEqual`.
+- **Socket reconnect self-heal must be reconnect-GATED + debounced (T1, owner-verified):** a `socket.on("connect", ...)`
+  handler that refetches (`mutate()`/`mutateCategories()`) MUST NOT fire on every connect — the initial mount connect
+  double-fetches (the SWR mount fetch already ran) and a flapping dev socket then refetches on every reconnect, and
+  because `PricingGrid` is `forwardRef` WITHOUT `React.memo`, each page re-render is a full-grid reconcile → a continuous
+  idle re-render storm (measured: ~92% main-thread saturation for a whole session). The rule: refetch ONLY on a GENUINE
+  reconnect (a `connect` that followed a `disconnect`, tracked via a REF — never state, or the tick itself re-renders)
+  and debounce to ≤1 refetch per ~30s (`shouldRefetchOnConnect` pure helper + `RECONNECT_REFETCH_DEBOUNCE_MS`). frappe-react-sdk's
+  SWR `revalidateOnReconnect` binds the browser `online` event, NOT the app socket, so socket flapping does NOT hit SWR —
+  do not add per-hook `revalidateOnReconnect:false` for socket reasons. (Memoizing `PricingGrid` is the T2 source-independent
+  kill — SHIPPED, see below.)
+- **`PricingGrid` is `React.memo`'d (V0/T2) — EVERY prop it receives MUST stay identity-stable, or the shield silently dies.**
+  A page-level re-render with unchanged grid inputs now bails at the memo instead of re-executing the whole grid body +
+  `pricingRowPropsAreEqual` across all rows. This holds ONLY because `SheetPricingPage` keeps every grid prop referentially
+  stable: the 7 grid handlers (`handleSaveRate`/`Remark`/`Color`/`ReconChoice`/`Formula`, `handleBatchWrite`, `handleDirtyChange`
+  + the transitive `ensureLockAcquired`) are `useCallback`, and the derived collections (`rows`, `rowFlags`, `byRowIndex`,
+  `childrenByParent`, `displayRows`) are `useMemo`. **`rows` is the linchpin:** `mergeRowsPreservingIdentity` returns a fresh
+  array every render, so `rows` MUST be `useMemo`'d (keyed on `rawRows`) or the grid's `rows` prop churns and the memo never
+  bails. Any NEW grid prop must be `useCallback`/`useMemo`/stable-per-fetch; a new plain-const handler or `new Map()`/`?? []`
+  passed to the grid re-defeats the memo with no error. **The three loading/`!boq`/`!sheetName` guards render as branches of the
+  SINGLE `return` (NOT early returns)** so all derived state stays hook-legal — do not reintroduce an early return above the
+  derived-state region (it makes the memoization illegal). Verify with React DevTools Profiler ("Why did this render?").
+- **Virtualized windowing (V1) — ONE virtualizer drives BOTH panes; classic path retained behind the A/B toggle.** The grid
+  windows rows via `@tanstack/react-virtual` when the page-owned `virtualized` prop is true (default ON, session-scoped); false =
+  the CLASSIC full render, **byte-identical to pre-V1** (the 143 `PricingGrid` tests certify it). ONE `useVirtualizer` instance is
+  the row-window authority for both panes: `getScrollElement` = `scrollPaneRef` (two-pane) / `containerRef` (single); both
+  `<tbody>`s render the SAME `getVirtualItems()` slice + identical `deriveSpacers` spacer `<tr>`s (never two synced virtualizers).
+  The render decision is `twoPane = selectRenderPath(...) === "twoPane"` (classic gates on `split`, virtualized on `frozen`); only
+  the `<tbody>` content changes (via `renderTbody`) — the pane/table JSX is shared. **Pane alignment = MAX-of-both-panes height
+  (V1-FIX): NEVER assume which pane is taller.** The freeze layout puts the wrapping **Description** in the FROZEN pane (through
+  the 5 anchors), so measuring only the scrolling pane truncates + mis-aligns. The custom `measureElement` reads BOTH panes' rows
+  by `data-index` and feeds `ceil(max(paneNaturalHeight(frozen), paneNaturalHeight(scroll)))` to the ONE size cache; both panes get
+  that size as the `<tr>` height (a table MIN) → the taller reaches content, the shorter pads → aligned, no truncation. **`paneNaturalHeight`
+  MUST measure the `<tr>`'s TRUE box (`Math.ceil(tr.getBoundingClientRect().height)`, row border INCLUDED) — this is what makes both
+  panes match CLASSIC, which applies `ceil(single-table box)` to both (V1-FIX-2).** The `<tr>` box is SELF-CORRECTING (`max(content,
+  applied)`, a fixpoint) so it does NOT run away — do NOT revert to the old content-wrapper sum (it omitted the ~1px border → ~1px/row
+  drift at every DPR) and do NOT add the border to a content-wrapper measure (a stretching scrolling cell feeds it back = runaway).
+  `clipDescription` is OFF for auto virtualized rows, ON for classic + manual-drag rows. TanStack observes only the LAST element per
+  index (verified) → a frozen-only reflow (column-resize Description re-wrap; scrolling `<tr>` unchanged → ResizeObserver silent) is
+  covered by a **two-phase drag-END reset** (`remeasureVirtualRowsAfterResize`: `measure()` to clear sticky sizes, then a
+  `resizeSettleTick`-keyed `useLayoutEffect` re-invokes `measureElement` on the mounted rows POST-commit — never streaming, no thrash;
+  V1-FIX-2b). `measure()` alone is NOT enough (it clears but never re-reads the frozen twin; a shrunk row's min-height stays sticky).
+  Residual drift is <=0.31px at fractional display DPR / browser zoom (two separate `border-collapse` tables) — 0px at 100% zoom.
+  The freeze-measure-all `useLayoutEffect` is SKIPPED when `virtualized`. **Any new grid prop must stay identity-stable (the V0
+  shield);** `measureRef` is stable per virtualizer instance and is compared in `pricingRowPropsAreEqual`. Pure window helpers
+  live in `pricingVirtual.ts` (unit-tested). Runtime behavior is an A/B instrument — confirm the virtualized path live before
+  relying on it; classic is the guaranteed fallback.
+- **Off-window nav/jump = scrollToIndex-then-focus (V2), always `align:"center"`.** `focusCell` / `jumpToRow` reach the
+  virtualizer via reference-stable refs (`virtualizedRef` + `scrollRowIntoWindowRef`, assigned after `useVirtualizer`) so
+  they stay memo-safe; both branch on the pure `resolveJumpAction(isMounted, virtualized)` and, for a VIRTUALIZED off-window
+  target, `scrollToIndex(idx,{align:"center"})` then focus after a 50ms mount-defer. **NEVER `align:"auto"`** — with dynamic
+  row heights a near target's ESTIMATED offset reads as already-visible, so `"auto"` no-ops (arrow-nav stalls at the edge).
+  Search-jump to any row works; **arrow-nav across the window edge is focus-safe (never escapes to `document.body`) but does
+  NOT auto-scroll past the edge** — this virtualizer only re-windows on real wheel events, not programmatic scrolls (a V1
+  trait affecting the mounted-path `scrollIntoView` too), so the near-target `scrollToIndex` can't advance it; do not
+  re-attempt without reworking the virtualizer's scroll observation.
+- **Per-row overlay open-state is keyed by the DURABLE excel row (`source_row_number`), NEVER the window array index (V2).**
+  Under virtualized row recycling a collapse/filter reshuffle makes array index N map to a different row, so an index key
+  mis-targets. The remark popover uses grid-level `openRemarkExcelRow`; the row prop `openRemark` stays a by-value boolean
+  (memo untouched).
+- **An in-row Radix popover in a VIRTUALIZED grid MUST close on VISIBILITY loss, NOT on unmount (V2-FIX).** The overscan
+  zone keeps a row MOUNTED while scrolled off-screen, so a mounted-set / unmount-only close leaves the open `PopoverContent`
+  collision-pinned into the viewport as a detached "ghost". Every in-row popover (RemarkCell, ColorPicker, ReconcileBadge)
+  closes via the shared `useCloseWhenScrolledOut(triggerRef, open, onClose)` hook -- an `IntersectionObserver` (viewport
+  root, threshold 0) on the trigger, gated on `virtualized` through `VirtualizedContext` (a context, NOT a row prop, so the
+  memo shield holds; classic stays byte-identical). Same shape as the page-owned CategoryVerdictPicker's IO close. The
+  grid-level `shouldCloseOverlay` mounted-set effect stays only as the remark BACKSTOP. Closing discards any unsaved draft
+  (owner-accepted). EXEMPT: a popover in the STICKY `<th>` header (AmountFormulaBuilder) never scrolls off -> no observer.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
 

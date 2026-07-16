@@ -2,7 +2,7 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
-import { Radio } from "antd";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { v4 as uuidv4 } from "uuid";
@@ -153,13 +153,10 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
   return (
     <>
       {finalOptions && (
-        <Radio.Group
+        <SegmentedControl
           options={finalOptions}
-          defaultValue="All"
-          optionType="button"
-          buttonStyle="solid"
           value={activeTab}
-          onChange={(e) => setProjectSpendsTab(e.target.value)}
+          onValueChange={setProjectSpendsTab}
         />
       )}
 

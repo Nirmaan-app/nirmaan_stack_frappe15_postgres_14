@@ -2,10 +2,11 @@
 
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import { ColumnDef, Row } from "@tanstack/react-table";
-import { useFrappeDeleteDoc, useFrappeGetDocCount, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
+import { useFrappeDeleteDoc, useFrappeGetDocList, useFrappeUpdateDoc } from "frappe-react-sdk";
 import { useToast } from "@/components/ui/use-toast";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
+import { useCounts } from "@/hooks/useCounts";
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import {
   useServerDataTable,
@@ -242,6 +243,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         variant: "success",
       });
       refetch();
+      mutateCounts();
     } catch (error: any) {
       toast({
         title: "Error",
@@ -266,9 +268,7 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
         variant: "success",
       });
       refetch();
-      mutateRequested();
-      mutateApproved();
-      mutatePaid();
+      mutateCounts();
     } catch (error: any) {
       toast({
         title: "Error",
@@ -326,35 +326,29 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
   }, [projectId]);
 
   // --- Per-status counts for the tab badges (project-scoped) ---
-  const { data: requestedCount, mutate: mutateRequested } = useFrappeGetDocCount(
-    DOCTYPE,
-    projectId
-      ? [["projects", "=", projectId], ["status", "=", "Requested"]]
-      : [["status", "=", "Requested"]]
+  // ONE batch round-trip (group-by status + an "all") via useCounts. Project-scoped
+  // when a projectId is set (same `projects` link filter), else global — identical
+  // doctype/filters/scope to the per-status useFrappeGetDocCount calls it replaces.
+  const scopeFilter = projectId ? [["projects", "=", projectId]] : undefined;
+  const { data: countsData, mutate: mutateCounts } = useCounts(
+    [
+      { key: "byStatus", doctype: DOCTYPE, filters: scopeFilter, group_field: "status" },
+      { key: "all", doctype: DOCTYPE, filters: scopeFilter },
+    ],
+    `pe_status_counts_${projectId || "all"}`
   );
-  const { data: approvedCount, mutate: mutateApproved } = useFrappeGetDocCount(
-    DOCTYPE,
-    projectId
-      ? [["projects", "=", projectId], ["status", "=", "Approved"]]
-      : [["status", "=", "Approved"]]
-  );
-  const { data: paidCount, mutate: mutatePaid } = useFrappeGetDocCount(
-    DOCTYPE,
-    projectId
-      ? [["projects", "=", projectId], ["status", "=", "Paid"]]
-      : [["status", "=", "Paid"]]
-  );
-  const { data: allCount } = useFrappeGetDocCount(
-    DOCTYPE,
-    projectId ? [["projects", "=", projectId]] : undefined
-  );
+  const peByStatus = (countsData?.message?.byStatus ?? {}) as Record<string, number>;
+  const requestedCount = peByStatus["Requested"] || 0;
+  const approvedCount = peByStatus["Approved"] || 0;
+  const paidCount = peByStatus["Paid"] || 0;
+  const allCount = (countsData?.message?.all as number) ?? 0;
 
   const statusTabs = useMemo(
     () => [
-      { label: "Requested", value: "Requested", count: requestedCount ?? 0 },
-      { label: "Approved", value: "Approved", count: approvedCount ?? 0 },
-      { label: "Paid", value: "Paid", count: paidCount ?? 0 },
-      { label: "All", value: "All", count: allCount ?? 0 },
+      { label: "Requested", value: "Requested", count: requestedCount },
+      { label: "Approved", value: "Approved", count: approvedCount },
+      { label: "Paid", value: "Paid", count: paidCount },
+      { label: "All", value: "All", count: allCount },
     ],
     [requestedCount, approvedCount, paidCount, allCount]
   );
@@ -485,16 +479,20 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
           />
         }
       />
-      <NewProjectExpenseDialog projectId={projectId} onSuccess={refetch} />
+      <NewProjectExpenseDialog
+        projectId={projectId}
+        onSuccess={() => {
+          refetch();
+          mutateCounts();
+        }}
+      />
       {expenseToEdit && (
         <EditProjectExpenseDialog
           expenseToEdit={expenseToEdit}
           markAsPaid={markPaidMode}
           onSuccess={() => {
             refetch();
-            mutateRequested();
-            mutateApproved();
-            mutatePaid();
+            mutateCounts();
             setEditProjectExpenseDialog(false);
           }}
         />
