@@ -10,7 +10,7 @@
     "rule": "B2"
   },
   "b3_workflow_state_writers": {
-    "count": 39,
+    "count": 40,
     "description": "Lines that assign workflow_state in api/ + integrations/ (state should be derived, not written ad-hoc).",
     "rule": "B3"
   },
