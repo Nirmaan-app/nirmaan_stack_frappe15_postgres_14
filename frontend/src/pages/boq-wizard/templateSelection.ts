@@ -31,15 +31,33 @@ export function isRowExcluded(row: ReviewRow): boolean {
   return row.is_excluded === 1;
 }
 
-/** Advisory count: SELECTED (included) line items that carry no quantity. Non-blocking --
- *  surfaced as a soft "N selected line items have no quantity" note. "No quantity" = a
- *  falsy qty_total (null / 0 / undefined). */
+/** A line item's quantity is INVALID (a "gap") iff it is missing/zero (falsy qty_total ->
+ *  all areas empty for multi-area, since qty_total = sum(areas)), a NEGATIVE total, or has
+ *  ANY negative per-area value. Mirrors the backend `_template_line_item_qty_gap` finalize
+ *  backstop -- the save path blocks negative entry; this is the belt-and-suspenders check
+ *  the Finalize gate reads. FE<->BE parity target (ADR-0010 F1). */
+export function isLineItemQtyGap(row: ReviewRow): boolean {
+  const qt = row.qty_total;
+  if (!qt) return true; // null / 0 / undefined -> gap (all areas empty)
+  if (qt < 0) return true; // negative total -> gap
+  const qba = row.qty_by_area;
+  if (qba) {
+    for (const v of Object.values(qba)) {
+      if (typeof v === "number" && v < 0) return true; // any negative area -> gap
+    }
+  }
+  return false;
+}
+
+/** Blocking count: SELECTED (included) line items whose quantity is a gap (missing OR
+ *  negative -- see isLineItemQtyGap). Drives the Finalize disabled-gate + tooltip. Name kept
+ *  for call-site stability; semantics widened from "no qty" to "invalid qty" (A2 negative rule). */
 export function countSelectedLineItemsNoQty(rows: ReviewRow[]): number {
   return rows.filter(
     (r) =>
       r.effective_classification === "line_item" &&
       !isRowExcluded(r) &&
-      !r.qty_total,
+      isLineItemQtyGap(r),
   ).length;
 }
 

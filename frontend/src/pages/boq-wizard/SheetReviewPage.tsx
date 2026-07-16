@@ -637,10 +637,10 @@ const SheetReviewPage = () => {
         closeMarkDialog();
         void boqMutate();
       } else if (msg.qty_gap) {
-        // A2 (template origin): the server backstop found selected line items with no quantity.
-        // Re-fetch rows so the inline qty cells + the client qtyGap gate re-sync.
+        // A2 (template origin): the server backstop found selected line items whose quantity is
+        // missing or negative. Re-fetch rows so the inline qty cells + the client qtyGap gate re-sync.
         setMarkError(
-          `Enter a quantity for all ${msg.qty_gap} selected line item${msg.qty_gap === 1 ? "" : "s"} before finalizing.`,
+          `Enter a valid quantity (present and not negative) for all ${msg.qty_gap} selected line item${msg.qty_gap === 1 ? "" : "s"} before finalizing.`,
         );
         void mutate();
       } else {
@@ -898,7 +898,7 @@ const SheetReviewPage = () => {
               title={breaks.length > 0
                 ? "Fix the must-fix structural issues listed above before finalizing."
                 : qtyGap > 0
-                  ? `Enter a quantity for all ${qtyGap} selected line item${qtyGap === 1 ? "" : "s"} before finalizing.`
+                  ? `Enter a valid quantity (present and not negative) for all ${qtyGap} selected line item${qtyGap === 1 ? "" : "s"} before finalizing.`
                   : undefined}
             >
               <ShieldCheck className="h-4 w-4" />

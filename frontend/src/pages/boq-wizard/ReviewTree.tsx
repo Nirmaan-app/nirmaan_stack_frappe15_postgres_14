@@ -1224,6 +1224,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const saveQtyInline = async (row: ReviewRow, raw: string) => {
     const prev = row.qty_total ?? "";
     if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    // A2 negative-qty guard: a Total Quantity cannot be negative (server rejects too). Block the
+    // write and surface the error; the input keeps the value so the user can correct it.
+    if (String(raw).trim() !== "" && Number(raw) < 0) {
+      setSaveError("Quantity cannot be negative.");
+      return;
+    }
     onEditIntent?.(); // B1: acquire the draft lock on first edit-intent (client side only)
     setSaveError(null);
     try {
@@ -1247,6 +1253,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const saveAreaQtyInline = async (row: ReviewRow, d: ColumnDescriptor, raw: string) => {
     const prev = row.qty_by_area?.[d.value_key as string] ?? "";
     if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    // A2 negative-qty guard (belt -- AreaQtyCells already blocks the onSaveArea call for a
+    // negative; this guards any other caller). Server save_review_edit rejects it regardless.
+    if (String(raw).trim() !== "" && Number(raw) < 0) {
+      setSaveError("Quantity cannot be negative.");
+      return;
+    }
     onEditIntent?.(); // B1: client-side lock acquire (save_review_edit adds no server-side race)
     setSaveError(null);
     try {
@@ -2677,6 +2689,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
                               type="number"
                               inputMode="decimal"
+                              min="0"
                               defaultValue={row.qty_total ?? ""}
                               onBlur={(e) => saveQtyInline(row, e.target.value)}
                               onKeyDown={(e) => {

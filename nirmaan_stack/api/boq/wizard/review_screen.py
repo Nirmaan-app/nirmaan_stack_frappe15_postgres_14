@@ -817,6 +817,51 @@ def _guard_row_at_parser_baseline(boq_name: str, sheet_name: str, row_index: int
 # Shared row-write helper (save-inside / commit-outside)
 # ---------------------------------------------------------------------------
 
+def _boq_origin_is_template(boq_name: str) -> bool:
+    """True iff the BoQ was created from a template (origin == 'template').
+
+    The single home for the A2 quantity-rule scope: a per-area / total QUANTITY cannot be
+    negative, and every selected line_item must carry a valid quantity before finalize.
+    Both rules are TEMPLATE-ORIGIN ONLY so the upload flow -- where a parsed qty may
+    legitimately be negative under the locked 'negative qty IS valid qty-bearing'
+    convention (priceability.isNonZeroNum / pricing._is_nonzero_qty) -- stays byte-identical.
+    """
+    return frappe.db.get_value("BOQs", boq_name, "origin") == "template"
+
+
+def _template_line_item_qty_gap(row: dict) -> bool:
+    """A2 finalize backstop: True iff a template line_item row's quantity is INVALID.
+
+    Invalid = missing/zero total (all areas empty), a negative total, or ANY negative
+    per-area value. The save path (_apply_and_save_row_edit) blocks negative ENTRY; this
+    catches values that slipped in via seeding / import / older data so a finalized
+    (= committable) sheet never carries a bad quantity. `not qty_total` preserves the
+    original all-empty gate (0 / None -> gap); a non-numeric total is treated as a gap.
+    """
+    qt = row.get("qty_total")
+    if not qt:
+        return True
+    try:
+        if float(qt) < 0:
+            return True
+    except (ValueError, TypeError):
+        return True
+    qba = row.get("qty_by_area")
+    if isinstance(qba, str) and qba:
+        try:
+            qba = json.loads(qba)
+        except (ValueError, TypeError):
+            qba = None
+    if isinstance(qba, dict):
+        for v in qba.values():
+            try:
+                if float(v) < 0:
+                    return True
+            except (ValueError, TypeError):
+                continue
+    return False
+
+
 def _apply_and_save_row_edit(
     doc,
     boq_name: str,
@@ -904,6 +949,11 @@ def _apply_and_save_row_edit(
                 frappe.throw(
                     f"Value for '{field}' must be a number.", title="Invalid value"
                 )
+        # A2 negative-qty guard: a per-area QUANTITY cannot be negative (template origin
+        # only; rate_by_area / amount_by_area + the upload flow are untouched). See
+        # _boq_origin_is_template for the scope rationale.
+        if field == "qty_by_area" and new_val < 0 and _boq_origin_is_template(boq_name):
+            frappe.throw("Quantity cannot be negative.", title="Invalid quantity")
         if field in _NESTED_AREA_FIELDS:
             # Two-hop nested: <field>[area][rate_subkey] -- rate_by_area or amount_by_area
             # (Slice 2b). Locate/create the inner dict, set ONE kind, leave the area's
@@ -924,7 +974,7 @@ def _apply_and_save_row_edit(
         # Total column, the STRICT finalize gate (qty_total>0), and commit's node.qty stay correct.
         # Upload multi-area is untouched (origin != "template" -> its parsed qty_total is
         # authoritative; sum-of-areas is informational). Rides the single doc.save() below.
-        if field == "qty_by_area" and frappe.db.get_value("BOQs", boq_name, "origin") == "template":
+        if field == "qty_by_area" and _boq_origin_is_template(boq_name):
             doc.qty_total = sum(
                 float(v) for v in current.values() if isinstance(v, (int, float))
             )
@@ -970,11 +1020,16 @@ def _apply_and_save_row_edit(
                 setattr(doc, field, None)
             else:
                 try:
-                    setattr(doc, field, float(value))
+                    _fval = float(value)
                 except (ValueError, TypeError):
                     frappe.throw(
                         f"Value for '{field}' must be a number.", title="Invalid value"
                     )
+                # A2 negative-qty guard: single-area Total Quantity cannot be negative
+                # (template origin only; other value fields + the upload flow untouched).
+                if field == "qty_total" and _fval < 0 and _boq_origin_is_template(boq_name):
+                    frappe.throw("Quantity cannot be negative.", title="Invalid quantity")
+                setattr(doc, field, _fval)
         to_val = value
 
     # --- Append edit log entry ---
@@ -2834,7 +2889,7 @@ def mark_sheet_parsed_check_done(
         filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=["row_index", "source_row_number", "classification",
                 "human_classification", "parent_index", "human_parent", "human_is_root",
-                "qty_total"],
+                "qty_total", "qty_by_area"],
         order_by="row_index asc",
     )
     rows_as_dicts = [dict(r) for r in rows]
@@ -2852,18 +2907,20 @@ def mark_sheet_parsed_check_done(
         # REGARDLESS of confirm. No override path -- a finalized sheet must be committable.
         return {"ok": False, "breaks": breaks}
 
-    # A2 (template origin ONLY): every SELECTED line_item must carry a quantity before finalize.
-    # STRICT -- rate-only rows are NOT exempt (owner 2026-07-09); the inline Total-Quantity cell in
-    # the template review makes it satisfiable. Effective classification = human-else-raw (a clone
-    # has no AI layer, so classification already holds the lowercase 'line_item'). The is_excluded=0
-    # fetch above already scopes to the committed subset. Scoped to origin=="template" so the upload
-    # finalize path stays byte-identical (upload / NULL origin skips this entirely).
+    # A2 (template origin ONLY): every SELECTED line_item must carry a VALID quantity before
+    # finalize -- present (multi-area = at least one area, since qty_total = sum(areas)) AND not
+    # negative (_template_line_item_qty_gap). STRICT -- rate-only rows are NOT exempt (owner
+    # 2026-07-09); the inline Total-Quantity cell in the template review makes it satisfiable.
+    # Effective classification = human-else-raw (a clone has no AI layer, so classification already
+    # holds the lowercase 'line_item'). The is_excluded=0 fetch above already scopes to the
+    # committed subset. Scoped to origin=="template" so the upload finalize path stays byte-identical
+    # (upload / NULL origin skips this entirely).
     origin = frappe.db.get_value("BOQs", boq_name, "origin")
     if origin == "template":
         qty_gap = [
             r for r in rows_as_dicts
             if (r.get("human_classification") or r.get("classification")) == "line_item"
-            and not r.get("qty_total")
+            and _template_line_item_qty_gap(r)
         ]
         if qty_gap:
             return {"ok": False, "breaks": [], "qty_gap": len(qty_gap)}

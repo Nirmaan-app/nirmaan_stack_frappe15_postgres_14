@@ -2136,10 +2136,12 @@ class TestMarkTemplateQtyGate(FrappeTestCase):
         )
         frappe.db.set_value("BoQ Sheet Draft", child, "wizard_status", "Parsed")
         # qty_total is NOT NULL (default 0.0); the "missing quantity" state is 0 (falsy), not NULL.
+        # qty_by_area cleared too so a seeded-negative-area test cannot leak into the next test
+        # (state persists across tests in this class -- setUp is the per-test reset, not a rollback).
         frappe.db.set_value(
             "BoQ Review Row",
             {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
-            {"qty_total": 0, "is_excluded": 0},
+            {"qty_total": 0, "is_excluded": 0, "qty_by_area": None},
         )
         frappe.db.commit()
 
@@ -2187,6 +2189,40 @@ class TestMarkTemplateQtyGate(FrappeTestCase):
         )
         self.assertTrue(result["ok"], "an excluded no-qty line_item must not block finalize")
         self.assertEqual(self._status(), "Finalized")
+
+    def test_negative_qty_total_blocks_finalize(self):
+        # A2 negative backstop: a NEGATIVE total is truthy, so the old `not qty_total` gate missed
+        # it. The widened gate (_template_line_item_qty_gap) must treat it as a gap.
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
+            "qty_total", -3,
+        )
+        frappe.db.commit()
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="TplQtySheet",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result.get("qty_gap"), 1)
+        self.assertEqual(self._status(), "Parsed",
+                         "a template sheet must NOT finalize while a line item has a negative qty")
+
+    def test_negative_area_with_positive_sum_blocks_finalize(self):
+        # The mixed case the summed total cannot catch: qty_total = 7 (positive) but one area is
+        # negative. The gate reads qty_by_area and must still flag it (the backstop's whole point).
+        frappe.db.set_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": "TplQtySheet", "row_index": 1},
+            {"qty_total": 7, "qty_by_area": json.dumps({"A": 10, "B": -3})},
+        )
+        frappe.db.commit()
+        result = mark_sheet_parsed_check_done(
+            boq_name=self.boq_name, sheet_name="TplQtySheet",
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result.get("qty_gap"), 1)
+        self.assertEqual(self._status(), "Parsed",
+                         "a positive-sum row with a negative area must NOT finalize")
 
 
 # ===========================================================================
@@ -2266,6 +2302,43 @@ class TestTemplateResumQtyTotal(FrappeTestCase):
                          row_index=0, field="qty_by_area", value=99, area="Zone A")
         self.assertIn(self._qty_total(self.upl_boq), (0, 0.0),
                       "upload-origin per-area edit must NOT re-sum qty_total")
+
+    # --- A2 negative-qty guard (save path; template origin only) ---
+
+    def test_template_negative_area_qty_rejected(self):
+        # A per-area QUANTITY cannot be negative on a template-origin sheet.
+        self._seed_row(self.tpl_boq)
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(boq_name=self.tpl_boq, sheet_name="AreaSheet",
+                             row_index=0, field="qty_by_area", value=-5, area="Zone A")
+        # The rejected edit persisted nothing (Zone A stays at its seeded 0.0).
+        qba = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.tpl_boq, "sheet_name": "AreaSheet", "row_index": 0}, "qty_by_area",
+        )
+        qba = json.loads(qba) if isinstance(qba, str) else qba
+        self.assertEqual(qba.get("Zone A"), 0.0, "a rejected negative edit must not persist")
+
+    def test_template_negative_qty_total_rejected(self):
+        # The single-area flat Total Quantity cannot be negative either (template origin).
+        self._seed_row(self.tpl_boq)
+        with self.assertRaises(frappe.ValidationError):
+            save_review_edit(boq_name=self.tpl_boq, sheet_name="AreaSheet",
+                             row_index=0, field="qty_total", value=-5)
+
+    def test_upload_negative_qty_allowed(self):
+        # Upload origin keeps the locked 'negative qty IS valid qty-bearing' convention -> the
+        # save path must NOT reject a negative (parsed data can legitimately carry one).
+        self._seed_row(self.upl_boq)
+        save_review_edit(boq_name=self.upl_boq, sheet_name="AreaSheet",
+                         row_index=0, field="qty_by_area", value=-5, area="Zone A")
+        qba = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.upl_boq, "sheet_name": "AreaSheet", "row_index": 0}, "qty_by_area",
+        )
+        qba = json.loads(qba) if isinstance(qba, str) else qba
+        self.assertEqual(qba.get("Zone A"), -5.0,
+                         "upload-origin negative qty must be allowed (not rejected)")
 
 
 # ===========================================================================

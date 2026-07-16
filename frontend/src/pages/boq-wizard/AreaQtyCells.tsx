@@ -80,13 +80,15 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
   }, [savedSig]);
 
   // LIVE Total: sum draft-else-saved per area; blank / NaN -> 0 (partial running sum).
-  // Summed over ALL area descriptors, independent of visibleCols.
+  // Summed over ALL area descriptors, independent of visibleCols. A NEGATIVE draft value is
+  // EXCLUDED (owner default: exclude + inline error) -- it will be blocked on save, so the Total
+  // must never reflect an un-saved invalid value.
   let liveTotal = 0;
   for (const d of areaDescriptors) {
     const area = d.value_key as string;
     const raw = draft[area] ?? String(row.qty_by_area?.[area] ?? "");
     const n = Number(raw);
-    if (raw.trim() !== "" && Number.isFinite(n)) liveTotal += n;
+    if (raw.trim() !== "" && Number.isFinite(n) && n >= 0) liveTotal += n;
   }
 
   // A row is qty-bearing iff the clone seeded it (line_item / preamble -> qty_by_area is a
@@ -102,6 +104,10 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
         if (!visibleCols.has(d.col)) return null;
         const area = d.value_key as string;
         const value = draft[area] ?? String(row.qty_by_area?.[area] ?? "");
+        // A2 negative-qty guard (client UX; server save_cell rejects too): a negative value is
+        // NOT persisted -- red ring + inline hint, value kept for correction. isNeg drives both.
+        const numeric = Number(value);
+        const isNeg = value.trim() !== "" && Number.isFinite(numeric) && numeric < 0;
         return (
           <td
             key={d.col}
@@ -110,12 +116,16 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
             <input
               type="number"
               inputMode="decimal"
+              min="0"
               value={value}
+              aria-invalid={isNeg}
+              title={isNeg ? "Quantity cannot be negative" : undefined}
               onChange={(e) => {
                 const v = e.target.value;
                 setDraft(prev => ({ ...prev, [area]: v }));
               }}
-              onBlur={(e) => onSaveArea(row, d, e.target.value)}
+              // Block the save when negative -- keep the draft so the user can fix it.
+              onBlur={(e) => { if (!isNeg) onSaveArea(row, d, e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -123,8 +133,16 @@ export function AreaQtyCells({ row, areaDescriptors, totalDescriptor, visibleCol
                 }
               }}
               placeholder="0"
-              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+              className={
+                "w-20 rounded border bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 " +
+                (isNeg
+                  ? "border-destructive ring-1 ring-destructive focus:ring-destructive"
+                  : "border-input focus:ring-ring")
+              }
             />
+            {isNeg && (
+              <div className="mt-0.5 text-[10px] leading-tight text-destructive">Cannot be negative</div>
+            )}
           </td>
         );
       })}
