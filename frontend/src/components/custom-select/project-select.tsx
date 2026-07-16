@@ -55,7 +55,12 @@ export default function ProjectSelect({
         filters: all ? undefined : projectFilters,
         limit: 1000,
         orderBy: { field: 'creation', order: 'desc' },
-    });
+    },
+        // Stable SWR key so every ProjectSelect across the app shares one cache
+        // entry (deduped) instead of refetching the whole Projects list per mount.
+        // Keyed by `all` because the two variants fetch different filter sets.
+        all ? "ProjectSelect Projects All" : "ProjectSelect Projects Won"
+    );
 
     const [selectedOption, setSelectedOption] = useState<SelectOptions | null>(null);
 
