@@ -25,12 +25,12 @@ SETTINGS_DOCTYPE = "Document AI Settings"
 
 def fetch_file_content(file_doc, file_name=None):
     """Return raw bytes for a File doc — S3 presigned URL or local bench file."""
-    if file_doc.file_url and "/api/method/frappe_s3_attachment" in file_doc.file_url:
+    if file_doc.file_url and ("/api/method/frappe_gcp_attachment" in file_doc.file_url):
         try:
             import urllib.parse
 
             import requests
-            from frappe_s3_attachment.controller import S3Operations
+            from frappe_gcp_attachment.controller import S3Operations
 
             s3 = S3Operations()
             s3_key = file_doc.content_hash
