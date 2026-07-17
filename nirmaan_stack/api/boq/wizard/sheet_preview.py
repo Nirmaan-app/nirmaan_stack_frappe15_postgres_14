@@ -59,7 +59,7 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
     The tempfile is only created after bytes are successfully downloaded, so a
     failed fetch never leaves an orphaned file.
     """
-    from frappe_s3_attachment.controller import S3Operations  # noqa: PLC0415
+    from frappe_gcp_attachment.controller import S3Operations  # noqa: PLC0415
 
     key = _derive_s3_key(source_file_url)
 
