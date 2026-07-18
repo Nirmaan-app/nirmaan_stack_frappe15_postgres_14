@@ -308,13 +308,18 @@ export interface BOQsDoc {
    */
   parse_in_progress?: 0 | 1;
   /**
-   * How this BoQ was created (ADR-0013 A1). "upload" = normal Excel ingest (re-parseable);
-   * "template" = cloned from the master template (no source workbook -> Configure/Parse are
-   * SUPPRESSED in the hub, stepper starts at Review). Default "upload". BoQ-level marker.
+   * How this BoQ was created (ADR-0013 A1 / ADR-0014 D2). "upload" = normal Excel ingest
+   * (re-parseable); "template" = cloned from the master template (no source workbook ->
+   * Configure/Parse are SUPPRESSED in the hub, stepper starts at Review); "revision" = a
+   * revised upload against a committed original (an unconfirmed revision -- origin="revision"
+   * AND empty sheet_drafts -- is redirected from the hub to the sheet-mapping screen). Default
+   * "upload". BoQ-level marker.
    */
-  origin?: "upload" | "template";
+  origin?: "upload" | "template" | "revision";
   /** For origin="template": the master BoQ Template this was cloned from (provenance). */
   source_template?: string;
+  /** For origin="revision" (ADR-0014 D2): the committed original this revises. */
+  source_boq?: string;
   /**
    * 1 = this is a project-less SCRATCH AUTHORING BoQ for the master template (ADR-0013 A1).
    * Authored via an is_template_source upload; once committed, the hub shows "Set as master

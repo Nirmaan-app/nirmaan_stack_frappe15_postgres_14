@@ -744,6 +744,10 @@ export const appRoutes: RouteObject[] = [
           // boqId is the BOQs docname; read from URL so the hub survives refresh.
           { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
 
+          // Revised-BoQ sheet-mapping screen (ADR-0014 D3, S3). Always shown for a revision
+          // between upload and hub; the hub redirects an unconfirmed revision here.
+          { path: "upload-boq/revision/:boqId/map", lazy: () => import("@/pages/boq-wizard/RevisionMappingPage") },
+
           // BoQ per-sheet spoke (Module 3 Slice 3b-ii).
           // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes
           // useParams values, so the spoke receives the verbatim original sheet_name.

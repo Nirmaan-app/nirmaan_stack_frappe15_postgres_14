@@ -1801,3 +1801,24 @@ auto-upload.
 `BoqUploadScreen` — Continue gate adds `needsOriginal = revisionMode==="revise" && !sourceBoq` (with a
 "select the original BoQ to revise" tooltip item; the held-file wait is NOT mislabelled "wait for
 parsing"). Backend + minimum-shippable detail: `frontend/.claude/plans/boq-revised-upload-plan.md` §S2.
+
+## Revised BoQ sheet-mapping screen + hub gate (S3/#1100, ADR-0014 D3)
+
+The always-shown screen between upload and hub for a revision (a fresh upload NEVER sees it).
+- **Route** `/upload-boq/revision/:boqId/map` (RR v6 `lazy()`; `RevisionMappingPage` dual-exports `Component`),
+  sibling to the hub route. **`BoqHubPage` redirect gate:** after the `!boq` guard, `origin==="revision" &&
+  (sheet_drafts ?? []).length === 0` → `<Navigate replace>` to the map (declarative, NOT imperative-in-render).
+  `boqTypes.BOQsDoc.origin` widened to include `"revision"` + a `source_boq?` field. S2's Continue still targets
+  the hub, which intercepts an unconfirmed revision — no `BoqUploadScreen` nav change.
+- **`revisionMapping.ts` (pure, ADR-0010 F4):** client bookkeeping ONLY — `NEW_SHEET`/`UNDECIDED` sentinels,
+  `initDecisions` (matched pre-fill, else undecided), `claimed/duplicate/unclaimedOriginals`, `isMappingComplete`
+  (Confirm gate = no undecided + no double-claim), `toConfirmPayload`. **N2 lives ONLY in Python** — the helper
+  consumes the backend's `proposed_source`, never re-derives N2 (F1: one home). `revisionMapping.test` 10 green.
+- **Components:** `RevisionMappingPage` (orchestrator: `useFrappeGetCall(get_revision_mapping_proposal)` +
+  `useFrappePostCall(confirm_revision_mapping)`; decisions seeded ONCE via a ref-guard so an SWR revalidation
+  can't clobber edits; Confirm → hub by entity id; Back → `/projects/:project?page=boq`; self-collision banner) +
+  `RevisionIdentityPanel` (Zone-1 F2 control — identity + committed-sheet badges + "will carry N rates and M
+  classifications") + `SheetPairingRow` (Zone-2 F1 control — react-select of originals + "Declare as a New sheet",
+  amber highlight on undecided rows, general-specs toggle shown when the chosen original is general-specs).
+  Everything editable, nothing binds until Confirm; shadcn-only; inline errors via `getFrappeError` (no toast).
+  boq-wizard vitest 550 green; tsc clean in touched files. Full detail: `boq-revised-upload-plan.md` §S3/§S5.

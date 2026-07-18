@@ -506,3 +506,39 @@ AND an empty `sheet_drafts` — S3's `confirm_revision_mapping` does the seeding
 confirms the sheet mapping. Tests: `test_revision_entry.py` (17). ⚠️ Pre-existing, NOT S2:
 `test_upload_file.py` carries 8 `tempfile_path` errors (its tests target a fetch-refactored worker
 signature this branch never received) — unchanged by S2.
+
+## Revised BoQ sheet-mapping (S3, #1100, ADR-0014 D3/D4)
+
+**Pure services `services/boq_revision/` (ADR-0010 B1 — residence b1 holds at 0):**
+- **`normalize.normalize_n2(text)`** — the SINGLE N2 home (trim + lowercase + `str.split()`
+  whitespace/nbsp fold; NO punctuation/synonym folding). Mirrors `_auto_guess._normalize` so a key
+  matched here equals the same text keyed by the parser. Shared by D3/D5/D6 — do NOT fork.
+- **`sheet_match.propose_pairing(revised, committed)`** — N2 + **per-key, per-side** count-guard →
+  `PairingProposal(pairings:[SheetPairing(sheet_name, proposed_source|None, status)], self_collision)`.
+  A key that self-collides on EITHER side (incoming workbook self-collision like `'SUMMARY '`/`'Summary'`,
+  or an ambiguous committed side) routes to human without blocking other sheets; strict 1:1 falls out.
+  It only PROPOSES — the human confirms.
+
+**Endpoints in `revision.py`:**
+- **`get_revision_mapping_proposal(boq)`** (whitelisted READ) — guards `origin=="revision"`; reads the
+  revised workbook's tab names via `_read_revised_tab_names` (the S3-safe `_fetch_boq_file_to_tempfile` +
+  `openpyxl(read_only=True).sheetnames` pattern — never a local path from `file_url`); reads the original's
+  CURRENT committed sheets from the GRID tier (`BoQ Committed Sheet Grid` `is_current=1`; `sheet_disposition
+  =="grid_only"` ⇒ general_specs) — the same committed-ness source S2 uses; cheap carry `COUNT`s (`BoQ Cell
+  Pricing` current / `BOQ Nodes` current with non-blank `human_classification`, no parse). Returns Zone-1
+  (`project`, `boq_name`, `source_version`, `committed_at`, `committed_sheets`, `carry_counts`) + Zone-2
+  (`revised_sheets` in tab order with `proposed_source`/`status`/`general_specs`, `self_collision`).
+- **`confirm_revision_mapping(boq, mapping)`** (POST) — write-once guard (rejects when `sheet_drafts` already
+  populated — a second confirm is refused, `source_sheet_name` never mutates); **re-reads the workbook**
+  (authoritative tab set/order, robust to a stale screen); validates cover-all-tabs + strict 1:1 + every claim
+  is a real committed sheet; then **seeds** each tab as a `Pending` `BoQ Sheet Draft` (VERBATIM `sheet_name`,
+  tab-order `sheet_order`, `source_sheet_name` write-once on mapped tabs — the CROSS-DOC pointer). A mapped tab
+  whose original is general-specs carries the designation into `general_specs_sheets` (keyed by THIS doc's OWN
+  name #152, blank `preamble_text` — re-extracts at parse) unless opted out. All statuses land `Pending`; S4
+  upgrades a clean matched sheet to `Config Done`. `commit()` after the single save. Returns `{"status":"saved",
+  "seeded":N}`. **Two `source_sheet_name` fields are DISTINCT:** the Draft one points at the original; the
+  general_specs child one is this doc's own name.
+
+Tests: `test_revision_mapping.py` (16) + `services/boq_revision/test_normalize.py` (9) + `test_sheet_match.py`
+(9). No regressions (create_from_template 35 / commit_pipeline 54 / review_screen 260 / pricing 185 green;
+residence baselines hold).

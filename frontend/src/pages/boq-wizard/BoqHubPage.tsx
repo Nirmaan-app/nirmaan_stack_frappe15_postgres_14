@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { BoqPresence } from "./BoqPresence";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -426,6 +426,16 @@ const BoqHubPage = () => {
         </Button>
       </div>
     );
+  }
+
+  // ── Unconfirmed-revision gate (ADR-0014 D3) ───────────────────────────────
+  // A revision seeds NO drafts at upload -- confirm_revision_mapping seeds them after the
+  // human confirms the sheet mapping. So an origin="revision" doc with an empty sheet_drafts
+  // is UNCONFIRMED and must not render the hub; redirect to the always-shown mapping screen.
+  // (`boq` is fully loaded here, so sheet_drafts is authoritative; a confirmed revision has
+  // >= 1 draft and falls straight through.) Route by entity id, never navigate(-1).
+  if (boq.origin === "revision" && (boq.sheet_drafts ?? []).length === 0) {
+    return <Navigate to={`/upload-boq/revision/${boqId}/map`} replace />;
   }
 
   // ── Origin (ADR-0013 A1) ──────────────────────────────────────────────────

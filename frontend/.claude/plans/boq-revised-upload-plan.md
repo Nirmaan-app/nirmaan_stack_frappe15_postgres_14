@@ -236,6 +236,30 @@ per-side count-guard fires on a self-colliding workbook; strict 1:1 rejects a do
 unmatched without a declaration is refused; `source_sheet_name` write-once (a second confirm is rejected);
 seeding is idempotent under a double-fire.
 
+**AS-BUILT (S3, #1100 = plan S3 + plan S5 — mapping backend + screen + hub gate):**
+- **Pure services `services/boq_revision/` (ADR-0010 B1, residence b1 holds at 0):** `normalize.py::normalize_n2`
+  — the SINGLE N2 home (trim + lowercase + `str.split()` whitespace/nbsp fold; NO punctuation/synonym folding),
+  mirrors `_auto_guess._normalize` byte-for-byte. `sheet_match.py::propose_pairing(revised, committed)` —
+  N2 + **PER-KEY PER-SIDE** count-guard (a self-colliding key routes to human without blocking other sheets)
+  → `PairingProposal(pairings:[SheetPairing(sheet_name, proposed_source|None, status)], self_collision)`; strict
+  1:1 falls out (a clean committed side has unique keys). `test_normalize` 9 + `test_sheet_match` 9 green.
+- **`revision.py` endpoints:** `get_revision_mapping_proposal(boq)` (READ) — guards origin=="revision"; reads
+  revised tab names via the `_fetch_boq_file_to_tempfile` + `openpyxl(read_only=True).sheetnames` pattern
+  (S3-safety, `_read_revised_tab_names`); reads the original's CURRENT committed sheets from the GRID tier
+  (`BoQ Committed Sheet Grid` `is_current=1`, `sheet_disposition=="grid_only"` ⇒ general_specs — matches S2's
+  committed-ness source + the test fixture); cheap carry `COUNT`s (`BoQ Cell Pricing` current / `BOQ Nodes`
+  current with non-blank `human_classification`, no parse); returns Zone-1 (`project`, `boq_name`,
+  `source_version`, `committed_at`, `committed_sheets`, `carry_counts`) + Zone-2 (`revised_sheets` in tab order
+  with `proposed_source`/`status`/`general_specs`, `self_collision`). `confirm_revision_mapping(boq, mapping)`
+  (POST) — write-once guard (rejects when `sheet_drafts` non-empty); re-reads the workbook (authoritative tab
+  set/order); validates cover-all-tabs + strict 1:1 + every claim is a real committed sheet; **seeds** each tab as
+  a `Pending` draft (VERBATIM `sheet_name`, tab-order `sheet_order`, `source_sheet_name` write-once on mapped);
+  carries general-specs designation into `general_specs_sheets` (keyed by THIS doc's own name, blank
+  `preamble_text`) for a mapped tab whose original is general-specs unless opted out. `test_revision_mapping` 16
+  green (Zone-1 identity+counts, Zone-2 pre-fill/self-collision/gs-carry, real workbook read, all confirm guards +
+  write-once + JSON-string mapping). **The two `source_sheet_name` fields are DISTINCT** (Draft = cross-doc
+  pointer at the original; general_specs child = this doc's own name).
+
 ### S4 — Config carry + column diff (Wave 4) `[backend]`
 **Why (D5):** carries the rectified role map so a clean matched sheet needs no config visit.
 - **`services/boq_revision/column_diff.py`** (pure): baseline = the committed **GRID**
@@ -278,6 +302,27 @@ into the safe branch.**
   empty.
 **Verify:** a fresh upload never routes here; a revision cannot reach the hub unconfirmed; an unmatched sheet
 blocks Confirm; claiming an original twice is refused; back-nav routes **by entity id, never `navigate(-1)`**.
+
+**AS-BUILT (S5, shipped WITH S3 under #1100):**
+- **Route** `/upload-boq/revision/:boqId/map` (RR v6 `lazy()`, `RevisionMappingPage` dual-exports `Component`),
+  added as a sibling right after the hub route in `routesConfig.tsx`.
+- **`BoqHubPage` gate:** after the `!boq` guard, `origin==="revision" && sheet_drafts empty` → `<Navigate replace>`
+  to the map route (declarative, not imperative-in-render). `boqTypes.BOQsDoc.origin` widened to include
+  `"revision"` + a `source_boq?` field. S2's Continue still lands on the hub, which now intercepts unconfirmed
+  revisions — no `BoqUploadScreen` nav change needed.
+- **Pure helper `revisionMapping.ts` (ADR-0010 F4):** client-side bookkeeping ONLY — `NEW_SHEET`/`UNDECIDED`
+  sentinels, `initDecisions` (matched pre-fill else undecided), `claimed/duplicate/unclaimedOriginals`,
+  `isMappingComplete` (the Confirm gate = no undecided + no double-claim), `toConfirmPayload`. **N2 lives only in
+  Python** — the helper never re-derives it (consumes the backend's `proposed_source`). `revisionMapping.test` 10
+  green.
+- **Screen:** `RevisionMappingPage` (orchestrator) + `RevisionIdentityPanel` (Zone-1 F2 control: identity +
+  committed-sheet badges + "will carry N rates and M classifications") + `SheetPairingRow` (Zone-2 F1 control:
+  react-select of originals + "Declare as a New sheet", amber highlight on undecided rows, general-specs toggle
+  when the chosen original is general-specs). Decisions are seeded ONCE from the proposal (ref-guard, so an SWR
+  revalidation never clobbers edits); everything editable, nothing binds until Confirm; Confirm → hub by entity id.
+  Self-collision banner when the proposal flags it. shadcn primitives only; inline errors via `getFrappeError`
+  (no toast). Full boq-wizard vitest **550 green** (540 baseline + 10); host `tsc` clean in touched files;
+  residence baselines hold.
 
 ### S6 — Row match + review carry (Wave 4) `[backend]`
 **Why (D6/D7):** the heart — it preserves the human's classification and re-parenting across a shifted file.
