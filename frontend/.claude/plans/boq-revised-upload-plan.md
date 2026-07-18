@@ -147,6 +147,22 @@ Per ADR-0010 **B1** (a named calculation gets a pure module — no `frappe.db`, 
 **Done:** columns exist on the runtime DB; every existing flow byte-unaffected (blank/default preserves
 today's behaviour); the gate audit is written up in the commit body.
 
+**AS-BUILT (S1, `feature/boq-revised-upload` off the T9 synthesis branch):** 7 fields added to the 4 doctype
+JSONs (`BOQs.origin` gains `revision` + `source_boq`; `BoQ Sheet Draft.source_sheet_name`;
+`BoQ Sheet.source_boq`/`source_commit_version`/`source_sheet_name`; `BoQ Review Row.revision_carry_status`) —
+all additive, nullable, `read_only`, no behaviour-changing default. `bench migrate` applied on dev; all 7
+confirmed on the runtime DB via `has_column` + ORM Meta. **Gate audit found 6 production gates, not the 4
+cited** — the plan missed `review_screen.py:2918-2919` (finalize A2 qty gate) and `template_rows.py:84-85`
+(`_guard_template_write`); every one routes `revision` → the non-template/upload branch correctly (full
+per-site write-up in the commit body). FE `origin === "template"` gates (SheetReviewPage/BoqHubPage/
+sheetCardStages/SheetCard) also default revision to the upload branch — revision-specific FE lands in S2/S5,
+untouched here. Non-revision suites green: `test_pricing` 185, `test_review_screen` 250, `test_commit_pipeline`
+54 (the 3 `test_update_sheet_draft` errors are a pre-existing stale `work_package`-column fixture, identical on
+baseline). **Note:** the dev bench's main app checkout is on `chore/context-hygiene` (develop-based, lacks the
+create-from-template stack), so migrate/verify was run by materialising the 4 JSONs into the app path in-container
+then restoring; the create-from-template test suites (`test_create_from_template`/`test_template_*`) can only run
+once the bench app dir is on this build branch.
+
 ### S2 — Entry: Revise radio + eligibility + revision create (Wave 2) `[backend+frontend]`
 **Why (D1/D2):** the user-facing entry, and the `BOQs` doc every later slice hangs off.
 - **BE** `revision.py::list_revisable_boqs(project)` — same project + ≥1 committed sheet, computed via the

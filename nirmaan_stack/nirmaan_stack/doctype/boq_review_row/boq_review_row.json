@@ -88,7 +88,8 @@
   "gemini_accept_snapshot",
   "gemini_snapshot_owner",
   "resolution_section",
-  "chosen_source"
+  "chosen_source",
+  "revision_carry_status"
  ],
  "fields": [
   {
@@ -570,12 +571,19 @@
    "label": "Chosen Source",
    "options": "parser\nclaude\ngemini\nmanual",
    "read_only": 1
+  },
+  {
+   "description": "For origin=revision review rows (ADR-0014 D6/D7): the row's carry outcome vs the paired original sheet. Blank for upload/template rows (byte-identical) and for a MATCHED row whose fresh parser output already agrees. Set at the post-parse merge seam (S6). Matched/New/Ambiguous/Drifted only -- REMOVED is NEVER a value here (it is an ORIGINAL-side outcome, surfaced as a hub advisory, with no revision row to stamp). Drives the review delta surfacing (S7): New/Ambiguous/Drifted are the needs-action set (self-clearing once the row is edited, CL-6 pattern).",
+   "fieldname": "revision_carry_status",
+   "fieldtype": "Select",
+   "label": "Revision Carry Status",
+   "options": "\nMatched\nNew\nAmbiguous\nDrifted"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-08 01:00:00.000000",
+ "modified": "2026-07-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Review Row",
