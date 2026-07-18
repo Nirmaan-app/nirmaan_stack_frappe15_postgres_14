@@ -578,3 +578,47 @@ rides `wizard_status` + the seeded `sheet_config`.
   boq-frontend.md` / `revisionConfigFlags.ts`).
 - **Tests:** `services/boq_revision/test_column_diff.py` (17) + `api/boq/wizard/test_column_carry.py` (17, incl. a
   real-workbook read + the `dispositions` response). No regressions.
+
+## Revised BoQ row-match + review carry (S6 = issue #1102 "S5a", ADR-0014 D6/D7)
+
+At the post-parse merge seam, the revision's freshly-parsed rows are matched to the original's committed nodes and
+the human's classification + parenting **overrides** carry forward. **Override-set only** (~87% of rows carry
+nothing — the fresh parse reproduces the parser layer); the revised file stays authoritative for structure.
+
+- **Pure `services/boq_revision/row_match.py`** (B1): `match_rows(original_rows, revised_rows) → RowMatchResult`
+  over `MatchRow(row_id, description, order, level)`. N2-description buckets → the D6 outcome table verbatim
+  (`N=1,M=1` MATCHED **section-ignored/rename-proof** · `N=M>1` section-then-physical-ordinal else AMBIGUOUS ·
+  `N≠M` AMBIGUOUS · `N>0,M=0` REMOVED · `N=0,M>0` NEW). Section key = the pure `_section_keys` monotonic-stack walk
+  (nearest preceding row at a strictly-shallower **numeric parser `level`**; both sides share the ADR-0009
+  preamble-only-level convention). **`original_to_revised` (twin map) is keyed by the ORIGINAL row_id = the
+  committed node NAME** — D7's parent re-point indexes `parent_node` (a node name) straight through it, so the
+  ADR's "→ source_row_number →" hop is conceptual and node-name keying sidesteps any source_row_number
+  non-uniqueness. Blank N2 keys are never matched.
+- **Pure `services/boq_revision/carry.py`** (B1): `build_review_carry(revised_rows, original_by_id, match) →
+  {row_id: ReviewCarryWrite}`. From the committed node dict: `human_classification` (non-blank) carries;
+  `human_is_root` → `is_root=1 + human_parent=-1` (root precedence, mirrors `resolve_effective`); `human_parent >=
+  0` → `parent_node` → `match.original_to_revised[twin]` → the twin's fresh `row_index` — **never `sort_order`**
+  (the original's row_index; deliberately not even read). A **missing parent twin drops the override** (parenting
+  reverts to the parser — D7 "→ review"). **`level` is NEVER in the payload** (`ReviewCarryWrite` has no such
+  field, test-guarded). **Drift** = a MATCHED row that carried NOTHING (`carried_nothing` — the literal "no carried
+  override": a row carrying any override is a calm Matched, so Edited/Drifted stay disjoint) whose committed
+  `row_class` ≠ the fresh `classification`. **Reads `row_class`, never `node_type`** (a lossy 3-value projection).
+- **Impure `api/boq/wizard/review_carry.py`:** `merge_revision_review_carry(boq, sheet_name, source_boq)` reads the
+  just-inserted review rows (uncommitted, same txn) + the original's CURRENT committed `BOQ Nodes` for the mapped
+  source (joined through the committed `BoQ Sheet` — nodes address the sheet by Link, not verbatim name), runs the
+  pure match+carry, and stamps `revision_carry_status` + the override set via targeted `set_value(update_modified=
+  False)`. **The blank/spacer + every REMOVED original row are left UNSTAMPED** (the calm default; REMOVED has no
+  revised row). Content-row filter runs once; `_summarize` is the single summary-shape site. `revision_source_boq(
+  boq)` = the origin gate (`origin=="revision"` AND `source_boq`).
+- **The SEAM** (`parse_run._run_parse_worker`): inside the per-sheet `try`, **AFTER the review-row insert loop and
+  BEFORE `_set_draft_status("Parsed")`**, gated on `revision_source_boq_name` (read once per parse). A non-revision
+  parse never enters it → **byte-identical** (one extra read-only `get_value`, no data change). A merge that raises
+  rides the existing compensating-delete + "Insert error" per-sheet failure channel (same transaction as the
+  inserts, committed once at Step 7 before publish).
+- **⚠️ OWNER-CONFIRM (Spec-review flag, not a bug):** the missing-parent-twin row stays `Matched` (calm) and its
+  lost parenting surfaces INDIRECTLY via S7's removed-parent advisory — D7 offers no needs-action status for
+  "parent lost" (marks are only New/Ambiguous/Drifted). Faithful to the spec; confirm if a direct alert was meant.
+- **Tests:** `test_row_match.py` (10) + `test_carry.py` (12) + `api/boq/wizard/test_review_carry.py` (10,
+  integration). No regressions (parse_run 102, review_screen 260, commit_pipeline 54, the full revision suite).
+  Residence ratchet holds (b1 pure-purity 0). Both /code-review axes actioned. **S7 (review delta FE) consumes
+  `revision_carry_status` next.**

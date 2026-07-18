@@ -398,6 +398,46 @@ section **rename** at N=1/M=1 still MATCHES; drift detected; **a non-revision pa
 **Known holes (measured, documented, not designed around):** 11 `spacer` overrides (grid-only ⇒ no node to
 read), 3 synthetic rows, 41 `is_excluded` rows.
 
+**AS-BUILT (S6 = issue #1102 "S5a", `feature/upload-revised-boq`):**
+- **Pure `services/boq_revision/row_match.py` (ADR-0010 B1, residence b1 holds at 0):** `match_rows(original_rows,
+  revised_rows) → RowMatchResult` over `MatchRow(row_id, description, order, level)`. N2-description buckets →
+  the D6 outcome table verbatim (`N=1,M=1` MATCHED section-ignored / `N=M>1` section-then-ordinal else AMBIGUOUS
+  / `N≠M` AMBIGUOUS / `N>0,M=0` REMOVED / `N=0,M>0` NEW). Section key = the pure `_section_keys` monotonic-stack
+  walk (nearest preceding row with a strictly-shallower numeric parser `level`; both sides share the ADR-0009
+  preamble-only-level convention). **The twin map (`original_to_revised`) is keyed by the ORIGINAL row_id = the
+  committed node NAME**, so D7's parent re-point indexes `parent_node` (a node name) straight through — the ADR's
+  "→ source_row_number →" hop is conceptual, and node-name keying sidesteps any source_row_number non-uniqueness.
+  Blank N2 keys are never matched. `test_row_match` 10.
+- **Pure `services/boq_revision/carry.py` (B1):** `build_review_carry(revised_rows, original_by_id, match) →
+  {row_id: ReviewCarryWrite}`. Reads the override set from the committed node dict: `human_classification`
+  (non-blank) carries; `human_is_root` → `is_root=1 + human_parent=-1` (root precedence, mirrors
+  `resolve_effective`); `human_parent >= 0` → `parent_node` → `match.original_to_revised[twin]` → the twin's fresh
+  `row_index` (**never `sort_order`** — it is deliberately absent from the node read). **`level` is NEVER in the
+  payload** (`ReviewCarryWrite` has no such field, test-guarded). Drift = a MATCHED row that carried NOTHING
+  (`carried_nothing`, the literal reading of "no carried override" — a row that carried any override is a calm
+  Matched, so Edited/Drifted stay disjoint) whose committed `row_class` ≠ the fresh `classification`. `test_carry` 12.
+- **Impure `api/boq/wizard/review_carry.py`:** `merge_revision_review_carry(boq, sheet_name, source_boq)` reads
+  the just-inserted review rows (uncommitted, same txn) + the original's CURRENT committed `BOQ Nodes` for the
+  mapped source (joined through the committed `BoQ Sheet` — nodes address the sheet by Link, not name; reads
+  `row_class` NEVER `node_type`), runs the pure match+carry, and applies `revision_carry_status` + the override
+  set via targeted `set_value(update_modified=False)`. Content-row filter runs once (`content_rows`). Returns a
+  count summary (`_summarize`, single site). `revision_source_boq(boq)` is the origin gate (`origin=="revision"`
+  AND `source_boq`). **The merge SEAM** (`parse_run._run_parse_worker`) sits inside the per-sheet `try`, AFTER the
+  review-row insert loop and BEFORE `_set_draft_status("Parsed")`, gated on `revision_source_boq_name` (read once
+  per parse). A non-revision parse never enters it → byte-identical (only one extra read-only `get_value`). A merge
+  that raises rides the existing compensating-delete + "Insert error" failure channel. `test_review_carry` 10
+  (integration: statuses, classification carry, parent re-point to the twin's new index, root, plain-matched,
+  blank-spacer no-stamp, summary counts, the origin guard, unmapped no-op).
+- **Tests:** all green in-container. No regressions: parse_run 102, review_screen 260, commit_pipeline 54, the
+  full revision suite (normalize 10 / sheet_match 9 / column_diff 17 / revision_entry 17 / revision_mapping 17 /
+  column_carry 17 / revision_schema 15). Residence ratchet holds (b1 pure-purity 0). Both /code-review axes actioned
+  (Standards dedupe + summary-site cleanup + var renames; Spec confirmed faithful on all 7 invariants).
+- **⚠️ OWNER-CONFIRM (Spec-review flag, not a bug):** the **missing-parent-twin** row (D7 "→ review") drops the
+  uncarried parent and stays `Matched` (calm) — its parenting reverts to the parser and is surfaced INDIRECTLY via
+  S7's removed-parent advisory, NOT via a dedicated needs-action status (D7 offers no status for "parent lost", and
+  the marks are only New/Ambiguous/Drifted). Faithful to the spec as written; flag for owner if a direct alert was
+  intended. **S7 (review delta FE) is the next slice** — it consumes `revision_carry_status`.
+
 ### S7 — Review delta surfacing (Wave 5) `[frontend]`
 **Why (D7):** the human must see the small set that matters — and **only** it.
 - **Carried rows get NO treatment** — the calm default, visually identical to an untouched row. ~90% of rows

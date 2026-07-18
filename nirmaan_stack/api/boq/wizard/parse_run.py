@@ -27,6 +27,12 @@ from nirmaan_stack.services.boq_parser.config import (
 )
 from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
 from nirmaan_stack.services.boq_parser.orchestrator import ParsedBoq, parse_boq
+# Revision review-carry merge seam (ADR-0014 D6/D7, #1102). review_carry imports only frappe +
+# the pure services.boq_revision modules -- no cycle back into parse_run.
+from nirmaan_stack.api.boq.wizard.review_carry import (
+    merge_revision_review_carry,
+    revision_source_boq,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -836,6 +842,11 @@ def _run_parse_worker(
             if row.source_sheet_name
         }
 
+        # Revision review-carry (ADR-0014 D6/D7, #1102): read the origin ONCE. None for every
+        # non-revision parse -> the per-sheet merge seam below is skipped and the parse stays
+        # byte-identical.
+        revision_source_boq_name = revision_source_boq(boq_name)
+
         for parsed_sheet in parsed.sheets:
             sheet_name = parsed_sheet.sheet_name
             try:
@@ -852,6 +863,15 @@ def _run_parse_worker(
                     doc = frappe.new_doc("BoQ Review Row")
                     doc.update(row_dict)
                     doc.insert(ignore_permissions=True)
+
+                # Revision review-carry MERGE SEAM (ADR-0014 D6/D7, #1102): AFTER the insert
+                # loop (final row_index es exist for the relational re-point) and BEFORE the
+                # Parsed status write. Runs ONLY for a revision sheet; the merge no-ops for an
+                # unmapped/general-specs sheet. A failure raises into the except block below,
+                # which compensating-deletes the sheet's rows + marks "Insert error" (D7's
+                # ready-made durable failure channel) -- the same transaction as the inserts.
+                if revision_source_boq_name:
+                    merge_revision_review_carry(boq_name, sheet_name, revision_source_boq_name)
 
                 # Mark Parsed -- but NOT general-specs sheets (they are not data sheets).
                 # Stamp parse-history fields alongside status in the same DB write so the
