@@ -1179,6 +1179,12 @@ def _apply_and_save_row_edit(
 # Endpoints
 # ---------------------------------------------------------------------------
 
+# S5b (#1103): cap the D6 REMOVED-original descriptions shipped in the revision meta block. The
+# panel renders a COUNT (removed_count is exact); the descriptions ride a hover tooltip, so a
+# sample is enough and a pathological revision that dropped hundreds of rows never bloats the payload.
+_REVISION_REMOVED_SAMPLE_CAP = 50
+
+
 @frappe.whitelist()
 def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     """
@@ -1241,6 +1247,10 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "edit_log", "edited_by", "edited_at",
         # human-only annotation (Slice C-v2c) -- NOT an edit; never sets edited_at
         "remarks",
+        # Revised-BoQ review carry (S5a/S5b, #1102/#1103). Stamped by the post-parse merge on a
+        # revision sheet's matched-content rows (Matched/New/Ambiguous/Drifted); blank on every
+        # upload/template row -> the frontend Status column + delta panel stay inert off a revision.
+        "revision_carry_status",
         # C-flag-dismissal: per-row "Looks OK" acknowledgment (NOT an edit; row stays
         # "Original"). Rides the row payload so the frontend can render the dismissed
         # marker + derive the "N total -- C cleared" summary; no new endpoint.
@@ -1349,12 +1359,38 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
     gemini_enabled = bool(get_boq_classifier_settings().get("boq_ai_enabled"))
+
+    # S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta block -- None for an upload/template
+    # sheet (the whole review screen stays byte-identical off a revision). Per-row deltas ride each
+    # row's revision_carry_status (fetched above); only the D6 REMOVED originals need a sheet-level
+    # block -- they have no revised row to stamp, so they are recomputed read-side (stable: review
+    # descriptions are immutable post-parse; see revision_removed_original_descriptions). Lazy import
+    # mirrors derive_effective_levels above (review_carry imports only frappe + the pure services).
+    revision_meta = None
+    from nirmaan_stack.api.boq.wizard.review_carry import (
+        revision_removed_original_descriptions,
+        revision_source_boq,
+    )
+    source_boq = revision_source_boq(boq_name)
+    if source_boq:
+        removed = revision_removed_original_descriptions(boq_name, sheet_name, source_boq)
+        revision_meta = {
+            "is_revision": True,
+            "removed_count": len(removed),
+            # Cap the shipped descriptions (the panel shows a count; the sample rides a tooltip).
+            "removed_descriptions": removed[:_REVISION_REMOVED_SAMPLE_CAP],
+            # source_version -> the "carried from v{n}" chip/advisory label (the source docname
+            # itself is not surfaced this slice -> not shipped).
+            "source_version": frappe.db.get_value("BOQs", source_boq, "version"),
+        }
+
     return {
         "rows": rows,
         "work_packages": work_packages,
         "column_descriptors": column_descriptors,
         "flags": flags,
         "gemini_enabled": gemini_enabled,
+        "revision": revision_meta,
     }
 
 

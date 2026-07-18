@@ -83,20 +83,17 @@ def _committed_nodes(source_boq: str, source_sheet_name: str) -> list:
     )
 
 
-def merge_revision_review_carry(boq_name: str, sheet_name: str, source_boq: str) -> dict:
-    """Merge the original's overrides onto the revision's freshly-parsed review rows (D6/D7).
+def _load_and_match(boq_name: str, sheet_name: str, source_boq: str):
+    """Load the revised review rows + the original's committed nodes and run the D6 match.
 
-    Reads the just-inserted `BoQ Review Row`s for (boq_name, sheet_name) -- VERBATIM #152, seen
-    uncommitted in the same transaction -- and the original's committed nodes for this sheet's
-    mapped source, matches by D6, and applies the D7 override carry + `revision_carry_status`
-    stamps via targeted `set_value`s. Returns a summary count dict (for logging / tests).
-
-    A no-op (returns zeros) when the sheet is unmapped or the source has no committed nodes --
-    e.g. a general-specs sheet (no review rows) or a declared-New sheet.
+    Returns `(match, content_rows, review_rows, nodes)`, or `None` when there is nothing to match
+    (unmapped sheet / no review rows / no committed nodes). The SINGLE place the match inputs are
+    built -- shared by the parse-time write merge and the read-time removed-advisory helper so the
+    D6 match is defined exactly once (no forked MatchRow construction).
     """
     source_sheet_name = _source_sheet_name(boq_name, sheet_name)
     if not source_sheet_name:
-        return _summarize({})
+        return None
 
     review_rows = frappe.db.get_all(
         "BoQ Review Row",
@@ -105,11 +102,11 @@ def merge_revision_review_carry(boq_name: str, sheet_name: str, source_boq: str)
         order_by="row_index asc",
     )
     if not review_rows:
-        return _summarize({})
+        return None
 
     nodes = _committed_nodes(source_boq, source_sheet_name)
     if not nodes:
-        return _summarize({})
+        return None
 
     # Content rows only (non-blank N2 description). A blank/spacer row is never matched -- it
     # carries nothing and gets no stamp (the calm default). One filter, one normalizer pass.
@@ -126,6 +123,25 @@ def merge_revision_review_carry(boq_name: str, sheet_name: str, source_boq: str)
     ]
 
     match = match_rows(original_rows, revised_rows)
+    return match, content_rows, review_rows, nodes
+
+
+def merge_revision_review_carry(boq_name: str, sheet_name: str, source_boq: str) -> dict:
+    """Merge the original's overrides onto the revision's freshly-parsed review rows (D6/D7).
+
+    Reads the just-inserted `BoQ Review Row`s for (boq_name, sheet_name) -- VERBATIM #152, seen
+    uncommitted in the same transaction -- and the original's committed nodes for this sheet's
+    mapped source, matches by D6, and applies the D7 override carry + `revision_carry_status`
+    stamps via targeted `set_value`s. Returns a summary count dict (for logging / tests).
+
+    A no-op (returns zeros) when the sheet is unmapped or the source has no committed nodes --
+    e.g. a general-specs sheet (no review rows) or a declared-New sheet.
+    """
+    loaded = _load_and_match(boq_name, sheet_name, source_boq)
+    if loaded is None:
+        return _summarize({})
+    match, content_rows, review_rows, nodes = loaded
+
     carries = build_review_carry(
         [{"row_id": r.row_index, "classification": r.classification} for r in content_rows],
         {n.name: n for n in nodes},
@@ -147,6 +163,31 @@ def merge_revision_review_carry(boq_name: str, sheet_name: str, source_boq: str)
         )
 
     return _summarize(carries, match)
+
+
+def revision_removed_original_descriptions(
+    boq_name: str, sheet_name: str, source_boq: str
+) -> list[str]:
+    """Descriptions of the original's committed CONTENT rows with NO match in this revision (D6
+    REMOVED), physical order. READ-ONLY -- runs only `match_rows` (never the override carry or any
+    write); the S5b review screen surfaces these as a muted advisory line.
+
+    Recomputed on READ -- deliberately NOT persisted like the per-row `revision_carry_status`.
+    A REMOVED row is an ORIGINAL-side outcome (no revised row exists to stamp), and the answer is
+    STABLE because review-row descriptions are immutable after parse (only classification / parent /
+    annotations / numeric values are editable). This is the precise reason T6 could not recompute
+    the per-row carry STATUS on read -- that one shifts as the human overrides the revision -- while
+    the removed SET safely can.
+    """
+    loaded = _load_and_match(boq_name, sheet_name, source_boq)
+    if loaded is None:
+        return []
+    match, _content_rows, _review_rows, nodes = loaded
+    return [
+        (n.description or "")
+        for n in nodes
+        if match.original_outcome.get(n.name) == REMOVED
+    ]
 
 
 def _summarize(carries: dict, match=None) -> dict:

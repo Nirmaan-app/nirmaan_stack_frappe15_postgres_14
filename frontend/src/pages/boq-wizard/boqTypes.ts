@@ -1,6 +1,10 @@
 // Shared wizard types for the BoQ Upload wizard (Module 2b onward).
 // Both BoqUploadScreen and BoqHubPage import from here -- do NOT duplicate.
 
+// S5b (#1103, ADR-0014 D7): revised-BoQ review delta types live in the pure delta module
+// (revisionReviewDelta.ts imports nothing from here -> one-directional, no cycle).
+import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
+
 /**
  * Friendly display labels for all 21 parser role values.
  * Single source of truth -- SheetConfigPanel's ROLES_BY_GROUP and SheetDataGrid
@@ -554,6 +558,15 @@ export interface ReviewRow {
   // winning Source is conveyed SOLELY by the source-tagged status badge (Accepted·Claude /
   // Accepted·Gemini; manual reads "Edited"; untouched reads "Original"/parser).
   chosen_source?: "parser" | "claude" | "gemini" | "manual";
+
+  // ── Revised-BoQ review carry (S5a/S5b, #1102/#1103, ADR-0014 D7). ADDITIVE-ONLY. ───────────
+  // Stamped by the post-parse merge (review_carry.py) ONLY on a revision sheet's matched-content
+  // rows: "Matched" (carried -- the calm default, no treatment), "New" / "Ambiguous" / "Drifted"
+  // (a delta that surfaces in the existing Status column + the needs-action panel). Blank/absent on
+  // every upload/template row and on a revision sheet's blank/spacer rows -> the review screen is
+  // byte-identical off a revision. "REMOVED" is never a value (an original-only outcome with no
+  // revised row -- surfaced as the panel's muted removed-row advisory line instead).
+  revision_carry_status?: RevisionCarryStatus | null;
 }
 
 /**
@@ -599,6 +612,12 @@ export interface GetReviewRowsResponse {
   // sibling in this response -- Claude's enable lives in a separate settings home and is read
   // elsewhere; only gemini_enabled rides this payload.
   gemini_enabled?: boolean;
+  // S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta block -- present (is_revision:true) only
+  // for a revision sheet, null/absent for upload/template. Carries the D6 REMOVED originals count
+  // + descriptions (recomputed read-side, since REMOVED rows have no revised row to stamp) and the
+  // original's version for the "carried from v{n}" label. Per-row deltas ride each ReviewRow's
+  // revision_carry_status; only the removed advisory needs this sheet-level block.
+  revision?: RevisionReviewMeta | null;
 }
 
 /**

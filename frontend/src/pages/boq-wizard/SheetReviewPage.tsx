@@ -1157,6 +1157,9 @@ const SheetReviewPage = () => {
           selectable={isTemplateOrigin && !readOnly}
           canCreateRows={isTemplateOrigin && !readOnly}
           onSelectionChanged={() => { void mutate(); void breaksMutate(); }}
+          // S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta -- null for upload/template so the
+          // Status column + delta panel stay inert (byte-identical off a revision).
+          revisionMeta={reviewData?.message?.revision ?? null}
         />
       )}
 
