@@ -659,3 +659,51 @@ and formula-complete. A non-revision commit early-returns before any DML → **b
   row_category 26, classify 38, parse_run 102, review_screen 260, commit_validation 51). Residence ratchet holds.
   ⚠️ **PROD counts still owed** — dev matches the plan (Formula 46 / Remark 1 / Color 4 / Dismissal 0 / Recon 0 /
   Category 0). **S9 (cross-BOQ rate carry) is the next slice** — its formula gate depends on this carry.
+
+## Revised BoQ cross-BOQ rate carry (S7a = issue #1105, ADR-0014 D9)
+
+**The money — after a revision is committed, one explicit action pulls the ORIGINAL's rates across.** Not
+net-new plumbing: it is `pricing.py`'s same-BOQ copy-forward classifier pointed cross-BOQ, wearing
+`classify.py`'s Redis-marker long-job scaffolding. `BoQ Cell Pricing` needs **no migration** (`boq` is already
+in its 5-part identity). Backend-only slice; the hub-footer action + grid amber-fill are S10 (#1106).
+- **Pair-aware version guard (must-fix, `pricing.py`):** the two inline `from_version == current_version` throws
+  (`get_copy_forward_plan`, `apply_copy_forward`) are extracted to the SINGLE home
+  `pricing._assert_carry_versions_distinct(source_boq, source_version, dest_boq, dest_version)` — throws ONLY when
+  `source_boq == dest_boq AND source_version == dest_version`. Same-BOQ copy-forward passes `(boq, from, boq, cur)`
+  → **byte-identical** (still rejects `from == cur`); cross-BOQ v1→v1 across two BOQs now **passes** (the commonest
+  case). Copy-forward regression: pricing 185 green.
+- **Shared rate-carry resolver (`pricing._resolve_rate_carry_target`):** the CF3 rate-column re-resolution +
+  priceability re-gate + clean-vs-conflict step is now ONE function called by BOTH `_build_copy_forward_plan` and the
+  cross-BOQ `_classify_carry` — so the two carry paths **cannot drift** (the plan's "plan and apply must not drift").
+  Returns `(target_col, skip_reason, dest_cell)`; reason STRINGS stay local (context phrasing). `allow_non_priceable`
+  is NOT honoured on any carry path (hard skip).
+- **Impure `api/boq/wizard/cross_boq_carry.py`:** `get_cross_boq_carry_plan(source_boq, source_version, dest_boq,
+  sheet_names?)` (READ) + `start_cross_boq_carry(...)` (long job) + `get_cross_boq_carry_status(dest_boq)` (poll
+  fallback). `_classify_carry(ctx, match)` is the SHARED classifier (plan + apply both re-derive it over a fresh D6
+  match — client outcome/target-col/rate NEVER trusted; only `overwrite` is honoured, on a conflict). Plan is
+  **source-driven** (iterate the original's `is_filled` cells) ⇒ D6 `NEW` rows never enter (their count is reported
+  separately as `needs_new_value_count`, the S10 amber surface). **Destination-keyed** `(dest_excel_row, area,
+  rate_kind)`; each entry carries both `source_excel_row` + `dest_excel_row` (they DIFFER under D6). Split skip
+  taxonomy: `removed` (D6 REMOVED) / `ambiguous` (D6 AMBIGUOUS) / `no_rate_column` / `non_priceable` / `invalid`
+  (apply-time) — hoisted to `_PLAN_SKIP_REASONS` (+ `invalid` = `_APPLY_SKIP_REASONS`).
+- **D6 twin:** `commit_overlay.committed_excel_row_match` was promoted PUBLIC (returns the full `RowMatchResult` —
+  the twin map PLUS `original_outcome`, needed to split removed vs ambiguous); `_excel_twin_map` is now a thin
+  projection over it (one matcher, no duplicate — ADR-0010 "one owner").
+- **Source resolution (server-authoritative):** per dest committed sheet, source = `BOQs.source_boq` +
+  the committed `BoQ Sheet.source_sheet_name` provenance (S8-stamped; falls back to the draft pointer), read at the
+  source sheet's **CURRENT committed version** (`is_current` — freshest rates, chain-aware, consistent with the
+  overlay twin). The endpoint's `source_boq` is **validated** against the resolved original (reject a mismatch, never
+  silently ignore); `source_version` stays advisory (per-sheet resolution). ⚠️ OWNER-CONFIRM: rates read from the
+  source's `is_current` version, not the provenance-pinned `source_commit_version`.
+- **Long-job worker `_carry_rates_worker`:** a LOOP over the selected sheets with **PER-SHEET failure isolation** —
+  one `_guard_sheet_not_locked` → formula-complete gate → single-editor `acquire_or_refresh` → writes →
+  ONE `frappe.db.commit()` per sheet, rollback-on-failure. A held lock / incomplete formulas / unexpected error fails
+  **ONE sheet** (added to `failed` with a reason), never the batch. Terminal via `_publish_carry_event` (Redis status
+  + clear marker + publish — commit-before-publish). Emits `boq:carry_rates_done {carried, failed}` (+ benign extras
+  `conflicts_overwritten/kept`, `skipped`).
+- **Tests:** `test_cross_boq_carry.py` (17) — every plan outcome, the moved-column re-resolution (target E not the
+  source's D), NEW-row absence + count, conflict keep/overwrite, crafted-skip rejection, per-sheet formula-gate +
+  held-lock isolation, the pair-guard (v1→v1 cross-BOQ accepted / same-boq same-version rejected), source_boq
+  mismatch. No regressions (pricing 185, commit_overlay 18, review_carry 10, commit_pipeline 54, review_screen 260,
+  parse_run 102, classify 38, commit_validation 51, revision suites). Residence ratchet holds (b1=0).
+  **S10 (#1106, rate-carry FE) is the next slice.**

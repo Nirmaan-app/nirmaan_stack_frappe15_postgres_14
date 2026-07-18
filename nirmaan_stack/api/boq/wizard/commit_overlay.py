@@ -189,27 +189,39 @@ def _guarded(label: str, fn):
 # ---------------------------------------------------------------------------
 
 
-def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docname) -> dict:
-    """source excel_row -> dest excel_row for MATCHED content rows (a self-contained D6 match on
-    the committed tier).
+def committed_excel_row_match(source_boq, source_sheet_docname, dest_boq, dest_sheet_docname):
+    """The SHARED committed-tier D6 match between two committed sheets, keyed by the durable Excel
+    address (source_row_number) on each side. Returns the full `RowMatchResult` -- the twin map
+    (`original_to_revised`: source excel_row -> dest excel_row) PLUS the per-source-row outcome
+    (`original_outcome`: MATCHED | REMOVED | AMBIGUOUS). The single owner of "match two committed
+    sheets by row", consumed by BOTH S8's commit overlay (needs only the twin map) and S9's
+    cross-BOQ rate carry (needs the outcome too, to split its skip taxonomy into removed vs
+    ambiguous). One matcher, no duplicate -- the plan the human reviewed and the plan apply
+    enforces stay derivable from the same call.
 
-    Reads BOTH sides' committed `BOQ Nodes` (source_row_number = the durable Excel address = the
-    annotation `excel_row`) and re-runs the certified `match_rows`, keyed by source_row_number on
-    each side so the map is excel_row -> excel_row directly. The DESCRIPTION key is the primary
-    signal and is byte-stable (human review never edits a description), so this reproduces the
-    intent of S6's parse-time pairing for the common (unique-description) case.
+    Reads BOTH sides' committed `BOQ Nodes` and re-runs the certified pure `match_rows`. The
+    DESCRIPTION key is the primary signal and is byte-stable (human review never edits a
+    description), so this reproduces the intent of the parse-time pairing for the common
+    (unique-description) case.
 
     NOTE on `level`: this reads the committed `BOQ Nodes.level` (the ADR-0009 EFFECTIVE-tree
     nesting depth) on BOTH sides, not the parser-native level -- the committed source has no other.
     Using the SAME committed convention on both sides keeps section-header identification internally
     consistent. `level` feeds ONLY the duplicate-description (N=M>1) section tiebreak; a unique
-    description ignores it, and a genuine mismatch degrades to AMBIGUOUS -> the annotation SAFELY
-    drops (never a wrong carry). Only MATCHED pairs appear; a REMOVED / AMBIGUOUS / NEW row is
-    absent -> its annotations drop.
-    """
+    description ignores it, and a genuine mismatch degrades to AMBIGUOUS -> the row SAFELY drops
+    (never a wrong carry). Only MATCHED pairs appear in the twin map; a REMOVED / AMBIGUOUS / NEW
+    row is absent."""
     orig = _match_rows_from_nodes(source_boq, source_sheet_docname)
     rev = _match_rows_from_nodes(dest_boq, dest_sheet_docname)
-    return match_rows(orig, rev).original_to_revised
+    return match_rows(orig, rev)
+
+
+def _excel_twin_map(source_boq, source_sheet_docname, dest_boq, dest_sheet_docname) -> dict:
+    """source excel_row -> dest excel_row for MATCHED content rows -- the twin map alone (S8's
+    layer carries need only this projection of `committed_excel_row_match`)."""
+    return committed_excel_row_match(
+        source_boq, source_sheet_docname, dest_boq, dest_sheet_docname
+    ).original_to_revised
 
 
 def _match_rows_from_nodes(boq, sheet_docname) -> list:
