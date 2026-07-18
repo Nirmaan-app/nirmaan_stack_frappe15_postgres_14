@@ -309,12 +309,16 @@ into the safe branch.**
   every matched sheet to `Pending` while STILL carrying the map (logged via `frappe.logger("boq_revision")`, not
   silent). **No new schema** — the disposition rides `wizard_status` + the seeded `sheet_config`.
 - **Diagnostics returned, not persisted:** confirm's response gains `dispositions: [{sheet_name, status, reasons,
-  dangling_roles, description_set_changed}]` per mapped data sheet, so a caller can surface the dangling-role flag +
-  the description-set config-time warning without re-reading the workbook. **The VISIBLE config-screen surfacing is
-  a FRONTEND follow-on** (the existing `SheetConfigPanel` has only the per-area `hasStrandedRoles` check; a
-  "role→missing column" indicator "of the same shape" is the next piece). It genuinely needs this backend data: the
-  config screen's windowed preview cannot reliably re-derive a dangling role (a mapped column blank in the first N
-  preview rows would false-flag), so the full-sheet `dangling_roles` must come from here.
+  dangling_roles, description_set_changed}]` per mapped data sheet.
+- **FRONTEND surfacing (SHIPPED):** the pure `revisionConfigFlags.ts` (`computeDanglingRoles` /
+  `hasDanglingDescription`, F4 — unit-tested) re-derives the dangling roles on the config screen from the seeded
+  role map vs the columns present in the loaded preview (`SheetConfigPanel.allColumns`). **REVISION-ONLY** (keyed off
+  the new `sourceSheetName` prop = `BoQ Sheet Draft.source_sheet_name`, so the normal upload flow is byte-identical)
+  and a **SOFT flag** (per-column `border-destructive` + inline message, same shape as `hasStrandedRoles`, but does
+  NOT block Config Done — the WINDOWED preview can't authoritatively prove a column is gone, so a false positive must
+  never trap the user) + an amber config-time **warning banner** in Section 3 (names the dropped columns; calls out a
+  Description-set change). Empty preview ⇒ no flag (never flag before the columns load). `BoQSheetDraft.source_sheet_name`
+  widened in `boqTypes.ts`.
 - **Tests:** `services/boq_revision/test_column_diff.py` (17 — 13 diff + 4 `summarize_columns`) +
   `api/boq/wizard/test_column_carry.py` (17 — seeding integration incl. a real-workbook read + the `dispositions`
   response). No regressions (revision_mapping 17 / revision_entry 17 / sheet_match 9 / normalize 10 / revision_schema

@@ -1822,3 +1822,22 @@ The always-shown screen between upload and hub for a revision (a fresh upload NE
   amber highlight on undecided rows, general-specs toggle shown when the chosen original is general-specs).
   Everything editable, nothing binds until Confirm; shadcn-only; inline errors via `getFrappeError` (no toast).
   boq-wizard vitest 550 green; tsc clean in touched files. Full detail: `boq-revised-upload-plan.md` §S3/§S5.
+
+## Revised BoQ config-screen dangling-role flag (S4/#1101, ADR-0014 D5)
+
+S4's backend carries the ORIGINAL's rectified role map into a matched revision sheet's seeded config; when the
+revised workbook dropped a mapped column, the carried role now points at a column the sheet no longer has. The
+config screen surfaces it:
+- **Pure `revisionConfigFlags.ts` (F4):** `computeDanglingRoles(columnRoleMap, presentColumns, isRevisionSheet)`
+  → the role-mapped column letters absent from the sheet's present columns; `hasDanglingDescription(...)` → any
+  dangling column carries the `description` role (the config-time warning about the changed combined description).
+  Empty `presentColumns` (preview not loaded) → NO dangling (never flag before the columns are known).
+- **`SheetConfigPanel`** takes a new `sourceSheetName` prop (`BoQ Sheet Draft.source_sheet_name`, passed by
+  `SheetSpokePage`, `?? undefined`); its PRESENCE = a revision-carried sheet. `danglingCols` is derived from the
+  seeded map vs `allColumns` (the columns present in the WINDOWED preview). **REVISION-ONLY** (a normal upload's
+  config is built against the preview, so it can never dangle → the normal flow is byte-identical) and a **SOFT
+  flag** — per-column `border-destructive` + inline message (same shape as `hasStrandedRoles`) + an amber Section-3
+  config-time warning banner — that **does NOT block Config Done**. The windowed preview can't authoritatively prove
+  a column is gone, so a false positive must never trap the user (this is the deliberate departure from
+  `hasStrandedRoles`, which is a pure-config check and DOES hard-gate). `BoQSheetDraft.source_sheet_name` widened in
+  `boqTypes.ts`. Tests: `revisionConfigFlags.test.ts` (8); boq-wizard vitest 558 green; tsc clean in touched files.

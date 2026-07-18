@@ -34,6 +34,7 @@ import { useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import type { ColumnRoleEntry, SheetPreviewRow, SkipDefinition, WizardStatus } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
 import { resolveSkipDefinitions, firstDataRow, defsFromLegacyList } from "./skipRows";
+import { computeDanglingRoles, hasDanglingDescription } from "./revisionConfigFlags";
 import { AlertTriangle, Check, CheckCircle2, Info, Loader2, ShieldCheck, X } from "lucide-react";
 import {
   AlertDialog,
@@ -198,6 +199,14 @@ interface SheetConfigPanelProps {
    */
   onEditIntent?: () => void;
   onSaveSuccess: () => void;
+  /**
+   * Revised-BoQ (S4 / #1101, D5): the original committed sheet this draft was carried from,
+   * set ONLY on a revision's matched sheet (`BoQ Sheet Draft.source_sheet_name`). Its PRESENCE
+   * marks this as a revision-carried sheet and enables the dangling-role flag + description
+   * config-time warning (a role in the seeded map pointing at a column the revised sheet no
+   * longer has). Absent on every normal-upload sheet -> that flow is untouched.
+   */
+  sourceSheetName?: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -304,6 +313,7 @@ export function SheetConfigPanel({
   locked = false,
   onEditIntent,
   onSaveSuccess,
+  sourceSheetName,
 }: SheetConfigPanelProps) {
   const parsedConfig = useMemo(() => parseConfig(draftConfig), [draftConfig]);
   const hasPrefill =
@@ -706,6 +716,24 @@ export function SheetConfigPanel({
     return s;
   }, [perAreaRolesAllowed, columnRoleMap]);
   const hasStrandedRoles = strandedCols.size > 0;
+
+  // ── Revised-BoQ dangling roles (S4 / #1101, D5) ──────────────────────────
+  // A role in the SEEDED (carried) map pointing at a column the revised sheet no longer has.
+  // REVISION-ONLY (keyed off sourceSheetName -- a normal upload's config is built against the
+  // preview, so it can never dangle) and a SOFT flag, NOT a hard gate: allColumns comes from
+  // the windowed preview, so it can't authoritatively prove a column is gone -- it surfaces the
+  // likely-removed column for the human, but never blocks Config Done (a false positive must
+  // never trap the user). Same render shape as strandedCols; different consequence.
+  const isRevisionSheet = !!sourceSheetName;
+  const danglingCols = useMemo(
+    () => computeDanglingRoles(columnRoleMap, allColumns, isRevisionSheet),
+    [columnRoleMap, allColumns, isRevisionSheet]
+  );
+  const hasDanglingRoles = danglingCols.size > 0;
+  const danglingDescriptionChanged = useMemo(
+    () => hasDanglingDescription(danglingCols, columnRoleMap),
+    [danglingCols, columnRoleMap]
+  );
 
   // ── Layer-1 section confirmation ──────────────────────────────────────────
   const allSectionsConfirmed =
@@ -1394,6 +1422,33 @@ export function SheetConfigPanel({
           </p>
         </div>
 
+        {/* Revised-BoQ config-time warning (S4 / #1101, D5): the config was carried from the
+            original, but the revised sheet dropped one or more mapped columns. Surfaced here so
+            the human remaps or removes them; it does NOT block Config Done (a soft flag -- the
+            windowed preview can't authoritatively prove a column is gone). */}
+        {hasDanglingRoles && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500 mt-0.5" />
+            <div className="space-y-0.5 text-foreground">
+              <p className="font-medium">
+                Carried column mapping doesn’t match this revised sheet.
+              </p>
+              <p className="text-muted-foreground">
+                {[...danglingCols].sort().join(", ")}{" "}
+                {danglingCols.size === 1 ? "was" : "were"} mapped in the original but{" "}
+                {danglingCols.size === 1 ? "isn’t" : "aren’t"} in this workbook. Remap or remove{" "}
+                {danglingCols.size === 1 ? "it" : "them"} below.
+                {danglingDescriptionChanged && (
+                  <>
+                    {" "}A <span className="font-medium">Description</span> column changed, so the
+                    combined description used across the pipeline will differ.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div
           className={cn(
             "space-y-3",
@@ -1412,6 +1467,9 @@ export function SheetConfigPanel({
             // the dropdown, so the trigger shows the placeholder -- the message below names
             // the offending role so the user knows what to replace.
             const isStranded = strandedCols.has(col);
+            // Revised-BoQ (D5): the seeded map points at a column absent from the revised
+            // sheet. SOFT flag on the column picker -- surfaced, never gating (see danglingCols).
+            const isDangling = danglingCols.has(col);
 
             return (
               <div key={col} className="flex flex-wrap gap-2 items-start">
@@ -1421,7 +1479,7 @@ export function SheetConfigPanel({
                   onOpenChange={(open) => { if (open) touchS3("column_role_map"); }}
                   onValueChange={(newCol) => changeColumn(col, newCol)}
                 >
-                  <SelectTrigger className="w-52">
+                  <SelectTrigger className={cn("w-52", isDangling && "border-destructive")}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1560,6 +1618,15 @@ export function SheetConfigPanel({
                 {isStranded && (
                   <span className="text-xs text-destructive self-center">
                     {ROLE_LABELS[entry.role] ?? entry.role} needs areas — not valid on a single-area sheet. Pick a single-area role (e.g. Quantity Total).
+                  </span>
+                )}
+
+                {/* Revised-BoQ (D5): the carried role points at a column not in the revised
+                    sheet. Flag it (never auto-cleared) so the user remaps or removes it. */}
+                {isDangling && !isStranded && (
+                  <span className="text-xs text-destructive self-center">
+                    Column {col} isn’t in the revised sheet — remap this{" "}
+                    {ROLE_LABELS[entry.role] ?? entry.role} role or remove it.
                   </span>
                 )}
 

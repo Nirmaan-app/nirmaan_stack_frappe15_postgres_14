@@ -105,6 +105,12 @@ export interface BoQSheetDraft {
    */
   sheet_config?: Record<string, unknown> | string | null;
   /**
+   * Revised-BoQ (S4/#1101): the ORIGINAL committed sheet this draft was carried from, set
+   * write-once at revision seeding on a MATCHED sheet (blank on a New sheet / a normal upload).
+   * Its presence marks a revision-carried sheet -- enables the config-screen dangling-role flag.
+   */
+  source_sheet_name?: string | null;
+  /**
    * Set to 1 by the parse worker when it marks a sheet "Parsed". Never cleared.
    * Dirty-detection contract: wizard_status="Config Done" + has_prior_parse=1 means
    * the sheet was parsed then had its config changed (parse is stale).

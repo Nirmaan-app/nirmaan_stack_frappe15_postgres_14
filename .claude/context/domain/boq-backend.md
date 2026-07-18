@@ -573,8 +573,8 @@ rides `wizard_status` + the seeded `sheet_config`.
   `Pending` while STILL carrying the map (logged via `frappe.logger("boq_revision")`, not silent).
 - **Diagnostics returned, NOT persisted:** `confirm_revision_mapping` returns `dispositions:[{sheet_name, status,
   reasons, dangling_roles, description_set_changed}]` per mapped data sheet. The **VISIBLE config-screen flag +
-  config-time warning are a FRONTEND follow-on** (`SheetConfigPanel` today has only the per-area `hasStrandedRoles`
-  check); it needs this backend data because the config screen's WINDOWED preview cannot reliably re-derive a
-  dangling role (a mapped column blank in the first N rows would false-flag).
+  config-time warning are SHIPPED on the frontend** (`SheetConfigPanel` re-derives them from the seeded map vs the
+  loaded preview columns, revision-scoped, as a SOFT non-blocking flag — see `frontend/.claude/context/domain/
+  boq-frontend.md` / `revisionConfigFlags.ts`).
 - **Tests:** `services/boq_revision/test_column_diff.py` (17) + `api/boq/wizard/test_column_carry.py` (17, incl. a
   real-workbook read + the `dispositions` response). No regressions.
