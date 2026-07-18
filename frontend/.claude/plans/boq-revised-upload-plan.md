@@ -285,6 +285,42 @@ rectified map intact; a **blank-header** column never mismatches; a renamed *unm
 wrong row ⇒ the guard mismatches ⇒ `Pending` + seed ⇒ the human fixes `header_row`. **The failure degrades
 into the safe branch.**
 
+**AS-BUILT (S4, #1101):**
+- **Pure `services/boq_revision/column_diff.py`** (ADR-0010 B1): `diff_columns(role_map, original_header_cells,
+  original_universe, revised_header_cells, revised_universe) → ColumnDiffResult(disposition, reasons,
+  dangling_roles, description_set_changed)`. Full-row N2 guard (blanks silent) + new-column + removed-mapped
+  (dangling) + removed-unmapped (silent) + **no-baseline ⇒ unsafe** (a template-origin original whose committed
+  grid was inverted from the role map carries no header row ⇒ can't certify clean ⇒ `Pending`). Also the pure
+  `summarize_columns(rows, header_row_numbers) → (header_cells, universe)`, shared by BOTH sides so the
+  header/universe extraction never forks. **`column_headers` is never read** — the baseline is the committed GRID.
+- **Impure reader/orchestrator `api/boq/wizard/revision_carry.py`** (split out of `revision.py` so each module
+  changes for one reason; `revision.py` 694→466 lines): frozen `CommittedDataSheet` (the 6-key seed blob +
+  `role_map` + `header_row`/`header_row_count`, which travel together) and `SheetCarry`. `_committed_data_sheet`
+  inverts the commit snapshot (`commit_pipeline._write_committed_boq_sheet` pins exactly `header_row /
+  header_row_count / treat_as + column_role_map / column_headers / area_dimensions`; `sheet_name` omitted — the
+  parser injects it). `_original_header_cells` reads the committed grid header row(s). `_read_revised_columns`
+  **reuses the certified `sheet_preview._extract_grid_rows`** (no re-implemented skip logic) + `summarize_columns`;
+  the revised **universe keys off structural presence** (a real header cell, even blank, ∪ any data cell) — NOT
+  data alone — so a blank-but-present amount column in a fresh unpriced revision never false-flags as dangling.
+- **Wired into `confirm_revision_mapping`:** `carry_config_dispositions(source_boq, source_file_url, source_by_tab)`
+  runs per mapped **DATA** tab (general-specs + New sheets excluded). The **seed is ALWAYS the original's rectified
+  role map** for both dispositions; only `wizard_status` differs (clean → `Config Done`, unsafe → `Pending`).
+  Removed-mapped **flags, never auto-clears** (the seed keeps the dangling role). A workbook-read failure degrades
+  every matched sheet to `Pending` while STILL carrying the map (logged via `frappe.logger("boq_revision")`, not
+  silent). **No new schema** — the disposition rides `wizard_status` + the seeded `sheet_config`.
+- **Diagnostics returned, not persisted:** confirm's response gains `dispositions: [{sheet_name, status, reasons,
+  dangling_roles, description_set_changed}]` per mapped data sheet, so a caller can surface the dangling-role flag +
+  the description-set config-time warning without re-reading the workbook. **The VISIBLE config-screen surfacing is
+  a FRONTEND follow-on** (the existing `SheetConfigPanel` has only the per-area `hasStrandedRoles` check; a
+  "role→missing column" indicator "of the same shape" is the next piece). It genuinely needs this backend data: the
+  config screen's windowed preview cannot reliably re-derive a dangling role (a mapped column blank in the first N
+  preview rows would false-flag), so the full-sheet `dangling_roles` must come from here.
+- **Tests:** `services/boq_revision/test_column_diff.py` (17 — 13 diff + 4 `summarize_columns`) +
+  `api/boq/wizard/test_column_carry.py` (17 — seeding integration incl. a real-workbook read + the `dispositions`
+  response). No regressions (revision_mapping 17 / revision_entry 17 / sheet_match 9 / normalize 10 / revision_schema
+  15 / commit_pipeline 54 / parse_run 102 / pricing 185 / review_screen 260 green). The 3 `test_update_sheet_draft`
+  errors are the PRE-EXISTING legacy `work_package`-migration fixture, unrelated to S4.
+
 ### S5 — Mapping screen + hub gate (Wave 4) `[frontend]`
 **Why (D3):** the F1 + F2 controls. **Always shown** on a revision; a fresh upload never sees it.
 - New route `/upload-boq/revision/:boqId/map` (RR v6 `lazy()`, module exports `Component`).

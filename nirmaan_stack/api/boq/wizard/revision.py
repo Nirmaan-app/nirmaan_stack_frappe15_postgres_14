@@ -25,6 +25,7 @@ import os
 
 import frappe
 
+from nirmaan_stack.api.boq.wizard.revision_carry import carry_config_dispositions
 from nirmaan_stack.services.boq_revision.sheet_match import propose_pairing
 
 
@@ -319,13 +320,19 @@ def confirm_revision_mapping(boq: str, mapping) -> dict:
       * Every claimed original must be a real current committed sheet of the source.
 
     Seeding: every tab -> a `BoQ Sheet Draft` at its VERBATIM `sheet_name` + tab-order
-    `sheet_order`, `wizard_status="Pending"` (S4 upgrades a clean matched sheet to `Config
-    Done`), `source_sheet_name` stamped write-once on mapped tabs. A mapped tab whose original
-    is general-specs carries the designation into `general_specs_sheets` (keyed by the
-    revision's OWN name, blank `preamble_text` -- it always re-extracts at parse), unless the
-    human opted out (`general_specs: false`).
+    `sheet_order`, `source_sheet_name` stamped write-once on mapped tabs. S4 (D5) then decides
+    each mapped DATA sheet's config carry: the draft is seeded with the original's rectified
+    `column_role_map` (`sheet_config`), and `wizard_status` is `Config Done` when the revised
+    columns are structurally clean vs the original's committed grid, else `Pending` (the human
+    confirms once). New sheets (and any sheet with no carryable config) stay `Pending` with no
+    config. A mapped tab whose original is general-specs carries the designation into
+    `general_specs_sheets` (keyed by the revision's OWN name, blank `preamble_text` -- it
+    always re-extracts at parse), unless the human opted out (`general_specs: false`).
 
-    Returns {"status": "saved", "seeded": <int>}.
+    Returns {"status": "saved", "seeded": <int>, "dispositions": [{"sheet_name", "status",
+    "reasons", "dangling_roles", "description_set_changed"}, ...]} -- one dispositions entry per
+    mapped DATA sheet (D5 diagnostics for surfacing a Pending sheet's dangling roles / config
+    warning; the disposition itself rides wizard_status + the seeded sheet_config, no schema).
     """
     boq_doc = _load_revision(boq)
     if boq_doc.sheet_drafts:
@@ -394,21 +401,52 @@ def confirm_revision_mapping(boq: str, mapping) -> dict:
             )
         claimed[src] = tab
 
+    # S4 (D5): decide config carry + disposition for every mapped DATA sheet. A general-specs
+    # source carries its designation (below), not a data config, so it is excluded here. The
+    # SEED is the original's rectified role map for both dispositions; only the status differs
+    # (clean -> Config Done, unsafe -> Pending). New sheets (src is None) are never in the map.
+    source_by_tab = {
+        tab: src
+        for src, tab in claimed.items()
+        if src not in gs_originals
+    }
+    carry_by_tab = carry_config_dispositions(
+        boq_doc.source_boq, boq_doc.source_file_url, source_by_tab
+    )
+
     # Seed. Append drafts + general-specs designations, then one save + commit.
     seeded = 0
+    dispositions = []  # per mapped-data-sheet diagnostics (D5) -- returned, not persisted
     for idx, tab in enumerate(tab_names, start=1):
         entry = entries_by_name[tab] or {}
         src = entry.get("source_sheet_name") or None
+        carry = carry_by_tab.get(tab)
+        status = carry.status if carry else "Pending"
+        config_json = carry.config_json if carry else None
         boq_doc.append(
             "sheet_drafts",
             {
                 "sheet_name": tab,  # VERBATIM (#152)
                 "sheet_order": idx,
-                "wizard_status": "Pending",
+                "wizard_status": status,  # Config Done for a clean matched data sheet, else Pending
+                "sheet_config": config_json,  # rectified role map (mapped data sheet), else None
                 "source_sheet_name": src,  # write-once cross-doc pointer (None for a New sheet)
             },
         )
         seeded += 1
+        if carry:
+            # Surface the diff diagnostics so the caller can flag a Pending sheet's dangling
+            # roles / description-set change (D5's flag + config-time warning). Not persisted:
+            # the disposition itself rides wizard_status + the seeded sheet_config (no schema).
+            dispositions.append(
+                {
+                    "sheet_name": tab,
+                    "status": status,
+                    "reasons": carry.reasons,
+                    "dangling_roles": carry.dangling_roles,
+                    "description_set_changed": carry.description_set_changed,
+                }
+            )
 
         # Carry general-specs designation: only for a mapped tab whose original IS
         # general-specs, and only if the human did not opt out. Guard against a stale/bad
@@ -425,4 +463,4 @@ def confirm_revision_mapping(boq: str, mapping) -> dict:
 
     boq_doc.save(ignore_permissions=True)
     frappe.db.commit()
-    return {"status": "saved", "seeded": seeded}
+    return {"status": "saved", "seeded": seeded, "dispositions": dispositions}

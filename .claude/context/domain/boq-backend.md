@@ -534,11 +534,47 @@ signature this branch never received) — unchanged by S2.
   is a real committed sheet; then **seeds** each tab as a `Pending` `BoQ Sheet Draft` (VERBATIM `sheet_name`,
   tab-order `sheet_order`, `source_sheet_name` write-once on mapped tabs — the CROSS-DOC pointer). A mapped tab
   whose original is general-specs carries the designation into `general_specs_sheets` (keyed by THIS doc's OWN
-  name #152, blank `preamble_text` — re-extracts at parse) unless opted out. All statuses land `Pending`; S4
-  upgrades a clean matched sheet to `Config Done`. `commit()` after the single save. Returns `{"status":"saved",
-  "seeded":N}`. **Two `source_sheet_name` fields are DISTINCT:** the Draft one points at the original; the
-  general_specs child one is this doc's own name.
+  name #152, blank `preamble_text` — re-extracts at parse) unless opted out. **S4 (below) decides each mapped
+  DATA sheet's config carry + `wizard_status`** (`Config Done` clean / `Pending` unsafe); New + gs + no-config
+  sheets stay `Pending`. `commit()` after the single save. Returns `{"status":"saved","seeded":N,"dispositions":[…]}`.
+  **Two `source_sheet_name` fields are DISTINCT:** the Draft one points at the original; the general_specs child
+  one is this doc's own name.
 
-Tests: `test_revision_mapping.py` (16) + `services/boq_revision/test_normalize.py` (9) + `test_sheet_match.py`
-(9). No regressions (create_from_template 35 / commit_pipeline 54 / review_screen 260 / pricing 185 green;
-residence baselines hold).
+Tests: `test_revision_mapping.py` (17) + `services/boq_revision/test_normalize.py` (10) + `test_sheet_match.py`
+(9). No regressions.
+
+## Revised BoQ config column-diff carry (S4, #1101, ADR-0014 D5)
+
+At seeding, a matched **DATA** sheet's columns are diffed against the original's committed grid; a structurally
+clean sheet lands `Config Done` carrying the original's rectified role map, anything unsafe lands `Pending`. The
+**seed is ALWAYS the original's rectified role map for BOTH dispositions** — only `wizard_status` differs — and
+removed-mapped **flags, never auto-clears** (the seed keeps the dangling role). **NO new schema:** the disposition
+rides `wizard_status` + the seeded `sheet_config`.
+
+- **Pure `services/boq_revision/column_diff.py`** (B1): `diff_columns(role_map, original_header_cells,
+  original_universe, revised_header_cells, revised_universe) → ColumnDiffResult(disposition {clean|unsafe}, reasons,
+  dangling_roles, description_set_changed)`. Full-row **N2** header guard (compare where BOTH non-blank — a shift /
+  mid-sheet insert-or-delete lands different text under the same letter → unsafe), new-column (revised non-blank
+  header ∉ original universe → unsafe), removed-**mapped** (role-map col ∉ revised universe → unsafe + dangling),
+  removed-**unmapped** (silent), **no-baseline** (empty original header ⇒ can't certify clean → unsafe — covers a
+  template-origin original whose committed grid was inverted from the role map, so it carries no header row). Also
+  the pure `summarize_columns(rows, header_row_numbers) → (header_cells, universe)`, shared by both sides so the
+  extraction never forks. **`column_headers` is DEAD DATA — never read;** the baseline is the committed GRID.
+- **Impure `api/boq/wizard/revision_carry.py`** (split from `revision.py`): frozen `CommittedDataSheet`
+  (6-key seed blob + role_map + header_row/count — they travel together) + `SheetCarry`. `_committed_data_sheet`
+  **inverts the commit snapshot** (`commit_pipeline._write_committed_boq_sheet` pins exactly `header_row /
+  header_row_count / treat_as + column_role_map / column_headers / area_dimensions`; `sheet_name` OMITTED — the
+  parser injects it at `_validate_sheet_blob`). `_original_header_cells` reads the committed grid header row(s) at
+  `row_number == header_row .. +count-1`. `_read_revised_columns` **reuses the certified `sheet_preview.
+  _extract_grid_rows`** (not re-implemented) + `summarize_columns`; the revised **universe keys off structural
+  presence** (a real header cell even blank ∪ any data cell), NOT data alone, so a blank-but-present amount column
+  in a fresh unpriced revision never false-flags as dangling. `carry_config_dispositions(source_boq,
+  source_file_url, source_by_tab) → {tab: SheetCarry}`; a workbook-read failure degrades every matched sheet to
+  `Pending` while STILL carrying the map (logged via `frappe.logger("boq_revision")`, not silent).
+- **Diagnostics returned, NOT persisted:** `confirm_revision_mapping` returns `dispositions:[{sheet_name, status,
+  reasons, dangling_roles, description_set_changed}]` per mapped data sheet. The **VISIBLE config-screen flag +
+  config-time warning are a FRONTEND follow-on** (`SheetConfigPanel` today has only the per-area `hasStrandedRoles`
+  check); it needs this backend data because the config screen's WINDOWED preview cannot reliably re-derive a
+  dangling role (a mapped column blank in the first N rows would false-flag).
+- **Tests:** `services/boq_revision/test_column_diff.py` (17) + `api/boq/wizard/test_column_carry.py` (17, incl. a
+  real-workbook read + the `dispositions` response). No regressions.
