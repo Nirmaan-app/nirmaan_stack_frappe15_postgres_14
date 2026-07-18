@@ -122,6 +122,69 @@ def write_row_categories(boq, sheet_name, committed_version, discipline, rows):
     return {"count": len(written), "written": written}
 
 
+# The full machine + human field set a carry reads from a source record and writes to the dest.
+# ONE source of truth so the source read (commit_overlay._carry_categories) and this write can
+# never drift. `excel_row` + `discipline` are the per-row identity the carry re-keys; the rest is
+# the field split preserved verbatim (classified_at carried too -- the same classification, not a
+# re-run). `is_current` / `category_version` are NOT read (the dest is a fresh current at v1).
+CARRY_READ_FIELDS = [
+    "excel_row", "discipline",
+    "rule_category_id", "rule_band", "rule_score",
+    "ai_category_id", "ai_confidence", "final_category_id",
+    "routing", "routing_reason",
+    "human_category_id", "human_verdict_at", "human_verdict_by",
+    "rules_version", "prompt_version", "model", "description", "classified_at",
+]
+
+
+def carry_row_categories(boq, sheet_name, committed_version, rows):
+    """Carry a batch of source category rows onto a FRESH committed version (ADR-0014 D8), the
+    revision commit-overlay's category write.
+
+    PRESERVES THE FIELD SPLIT -- machine -> machine, human -> human -- copying the whole
+    CARRY_READ_FIELDS set verbatim (NEVER routing a machine label into human_category_id: that
+    would replicate the freeze bug, #1096, inside carry). The per-discipline fan-out rides the
+    row list (`discipline` is per-row). NO freeze-and-supersede (the dest (boq, sheet_name,
+    committed_version, discipline, excel_row) triple is brand new -> no prior current to freeze)
+    and NO commit (the caller -- _commit_one_sheet -- owns the single per-sheet transaction, so
+    the whole overlay lands atomically with the commit). category_version = 1, is_current = 1.
+
+    Each row dict carries the CARRY_READ_FIELDS keys (excel_row already re-mapped to the dest by
+    the D6 twin). Returns the count written. sheet_name VERBATIM (#152)."""
+    count = 0
+    for r in rows:
+        doc = frappe.new_doc(_ROW_CATEGORY)
+        doc.boq = boq
+        doc.sheet_name = sheet_name  # VERBATIM (#152)
+        doc.excel_row = r["excel_row"]
+        doc.committed_version = committed_version
+        doc.discipline = r["discipline"]
+        # Machine layer (verbatim).
+        doc.rule_category_id = r.get("rule_category_id") or ""
+        doc.rule_band = r.get("rule_band") or ""
+        doc.rule_score = r.get("rule_score")
+        doc.ai_category_id = r.get("ai_category_id") or ""
+        doc.ai_confidence = r.get("ai_confidence")
+        doc.final_category_id = r.get("final_category_id") or ""
+        doc.routing = r.get("routing")
+        doc.routing_reason = r.get("routing_reason")
+        # Human layer (verbatim -- NEVER folded into the machine fields, and vice-versa).
+        doc.human_category_id = r.get("human_category_id") or ""
+        doc.human_verdict_at = r.get("human_verdict_at")
+        doc.human_verdict_by = r.get("human_verdict_by")
+        # Provenance (carried, not re-stamped -- this is the SAME classification, not a re-run).
+        doc.rules_version = r.get("rules_version")
+        doc.prompt_version = r.get("prompt_version")
+        doc.model = r.get("model")
+        doc.description = r.get("description")
+        doc.category_version = 1
+        doc.is_current = 1
+        doc.classified_at = r.get("classified_at") or frappe.utils.now()
+        doc.insert(ignore_permissions=True)
+        count += 1
+    return count
+
+
 def set_human_verdict(
     boq, sheet_name, excel_row, committed_version, discipline, human_category_id, user=None
 ):

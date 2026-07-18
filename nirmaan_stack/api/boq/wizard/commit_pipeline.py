@@ -76,6 +76,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
+from nirmaan_stack.api.boq.wizard import commit_overlay
 from nirmaan_stack.api.boq.wizard import directional_guard
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
@@ -644,6 +645,15 @@ def _commit_one_sheet(
         node_result = _commit_node_tree(
             boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
             commit_version, committed_at,
+        )
+        # S8 (#1104, ADR-0014 D8): the silent revision commit-overlay carry -- the re-arm-EXEMPT
+        # annotation/formula/category layers + the D2 provenance triple land on the freshly
+        # committed sheet. Runs ONLY for a revision sheet (a non-revision commit no-ops inside ->
+        # byte-identical) and only here (finalized -> the priceable node tier the overlays sit on
+        # now exists). Best-effort per layer (savepoints inside); shares this per-sheet transaction
+        # (NO self-commit) so the whole overlay flushes atomically with the trailing commit below.
+        commit_overlay.carry_commit_overlay(
+            boq_name, sheet_name, commit_version, boq_sheet_name, grid_rows
         )
 
     # OUTPUT-FIDELITY RECONCILIATION (Slice 2) -- grid tier. Verify the persisted faithful

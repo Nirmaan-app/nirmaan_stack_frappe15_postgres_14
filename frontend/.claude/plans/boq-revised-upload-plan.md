@@ -499,6 +499,52 @@ a non-revision commit is **byte-identical**.
 > nodes = **0.14%**; freeze **never used**, 0/554). Pricing and classification are recently shipped, so "zero
 > here" is weak evidence of "zero in prod" — and prod counts could reshape this slice's priority.
 
+**AS-BUILT (S8 = issue #1104 "S6 — commit overlay", `feature/upload-revised-boq`):**
+- **Impure orchestrator `api/boq/wizard/commit_overlay.py`** — `carry_commit_overlay(boq, sheet_name,
+  dest_version, dest_sheet_docname, grid_rows)`. Wired into `commit_pipeline._commit_one_sheet` INSIDE the
+  `if disposition == "finalized":` block, AFTER `_commit_node_tree` (the priceable node tier the overlays sit on
+  now exists) and before the trailing per-sheet commit. Shares that per-sheet transaction (**NO self-commit** — the
+  whole overlay flushes atomically with the commit). A non-revision (upload/template) commit early-returns
+  `_empty_summary()` before any DML → **byte-identical** (proven by the unchanged `test_commit_pipeline` 54).
+- **The re-arm taxonomy IS the carry taxonomy (D8):** carries the EXEMPT set — amount **formula**, **remark**,
+  **color**, **`remark` dismissal**, the whole **category** layer (machine + human) — and NEVER reads the re-armed
+  set (the 4 computed dismissals via a `flag_kind == "remark"` filter; reconciliation choice is simply never read).
+- **Provenance triple** (`source_boq` / `source_commit_version` / `source_sheet_name`, D2) stamped on the committed
+  `BoQ Sheet` via `set_value(update_modified=False)`, OUTSIDE any savepoint (owner-chosen: it must always land so
+  S9 finds the source). `source_commit_version` = the source's CURRENT committed version at carry time.
+- **Excel-row twin map** = pure `row_match.match_rows` re-run on BOTH sides' committed `BOQ Nodes`, keyed by
+  `source_row_number` on each side (→ `original_to_revised` is `source excel_row → dest excel_row` directly). The
+  fixture shifts every revised row +10 (an inserted block) so a naive same-row carry would mis-land — the twin map
+  follows the description. Committed-effective `level` on both sides (used only for the N=M>1 tiebreak; a mismatch
+  degrades to AMBIGUOUS → the annotation SAFELY drops). Only remark/color/dismissal/category use the twin; **formula
+  does not** (it re-validates on the logical axis).
+- **Formula** re-validates each source record against the DEST amount descriptors via the SHARED
+  `pricing._formula_target_matches_column` (never a re-implemented predicate); a match carries with `target_col`
+  **re-resolved** from the matched dest descriptor (a role **SWAP** is correct for free — identity is
+  value_field/value_key/rate_subkey, never the letter), a no-match drops silently, and an uncovered dest amount
+  column stays uncovered → `_sheet_formulas_complete` stays false = **fail-closed** (no new gate). New triple ⇒
+  `_next_formula_version` = 1. ⚠️ All live formulas are WILDCARD (value_key None) — tested (`test_wildcard_*`) plus
+  the untested per-area OVERRIDE branch.
+- **Color** survivor set = the committed grid's column universe UNION the dest `column_role_map` keys (S4's
+  structural-presence reading of "survived the column diff" — a mapped-but-empty column survives openpyxl's
+  trailing-empty skip). **Category** written through the **owner's** new no-commit `persist.carry_row_categories`
+  (a `write_row_categories`-shaped INSERT preserving the machine/human field split; NEVER `set_human_verdict` — that
+  would replicate the #1096 freeze bug inside carry) + `CARRY_READ_FIELDS` (one source/write field-set). Per-discipline
+  fan-out rides the row list; NEW rows land blank (CL-6 amber).
+- **Best-effort PER LAYER (owner-chosen via AskUserQuestion):** each layer runs in its own DB savepoint (`_guarded`,
+  the `bulk_actions`/`create_itms` idiom — rollback BEFORE `log_error`); a layer that raises rolls back ONLY itself
+  and is logged, so the core commit + provenance always stand. This is a DELIBERATE deviation from the ADR's atomic
+  framing (documented in the module docstring).
+- **Tests** `test_commit_overlay.py` (18): the rich fixture (role swap + drop, remark/color survivor+drop,
+  remark-vs-computed dismissal, recon never carried, category field-split + fan-out + NEW-blank, provenance,
+  summary) + `TestCommitOverlayWildcardFormula` (the common prod shape) + `TestCommitOverlayFailClosed`
+  (uncovered dest column keeps the gate closed) + `TestCommitOverlayNonRevision` (non-revision + declared-New no-op).
+  No regressions: commit_pipeline 54, pricing 185, review_carry 10, row_category 26, classify 38, parse_run 102,
+  review_screen 260, commit_gate 33, commit_validation 51 + the revision service suite. Residence ratchet holds
+  (b1 0 / b2 8 / b3 40 / f2 200 / f5 114). Both /code-review axes actioned (Data-Clumps → `_CarryCtx` bundle;
+  twin-map `level` docstring corrected). ⚠️ **PROD counts not confirmed from this env** — dev matches the plan
+  (Formula 46 / Remark 1 / Color 4 / Dismissal 0 / Recon 0 / Category 0); prod-count confirmation is still owed.
+
 ### S9 — Cross-BOQ rate carry backend (Wave 6) `[backend]`
 **Why (D9):** the money. **Isolated late and deliberately last of the carries** — it is the only layer whose
 failure costs real value, and it is the one net-new API surface.

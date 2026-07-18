@@ -622,3 +622,40 @@ nothing — the fresh parse reproduces the parser layer); the revised file stays
   integration). No regressions (parse_run 102, review_screen 260, commit_pipeline 54, the full revision suite).
   Residence ratchet holds (b1 pure-purity 0). Both /code-review axes actioned. **S7 (review delta FE) consumes
   `revision_carry_status` next.**
+
+## Revised BoQ commit overlay — formula/remark/color/category carry (S8 = issue #1104, ADR-0014 D8)
+
+**Impure `api/boq/wizard/commit_overlay.py`** — `carry_commit_overlay(boq, sheet_name, dest_version,
+dest_sheet_docname, grid_rows)`, wired into `commit_pipeline._commit_one_sheet` INSIDE `if disposition ==
+"finalized":`, AFTER `_commit_node_tree` and before the trailing per-sheet commit (shares that transaction —
+**no self-commit**). At a revision sheet's commit it silently carries the **re-arm-EXEMPT** layers onto the fresh
+committed version + stamps the D2 provenance triple, so a committed revision arrives fully annotated, categorised
+and formula-complete. A non-revision commit early-returns before any DML → **byte-identical**.
+
+- **The re-arm taxonomy IS the carry taxonomy:** carries amount **formula** · **remark** · **color** ·
+  **`remark` dismissal** · the whole **category** layer (machine + human). NEVER carries the re-armed set — the 4
+  computed dismissals (`flag_kind == "remark"` filter excludes them) + the reconciliation choice (never read).
+- **Provenance** (`source_boq`/`source_commit_version`/`source_sheet_name`) stamped on the committed `BoQ Sheet`
+  via `set_value(update_modified=False)`, OUTSIDE any savepoint (must always land for S9). `source_commit_version`
+  = the source's CURRENT committed version at carry time.
+- **Excel-row twin map** = pure `row_match.match_rows` re-run over BOTH sides' committed `BOQ Nodes`, keyed by
+  `source_row_number` (→ `source excel_row → dest excel_row`). Committed-effective `level` on both sides (feeds only
+  the N=M>1 tiebreak; a mismatch degrades to AMBIGUOUS → the annotation drops SAFELY). Used for
+  remark/color/dismissal/category; **formula does not use it** (logical axis).
+- **Formula** re-validates against the DEST amount descriptors via the SHARED
+  `pricing._formula_target_matches_column`; a match carries with `target_col` RE-RESOLVED from the matched dest
+  descriptor (role **SWAP** correct for free), a no-match drops silently, an uncovered dest amount column stays
+  uncovered → `_sheet_formulas_complete` false = **fail-closed**. `_next_formula_version` = 1 for the fresh triple.
+  ⚠️ all live formulas are WILDCARD (value_key None).
+- **Color** survivor set = the committed grid's column universe ∪ the dest `column_role_map` keys (S4's
+  structural-presence reading — a mapped-but-empty column survives openpyxl's trailing-empty skip). **Category**
+  written through the owner's new **no-commit `services/boq_category/persist.carry_row_categories`** (+
+  `CARRY_READ_FIELDS`): a `write_row_categories`-shaped INSERT preserving the machine/human field split — **NEVER
+  `set_human_verdict`** (would replicate the #1096 freeze bug inside carry). Per-discipline fan-out; NEW rows blank.
+- **Best-effort PER LAYER (owner-chosen):** each layer runs in its own DB savepoint (`_guarded`, the
+  `bulk_actions`/`create_itms` idiom, rollback-before-`log_error`) — a layer that raises rolls back only itself; the
+  core commit + provenance always stand. A deliberate deviation from the ADR's atomic framing (module docstring).
+- **Tests:** `test_commit_overlay.py` (18). No regressions (commit_pipeline 54, pricing 185, review_carry 10,
+  row_category 26, classify 38, parse_run 102, review_screen 260, commit_validation 51). Residence ratchet holds.
+  ⚠️ **PROD counts still owed** — dev matches the plan (Formula 46 / Remark 1 / Color 4 / Dismissal 0 / Recon 0 /
+  Category 0). **S9 (cross-BOQ rate carry) is the next slice** — its formula gate depends on this carry.
