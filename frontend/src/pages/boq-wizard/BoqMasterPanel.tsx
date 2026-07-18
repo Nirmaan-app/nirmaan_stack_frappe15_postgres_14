@@ -1,9 +1,33 @@
+import { useEffect } from "react";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import ReactSelect from "react-select";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
-import { useBoqWizardStore, type GstChoice } from "@/zustand/useBoqWizardStore";
+import { getSelectStyles } from "@/config/selectTheme";
+import { formatDate } from "@/utils/FormatDate";
+import {
+  useBoqWizardStore,
+  type GstChoice,
+  type RevisionMode,
+} from "@/zustand/useBoqWizardStore";
+
+/** One revisable original as returned by revision.list_revisable_boqs (already eligible + ordered). */
+interface RevisableBoq {
+  name: string;
+  boq_name: string;
+  version: number;
+  uploaded_at: string | null;
+}
+
+/** react-select option: value = BOQs docname (sent as source_boq). */
+interface RevisableOption {
+  value: string;
+  label: string;
+  uploaded_at: string | null;
+}
 
 interface BoqMasterPanelProps {
   projectName: string;
@@ -27,12 +51,70 @@ interface BoqMasterPanelProps {
  *   Project and Customer (read-only) and Notes (optional).
  */
 export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
-  const { panelValues, confirmedFields, setPanelValue, confirmField } =
-    useBoqWizardStore();
+  const {
+    panelValues,
+    confirmedFields,
+    setPanelValue,
+    confirmField,
+    selectedProjectId,
+    uploadStatus,
+    revisionMode,
+    sourceBoq,
+    setRevisionMode,
+    setSourceBoq,
+  } = useBoqWizardStore();
+
+  // Once an upload has fired, the entry (mode + original) is baked into the created BOQs doc
+  // and must not change under the user -- lock the radio + picker until they reset ("Replace
+  // file" returns to idle). Order-independence still holds fully in the idle state.
+  const entryLocked = uploadStatus !== "idle";
 
   function touch(field: keyof typeof confirmedFields) {
     confirmField(field);
   }
+
+  // ── Revisable-original picker (ADR-0014 D1) ───────────────────────────────
+  // Fetch on mount (project set) regardless of mode: an EMPTY list is the signal to
+  // disable the Revise radio. Only eligible BOQs are returned (filter, don't grey),
+  // latest-uploaded first. swrKey null until project known (per the SDK gotcha).
+  const { data: revisableData, isLoading: revisableLoading } = useFrappeGetCall<{
+    message: { revisable: RevisableBoq[] };
+  }>(
+    "nirmaan_stack.api.boq.wizard.revision.list_revisable_boqs",
+    { project: selectedProjectId },
+    selectedProjectId ? `revisable-boqs::${selectedProjectId}` : null
+  );
+
+  const revisable = revisableData?.message?.revisable ?? [];
+  // Only assert "nothing to revise" once we actually have a project AND a settled fetch --
+  // otherwise the null-swrKey pre-project tick would briefly disable the radio for no reason.
+  const noneToRevise = !!selectedProjectId && !revisableLoading && revisable.length === 0;
+
+  const revisableOptions: RevisableOption[] = revisable.map((b) => ({
+    value: b.name,
+    label: `${b.boq_name} — v${b.version}`,
+    uploaded_at: b.uploaded_at,
+  }));
+  const selectedRevisable =
+    revisableOptions.find((o) => o.value === sourceBoq) ?? null;
+
+  // If the list resolves empty while (pre-)selected into Revise, fall back to New so the
+  // user is never stranded in a mode with nothing to pick. setRevisionMode is a stable ref.
+  useEffect(() => {
+    if (noneToRevise && revisionMode === "revise") setRevisionMode("new");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noneToRevise, revisionMode]);
+
+  const formatRevisableOption = (o: RevisableOption) => (
+    <div className="flex flex-col">
+      <span className="text-sm text-foreground">{o.label}</span>
+      {o.uploaded_at && (
+        <span className="text-xs text-muted-foreground">
+          uploaded {formatDate(o.uploaded_at)}
+        </span>
+      )}
+    </div>
+  );
 
   // Sparkle + opacity only when field has a real value AND is unconfirmed.
   const boqNameUnconfirmed = !confirmedFields.boqName && panelValues.boqName !== "";
@@ -41,6 +123,62 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
 
   return (
     <div className="space-y-5">
+      {/* ── Entry mode: New | Revise (ADR-0014 D1) ───────────────────────── */}
+      <div className="space-y-2">
+        <Label>Upload type</Label>
+        <RadioGroup
+          value={revisionMode}
+          onValueChange={(val) => setRevisionMode(val as RevisionMode)}
+          disabled={entryLocked}
+          className="flex gap-6"
+        >
+          <div className="flex items-center gap-2">
+            <RadioGroupItem value="new" id="mode-new" />
+            <Label htmlFor="mode-new" className="cursor-pointer font-normal">
+              New BoQ
+            </Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <RadioGroupItem value="revise" id="mode-revise" disabled={noneToRevise || entryLocked} />
+            <Label
+              htmlFor="mode-revise"
+              className={cn(
+                "font-normal",
+                noneToRevise ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+              )}
+            >
+              Revise existing
+            </Label>
+          </div>
+        </RadioGroup>
+        {noneToRevise && (
+          <p className="text-xs text-muted-foreground">
+            No committed BoQ in this project yet — nothing to revise.
+          </p>
+        )}
+
+        {/* Inline original picker -- appears directly beneath the radio in Revise mode. */}
+        {revisionMode === "revise" && (
+          <div className="pt-1">
+            <ReactSelect<RevisableOption, false>
+              value={selectedRevisable}
+              options={revisableOptions}
+              onChange={(opt) => setSourceBoq(opt ? opt.value : null)}
+              formatOptionLabel={formatRevisableOption}
+              isLoading={revisableLoading}
+              isDisabled={entryLocked}
+              placeholder="Select the BoQ to revise..."
+              classNamePrefix="react-select"
+              styles={getSelectStyles<RevisableOption, false>()}
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              A revision uploads a new workbook against this BoQ and carries forward
+              what still matches.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* ── Project -- read-only (M1.19) ─────────────────────────────────── */}
       <div className="space-y-1.5">
         <Label>Project</Label>

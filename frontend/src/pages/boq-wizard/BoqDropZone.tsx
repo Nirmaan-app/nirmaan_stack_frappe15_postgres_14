@@ -15,6 +15,9 @@ function fmtBytes(bytes: number): string {
 
 export function BoqDropZone() {
   const inputRef = useRef<HTMLInputElement>(null);
+  // In Revise mode a file dropped BEFORE an original is picked is HELD here (order-independence,
+  // ADR-0014 D1) and uploaded once the original is selected -- source_boq must ride the POST.
+  const pendingFileRef = useRef<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [takingLong, setTakingLong] = useState(false);
@@ -22,12 +25,17 @@ export function BoqDropZone() {
   const {
     droppedFile,
     uploadStatus,
-    selectedProjectId,
+    revisionMode,
+    sourceBoq,
     setDroppedFile,
     setUploadStatus,
     setJobId,
     resetUpload,
   } = useBoqWizardStore();
+
+  // Upload may start only when the entry is unambiguous: a New upload always may; a Revise
+  // upload waits for an original to be picked (so source_boq is present in the POST).
+  const readyToUpload = revisionMode !== "revise" || !!sourceBoq;
 
   // 30-second soft "taking longer" message -- fires during parsing, not a timeout.
   useEffect(() => {
@@ -39,13 +47,34 @@ export function BoqDropZone() {
     return () => clearTimeout(t);
   }, [uploadStatus]);
 
+  // Deferred upload (order-independence): once the entry becomes unambiguous -- New, or Revise
+  // with an original picked -- upload any file that was dropped earlier and held.
+  useEffect(() => {
+    if (readyToUpload && pendingFileRef.current && uploadStatus === "idle") {
+      const held = pendingFileRef.current;
+      pendingFileRef.current = null;
+      void triggerUpload(held);
+    }
+    // triggerUpload reads fresh state via getState(); safe to exclude from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyToUpload, uploadStatus]);
+
   async function triggerUpload(file: File): Promise<void> {
+    // Read fresh state at call time -- this can fire from an effect after the original is
+    // picked, so a render-time closure could be stale.
+    const {
+      selectedProjectId: projectId,
+      revisionMode: mode,
+      sourceBoq: src,
+    } = useBoqWizardStore.getState();
     setUploadStatus("uploading");
     setLocalError(null);
     try {
       const fd = new FormData();
-      fd.append("project_id", selectedProjectId);
+      fd.append("project_id", projectId);
       fd.append("file", file, file.name);
+      // A revision carries source_boq -> the picked original (ADR-0014 D1/D2).
+      if (mode === "revise" && src) fd.append("source_boq", src);
 
       const res = await fetch(
         "/api/method/nirmaan_stack.api.boq.wizard.upload_file.upload_file",
@@ -89,7 +118,14 @@ export function BoqDropZone() {
     }
     setLocalError(null);
     setDroppedFile({ name: file.name, size: file.size });
-    void triggerUpload(file);
+    if (readyToUpload) {
+      pendingFileRef.current = null;
+      void triggerUpload(file);
+    } else {
+      // Revise mode, no original picked yet: hold the file. The effect below uploads it
+      // as soon as an original is selected (D1: file-drop and pick are order-independent).
+      pendingFileRef.current = file;
+    }
   }
 
   function onInputChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -144,7 +180,7 @@ export function BoqDropZone() {
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
         >
           Try a different file
         </button>
@@ -165,7 +201,7 @@ export function BoqDropZone() {
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
         >
           Try a different file
         </button>
@@ -186,7 +222,7 @@ export function BoqDropZone() {
         <button
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
-          onClick={() => { resetUpload(); setLocalError(null); setTakingLong(false); }}
+          onClick={() => { pendingFileRef.current = null; resetUpload(); setLocalError(null); setTakingLong(false); }}
         >
           Try a different file
         </button>
@@ -205,6 +241,12 @@ export function BoqDropZone() {
             <p className="text-xs text-muted-foreground">{fmtBytes(droppedFile.size)}</p>
           </div>
         </div>
+        {/* Revise mode, file held pending an original pick (D1 order-independence). */}
+        {!readyToUpload && uploadStatus === "idle" && (
+          <p className="text-xs text-muted-foreground">
+            Select the BoQ to revise to start uploading.
+          </p>
+        )}
         {localError && (
           <p className="text-sm text-destructive">{localError}</p>
         )}
@@ -212,6 +254,7 @@ export function BoqDropZone() {
           type="button"
           className="text-sm text-primary underline-offset-4 hover:underline"
           onClick={() => {
+            pendingFileRef.current = null;
             resetUpload();
             setLocalError(null);
             setTakingLong(false);

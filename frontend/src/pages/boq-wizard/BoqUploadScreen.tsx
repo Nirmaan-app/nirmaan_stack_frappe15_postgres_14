@@ -81,6 +81,8 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
     confirmedFields,
     boqDocName,
     jobId,
+    revisionMode,
+    sourceBoq,
     setUploadStatus,
     setBoqDocName,
     fillFromParse,
@@ -173,15 +175,21 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boqDoc, uploadStatus]);
 
-  // ── Continue gate (M1.33-M1.36) ──────────────────────────────────────────
+  // ── Continue gate (M1.33-M1.36; ADR-0014 D1 adds "original selected" in Revise mode) ──
   const allConfirmed =
     confirmedFields.boqName && confirmedFields.version && confirmedFields.gst;
-  const canContinue = droppedFile !== null && uploadStatus === "done" && allConfirmed;
+  // A revision must have its original picked before Continue (source_boq rides the upload).
+  const needsOriginal = revisionMode === "revise" && !sourceBoq;
+  const canContinue =
+    droppedFile !== null && uploadStatus === "done" && allConfirmed && !needsOriginal;
 
   const missingItems: string[] = [];
+  if (needsOriginal) missingItems.push("select the original BoQ to revise");
   if (!droppedFile) {
     missingItems.push("upload a BoQ file");
-  } else if (uploadStatus !== "done") {
+  } else if (uploadStatus !== "done" && !needsOriginal) {
+    // In Revise mode the upload is held until the original is picked -- don't mislabel that
+    // wait as "parsing"; the needsOriginal item already tells the user what to do.
     missingItems.push("wait for parsing to complete");
   }
   if (!confirmedFields.boqName) missingItems.push("confirm BoQ name");

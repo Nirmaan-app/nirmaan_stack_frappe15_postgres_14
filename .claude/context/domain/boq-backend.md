@@ -478,3 +478,31 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/`. All use `@frappe.w
 - **PARITY INVARIANT (load-bearing):** the preflight and the real commit MUST feed `resolve_effective` IDENTICAL inputs or the preview diverges from the write. Both `commit_pipeline._REVIEW_ROW_FIELDS` and `commit_validation._PLAN_REVIEW_ROW_FIELDS` SPREAD the single shared constant `RESOLVE_EFFECTIVE_COMMIT_INPUT_FIELDS` (human > parser; **NO `ai_*`** -- an AI acceptance folds the accepted axis to `human_*`, so feeding `ai_*` would re-apply an UN-accepted AI suggestion on a partially-accepted row). Caught by an adversarial review; fixed + guarded by `test_commit_validation.TestPreflightCommitParity`. Tests: commit_validation 41, boq_nodes 75, commit_pipeline 49, review_screen 232 -- all green. Live backend E2E on BOQ-26-00021 (5 warnings, correct shape).
 
 **Commit-preflight S2 -- review surfaces #7/#8 + fully-hard finalize gate (ADR-0008):** the review screen now catches the two structural errors it was blind to (#7 sub-heading level line-up, #8 item-under-note) via the SHARED validators, so review and commit can't diverge (review's `check_structural_integrity` already runs the same `ai_*`-free human>parser tree). `commit_validation.structural_errors_for_sheet(boq, sheet)` runs build_sheet_node_plan + validate_node_plan, keeps ONLY error findings (#7 `preamble_parent_level`, #8 `line_item_parent_not_preamble`), maps each to a review break `{type, row_index, source_row_number, parent_row_index, reason}` (`_STRUCTURAL_ERROR_REASON_BY_CODE`; `_finding_row_index` recovers row_index from the finding `group_key` `{code}:{row_index}` via rpartition -- neither code contains a colon); WARNINGS are dropped (review surfaces ERRORS ONLY). `review_screen.check_structural_integrity` now computes ONLY `cycle` (the narrow `line_item_as_parent` block REMOVED -- the shared #8 is a strict superset, also catching item-under-note/spacer). `get_structural_breaks` + `mark_sheet_parsed_check_done` MERGE `structural_errors_for_sheet(boq, sheet)` with the cycle breaks via a LAZY function-level import (commit_validation imports resolve_effective from review_screen at module load -> a module-level import would cycle). **FULLY-HARD finalize gate:** `mark_sheet_parsed_check_done` returns `{ok: False, breaks}` for ANY break REGARDLESS of `confirm` (the override path + the `overridden` flag RETIRED); finalize only when breaks empty -> a finalized sheet is guaranteed structurally committable. Advisory flags (orphan/parser/classifier) stay SOFT (the gate keys only on `breaks.length`). Commit-side controller throws + the preflight UNCHANGED (durable backstop). test_review_screen 232 -> 236; adversarial review clean (parity structural, lazy-import cycle-free, gate never reads confirm, no finalize bypass). Browser-verified on BOQ-26-00115.
+
+## Revised BoQ entry (S2, ADR-0014 D1/D2, branch `feature/upload-revised-boq`)
+
+`api/boq/wizard/revision.py` is the entry-surface owner for revisions:
+- **`list_revisable_boqs(project)`** (whitelisted READ) — the picker source. Same project +
+  `is_template_source=0`, **NO origin exclusion** (a committed revision is itself revisable —
+  chains allowed), committed-ness via ONE `frappe.get_all("BoQ Committed Sheet Grid",
+  {boq:["in",names], is_current:1}, distinct)` (the `commit_gate.get_committed_state` shape),
+  `order_by uploaded_at desc`. Returns `{revisable:[{name,boq_name,version,uploaded_at}]}` —
+  **filter, don't grey** (an empty list is the FE's signal to disable the Revise radio).
+- **`_boq_has_committed_sheet(boq)`** — the committed-ness primitive.
+- **`assert_revisable_source(source_boq, project)`** — the **single owning home** for D1
+  eligibility (same project + ≥1 committed sheet), called by the upload endpoint. Distinct
+  throws: not found / different project / not revisable.
+
+`upload_file.upload_file()` reads `source_boq` from the form, rejects it alongside
+`is_template_source` ("conflicting flags"), and re-validates via `assert_revisable_source`
+(defence-in-depth over the already-filtered picker). `_upload_file_worker(..., source_boq=None)`:
+a revision stamps `origin="revision"` + `source_boq`, **reuses the original's `boq_name`** so the
+origin-agnostic `boqs.py before_insert` bumps `version` to N+1, and **skips the entire
+`sheet_drafts` seeding loop + the Step-10.5 auto-guess** (`if not source_boq:`). E/F
+(corrupted / zero-sheet) validation is unchanged; the non-revision path is byte-identical.
+
+**Emergent marker (no 8th schema field):** an unconfirmed revision is exactly `origin=="revision"`
+AND an empty `sheet_drafts` — S3's `confirm_revision_mapping` does the seeding after the human
+confirms the sheet mapping. Tests: `test_revision_entry.py` (17). ⚠️ Pre-existing, NOT S2:
+`test_upload_file.py` carries 8 `tempfile_path` errors (its tests target a fetch-refactored worker
+signature this branch never received) — unchanged by S2.

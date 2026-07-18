@@ -1773,3 +1773,31 @@ The single header strip (`flex items-start gap-3` with an `ml-auto` cluster hold
 
 ### "Edit Row" accordion in the row-detail panel (`ReviewTree.tsx`)
 The three inline EDIT surfaces are collapsed behind ONE `Accordion type="single" collapsible` (shadcn `@/components/ui/accordion`), single `AccordionItem value="edit-row"`, label **"Edit Row"**, **closed by default** (no `defaultValue`; each row's panel mounts fresh → re-opens collapsed). Wraps **Edit values + Edit text + Edit per-area values + the shared save-error** (owner: per-area INCLUDED). **Remarks is EXCLUDED** — stays its own section immediately below the accordion, both its `readOnly` and editable branches untouched. Outer gate `!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0)` → on a read-only/Finalized sheet the accordion is suppressed entirely (nothing editable inside) and the inline read-only remark shows as today. Trigger restyled to a COMPACT INLINE toggle (`w-auto flex-none justify-start gap-1.5 … text-[10px] uppercase …`) neutralizing shadcn's default `flex-1 justify-between` so the chevron sits beside the label (not stranded at the wide panel's right edge), matching the panel's other `text-[10px]` section labels; a subtle `border-t border-border/60 pt-1` divider sets it off. Everything else in the panel (edited/original badge, Classification/Parent reclassify controls, ParentChain/ChildrenList, AI + Gemini accept blocks, Warnings, Edit history) stays OUTSIDE, unchanged.
+
+## Revised BoQ entry (S2, ADR-0014 D1/D2, branch `feature/upload-revised-boq`)
+
+Store (`useBoqWizardStore`): `revisionMode: "new"|"revise"` (default `"new"`) + `sourceBoq: string|null`.
+`setRevisionMode` clears `sourceBoq` when leaving revise; `reset` (project change) clears both;
+`resetUpload` ("Replace file" / "Try again") **preserves** them (shallow-merge omission — the entry
+context survives a file replace, like `selectedProjectId` does).
+
+`BoqMasterPanel` — the **New | Revise** radio + inline `react-select` original picker at the TOP of the
+Master-details card (Upload path only; the top-level Upload | Create-from-Template toggle in
+`BoqPickerPage` is untouched). Picker data = `revision.list_revisable_boqs` via `useFrappeGetCall`
+(3rd-arg swrKey `null` until the project is known); options render `{boq_name} — v{version}` + muted
+`uploaded {formatDate}` (`getSelectStyles`, `formatOptionLabel`). Empty eligible list ⇒ Revise radio
+disabled + hint (`noneToRevise`, gated on having a project so it never flashes pre-fetch); a
+settled-empty list while already in revise falls back to New via an effect. **`entryLocked =
+uploadStatus !== "idle"`** disables the radio + picker once an upload has fired — the entry is baked
+into the created BOQs doc, so it must not change under the user; "Replace file" returns to idle and
+re-enables.
+
+`BoqDropZone` — appends `source_boq` to the upload POST (read FRESH via `useBoqWizardStore.getState()`
+since the upload can fire from an effect). **Order-independence (D1):** a file dropped BEFORE the
+original is picked is HELD in a `pendingFileRef` and uploaded by a deferred effect once
+`readyToUpload` (New, or Revise + a pick); the reset handlers clear the ref so a stale held file can't
+auto-upload.
+
+`BoqUploadScreen` — Continue gate adds `needsOriginal = revisionMode==="revise" && !sourceBoq` (with a
+"select the original BoQ to revise" tooltip item; the held-file wait is NOT mislabelled "wait for
+parsing"). Backend + minimum-shippable detail: `frontend/.claude/plans/boq-revised-upload-plan.md` §S2.

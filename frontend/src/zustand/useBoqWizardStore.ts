@@ -7,6 +7,13 @@ import { create } from "zustand";
 export type GstChoice = "pre" | "post" | "";
 
 /**
+ * Upload entry mode (ADR-0014 D1). "new" is a fresh BoQ upload (default, byte-identical
+ * to the pre-revision flow); "revise" uploads a revision of an already-committed original
+ * in the same project (sourceBoq holds the picked original's docname).
+ */
+export type RevisionMode = "new" | "revise";
+
+/**
  * Full upload / parse lifecycle for the wizard upload screen.
  *   idle        - no file dropped yet
  *   uploading   - POST to upload_file in flight
@@ -51,6 +58,10 @@ export interface ConfirmedFields {
 
 interface BoqWizardState {
   selectedProjectId: string;
+  /** Entry mode (ADR-0014 D1). "new" = fresh upload (default); "revise" = revision. */
+  revisionMode: RevisionMode;
+  /** In revise mode, the picked original's BOQs docname (sent as source_boq); null until picked. */
+  sourceBoq: string | null;
   droppedFile: DroppedFile | null;
   uploadStatus: UploadStatus;
   /** RQ job id returned synchronously from upload_file. Informational only. */
@@ -63,6 +74,10 @@ interface BoqWizardState {
 
 interface BoqWizardStore extends BoqWizardState {
   setSelectedProject: (id: string) => void;
+  /** Switch entry mode. Switching to "new" clears any picked original (D1: New is a plain upload). */
+  setRevisionMode: (mode: RevisionMode) => void;
+  /** Set the picked original (revise mode). */
+  setSourceBoq: (name: string | null) => void;
   setDroppedFile: (file: DroppedFile) => void;
   clearFile: () => void;
   setUploadStatus: (status: UploadStatus) => void;
@@ -108,6 +123,8 @@ const DEFAULT_CONFIRMED: ConfirmedFields = {
 
 export const useBoqWizardStore = create<BoqWizardStore>()((set) => ({
   selectedProjectId: "",
+  revisionMode: "new",
+  sourceBoq: null,
   droppedFile: null,
   uploadStatus: "idle",
   jobId: null,
@@ -116,6 +133,15 @@ export const useBoqWizardStore = create<BoqWizardStore>()((set) => ({
   confirmedFields: { ...DEFAULT_CONFIRMED },
 
   setSelectedProject: (id) => set({ selectedProjectId: id }),
+
+  setRevisionMode: (mode) =>
+    set((s) => ({
+      revisionMode: mode,
+      // Leaving revise mode drops the picked original so a New upload never carries source_boq.
+      sourceBoq: mode === "revise" ? s.sourceBoq : null,
+    })),
+
+  setSourceBoq: (name) => set({ sourceBoq: name }),
 
   setDroppedFile: (file) => set({ droppedFile: file }),
 
@@ -152,6 +178,8 @@ export const useBoqWizardStore = create<BoqWizardStore>()((set) => ({
   reset: () =>
     set({
       selectedProjectId: "",
+      revisionMode: "new",
+      sourceBoq: null,
       droppedFile: null,
       uploadStatus: "idle",
       jobId: null,

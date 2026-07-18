@@ -180,6 +180,31 @@ revision *is* listed); version auto-bump on shared `boq_name`; a revision upload
 **Ships as:** a revision `BOQs` doc with provenance and no sheets — the hub redirect (S5) is what makes it
 usable, so **S2 + S3 + S5 are the minimum shippable set**.
 
+**AS-BUILT (S2, `feature/upload-revised-boq`, #1099):** BE — new `api/boq/wizard/revision.py` owns the
+entry surface: `list_revisable_boqs(project)` (whitelisted read; same project + `is_template_source=0`, **no
+origin exclusion** so chains list, committed-ness via one `BoQ Committed Sheet Grid`/`is_current=1` query,
+`order_by uploaded_at desc`; returns `{revisable:[{name,boq_name,version,uploaded_at}]}`), plus
+`_boq_has_committed_sheet` and `assert_revisable_source(source_boq, project)` — the **single owning home** for
+D1 eligibility, called by the endpoint (missing / different-project / uncommitted each throw distinctly).
+`upload_file.upload_file()` reads `source_boq` from the form and (belt-and-suspenders) re-validates; the
+worker gained `source_boq=None` → stamps `origin="revision"` + `source_boq`, **reuses the original's
+`boq_name`** (so the origin-agnostic `before_insert` bumps version N+1), and **skips the whole seeding loop +
+Step-10.5 auto-guess** (the `if not source_boq:` guard keeps the non-revision path byte-identical). E/F
+(corrupted / zero-sheet) validation runs unchanged; a template-source + `source_boq` combo is rejected.
+FE — store gains `revisionMode`/`sourceBoq` (+ `setRevisionMode` clears the pick when leaving revise; `reset`
+clears both, `resetUpload` preserves them via shallow-merge). `BoqMasterPanel` renders the New | Revise radio +
+inline `react-select` (`getSelectStyles`, two-line option label + muted `uploaded {date}`); empty-eligible-list
+disables Revise; radio+picker lock once `uploadStatus !== "idle"` (entry is baked into the created doc).
+`BoqDropZone` sends `source_boq` and **holds a file dropped before the pick** (`pendingFileRef` + a deferred
+effect) so drop/pick are order-independent (D1). `BoqUploadScreen` Continue gate adds `needsOriginal`. The
+top-level Upload | Template toggle (`BoqPickerPage`) is untouched. Tests: `test_revision_entry.py` 17 green
+(eligibility/ordering/chains/template+other-project exclusion/shape; N+1 bump; zero-drafts; byte-identical
+non-revision seeding; 3 endpoint guards). No regressions: create_from_template 35 / commit_pipeline 54 /
+review_screen 260 / pricing 185 green; residence baselines hold; FE boq-wizard vitest 540 green (run in the
+Linux container — the host's `node_modules` carries only linux-arm64 rolldown bindings). **Pre-existing, NOT
+S2:** `test_upload_file.py` has 8 `tempfile_path` errors (its tests target a fetch-refactored worker signature
+this branch never received) — count unchanged by S2.
+
 ### S3 — Mapping backend: N2 + proposal + confirm + seeding (Wave 3) `[backend]`
 **Why (D3/D4):** the pairing authority and the seeding the whole carry hangs off.
 - **`services/boq_revision/normalize.py`** — the N2 normalizer: trim ends + collapse internal whitespace runs
