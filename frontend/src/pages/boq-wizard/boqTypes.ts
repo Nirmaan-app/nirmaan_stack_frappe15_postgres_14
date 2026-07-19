@@ -1249,6 +1249,103 @@ export interface ApplyCopyForwardResponse {
   };
 }
 
+// ── Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9) ────────────────────────────────
+// Carry the ORIGINAL's committed rates across into a committed REVISION. This is the same-BOQ
+// copy-forward classifier pointed cross-BOQ (see CopyForward* above): whole-BOQ, per-CELL,
+// DESTINATION-keyed. The source + dest excel rows DIFFER (D6 matches on description, not row
+// number), so a plan row carries BOTH. Backend: cross_boq_carry.get_cross_boq_carry_plan /
+// start_cross_boq_carry (long job -> boq:carry_rates_done) / get_cross_boq_carry_status (poll).
+
+/**
+ * One classified cross-BOQ carry plan row. outcome: 1 = HARD SKIP (never written, shown with
+ * `reason` + `skip_reason`), 2 = clean copy (dest empty), 3 = conflict (dest already priced ->
+ * keep/overwrite). The carry is source-driven; D6 NEW dest rows never enter the plan (they have no
+ * source rate) -- they surface as `needs_new_value_count` and via the pricing editor's "Show
+ * unpriced" filter. `target_col_letter` is the RE-RESOLVED dest rate column (null on a skip).
+ */
+export interface CrossBoqCarryPlanRow {
+  source_excel_row: number;
+  dest_excel_row: number | null;
+  description: string | null;
+  dest_description: string | null;
+  source_rate: number | null;
+  area: string | null;
+  rate_kind: string;
+  source_boq: string;
+  source_version: number;
+  outcome: 1 | 2 | 3;
+  skip_reason: "removed" | "ambiguous" | "no_rate_column" | "non_priceable" | null;
+  target_col_letter: string | null;
+  current_rate: number | null;
+  reason: string | null;
+}
+
+/** The plan-count rollup for one sheet (the four PLAN skip reasons; `invalid` is apply-time only). */
+export interface CrossBoqCarryCounts {
+  clean: number;
+  conflict: number;
+  removed: number;
+  ambiguous: number;
+  no_rate_column: number;
+  non_priceable: number;
+}
+
+/** One committed revision sheet's carry plan. `formulas_complete` false => the mandatory
+ *  amount-formula gate blocks this sheet's carry (shown unticked + labelled). `needs_new_value_count`
+ *  = D6 NEW priceable dest rows that need a hand-entered rate (never in `plan`). */
+export interface CrossBoqCarrySheet {
+  sheet_name: string;
+  source_sheet_name: string;
+  source_version: number;
+  dest_version: number;
+  plan: CrossBoqCarryPlanRow[];
+  counts: CrossBoqCarryCounts;
+  formulas_complete: boolean;
+  needs_new_value_count: number;
+}
+
+/** Response shape of get_cross_boq_carry_plan. */
+export interface GetCrossBoqCarryPlanResponse {
+  source_boq: string;
+  dest_boq: string;
+  sheets: CrossBoqCarrySheet[];
+}
+
+/** One user decision posted per sheet to start_cross_boq_carry (destination-keyed).
+ *  Presence in a sheet's list = "carry this cell"; `overwrite` matters only for a conflict. */
+export interface CrossBoqCarryDecision {
+  dest_excel_row: number;
+  area: string | null;
+  rate_kind: string;
+  overwrite?: boolean;
+}
+
+/** Terminal payload of the boq:carry_rates_done socket event (mirrored by get_cross_boq_carry_status
+ *  in its "done" branch). Success carries the tallies; an error carries an error_code. */
+export interface CarryRatesDonePayload {
+  status: "success" | "error";
+  boq_name: string;
+  carried: number;
+  conflicts_overwritten?: number;
+  conflicts_kept?: number;
+  skipped?: {
+    removed: number;
+    ambiguous: number;
+    no_rate_column: number;
+    non_priceable: number;
+    invalid: number;
+  };
+  failed: { sheet_name: string; reason: string }[];
+  error_code?: string;
+}
+
+/** Response shape of get_cross_boq_carry_status (the polling fallback). "done" spreads the
+ *  CarryRatesDonePayload; "running"/"idle" carry only the discriminator. */
+export type CarryStatusResponse =
+  | ({ state: "done" } & CarryRatesDonePayload)
+  | { state: "running" }
+  | { state: "idle" };
+
 /**
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.

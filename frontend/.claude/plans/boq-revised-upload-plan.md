@@ -605,6 +605,42 @@ keep.
 **Verify:** the action appears only on a committed revision; a blocked sheet renders unticked; the results
 modal reports both counts; amber clears when a rate is typed; navigate-away-during-carry recovers on return.
 
+**AS-BUILT (S10 = issue #1106 "S7b FE", `feature/upload-revised-boq`):**
+- **NEW `CrossBoqCarryDialog.tsx`** (+ `CrossBoqCarryDialog.test.ts`, 14 pure-helper tests): whole-BOQ,
+  **SUMMARY-FIRST per sheet** — a header (sheet-level tick + `v{src}→v{dst}` badge + `N to copy · M conflicts
+  · K skipped · P need new values`), conflicts ALWAYS shown (per-cell Keep/Overwrite + per-sheet bulk
+  "Overwrite all"/"Keep all"), clean rows folded behind a "Show N rows to copy" expander, skips in a muted
+  `<details>` with `SKIP_REASON_LABEL`. A **formula-gate-blocked sheet** (`formulas_complete=false`) renders
+  its checkbox disabled + an amber "Declare amount formulas…" banner + is pre-unticked (never silently
+  skipped). Pure helpers (F1/tested): `cellKey` (sheet-qualified, NUL separator so a sheet's rows never
+  collide), `isWritable`, `sheetWritableKeys`, `initialSelection` (writable cells of UNBLOCKED sheets pre-ticked;
+  conflicts default KEEP), `applyBulkOverwrite` (per-sheet, conflict keys only), `buildDecisionsBySheet`
+  (destination-keyed `{dest_excel_row, area, rate_kind, overwrite}`; **omits sheets with no selection**),
+  `planTotals`, `sheetCountsDisplay`. On apply → `start_cross_boq_carry` → hands the plan's total
+  `needs_new_value_count` up + closes.
+- **`BoqHubPage.tsx`** — footer **"Carry rates from original"** gated `origin==="revision" && source_boq &&
+  committedMap.size>=1` (`VersionRibbon` untouched); the carry socket lifecycle is a faithful clone of the
+  parse-run machinery: screen-scoped `boq:carry_rates_done` guarded on `boq_name`, `carryInFlightRef`-gated
+  `applyCarryOutcome`, on-mount recovery via `get_cross_boq_carry_status` (**re-arms `running` only, never
+  re-pops a stale `done`**), 3s poll fallback while in-flight, reconnect self-heal (`mutateCarryStatus` on
+  connect — the un-gated hub convention, NOT the T1 pricing-page rule); the status fetch is **gated to a
+  revision doc** so a non-revision hub skips the call. Acknowledge-only results modal *"N carried · M rows need
+  new values"* (M from the plan, captured at apply into `carryNeedsNewValuesRef`) + failed sheets via a
+  module-level `CARRY_FAIL_REASON` map (5 worker reasons). `boqTypes.ts` gains the `CrossBoqCarry*` /
+  `CarryRatesDonePayload` / `CarryStatusResponse` types, contract-matched to `cross_boq_carry.py` (#1105).
+- **⚠️ OWNER-DIRECTED DEVIATION from the S10 text above:** the owner **declined** the new CL-6 amber cell-fill
+  on `PricingGrid.tsx` ("no new highlighting not in the shipped pricing editor"). **`PricingGrid.tsx` is
+  byte-identical** (the 143 PricingGrid tests untouched). The **existing "Show unpriced" filter**
+  (`showOnlyUnpriced` in `SheetPricingPage.tsx` — already `isPriceableLine && !isFullyPriced`, which a carried-in
+  D6 NEW blank row already matches) is the review surface; the results modal directs the user to it. See
+  memory `feedback_boq_s10_no_new_amber`. The `PricingGrid` sub-bullet + its Verify clause above are
+  **superseded** by this decision.
+- Both /code-review axes clean (Standards: 0 hard, 2 acceptable judgement-calls — F3 near-twin of
+  `CopyForwardDialog` helpers left un-shared since the `1|2|3` codes are anchored to the shared backend
+  `_CF_*`; Spec: 0 findings, full backend-contract verification). vitest **590** (+14) / tsc 0 new / residence
+  holds (b1 0 / b2 8 / b3 40 / f2 200 / f5 114). ⚠️ **Live E2E deferred to S11** (#1107) — dialog + socket
+  paths are unit/contract-verified, not yet browser-run.
+
 ### S11 — End-to-end verification (Wave 8) `[verify]`
 Commit a BOQ → upload a revised workbook against it (Revise radio → picker) → **rename one sheet, insert rows
 in another, add a column in a third, leave a fourth byte-identical** → the mapping screen (Zone 1 counts
