@@ -23,6 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.boq.wizard.revision import (
     _read_revised_tab_names,
     confirm_revision_mapping,
+    get_removed_source_sheets,
     get_revision_mapping_proposal,
 )
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
@@ -328,3 +329,76 @@ class TestConfirmRevisionMapping(FrappeTestCase):
         upload = _make_boq(self.project.name, origin="upload")
         with self.assertRaises(frappe.ValidationError):
             confirm_revision_mapping(upload.name, [])
+
+
+# ---------------------------------------------------------------------------
+# 3. get_removed_source_sheets  (D4 hub removed-sheet advisory)
+# ---------------------------------------------------------------------------
+class TestGetRemovedSourceSheets(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="ORIG BoQ")
+        _commit_sheet(cls.original.name, sheet="Electrical", version=1)
+        _commit_gs_sheet(cls.original.name, sheet="Make List", version=1)
+
+    @classmethod
+    def tearDownClass(cls):
+        _cleanup_all(cls.project.name)
+        super().tearDownClass()
+
+    def _revision(self):
+        return _make_revision(self.project.name, self.original.name)
+
+    def _confirm(self, rev_name, tabs, mapping):
+        with patch(_READ_TABS, return_value=tabs):
+            return confirm_revision_mapping(rev_name, mapping)
+
+    def test_unclaimed_original_is_removed(self):
+        # Claim only "Electrical"; the original's "Make List" is left unclaimed -> removed.
+        rev = self._revision()
+        self._confirm(
+            rev.name,
+            ["Electrical"],
+            [{"sheet_name": "Electrical", "source_sheet_name": "Electrical"}],
+        )
+        res = get_removed_source_sheets(rev.name)
+        self.assertEqual([r["sheet_name"] for r in res["removed"]], ["Make List"])
+        self.assertTrue(res["removed"][0]["general_specs"])  # Make List is a gs sheet
+        self.assertEqual(res["source_version"], 1)
+
+    def test_renamed_tab_claims_original_not_removed(self):
+        # A renamed revised tab still POINTS at its original via source_sheet_name -> the
+        # original is CLAIMED, not removed (the exact E2E rename case: 'ACS & CCTV R2').
+        rev = self._revision()
+        self._confirm(
+            rev.name,
+            ["Electrical R2", "Make List"],
+            [
+                {"sheet_name": "Electrical R2", "source_sheet_name": "Electrical"},
+                {"sheet_name": "Make List", "source_sheet_name": "Make List"},
+            ],
+        )
+        self.assertEqual(get_removed_source_sheets(rev.name)["removed"], [])
+
+    def test_new_sheet_does_not_claim_anything(self):
+        # A declared-New tab claims no original -> both originals stay removed.
+        rev = self._revision()
+        self._confirm(
+            rev.name,
+            ["Brand New"],
+            [{"sheet_name": "Brand New", "source_sheet_name": None, "declared_new": True}],
+        )
+        removed = {r["sheet_name"] for r in get_removed_source_sheets(rev.name)["removed"]}
+        self.assertEqual(removed, {"Electrical", "Make List"})
+
+    def test_unconfirmed_revision_returns_empty(self):
+        # Before the mapping is confirmed (no drafts) "removed" has no meaning.
+        rev = self._revision()
+        self.assertEqual(get_removed_source_sheets(rev.name), {"removed": [], "source_version": None})
+
+    def test_rejects_non_revision(self):
+        upload = _make_boq(self.project.name, origin="upload")
+        with self.assertRaises(frappe.ValidationError):
+            get_removed_source_sheets(upload.name)

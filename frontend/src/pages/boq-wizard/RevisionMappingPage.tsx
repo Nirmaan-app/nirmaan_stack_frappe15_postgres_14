@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import {
+  FrappeConfig,
+  FrappeContext,
+  useFrappeGetCall,
+  useFrappePostCall,
+  useSWRConfig,
+} from "frappe-react-sdk";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +58,19 @@ function RevisionMappingPage() {
   const { call: callConfirm, loading: confirming } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.revision.confirm_revision_mapping"
   );
+
+  // Confirm seeds the drafts, but the upload screen already cached the BOQs doc with EMPTY
+  // sheet_drafts (a revision seeds none at upload). Navigating straight to the hub serves that
+  // stale SWR entry to the hub's redirect gate (BoqHubPage: origin=="revision" && no drafts ->
+  // back to /map), bouncing the user. We must SEED that getDoc cache with fresh data before
+  // navigating: `mutate(key)` alone only REVALIDATES, which is a no-op here because no component
+  // on the /map screen subscribes to the BOQs key (SWR has no bound fetcher to run) -- so the
+  // hub would still read the stale value. `mutate(key, db.getDoc(...), {revalidate:false})`
+  // writes the fetched doc straight into the cache regardless of subscribers. Key = the SDK's
+  // useFrappeGetDoc default: `${url}/api/resource/${doctype}/${name}` (sdk `vn` builder), and
+  // db.getDoc is the SAME fetcher useFrappeGetDoc binds, so the seeded shape is byte-identical.
+  const { url, db } = useContext(FrappeContext) as FrappeConfig;
+  const { mutate: globalMutate } = useSWRConfig();
 
   // Editable per-sheet decisions, seeded ONCE from the proposal (a later SWR revalidation must
   // never clobber the user's in-progress edits -- the ref guard keeps it seed-once).
@@ -118,6 +137,15 @@ function RevisionMappingPage() {
         boq: boqId,
         mapping: toConfirmPayload(proposal.revised_sheets, decisions),
       });
+      // Seed the (stale, empty-drafts) BOQs getDoc cache with the freshly-seeded doc so the hub's
+      // redirect gate sees the drafts and doesn't bounce back to /map. Awaited so the cache is
+      // written before we navigate; revalidate:false keeps the seeded value (the hub revalidates
+      // on mount anyway).
+      await globalMutate(
+        `${url}/api/resource/BOQs/${boqId}`,
+        db.getDoc("BOQs", boqId),
+        { revalidate: false },
+      );
       // Confirmed -> the hub now renders the seeded drafts. Route by entity id.
       navigate(`/upload-boq/hub/${boqId}`);
     } catch (e) {

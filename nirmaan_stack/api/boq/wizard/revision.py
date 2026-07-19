@@ -298,6 +298,42 @@ def get_revision_mapping_proposal(boq: str) -> dict:
     }
 
 
+@frappe.whitelist()
+def get_removed_source_sheets(boq: str) -> dict:
+    """READ-ONLY. The original's committed sheets NOT claimed by any of this revision's drafts
+    (ADR-0014 D4 -- the hub's "removed-sheet advisory").
+
+    The mapping screen surfaces the unclaimed originals at confirm time (Zone-2's
+    `unclaimedOriginals` -> "N of M claimed ... won't carry"); this is the SAME set on the
+    hub after seeding -- the second of T4's "two surfaces, two audiences" (#8). A removed
+    original carries nothing (no draft points at it via `source_sheet_name`).
+
+    Computed from the seeded drafts, so it is only meaningful AFTER the mapping is confirmed;
+    an unconfirmed revision (empty `sheet_drafts`) returns an empty list -- the hub redirects
+    such a doc to the mapping screen anyway, and "removed" has no meaning before a mapping.
+
+    Returns {"removed": [{"sheet_name", "general_specs"}, ...], "source_version": <int|None>},
+    `removed` ordered by the original's commit order (from `_original_committed_sheets`).
+    """
+    boq_doc = _load_revision(boq)
+    drafts = boq_doc.sheet_drafts or []
+    if not drafts:
+        return {"removed": [], "source_version": None}
+    # A draft's `source_sheet_name` is its write-once pointer to the claimed original (blank on
+    # a New sheet). The claimed set is those pointers, matched VERBATIM (#152) against the
+    # original's committed sheet_names.
+    claimed = {d.source_sheet_name for d in drafts if d.source_sheet_name}
+    removed = [
+        {"sheet_name": c["sheet_name"], "general_specs": c["general_specs"]}
+        for c in _original_committed_sheets(boq_doc.source_boq)
+        if c["sheet_name"] not in claimed
+    ]
+    return {
+        "removed": removed,
+        "source_version": frappe.db.get_value("BOQs", boq_doc.source_boq, "version"),
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def confirm_revision_mapping(boq: str, mapping) -> dict:
     """Validate the human-confirmed mapping, then SEED the revision's drafts (ADR-0014 D3/D4).

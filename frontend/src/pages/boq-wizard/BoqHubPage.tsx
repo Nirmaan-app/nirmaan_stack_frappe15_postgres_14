@@ -256,6 +256,19 @@ const BoqHubPage = () => {
     boqId ? undefined : null
   );
 
+  // D4 removed-sheet advisory (ADR-0014): the original's committed sheets NOT claimed by any of
+  // this revision's drafts -- the hub's audience for "these won't carry" (the mapping screen is
+  // the other; T4 #8 "two surfaces, two audiences"). REVISION-ONLY: the swrKey is null unless
+  // the loaded doc is a revision, so a normal upload/template hub makes no extra call. The set
+  // is fixed once the mapping is confirmed (source_sheet_name is write-once), so no mutate.
+  const { data: removedSheetsData } = useFrappeGetCall<{
+    message: { removed: { sheet_name: string; general_specs: boolean }[]; source_version: number | null };
+  }>(
+    "nirmaan_stack.api.boq.wizard.revision.get_removed_source_sheets",
+    { boq: boqId ?? "" },
+    boqId && boq?.origin === "revision" && !!boq?.source_boq ? undefined : null
+  );
+
   // General-specs endpoint. Called in BoqHubPage because it targets the parent
   // BOQs row, not a child draft (SheetCard handles the child-row endpoints).
   const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
@@ -1002,6 +1015,32 @@ const BoqHubPage = () => {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* ── Removed-sheet advisory (ADR-0014 D4) ─────────────────────────── */}
+      {/* Revision-only. The original's committed sheets no draft claims -> they carry     */}
+      {/* nothing. Muted advisory (mirrors the mapping screen's "won't carry" line + the   */}
+      {/* review-screen removed-row advisory). sheet_name display-trimmed only (#152).     */}
+      {isRevisionDoc && (removedSheetsData?.message?.removed?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {removedSheetsData!.message.removed.length}
+            </span>{" "}
+            sheet{removedSheetsData!.message.removed.length === 1 ? "" : "s"} from the original
+            {removedSheetsData!.message.source_version
+              ? ` (v${removedSheetsData!.message.source_version})`
+              : ""}{" "}
+            {removedSheetsData!.message.removed.length === 1 ? "is" : "are"} not in this revision
+            and won&rsquo;t carry:{" "}
+            <span className="text-foreground">
+              {removedSheetsData!.message.removed
+                .map((s) => s.sheet_name.trim() || s.sheet_name)
+                .join(", ")}
+            </span>
+            .
+          </p>
+        </div>
+      )}
 
       {/* ── General specifications checklist (M2.10, Slice 2b-frontend-ii) ── */}
       {/* Candidate set = nonHiddenDrafts; backend rejects Hidden sheets.      */}
