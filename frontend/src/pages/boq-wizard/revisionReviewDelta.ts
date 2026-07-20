@@ -2,12 +2,18 @@
  * Revised-BoQ review-screen delta surfacing (S5b / #1103, ADR-0014 D7) -- PURE, no React (F4).
  *
  * The S5a backend (#1102) stamps `revision_carry_status` on every matched-content review row of
- * a revision sheet (Matched / New / Ambiguous / Drifted; a carried row is Matched, the calm
- * default). This module turns that per-row field + the read-time `removed` count into the small
- * set the human must actually look at:
- *   - which rows are a DELTA (New / Ambiguous / Drifted),
+ * a revision sheet (Matched / New / Ambiguous; a carried row is Matched, the calm default). This
+ * module turns that per-row field + the read-time advisory counts into the small set the human
+ * must actually look at:
+ *   - which rows are a DELTA (New / Ambiguous),
  *   - which of those still NEED ACTION (a delta the human has not yet handled -- self-clearing),
  *   - and the sheet-level mode: no revision chrome / a green "no deltas" chip / a needs-action panel.
+ *
+ * `Drifted` is RETIRED (owner amendment 2026-07-20). It existed only to flag a matched row whose
+ * original effective classification disagreed with the fresh parse -- a hole that existed because
+ * the carry read the human override set. The carry now copies the original's EFFECTIVE
+ * classification + parenting outright, so the disagreement cannot arise and the status is never
+ * stamped again. A row still carrying it from an older parse simply falls through to "Original".
  *
  * SELF-CLEARING (D7, CL-6's pattern -- "do not add clearing code"): a row leaves the needs-action
  * set the moment the human touches it (an edit, or an accepted AI suggestion), because that fact
@@ -22,21 +28,26 @@
  * review screen stays byte-identical.
  */
 
-/** The four `revision_carry_status` values the backend stamps (blank/absent = a non-delta row). */
-export type RevisionCarryStatus = "" | "Matched" | "New" | "Ambiguous" | "Drifted";
+/** The `revision_carry_status` values the backend stamps (blank/absent = a non-delta row). */
+export type RevisionCarryStatus = "" | "Matched" | "New" | "Ambiguous";
 
-/** The three DELTA statuses -- the only ones surfaced (a Matched/blank row gets no treatment). */
-export type RevisionDeltaStatus = "New" | "Ambiguous" | "Drifted";
+/** The two DELTA statuses -- the only ones surfaced (a Matched/blank row gets no treatment). */
+export type RevisionDeltaStatus = "New" | "Ambiguous";
 
 /**
  * The revision meta block get_review_rows adds for a revision sheet (null for upload/template).
- * `removed_count` / `removed_descriptions` are the D6 REMOVED originals (no revised row exists),
- * recomputed read-side because row descriptions are immutable post-parse.
+ * Both advisory sets are recomputed read-side (stable -- row descriptions are immutable
+ * post-parse) and both render as MUTED PANEL LINES, never row badges (owner, 2026-07-20):
+ *   removed_*     -- D6 REMOVED originals: no revised row exists to click through to.
+ *   parent_lost_* -- MATCHED rows whose original parent has no twin here, so the carried
+ *                    parenting could not be re-pointed and they kept the fresh parser's parent.
  */
 export interface RevisionReviewMeta {
   is_revision: boolean;
   removed_count: number;
   removed_descriptions: string[];
+  parent_lost_count: number;
+  parent_lost_descriptions: string[];
   source_version: number | null;
 }
 
@@ -51,13 +62,9 @@ interface DeltaRowLike {
   edit_log?: unknown[] | null;
 }
 
-const DELTA_STATUS_SET: ReadonlySet<string> = new Set<RevisionDeltaStatus>([
-  "New",
-  "Ambiguous",
-  "Drifted",
-]);
+const DELTA_STATUS_SET: ReadonlySet<string> = new Set<RevisionDeltaStatus>(["New", "Ambiguous"]);
 
-/** True when `status` is one of the three surfaced DELTA statuses (New/Ambiguous/Drifted). */
+/** True when `status` is one of the two surfaced DELTA statuses (New/Ambiguous). */
 export function isDeltaStatus(status: string | null | undefined): status is RevisionDeltaStatus {
   return typeof status === "string" && DELTA_STATUS_SET.has(status);
 }
@@ -112,6 +119,9 @@ export interface RevisionDeltaSummary {
   /** D6 REMOVED originals (advisory only -- no revised row to click through to). */
   removedCount: number;
   removedDescriptions: string[];
+  /** MATCHED rows whose original parent had no twin (advisory only -- deliberately not a badge). */
+  parentLostCount: number;
+  parentLostDescriptions: string[];
   /** The original's version, for the chip / panel label ("carried from v3"). */
   sourceVersion: number | null;
 }
@@ -124,6 +134,8 @@ const EMPTY_SUMMARY: RevisionDeltaSummary = {
   needsActionRows: [],
   removedCount: 0,
   removedDescriptions: [],
+  parentLostCount: 0,
+  parentLostDescriptions: [],
   sourceVersion: null,
 };
 
@@ -157,16 +169,21 @@ export function computeRevisionDelta(
 
   const removedCount = meta.removed_count ?? 0;
   const removedDescriptions = meta.removed_descriptions ?? [];
-  // A declared-New / unmapped revision sheet carries nothing (no Matched, no delta, no removed) --
+  const parentLostCount = meta.parent_lost_count ?? 0;
+  const parentLostDescriptions = meta.parent_lost_descriptions ?? [];
+  // A declared-New / unmapped revision sheet carries nothing (no Matched, no delta, no advisory) --
   // there is no original to diff against, so it shows no revision chrome (treated as fresh).
-  const hasCarriedContent = matchedCount > 0 || anyDelta || removedCount > 0;
+  const hasCarriedContent =
+    matchedCount > 0 || anyDelta || removedCount > 0 || parentLostCount > 0;
 
   let mode: RevisionDeltaSummary["mode"];
   if (!hasCarriedContent) {
     mode = "none";
-  } else if (needsActionRows.length === 0 && removedCount === 0) {
+  } else if (needsActionRows.length === 0 && removedCount === 0 && parentLostCount === 0) {
     mode = "no-deltas";
   } else {
+    // >=1 needs-action row and/or an advisory to show. An advisory-only panel is correct: the
+    // rows themselves are calm (nothing to click), but the human should know the tree shifted.
     mode = "needs-action";
   }
 
@@ -178,6 +195,8 @@ export function computeRevisionDelta(
     needsActionRows,
     removedCount,
     removedDescriptions,
+    parentLostCount,
+    parentLostDescriptions,
     sourceVersion: meta.source_version ?? null,
   };
 }
@@ -194,9 +213,5 @@ export const REVISION_DELTA_BADGE: Record<
   Ambiguous: {
     label: "Ambiguous",
     className: "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200",
-  },
-  Drifted: {
-    label: "Drifted",
-    className: "bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-200",
   },
 };

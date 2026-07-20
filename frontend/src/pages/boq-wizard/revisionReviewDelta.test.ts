@@ -36,16 +36,20 @@ function meta(overrides: Partial<RevisionReviewMeta> = {}): RevisionReviewMeta {
     is_revision: true,
     removed_count: 0,
     removed_descriptions: [],
+    parent_lost_count: 0,
+    parent_lost_descriptions: [],
     source_version: 3,
     ...overrides,
   };
 }
 
 describe("isDeltaStatus", () => {
-  it("is true only for New / Ambiguous / Drifted", () => {
+  it("is true only for New / Ambiguous", () => {
     expect(isDeltaStatus("New")).toBe(true);
     expect(isDeltaStatus("Ambiguous")).toBe(true);
-    expect(isDeltaStatus("Drifted")).toBe(true);
+  });
+  it("is false for the RETIRED Drifted status (falls through to Original)", () => {
+    expect(isDeltaStatus("Drifted")).toBe(false);
   });
   it("is false for Matched, blank, and null (the calm defaults)", () => {
     expect(isDeltaStatus("Matched")).toBe(false);
@@ -59,7 +63,9 @@ describe("isNeedsActionRow (self-clearing, mirrors Status-column precedence)", (
   it("flags an untouched delta row", () => {
     expect(isNeedsActionRow(row({ revision_carry_status: "New" }))).toBe(true);
     expect(isNeedsActionRow(row({ revision_carry_status: "Ambiguous" }))).toBe(true);
-    expect(isNeedsActionRow(row({ revision_carry_status: "Drifted" }))).toBe(true);
+  });
+  it("never flags a legacy Drifted row (the status is retired)", () => {
+    expect(isNeedsActionRow(row({ revision_carry_status: "Drifted" }))).toBe(false);
   });
   it("never flags a Matched / blank row", () => {
     expect(isNeedsActionRow(row({ revision_carry_status: "Matched" }))).toBe(false);
@@ -154,11 +160,31 @@ describe("computeRevisionDelta -- mode selection", () => {
       row({ row_index: 0, source_row_number: 1, revision_carry_status: "New" }),
       row({ row_index: 1, source_row_number: 2, revision_carry_status: "Matched" }),
       row({ row_index: 2, source_row_number: 3, revision_carry_status: "Ambiguous" }),
-      row({ row_index: 3, source_row_number: 4, revision_carry_status: "Drifted" }),
     ];
     const s = computeRevisionDelta(rows, meta());
-    expect(s.needsActionRows.map((r) => r.status)).toEqual(["New", "Ambiguous", "Drifted"]);
-    expect(s.needsActionRows.map((r) => r.rowIndex)).toEqual([0, 2, 3]);
+    expect(s.needsActionRows.map((r) => r.status)).toEqual(["New", "Ambiguous"]);
+    expect(s.needsActionRows.map((r) => r.rowIndex)).toEqual([0, 2]);
+  });
+
+  it("parent-lost rows alone -> 'needs-action' (advisory), no clickable rows", () => {
+    const rows = [row({ row_index: 0, revision_carry_status: "Matched" })];
+    const s = computeRevisionDelta(
+      rows,
+      meta({ parent_lost_count: 1, parent_lost_descriptions: ["Child of deleted"] }),
+    );
+    expect(s.mode).toBe("needs-action");
+    expect(s.needsActionRows).toEqual([]);
+    expect(s.parentLostCount).toBe(1);
+    expect(s.parentLostDescriptions).toEqual(["Child of deleted"]);
+    // The rows themselves stay calm -- a carried row is never a delta.
+    expect(s.allMatched).toBe(true);
+  });
+
+  it("no advisories and no deltas -> the green chip", () => {
+    const rows = [row({ row_index: 0, revision_carry_status: "Matched" })];
+    const s = computeRevisionDelta(rows, meta());
+    expect(s.mode).toBe("no-deltas");
+    expect(s.parentLostCount).toBe(0);
   });
 });
 
@@ -166,12 +192,10 @@ describe("REVISION_DELTA_BADGE", () => {
   it("has a distinct label + class for each delta status", () => {
     expect(REVISION_DELTA_BADGE.New.label).toBe("New");
     expect(REVISION_DELTA_BADGE.Ambiguous.label).toBe("Ambiguous");
-    expect(REVISION_DELTA_BADGE.Drifted.label).toBe("Drifted");
     const classes = new Set([
       REVISION_DELTA_BADGE.New.className,
       REVISION_DELTA_BADGE.Ambiguous.className,
-      REVISION_DELTA_BADGE.Drifted.className,
     ]);
-    expect(classes.size).toBe(3);
+    expect(classes.size).toBe(2);
   });
 });

@@ -462,6 +462,52 @@ read), 3 synthetic rows, 41 `is_excluded` rows.
 **Verify:** a zero-delta sheet shows the green chip and no marks; a new row is listed and drops off the moment
 it's edited; the filter and search compose; an upload-origin review screen is **byte-identical**.
 
+### S6+S7 AMENDMENT — effective-value carry (owner-directed, 2026-07-20) `[backend+frontend]`
+
+**Supersedes the "override set only" rule in S6 and the `Drifted` surfacing in S7.** Design rationale +
+the full objection-by-objection reversal live in the **ADR-0014 D7 amendment block**; this is the as-built.
+
+**Root cause it fixes (observed live by the owner).** `commit_pipeline` writes the EFFECTIVE values to
+`node.row_class` (`:954`) and `node.parent_node` (via `eff_parent_by_idx`, `:862`) while
+`node.human_classification` / `human_parent` (`:996/:998`) keep only the raw manually-typed layer. An
+**accepted Claude/Gemini suggestion** therefore lands on `row_class`/`parent_node` with the human fields
+blank/`-1` ⇒ the override-set carry read nothing, and the `human_parent >= 0` re-point gate never fired.
+Every AI-accepted classification and parent was silently dropped.
+
+**New rule (pure `services/boq_revision/carry.py`):** on a MATCHED row carry `row_class` → the review row's
+`classification` and `parent_node` → D6 twin → the twin's `row_index` → `parent_index` (`parent_node` NULL =
+effective root ⇒ explicit `-1`). **The PARSER layer, never the human layer** — `subtotal_marker`/`header_repeat`
+are not in `_ASSIGNABLE_CLASSIFICATIONS` so they could never ride `human_classification`, and writing `human_*`
+would flip `_row_has_override` true sheet-wide and block Apply-AI. `ReviewCarryWrite` now has **no `human_*`
+field at all** (test-guarded), alongside the existing no-`level` guard.
+
+- **`Drifted` RETIRED** — it only flagged the hole the override-only carry left; the effective carry closes it.
+  Never stamped again; a legacy row falls through to "Original". Surfaced deltas = **`New` + `Ambiguous`** only.
+- **`parent_lost`** (new, advisory-only): a MATCHED row whose original parent has no twin. The parenting is not
+  re-pointed (keeps the fresh parser's parent) and the row stays a calm `Matched`. **Closes S6's open
+  OWNER-CONFIRM flag**, which left this case entirely silent.
+- **Both advisories are MUTED PANEL LINES, never row badges** (owner decision). `revision_review_advisories`
+  replaces `revision_removed_original_descriptions`, returning `{removed, parent_lost}` from ONE match pass
+  (`_build_carries` is the single carry-construction site shared with the write merge). Read-time recompute is
+  still safe — both depend only on descriptions, which are immutable post-parse. Meta gains
+  `parent_lost_count` / `parent_lost_descriptions` (same `_REVISION_REMOVED_SAMPLE_CAP`).
+- **Verified inert:** a re-pointed row's stored `path` goes stale, but nothing reads it — commit rebuilds it
+  from the effective tree (`commit_pipeline.py:886`) and the review UI derives depth from
+  `effective_parent_index`. **No new schema** (the `Drifted` Select option is retained, unwritten).
+
+**Files:** `services/boq_revision/carry.py` (rewritten, net deletion) · `api/boq/wizard/review_carry.py` ·
+`review_screen.py` (meta block + 2 comments) · `revisionReviewDelta.ts` · `ReviewTree.tsx` (2nd advisory line
++ stale comments) · `boqTypes.ts`.
+**Tests:** `test_carry` 16 (was 12 — adds the AI-accepted regression, the parser-only-taxonomy carry, the
+no-`human_*`-field guard, `Drifted`-never-produced) · `test_review_carry` 15 (was 10 — the fixture's committed
+nodes now all carry a BLANK human layer, i.e. the AI-accepted shape, so the suite fails if the carry ever
+regresses to reading `human_*`; adds `parent_lost`, the advisories read path, and a human-layer-untouched
+assertion across every row) · `revisionReviewDelta.test` (Drifted→retired guards + parent-lost modes).
+**Green:** vitest boq-wizard **594** · review_screen 260 · parse_run 102 · commit_pipeline 54 ·
+commit_validation 51 · revision_mapping 22 · column_carry 17 · revision_entry 17 · row_match 10 · carry 16 ·
+review_carry 15. `tsc` clean in `boq-wizard`; residence ratchet holds (b1 0 / b2 8 / b3 40 / f2 200 / f5 114).
+**Not yet done: live E2E on a real revision** — re-run the BOQ where the AI-accepted rows failed to carry.
+
 ### S8 — Commit overlay: formula · remark · color · `remark` dismissal · category (Wave 5) `[backend]`
 **Why (D8):** everything that is **not money** lands silently at commit, so a committed revision arrives fully
 annotated, categorised and formula-complete. **This slice is what makes S9 possible at all.**

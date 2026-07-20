@@ -294,7 +294,62 @@ v1**: fuzzy similarity is exactly what silently carries a wrong rate.
 
 **Four outcomes, no fuzzy: MATCHED / NEW / REMOVED / AMBIGUOUS.**
 
-### D7 — Review carry: the override set only, at a post-parse merge seam ([T6](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1092))
+### D7 — Review carry: ~~the override set only~~ **the EFFECTIVE value**, at a post-parse merge seam ([T6](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1092))
+
+> ## ⚠️ AMENDED 2026-07-20 — owner-directed, supersedes the "override set only" rule below
+>
+> **What changed.** The carry reads the original's **EFFECTIVE** classification and parenting and
+> writes them into the revision's **PARSER layer**:
+>
+> | carry | source (committed `BOQ Nodes`) | write (revision `BoQ Review Row`) |
+> |---|---|---|
+> | classification | `row_class` (already effective) | `classification` |
+> | parent | `parent_node` → D6 twin → twin's `row_index`; NULL ⇒ effective root | `parent_index` (`-1` for root) |
+>
+> **Why — the override-set rule was PROVABLY LOSSY, observed live.** `commit_pipeline` writes
+> `node.row_class = eff["effective_classification"]` and links `node.parent_node` from
+> `eff["effective_parent_index"]` (the human > AI-accepted > parser chain), while
+> `node.human_classification` / `human_parent` keep only the **raw manually-typed** layer
+> (`commit_pipeline.py:954/862/996/998`). An **accepted Claude/Gemini suggestion** therefore reaches
+> the committed tier folded into `row_class`/`parent_node` with `human_classification` blank and
+> `human_parent` at `-1`. Reading the human layer carried **nothing** for those rows — and because
+> the re-point was gated on `human_parent >= 0`, that branch never ran either. The most valuable
+> reviewed decisions on a sheet were the ones silently dropped.
+>
+> **Why the PARSER layer, not the human layer** (owner decision):
+> - `row_class` carries the full taxonomy but `_ASSIGNABLE_CLASSIFICATIONS` is only
+>   `{line_item, preamble, note, spacer}` — `subtotal_marker` (977 live rows) / `header_repeat`
+>   may **never** be written to `human_classification`. The parser layer has no vocabulary gate.
+> - `_row_has_override` keys on the human fields, so writing them would flip `has_override` true on
+>   every matched row and `_guard_row_at_parser_baseline` would block Apply-AI sheet-wide. **This
+>   was the ADR's own objection #1 — the parser-layer write retires it.**
+> - The row renders **"Original"** (calm, no action) — which is true; the human hasn't touched it in
+>   *this* revision. `resolve_effective`'s precedence is untouched, so a human edit or an AI accept
+>   still layers on top exactly as on a fresh upload.
+>
+> **Objection #2 was already false in the as-built.** "Renders a zero-delta sheet 100% Edited"
+> assumed `isEdited` keys on the human fields; it keys on `edited_at` / `edit_log`
+> (`revisionReviewDelta.ts:70`), and the carry writes via `set_value(update_modified=False)` with no
+> `edit_log` entry. Carried rows were always calm. Objection #3 ("attributes to a human what the
+> parser decided") does not apply to a parser-layer write.
+>
+> **`Drifted` is RETIRED.** It existed only to surface the hole override-only carry left. Carrying
+> the effective value closes that hole by construction, so the status is never stamped again (a
+> legacy row holding it falls through to "Original"). **Surfaced deltas are now exactly `New` and
+> `Ambiguous`**, plus **two muted panel advisories** — REMOVED originals, and `parent_lost` (a
+> MATCHED row whose original parent has no twin, so the parenting could not be re-pointed and the
+> row kept the fresh parser's parent). Owner: both stay **panel lines, never row badges**. This also
+> closes S6's open OWNER-CONFIRM flag, which left that case silent.
+>
+> **Unchanged and still load-bearing:** the relational re-point through `parent_node` (never
+> `sort_order`); the explicit `-1` sentinel; `level` never carried (ADR-0009); the merge seam
+> (after the insert loop, before `_set_draft_status("Parsed")`); carried rows get no treatment.
+>
+> **Verified inert:** the review row's stored `path` goes stale for a re-pointed row, but nothing
+> reads it — commit rebuilds `path` from the effective tree (`commit_pipeline.py:886`) and the
+> review UI derives depth from `effective_parent_index`.
+>
+> **New schema: none.** `revision_carry_status`'s `Drifted` Select option is retained (never written).
 
 **Two more premise corrections:**
 
@@ -578,7 +633,7 @@ honest test if ever wanted: log sheet-name sets on the first N real revision upl
 | Header text as the column *key* | 69% blank / 35% duplicate; guard-not-key makes the duplicate hazard irrelevant |
 | Seeding config from a fresh auto-guess | `_auto_guess` **provably cannot** reproduce a rectified config (its own `_SINGLETON_ROLES` wrongly includes `description`) |
 | Auto-clearing a dangling role | The codebase's stated stance is flag-never-clear; a silent drop has **no server backstop** |
-| Wholesale-stamping effective classification | Blocks the AI flow on every matched row; renders a zero-delta sheet 100% "Edited"; attributes to a human what the parser decided |
+| ~~Wholesale-stamping effective classification~~ **REVERSED 2026-07-20 (D7 amendment)** | The three objections do not survive the as-built: #1 (blocks the AI flow) and #3 (attributes to a human) apply only to a HUMAN-layer write — the amendment writes the PARSER layer; #2 (100% "Edited") was already false, `isEdited` keys on `edit_log`, not `human_*`. Against them stood a proven total loss of every AI-accepted decision. |
 | Carrying `node_type` | A lossy 3-value projection — flattens `note`/`subtotal_marker`/`header_repeat` into one |
 | Carrying `level` | ADR-0009 — it's a function of the effective tree; the `BOQ Nodes` controller throws |
 | Marking carried rows | ~90% of rows carry ⇒ paints the sheet; and every colour channel is already taken |

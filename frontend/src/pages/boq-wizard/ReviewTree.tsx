@@ -1131,7 +1131,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCurrentIdx, setSearchCurrentIdx] = useState(0);
   // S5b (#1103): revision delta filter -- when true, the tree narrows to needs-action rows (a
-  // New/Ambiguous/Drifted row the human has not yet handled). A predicate inside passesFilter (so
+  // New/Ambiguous row the human has not yet handled). A predicate inside passesFilter (so
   // it composes with search: a hit can never be a filtered-out row). Only ever set on a revision
   // sheet (the toggle lives in the delta panel, which mounts only there) -> inert off a revision.
   const [deltaFilterOnly, setDeltaFilterOnly] = useState(false);
@@ -1618,7 +1618,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
   const passesFilter = (row: ReviewRow): boolean => {
     // S5b (#1103): revision delta filter -- one early-return, narrows to needs-action rows
-    // (New/Ambiguous/Drifted the human has not handled). SELF-CLEARING: an edited/accepted row
+    // (New/Ambiguous the human has not handled). SELF-CLEARING: an edited/accepted row
     // stops passing (isNeedsActionRow flips false), so it drops from the filtered tree with no
     // extra code. Inert off a revision (deltaFilterOnly only ever set from the delta panel).
     // Gated on there being needs-action rows LEFT: when the reviewer resolves the last one, the
@@ -1868,10 +1868,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       )}
 
       {/* ── S5b (#1103, ADR-0014 D7): revised-BoQ delta surfacing ─────────────────
-          Only New / Ambiguous / Drifted deltas are surfaced -- carried (Matched) rows stay calm.
+          Only New / Ambiguous deltas are surfaced -- carried (Matched) rows stay calm.
           Three mutually-exclusive states from the pure computeRevisionDelta:
             no-deltas    -> a green chip (all content carried, nothing needs action);
-            needs-action -> the R4-shaped amber panel (clickable delta rows + a muted removed line);
+            needs-action -> the R4-shaped amber panel (clickable delta rows + up to two muted
+                            advisory lines: removed originals, parent-lost carried rows);
             none         -> nothing (upload/template, or a declared-New revision sheet). */}
       {revisionDelta.mode === "no-deltas" && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/40 text-xs text-green-900 dark:text-green-100 flex-wrap">
@@ -1960,6 +1961,26 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   {revisionDelta.removedCount} row{revisionDelta.removedCount === 1 ? "" : "s"} from the
                   original {revisionDelta.removedCount === 1 ? "is" : "are"} not in this revision
                   {revisionDelta.sourceVersion != null ? ` (v${revisionDelta.sourceVersion})` : ""}.
+                </span>
+              </div>
+            )}
+            {/* Parent-lost advisory -- the second MUTED, NON-CLICKABLE line (owner, 2026-07-20:
+                deliberately NOT a row badge). These rows carried their classification fine, but
+                their parent row is gone from the revision, so the parenting could not be
+                re-pointed and they kept the fresh parser's parent. */}
+            {revisionDelta.parentLostCount > 0 && (
+              <div
+                className="flex items-start gap-2 rounded px-2 py-1.5 bg-muted/30 border border-border text-[11px] text-muted-foreground"
+                title={revisionDelta.parentLostDescriptions.length > 0
+                  ? revisionDelta.parentLostDescriptions.join("\n")
+                  : undefined}
+              >
+                <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>
+                  {revisionDelta.parentLostCount} carried row
+                  {revisionDelta.parentLostCount === 1 ? "" : "s"} kept the new parse's parent —
+                  the parent {revisionDelta.parentLostCount === 1 ? "row is" : "rows are"} no longer
+                  in this revision.
                 </span>
               </div>
             )}
@@ -2633,8 +2654,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               Edited
                             </span>
                           ) : isDeltaStatus(row.revision_carry_status) ? (
-                            /* S5b (#1103, ADR-0014 D7): revised-BoQ delta badge -- ONLY New / Ambiguous /
-                               Drifted surface here; a carried (Matched) or blank row falls through to
+                            /* S5b (#1103, ADR-0014 D7): revised-BoQ delta badge -- ONLY New / Ambiguous
+                               surface here; a carried (Matched) or blank row falls through to
                                "Original" (the calm default, no treatment). Ranks BELOW every "handled"
                                state (Accepted·Claude/Gemini, Edited) so the badge and the needs-action
                                panel agree by construction. Inert off a revision (blank status). */

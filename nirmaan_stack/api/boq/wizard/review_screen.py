@@ -1248,7 +1248,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # human-only annotation (Slice C-v2c) -- NOT an edit; never sets edited_at
         "remarks",
         # Revised-BoQ review carry (S5a/S5b, #1102/#1103). Stamped by the post-parse merge on a
-        # revision sheet's matched-content rows (Matched/New/Ambiguous/Drifted); blank on every
+        # revision sheet's matched-content rows (Matched/New/Ambiguous); blank on every
         # upload/template row -> the frontend Status column + delta panel stay inert off a revision.
         "revision_carry_status",
         # C-flag-dismissal: per-row "Looks OK" acknowledgment (NOT an edit; row stays
@@ -1362,23 +1362,31 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     # S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta block -- None for an upload/template
     # sheet (the whole review screen stays byte-identical off a revision). Per-row deltas ride each
-    # row's revision_carry_status (fetched above); only the D6 REMOVED originals need a sheet-level
-    # block -- they have no revised row to stamp, so they are recomputed read-side (stable: review
-    # descriptions are immutable post-parse; see revision_removed_original_descriptions). Lazy import
+    # row's revision_carry_status (fetched above); the two ADVISORY sets need a sheet-level block --
+    # a REMOVED original has no revised row to stamp, and parent-lost is deliberately not a row
+    # status -- so both are recomputed read-side (stable: review descriptions are immutable
+    # post-parse; see revision_review_advisories). Lazy import
     # mirrors derive_effective_levels above (review_carry imports only frappe + the pure services).
     revision_meta = None
     from nirmaan_stack.api.boq.wizard.review_carry import (
-        revision_removed_original_descriptions,
+        revision_review_advisories,
         revision_source_boq,
     )
     source_boq = revision_source_boq(boq_name)
     if source_boq:
-        removed = revision_removed_original_descriptions(boq_name, sheet_name, source_boq)
+        advisories = revision_review_advisories(boq_name, sheet_name, source_boq)
+        removed = advisories["removed"]
+        parent_lost = advisories["parent_lost"]
         revision_meta = {
             "is_revision": True,
             "removed_count": len(removed),
             # Cap the shipped descriptions (the panel shows a count; the sample rides a tooltip).
             "removed_descriptions": removed[:_REVISION_REMOVED_SAMPLE_CAP],
+            # Matched rows whose original parent has no twin here -- the carried parenting could
+            # not be re-pointed, so they kept the fresh parser's parent. Owner decision
+            # 2026-07-20: a muted panel line, never a row badge.
+            "parent_lost_count": len(parent_lost),
+            "parent_lost_descriptions": parent_lost[:_REVISION_REMOVED_SAMPLE_CAP],
             # source_version -> the "carried from v{n}" chip/advisory label (the source docname
             # itself is not surfaced this slice -> not shipped).
             "source_version": frappe.db.get_value("BOQs", source_boq, "version"),

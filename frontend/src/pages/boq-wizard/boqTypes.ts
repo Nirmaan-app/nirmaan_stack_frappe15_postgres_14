@@ -561,8 +561,10 @@ export interface ReviewRow {
 
   // ── Revised-BoQ review carry (S5a/S5b, #1102/#1103, ADR-0014 D7). ADDITIVE-ONLY. ───────────
   // Stamped by the post-parse merge (review_carry.py) ONLY on a revision sheet's matched-content
-  // rows: "Matched" (carried -- the calm default, no treatment), "New" / "Ambiguous" / "Drifted"
-  // (a delta that surfaces in the existing Status column + the needs-action panel). Blank/absent on
+  // rows: "Matched" (carried -- the calm default, no treatment) or "New" / "Ambiguous"
+  // (a delta that surfaces in the existing Status column + the needs-action panel). "Drifted" is
+  // RETIRED (owner amendment 2026-07-20 -- the effective-value carry closes the hole it flagged);
+  // a legacy row still holding it falls through to "Original". Blank/absent on
   // every upload/template row and on a revision sheet's blank/spacer rows -> the review screen is
   // byte-identical off a revision. "REMOVED" is never a value (an original-only outcome with no
   // revised row -- surfaced as the panel's muted removed-row advisory line instead).

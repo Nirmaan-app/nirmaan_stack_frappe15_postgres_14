@@ -595,33 +595,57 @@ nothing — the fresh parse reproduces the parser layer); the revised file stays
   ADR's "→ source_row_number →" hop is conceptual and node-name keying sidesteps any source_row_number
   non-uniqueness. Blank N2 keys are never matched.
 - **Pure `services/boq_revision/carry.py`** (B1): `build_review_carry(revised_rows, original_by_id, match) →
-  {row_id: ReviewCarryWrite}`. From the committed node dict: `human_classification` (non-blank) carries;
-  `human_is_root` → `is_root=1 + human_parent=-1` (root precedence, mirrors `resolve_effective`); `human_parent >=
-  0` → `parent_node` → `match.original_to_revised[twin]` → the twin's fresh `row_index` — **never `sort_order`**
-  (the original's row_index; deliberately not even read). A **missing parent twin drops the override** (parenting
-  reverts to the parser — D7 "→ review"). **`level` is NEVER in the payload** (`ReviewCarryWrite` has no such
-  field, test-guarded). **Drift** = a MATCHED row that carried NOTHING (`carried_nothing` — the literal "no carried
-  override": a row carrying any override is a calm Matched, so Edited/Drifted stay disjoint) whose committed
-  `row_class` ≠ the fresh `classification`. **Reads `row_class`, never `node_type`** (a lossy 3-value projection).
+  {row_id: ReviewCarryWrite}`. ⚠️ **AMENDED 2026-07-20 (owner-directed) — carries the EFFECTIVE value into the
+  PARSER layer, superseding D7's "override set only".** From the committed node dict: `row_class` → the review
+  row's `classification`; `parent_node` → `match.original_to_revised[twin]` → the twin's fresh `row_index` →
+  `parent_index` — **never `sort_order`** (the original's row_index; deliberately not even read). A NULL
+  `parent_node` is **effective root** ⇒ the explicit `-1` sentinel. A **missing parent twin** sets the advisory
+  flag `parent_lost` and leaves the fresh parser's parent in place. **`level` is NEVER in the payload, and
+  neither is any `human_*` field** (`ReviewCarryWrite` has no such field — both test-guarded). **Reads
+  `row_class`, never `node_type`** (a lossy 3-value projection). **`Drifted` is RETIRED** (see below).
+- **WHY the amendment (the bug it fixes, observed live):** commit writes `node.row_class =
+  eff["effective_classification"]` (`:954`) and links `node.parent_node` from `eff["effective_parent_index"]`
+  (`:862`), while `node.human_classification`/`human_parent` (`:996/:998`) hold only the RAW manually-typed
+  layer. An **accepted Claude/Gemini suggestion** therefore lands on `row_class`/`parent_node` with the human
+  fields blank/`-1` ⇒ the old override-set carry read NOTHING for it, and the `human_parent >= 0` re-point gate
+  never fired. **Every AI-accepted classification and parent was silently dropped.**
+- **WHY the PARSER layer, not the human layer:** `row_class` carries the full taxonomy but
+  `_ASSIGNABLE_CLASSIFICATIONS` is only `{line_item, preamble, note, spacer}` — `subtotal_marker`/`header_repeat`
+  may NEVER be written to `human_classification`; and `_row_has_override` keys on the human fields, so writing
+  them would flip `has_override` true on every matched row and `_guard_row_at_parser_baseline` would block
+  Apply-AI sheet-wide. Writing the parser layer means the row renders **"Original"** (calm), keeps the AI flow
+  live, and lets a human edit / AI accept layer on top through the untouched `resolve_effective` precedence.
+  **A matched row's parse baseline for the revision IS the original's accepted answer.**
+- **`Drifted` RETIRED; TWO muted advisories instead.** Drift existed only to flag the hole override-only carry
+  left; the effective carry closes it, so the status is never stamped (a legacy row falls through to "Original").
+  Surfaced deltas = **`New` + `Ambiguous`** only. `revision_review_advisories(boq, sheet, source_boq) →
+  {removed, parent_lost}` (**replaces `revision_removed_original_descriptions`**) returns both advisory sets from
+  ONE match pass — `_build_carries` is the single carry-construction site shared with the write merge. Still a
+  safe READ-TIME recompute: both depend only on descriptions, immutable post-parse. `get_review_rows`'s revision
+  meta gains `parent_lost_count` / `parent_lost_descriptions` (same `_REVISION_REMOVED_SAMPLE_CAP`). Owner
+  decision: **both stay muted PANEL LINES, never row badges** — this closes the prior OWNER-CONFIRM flag, which
+  left the parent-lost case entirely silent.
 - **Impure `api/boq/wizard/review_carry.py`:** `merge_revision_review_carry(boq, sheet_name, source_boq)` reads the
   just-inserted review rows (uncommitted, same txn) + the original's CURRENT committed `BOQ Nodes` for the mapped
   source (joined through the committed `BoQ Sheet` — nodes address the sheet by Link, not verbatim name), runs the
-  pure match+carry, and stamps `revision_carry_status` + the override set via targeted `set_value(update_modified=
-  False)`. **The blank/spacer + every REMOVED original row are left UNSTAMPED** (the calm default; REMOVED has no
-  revised row). Content-row filter runs once; `_summarize` is the single summary-shape site. `revision_source_boq(
-  boq)` = the origin gate (`origin=="revision"` AND `source_boq`).
+  pure match+carry, and stamps `revision_carry_status` + `classification`/`parent_index` via targeted
+  `set_value(update_modified=False)` (no `edit_log` entry ⇒ the row never renders "Edited"). **The blank/spacer +
+  every REMOVED original row are left UNSTAMPED** (the calm default; REMOVED has no revised row). Content-row
+  filter runs once; `_summarize` is the single summary-shape site (`matched`/`new`/`ambiguous`/`parent_lost`/
+  `removed` — no `drifted`). `revision_source_boq(boq)` = the origin gate (`origin=="revision"` AND `source_boq`).
 - **The SEAM** (`parse_run._run_parse_worker`): inside the per-sheet `try`, **AFTER the review-row insert loop and
   BEFORE `_set_draft_status("Parsed")`**, gated on `revision_source_boq_name` (read once per parse). A non-revision
   parse never enters it → **byte-identical** (one extra read-only `get_value`, no data change). A merge that raises
   rides the existing compensating-delete + "Insert error" per-sheet failure channel (same transaction as the
   inserts, committed once at Step 7 before publish).
-- **⚠️ OWNER-CONFIRM (Spec-review flag, not a bug):** the missing-parent-twin row stays `Matched` (calm) and its
-  lost parenting surfaces INDIRECTLY via S7's removed-parent advisory — D7 offers no needs-action status for
-  "parent lost" (marks are only New/Ambiguous/Drifted). Faithful to the spec; confirm if a direct alert was meant.
-- **Tests:** `test_row_match.py` (10) + `test_carry.py` (12) + `api/boq/wizard/test_review_carry.py` (10,
-  integration). No regressions (parse_run 102, review_screen 260, commit_pipeline 54, the full revision suite).
-  Residence ratchet holds (b1 pure-purity 0). Both /code-review axes actioned. **S7 (review delta FE) consumes
-  `revision_carry_status` next.**
+- **Verified inert:** a re-pointed row's stored `path` goes stale, but nothing reads it — commit rebuilds `path`
+  from the effective tree (`commit_pipeline.py:886`) and the review UI derives depth from `effective_parent_index`.
+  **No new schema** — the `Drifted` Select option is retained but never written.
+- **Tests:** `test_row_match.py` (10) + `test_carry.py` (**16**) + `api/boq/wizard/test_review_carry.py` (**15**,
+  integration). Every committed-node fixture now carries a **BLANK human layer** (the AI-accepted shape), so the
+  suite fails if the carry ever regresses to reading `human_*`. No regressions (parse_run 102, review_screen 260,
+  commit_pipeline 54, commit_validation 51, the full revision suite; vitest boq-wizard 594). Residence ratchet
+  holds (b1 pure-purity 0). **Live E2E on a real revision still owed.**
 
 ## Revised BoQ commit overlay — formula/remark/color/category carry (S8 = issue #1104, ADR-0014 D8)
 
