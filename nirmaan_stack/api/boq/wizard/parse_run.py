@@ -957,16 +957,16 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
     Caller must os.unlink the returned path in a finally block.
 
     Routing:
-      - If 'frappe_s3_attachment' is not in the URL: treat as local/dev path (tests, dev env).
+      - If 'frappe_gcp_attachment' is not in the URL: treat as local/dev path (tests, dev env).
         /private/... and /files/... are resolved via frappe.get_site_path(); bare absolute
         paths (e.g. test fixture paths) are used as-is.  File is copied to a tempfile so the
         caller can safely unlink it without destroying the source.
       - Otherwise: download from S3 via S3Operations.read_file_from_s3.
-        Real extension is derived from the 'file_name' query param (set by frappe_s3_attachment).
+        Real extension is derived from the 'file_name' query param (set by frappe_gcp_attachment).
         Unlike sheet_preview._fetch_boq_file_to_tempfile (which hardcodes '.xlsx'), this
         version correctly handles '.xlsm' workbooks.
     """
-    if "frappe_s3_attachment" not in source_file_url:
+    if "frappe_gcp_attachment" not in source_file_url:
         # Local path (dev / test)
         if source_file_url.startswith("/private/") or source_file_url.startswith("/files/"):
             local_path = frappe.get_site_path(source_file_url.lstrip("/"))
@@ -986,12 +986,12 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
         return tmp.name
 
     # S3 path
-    from frappe_s3_attachment.controller import S3Operations  # noqa: PLC0415
+    from frappe_gcp_attachment.controller import S3Operations  # noqa: PLC0415
 
     parsed_url = urllib.parse.urlparse(source_file_url)
     params = urllib.parse.parse_qs(parsed_url.query)
 
-    # Derive real extension from file_name query param (frappe_s3_attachment sets this)
+    # Derive real extension from file_name query param (frappe_gcp_attachment sets this)
     ext = ".xlsx"
     file_name_list = params.get("file_name")
     if file_name_list:
