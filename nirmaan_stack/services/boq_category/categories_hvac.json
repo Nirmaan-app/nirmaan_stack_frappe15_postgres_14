@@ -1,7 +1,7 @@
 {
   "discipline": "HVAC",
-  "version": "0.1-hv1-v0",
-  "note": "The 16 HVAC pricing categories (Build slice HV-1). Same shape + contract as categories_electrical.json: category_id is stable, name is the human/AI display label (must match the team labelling legend Categories_Legend.csv), description is the human/AI reference. ABSTAIN returns a BLANK category_id ('') via scoring.novel_category_id (shared scoring.json). The engine stays DISABLED in engines.py until the ruleset is tuned + prompt certified + HVAC routing locked (registry flip is a separate gated slice).",
+  "version": "0.2-hv3-v1",
+  "note": "The 17 HVAC pricing categories (Build slice HV-3; was 16 at HV-1). HV-3 added hvac_raceway as a category of its own on an OWNER RULING: cable trays / raceways are a separately-priced package, so hvac_cables narrows to cabling only (cables/wiring) and the tray vocabulary moves out of it. Original HV-1 note follows. The 16 HVAC pricing categories (Build slice HV-1). Same shape + contract as categories_electrical.json: category_id is stable, name is the human/AI display label (must match the team labelling legend Categories_Legend.csv), description is the human/AI reference. ABSTAIN returns a BLANK category_id ('') via scoring.novel_category_id (shared scoring.json). The engine stays DISABLED in engines.py until the ruleset is tuned + prompt certified + HVAC routing locked (registry flip is a separate gated slice).",
   "categories": [
     {
       "category_id": "hvac_ducting",
@@ -72,7 +72,13 @@
     {
       "category_id": "hvac_cables",
       "name": "Cables",
-      "description": "HVAC power/control cabling AND cable trays (owns VRF control cabling).",
+      "description": "HVAC power/control cabling and wiring only (owns VRF control cabling). Cable trays / raceways are hvac_raceway (HV-3 owner ruling).",
+      "discipline": "HVAC"
+    },
+    {
+      "category_id": "hvac_raceway",
+      "name": "Raceway",
+      "description": "cable trays, raceways, and tray accessories",
       "discipline": "HVAC"
     },
     {

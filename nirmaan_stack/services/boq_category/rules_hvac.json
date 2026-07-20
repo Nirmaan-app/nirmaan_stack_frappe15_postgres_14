@@ -1,7 +1,12 @@
 {
   "discipline": "HVAC",
-  "version": "0.1-hv1-v0",
-  "note": "HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
+  "version": "1.0-hv3-v1",
+  "note": "HVAC category ruleset v1 (Build slice HV-3, 2026-07-20). v1 changes are EVIDENCE-DRIVEN from the Set-1 label scoring (_classification_review/hvac_labels_and_scoring/SCORING_V0.md, 1366 scored line items) and each carries source 'set1-scoring 2026-07-20 (provisional labels)'. FOUR changes only: (a) RACEWAY CARVE-OUT -- new hvac_raceway category owns cable tray / raceway vocabulary, removed from Cables, with a false-friend guard each way; (b) H4 CONFIRMED (100%, n=66) -- an insulation word that is an ATTRIBUTE of a pipe/valve line no longer claims the row (the owner's 4A ruling); (c) H2 REVERSED -- the air-distribution ancestor was RIGHT 84% of the time, so ADP-ANC is RAISED from 0.4 to 0.5 rather than dropped; (d) H1 + H7 REFUTED -- their proposed edits are NOT applied; a WEAK provisional BTU/energy-meter -> Valve Package rule is added instead. H3/H5/H6 came back MIXED and are deliberately UNTOUCHED -- proximity decay reshuffles those piles and they re-arbitrate at clean labels. The top-level 'decay' block is the HVAC proximity-decay curve, PROVISIONAL-FIT (see its own note). Original HV-1 note follows. HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
+  "decay": {
+    "rules_multiplier": 1.0,
+    "_fit": "PROVISIONAL-FIT",
+    "_note": "HVAC proximity-decay curve, wired EXPLICITLY at HV-3 (2026-07-20) rather than left to the implicit flat default, so the value is a measured decision on the record. MEASURED FLAT: the tracked decay_sweep.py harness was run over the 1366 labelled Set-1 line items (the same row set as SCORING_V0.md) across the certified 20-value ladder. Flat m=1.0 scored 52.86% and NO multiplier beat it -- best non-flat was m=0.90 at 52.27% (-8 rows); m<=0.75 fell to ~49.4%. This mirrors the Electrical result (D2/D2b), where decay was also measured and LOCKED FLAT. PROVISIONAL-FIT: fitted on the team's PROVISIONAL Set-1 labels (labels carrying known vocabulary drift and an unfinished preamble pass); a re-sweep is OWED once clean labels land, and this value must not be treated as certified until then. Electrical's locked 1.0 is a separate, untouched decision -- rules_electrical.json deliberately carries no decay block."
+  },
   "rules": [
     {
       "rule_id": "DUCT-KW",
@@ -51,8 +56,8 @@
       "match": ["grille", "diffuser", "air distribution"],
       "match_mode": "any_token",
       "weight": 0.4,
-      "plain": "Sits under a grille/diffuser (air distribution) section.",
-      "source": "corpus recon"
+      "plain": "Sits under a grille/diffuser (air distribution) section. HV-3 KEEPS this token and its 0.4 weight, both on measured evidence. Hypothesis H2 proposed DELETING 'air distribution' as over-broad; the Set-1 labels REVERSED that -- truth agreed with ADP on 84% of the 223 rows the token decides -- so the token stays. Raising the weight was then measured and REJECTED: at 0.45 or 0.5 the rule outranks (or ties and wins the tiebreak against) the sibling 0.45 ancestors DUCT-ANC / AHU-ANC / VRF-ANC, and overall accuracy falls 52.86% -> 50.29% on the same 1366 rows (45 ducting, 31 AHU and 23 VRF rows lost to ADP). H2's 84% was measured on rows ADP ALREADY won; amplifying the weight extends the rule into a different population where truth says ducting/AHU/VRF. Correct reading: keep the signal, do not amplify it.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
     },
     {
       "rule_id": "PIPE-KW",
@@ -96,6 +101,22 @@
       "source": "corpus recon"
     },
     {
+      "rule_id": "INS-ATTRIBUTE-EXCL",
+      "category_id": "hvac_insulation",
+      "signal_type": "exclusion",
+      "match": [
+        "insulated\\s+(?:ms\\s+|gi\\s+|cpvc\\s+|upvc\\s+|copper\\s+|refrigerant\\s+|drain\\s+|chilled\\s+water\\s+)*pipe",
+        "insulated\\s+(?:butterfly\\s+|ball\\s+|balancing\\s+|isolation\\s+|nrv\\s+)*valve",
+        "pipes?\\b[^.;]{0,40}\\bwith\\b[^.;]{0,40}insulation",
+        "valves?\\b[^.;]{0,40}\\bwith\\b[^.;]{0,40}insulation",
+        "with\\s+\\d+(?:\\.\\d+)?\\s*mm\\s+(?:thick\\s+)?insulation"
+      ],
+      "match_mode": "regex",
+      "weight": 0.0,
+      "plain": "OWNER RULING (the 4A convention, HV-3): when an insulation word appears as an ATTRIBUTE of a pipe or valve line -- 'insulated pipe', 'pipe with insulation', 'insulated butterfly valve', a composite '5/8 dia with 13 mm insulation' -- the line is priced as the pipe or the valve, NOT as Insulation. Insulation claims a row only when insulation is the SUBJECT of the line (a standalone insulation item or an Insulation section). Encodes hypothesis H4, which the Set-1 labels CONFIRMED at 100% on its 66-row pile.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
+    },
+    {
       "rule_id": "VLV-KW",
       "category_id": "hvac_valve_package",
       "signal_type": "item_keyword",
@@ -115,6 +136,16 @@
       "weight": 0.4,
       "plain": "Sits under a Valves section header.",
       "source": "corpus recon"
+    },
+    {
+      "rule_id": "VLV-METER-PROV",
+      "category_id": "hvac_valve_package",
+      "signal_type": "item_keyword",
+      "match": ["btu meter", "energy meter", "ultrasonic meter", "flow meter"],
+      "match_mode": "any_token",
+      "weight": 0.2,
+      "plain": "PROVISIONAL (HV-3): a BTU / energy / flow meter is priced with the valve package. Hypothesis H7 proposed routing these to Sensors and the Set-1 labels REFUTED it outright -- 0 of 31 rows were labelled Sensors, and every labelled meter row came back Valve Package. Deliberately WEAK (0.2) so a meter line lands LOW and stays visible for review rather than asserting a category: the evidence is a provisional, noisy-label read and is owed a re-check at clean labels.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
     },
     {
       "rule_id": "VAV-KW",
@@ -266,21 +297,61 @@
       "rule_id": "CBL-KW",
       "category_id": "hvac_cables",
       "signal_type": "item_keyword",
-      "match": ["cable", "cabling", "control cable", "power cable", "control cabling", "cable tray", "perforated tray"],
+      "match": ["cable", "cabling", "control cable", "power cable", "control cabling"],
       "match_mode": "any_token",
       "weight": 0.5,
-      "plain": "HVAC power/control cabling or cable tray. OWNS VRF control cabling (VRF keeps only refnet/gas/stand ancillaries).",
-      "source": "pricing catalogue"
+      "plain": "HVAC power/control cabling or wiring. OWNS VRF control cabling (VRF keeps only refnet/gas/stand ancillaries). HV-3: the tray tokens ('cable tray', 'perforated tray') moved OUT to hvac_raceway on the owner's raceway ruling -- Cables is cabling only.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
     },
     {
       "rule_id": "CBL-ANC",
       "category_id": "hvac_cables",
       "signal_type": "ancestor",
-      "match": ["cabling", "cable tray"],
+      "match": ["cabling"],
       "match_mode": "any_token",
       "weight": 0.35,
-      "plain": "Sits under a Cabling / Cable Tray section header.",
-      "source": "corpus recon"
+      "plain": "Sits under a Cabling section header. HV-3: 'cable tray' moved OUT to RCW-ANC.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
+    },
+    {
+      "rule_id": "CBL-TRAY-EXCL",
+      "category_id": "hvac_cables",
+      "signal_type": "exclusion",
+      "match": ["cable tray", "perforated tray", "raceway", "cable trunking", "tray cover"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "RACEWAY CARVE-OUT guard (HV-3, owner ruling), Cables side: a tray/raceway line contains the word 'cable', so without this guard CBL-KW would claim every cable tray. A line naming a tray or raceway is hvac_raceway, never hvac_cables.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
+    },
+    {
+      "rule_id": "RCW-KW",
+      "category_id": "hvac_raceway",
+      "signal_type": "item_keyword",
+      "match": ["cable tray", "perforated tray", "raceway", "cable trunking", "ladder tray", "tray cover", "tray support", "tray accessories"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "A cable tray / raceway / tray accessory. HV-3 owner ruling: trays and raceways are a separately-priced package, not part of Cables (which is cabling only).",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
+    },
+    {
+      "rule_id": "RCW-ANC",
+      "category_id": "hvac_raceway",
+      "signal_type": "ancestor",
+      "match": ["cable tray", "raceway", "cable trunking"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "Sits under a Cable Tray / Raceway section header. Weight mirrors electrical's equivalent tray ancestor rule (CT-ANC, 0.4) -- the same signal in the sibling discipline.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
+    },
+    {
+      "rule_id": "RCW-DRIPTRAY-EXCL",
+      "category_id": "hvac_raceway",
+      "signal_type": "exclusion",
+      "match": ["drip tray", "drain tray", "condensate tray"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "RACEWAY CARVE-OUT guard (HV-3), Raceway side: a unit's drip/drain/condensate tray is part of that unit, not a cable-carrying raceway. Keeps the new category from stealing DX/CHW/VRF unit accessories.",
+      "source": "set1-scoring 2026-07-20 (provisional labels)"
     },
     {
       "rule_id": "AHU-KW",
