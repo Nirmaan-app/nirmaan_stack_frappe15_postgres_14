@@ -144,6 +144,121 @@ _REVIEW_ROW_FIELDS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Template-origin committed grid (ADR-0013 T5b) -- build the faithful grid from the
+# REVIEW ROWS instead of a source Excel. A template-cloned BoQ has NO workbook, so the
+# committed grid tier is reconstructed by INVERTING sheet_config.column_role_map: each
+# review row's semantic fields are placed back into their column letters. For a
+# grid_and_nodes (data) sheet the committed grid cells are WRITE-ONLY downstream (nothing
+# reads them back -- pricing drives off the node tier; only the general-specs grid_only
+# reference view reads cells), so this coherent semantic reconstruction is sufficient and
+# need not be byte-identical to any Excel. Node tree is unchanged (it already reads review
+# rows, filtered is_excluded=0 by T5).
+# ---------------------------------------------------------------------------
+
+# role -> scalar BoQ Review Row field (non-area roles). Roles never captured by the parser
+# (ignore, reference_images) and the header-keyed append_to_notes are intentionally not
+# reconstructed -- write-only + rare; the node tier carries all priced data regardless.
+_GRID_ROLE_SCALAR = {
+    "sl_no": "sl_no_value",
+    "description": "description",
+    "unit": "unit",
+    "qty_total": "qty_total",
+    "rate_supply": "rate_supply",
+    "rate_install": "rate_install",
+    "rate_combined": "rate_combined",
+    "amount_supply": "amount_supply",
+    "amount_install": "amount_install",
+    "amount_total": "amount_total",
+    "make_model": "make_model",
+    "row_notes": "row_notes",
+}
+# area role -> (review-row JSON field, subkey inside that area's dict)
+_GRID_ROLE_AREA = {
+    "rate_supply_by_area": ("rate_by_area", "supply_rate"),
+    "rate_install_by_area": ("rate_by_area", "install_rate"),
+    "rate_combined_by_area": ("rate_by_area", "combined_rate"),
+    "amount_supply_by_area": ("amount_by_area", "supply"),
+    "amount_install_by_area": ("amount_by_area", "install"),
+    "amount_total_by_area": ("amount_by_area", "total"),
+}
+
+
+def _as_json_dict(val) -> dict:
+    """Coerce a JSON-column value (dict already, or a raw JSON string from get_all, or
+    None) to a plain dict -- never raises."""
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str) and val:
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+def _invert_rows_to_grid(review_rows: list[dict], sheet_config: dict) -> list[dict]:
+    """PURE: rebuild grid_rows [{"row_number", "cells": {col_letter: value}}] from the
+    semantic review rows by inverting sheet_config.column_role_map (col_letter -> {role, area}).
+
+    One grid row per review row, in input order (caller passes row_index asc, mirroring the
+    node-tree read). row_number = source_row_number, or row_index for a synthetic (user-created)
+    row that has none. A None value is omitted from the cell map."""
+    role_map = (sheet_config or {}).get("column_role_map") or {}
+    out: list[dict] = []
+    for r in review_rows:
+        qty_by_area = _as_json_dict(r.get("qty_by_area"))
+        by_json = {
+            "rate_by_area": _as_json_dict(r.get("rate_by_area")),
+            "amount_by_area": _as_json_dict(r.get("amount_by_area")),
+        }
+        cells: dict = {}
+        for col_letter, spec in role_map.items():
+            role = (spec or {}).get("role")
+            area = (spec or {}).get("area")
+            if role == "qty":
+                val = qty_by_area.get(area) if area else r.get("qty_total")
+            elif role in _GRID_ROLE_AREA:
+                jf, sub = _GRID_ROLE_AREA[role]
+                area_row = by_json[jf].get(area) if area else None
+                val = area_row.get(sub) if isinstance(area_row, dict) else None
+            elif role in _GRID_ROLE_SCALAR:
+                val = r.get(_GRID_ROLE_SCALAR[role])
+            else:
+                val = None  # append_to_notes / reference_images / ignore: not reconstructed
+            if val is not None:
+                cells[col_letter] = val
+        row_number = r.get("source_row_number")
+        if not row_number:  # 0 or None -> no real source row; fall back to positional index
+            row_number = r.get("row_index")
+        out.append({"row_number": row_number, "cells": cells})
+    return out
+
+
+def _template_grid_rows(boq_name: str, sheet_name: str, draft, disposition: str, boq_doc) -> list[dict]:
+    """Build grid_rows for a template-origin sheet (no workbook). A grid_only (general-specs)
+    sheet has NO review rows -- seed a single cell row from the carried preamble_text so the
+    pricing reference view is not blank. A data sheet inverts its included (is_excluded=0)
+    review rows via _invert_rows_to_grid."""
+    if disposition == "grid_only":
+        text = ""
+        for gs in (boq_doc.general_specs_sheets or []):
+            if gs.source_sheet_name == sheet_name:
+                text = gs.preamble_text or ""
+                break
+        return [{"row_number": 1, "cells": {"A": text}}] if text else []
+
+    sheet_config = _as_json_dict(getattr(draft, "sheet_config", None)) if draft else {}
+    review_rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},  # verbatim #152
+        fields=_REVIEW_ROW_FIELDS,
+        order_by="row_index asc",
+    )
+    return _invert_rows_to_grid(review_rows, sheet_config)
+
+
 def _coerce_subset(sheet_subset: Any) -> list[str]:
     """Normalize sheet_subset (JSON string from HTTP, or a Python list) to a list."""
     if sheet_subset is None:
@@ -383,8 +498,13 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=No
     # Draft lookup (verbatim sheet_name) for the column-config snapshot.
     drafts_by_name = {d.sheet_name: d for d in boq_doc.sheet_drafts}
 
+    # Template-origin BoQs (ADR-0013 D4, BOQ-level uniform) have NO source workbook -- their
+    # committed grid is rebuilt from the review rows (T5b), so the source_file_url guard +
+    # the workbook fetch/open below are skipped for them.
+    is_template = getattr(boq_doc, "origin", "upload") == "template"
+
     source_file_url = frappe.db.get_value("BOQs", boq_name, "source_file_url")
-    if not source_file_url:
+    if not is_template and not source_file_url:
         frappe.throw(
             f"BOQs '{boq_name}' has no source_file_url set.",
             title="Missing source file",
@@ -409,9 +529,11 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=No
     committed: list[dict] = []
     failed: list[dict] = []
     try:
-        # SINGLE fetch + SINGLE open; loop the sheets inside.
-        tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
-        wb = openpyxl.load_workbook(tempfile_path, data_only=True, read_only=True)
+        # SINGLE fetch + SINGLE open; loop the sheets inside. (Template origin has no
+        # workbook -- grid rows come from the review rows instead; see the loop below.)
+        if not is_template:
+            tempfile_path = _fetch_boq_file_to_tempfile(source_file_url)
+            wb = openpyxl.load_workbook(tempfile_path, data_only=True, read_only=True)
 
         for sheet_name in subset:
             # PER-SHEET FAILURE ISOLATION (Slice 5): a sheet that raises mid-write is
@@ -419,21 +541,28 @@ def commit_boq(boq_name: str = None, sheet_subset: Any = None, confirm_orphan=No
             # stay committed (each _commit_one_sheet commits before the next begins),
             # so MIXED STATE (some committed, some failed) is a valid resting outcome.
             try:
-                if sheet_name not in wb.sheetnames:
-                    # A genuinely-absent sheet is a PER-SHEET failure (consistent with
-                    # the new contract), NOT a whole-call abort -- the throw is inside
-                    # the per-sheet try so it lands in failed[]. (An ineligible sheet is
-                    # still rejected upfront by the gate re-check, before this loop.)
-                    frappe.throw(
-                        f"Sheet '{sheet_name}' not found in the workbook. "
-                        f"Available sheets: {wb.sheetnames}",
-                        title="Sheet not found",
-                    )
-                ws = wb[sheet_name]
-                grid_rows = _extract_grid_rows(ws)  # shared transform, single open wb
-
                 disposition = disposition_by_sheet[sheet_name]
                 draft = drafts_by_name.get(sheet_name)
+
+                if is_template:
+                    # No workbook: rebuild the committed grid from the review rows (T5b).
+                    grid_rows = _template_grid_rows(
+                        boq_name, sheet_name, draft, disposition, boq_doc
+                    )
+                else:
+                    if sheet_name not in wb.sheetnames:
+                        # A genuinely-absent sheet is a PER-SHEET failure (consistent with
+                        # the new contract), NOT a whole-call abort -- the throw is inside
+                        # the per-sheet try so it lands in failed[]. (An ineligible sheet is
+                        # still rejected upfront by the gate re-check, before this loop.)
+                        frappe.throw(
+                            f"Sheet '{sheet_name}' not found in the workbook. "
+                            f"Available sheets: {wb.sheetnames}",
+                            title="Sheet not found",
+                        )
+                    ws = wb[sheet_name]
+                    grid_rows = _extract_grid_rows(ws)  # shared transform, single open wb
+
                 result = _commit_one_sheet(
                     boq_name, sheet_name, disposition, grid_rows, draft
                 )
@@ -702,9 +831,13 @@ def _commit_node_tree(
             froze_nodes += 1
 
     # 1. Read review rows (verbatim sheet_name, #152) + resolve effective values.
+    #    is_excluded=0 (ADR-0013 D5): deselected template rows must NOT become BOQ Nodes.
+    #    UNIVERSALLY INERT for the upload flow (every upload row is is_excluded=0). The
+    #    committed grid is built separately from the Excel worksheet (_extract_grid_rows),
+    #    NOT from this read, so the node tree is the only tier this filter governs here.
     raw_rows = frappe.db.get_all(
         "BoQ Review Row",
-        filters={"boq": boq_name, "sheet_name": sheet_name},
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},
         fields=_REVIEW_ROW_FIELDS,
         order_by="row_index asc",
     )

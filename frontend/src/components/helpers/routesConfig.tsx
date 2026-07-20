@@ -736,6 +736,10 @@ export const appRoutes: RouteObject[] = [
           // ?project=<id> pre-selects the project in the picker.
           { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
 
+          // BoQ Templates admin screen (ADR-0013 A1 / A-T8). Admin + Estimates only
+          // (server also gates). Manages the single master template + seeding.
+          { path: "upload-boq/templates", lazy: () => import("@/pages/boq-wizard/TemplateEditorPage") },
+
           // BoQ Hub (Module 2b) -- sheet mapping screen.
           // boqId is the BOQs docname; read from URL so the hub survives refresh.
           { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },

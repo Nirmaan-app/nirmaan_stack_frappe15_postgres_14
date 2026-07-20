@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create BOQ from Template — Locked Design</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --ink:#e7eaf0; --muted:#9aa3b2;
+    --line:#2a2f3a; --accent:#6ea8fe; --green:#54d18c; --amber:#f0b95d; --red:#f0736f;
+    --violet:#b48ef0; --chip:#232834;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:40px 24px 96px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  h2{font-size:21px;margin:46px 0 14px;padding-top:18px;border-top:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:16px;margin:24px 0 8px;color:var(--accent)}
+  .lead{font-size:16px;color:var(--muted);margin:0 0 22px}
+  p{margin:10px 0}
+  code{background:var(--chip);padding:1px 6px;border-radius:5px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d7dce8}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;letter-spacing:.03em;text-transform:uppercase}
+  .locked{background:rgba(84,209,140,.14);color:var(--green);border:1px solid rgba(84,209,140,.3)}
+  .reuse{background:rgba(84,209,140,.12);color:var(--green);border:1px solid rgba(84,209,140,.28)}
+  .new{background:rgba(240,115,111,.14);color:var(--red);border:1px solid rgba(240,115,111,.3)}
+  .mod{background:rgba(240,185,93,.14);color:var(--amber);border:1px solid rgba(240,185,93,.3)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  td .qid{font-weight:700;color:var(--violet);font-variant-numeric:tabular-nums}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:500}
+  .step.skip{opacity:.38;text-decoration:line-through}
+  .step.hot{border-color:var(--accent);box-shadow:0 0 0 1px rgba(110,168,254,.3) inset}
+  .arr{color:var(--muted)}
+  ul{margin:8px 0;padding-left:22px}li{margin:5px 0}
+  .pill{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600;margin:0 2px}
+  .pl-pre{background:rgba(180,142,240,.18);color:var(--violet)}
+  .pl-item{background:rgba(84,209,140,.16);color:var(--green)}
+  .pl-other{background:rgba(154,163,178,.16);color:var(--muted)}
+  .muted{color:var(--muted)}
+  .mono{font-family:ui-monospace,monospace;font-size:13px;background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:780px){.two{grid-template-columns:1fr}}
+  .slice{display:flex;gap:12px;align-items:flex-start;margin:10px 0}
+  .slice .n{flex:0 0 30px;height:30px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <span class="tag locked">Design locked · post-grill · 2026-07-08</span>
+  <h1>Create BOQ from Template</h1>
+  <p class="lead">18 decisions resolved via <code>/grill-with-docs</code>. This is the design of record — the input to the implementation plan + ADR-0013. Nothing built yet.</p>
+</header>
+
+<h2>The feature in one paragraph</h2>
+<div class="card">
+A second entry point beside <i>Upload BOQ</i> — <b>Create from Template</b> — lets a user compose a brand-new BOQ from a curated skeleton (<code>MEP BOQ..xlsx</code>). A <b>template is a project-less <code>BOQs</code> doc</b> (<code>is_template=1</code>) authored through the <b>existing wizard</b>. On create, the chosen template sheets are <b>deep-cloned</b> into a fresh, project-bound BOQ — already classified &amp; parented, landing at <code>Parsed</code>. The user opens each sheet in an <b>enhanced Review screen</b>: he <b>selects</b> the rows he needs (deselecting a preamble cascades to its subtree), optionally <b>creates rows</b>, and <b>fills a quantity</b> on each selected line item. He <b>finalizes</b> — and from there <b>commit → tender → pricing run exactly as today</b>.
+</div>
+
+<h2>The 18 locked decisions</h2>
+<table>
+<thead><tr><th>#</th><th>Decision</th><th>Resolution</th></tr></thead>
+<tbody>
+<tr><td class="qid">1</td><td>What is a template?</td><td>A <b>project-less <code>BOQs</code> doc, <code>is_template=1</code></b>, authored via the existing wizard, <b>deep-cloned</b> on create. No separate template doctype (ADR-0010 F3).</td></tr>
+<tr><td class="qid">2</td><td>Clone state &amp; overlay</td><td>Flatten template's <b>effective</b> class/parent into the base fields; drop all overlay/AI/edit-log. Clone lands at <b><code>Parsed</code></b>. <b>Configure + Parse suppressed</b> for template origin (no source workbook). Revert-to-baseline = revert-to-template.</td></tr>
+<tr><td class="qid">3</td><td>Carry rates / quantities?</td><td><b>Strip both.</b> Template = structure only (class, parent, unit, column config). Qty entered by user; rates entered fresh at pricing.</td></tr>
+<tr><td class="qid">4</td><td>Selection semantics</td><td>Default <b>all eligible selected</b>. <b>Both cascades</b> (deselect→subtree, select→ancestor preambles). Checkboxes on <b>eligible rows only</b> (preamble+line_item); non-eligible <b>ride along</b> with nearest eligible ancestor.</td></tr>
+<tr><td class="qid">5</td><td>Row creation</td><td><b>Renumber-on-insert</b> (shift <code>row_index</code> ≥ point, remap all parent pointers atomically; no schema change). <b>Delete</b> user-created rows only. Create/delete UI <b>template-flow only</b> (upload re-parse would destroy created rows). New rows auto-selected, full gate participation.</td></tr>
+<tr><td class="qid">6</td><td>Quantity input</td><td>Qty on <b>line items only</b> (preambles always pure groups). <b>Single-area only</b> (templates authored without multi-area) → one <code>qty_total</code> cell. UX: <b>reuse expand-to-edit first</b>, inline cells fast-follow. Reuses existing <code>save_review_edit</code>.</td></tr>
+<tr><td class="qid">7</td><td>Entry flow &amp; sheet picker</td><td>2nd picker option → select template → checkbox picker listing <b>all</b> template sheets (no exclusion — Summary/Make List offered too) → name → clone <b>selected only</b> → hub. <b>Create-time selection only.</b></td></tr>
+<tr><td class="qid">8</td><td>Pricing pre-seed?</td><td><b>None.</b> Template is pre-commit only. Post-finalize (commit/tender/pricing incl. amount-formula declaration) <b>untouched</b>.</td></tr>
+<tr><td class="qid">9</td><td>Clone fidelity</td><td>Carry <b>work-package</b> assignments + <b>general-specs</b> membership for selected sheets.</td></tr>
+<tr><td class="qid">10</td><td>Mix template + upload?</td><td><b>No.</b> BOQs are <b>origin-uniform</b> for MVP. <code>origin</code> marker at <b>BOQ level</b>.</td></tr>
+<tr><td class="qid">11</td><td>Role gating</td><td><b>Create</b> = the 5 wizard roles (Admin/PMO/Procurement/Estimates/Project&nbsp;Lead). <b>Author/manage</b> = <b>Admin + Estimates Executive</b>.</td></tr>
+<tr><td class="qid">12</td><td>Template lifecycle</td><td><b>Draft → Published → Deprecated</b> status (only Published in the picker). Admin+Estimates <b>Templates list page</b>. Templates hidden from project BOQ lists. <b>No formal versioning</b> (MVP).</td></tr>
+<tr><td class="qid">13</td><td>Created-BOQ identity</td><td><code>boq_name</code> defaults to <b><code>{project_name}_BOQ</code></b> (editable). Version auto (<code>MAX+1</code>). Project-bound. Stamp <code>origin="template"</code> + <code>source_template</code>.</td></tr>
+<tr><td class="qid">14</td><td>Qty required at finalize?</td><td><b>No hard gate</b> — rate-only (R.O) lines valid. <b>Soft advisory</b> "N selected lines have no quantity" (never blocks).</td></tr>
+<tr><td class="qid">15</td><td>Screen architecture</td><td><b>Parametric</b> — extend <code>SheetReviewPage</code>/<code>ReviewTree</code> with capability flags (<code>selectable</code>, <code>canCreateRows</code>, qty-gate). New logic in <b>pure helpers</b> (<code>templateSelection.ts</code>). Not a fork (F3/F4).</td></tr>
+<tr><td class="qid">16</td><td>Clone execution</td><td><b>Enqueued + socket</b> (<code>boq:template_clone_done</code> + poll fallback), mirroring upload/parse long-job. Bulk-insert rows via <code>frappe.db</code>.</td></tr>
+<tr><td class="qid">17</td><td>Template authoring entry</td><td><b>New-and-upload only</b> (MVP). "Save existing BOQ as template" deferred.</td></tr>
+<tr><td class="qid">18</td><td>Selection persistence &amp; commit</td><td>Durable <b><code>is_excluded</code> Check</b> on <code>BoQ Review Row</code> (default 0). Cascade writes subtree server-side. <b>Finalize gate + commit filter to included subset</b> (<code>is_excluded=0</code>). Inert for upload BOQs.</td></tr>
+</tbody>
+</table>
+
+<h2>Flow of record</h2>
+<h3>Authoring (Admin / Estimates, once)</h3>
+<div class="flow">
+  <span class="step">Templates page → New Template</span><span class="arr">→</span>
+  <span class="step">Upload <code>MEP BOQ..xlsx</code> into an <code>is_template</code> BOQ</span><span class="arr">→</span>
+  <span class="step">Configure (single-area) · Parse · Review/finalize</span><span class="arr">→</span>
+  <span class="step hot">Publish</span>
+</div>
+<h3>Create (5 wizard roles, per project)</h3>
+<div class="flow">
+  <span class="step">Picker → "Create from Template"</span><span class="arr">→</span>
+  <span class="step">pick template + sheets</span><span class="arr">→</span>
+  <span class="step hot">enqueue clone → new project BOQ (<code>Parsed</code>, <code>origin=template</code>)</span><span class="arr">→</span>
+  <span class="step hot">Hub</span>
+</div>
+<div class="flow">
+  <span class="step skip">Configure</span><span class="step skip">Parse</span>
+  <span class="arr">per sheet →</span>
+  <span class="step hot">Review + <b>Select</b> + <b>Create</b> + <b>Qty</b></span><span class="arr">→</span>
+  <span class="step">Finalize (gate on included subset + soft qty advisory)</span><span class="arr">→</span>
+  <span class="step">Commit → Tender → Pricing <span class="muted">(unchanged)</span></span>
+</div>
+
+<h2>Reuse vs. build</h2>
+<table>
+<thead><tr><th>Area</th><th>Verdict</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Row/tree model, <code>computeDepths</code>, descendant DFS</td><td><span class="tag reuse">reuse</span></td><td>Cascade math wraps the existing cycle-safe DFS.</td></tr>
+<tr><td>Priceability spine (eligible = preamble+line_item)</td><td><span class="tag reuse">reuse</span></td><td><span class="pill pl-item">Line Item</span> qty target; <span class="pill pl-pre">Preamble</span> pure group; <span class="pill pl-other">Other</span> ride-along.</td></tr>
+<tr><td>Qty write path (<code>save_review_edit</code>, editable qty descriptors)</td><td><span class="tag reuse">reuse</span></td><td>Already exists (C-v2). Gate to selected line items.</td></tr>
+<tr><td>Finalize / freeze / commit / tender / pricing</td><td><span class="tag reuse">reuse</span></td><td>Gate + commit gain an <code>is_excluded=0</code> filter; otherwise untouched.</td></tr>
+<tr><td><code>ReviewTree</code>/<code>SheetReviewPage</code> capability flags + <code>templateSelection.ts</code></td><td><span class="tag mod">extend</span></td><td>Parametric, row-memo-safe (per-row selection slice, not the shared Set).</td></tr>
+<tr><td>Hub / SheetCard for template origin</td><td><span class="tag mod">extend</span></td><td>Suppress ①Configure + Parse; stepper starts at ②Review.</td></tr>
+<tr><td><code>is_template</code>, <code>status</code>, <code>origin</code>, <code>source_template</code> on BOQs; <code>is_excluded</code> on Review Row</td><td><span class="tag new">new schema</span></td><td>Additive fields; inert for upload flow.</td></tr>
+<tr><td>Templates list page + publish/deprecate/duplicate</td><td><span class="tag new">new</span></td><td>Admin+Estimates gated.</td></tr>
+<tr><td>Create-from-template entry + sheet picker</td><td><span class="tag new">new</span></td><td>2nd option on <code>BoqPickerPage</code>.</td></tr>
+<tr><td>Clone worker (enqueued) + <code>create_review_row</code>/<code>delete_review_row</code> + <code>set_row_excluded</code></td><td><span class="tag new">new</span></td><td>Long-job pattern; renumber-on-insert; cascade write.</td></tr>
+</tbody>
+</table>
+
+<h2>Proposed build slices (for the plan)</h2>
+<div class="card">
+<div class="slice"><div class="n">1</div><div><b>Schema + clone worker (backend).</b> Additive fields (<code>is_template</code>, <code>status</code>, <code>origin</code>, <code>source_template</code>, <code>is_excluded</code>); enqueued <code>clone_template</code> worker (flatten→strip→bulk-insert) + socket; templates filtered from BOQ lists.</div></div>
+<div class="slice"><div class="n">2</div><div><b>Entry + Templates management (frontend).</b> 2nd picker option, sheet picker, create flow with clone-progress; Admin+Estimates Templates page (new/edit/publish/deprecate/duplicate).</div></div>
+<div class="slice"><div class="n">3</div><div><b>Hub template-origin behavior.</b> Suppress Configure/Parse; SheetCard stepper from ②Review.</div></div>
+<div class="slice"><div class="n">4</div><div><b>Selection + cascade.</b> <code>templateSelection.ts</code> pure helpers; <code>set_row_excluded</code> endpoint (subtree cascade, both directions); checkbox column in <code>ReviewTree</code> (memo-safe).</div></div>
+<div class="slice"><div class="n">5</div><div><b>Row create/delete.</b> <code>create_review_row</code> (renumber-on-insert + remap) / <code>delete_review_row</code>; create form (class+parent+desc+unit); auto-select.</div></div>
+<div class="slice"><div class="n">6</div><div><b>Qty on selected line items.</b> Gate the existing editable qty descriptor to selected line_item rows (single-area); soft qty advisory.</div></div>
+<div class="slice"><div class="n">7</div><div><b>Finalize + commit on included subset.</b> Filter gate + commit pipeline to <code>is_excluded=0</code>; verify tender/pricing end-to-end.</div></div>
+</div>
+
+<h2>Open items intentionally deferred (fast-follows)</h2>
+<ul>
+<li>Inline grid qty cells (Q6c) — start with expand-to-edit.</li>
+<li>"Save existing BOQ as template" (Q17).</li>
+<li>Adding template sheets to an existing BOQ post-create (Q7).</li>
+<li>Mixing template + uploaded sheets in one BOQ (Q10).</li>
+<li>Formal template versioning / supersede chains (Q12).</li>
+<li>Template-level amount-formula pre-seed for pricing (Q8).</li>
+</ul>
+
+<p class="muted" style="margin-top:36px;border-top:1px solid var(--line);padding-top:16px">Design of record. Next: implementation plan (Plan-to-Parallel execution strategy) + ADR-0013. No code until the plan is reviewed.</p>
+</div>
+</body>
+</html>

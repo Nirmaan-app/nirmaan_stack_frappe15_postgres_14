@@ -97,3 +97,13 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 - **Vacated (downstream)** — orphanable work exists but no other user is currently *Live* on it (nobody holds a fresh pricing lock). A *Vacated* directional warning states only the count — no name.
 
 - **Presence-escalated warning** — the directional guard's response: an unmissable warning that always fires when *orphanable work* exists (*Vacated* → count only) and escalates with the editor's name when the downstream stage is *Live*. It never blocks — the user may proceed after acknowledging. Surfaced at two touchpoints: on entering a pre-phase screen (a banner) and on saving within it (an interrupting confirm). [[0011-boq-concurrency-locking]]
+
+## BoQ create-from-template & quantities
+
+- **Template-origin BoQ** — a BoQ created by cloning the master template rather than by uploading a workbook. It has **no source spreadsheet**, so it cannot be re-parsed, and both its structure and its later priced spreadsheet are *generated*, never read back from an original. Contrast an **upload-origin BoQ**.
+
+- **Area (quantity area)** — a named subdivision of the project (e.g. a tower or a floor) whose quantities are measured separately. Areas are **BoQ-wide** — one set for the whole BoQ — and are fixed when the BoQ is created from a template. A *single-area* BoQ has one implicit area; a *multi-area* BoQ carries a quantity per area on each line item. (Distinct from *Area structure* under sheet parsing, which maps an uploaded spreadsheet column to an area; here the areas are declared by the user at create time, not discovered from a file.)
+
+- **Total Quantity (of a line item)** — a line item's quantity across the whole BoQ: the single entered quantity when the BoQ is single-area, and the **sum of the per-area quantities** when it is multi-area. In the multi-area case it is a *derived* total — never entered directly — and always equals the sum of the areas. In the review grid a multi-area Total updates live as the areas are typed.
+
+- **Priced BoQ (download)** — the spreadsheet a user downloads once a BoQ is priced, carrying the entered rates and the amounts they imply. For an **upload-origin** BoQ it is the original workbook with prices stamped into it; for a **template-origin** BoQ — which has no original — it is **generated from the committed BoQ** as a plain but lightly-styled workbook, and comprises the priced trade sheets, the approved-makes list, and a computed cost summary.

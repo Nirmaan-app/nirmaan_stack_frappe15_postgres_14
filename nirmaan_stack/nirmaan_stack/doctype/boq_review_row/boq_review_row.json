@@ -53,6 +53,7 @@
   "classifier_warnings",
   "flags_section",
   "is_synthetic",
+  "is_excluded",
   "review_edits_section",
   "human_classification",
   "human_parent",
@@ -337,6 +338,13 @@
    "label": "Is Synthetic"
   },
   {
+   "default": "0",
+   "description": "Template flow (origin=template): 1 = this row is DESELECTED and will NOT be committed as a node. Default 0 = included. Inert for upload-origin BoQs. Both the finalize structural gate and the commit pipeline filter to is_excluded = 0 (ADR-0013 D5).",
+   "fieldname": "is_excluded",
+   "fieldtype": "Check",
+   "label": "Is Excluded"
+  },
+  {
    "fieldname": "review_edits_section",
    "fieldtype": "Section Break",
    "label": "Review Edits"
@@ -567,7 +575,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-05 00:00:00.000000",
+ "modified": "2026-07-08 01:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Review Row",

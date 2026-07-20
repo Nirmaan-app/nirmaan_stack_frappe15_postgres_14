@@ -2,6 +2,23 @@
 
 Detailed documentation for PR/PO/RFQ/Quotation workflows.
 
+## Residence — concept → owner (ADR-0010)
+
+This manifest names the **one owning module** for each procurement concept (per [ADR-0010](../../../docs/adr/0010-module-residence-rules.md)). **No-new-scatter rule:** an edit that touches one of these concepts must route through its owner — or, at minimum, must not create a *new* copy of the rule/shape/state (enforced by `scripts/residence_check.py`'s ratchet baselines). An **UNASSIGNED** owner means no single home exists yet — do **not** pick one ad-hoc; ask.
+
+| Concept | Owner (module) | Nothing else may… |
+|---|---|---|
+| Awaiting-approval predicate (PR/SB in `{Vendor Selected, Partially Approved}` with a pending item) | `nirmaan_stack/services/procurement_approval.py` (`AWAITING_APPROVAL_STATES`, `is_awaiting_approval`) | hardcode those state literals or re-implement the pending-item check (~9 legacy files still hardcode `"Vendor Selected"` — ratchet-baselined) |
+| Loss % / benchmark rule (>10% needs justification; Target-prioritized benchmark) | FE `frontend/src/utils/lossPercent.ts` + BE `compute_item_loss_percent` (`nirmaan_stack/api/send_vendor_quotes.py`) — a FE↔BE parity pair | re-derive the 10% threshold or the benchmark choice inline |
+| PR/SB `workflow_state` transitions | **UNASSIGNED** — ADR-0010 deferred Candidate 6 (future `deriveState(items, linkedSBs)`); ~39 scattered writers across ~8 files today | add a **new** writer (ratchet-enforced) |
+| `order_list` child-row shape (`Procurement Request Item Detail` parse/key) | **UNASSIGNED** — no single accessor yet (B2 candidate) | add new inline parses; key gotcha: `rfq_data.details` is keyed by `item_id`, **not** the child-row `name` (root CLAUDE.md) |
+| Counts/aggregates over PR/PO/SB rows | the **database** — GROUP BY / EXISTS, `nirmaan_stack/api/sidebar_counts.py`-style (ADR-0010 first proof) | tally rows in a Python/JS loop |
+| Faceted filter fetching | `frontend/src/components/data-table/SelfFetchingFacetFilter.tsx` + `getColumnFacet` (`meta.facet` in `*.config.ts`) | hand-roll `useFacetValues` in a page (legacy islands in ADR-0010) |
+| Concurrent-edit safety for PR approval | `frontend/src/pages/ProcurementRequests/ApproveNewPR/hooks/useEditingLock.ts` (the F5 write seam — extend it) | invent a second lock mechanism |
+| Vendor credit status transitions | `nirmaan_stack/api/vendor_credit.py` (`recalculate_vendor_credit`) | set `vendor_status` ad-hoc; the asymmetry (On-Hold→Active realtime, Active→On-Hold cron-only) is owner-locked |
+
+Template note: copy this section shape into other domain docs as they're touched; keep rows verified, not aspirational.
+
 ## Workflow Overview
 
 ```
