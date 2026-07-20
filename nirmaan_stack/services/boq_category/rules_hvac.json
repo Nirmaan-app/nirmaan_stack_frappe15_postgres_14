@@ -1,7 +1,9 @@
 {
   "discipline": "HVAC",
-  "version": "1.0-hv3-v1",
-  "note": "HVAC category ruleset v1 (Build slice HV-3, 2026-07-20). v1 changes are EVIDENCE-DRIVEN from the Set-1 label scoring (_classification_review/hvac_labels_and_scoring/SCORING_V0.md, 1366 scored line items) and each carries source 'set1-scoring 2026-07-20 (provisional labels)'. FOUR changes only: (a) RACEWAY CARVE-OUT -- new hvac_raceway category owns cable tray / raceway vocabulary, removed from Cables, with a false-friend guard each way; (b) H4 CONFIRMED (100%, n=66) -- an insulation word that is an ATTRIBUTE of a pipe/valve line no longer claims the row (the owner's 4A ruling); (c) H2 REVERSED -- the air-distribution ancestor was RIGHT 84% of the time, so ADP-ANC is RAISED from 0.4 to 0.5 rather than dropped; (d) H1 + H7 REFUTED -- their proposed edits are NOT applied; a WEAK provisional BTU/energy-meter -> Valve Package rule is added instead. H3/H5/H6 came back MIXED and are deliberately UNTOUCHED -- proximity decay reshuffles those piles and they re-arbitrate at clean labels. The top-level 'decay' block is the HVAC proximity-decay curve, PROVISIONAL-FIT (see its own note). Original HV-1 note follows. HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
+  "version": "2.0-hv4-v2",
+  "note": "HVAC category ruleset v2 (Build slice HV-4, 2026-07-20). v2 = v1 + the nearest-hit ancestor resolution flag (see ancestor_resolution) + TWO label-mined ancestor rules, each clearing the declared mining floor (support >= 8 truth rows, >= 2 distinct BoQs, precision >= 85%) with its figures recorded in its own source string: VLV-ANC-TYPE (support=136/boqs=5/prec=86.1) and FAN-ANC-TYPE (support=76/boqs=6/prec=96.2). Set-1 rules accuracy 52.86% -> 66.91% on the same 1,366 rows. MINED ON PROVISIONAL LABELS -- a re-mine is OWED at clean labels, and the 5x gain:loss keep-rule that governed the batch loop applies fresh at that re-mine. Batches that measured negative (duct / ADP / insulation / BMS ancestor vocabulary) and one that measured net-positive but traded badly (ADP, +3 rows for ~30 lost) were REJECTED and are recorded in the rescore report for retry at clean labels. NO weight changes were made to any v1 rule. Original HV-3 note follows. HVAC category ruleset v1 (Build slice HV-3, 2026-07-20). v1 changes are EVIDENCE-DRIVEN from the Set-1 label scoring (_classification_review/hvac_labels_and_scoring/SCORING_V0.md, 1366 scored line items) and each carries source 'set1-scoring 2026-07-20 (provisional labels)'. FOUR changes only: (a) RACEWAY CARVE-OUT -- new hvac_raceway category owns cable tray / raceway vocabulary, removed from Cables, with a false-friend guard each way; (b) H4 CONFIRMED (100%, n=66) -- an insulation word that is an ATTRIBUTE of a pipe/valve line no longer claims the row (the owner's 4A ruling); (c) H2 REVERSED -- the air-distribution ancestor was RIGHT 84% of the time, so the token is KEPT rather than dropped, but ADP-ANC's weight STAYS AT 0.4 (raising it to 0.45/0.5 was measured at 52.86% -> 50.29% and owner-REJECTED; this note previously said 'RAISED 0.4 -> 0.5', which never shipped -- corrected at HV-4); (d) H1 + H7 REFUTED -- their proposed edits are NOT applied; a WEAK provisional BTU/energy-meter -> Valve Package rule is added instead. H3/H5/H6 came back MIXED and are deliberately UNTOUCHED -- proximity decay reshuffles those piles and they re-arbitrate at clean labels. The top-level 'decay' block is the HVAC proximity-decay curve, PROVISIONAL-FIT (see its own note). Original HV-1 note follows. HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
+  "ancestor_resolution": "nearest_hit",
+  "_ancestor_resolution_note": "HV-4: HVAC resolves ancestor signals at the NEAREST ancestor that fires anything, instead of flattening the whole chain into one blob. Only signals at that resolution point contribute; farther ancestors contribute nothing. This also switches HVAC onto the deterministic tie-break chain (score -> rule weight -> distinct signal types -> declaration order) instead of the legacy alphabetical-by-category_id tiebreak. OPT-IN per discipline: rules_electrical.json carries no such key and runs the legacy blob path byte-identically (proven on its 2,888-row labelled corpus).",
   "decay": {
     "rules_multiplier": 1.0,
     "_fit": "PROVISIONAL-FIT",
@@ -138,6 +140,16 @@
       "source": "corpus recon"
     },
     {
+      "rule_id": "VLV-ANC-TYPE",
+      "category_id": "hvac_valve_package",
+      "signal_type": "ancestor",
+      "match": ["butterfly valve", "ball valve", "isolation valve", "balancing valve", "non return valve", "nrv", "strainer", "picv", "gate valve", "globe valve"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a preamble that names a SPECIFIC valve type. HV-4 mined: valve size leaves were losing a three-way 0.40 tie (insulation / valve / chilled-water) at the SAME ancestor, because a valve specification paragraph incidentally mentions insulation and chilled water; an explicit valve-type header outranks those incidental mentions. Reopens hypothesis H3 (deferred at HV-3) under the nearest-hit regime, where its pile is genuinely different. KNOWN COST: valves itemised INSIDE an AHU / CHW unit package (9 rows on Set-1) are pulled to Valve Package -- the contested boundary VLV-KW's own plain already flags; kept because the trade is 127 rows won for 9 lost (14.1x).",
+      "source": "set1-mined 2026-07-20 (provisional labels), support=136/boqs=5/prec=86.1"
+    },
+    {
       "rule_id": "VLV-METER-PROV",
       "category_id": "hvac_valve_package",
       "signal_type": "item_keyword",
@@ -208,6 +220,16 @@
       "weight": 0.4,
       "plain": "Sits under a Ventilation / Fans section header.",
       "source": "corpus recon"
+    },
+    {
+      "rule_id": "FAN-ANC-TYPE",
+      "category_id": "hvac_fans",
+      "signal_type": "ancestor",
+      "match": ["inline fan", "fresh air fan"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "Sits under a preamble naming a SPECIFIC fan type. HV-4 mined: bare CFM-capacity leaves under an inline / fresh-air fan header were inheriting ducting, because the fan spec mentions duct connections. NARROWED BY THE MINING FLOOR: the batch was proposed with nine tokens and measured at 75.0% precision -- below the 85% floor -- so every token was scored individually and only these two cleared it (inline fan 97.2%/5 BoQs, fresh air fan 97.3%/5 BoQs). 'exhaust air' (53.3%), 'ventilation unit'/'ventilation units' (0%) and 'centrifugal fan' (single BoQ) were REJECTED by the floor.",
+      "source": "set1-mined 2026-07-20 (provisional labels), support=76/boqs=6/prec=96.2"
     },
     {
       "rule_id": "CHW-KW",

@@ -96,6 +96,12 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
     if not isinstance(decay, dict):
         decay = {"rules_multiplier": 1.0}
 
+    # HV-4 nearest-hit ancestor resolution (per-discipline, OPT-IN). The discipline's rules file
+    # may carry a top-level "ancestor_resolution": "nearest_hit". ABSENT (or any other value) =>
+    # the LEGACY flattened-blob behaviour, byte-identical to pre-HV-4. rules_electrical.json
+    # deliberately carries no key, so electrical is provably unchanged. See classify_line.
+    ancestor_resolution = rules_doc.get("ancestor_resolution")
+
     # Per-category exclusion guards (false-friend suppressors). Two kinds:
     #   token  -- whole-token match (inline `exclude_if` on any rule, and
     #             `exclusion`-type rules whose match_mode is not 'regex').
@@ -119,6 +125,7 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         "rules": rules,
         "scoring": scoring,
         "decay": decay,
+        "ancestor_resolution": ancestor_resolution,
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "name_by_cat": {c["category_id"]: c["name"] for c in categories},
@@ -287,6 +294,97 @@ def _infer_from_ancestors_decayed(ancestor_texts, ancestor_headers, ruleset: dic
 
 
 # ---------------------------------------------------------------------------
+# HV-4 nearest-hit ancestor resolution -- helpers. Active ONLY when the discipline's rules file
+# carries "ancestor_resolution": "nearest_hit"; every other discipline runs the legacy flattened-blob
+# path byte-identical to pre-HV-4.
+#
+# THE PROBLEM IT FIXES. Legacy ancestor matching flattens the WHOLE chain into one blob, so a
+# section banner four levels up scores exactly as hard as the immediate parent. D1 decay softened
+# that (weight * m**d) but did NOT stop it: each rule independently contributes at ITS OWN nearest
+# hit, so a distant banner still adds mass, and at the shipped flat m=1.0 the decay path does not
+# even run. Measured consequence (HV-3): a bare "400 mm Dia" leaf under a `Butterfly valves`
+# preamble that itself sits under a `CHILLED WATER SYSTEM` section inherits chw/ahu, not valve.
+#
+# THE RULE. Walk the ancestors NEAREST FIRST (immediate parent d=0). The FIRST ancestor at which
+# ANY ancestor-signal rule fires is the RESOLUTION POINT. Only signals firing AT that ancestor
+# contribute; every farther ancestor contributes NOTHING (not a decayed remnant -- nothing). If no
+# ancestor fires anywhere, behaviour is unchanged. This is "the nearest section that says anything
+# wins", which is how a human reads a BoQ tree.
+# ---------------------------------------------------------------------------
+
+def _norm_ancestors(ancestor_texts, ancestor_headers):
+    """Normalise the ancestor feed ONCE per classify_line call.
+
+    The nearest-hit scan tests every rule against every ancestor, so normalising inside the match
+    (as the legacy blob path could afford to) would re-lower-case the same strings hundreds of times
+    per row. Returns (normalised_texts, normalised_headers) with headers defaulting to texts.
+    """
+    ntexts = [_norm(t) for t in (ancestor_texts or [])]
+    nheaders = [_norm(h) for h in ancestor_headers] if ancestor_headers is not None else ntexts
+    return ntexts, nheaders
+
+
+def _rule_fires_at(rule: dict, index: int, ntexts, nheaders) -> bool:
+    """Does this one rule match the (already normalised) ancestor at `index`?
+    headers_only rules see the header text."""
+    use_headers = rule.get("signal_type") == "ancestor" and bool(rule.get("headers_only"))
+    src = (nheaders[index] if (use_headers and index < len(nheaders)) else ntexts[index])
+    return _tokens_present(rule["match"], rule.get("match_mode", "any_token"), src)
+
+
+def _resolution_index(ruleset: dict, ntexts, nheaders, stypes: tuple):
+    """The NEAREST ancestor index at which any rule of `stypes` fires, else None.
+
+    The feed is ROOT-FIRST (index 0 = sheet name = farthest; last = immediate parent), so the walk
+    runs backwards and distance d = (len - 1) - index. Inputs are already normalised.
+    """
+    for i in range(len(ntexts) - 1, -1, -1):
+        for r in ruleset["rules"]:
+            if r.get("signal_type") in stypes and _rule_fires_at(r, i, ntexts, nheaders):
+                return i
+    return None
+
+
+def _infer_from_ancestors_nearest(ntexts, nheaders, ruleset: dict, m: float) -> dict:
+    """Nearest-hit variant of the ABSTAIN-path fragment inheritance (_infer_from_ancestors).
+
+    Same rule set as the legacy variant (item_keyword + ancestor rules, both matched against
+    ancestor text), but only the rules firing at the RESOLUTION POINT contribute -- so a bare
+    dimension leaf inherits from the nearest section that says anything, not from a blob in which a
+    distant banner can outvote its own parent. Exclusion zeroing still uses the flattened ancestor
+    blob, exactly like the legacy variant.
+    """
+    stypes = ("item_keyword", "ancestor")
+    idx = _resolution_index(ruleset, ntexts, nheaders, stypes)
+    if idx is None:
+        return {}
+    d = (len(ntexts) - 1) - idx
+    factor = (m ** d) if m < 1.0 else 1.0
+    sums: dict[str, float] = {}
+    for r in ruleset["rules"]:
+        if r.get("signal_type") in stypes and _rule_fires_at(r, idx, ntexts, nheaders):
+            sums[r["category_id"]] = sums.get(r["category_id"], 0.0) + float(r["weight"]) * factor
+    anc_blob = " ".join(ntexts)
+    return {c: round(v, 6) for c, v in sums.items() if v > 0 and not _excluded(c, ruleset, anc_blob)}
+
+
+def _inheritance_tiebreak_meta(ruleset: dict, ntexts, nheaders, idx):
+    """(max_weight_by_cat, first_declaration_index_by_cat) for the rules firing at the resolution
+    point -- the same tie-break inputs the main path uses, so both paths break ties identically."""
+    stypes = ("item_keyword", "ancestor")
+    maxw: dict[str, float] = {}
+    first: dict[str, int] = {}
+    if idx is None:
+        return maxw, first
+    for i, r in enumerate(ruleset["rules"]):
+        if r.get("signal_type") in stypes and _rule_fires_at(r, idx, ntexts, nheaders):
+            cat = r["category_id"]
+            maxw[cat] = max(maxw.get(cat, 0.0), float(r["weight"]))
+            first.setdefault(cat, i)
+    return maxw, first
+
+
+# ---------------------------------------------------------------------------
 # v2.1 tuning2: dimension-count geometry signals (conduit-dia / junction-box W x H x D)
 # ---------------------------------------------------------------------------
 # A bare size leaf under a raceway/conduit section carries no category word; the DIMENSION
@@ -421,14 +519,59 @@ def classify_line(
     m = _rules_multiplier(decay_override, ruleset)
     decay_active = m < 1.0
 
+    # HV-4 nearest-hit ancestor resolution (opt-in per discipline; absent => legacy blob path).
+    # COMPOSED ORDER OF OPERATIONS when it is active:
+    #   1. own-text item_keyword signals score exactly as before (never gated, never decayed);
+    #   2. the ancestor RESOLUTION POINT is found = nearest ancestor at which any ancestor rule fires;
+    #   3. only ancestor signals firing AT that point contribute, scaled by the decay factor m**d for
+    #      that one distance d (so decay COMPOSES rather than competes -- at the shipped flat m=1.0
+    #      the factor is 1.0 and nearest-hit acts alone);
+    #   4. agreement bonus + cap, then exclusion guards zero categories globally (unchanged);
+    #   5. ranking applies the direct-signal bonus, then the deterministic tie-break chain below;
+    #   6. conflict penalty, band, geometry override -- all unchanged.
+    nearest_hit = ruleset.get("ancestor_resolution") == "nearest_hit"
+    res_idx = None
+    res_factor = 1.0
+    nanc_texts: list[str] = []
+    nanc_headers: list[str] = []
+    if nearest_hit:
+        nanc_texts, nanc_headers = _norm_ancestors(ancestor_texts, ancestor_headers)
+        res_idx = _resolution_index(ruleset, nanc_texts, nanc_headers, ("ancestor",))
+        if res_idx is not None:
+            _d = (len(nanc_texts) - 1) - res_idx
+            res_factor = (m ** _d) if decay_active else 1.0
+
     # 1-2: gather fired rules per category, summing weights + tracking signal types
     fired: list[dict] = []
     sum_by_cat: dict[str, float] = {}
     sigtypes_by_cat: dict[str, set] = {}
-    for r in rules:
+    maxweight_by_cat: dict[str, float] = {}
+    firstrule_by_cat: dict[str, int] = {}
+    for rule_index, r in enumerate(rules):
         stype = r.get("signal_type")
         if stype not in ("item_keyword", "ancestor"):
             continue  # exclusion rules are handled in step 4, not scored positively
+        if nearest_hit and stype == "ancestor":
+            # NEAREST-HIT PATH: contribute only if this rule fires AT the resolution point.
+            # A farther ancestor contributes nothing at all -- not a decayed remnant.
+            if res_idx is None or not _rule_fires_at(r, res_idx, nanc_texts, nanc_headers):
+                continue
+            cat = r["category_id"]
+            w = float(r["weight"]) * res_factor
+            sum_by_cat[cat] = sum_by_cat.get(cat, 0.0) + w
+            sigtypes_by_cat.setdefault(cat, set()).add(stype)
+            maxweight_by_cat[cat] = max(maxweight_by_cat.get(cat, 0.0), float(r["weight"]))
+            firstrule_by_cat.setdefault(cat, rule_index)
+            fired.append({
+                "rule_id": r["rule_id"],
+                "signal_type": stype,
+                "category_id": cat,
+                "weight": float(r["weight"]),
+                "plain": r.get("plain", ""),
+                "ancestor_distance": (len(ancestor_texts or []) - 1) - res_idx,
+                "decayed_weight": round(w, 6),
+            })
+            continue
         if decay_active and stype == "ancestor":
             # DECAY PATH (0 < m < 1.0): match EACH ancestor individually; contribute ONCE at the
             # nearest matching ancestor's decayed weight = weight * m**distance (immediate parent
@@ -440,6 +583,8 @@ def classify_line(
             cat = r["category_id"]
             sum_by_cat[cat] = sum_by_cat.get(cat, 0.0) + decayed_w
             sigtypes_by_cat.setdefault(cat, set()).add(stype)
+            maxweight_by_cat[cat] = max(maxweight_by_cat.get(cat, 0.0), float(r["weight"]))
+            firstrule_by_cat.setdefault(cat, rule_index)
             fired.append({
                 "rule_id": r["rule_id"],
                 "signal_type": stype,
@@ -459,6 +604,8 @@ def classify_line(
             cat = r["category_id"]
             sum_by_cat[cat] = sum_by_cat.get(cat, 0.0) + float(r["weight"])
             sigtypes_by_cat.setdefault(cat, set()).add(stype)
+            maxweight_by_cat[cat] = max(maxweight_by_cat.get(cat, 0.0), float(r["weight"]))
+            firstrule_by_cat.setdefault(cat, rule_index)
             fired.append({
                 "rule_id": r["rule_id"],
                 "signal_type": stype,
@@ -486,16 +633,29 @@ def classify_line(
         # FIX 4: fragment inheritance. The line itself ABSTAINED -- before routing
         # to review (blank), see whether its ancestor chain alone resolves to EXACTLY ONE
         # dominant category. If so, inherit it DOWN-WEIGHTED (never HIGH).
-        inh = (
-            _infer_from_ancestors_decayed(ancestor_texts, ancestor_headers, ruleset, m)
-            if decay_active
-            else _infer_from_ancestors(anc_blob, ruleset, anc_headers_blob)
-        )
+        # HV-4: under nearest_hit the fragment also inherits from the RESOLUTION POINT only -- this
+        # is the path that decides the bare-dimension-leaf pile (a size leaf has no own signal), so
+        # it is where the mechanism does most of its work.
+        if nearest_hit:
+            inh = _infer_from_ancestors_nearest(nanc_texts, nanc_headers, ruleset, m)
+        elif decay_active:
+            inh = _infer_from_ancestors_decayed(ancestor_texts, ancestor_headers, ruleset, m)
+        else:
+            inh = _infer_from_ancestors(anc_blob, ruleset, anc_headers_blob)
         if inh:
-            ranked_inh = sorted(inh.items(), key=lambda kv: (-kv[1], kv[0]))
+            if nearest_hit:
+                # Deterministic tie-break (see _rank_key): weight, then declaration order. Two
+                # categories tying at the resolution point now RESOLVE instead of abstaining.
+                inh_idx = _resolution_index(ruleset, nanc_texts, nanc_headers,
+                                            ("item_keyword", "ancestor"))
+                inh_meta = _inheritance_tiebreak_meta(ruleset, nanc_texts, nanc_headers, inh_idx)
+                ranked_inh = sorted(inh.items(), key=lambda kv: (
+                    -kv[1], -inh_meta[0].get(kv[0], 0.0), inh_meta[1].get(kv[0], 1 << 30)))
+            else:
+                ranked_inh = sorted(inh.items(), key=lambda kv: (-kv[1], kv[0]))
             top_c, top_v = ranked_inh[0]
             second_v = ranked_inh[1][1] if len(ranked_inh) > 1 else 0.0
-            if top_v > second_v:  # strictly one dominant ancestor category
+            if nearest_hit or top_v > second_v:  # legacy demands strict dominance; HV-4 resolves ties
                 inh_score = round(min(scoring["inheritance_cap"],
                                       top_v * scoring["inheritance_weight"]), 6)
                 if inh_score > 0:
@@ -532,9 +692,20 @@ def classify_line(
     direct_cats = {f["category_id"] for f in fired if f["signal_type"] == "item_keyword"}
     direct_bonus = scoring.get("direct_signal_bonus", 0.0)
 
+    # HV-4 TIE-BREAK. Legacy broke an exact score tie ALPHABETICALLY by category_id -- a silent,
+    # meaningless bias (hvac_adp beat hvac_ducting, hvac_raceway beat hvac_valve_package, purely on
+    # spelling). Under nearest_hit the chain is, in order:
+    #     1. higher effective score (unchanged, incl. the direct-signal bonus)
+    #     2. higher single rule WEIGHT backing the category -- a 0.55 keyword outranks a 0.4 header
+    #     3. more DISTINCT signal types -- corroborated by two kinds of evidence outranks one
+    #     4. STABLE declaration order in rules_<disc>.json -- deterministic, never alphabetical
+    # Legacy disciplines keep the old key exactly, so electrical ordering cannot move.
     def _rank_key(kv):
         cat, sc = kv
         eff = sc + (direct_bonus if cat in direct_cats else 0.0)
+        if nearest_hit:
+            return (-eff, -maxweight_by_cat.get(cat, 0.0),
+                    -len(sigtypes_by_cat.get(cat, ())), firstrule_by_cat.get(cat, 1 << 30))
         return (-eff, cat)
 
     ranked = sorted(positive.items(), key=_rank_key)

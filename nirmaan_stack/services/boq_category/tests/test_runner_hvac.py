@@ -296,16 +296,145 @@ class TestHvacDecayConfig(unittest.TestCase):
         self.assertEqual(doc["decay"]["_fit"], "PROVISIONAL-FIT")
         self.assertEqual(load_ruleset("HVAC")["decay"]["rules_multiplier"], 1.0)
 
-    def test_hvac_near_ancestor_beats_far_under_decay(self):
-        # The decay MECHANISM is live for HVAC assets even though the shipped curve is flat:
-        # a far tray banner (d=2) loses to a near valves header (d=0) once a multiplier applies.
+    def test_nearest_hit_subsumes_what_decay_used_to_be_needed_for(self):
+        # HV-3 wrote this as "a far tray banner beats a near valves header at FLAT, and only a
+        # decay multiplier flips it". HV-4's nearest-hit mechanism makes the flat run resolve at
+        # the near ancestor by itself -- that IS the slice's point, so the assertion is updated
+        # rather than preserved. Decay still composes on top (same answer, scaled by distance).
         inp = ["CABLE TRAY AND ACCESSORIES", "aaa", "VALVES"]
         flat = classify_line(NEUTRAL, inp, discipline="HVAC")
-        near = classify_line(NEUTRAL, inp, discipline="HVAC",
-                             decay_override={"rules_multiplier": 0.5})
-        self.assertEqual(flat["category_id"], "hvac_raceway")            # far banner wins flat
-        self.assertEqual(near["category_id"], "hvac_valve_package")      # near wins under decay
-        self.assertNotEqual(flat["category_id"], near["category_id"])
+        dec = classify_line(NEUTRAL, inp, discipline="HVAC",
+                            decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(flat["category_id"], "hvac_valve_package")   # near wins WITHOUT decay now
+        self.assertEqual(dec["category_id"], "hvac_valve_package")    # and still does with it
+        self.assertEqual(flat["all_scores"].get("hvac_raceway", 0.0), 0.0)  # far banner: nothing
+
+
+class TestHvacNearestHitResolution(unittest.TestCase):
+    """HV-4 Part 1: ancestor signals resolve at the NEAREST ancestor that fires anything.
+
+    Fixtures use the proven-neutral line so every resulting category comes from the chain alone.
+    The feed is ROOT-FIRST: index 0 is farthest, the LAST element is the immediate parent.
+    """
+
+    def _c(self, anc):
+        return classify_line(NEUTRAL, anc, discipline="HVAC")
+
+    def test_near_firing_ancestor_beats_far_banner(self):
+        # POSITIVE, the headline case: a far `CHILLED WATER SYSTEM` banner used to outvote the
+        # immediate valve parent through the flattened blob. Now it contributes NOTHING.
+        r = self._c(["CHILLED WATER SYSTEM", "Butterfly valves PN 16 wafer type"])
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+        self.assertEqual(r["all_scores"].get("hvac_chw_units", 0.0), 0.0)
+
+    def test_farther_ancestor_contributes_nothing_not_a_decayed_remnant(self):
+        # NEGATIVE: the distinction from D1 decay. Under decay the far banner would still add a
+        # scaled contribution; under nearest-hit it is absent from all_scores entirely.
+        r = self._c(["GI DUCTING WORK", "Butterfly valves PN 16"])
+        self.assertNotIn("hvac_ducting", {k for k, v in r["all_scores"].items() if v})
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_silent_immediate_parent_falls_through_to_grandparent(self):
+        # POSITIVE: a parent that fires nothing is not a wall -- the walk continues outward and
+        # resolves at the first ancestor that DOES fire.
+        near = self._c(["Butterfly valves PN 16"])
+        fallen = self._c(["Butterfly valves PN 16", "aaa filler that matches no rule"])
+        self.assertEqual(fallen["category_id"], "hvac_valve_package")
+        self.assertEqual(fallen["score"], near["score"])  # flat decay: no distance penalty
+
+    def test_no_ancestor_fires_anywhere_is_legacy_abstain(self):
+        # NEGATIVE: when nothing fires at any depth the mechanism must not invent a resolution.
+        r = self._c(["aaa", "bbb"])
+        self.assertEqual(r["category_id"], "")
+        self.assertEqual(r["band"], "ABSTAIN")
+
+    def test_nearest_wins_regardless_of_which_category(self):
+        # POSITIVE, symmetry check: the mechanism is not valve-specific. Flip the order and the
+        # ducting header (now nearest) wins instead.
+        r = self._c(["Butterfly valves PN 16", "GI DUCTING WORK"])
+        self.assertEqual(r["category_id"], "hvac_ducting")
+
+
+class TestNearestHitGating(unittest.TestCase):
+    """HV-4 A10 lock: the mechanism is OPT-IN per discipline. Electrical must keep blob behaviour."""
+
+    def test_electrical_carries_no_resolution_flag(self):
+        self.assertIsNone(load_ruleset("Electrical").get("ancestor_resolution"))
+
+    def test_hvac_carries_the_flag(self):
+        self.assertEqual(load_ruleset("HVAC").get("ancestor_resolution"), "nearest_hit")
+
+    def test_electrical_still_sums_far_and_near_ancestors(self):
+        # THE GATING NEGATIVE: on electrical, a far banner AND a near header must BOTH still score
+        # (that is the legacy blob). If nearest-hit ever leaked into electrical, the far
+        # popup_boxes signal would vanish and this fails.
+        r = classify_line(NEUTRAL, ["FLOOR SERVICE BOXES", "aaa", "SOCKET OUTLETS"])
+        self.assertGreater(r["all_scores"].get("popup_boxes", 0.0), 0.0)     # far, still counted
+        self.assertGreater(r["all_scores"].get("switches_sockets", 0.0), 0.0)  # near
+        self.assertEqual(r["category_id"], "popup_boxes")  # far banner still WINS on electrical
+
+
+class TestNearestHitTieBreak(unittest.TestCase):
+    """HV-4: ties resolve by (score, rule weight, distinct signal types, declaration order) --
+    never alphabetically by category_id."""
+
+    def test_tie_break_is_deterministic(self):
+        anc = ["CHILLED WATER SYSTEM", "Butterfly valves PN 16 wafer type"]
+        first = classify_line(NEUTRAL, anc, discipline="HVAC")["category_id"]
+        for _ in range(5):
+            self.assertEqual(classify_line(NEUTRAL, anc, discipline="HVAC")["category_id"], first)
+
+    def test_higher_weight_beats_alphabetically_earlier_category(self):
+        # hvac_valve_package sorts AFTER hvac_chw_units and hvac_insulation alphabetically, so under
+        # the legacy alphabetical tiebreak it lost these rows. It must now win on rule weight.
+        r = classify_line(NEUTRAL, ["Butterfly valves with insulation for chilled water"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+
+class TestHvacMinedRulesV2(unittest.TestCase):
+    """HV-4 Part 2: every mined rule is well-formed and carries its mining-floor figures."""
+
+    def _mined(self):
+        return [r for r in load_ruleset("HVAC")["rules"] if r["source"].startswith("set1-mined")]
+
+    def test_mined_rules_exist_and_target_known_categories(self):
+        cats = {c["category_id"] for c in load_ruleset("HVAC")["categories"]}
+        mined = self._mined()
+        self.assertTrue(mined, "HV-4 ships at least one mined rule")
+        for r in mined:
+            self.assertIn(r["category_id"], cats)
+            self.assertTrue(r.get("plain"))
+
+    def test_every_mined_rule_records_its_floor_figures(self):
+        # The floor is auditable from the asset alone: support / boqs / prec must be in `source`.
+        for r in self._mined():
+            for field in ("support=", "boqs=", "prec="):
+                self.assertIn(field, r["source"],
+                              msg="mined rule %s must record %s" % (r["rule_id"], field))
+
+    def test_fan_rule_was_narrowed_by_the_floor(self):
+        # NEGATIVE: the tokens the floor REJECTED must not be present. 'exhaust air' measured 53.3%
+        # precision and 'ventilation unit' 0%; shipping them would have been the overfit.
+        fan = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "FAN-ANC-TYPE")
+        self.assertEqual(fan["match"], ["inline fan", "fresh air fan"])
+        for rejected in ("exhaust air", "ventilation unit", "ventilation units", "centrifugal fan"):
+            self.assertNotIn(rejected, fan["match"])
+
+
+class TestNearestHitDecayComposition(unittest.TestCase):
+    """HV-4: nearest-hit and D1 decay COMPOSE -- decay scales the resolution point's distance,
+    it does not compete with the resolution."""
+
+    def test_decay_scales_the_resolution_point(self):
+        # The valve header sits at d=1 (a silent filler is the immediate parent). Flat keeps full
+        # weight; m=0.5 scales that ONE distance, and the winner is unchanged.
+        anc = ["Butterfly valves PN 16", "aaa filler"]
+        flat = classify_line(NEUTRAL, anc, discipline="HVAC")
+        dec = classify_line(NEUTRAL, anc, discipline="HVAC", decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(flat["category_id"], "hvac_valve_package")
+        self.assertEqual(dec["category_id"], "hvac_valve_package")
+        self.assertAlmostEqual(dec["score"], round(flat["score"] * 0.5, 6), places=6)
 
 
 class TestAiVoterPromptResolution(unittest.TestCase):
