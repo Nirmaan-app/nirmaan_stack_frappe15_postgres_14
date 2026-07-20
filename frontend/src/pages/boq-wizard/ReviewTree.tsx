@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, Trash2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -2013,13 +2013,21 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             {/* B2b BUILD 3: sticky moved from <tr> to individual <th> cells (solid bg, no bleed-through).
                 Corner cell (expander) gets both-axis sticky at z-30. Other <th> get top-only at z-20. */}
             <tr className="border-b border-border">
-              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header. */}
-              <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header.
+                  A2: HIDDEN for template origin (the row-detail panel it opens is suppressed
+                  there -- see the body cell + the detail-panel row + totalCols). With it gone
+                  the template grid has NO frozen-left column; that is intentional (Include is
+                  simply the first cell, not sticky). MUST move in lockstep with them. */}
+              {!templateOrigin && (
+                <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+              )}
               {/* T10/T11: template-controls column (select checkbox + row-actions menu).
                   Rendered ONLY when selectable or canCreateRows -> the upload flow is unaffected. */}
               {templateControls && (
                 <th className="px-2 py-2 text-left font-medium text-muted-foreground w-24 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                  {selectable ? "Include" : ""}
+                  {/* The cell carries the include checkbox AND the row-actions (⋯) menu, so the
+                      header names both. canCreateRows alone (no selection) => actions only. */}
+                  {selectable ? (canCreateRows ? "Include / Actions" : "Include") : ""}
                 </th>
               )}
               {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
@@ -2269,7 +2277,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // non-empty remark -- a marker's job is to advertise the remark, so no toggle
               // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
-              const remarkMarkerShown = hasRemark;
+              // A2: the marker's ONLY action is toggleDetailRow, and the detail panel is suppressed
+              // for template origin -- so it would be a dead click. Gated HERE (not at the JSX) so
+              // the ml-auto marker wrapper also drops when the remark was its only occupant.
+              // Consequence: a cloned row carrying a source remark does not surface it on a template
+              // review. Accepted -- remarks are not a template-review concern (owner call).
+              const remarkMarkerShown = hasRemark && !templateOrigin;
               // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
               // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
               // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
@@ -2282,9 +2295,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // mode pickerColumns === displayDescriptors, so this is identical to before.
               const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
               // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
-              // A2: template origin hides the Status + AI Rec fixed anchors -> the base 8 drops by 2.
+              // A2: template origin hides THREE fixed anchors -- Status, AI Rec, and (row-detail
+              // suppressed) the Expander -> the base 8 drops by 3. Folded into ONE term because all
+              // three vanish together on the same condition; split it into separate terms only if a
+              // future change un-hides one of them independently.
               // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
-              const totalCols = (8 - (templateOrigin ? 2 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
@@ -2369,7 +2385,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                     )}
                   >
                     {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
-                        stopPropagation is mandatory (prevents table-dismiss from firing on the same click). */}
+                        stopPropagation is mandatory (prevents table-dismiss from firing on the same click).
+                        A2: HIDDEN for template origin -- MUST gate on the identical expression as the
+                        matching <th>, the detail-panel row, and the totalCols base-8 decrement. */}
+                    {!templateOrigin && (
                     <td className="px-1 py-1.5 align-top w-8 border-r border-border sticky left-0 z-10 bg-background">
                       <button
                         type="button"
@@ -2382,6 +2401,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           : <ChevronRight className="h-3 w-3" />}
                       </button>
                     </td>
+                    )}
 
                     {/* T10/T11: template-controls cell -- selection checkbox (eligible rows) +
                         row-actions menu. Only mounted when templateControls is on. stopPropagation
@@ -2416,16 +2436,29 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 <DropdownMenuItem onClick={() => openCreateDialog(row, "below")}>
                                   Insert row below
                                 </DropdownMenuItem>
-                                {row.is_synthetic === 1 && (
-                                  <DropdownMenuItem
-                                    onClick={() => { setDeleteError(null); setDeleteDialog(row); }}
-                                    className="text-destructive focus:text-destructive"
-                                  >
-                                    Delete row
-                                  </DropdownMenuItem>
-                                )}
+                                {/* Delete has been PROMOTED out of this menu to the inline trash
+                                    button below -- same guard, same confirm dialog. Deliberately
+                                    NOT duplicated here: two affordances for one action in one cell,
+                                    with the hidden one reachable only via an unlabelled ⋯, is noise. */}
                               </DropdownMenuContent>
                             </DropdownMenu>
+                          )}
+                          {/* Inline delete -- ONLY for a user-created row (is_synthetic=1, set by
+                              template_rows.create_review_row and re-checked server-side by
+                              delete_review_row, so this gate is UX, not the boundary). Rendering it
+                              inline also makes "which rows did I add?" answerable at a glance, which
+                              the ⋯ menu could not. Opens the existing confirm dialog -- never a
+                              direct write (a deleted row's children get re-parented; no undo). */}
+                          {canCreateRows && row.is_synthetic === 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteDialog(row); }}
+                              className="h-5 w-5 flex items-center justify-center rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              aria-label={`Delete added row ${row.source_row_number}`}
+                              title="Delete this added row"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -2739,8 +2772,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   )}
 
                   {/* B2b BUILD 1: inline read-only detail panel -- single-open (Option-B with flag accordion).
-                      Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it. */}
-                  {expandedDetailRow === row.row_index && (
+                      Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it.
+                      A2: suppressed entirely for template origin (its caret is gone above). The
+                      !templateOrigin term is defence -- navigateToRow can still set expandedDetailRow,
+                      but it is only reachable from INSIDE this panel, so no live path opens it. */}
+                  {!templateOrigin && expandedDetailRow === row.row_index && (
                     <tr className="bg-muted/30">
                       <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
                         {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.

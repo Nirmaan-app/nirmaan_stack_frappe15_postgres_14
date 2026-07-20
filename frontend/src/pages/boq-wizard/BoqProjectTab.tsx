@@ -25,6 +25,9 @@ interface BoqListRow {
   wizard_state: string;
   uploaded_at: string;
   creation: string;
+  // Deliberately widened to a plain string, NOT the "upload" | "template" union in boqTypes.ts:
+  // live data already violates that union (see ORIGIN_BADGES below).
+  origin?: string | null;
 }
 
 const WIZARD_STATE_LABELS: Record<string, string> = {
@@ -34,7 +37,27 @@ const WIZARD_STATE_LABELS: Record<string, string> = {
   "Parsed": "Parsed",
 };
 
-const COLUMN_COUNT = 4;
+type OriginBadgeVariant = "outline" | "orange" | "purple";
+
+// How the BoQ was created. `origin` is a read-only Select on BOQs whose DECLARED options are only
+// "upload\ntemplate", but live rows also carry "revision" (written by the revised-BoQ flow, which
+// lands on a separate branch) -- a Frappe Select's options are a UI hint, never a DB constraint, so
+// the data is the authority here, not boqs.json.
+const ORIGIN_BADGES: Record<string, { label: string; variant: OriginBadgeVariant }> = {
+  upload: { label: "Original Upload", variant: "outline" },
+  revision: { label: "Revised Upload", variant: "orange" },
+  template: { label: "Template", variant: "purple" },
+};
+
+// Blank/null origin = a row created before the field existed, which is always an Excel upload
+// (owner call). An UNKNOWN value renders its raw string rather than an empty cell, so an origin
+// added later by another module stays visible instead of silently disappearing from this column.
+const originBadge = (origin?: string | null) => {
+  const key = (origin ?? "").trim() || "upload";
+  return ORIGIN_BADGES[key] ?? { label: key, variant: "outline" as const };
+};
+
+const COLUMN_COUNT = 5;
 
 const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
   const navigate = useNavigate();
@@ -42,7 +65,7 @@ const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
   const { data, isLoading, error } = useFrappeGetDocList<BoqListRow>(
     "BOQs",
     {
-      fields: ["name", "boq_name", "version", "wizard_state", "uploaded_at", "creation"],
+      fields: ["name", "boq_name", "version", "wizard_state", "uploaded_at", "creation", "origin"],
       // Project-less template seeds (ADR-0013 A1) are already excluded by the project filter.
       filters: [["project", "=", projectId]],
       orderBy: { field: "uploaded_at", order: "desc" },
@@ -112,13 +135,16 @@ const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
           <TableHeader className="bg-background">
             <TableRow>
               <TableHead>BoQ Name</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Version</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Uploaded</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.map((row) => (
+            {data.map((row) => {
+              const origin = originBadge(row.origin);
+              return (
               <TableRow
                 key={row.name}
                 className="cursor-pointer"
@@ -126,6 +152,11 @@ const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
               >
                 <TableCell className="py-2 px-3 font-medium">
                   {row.boq_name || row.name}
+                </TableCell>
+                <TableCell className="py-2 px-3">
+                  <Badge variant={origin.variant} className="whitespace-nowrap font-medium">
+                    {origin.label}
+                  </Badge>
                 </TableCell>
                 <TableCell className="py-2 px-3 text-sm text-muted-foreground">
                   v{row.version}
@@ -139,7 +170,8 @@ const BoqProjectTab = ({ projectId }: BoqProjectTabProps) => {
                   {formatDate(row.uploaded_at || row.creation)}
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       </div>
