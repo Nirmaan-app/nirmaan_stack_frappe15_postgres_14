@@ -1360,35 +1360,31 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
     gemini_enabled = bool(get_boq_classifier_settings().get("boq_ai_enabled"))
 
-    # S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta block -- None for an upload/template
-    # sheet (the whole review screen stays byte-identical off a revision). Per-row deltas ride each
-    # row's revision_carry_status (fetched above); the two ADVISORY sets need a sheet-level block --
-    # a REMOVED original has no revised row to stamp, and parent-lost is deliberately not a row
-    # status -- so both are recomputed read-side (stable: review descriptions are immutable
-    # post-parse; see revision_review_advisories). Lazy import
-    # mirrors derive_effective_levels above (review_carry imports only frappe + the pure services).
+    # S5b (#1103, ADR-0014 D7 + Amendment B): the revised-BoQ meta block -- None for an
+    # upload/template sheet (the whole review screen stays byte-identical off a revision).
+    #
+    # Amendment B collapsed this to COUNTS. There are no advisory sets any more: a row either copied
+    # or it is an ordinary parsed row, so there is no "removed original" line and no "parent lost"
+    # line to draw (condition 3 means a row whose parent did not match simply does not copy). The
+    # counts come from the PERSISTED `revision_carry_status` via two aggregates -- the match is NOT
+    # re-run on every review-screen open. Lazy import mirrors derive_effective_levels above
+    # (review_carry imports only frappe + the pure services).
     revision_meta = None
     from nirmaan_stack.api.boq.wizard.review_carry import (
-        revision_review_advisories,
+        revision_review_counts,
         revision_source_boq,
     )
     source_boq = revision_source_boq(boq_name)
     if source_boq:
-        advisories = revision_review_advisories(boq_name, sheet_name, source_boq)
-        removed = advisories["removed"]
-        parent_lost = advisories["parent_lost"]
+        counts = revision_review_counts(boq_name, sheet_name)
         revision_meta = {
             "is_revision": True,
-            "removed_count": len(removed),
-            # Cap the shipped descriptions (the panel shows a count; the sample rides a tooltip).
-            "removed_descriptions": removed[:_REVISION_REMOVED_SAMPLE_CAP],
-            # Matched rows whose original parent has no twin here -- the carried parenting could
-            # not be re-pointed, so they kept the fresh parser's parent. Owner decision
-            # 2026-07-20: a muted panel line, never a row badge.
-            "parent_lost_count": len(parent_lost),
-            "parent_lost_descriptions": parent_lost[:_REVISION_REMOVED_SAMPLE_CAP],
-            # source_version -> the "carried from v{n}" chip/advisory label (the source docname
-            # itself is not surfaced this slice -> not shipped).
+            # "412 of 500 rows copied from v1 -- 88 need review"
+            "copied_count": counts["copied"],
+            "needs_review_count": counts["needs_review"],
+            "total_count": counts["total"],
+            # source_version -> the "copied from v{n}" chip label (the source docname itself is not
+            # surfaced -> not shipped).
             "source_version": frappe.db.get_value("BOQs", source_boq, "version"),
         }
 

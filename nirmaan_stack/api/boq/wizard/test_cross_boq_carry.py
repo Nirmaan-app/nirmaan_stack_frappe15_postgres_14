@@ -7,19 +7,26 @@ Exercises `cross_boq_carry`: a source-driven, destination-keyed, per-cell carry 
 BOQs (an original + its revision), and a long-job worker with per-sheet failure isolation.
 
 The rich fixture: an ORIGINAL committed sheet "Data" v1 with priced cells crafted to hit EVERY
-plan outcome, and a REVISION committed sheet "Data Rev" (a RENAME) whose rows are SHIFTED +100
-(proving the dest Excel row differs from the source's) with a column MOVE (rate D -> E, proving
-`(area, rate_kind)` re-resolution + that the source col_letter is never a write target). A second
-tiny "Amt Rev" sheet (an amount column, no formula) drives the per-sheet formula-gate isolation.
+plan outcome, and a REVISION committed sheet "Data Rev" (a RENAME) with a column MOVE (rate D -> E,
+proving `(area, rate_kind)` re-resolution + that the source col_letter is never a write target). A
+second tiny "Amt Rev" sheet (an amount column, no formula) drives the per-sheet formula-gate
+isolation.
 
-  source row  desc            priced          dest twin  -> outcome
-    10        Item A          combined 100      110         clean copy
-    11        Item B          combined 200      111 (filled) conflict
-    12        Header (Pre)    combined 300      112          non_priceable
-    13        Item Removed    combined 400      (none)       removed
-    14/15     Dup (x2)        combined 500/550  114 (x1)     ambiguous (N=2, M=1)
-    16        Item NoCol      supply   600      116          no_rate_column (dest has no supply col)
-    (dest 199 Brand New = NEW -> not in the plan; needs_new_value_count = 1)
+⚠️ REBUILT FOR **ADR-0014 Amendment B** (2026-07-20). The dest rows were previously SHIFTED +100 to
+prove the twin map ignored row numbers. Amendment B makes `same Excel row + same description` the
+key, so a carried pair now ALWAYS shares its Excel row -- `source_excel_row == dest_excel_row` for
+every non-skip plan entry. The two rows that used to prove "ambiguous" are repurposed to prove the
+two ways position/text can now break a pair.
+
+  source row  desc            priced          dest      -> outcome
+    10        Item A          combined 100     10           clean copy
+    11        Item B          combined 200     11 (filled)  conflict
+    12        Header (Pre)    combined 300     12           non_priceable
+    13        Item Removed    combined 400     (none)       removed -- gone entirely
+    14        Item Moved      combined 500     20           removed -- same text, MOVED row
+    15        Item Reworded   combined 550     15 (retext)  removed -- same row, NEW text
+    16        Item NoCol      supply   600     16           no_rate_column (dest has no supply col)
+    (dest 20 / 15 / 99 are unmatched and priceable -> needs_new_value_count = 3)
 """
 
 import json
@@ -124,30 +131,33 @@ class TestCrossBoqRateCarry(FrappeTestCase):
                 {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
                 {"srn": 12, "node_type": "Preamble", "description": "Header"},
                 {"srn": 13, "node_type": "Line Item", "description": "Item Removed", "qty": 5.0},
-                {"srn": 14, "node_type": "Line Item", "description": "Dup", "qty": 5.0},
-                {"srn": 15, "node_type": "Line Item", "description": "Dup", "qty": 5.0},
+                {"srn": 14, "node_type": "Line Item", "description": "Item Moved", "qty": 5.0},
+                {"srn": 15, "node_type": "Line Item", "description": "Item Reworded", "qty": 5.0},
                 {"srn": 16, "node_type": "Line Item", "description": "Item NoCol", "qty": 5.0},
             ])
         _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)  # clean
         _price(cls.orig, cls.SRC, 1, 11, "D", "combined_rate", 200.0)  # conflict
         _price(cls.orig, cls.SRC, 1, 12, "D", "combined_rate", 300.0)  # non_priceable
-        _price(cls.orig, cls.SRC, 1, 13, "D", "combined_rate", 400.0)  # removed
-        _price(cls.orig, cls.SRC, 1, 14, "D", "combined_rate", 500.0)  # ambiguous
-        _price(cls.orig, cls.SRC, 1, 15, "D", "combined_rate", 550.0)  # ambiguous
+        _price(cls.orig, cls.SRC, 1, 13, "D", "combined_rate", 400.0)  # removed (gone)
+        _price(cls.orig, cls.SRC, 1, 14, "D", "combined_rate", 500.0)  # removed (row moved)
+        _price(cls.orig, cls.SRC, 1, 15, "D", "combined_rate", 550.0)  # removed (text changed)
         _price(cls.orig, cls.SRC, 1, 16, "D", "supply_rate", 600.0)    # no_rate_column
 
-        # REVISION "Data Rev" v1 -- rows shifted +100, rate MOVED to col E, NO supply column.
+        # REVISION "Data Rev" v1 -- surviving rows KEEP their Excel positions (Amendment B's key),
+        # rate MOVED to col E, NO supply column. Row 14's text reappears at row 20 (a MOVE) and
+        # row 15 keeps its position with NEW text (a REWORD) -- neither may pair.
         cls.dest_sheet = _seed_sheet(cls.rev, cls.DEST, 1, 1,
             {"B": _DESC, "C": _UNIT, "E": _SCALAR_RATE}, [
-                {"srn": 110, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
-                {"srn": 111, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
-                {"srn": 112, "node_type": "Preamble", "description": "Header"},
-                {"srn": 114, "node_type": "Line Item", "description": "Dup", "qty": 5.0},
-                {"srn": 116, "node_type": "Line Item", "description": "Item NoCol", "qty": 5.0},
-                {"srn": 199, "node_type": "Line Item", "description": "Brand New", "qty": 5.0},
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+                {"srn": 12, "node_type": "Preamble", "description": "Header"},
+                {"srn": 15, "node_type": "Line Item", "description": "Item Reworded v2", "qty": 5.0},
+                {"srn": 16, "node_type": "Line Item", "description": "Item NoCol", "qty": 5.0},
+                {"srn": 20, "node_type": "Line Item", "description": "Item Moved", "qty": 5.0},
+                {"srn": 99, "node_type": "Line Item", "description": "Brand New", "qty": 5.0},
             ])
         _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC)
-        _price(cls.rev, cls.DEST, 1, 111, "E", "combined_rate", 999.0)  # dest already filled
+        _price(cls.rev, cls.DEST, 1, 11, "E", "combined_rate", 999.0)  # dest already filled
 
         # A SECOND revision sheet with an amount column + NO formula -> formula gate fails.
         cls.amt_src_sheet = _seed_sheet(cls.orig, cls.AMT_SRC, 1, 1,
@@ -158,7 +168,7 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         cls.amt_dest_sheet = _seed_sheet(cls.rev, cls.AMT_DEST, 1, 1,
             {"B": _DESC, "C": _UNIT, "E": _SCALAR_RATE,
              "F": {"role": "amount_total", "area": None}}, [
-                {"srn": 120, "node_type": "Line Item", "description": "Amt Item", "qty": 5.0},
+                {"srn": 20, "node_type": "Line Item", "description": "Amt Item", "qty": 5.0},
             ], sheet_order=2)
         _stamp_provenance(cls.amt_dest_sheet, cls.orig, cls.AMT_SRC)
         frappe.db.commit()
@@ -176,7 +186,7 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         # Reset the DEST writable state each test: drop carried cells (keep the seeded conflict),
         # clear locks + any Redis terminal payload.
         frappe.db.delete(_PRICING, {"boq": self.rev, "sheet_name": self.DEST})
-        _price(self.rev, self.DEST, 1, 111, "E", "combined_rate", 999.0)
+        _price(self.rev, self.DEST, 1, 11, "E", "combined_rate", 999.0)
         frappe.db.delete(_LOCK_DT, {"boq": self.rev})
         frappe.cache().delete_value(cross_boq_carry._status_key(self.rev))
         cross_boq_carry._clear_marker(self.rev)
@@ -212,7 +222,8 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         _, by = self._plan_by_dest()
         r = by[10]
         self.assertEqual(r["outcome"], pricing._CF_CLEAN)
-        self.assertEqual(r["dest_excel_row"], 110, "dest row differs from source (D6 remap)")
+        self.assertEqual(r["dest_excel_row"], 10,
+                         "Amendment B: a carried pair always shares its Excel row")
         self.assertEqual(r["target_col_letter"], "E", "rate column re-resolved after the move")
         self.assertNotEqual(r["target_col_letter"], "D", "source col_letter is never a write target")
         self.assertEqual(r["source_rate"], 100.0)
@@ -221,14 +232,15 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         _, by = self._plan_by_dest()
         r = by[11]
         self.assertEqual(r["outcome"], pricing._CF_CONFLICT)
-        self.assertEqual(r["dest_excel_row"], 111)
+        self.assertEqual(r["dest_excel_row"], 11)
         self.assertEqual(r["current_rate"], 999.0)
 
-    def test_plan_removed_and_ambiguous_split(self):
+    def test_plan_unmatched_rows_all_report_removed(self):
+        # Amendment B retired the ambiguity class: gone / moved / reworded are ONE reason now.
         _, by = self._plan_by_dest()
-        self.assertEqual(by[13]["skip_reason"], "removed")     # no twin, D6 REMOVED
-        self.assertEqual(by[14]["skip_reason"], "ambiguous")   # dup cluster, D6 AMBIGUOUS
-        self.assertEqual(by[15]["skip_reason"], "ambiguous")
+        self.assertEqual(by[13]["skip_reason"], "removed")  # absent from the revision
+        self.assertEqual(by[14]["skip_reason"], "removed")  # same text, but the row MOVED
+        self.assertEqual(by[15]["skip_reason"], "removed")  # same row, but the text CHANGED
         for srn in (13, 14, 15):
             self.assertEqual(by[srn]["outcome"], pricing._CF_SKIP)
             self.assertIsNone(by[srn]["dest_excel_row"])
@@ -243,14 +255,15 @@ class TestCrossBoqRateCarry(FrappeTestCase):
 
     def test_plan_new_rows_absent_but_counted(self):
         sheet, by = self._plan_by_dest()
-        # "Brand New" (dest 199) is a NEW row -> never in the source-driven plan.
-        self.assertNotIn(199, {r["dest_excel_row"] for r in sheet["plan"]})
-        self.assertEqual(sheet["needs_new_value_count"], 1)
+        # "Brand New" (dest 99) is unmatched -> never in the source-driven plan.
+        self.assertNotIn(99, {r["dest_excel_row"] for r in sheet["plan"]})
+        # Unmatched AND priceable dest rows: 15 (reworded), 20 (moved), 99 (brand new).
+        self.assertEqual(sheet["needs_new_value_count"], 3)
 
     def test_plan_counts(self):
         sheet, _ = self._plan_by_dest()
         self.assertEqual(sheet["counts"], {
-            "clean": 1, "conflict": 1, "removed": 1, "ambiguous": 2,
+            "clean": 1, "conflict": 1, "removed": 3, "ambiguous": 0,
             "no_rate_column": 1, "non_priceable": 1,
         })
         self.assertTrue(sheet["formulas_complete"])
@@ -278,15 +291,15 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         cross_boq_carry._carry_rates_worker(
             dest_boq=self.rev,
             decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 110, "area": None, "rate_kind": "combined_rate"},
-                {"dest_excel_row": 111, "area": None, "rate_kind": "combined_rate",
+                {"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+                {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate",
                  "overwrite": True},
             ]},
             user="Administrator",
         )
-        self.assertEqual(self._dest_rate(110), 100.0, "clean copy landed at the re-resolved col E")
-        self.assertEqual(self._dest_rate(111), 200.0, "conflict overwritten")
-        self.assertIsNone(self._dest_rate(110, "D"), "nothing written at the source col_letter")
+        self.assertEqual(self._dest_rate(10), 100.0, "clean copy landed at the re-resolved col E")
+        self.assertEqual(self._dest_rate(11), 200.0, "conflict overwritten")
+        self.assertIsNone(self._dest_rate(10, "D"), "nothing written at the source col_letter")
         term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
         self.assertEqual(term["state"], "done")
         self.assertEqual(term["carried"], 2)
@@ -296,11 +309,11 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         cross_boq_carry._carry_rates_worker(
             dest_boq=self.rev,
             decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 111, "area": None, "rate_kind": "combined_rate"},  # no overwrite
+                {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate"},  # no overwrite
             ]},
             user="Administrator",
         )
-        self.assertEqual(self._dest_rate(111), 999.0, "conflict kept -> existing rate untouched")
+        self.assertEqual(self._dest_rate(11), 999.0, "conflict kept -> existing rate untouched")
         term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
         self.assertEqual(term["carried"], 0)
         self.assertEqual(term["conflicts_kept"], 1)
@@ -310,14 +323,14 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         cross_boq_carry._carry_rates_worker(
             dest_boq=self.rev,
             decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 112, "area": None, "rate_kind": "combined_rate"},   # non_priceable
-                {"dest_excel_row": 116, "area": None, "rate_kind": "supply_rate"},     # no_rate_column
+                {"dest_excel_row": 12, "area": None, "rate_kind": "combined_rate"},   # non_priceable
+                {"dest_excel_row": 16, "area": None, "rate_kind": "supply_rate"},     # no_rate_column
                 {"dest_excel_row": 99999, "area": None, "rate_kind": "combined_rate"}, # invalid
             ]},
             user="Administrator",
         )
-        self.assertIsNone(self._dest_rate(112))
-        self.assertIsNone(self._dest_rate(116))
+        self.assertIsNone(self._dest_rate(12))
+        self.assertIsNone(self._dest_rate(16))
         term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
         self.assertEqual(term["carried"], 0)
         self.assertEqual(term["skipped"]["non_priceable"], 1)
@@ -329,12 +342,12 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         cross_boq_carry._carry_rates_worker(
             dest_boq=self.rev,
             decisions_by_sheet={
-                self.DEST: [{"dest_excel_row": 110, "area": None, "rate_kind": "combined_rate"}],
-                self.AMT_DEST: [{"dest_excel_row": 120, "area": None, "rate_kind": "combined_rate"}],
+                self.DEST: [{"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"}],
+                self.AMT_DEST: [{"dest_excel_row": 20, "area": None, "rate_kind": "combined_rate"}],
             },
             user="Administrator",
         )
-        self.assertEqual(self._dest_rate(110), 100.0, "the good sheet carried despite the bad one")
+        self.assertEqual(self._dest_rate(10), 100.0, "the good sheet carried despite the bad one")
         term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
         self.assertEqual(term["carried"], 1)
         self.assertEqual(term["failed"], [{"sheet_name": self.AMT_DEST,
@@ -355,8 +368,8 @@ class TestCrossBoqRateCarry(FrappeTestCase):
                                  "source_boq", "source_sheet_name"], as_dict=True),
         )
         summary, reason = cross_boq_carry._apply_sheet_carry(
-            ctx, [{"dest_excel_row": 110, "area": None, "rate_kind": "combined_rate"}],
+            ctx, [{"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"}],
             "Guest")
         self.assertIsNone(summary)
         self.assertEqual(reason, "locked")
-        self.assertIsNone(self._dest_rate(110), "a rejected carry mutates nothing")
+        self.assertIsNone(self._dest_rate(10), "a rejected carry mutates nothing")

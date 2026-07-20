@@ -1,16 +1,18 @@
-"""Review-carry MERGE integration (D6 + the 2026-07-20 owner amendment).
+"""Review-carry MERGE integration (ADR-0014 D6/D7 + **Amendment B** 2026-07-20).
 
 The pure decisions are pinned in `services/boq_revision/test_row_match.py` (match) and
 `.../test_carry.py` (payload). These tests exercise the WIRING in `merge_revision_review_carry`:
 it reads the original's committed `BOQ Nodes` + the revision's freshly-parsed `BoQ Review Row`s,
-matches by D6, and writes the original's EFFECTIVE classification + parenting into the revision's
-PARSER layer (`classification` / `parent_index`) plus the `revision_carry_status` stamp.
+matches on `same Excel row + same description`, and writes the original's EFFECTIVE classification
+AND parenting into the revision's PARSER layer (`classification` / `parent_index`) plus the single
+`Copied` stamp.
 
 The fixture is one committed original DATA sheet whose carry surface covers every branch in ONE
-merge: a plain match, a New row, an AI-ACCEPTED row (the regression -- `row_class` set with the
-human layer blank), a parser-only taxonomy value that could never ride the human layer
-(`subtotal_marker`), a re-parented row (lands on the twin's NEW row_index), an effective root, a
-row whose parent was deleted (`parent_lost`), and a blank spacer (no stamp).
+merge: a plain copy, a brand-new row, an AI-ACCEPTED row (the Amendment A regression -- `row_class`
+set with the human layer blank), a parser-only taxonomy value that could never ride the human layer
+(`subtotal_marker`), a re-parented row (re-points to the twin's NEW row_index), an effective root,
+a row whose PARENT was deleted (copies NOTHING -- both-or-neither), a row that MOVED (copies
+nothing), and a blank spacer (no stamp).
 """
 
 import frappe
@@ -18,7 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.review_carry import (
     merge_revision_review_carry,
-    revision_review_advisories,
+    revision_review_counts,
     revision_source_boq,
 )
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
@@ -119,21 +121,26 @@ class TestReviewCarryMerge(FrappeTestCase):
                      level=1)
         _commit_node(cls.original.name, cls.sheet, "Line Item", "line_item", "Plain item", 2, 1,
                      parent_node=sec_a.name)
-        # THE REGRESSION: the human ACCEPTED an AI suggestion of 'preamble'. Commit folded it into
-        # row_class and left human_classification blank -- the old override-set carry saw nothing.
+        # THE AMENDMENT-A REGRESSION: the human ACCEPTED an AI suggestion of 'preamble'. Commit
+        # folded it into row_class and left human_classification blank -- an override-set carry saw
+        # nothing. Amendment B still reads the effective value, so this must keep working.
         _commit_node(cls.original.name, cls.sheet, "Preamble", "preamble", "AI accepted item", 3, 2,
                      level=1, parent_node=sec_a.name)
         # A parser-only taxonomy value: NOT in _ASSIGNABLE_CLASSIFICATIONS, so it could never ride
         # the human layer -- the parser-layer write carries it fine.
         _commit_node(cls.original.name, cls.sheet, "Other", "subtotal_marker", "Subtotal row", 4, 3)
         # Effective parent = Section A (however decided); the revised parse will say Section B.
+        # It keeps Excel row 15 in the revision, so it MATCHES and the re-point runs.
         _commit_node(cls.original.name, cls.sheet, "Line Item", "line_item", "PCC 1:4:8 backfill", 15, 5,
                      parent_node=sec_a.name)
-        # A section that is GONE from the revision + its child -> REMOVED + parent_lost.
+        # A section GONE from the revision + its child -> the child fails condition 3 (both-or-neither).
         gone = _commit_node(cls.original.name, cls.sheet, "Preamble", "preamble",
                             "Deleted Section", 30, 7, level=1)
         _commit_node(cls.original.name, cls.sheet, "Line Item", "line_item", "Child of deleted", 31, 8,
                      parent_node=gone.name)
+        # A row whose text survives but whose POSITION moves in the revision -> must not copy.
+        _commit_node(cls.original.name, cls.sheet, "Preamble", "preamble", "Shifted item", 40, 9,
+                     level=1)
         frappe.db.commit()
 
     @classmethod
@@ -146,6 +153,8 @@ class TestReviewCarryMerge(FrappeTestCase):
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
+    # row_index -> the fresh parse. `source_row_number` is the Excel row (the match key); note it is
+    # deliberately NOT equal to row_index anywhere, so a positional confusion would show up.
     _REVISED = [
         {"row_index": 0, "source_row_number": 1, "classification": "preamble",
          "description": "Section A", "level": 1},
@@ -160,16 +169,24 @@ class TestReviewCarryMerge(FrappeTestCase):
          "description": "Subtotal row"},
         {"row_index": 5, "source_row_number": 10, "classification": "preamble",
          "description": "Section B", "level": 1},
-        # The parser parents PCC under Section B (row 5); the carry re-points it to Section A (0).
-        {"row_index": 6, "source_row_number": 16, "classification": "line_item",
+        # The parser parents PCC under Section B (row_index 5); the carry re-points it to Section A
+        # (row_index 0). Excel row 15 is unchanged, so it matches.
+        {"row_index": 6, "source_row_number": 15, "classification": "line_item",
          "description": "PCC 1:4:8 backfill", "parent_index": 5},
         {"row_index": 7, "source_row_number": 20, "classification": "preamble",
          "description": "Root section", "level": 1},
         {"row_index": 8, "source_row_number": 99, "classification": "spacer", "description": ""},
-        # Its original parent ("Deleted Section") is gone -> keeps the parser's parent (5).
-        {"row_index": 9, "source_row_number": 31, "classification": "line_item",
+        # Same Excel row + same text, but its original parent ("Deleted Section") is gone ->
+        # condition 3 fails -> copies NOTHING (keeps the parse's own 'note' + parent 5).
+        {"row_index": 9, "source_row_number": 31, "classification": "note",
          "description": "Child of deleted", "parent_index": 5},
+        # Same text, MOVED from Excel row 40 to 41 -> no match -> copies nothing.
+        {"row_index": 10, "source_row_number": 41, "classification": "note",
+         "description": "Shifted item"},
     ]
+
+    _COPIED_ROWS = (0, 2, 3, 4, 5, 6, 7)
+    _NOT_COPIED_ROWS = (1, 9, 10)
 
     def _merge(self):
         rev, names = _seed_revision(self.project.name, self.original.name, self._REVISED)
@@ -183,22 +200,28 @@ class TestReviewCarryMerge(FrappeTestCase):
         ) for idx, name in names.items()}
         return rev, summary, rows
 
-    def test_statuses_stamped(self):
+    def test_copied_rows_are_stamped(self):
         _rev, _summary, rows = self._merge()
-        for idx in (0, 2, 3, 4, 5, 6, 7, 9):
-            self.assertEqual(rows[idx].revision_carry_status, "Matched", f"row {idx}")
-        self.assertEqual(rows[1].revision_carry_status, "New")
+        for idx in self._COPIED_ROWS:
+            self.assertEqual(rows[idx].revision_carry_status, "Copied", f"row {idx}")
 
-    def test_drifted_is_never_stamped(self):
+    def test_non_copied_rows_get_no_stamp(self):
+        # Blank status is what makes a non-copied row render "Original", identical to a fresh upload.
         _rev, _summary, rows = self._merge()
-        self.assertNotIn("Drifted", {r.revision_carry_status for r in rows.values()})
+        for idx in self._NOT_COPIED_ROWS:
+            self.assertIn(rows[idx].revision_carry_status, (None, ""), f"row {idx}")
+
+    def test_retired_statuses_are_never_stamped(self):
+        _rev, _summary, rows = self._merge()
+        stamped = {r.revision_carry_status for r in rows.values()}
+        self.assertFalse(stamped & {"Matched", "New", "Ambiguous", "Drifted"}, stamped)
 
     def test_blank_spacer_gets_no_stamp(self):
         _rev, _summary, rows = self._merge()
         self.assertIn(rows[8].revision_carry_status, (None, ""))
 
     def test_ai_accepted_classification_carries(self):
-        # THE regression: the fresh parse said 'note'; the original's accepted 'preamble' wins.
+        # THE Amendment A regression: the fresh parse said 'note'; the accepted 'preamble' wins.
         _rev, _summary, rows = self._merge()
         self.assertEqual(rows[3].classification, "preamble")
 
@@ -217,15 +240,22 @@ class TestReviewCarryMerge(FrappeTestCase):
         _rev, _summary, rows = self._merge()
         self.assertEqual(rows[7].parent_index, -1)   # explicit -1, never null/0
 
-    def test_parent_lost_row_keeps_the_fresh_parser_parent(self):
+    def test_unmatched_parent_copies_nothing_at_all(self):
+        # BOTH-OR-NEITHER. The old rule kept this row "Matched" and still carried its
+        # classification while flagging `parent_lost`; Amendment B leaves it completely alone.
         _rev, _summary, rows = self._merge()
-        self.assertEqual(rows[9].parent_index, 5)            # untouched fresh-parse value
-        self.assertEqual(rows[9].classification, "line_item")  # classification still carried
-        self.assertEqual(rows[9].revision_carry_status, "Matched")
+        self.assertEqual(rows[9].classification, "note")   # the PARSE's value, not the node's
+        self.assertEqual(rows[9].parent_index, 5)          # untouched fresh-parse value
+        self.assertIn(rows[9].revision_carry_status, (None, ""))
+
+    def test_moved_row_copies_nothing(self):
+        _rev, _summary, rows = self._merge()
+        self.assertEqual(rows[10].classification, "note")  # not the original's 'preamble'
+        self.assertIn(rows[10].revision_carry_status, (None, ""))
 
     def test_human_layer_is_never_written(self):
         # The carry writes the PARSER layer only -- if it touched human_*, `_row_has_override`
-        # would flip true on every matched row and block Apply-AI sheet-wide.
+        # would flip true on every copied row and block Apply-AI sheet-wide.
         _rev, _summary, rows = self._merge()
         for idx, row in rows.items():
             self.assertIn(row.human_classification, (None, ""), f"row {idx}")
@@ -234,18 +264,19 @@ class TestReviewCarryMerge(FrappeTestCase):
 
     def test_summary_counts(self):
         _rev, summary, _rows = self._merge()
-        self.assertEqual(summary["new"], 1)
-        self.assertEqual(summary["matched"], 8)   # rows 0,2,3,4,5,6,7,9
-        self.assertEqual(summary["ambiguous"], 0)
-        self.assertEqual(summary["parent_lost"], 1)
-        self.assertEqual(summary["removed"], 1)   # "Deleted Section"
-        self.assertNotIn("drifted", summary)
+        self.assertEqual(summary["copied"], len(self._COPIED_ROWS))
+        self.assertEqual(summary["needs_review"], len(self._NOT_COPIED_ROWS))
+        # total = CONTENT rows only; the blank spacer (row 8) is excluded.
+        self.assertEqual(summary["total"],
+                         len(self._COPIED_ROWS) + len(self._NOT_COPIED_ROWS))
+        for retired in ("matched", "new", "ambiguous", "drifted", "parent_lost", "removed"):
+            self.assertNotIn(retired, summary)
 
-    def test_advisories_read_path(self):
-        rev, _summary, _rows = self._merge()
-        adv = revision_review_advisories(rev, _SHEET, self.original.name)
-        self.assertEqual(adv["removed"], ["Deleted Section"])
-        self.assertEqual(adv["parent_lost"], ["Child of deleted"])
+    def test_counts_read_path_agrees_with_the_merge_summary(self):
+        # `revision_review_counts` derives from the PERSISTED stamp rather than re-running the
+        # match -- the two must not be able to disagree.
+        rev, summary, _rows = self._merge()
+        self.assertEqual(revision_review_counts(rev, _SHEET), summary)
 
 
 class TestRevisionSourceGuard(FrappeTestCase):
@@ -280,13 +311,12 @@ class TestRevisionSourceGuard(FrappeTestCase):
         rev_doc.save(ignore_permissions=True)
         frappe.db.commit()
         summary = merge_revision_review_carry(rev.name, "Fresh", self.original.name)
-        self.assertEqual(summary["matched"], 0)
-        self.assertEqual(summary["new"], 0)
+        self.assertEqual(summary, {"copied": 0, "needs_review": 0, "total": 0})
 
-    def test_advisories_noop_for_unmapped_sheet(self):
+    def test_counts_are_zero_for_a_sheet_with_no_rows(self):
         rev = _make_revision(self.project.name, self.original.name)
-        adv = revision_review_advisories(rev.name, "Nope", self.original.name)
-        self.assertEqual(adv, {"removed": [], "parent_lost": []})
+        self.assertEqual(revision_review_counts(rev.name, "Nope"),
+                         {"copied": 0, "needs_review": 0, "total": 0})
 
 
 if __name__ == "__main__":

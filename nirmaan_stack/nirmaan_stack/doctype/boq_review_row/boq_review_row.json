@@ -573,11 +573,11 @@
    "read_only": 1
   },
   {
-   "description": "For origin=revision review rows (ADR-0014 D6/D7): the row's carry outcome vs the paired original sheet. Blank for upload/template rows (byte-identical) and for a MATCHED row whose fresh parser output already agrees. Set at the post-parse merge seam (S6). Matched/New/Ambiguous/Drifted only -- REMOVED is NEVER a value here (it is an ORIGINAL-side outcome, surfaced as a hub advisory, with no revision row to stamp). Drives the review delta surfacing (S7): New/Ambiguous/Drifted are the needs-action set (self-clearing once the row is edited, CL-6 pattern).",
+   "description": "For origin=revision review rows (ADR-0014 D6/D7, AMENDMENT B 2026-07-20): 'Copied' iff the row sat at the same Excel row with the same description as the original AND its parent did too, in which case it copied the original's effective classification AND parenting together (both or neither). Blank for everything else -- upload/template rows (byte-identical) and every non-copied revision row, which renders 'Original' exactly like a fresh upload. Set at the post-parse merge seam (S6). Matched/New/Ambiguous/Drifted are RETIRED: never written again, retained only so legacy rows still validate.",
    "fieldname": "revision_carry_status",
    "fieldtype": "Select",
    "label": "Revision Carry Status",
-   "options": "\nMatched\nNew\nAmbiguous\nDrifted"
+   "options": "\nCopied\nMatched\nNew\nAmbiguous\nDrifted"
   }
  ],
  "grid_page_length": 50,

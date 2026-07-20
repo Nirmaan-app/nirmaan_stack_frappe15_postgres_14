@@ -100,9 +100,18 @@ class TestRevisionSchemaFields(FrappeTestCase):
 
     def test_revision_carry_status_options_are_exact(self):
         opts = frappe.get_meta("BoQ Review Row").get_field("revision_carry_status").options
-        # leading blank + the four D6/D7 values; REMOVED is an ORIGINAL-side outcome, never a value
-        self.assertEqual(opts, "\nMatched\nNew\nAmbiguous\nDrifted")
+        # Amendment B (2026-07-20): leading blank + `Copied`, which is the ONLY value ever written.
+        # The four legacy values stay in the Select so rows stamped before the amendment still
+        # validate -- they are never produced again. REMOVED was never a value on this side.
+        self.assertEqual(opts, "\nCopied\nMatched\nNew\nAmbiguous\nDrifted")
         self.assertNotIn("REMOVED", opts)
+
+    def test_copied_is_the_only_status_the_carry_writes(self):
+        # Pins the vocabulary at its source, so retiring a legacy option later is a deliberate act.
+        from nirmaan_stack.services.boq_revision.carry import COPIED
+        self.assertEqual(COPIED, "Copied")
+        opts = frappe.get_meta("BoQ Review Row").get_field("revision_carry_status").options
+        self.assertIn(COPIED, (opts or "").split("\n"))
 
     def test_write_once_provenance_fields_are_read_only(self):
         self.assertTrue(frappe.get_meta("BoQ Sheet Draft").get_field("source_sheet_name").read_only)

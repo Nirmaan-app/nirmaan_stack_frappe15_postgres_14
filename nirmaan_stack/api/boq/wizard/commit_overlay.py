@@ -199,18 +199,17 @@ def committed_excel_row_match(source_boq, source_sheet_docname, dest_boq, dest_s
     ambiguous). One matcher, no duplicate -- the plan the human reviewed and the plan apply
     enforces stay derivable from the same call.
 
-    Reads BOTH sides' committed `BOQ Nodes` and re-runs the certified pure `match_rows`. The
-    DESCRIPTION key is the primary signal and is byte-stable (human review never edits a
-    description), so this reproduces the intent of the parse-time pairing for the common
-    (unique-description) case.
+    Reads BOTH sides' committed `BOQ Nodes` and re-runs the certified pure `match_rows`
+    (Amendment B: same Excel row + same description, each position unique per side).
 
-    NOTE on `level`: this reads the committed `BOQ Nodes.level` (the ADR-0009 EFFECTIVE-tree
-    nesting depth) on BOTH sides, not the parser-native level -- the committed source has no other.
-    Using the SAME committed convention on both sides keeps section-header identification internally
-    consistent. `level` feeds ONLY the duplicate-description (N=M>1) section tiebreak; a unique
-    description ignores it, and a genuine mismatch degrades to AMBIGUOUS -> the row SAFELY drops
-    (never a wrong carry). Only MATCHED pairs appear in the twin map; a REMOVED / AMBIGUOUS / NEW
-    row is absent."""
+    ⚠️ This run is now PROVABLY IDENTICAL to the parse-seam run in `review_carry.py`. Under the old
+    description-bucket key the two could legitimately disagree -- this side fed the committed
+    ADR-0009 EFFECTIVE `level` while the parse side fed the parser-native `level`, and a human
+    re-parent between review and commit moved one and not the other. Amendment B bars `level` from
+    the matcher entirely, and both remaining inputs (`source_row_number`, `description`) are
+    immutable after parse and are not functions of the tree. That equivalence is exactly what lets
+    the committed tier RE-DERIVE the copied set with no new schema -- so never reintroduce a
+    tree-derived input here. Only matched pairs appear in the twin map; an unmatched row is absent."""
     orig = _match_rows_from_nodes(source_boq, source_sheet_docname)
     rev = _match_rows_from_nodes(dest_boq, dest_sheet_docname)
     return match_rows(orig, rev)
@@ -235,9 +234,8 @@ def _match_rows_from_nodes(boq, sheet_docname) -> list:
     return [
         MatchRow(
             row_id=n.source_row_number,
+            excel_row=n.source_row_number,
             description=n.description or "",
-            order=n.source_row_number or 0,
-            level=n.level,
         )
         for n in nodes
         if n.source_row_number is not None and normalize_n2(n.description)

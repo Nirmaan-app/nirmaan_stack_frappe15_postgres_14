@@ -8,9 +8,14 @@ amount descriptors (role-axis) with `target_col` re-resolved; a role SWAP is cor
 vanished column drops silently; category carries the whole layer (machine + human) with the field
 split intact, per-discipline; NEW rows land blank.
 
-The excel-row twin map is re-derived at commit from both sides' committed `BOQ Nodes` -- the
-fixture shifts every revised row by +10 (an inserted block) so a naive same-row-number carry would
-land on the WRONG row; the twin map must follow the description.
+The excel-row twin map is re-derived at commit from both sides' committed `BOQ Nodes`.
+
+⚠️ REBUILT FOR **ADR-0014 Amendment B** (2026-07-20). This fixture previously shifted every revised
+row by +10 to prove the twin map followed the DESCRIPTION rather than the row number. Amendment B
+inverts that: the key is `same Excel row + same description`, so an unchanged row keeps its
+position and a SHIFTED row deliberately does NOT carry. The dest rows therefore sit at the SAME
+Excel rows as their source twins, and the shift case is now pinned by
+`TestCommitOverlayShiftStopsCarry` as a NON-carry.
 """
 
 import json
@@ -222,18 +227,19 @@ class TestCommitOverlayCarry(FrappeTestCase):
         cls.rev = _make_revision(cls.project.name, cls.original.name).name
         _seed_revision_draft(cls.rev, cls.DEST, cls.SRC)
         cls.dest_sheet = _commit_sheet(cls.rev, cls.DEST, _role_map({"D": "MEP", "E": "Civil"}))
-        # DEST nodes: every row shifted +10 (an inserted block above) + a genuinely NEW item.
-        _node(cls.rev, cls.dest_sheet, "Preamble", "Section", 11, 0, level=1)
-        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Alpha", 12, 1)
-        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Beta", 13, 2)
+        # DEST nodes: the surviving rows keep their Excel positions (Amendment B's key), Item Gamma
+        # (row 4) is gone, and there is a genuinely NEW item appended well below.
+        _node(cls.rev, cls.dest_sheet, "Preamble", "Section", 1, 0, level=1)
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Alpha", 2, 1)
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Beta", 3, 2)
         _node(cls.rev, cls.dest_sheet, "Line Item", "Brand New Item", 99, 3)  # NEW -> blank
         frappe.db.commit()
 
         # Grid rows for the color survivor check: A/D/E present, F absent (Facade vanished).
         grid_rows = [
-            {"row_number": 11, "cells": {"A": "Section"}},
-            {"row_number": 12, "cells": {"A": "Item Alpha", "D": 1, "E": 2}},
-            {"row_number": 13, "cells": {"A": "Item Beta", "D": 3, "E": 4}},
+            {"row_number": 1, "cells": {"A": "Section"}},
+            {"row_number": 2, "cells": {"A": "Item Alpha", "D": 1, "E": 2}},
+            {"row_number": 3, "cells": {"A": "Item Beta", "D": 3, "E": 4}},
             {"row_number": 99, "cells": {"A": "Brand New Item", "D": 5, "E": 6}},
         ]
         # ONE overlay run (carried records are fresh v1 inserts -- re-running would duplicate).
@@ -283,19 +289,19 @@ class TestCommitOverlayCarry(FrappeTestCase):
     # ---- remark: twin-mapped to the shifted dest row; removed row drops ----
     def test_remark_carried_to_twin_row(self):
         remarks = {r["excel_row"]: r["remark"] for r in self._dest("BoQ Cell Remark")}
-        self.assertEqual(remarks, {12: "keep alpha"})   # row 2 -> dest 12; Gamma (removed) absent
+        self.assertEqual(remarks, {2: "keep alpha"})   # row 2 -> dest 2; Gamma (removed) absent
 
     # ---- color: survivor letter carries; vanished letter drops ----
     def test_color_survivor_carried_vanished_dropped(self):
         colors = {(c["excel_row"], c["col_letter"]): c["color"] for c in self._dest("BoQ Cell Color")}
-        self.assertEqual(colors, {(12, "D"): "green"})   # (2,D)->(12,D); (2,F) dropped
+        self.assertEqual(colors, {(2, "D"): "green"})   # (2,D)->(2,D); (2,F) dropped
 
     # ---- dismissal: only `remark` carries; the computed kind never does ----
     def test_only_remark_dismissal_carried(self):
         dis = self._dest("BoQ Cell Dismissal")
         self.assertEqual(len(dis), 1)
         self.assertEqual(dis[0]["flag_kind"], "remark")
-        self.assertEqual(dis[0]["excel_row"], 12)
+        self.assertEqual(dis[0]["excel_row"], 2)
 
     def test_computed_dismissal_never_carried(self):
         needs = frappe.get_all("BoQ Cell Dismissal", filters={
@@ -309,13 +315,13 @@ class TestCommitOverlayCarry(FrappeTestCase):
     # ---- category: whole layer, per-discipline, field split intact, NEW row blank ----
     def test_category_field_split_and_fanout(self):
         cats = {(c["excel_row"], c["discipline"]): c for c in self._dest("BoQ Row Category")}
-        self.assertEqual(set(cats), {(12, "Electrical"), (12, "HVAC")})   # fan-out, twin-mapped
-        elec = cats[(12, "Electrical")]
+        self.assertEqual(set(cats), {(2, "Electrical"), (2, "HVAC")})   # fan-out, twin-mapped
+        elec = cats[(2, "Electrical")]
         self.assertEqual(elec["final_category_id"], "elec_machine")       # machine -> machine
         self.assertEqual(elec["human_category_id"], "elec_human")         # human -> human
         # The freeze-bug guard: a machine label NEVER lands in human_category_id.
         self.assertNotEqual(elec["human_category_id"], "elec_machine")
-        hvac = cats[(12, "HVAC")]
+        hvac = cats[(2, "HVAC")]
         self.assertEqual(hvac["final_category_id"], "hvac_machine")
         self.assertIn(hvac["human_category_id"], (None, ""))              # no human verdict on HVAC
 
@@ -333,6 +339,68 @@ class TestCommitOverlayCarry(FrappeTestCase):
         self.assertEqual(self.summary["colors"], 1)
         self.assertEqual(self.summary["remark_dismissals"], 1)
         self.assertEqual(self.summary["categories"], 2)
+
+
+class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
+    """⚠️ ADR-0014 Amendment B. A row whose Excel position SHIFTED does not carry its annotations,
+    even though its description is byte-identical.
+
+    This is the inverse of what this file used to assert. Under the old description-only key a +10
+    shift still paired, which is precisely how annotations (and, at the review tier, parenting)
+    could follow a row that the revision had actually moved. The row-level carry and the
+    committed-tier annotation carry share ONE matcher, so this property must hold on both.
+    """
+
+    SHEET = "Shift"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="SHIFT ORIG")
+        cls.src_sheet = _commit_sheet(cls.original.name, cls.SHEET, _role_map({"D": "Civil"}))
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Stable Item", 2, 0)
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Moved Item", 3, 1)
+        _mk_remark(cls.original.name, cls.SHEET, 1, 2, "stays")
+        _mk_remark(cls.original.name, cls.SHEET, 1, 3, "should NOT follow the move")
+
+        cls.rev = _make_revision(cls.project.name, cls.original.name).name
+        _seed_revision_draft(cls.rev, cls.SHEET, cls.SHEET)
+        cls.dest_sheet = _commit_sheet(cls.rev, cls.SHEET, _role_map({"D": "Civil"}))
+        # "Stable Item" holds row 2; "Moved Item" has slipped to row 7 (same text, new place).
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Stable Item", 2, 0)
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Moved Item", 7, 1)
+        frappe.db.commit()
+
+        commit_overlay.carry_commit_overlay(
+            cls.rev, cls.SHEET, 1, cls.dest_sheet,
+            [{"row_number": 2, "cells": {"D": 1}}, {"row_number": 7, "cells": {"D": 2}}])
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        _wipe_boqs(cls.project.name)
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def test_only_the_unmoved_row_carries_its_remark(self):
+        remarks = {
+            r["excel_row"]: r["remark"]
+            for r in frappe.get_all(
+                "BoQ Cell Remark",
+                filters={"boq": self.rev, "sheet_name": self.SHEET,
+                         "committed_version": 1, "is_current": 1},
+                fields=["excel_row", "remark"])
+        }
+        self.assertEqual(remarks, {2: "stays"})
+
+    def test_the_moved_rows_remark_did_not_follow_it(self):
+        self.assertEqual(
+            frappe.get_all("BoQ Cell Remark", filters={
+                "boq": self.rev, "sheet_name": self.SHEET,
+                "committed_version": 1, "excel_row": 7}),
+            [],
+        )
 
 
 class TestCommitOverlayFailClosed(FrappeTestCase):

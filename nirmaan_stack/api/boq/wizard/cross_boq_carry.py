@@ -46,7 +46,6 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     get_committed_rows,
     get_committed_rows_at_version,
 )
-from nirmaan_stack.services.boq_revision.row_match import AMBIGUOUS, NEW
 
 _BOQ_SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
@@ -59,6 +58,10 @@ _STALE_CARRY_SECONDS = 1200  # mirrors classify._STALE_CLASSIFY_SECONDS / parse_
 
 # The split skip taxonomy (ADR-0014 D9). The four PLAN reasons a source cell can be classified as a
 # hard skip, plus `invalid` which is apply-time only (a decision referencing no real carryable cell).
+# "ambiguous" is RETIRED by Amendment B -- the match no longer has an ambiguity class, so it is
+# never produced and always counts 0. The KEY is retained deliberately so the API response shape
+# stays stable for the frontend (`boqTypes.ts` types it, `CrossBoqCarryDialog.test.ts` fixtures
+# supply it). Drop it from both sides together in W5, not here.
 _PLAN_SKIP_REASONS = ("removed", "ambiguous", "no_rate_column", "non_priceable")
 _APPLY_SKIP_REASONS = _PLAN_SKIP_REASONS + ("invalid",)
 
@@ -211,8 +214,7 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
        target_col_letter,       # the RE-RESOLVED dest rate column (null on a skip)
        current_rate, reason}
     """
-    twin = match.original_to_revised   # source excel_row -> dest excel_row (MATCHED only)
-    src_outcome = match.original_outcome  # source excel_row -> MATCHED | REMOVED | AMBIGUOUS
+    twin = match.original_to_revised   # source excel_row -> dest excel_row (matched pairs only)
 
     # Dest current version: node descriptions + the restricted rate-role inverse + filled cells.
     dest_rows = get_committed_rows(boq_name=ctx.dest_boq, sheet_name=ctx.dest_sheet_name)
@@ -267,19 +269,17 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
             "current_rate": None,
             "reason": None,
         }
-        # (1a) D6 TWIN -- the source row must have a MATCHED dest twin. A missing twin splits into
-        # ambiguous (D6 AMBIGUOUS -- "can't tell", go price it by hand) vs removed (D6 REMOVED, or a
-        # blank/no-node source row -- "gone", ignore). NEW dest rows are unreachable here (the plan
-        # is source-driven), so they never enter -- the grid is their review surface (S10).
+        # (1a) TWIN -- the source row must have a matched dest twin. Amendment B collapsed the
+        # match to "paired or not", so the old ambiguous/removed split is gone: there is exactly one
+        # not-carried reason here. A row fails to pair because it moved, was reworded, or is not in
+        # the revision at all -- from the pricing screen's point of view those are the same
+        # instruction ("price it by hand"). Unmatched DEST rows are unreachable here (the plan is
+        # source-driven) -- the grid is their review surface (S10).
         dest_excel_row = twin.get(src_excel_row)
         if dest_excel_row is None:
-            if src_outcome.get(src_excel_row) == AMBIGUOUS:
-                row["skip_reason"] = "ambiguous"
-                row["reason"] = ("This row matches more than one row ambiguously in the revision "
-                                 "-- price it by hand.")
-            else:
-                row["skip_reason"] = "removed"
-                row["reason"] = "This row is not in the revision (removed) -- not carried."
+            row["skip_reason"] = "removed"
+            row["reason"] = ("This row has no matching row in the revision (moved, reworded or "
+                             "removed) -- not carried.")
             plan.append(row)
             continue
         row["dest_excel_row"] = dest_excel_row
@@ -329,11 +329,15 @@ def _plan_counts(plan) -> dict:
 
 
 def _count_new_priceable_rows(ctx: _SheetCarry, match) -> int:
-    """Count the dest rows classified D6 `NEW` that are PRICEABLE -- the "N rows need new values"
-    figure the results modal shows (the amber grid rows of S10). NEW rows never enter the
-    source-driven plan, so they are counted here from the match's revised outcome + the dest nodes.
+    """Count the UNMATCHED dest rows that are PRICEABLE -- the "N rows need new values" figure the
+    results modal shows. Unmatched dest rows never enter the source-driven plan, so they are counted
+    here from the match + the dest nodes.
+
+    Amendment B: "unmatched" replaces the old D6 `NEW` outcome. It is a strictly wider set (a dest
+    row that moved or was reworded is now unmatched rather than paired), which is correct for this
+    figure -- such a row genuinely has no carried rate and does need a value typed.
     """
-    new_rows = [row_id for row_id, outcome in match.revised_outcome.items() if outcome == NEW]
+    new_rows = list(match.unmatched_revised())
     if not new_rows:
         return 0
     nodes = frappe.db.get_all(
