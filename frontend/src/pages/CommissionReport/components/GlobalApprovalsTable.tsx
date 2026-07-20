@@ -20,6 +20,7 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
+import SITEURL from "@/constants/siteURL";
 
 import { useCommissionMasters } from "../hooks/useCommissionMasters";
 import { CommissionReportTask } from "../types";
@@ -64,8 +65,11 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
     // Approve / Reject actions are Admin-only; PMO sees the queue read-only.
     const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
 
-    const [preview, setPreview] = useState<{ open: boolean; url: string; title: string }>({ open: false, url: "", title: "" });
-    const openPreview = useCallback((url: string, title: string) => setPreview({ open: true, url, title }), []);
+    const [preview, setPreview] = useState<{ open: boolean; url: string; title: string; direct: boolean }>({ open: false, url: "", title: "", direct: false });
+    // `direct` renders the URL straight in the iframe. Required for the uploaded vendor
+    // file, which is served via a GCS `generate_file` redirect that a cross-origin blob
+    // fetch cannot follow (CORS). Field print-format previews keep the blob path (direct=false).
+    const openPreview = useCallback((url: string, title: string, direct = false) => setPreview({ open: true, url, title, direct }), []);
     const [approval, setApproval] = useState<{ open: boolean; mode: 'approve' | 'reject' | null; task: ApprovalTaskRef | null }>(
         { open: false, mode: null, task: null },
     );
@@ -85,6 +89,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                 task_name: task.task_name,
                 hasTemplate: !!info?.hasTemplate,
                 isLandscape: !!info?.isLandscape,
+                report_type: task.report_type,
             },
         });
     }, [masterMap]);
@@ -151,6 +156,24 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
             cell: ({ row }) => {
                 const t = row.original;
                 const info = masterMap.get(masterMapKey(t.commission_category, t.task_name));
+                
+                if (t.report_type === 'Vendor' && t.approval_proof) {
+                    const uploadedHref = t.approval_proof.startsWith('http') ? t.approval_proof : SITEURL + t.approval_proof;
+                    return (
+                        <div className="flex justify-center">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 gap-1"
+                                onClick={() => openPreview(uploadedHref, t.task_name, true)}
+                                title="View the submitted vendor report"
+                            >
+                                <Eye className="h-3 w-3" /> <span className="text-[11px] font-medium">View Vendor Report</span>
+                            </Button>
+                        </div>
+                    );
+                }
+
                 if (!info?.hasTemplate) {
                     return <div className="text-center text-[11px] text-gray-400">--</div>;
                 }
@@ -298,6 +321,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh }
                 open={preview.open}
                 onOpenChange={(o) => setPreview((p) => ({ ...p, open: o }))}
                 pdfUrl={preview.url}
+                directSrc={preview.direct}
                 title={preview.title}
                 canDownload={false}
             />

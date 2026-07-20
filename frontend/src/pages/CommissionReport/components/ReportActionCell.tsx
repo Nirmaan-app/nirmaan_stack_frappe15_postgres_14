@@ -5,7 +5,9 @@
 // Status → primary:
 //   Pending  (Field, empty)  -> Fill Report
 //   Pending  (Field, draft)  -> Submit for Approval   (More: Edit)
-//   Pending  (Vendor)        -> Upload Report
+//   Pending  (Vendor, no file) -> Upload Report
+//   Pending  (Vendor, file)    -> View Report + Send for Approval  (More: Replace report)
+//   Rejected (Vendor, file)    -> View Report + Send for Approval  (More: Replace report)
 //   Pending Approval         -> View Submission        (+ "awaiting approval")
 //   Submitted                -> Download Report + Upload Signed (helper text)
 //   Client Accepted          -> View Signed Report      (More: Replace)
@@ -137,12 +139,17 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
                 fieldname: 'approval_proof',
                 isPrivate: true,
             });
-            await updateTaskChild(task.name, {
-                approval_proof: uploaded.file_url,
-                task_status: 'Client Accepted',
-                last_submitted: todayDate(),
-            });
-            toast({ title: 'Report completed', variant: 'success' });
+            // A vendor upload/replace while Pending or Rejected only ATTACHES the file —
+            // the user then clicks "Send for Approval" (a separate step, mirroring Field's
+            // Fill → Submit). Every other upload (Field signed-copy from Submitted) completes.
+            const isVendorDraftUpload = isVendor && (status === 'Pending' || status === 'Rejected');
+            await updateTaskChild(
+                task.name,
+                isVendorDraftUpload
+                    ? { approval_proof: uploaded.file_url }
+                    : { approval_proof: uploaded.file_url, task_status: 'Client Accepted', last_submitted: todayDate() },
+            );
+            toast({ title: isVendorDraftUpload ? 'File uploaded — send for approval when ready' : 'Report completed', variant: 'success' });
             refresh?.();
         } catch {
             toast({ title: 'Upload failed', variant: 'destructive' });
@@ -185,7 +192,11 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         moreItems.push({ icon: Upload, label: 'Upload Signed Copy', onClick: triggerUpload });
     }
     if (canEdit && status === 'Client Accepted' && hasFile) {
-        moreItems.push({ icon: ReplaceIcon, label: 'Replace Signed Copy', onClick: triggerUpload });
+        moreItems.push({ icon: ReplaceIcon, label: isVendor ? 'Replace report' : 'Replace Signed Copy', onClick: triggerUpload });
+    }
+    // Vendor draft (Pending/Rejected) with a file attached: allow swapping it before resending.
+    if (canEdit && isVendor && (status === 'Pending' || status === 'Rejected') && hasFile) {
+        moreItems.push({ icon: ReplaceIcon, label: 'Replace report', onClick: triggerUpload });
     }
     if (canDownload && hasTemplate) {
         moreItems.push({ icon: Eye, label: 'View generated report', onClick: () => openPreview(genUrl, canDownload, task.task_name) });
@@ -299,7 +310,17 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
             return shell(<span className="text-[11px] text-red-600">Rejected</span>);
         }
         if (isVendor) {
-            return shell(primaryBtn(Upload, 'Upload Report', triggerUpload, 'bg-blue-600 hover:bg-blue-700'));
+            if (!hasFile) {
+                return shell(primaryBtn(Upload, 'Upload Report', triggerUpload, 'bg-blue-600 hover:bg-blue-700'));
+            }
+            // Rejected: view the file, replace it if needed (⋮ Replace report), then resend.
+            return shell(
+                <div className="flex flex-col gap-1">
+                    {primaryBtn(Eye, 'View Report', () => openPreview(uploadedHref, false, task.task_name, true))}
+                    {primaryBtn(Send, 'Send for Approval', sendForApproval, 'bg-indigo-600 hover:bg-indigo-700')}
+                </div>,
+                'Rejected — view, replace if needed, then resend',
+            );
         }
         // Resolve = edit the submission; saving it moves the task to Pending, where
         // "Submit for Approval" then appears.
@@ -310,6 +331,12 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
     }
 
     if (status === 'Pending Approval') {
+        if (isVendor && uploadedHref) {
+            return shell(
+                primaryBtn(Eye, 'View Vendor Report', () => openPreview(uploadedHref, false, task.task_name, true)),
+                'Awaiting approval'
+            );
+        }
         return shell(
             <>
                 {hasTemplate
@@ -327,7 +354,17 @@ export const ReportActionCell: React.FC<Props> = ({ parentName, task, masterMap,
         );
     }
     if (isVendor) {
-        return shell(primaryBtn(Upload, 'Upload Report', triggerUpload, 'bg-blue-600 hover:bg-blue-700'));
+        if (!hasFile) {
+            return shell(primaryBtn(Upload, 'Upload Report', triggerUpload, 'bg-blue-600 hover:bg-blue-700'));
+        }
+        // File attached — review it, then send for approval (⋮ Replace report to swap it).
+        return shell(
+            <div className="flex flex-col gap-1">
+                {primaryBtn(Eye, 'View Report', () => openPreview(uploadedHref, false, task.task_name, true))}
+                {primaryBtn(Send, 'Send for Approval', sendForApproval, 'bg-indigo-600 hover:bg-indigo-700')}
+            </div>,
+            'Review the file, then send for approval',
+        );
     }
     if (!info?.isActive) {
         return shell(<span className="text-[11px] text-gray-400">Template inactive</span>);

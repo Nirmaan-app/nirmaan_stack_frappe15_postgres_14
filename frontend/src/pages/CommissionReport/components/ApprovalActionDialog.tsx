@@ -1,6 +1,6 @@
 // Approve / Reject confirmation dialog for the commission approval queue.
-//   Approve: confirm → status Submitted (team handles download → sign → upload later).
-//   Reject:  confirm → status Rejected (team Resolves + resubmits).
+//   Approve: Field → Submitted (team downloads → signs → uploads later); Vendor → Client Accepted (done).
+//   Reject:  confirm → status Rejected (Field: Resolve/edit; Vendor: view/replace the file) + resubmit.
 
 import React, { useEffect, useState } from 'react';
 import { Check, X, Loader2, AlertTriangle } from 'lucide-react';
@@ -18,6 +18,7 @@ export interface ApprovalTaskRef {
     task_name: string;
     hasTemplate?: boolean;
     isLandscape?: boolean;
+    report_type?: string;
 }
 
 interface Props {
@@ -48,8 +49,9 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
     const doApprove = async () => {
         setBusy(true);
         try {
-            await updateTaskChild(task.name, { task_status: 'Submitted' });
-            toast({ title: 'Submitted', variant: 'success' });
+            const nextStatus = task.report_type === 'Vendor' ? 'Client Accepted' : 'Submitted';
+            await updateTaskChild(task.name, { task_status: nextStatus });
+            toast({ title: nextStatus === 'Client Accepted' ? 'Approved & Completed' : 'Submitted', variant: 'success' });
             refresh?.();
             close();
         } catch {
@@ -84,8 +86,9 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
                         </DialogTitle>
                         <DialogDescription className="text-sm">
                             <span className="font-medium text-gray-700">{task.task_name}</span> will be marked
-                            <strong> Rejected</strong>. The team can <strong>Resolve</strong> it (edit the
-                            submission) and submit for approval again.
+                            <strong> Rejected</strong>. {task.report_type === 'Vendor'
+                                ? <>The team can <strong>view / replace</strong> the uploaded file and send it for approval again.</>
+                                : <>The team can <strong>Resolve</strong> it (edit the submission) and submit for approval again.</>}
                         </DialogDescription>
                     </DialogHeader>
                     {isLockedByOther && (
@@ -123,8 +126,9 @@ export const ApprovalActionDialog: React.FC<Props> = ({ open, onOpenChange, mode
                         <Check className="h-4 w-4 text-green-600" /> Submit report?
                     </DialogTitle>
                     <DialogDescription className="text-sm">
-                        Submit <span className="font-medium text-gray-700">{task.task_name}</span>? The team can
-                        then download the report, get the client signature, and upload the signed copy to mark it Client Accepted.
+                        Submit <span className="font-medium text-gray-700">{task.task_name}</span>? {task.report_type === 'Vendor' 
+                            ? "The vendor report will be approved and marked as Client Accepted." 
+                            : "The team can then download the report, get the client signature, and upload the signed copy to mark it Client Accepted."}
                     </DialogDescription>
                 </DialogHeader>
                 {isLockedByOther && (
