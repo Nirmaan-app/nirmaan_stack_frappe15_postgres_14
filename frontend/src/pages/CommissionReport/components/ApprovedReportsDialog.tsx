@@ -241,9 +241,9 @@ export const ApprovedReportsDialog: React.FC<Props> = ({
                     <div className="space-y-2">
                         {/* Category filter chips (mirrors the reference dialog's package filters) */}
                         {categories.length > 1 && (
-                            <div className="flex items-center gap-2">
-                                <span className="shrink-0 text-[11px] font-medium text-gray-500">Category:</span>
-                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                            <div className="flex items-start gap-2">
+                                <span className="shrink-0 pt-0.5 text-[11px] font-medium text-gray-500">Category:</span>
+                                <div className="flex flex-wrap items-center gap-1.5">
                                 <button
                                     type="button"
                                     onClick={() => setCategoryFilter('all')}
