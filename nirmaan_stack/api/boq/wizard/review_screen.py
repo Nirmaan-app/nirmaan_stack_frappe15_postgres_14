@@ -1179,12 +1179,6 @@ def _apply_and_save_row_edit(
 # Endpoints
 # ---------------------------------------------------------------------------
 
-# S5b (#1103): cap the D6 REMOVED-original descriptions shipped in the revision meta block. The
-# panel renders a COUNT (removed_count is exact); the descriptions ride a hover tooltip, so a
-# sample is enough and a pathological revision that dropped hundreds of rows never bloats the payload.
-_REVISION_REMOVED_SAMPLE_CAP = 50
-
-
 @frappe.whitelist()
 def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     """

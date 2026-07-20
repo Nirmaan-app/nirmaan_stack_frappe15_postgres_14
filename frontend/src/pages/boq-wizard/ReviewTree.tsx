@@ -83,13 +83,12 @@ import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { ReviewRow, ColumnDescriptor, AdvisoryFlag, StructuralBreak, SaveReviewEditResponse, EditLogEntry } from "./boqTypes";
 import { ROLE_LABELS } from "./boqTypes";
-// S5b (#1103, ADR-0014 D7): revised-BoQ review delta surfacing (pure, testable helpers).
+// S5b (#1103, ADR-0014 D7 + Amendment B): revised-BoQ review surfacing (pure, testable helpers).
 import {
   computeRevisionDelta,
-  isDeltaStatus,
-  isNeedsActionRow,
   isReviewRowEdited,
-  REVISION_DELTA_BADGE,
+  isRowCopied,
+  REVISION_COPIED_BADGE,
   type RevisionReviewMeta,
 } from "./revisionReviewDelta";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -1617,14 +1616,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // DUAL-AI (ADR-0003): the Gemini filter-active styling is derived inside GeminiHeaderCell
   // (from its geminiFilter prop), so no ReviewTree-level "active" flag is needed here.
   const passesFilter = (row: ReviewRow): boolean => {
-    // S5b (#1103): revision delta filter -- one early-return, narrows to needs-action rows
-    // (New/Ambiguous the human has not handled). SELF-CLEARING: an edited/accepted row
-    // stops passing (isNeedsActionRow flips false), so it drops from the filtered tree with no
-    // extra code. Inert off a revision (deltaFilterOnly only ever set from the delta panel).
-    // Gated on there being needs-action rows LEFT: when the reviewer resolves the last one, the
-    // panel (and its toggle) unmounts -- without this guard a stuck deltaFilterOnly would empty the
-    // tree with no visible way to turn it off. Zero needs-action rows -> the filter no-ops.
-    if (deltaFilterOnly && revisionDelta.needsActionRows.length > 0 && !isNeedsActionRow(row)) return false;
+    // S5b (#1103, Amendment B): revision review filter -- one early-return, narrows to the rows
+    // that did NOT copy and that the human has not handled. Tests MEMBERSHIP of the summary's
+    // needsActionRowIndexes rather than re-deriving the predicate, because the predicate alone is
+    // only meaningful on a revision sheet (off a revision EVERY row is unstamped) -- the summary is
+    // the gate. SELF-CLEARING: editing/accepting a row rebuilds the memo without it, so it drops
+    // from the filtered tree with no extra code. Gated on there being rows LEFT: when the reviewer
+    // resolves the last one the panel (and its toggle) unmounts -- without this guard a stuck
+    // deltaFilterOnly would empty the tree with no visible way to turn it off.
+    if (deltaFilterOnly && revisionDelta.needsActionRows.length > 0
+        && !revisionDelta.needsActionRowIndexes.has(row.row_index)) return false;
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
     // is Original since save_review_remark never stamps edited_at/edit_log).
@@ -1867,21 +1868,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
-      {/* ── S5b (#1103, ADR-0014 D7): revised-BoQ delta surfacing ─────────────────
-          Only New / Ambiguous deltas are surfaced -- carried (Matched) rows stay calm.
+      {/* ── S5b (#1103, ADR-0014 D7 + Amendment B): revised-BoQ surfacing ─────────
+          The polarity is INVERTED vs the original slice: the STAMPED rows (`Copied`) are the calm
+          ones, and the UNSTAMPED rows are what needs review. There are no advisory panels any more
+          -- a row whose parent did not match simply does not copy (both-or-neither), so it is
+          already in the needs-review set rather than a separate class of muted line.
           Three mutually-exclusive states from the pure computeRevisionDelta:
-            no-deltas    -> a green chip (all content carried, nothing needs action);
-            needs-action -> the R4-shaped amber panel (clickable delta rows + up to two muted
-                            advisory lines: removed originals, parent-lost carried rows);
+            no-deltas    -> a green chip (every content row copied);
+            needs-action -> the R4-shaped amber panel (clickable rows that need review);
             none         -> nothing (upload/template, or a declared-New revision sheet). */}
       {revisionDelta.mode === "no-deltas" && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-950/40 text-xs text-green-900 dark:text-green-100 flex-wrap">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600 dark:text-green-400" />
           <span>
-            {revisionDelta.allMatched
-              ? `No deltas — all ${revisionDelta.matchedCount} row${revisionDelta.matchedCount === 1 ? "" : "s"} carried`
-              : "All deltas resolved"}
-            {revisionDelta.sourceVersion != null ? ` from v${revisionDelta.sourceVersion}` : " from the original"}.
+            {`All ${revisionDelta.copiedCount} row${revisionDelta.copiedCount === 1 ? "" : "s"} copied`}
+            {revisionDelta.sourceVersion != null ? ` from v${revisionDelta.sourceVersion}` : " from the original"}
+            {" — nothing needs review."}
           </span>
         </div>
       )}
@@ -1894,15 +1896,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-800 dark:text-amber-200">
               <GitCompareArrows className="h-3.5 w-3.5" />
               <span>
-                Revision changes
+                {/* Server counts describe the CARRY ("412 of 500 copied from v1"); the live count
+                    below describes REMAINING WORK and self-clears as the reviewer works. The two
+                    are deliberately different numbers -- do not collapse them. */}
+                {revisionDelta.copiedCount} of {revisionDelta.totalCount} rows copied
+                {revisionDelta.sourceVersion != null && ` from v${revisionDelta.sourceVersion}`}
                 {revisionDelta.needsActionRows.length > 0 && (
                   <span className="ml-1">
                     · {revisionDelta.needsActionRows.length}{" "}
                     {revisionDelta.needsActionRows.length === 1 ? "row needs" : "rows need"} review
                   </span>
-                )}
-                {revisionDelta.sourceVersion != null && (
-                  <span className="ml-1 text-amber-700/80 dark:text-amber-300/80">(vs v{revisionDelta.sourceVersion})</span>
                 )}
               </span>
             </span>
@@ -1928,7 +1931,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           </div>
 
           <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1">
-            {/* One clickable entry per needs-action row -> reveal + scroll (revealAndScrollToRow). */}
+            {/* One clickable entry per row needing review -> reveal + scroll. No per-row badge:
+                there is only one reason to be here now (this row did not copy), so a chip
+                repeating it on every line would be pure noise. */}
             {revisionDelta.needsActionRows.map((d) => (
               <button
                 key={`delta-${d.rowIndex}`}
@@ -1939,51 +1944,8 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                   {d.excelRow !== null ? `Row ${d.excelRow}` : `#${d.rowIndex}`}
                 </span>
-                <span className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none whitespace-nowrap",
-                  REVISION_DELTA_BADGE[d.status].className,
-                )}>
-                  {REVISION_DELTA_BADGE[d.status].label}
-                </span>
               </button>
             ))}
-            {/* Removed-row advisory -- a MUTED, NON-CLICKABLE line (a REMOVED original has no revised
-                row to scroll to). The exact descriptions ride the title tooltip (count is authoritative). */}
-            {revisionDelta.removedCount > 0 && (
-              <div
-                className="flex items-start gap-2 rounded px-2 py-1.5 bg-muted/30 border border-border text-[11px] text-muted-foreground"
-                title={revisionDelta.removedDescriptions.length > 0
-                  ? revisionDelta.removedDescriptions.join("\n")
-                  : undefined}
-              >
-                <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                <span>
-                  {revisionDelta.removedCount} row{revisionDelta.removedCount === 1 ? "" : "s"} from the
-                  original {revisionDelta.removedCount === 1 ? "is" : "are"} not in this revision
-                  {revisionDelta.sourceVersion != null ? ` (v${revisionDelta.sourceVersion})` : ""}.
-                </span>
-              </div>
-            )}
-            {/* Parent-lost advisory -- the second MUTED, NON-CLICKABLE line (owner, 2026-07-20:
-                deliberately NOT a row badge). These rows carried their classification fine, but
-                their parent row is gone from the revision, so the parenting could not be
-                re-pointed and they kept the fresh parser's parent. */}
-            {revisionDelta.parentLostCount > 0 && (
-              <div
-                className="flex items-start gap-2 rounded px-2 py-1.5 bg-muted/30 border border-border text-[11px] text-muted-foreground"
-                title={revisionDelta.parentLostDescriptions.length > 0
-                  ? revisionDelta.parentLostDescriptions.join("\n")
-                  : undefined}
-              >
-                <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                <span>
-                  {revisionDelta.parentLostCount} carried row
-                  {revisionDelta.parentLostCount === 1 ? "" : "s"} kept the new parse's parent —
-                  the parent {revisionDelta.parentLostCount === 1 ? "row is" : "rows are"} no longer
-                  in this revision.
-                </span>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -2653,17 +2615,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                               Edited
                             </span>
-                          ) : isDeltaStatus(row.revision_carry_status) ? (
-                            /* S5b (#1103, ADR-0014 D7): revised-BoQ delta badge -- ONLY New / Ambiguous
-                               surface here; a carried (Matched) or blank row falls through to
-                               "Original" (the calm default, no treatment). Ranks BELOW every "handled"
-                               state (Accepted·Claude/Gemini, Edited) so the badge and the needs-action
-                               panel agree by construction. Inert off a revision (blank status). */
+                          ) : isRowCopied(row) ? (
+                            /* S5b (#1103, ADR-0014 D7 + Amendment B): "Copied" -- this row carried the
+                               original's effective classification AND parenting (same Excel row, same
+                               description, parent matched too). Calm + informational: it says the
+                               decision came from the original, not from this parse.
+                               Ranks BELOW every "handled" state (Accepted·Claude/Gemini, Edited)
+                               because those describe work done in THIS revision, which supersedes the
+                               provenance. Every non-copied row falls through to "Original" below --
+                               byte-identical to a fresh upload. Inert off a revision (blank status). */
                             <span className={cn(
                               "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
-                              REVISION_DELTA_BADGE[row.revision_carry_status].className,
+                              REVISION_COPIED_BADGE.className,
                             )}>
-                              {REVISION_DELTA_BADGE[row.revision_carry_status].label}
+                              {REVISION_COPIED_BADGE.label}
                             </span>
                           ) : (
                             <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">

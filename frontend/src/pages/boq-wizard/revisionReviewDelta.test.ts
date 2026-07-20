@@ -1,13 +1,22 @@
 import { describe, it, expect } from "vitest";
 import {
   computeRevisionDelta,
-  isDeltaStatus,
   isNeedsActionRow,
-  REVISION_DELTA_BADGE,
+  isRowCopied,
+  REVISION_COPIED_BADGE,
   type RevisionReviewMeta,
 } from "./revisionReviewDelta";
 
-// Minimal row factory -- only the fields the delta helpers read.
+/**
+ * ADR-0014 Amendment B inverted this module's polarity: the STAMPED status (`Copied`) is now the
+ * calm one and the UNSTAMPED rows are what needs review. The two properties worth protecting
+ * across that inversion are kept here verbatim in spirit:
+ *   - SELF-CLEARING (a row leaves the needs-review set the moment the human handles it), and
+ *   - the Status-column precedence MIRROR (Accepted·Claude > Accepted·Gemini > Edited > the row).
+ */
+
+// Minimal row factory -- only the fields the helpers read. `description` is non-blank by default
+// because a blank/spacer row is deliberately excluded from the needs-review set.
 function row(
   overrides: Partial<{
     row_index: number;
@@ -17,6 +26,7 @@ function row(
     gemini_suggestion_status: string | null;
     edited_at: string | null;
     edit_log: unknown[] | null;
+    description: string | null;
   }> = {},
 ) {
   return {
@@ -27,6 +37,7 @@ function row(
     gemini_suggestion_status: null,
     edited_at: null,
     edit_log: null,
+    description: "Some row",
     ...overrides,
   };
 }
@@ -34,168 +45,166 @@ function row(
 function meta(overrides: Partial<RevisionReviewMeta> = {}): RevisionReviewMeta {
   return {
     is_revision: true,
-    removed_count: 0,
-    removed_descriptions: [],
-    parent_lost_count: 0,
-    parent_lost_descriptions: [],
+    copied_count: 1,
+    needs_review_count: 0,
+    total_count: 1,
     source_version: 3,
     ...overrides,
   };
 }
 
-describe("isDeltaStatus", () => {
-  it("is true only for New / Ambiguous", () => {
-    expect(isDeltaStatus("New")).toBe(true);
-    expect(isDeltaStatus("Ambiguous")).toBe(true);
+describe("isRowCopied", () => {
+  it("is true only for the exact `Copied` stamp", () => {
+    expect(isRowCopied(row({ revision_carry_status: "Copied" }))).toBe(true);
   });
-  it("is false for the RETIRED Drifted status (falls through to Original)", () => {
-    expect(isDeltaStatus("Drifted")).toBe(false);
+
+  it("is false for every RETIRED status (they fall through to Original)", () => {
+    for (const legacy of ["Matched", "New", "Ambiguous", "Drifted"]) {
+      expect(isRowCopied(row({ revision_carry_status: legacy }))).toBe(false);
+    }
   });
-  it("is false for Matched, blank, and null (the calm defaults)", () => {
-    expect(isDeltaStatus("Matched")).toBe(false);
-    expect(isDeltaStatus("")).toBe(false);
-    expect(isDeltaStatus(null)).toBe(false);
-    expect(isDeltaStatus(undefined)).toBe(false);
+
+  it("is false for blank and null (an ordinary parsed row)", () => {
+    expect(isRowCopied(row({ revision_carry_status: "" }))).toBe(false);
+    expect(isRowCopied(row({ revision_carry_status: null }))).toBe(false);
   });
 });
 
 describe("isNeedsActionRow (self-clearing, mirrors Status-column precedence)", () => {
-  it("flags an untouched delta row", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New" }))).toBe(true);
-    expect(isNeedsActionRow(row({ revision_carry_status: "Ambiguous" }))).toBe(true);
+  it("flags an untouched row that did not copy", () => {
+    expect(isNeedsActionRow(row())).toBe(true);
   });
-  it("never flags a legacy Drifted row (the status is retired)", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "Drifted" }))).toBe(false);
+
+  it("never flags a Copied row", () => {
+    expect(isNeedsActionRow(row({ revision_carry_status: "Copied" }))).toBe(false);
   });
-  it("never flags a Matched / blank row", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "Matched" }))).toBe(false);
-    expect(isNeedsActionRow(row({ revision_carry_status: null }))).toBe(false);
+
+  it("flags a legacy-stamped row, because those statuses no longer mean 'carried'", () => {
+    // A row stamped by a pre-amendment parse did NOT copy under the current rule, so it correctly
+    // reads as needing review rather than being silently trusted.
+    expect(isNeedsActionRow(row({ revision_carry_status: "Matched" }))).toBe(true);
   });
+
+  it("excludes a blank / whitespace-only description (a spacer carries nothing)", () => {
+    expect(isNeedsActionRow(row({ description: "" }))).toBe(false);
+    expect(isNeedsActionRow(row({ description: "   " }))).toBe(false);
+    expect(isNeedsActionRow(row({ description: null }))).toBe(false);
+  });
+
   it("self-clears once the row is EDITED (edited_at)", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", edited_at: "2026-07-18 10:00:00" }))).toBe(false);
+    expect(isNeedsActionRow(row({ edited_at: "2026-07-20 10:00:00" }))).toBe(false);
   });
+
   it("self-clears once the row is EDITED (non-empty edit_log)", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", edit_log: [{ any: 1 }] }))).toBe(false);
+    expect(isNeedsActionRow(row({ edit_log: [{ f: "x" }] }))).toBe(false);
   });
+
   it("does NOT clear on an empty edit_log", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", edit_log: [] }))).toBe(true);
+    expect(isNeedsActionRow(row({ edit_log: [] }))).toBe(true);
   });
+
   it("clears when an AI suggestion (Claude or Gemini) is Accepted", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", ai_suggestion_status: "Accepted" }))).toBe(false);
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", gemini_suggestion_status: "Accepted" }))).toBe(false);
+    expect(isNeedsActionRow(row({ ai_suggestion_status: "Accepted" }))).toBe(false);
+    expect(isNeedsActionRow(row({ gemini_suggestion_status: "Accepted" }))).toBe(false);
   });
+
   it("still flags when an AI suggestion is only Pending", () => {
-    expect(isNeedsActionRow(row({ revision_carry_status: "New", ai_suggestion_status: "Pending" }))).toBe(true);
+    expect(isNeedsActionRow(row({ ai_suggestion_status: "Pending" }))).toBe(true);
   });
 });
 
 describe("computeRevisionDelta -- mode selection", () => {
   it("returns inert 'none' for a non-revision (null meta)", () => {
-    const s = computeRevisionDelta([row({ revision_carry_status: null })], null);
-    expect(s).toMatchObject({ isRevision: false, mode: "none", matchedCount: 0 });
+    const s = computeRevisionDelta([row()], null);
+    expect(s.mode).toBe("none");
+    expect(s.isRevision).toBe(false);
   });
 
   it("returns inert 'none' when meta.is_revision is false", () => {
     const s = computeRevisionDelta([row()], meta({ is_revision: false }));
     expect(s.mode).toBe("none");
-    expect(s.isRevision).toBe(false);
   });
 
-  it("all-Matched sheet -> 'no-deltas' chip, allMatched true", () => {
+  it("an all-copied sheet -> the green chip", () => {
     const rows = [
-      row({ row_index: 0, revision_carry_status: "Matched" }),
-      row({ row_index: 1, revision_carry_status: "Matched" }),
-      // a blank spacer row does not disqualify the chip
-      row({ row_index: 2, revision_carry_status: null }),
+      row({ row_index: 0, revision_carry_status: "Copied" }),
+      row({ row_index: 1, revision_carry_status: "Copied" }),
     ];
-    const s = computeRevisionDelta(rows, meta());
+    const s = computeRevisionDelta(rows, meta({ copied_count: 2, total_count: 2 }));
     expect(s.mode).toBe("no-deltas");
-    expect(s.allMatched).toBe(true);
-    expect(s.matchedCount).toBe(2);
-    expect(s.sourceVersion).toBe(3);
-  });
-
-  it("a New row -> 'needs-action' with the row listed", () => {
-    const rows = [
-      row({ row_index: 0, revision_carry_status: "Matched" }),
-      row({ row_index: 5, source_row_number: 12, revision_carry_status: "New" }),
-    ];
-    const s = computeRevisionDelta(rows, meta());
-    expect(s.mode).toBe("needs-action");
-    expect(s.needsActionRows).toEqual([{ rowIndex: 5, excelRow: 12, status: "New" }]);
-    expect(s.allMatched).toBe(false);
-  });
-
-  it("a New row that was EDITED drops off -> back to 'no-deltas' (self-clearing)", () => {
-    const rows = [
-      row({ row_index: 0, revision_carry_status: "Matched" }),
-      row({ row_index: 5, revision_carry_status: "New", edited_at: "2026-07-18 10:00:00" }),
-    ];
-    const s = computeRevisionDelta(rows, meta());
+    expect(s.copiedCount).toBe(2);
     expect(s.needsActionRows).toEqual([]);
+  });
+
+  it("an uncopied row -> 'needs-action' with the row listed and in the membership set", () => {
+    const rows = [
+      row({ row_index: 0, revision_carry_status: "Copied" }),
+      row({ row_index: 1, source_row_number: 42 }),
+    ];
+    const s = computeRevisionDelta(
+      rows, meta({ copied_count: 1, needs_review_count: 1, total_count: 2 }));
+    expect(s.mode).toBe("needs-action");
+    expect(s.needsActionRows).toEqual([{ rowIndex: 1, excelRow: 42 }]);
+    expect(s.needsActionRowIndexes.has(1)).toBe(true);
+    expect(s.needsActionRowIndexes.has(0)).toBe(false);
+  });
+
+  it("an uncopied row that was EDITED drops off -> back to the chip (self-clearing)", () => {
+    const rows = [
+      row({ row_index: 0, revision_carry_status: "Copied" }),
+      row({ row_index: 1, edited_at: "2026-07-20 10:00:00" }),
+    ];
+    const s = computeRevisionDelta(
+      rows, meta({ copied_count: 1, needs_review_count: 1, total_count: 2 }));
     expect(s.mode).toBe("no-deltas");
-    // A delta status DID appear, so it is not a pure all-Matched sheet.
-    expect(s.allMatched).toBe(false);
-  });
-
-  it("removed originals alone -> 'needs-action' (advisory), no clickable rows", () => {
-    const rows = [row({ row_index: 0, revision_carry_status: "Matched" })];
-    const s = computeRevisionDelta(rows, meta({ removed_count: 2, removed_descriptions: ["Old A", "Old B"] }));
-    expect(s.mode).toBe("needs-action");
     expect(s.needsActionRows).toEqual([]);
-    expect(s.removedCount).toBe(2);
-    expect(s.removedDescriptions).toEqual(["Old A", "Old B"]);
   });
 
-  it("a declared-New / unmapped revision sheet (nothing carried) -> 'none'", () => {
-    const rows = [row({ row_index: 0, revision_carry_status: null }), row({ row_index: 1, revision_carry_status: null })];
-    const s = computeRevisionDelta(rows, meta({ removed_count: 0 }));
-    expect(s.mode).toBe("none");
-    // still flagged a revision sheet, just with no chrome to show
-    expect(s.isRevision).toBe(true);
-  });
-
-  it("counts each delta kind and lists them in document order", () => {
+  it("lists needs-review rows in document order", () => {
     const rows = [
-      row({ row_index: 0, source_row_number: 1, revision_carry_status: "New" }),
-      row({ row_index: 1, source_row_number: 2, revision_carry_status: "Matched" }),
-      row({ row_index: 2, source_row_number: 3, revision_carry_status: "Ambiguous" }),
+      row({ row_index: 0, source_row_number: 5 }),
+      row({ row_index: 1, revision_carry_status: "Copied" }),
+      row({ row_index: 2, source_row_number: 9 }),
     ];
-    const s = computeRevisionDelta(rows, meta());
-    expect(s.needsActionRows.map((r) => r.status)).toEqual(["New", "Ambiguous"]);
+    const s = computeRevisionDelta(
+      rows, meta({ copied_count: 1, needs_review_count: 2, total_count: 3 }));
     expect(s.needsActionRows.map((r) => r.rowIndex)).toEqual([0, 2]);
   });
 
-  it("parent-lost rows alone -> 'needs-action' (advisory), no clickable rows", () => {
-    const rows = [row({ row_index: 0, revision_carry_status: "Matched" })];
+  it("a declared-New / unmapped revision sheet (nothing copied) -> 'none'", () => {
+    // No original to diff against, so the sheet shows no revision chrome at all.
     const s = computeRevisionDelta(
-      rows,
-      meta({ parent_lost_count: 1, parent_lost_descriptions: ["Child of deleted"] }),
+      [row(), row({ row_index: 1 })],
+      meta({ copied_count: 0, needs_review_count: 2, total_count: 2 }),
     );
-    expect(s.mode).toBe("needs-action");
-    expect(s.needsActionRows).toEqual([]);
-    expect(s.parentLostCount).toBe(1);
-    expect(s.parentLostDescriptions).toEqual(["Child of deleted"]);
-    // The rows themselves stay calm -- a carried row is never a delta.
-    expect(s.allMatched).toBe(true);
+    expect(s.mode).toBe("none");
   });
 
-  it("no advisories and no deltas -> the green chip", () => {
-    const rows = [row({ row_index: 0, revision_carry_status: "Matched" })];
-    const s = computeRevisionDelta(rows, meta());
-    expect(s.mode).toBe("no-deltas");
-    expect(s.parentLostCount).toBe(0);
+  it("surfaces the server counts verbatim (they do NOT self-clear)", () => {
+    const rows = [
+      row({ row_index: 0, revision_carry_status: "Copied" }),
+      row({ row_index: 1, edited_at: "2026-07-20 10:00:00" }),
+    ];
+    const s = computeRevisionDelta(
+      rows, meta({ copied_count: 412, needs_review_count: 88, total_count: 500 }));
+    // The reviewer has handled the one live row (needsActionRows empty) but the CARRY counts stand.
+    expect(s.copiedCount).toBe(412);
+    expect(s.needsReviewCount).toBe(88);
+    expect(s.totalCount).toBe(500);
+    expect(s.needsActionRows).toEqual([]);
+  });
+
+  it("carries the source version through for the label", () => {
+    const s = computeRevisionDelta(
+      [row({ revision_carry_status: "Copied" })], meta({ source_version: 7 }));
+    expect(s.sourceVersion).toBe(7);
   });
 });
 
-describe("REVISION_DELTA_BADGE", () => {
-  it("has a distinct label + class for each delta status", () => {
-    expect(REVISION_DELTA_BADGE.New.label).toBe("New");
-    expect(REVISION_DELTA_BADGE.Ambiguous.label).toBe("Ambiguous");
-    const classes = new Set([
-      REVISION_DELTA_BADGE.New.className,
-      REVISION_DELTA_BADGE.Ambiguous.className,
-    ]);
-    expect(classes.size).toBe(2);
+describe("REVISION_COPIED_BADGE", () => {
+  it("has a label and a class, and is not the Original gray", () => {
+    expect(REVISION_COPIED_BADGE.label).toBe("Copied");
+    expect(REVISION_COPIED_BADGE.className).toBeTruthy();
+    expect(REVISION_COPIED_BADGE.className).not.toContain("gray");
   });
 });

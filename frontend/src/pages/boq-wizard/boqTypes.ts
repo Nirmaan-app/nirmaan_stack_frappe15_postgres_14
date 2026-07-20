@@ -614,11 +614,12 @@ export interface GetReviewRowsResponse {
   // sibling in this response -- Claude's enable lives in a separate settings home and is read
   // elsewhere; only gemini_enabled rides this payload.
   gemini_enabled?: boolean;
-  // S5b (#1103, ADR-0014 D7): the revised-BoQ delta meta block -- present (is_revision:true) only
-  // for a revision sheet, null/absent for upload/template. Carries the D6 REMOVED originals count
-  // + descriptions (recomputed read-side, since REMOVED rows have no revised row to stamp) and the
-  // original's version for the "carried from v{n}" label. Per-row deltas ride each ReviewRow's
-  // revision_carry_status; only the removed advisory needs this sheet-level block.
+  // S5b (#1103, ADR-0014 D7 + Amendment B): the revised-BoQ meta block -- present
+  // (is_revision:true) only for a revision sheet, null/absent for upload/template. Carries the
+  // copied / needs-review / total counts (server-derived from the persisted stamp) and the
+  // original's version for the "copied from v{n}" label. Per-row provenance rides each ReviewRow's
+  // revision_carry_status; the counts need this sheet-level block because a row that did not copy
+  // is indistinguishable from a fresh-upload row by design.
   revision?: RevisionReviewMeta | null;
 }
 

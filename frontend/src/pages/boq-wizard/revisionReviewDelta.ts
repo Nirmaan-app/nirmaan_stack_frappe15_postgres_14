@@ -1,53 +1,55 @@
 /**
- * Revised-BoQ review-screen delta surfacing (S5b / #1103, ADR-0014 D7) -- PURE, no React (F4).
+ * Revised-BoQ review-screen surfacing (S5b / #1103, ADR-0014 D7 + **Amendment B** 2026-07-20)
+ * -- PURE, no React (F4).
  *
- * The S5a backend (#1102) stamps `revision_carry_status` on every matched-content review row of
- * a revision sheet (Matched / New / Ambiguous; a carried row is Matched, the calm default). This
- * module turns that per-row field + the read-time advisory counts into the small set the human
- * must actually look at:
- *   - which rows are a DELTA (New / Ambiguous),
- *   - which of those still NEED ACTION (a delta the human has not yet handled -- self-clearing),
- *   - and the sheet-level mode: no revision chrome / a green "no deltas" chip / a needs-action panel.
+ * AMENDMENT B INVERTED THIS MODULE'S POLARITY. Read this before changing anything.
  *
- * `Drifted` is RETIRED (owner amendment 2026-07-20). It existed only to flag a matched row whose
- * original effective classification disagreed with the fresh parse -- a hole that existed because
- * the carry read the human override set. The carry now copies the original's EFFECTIVE
- * classification + parenting outright, so the disagreement cannot arise and the status is never
- * stamped again. A row still carrying it from an older parse simply falls through to "Original".
+ * The old rule stamped a four-value outcome (Matched / New / Ambiguous / Drifted) and treated the
+ * STAMPED values New/Ambiguous as the deltas needing attention, with Matched as the calm default.
+ * Amendment B leaves exactly one status:
+ *
+ *   `Copied`  -- this row sat at the same Excel row with the same description as the original AND
+ *                its parent did too, so it carried the original's effective classification AND
+ *                parenting. Calm: a decision already made.
+ *   blank     -- everything else. An ordinary parsed row, rendered "Original" exactly like a fresh
+ *                upload, with every classifier warning / review flag / structural check applying
+ *                unchanged (A9).
+ *
+ * So the set needing human attention is now the UNSTAMPED rows, not the stamped ones. `New`,
+ * `Ambiguous` and `Drifted` are RETIRED -- never stamped again; a row still carrying one from an
+ * older parse falls through to "Original", which is exactly right for it.
+ *
+ * ⚠️ The "needs review" predicate is only meaningful ON A REVISION SHEET -- off a revision EVERY
+ * row is unstamped. `computeRevisionDelta` is the gate (it returns the inert summary unless
+ * `meta.is_revision`), and it publishes `needsActionRowIndexes` so callers filter by MEMBERSHIP
+ * rather than re-deriving the predicate somewhere the gate does not apply.
  *
  * SELF-CLEARING (D7, CL-6's pattern -- "do not add clearing code"): a row leaves the needs-action
- * set the moment the human touches it (an edit, or an accepted AI suggestion), because that fact
- * is DERIVED here, never stored. `isNeedsActionRow` mirrors the review Status column's precedence
- * EXACTLY (Accepted-Claude > Accepted-Gemini > Edited > delta badge), so the panel can never list
- * a row the column already renders as handled. The spec names "AND NOT isEdited"; the two Accepted
- * states are added because the column already ranks them above the delta badge -- a faithful
- * superset that only ever REMOVES an already-handled row, never adds one.
+ * set the moment the human touches it (an edit, or an accepted AI suggestion), because that fact is
+ * DERIVED here, never stored. `isNeedsActionRow` mirrors the review Status column's precedence
+ * EXACTLY (Accepted-Claude > Accepted-Gemini > Edited > the row's own state), so the panel can never
+ * list a row the column already renders as handled.
  *
- * REVISION-ONLY by construction: a non-revision sheet has a blank `revision_carry_status` on every
- * row (never a delta) and `is_revision:false` meta, so every derivation below is inert and the
- * review screen stays byte-identical.
+ * REVISION-ONLY by construction: a non-revision sheet gets `is_revision:false` meta, so every
+ * derivation below is inert and the review screen stays byte-identical.
  */
 
-/** The `revision_carry_status` values the backend stamps (blank/absent = a non-delta row). */
-export type RevisionCarryStatus = "" | "Matched" | "New" | "Ambiguous";
-
-/** The two DELTA statuses -- the only ones surfaced (a Matched/blank row gets no treatment). */
-export type RevisionDeltaStatus = "New" | "Ambiguous";
+/** The `revision_carry_status` values the backend stamps. Blank/absent = an ordinary parsed row. */
+export type RevisionCarryStatus = "" | "Copied";
 
 /**
  * The revision meta block get_review_rows adds for a revision sheet (null for upload/template).
- * Both advisory sets are recomputed read-side (stable -- row descriptions are immutable
- * post-parse) and both render as MUTED PANEL LINES, never row badges (owner, 2026-07-20):
- *   removed_*     -- D6 REMOVED originals: no revised row exists to click through to.
- *   parent_lost_* -- MATCHED rows whose original parent has no twin here, so the carried
- *                    parenting could not be re-pointed and they kept the fresh parser's parent.
+ *
+ * Amendment B replaced the two advisory SETS with three COUNTS. There is no removed-row advisory
+ * and no parent-lost advisory any more: a row whose parent did not match simply does not copy
+ * (both-or-neither), so it is already in the needs-review set rather than being a separate class.
+ * The counts are server-derived from the persisted stamp; `copied + needs_review === total`.
  */
 export interface RevisionReviewMeta {
   is_revision: boolean;
-  removed_count: number;
-  removed_descriptions: string[];
-  parent_lost_count: number;
-  parent_lost_descriptions: string[];
+  copied_count: number;
+  needs_review_count: number;
+  total_count: number;
   source_version: number | null;
 }
 
@@ -60,13 +62,15 @@ interface DeltaRowLike {
   gemini_suggestion_status?: string | null;
   edited_at?: string | null;
   edit_log?: unknown[] | null;
+  description?: string | null;
 }
 
-const DELTA_STATUS_SET: ReadonlySet<string> = new Set<RevisionDeltaStatus>(["New", "Ambiguous"]);
+/** The one status the carry writes. */
+export const COPIED_STATUS = "Copied";
 
-/** True when `status` is one of the two surfaced DELTA statuses (New/Ambiguous). */
-export function isDeltaStatus(status: string | null | undefined): status is RevisionDeltaStatus {
-  return typeof status === "string" && DELTA_STATUS_SET.has(status);
+/** True when this row carried its classification + parenting forward from the original. */
+export function isRowCopied(row: DeltaRowLike): boolean {
+  return row.revision_carry_status === COPIED_STATUS;
 }
 
 /**
@@ -79,13 +83,21 @@ export function isReviewRowEdited(row: DeltaRowLike): boolean {
 }
 
 /**
- * A DELTA row the human has NOT yet handled -- i.e. the exact set for which the Status column
- * renders a delta badge (nothing higher-precedence applies). This is the self-clearing
- * needs-action predicate: an Accepted AI suggestion OR a manual edit drops the row silently.
+ * A row that did NOT copy and that the human has not yet handled -- i.e. exactly the set for which
+ * the Status column renders "Original" on a revision sheet with nothing higher-precedence applying.
+ * Self-clearing: an Accepted AI suggestion OR a manual edit drops the row silently.
+ *
+ * ⚠️ ONLY meaningful on a revision sheet -- see the module header. Prefer
+ * `RevisionDeltaSummary.needsActionRowIndexes` at call sites; this is exported for the gate itself
+ * and for unit tests.
+ *
+ * A blank-description row (spacer) is excluded: it never entered the match, carries nothing and
+ * demands nothing, so listing it as "needs review" would be noise.
  */
 export function isNeedsActionRow(row: DeltaRowLike): boolean {
   return (
-    isDeltaStatus(row.revision_carry_status) &&
+    !isRowCopied(row) &&
+    (row.description ?? "").trim() !== "" &&
     row.ai_suggestion_status !== "Accepted" &&
     row.gemini_suggestion_status !== "Accepted" &&
     !isReviewRowEdited(row)
@@ -96,7 +108,6 @@ export function isNeedsActionRow(row: DeltaRowLike): boolean {
 export interface NeedsActionRow {
   rowIndex: number;
   excelRow: number | null;
-  status: RevisionDeltaStatus;
 }
 
 /** The sheet-level surfacing decision + data for the panel / chip. */
@@ -106,36 +117,30 @@ export interface RevisionDeltaSummary {
   /**
    * none         -> render nothing extra (upload/template, or a declared-New/unmapped revision
    *                 sheet that carried nothing -- treated as a fresh sheet).
-   * no-deltas    -> the green "no deltas" chip (all content carried; nothing needs action).
-   * needs-action -> the amber R4-shaped panel (>=1 needs-action row, and/or removed originals).
+   * no-deltas    -> the green chip (every content row copied; nothing needs review).
+   * needs-action -> the amber R4-shaped panel (>=1 unhandled uncopied row).
    */
   mode: "none" | "no-deltas" | "needs-action";
-  /** Count of Matched (carried) rows -- the chip's "N rows carried" number. */
-  matchedCount: number;
-  /** True when EVERY content row carried (no delta status appeared at all) -- pure all-Matched. */
-  allMatched: boolean;
-  /** The self-clearing needs-action rows, in row order (document order). */
+  /** Server counts, from the persisted stamp. These do NOT self-clear as the human works. */
+  copiedCount: number;
+  needsReviewCount: number;
+  totalCount: number;
+  /** The SELF-CLEARING unhandled subset, in document order. */
   needsActionRows: NeedsActionRow[];
-  /** D6 REMOVED originals (advisory only -- no revised row to click through to). */
-  removedCount: number;
-  removedDescriptions: string[];
-  /** MATCHED rows whose original parent had no twin (advisory only -- deliberately not a badge). */
-  parentLostCount: number;
-  parentLostDescriptions: string[];
-  /** The original's version, for the chip / panel label ("carried from v3"). */
+  /** `needsActionRows` as a membership set -- what the tree filter should test against. */
+  needsActionRowIndexes: ReadonlySet<number>;
+  /** The original's version, for the chip / panel label ("copied from v3"). */
   sourceVersion: number | null;
 }
 
 const EMPTY_SUMMARY: RevisionDeltaSummary = {
   isRevision: false,
   mode: "none",
-  matchedCount: 0,
-  allMatched: false,
+  copiedCount: 0,
+  needsReviewCount: 0,
+  totalCount: 0,
   needsActionRows: [],
-  removedCount: 0,
-  removedDescriptions: [],
-  parentLostCount: 0,
-  parentLostDescriptions: [],
+  needsActionRowIndexes: new Set<number>(),
   sourceVersion: null,
 };
 
@@ -149,69 +154,51 @@ export function computeRevisionDelta(
 ): RevisionDeltaSummary {
   if (!meta || !meta.is_revision) return EMPTY_SUMMARY;
 
-  let matchedCount = 0;
-  let anyDelta = false;
   const needsActionRows: NeedsActionRow[] = [];
   for (const row of rows) {
-    const status = row.revision_carry_status;
-    if (status === "Matched") matchedCount++;
-    if (isDeltaStatus(status)) {
-      anyDelta = true;
-      if (isNeedsActionRow(row)) {
-        needsActionRows.push({
-          rowIndex: row.row_index,
-          excelRow: row.source_row_number ?? null,
-          status,
-        });
-      }
+    if (isNeedsActionRow(row)) {
+      needsActionRows.push({
+        rowIndex: row.row_index,
+        excelRow: row.source_row_number ?? null,
+      });
     }
   }
 
-  const removedCount = meta.removed_count ?? 0;
-  const removedDescriptions = meta.removed_descriptions ?? [];
-  const parentLostCount = meta.parent_lost_count ?? 0;
-  const parentLostDescriptions = meta.parent_lost_descriptions ?? [];
-  // A declared-New / unmapped revision sheet carries nothing (no Matched, no delta, no advisory) --
-  // there is no original to diff against, so it shows no revision chrome (treated as fresh).
-  const hasCarriedContent =
-    matchedCount > 0 || anyDelta || removedCount > 0 || parentLostCount > 0;
+  const copiedCount = meta.copied_count ?? 0;
+  const needsReviewCount = meta.needs_review_count ?? 0;
+  const totalCount = meta.total_count ?? 0;
+
+  // A declared-New / unmapped revision sheet carries nothing and has no original to diff against,
+  // so it shows no revision chrome (treated as a fresh sheet).
+  const hasCarriedContent = totalCount > 0 && copiedCount > 0;
 
   let mode: RevisionDeltaSummary["mode"];
   if (!hasCarriedContent) {
     mode = "none";
-  } else if (needsActionRows.length === 0 && removedCount === 0 && parentLostCount === 0) {
+  } else if (needsActionRows.length === 0) {
     mode = "no-deltas";
   } else {
-    // >=1 needs-action row and/or an advisory to show. An advisory-only panel is correct: the
-    // rows themselves are calm (nothing to click), but the human should know the tree shifted.
     mode = "needs-action";
   }
 
   return {
     isRevision: true,
     mode,
-    matchedCount,
-    allMatched: !anyDelta && matchedCount > 0,
+    copiedCount,
+    needsReviewCount,
+    totalCount,
     needsActionRows,
-    removedCount,
-    removedDescriptions,
-    parentLostCount,
-    parentLostDescriptions,
+    needsActionRowIndexes: new Set(needsActionRows.map((r) => r.rowIndex)),
     sourceVersion: meta.source_version ?? null,
   };
 }
 
-/** Status-column pill classes per DELTA status (distinct from indigo/violet/green/gray already used). */
-export const REVISION_DELTA_BADGE: Record<
-  RevisionDeltaStatus,
-  { label: string; className: string }
-> = {
-  New: {
-    label: "New",
-    className: "bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200",
-  },
-  Ambiguous: {
-    label: "Ambiguous",
-    className: "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200",
-  },
-};
+/**
+ * Status-column pill for a COPIED row. Calm and informational -- it says "this decision came from
+ * the original", not "look at me". Blue is free (the retired `New` badge released it) and stays
+ * clear of indigo/violet (accepted AI), green (edited) and gray (Original).
+ */
+export const REVISION_COPIED_BADGE = {
+  label: "Copied",
+  className: "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300",
+} as const;
