@@ -1,6 +1,9 @@
 # Revised BoQ — Implementation Plan
 
-**Status:** PLAN — **pending owner (Nitesh) sign-off. No code written.**
+**Status:** S1–S11 **AS-BUILT** (#1098–#1107, branch `feature/upload-revised-boq`, local/unpushed) —
+then **partially superseded by ADR-0014 Amendment B (2026-07-20, owner-directed)**. The carry rework
+waves **W0–W6** are at the end of this doc; read them **before** trusting S6/S7's as-built detail, which
+Amendment B replaces. S1–S5 and S8–S11 stand.
 **Design of record:** [`docs/adr/0014-boq-revised-upload-and-carry.md`](../../../docs/adr/0014-boq-revised-upload-and-carry.md)
 (D1–D9 + the schema table). **Full argument, rejected alternatives and live-data measurements:** the wayfinder
 map [#1086](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1086) and its resolution
@@ -699,6 +702,62 @@ BoQ runbook). `tsc` delta-0; backend suites green.
 
 ---
 
+## ⚠️ Amendment B — the carry rework (waves W0–W6, 2026-07-20)
+
+**Owner-directed after reviewing the as-built.** Design of record:
+`docs/boq/revised-boq-carry-amendment.html` (ten worked scenarios; scenarios 4, 5, 6, 8 and 10 are
+load-bearing). Full defect trace + code map: `docs/boq/HANDOFF-revised-boq-carry-amendment.md`.
+ADR blocks: D1 / D5 / D6 / D7 / D9, each dated `AMENDED 2026-07-20 (Amendment B)`.
+
+**The rule, in one sentence:**
+
+> A row carries the original's classification **and** parenting forward **iff** it is at the **same Excel
+> row** (`source_row_number`) with the **same** N2-normalised **description**, **and** its parent
+> satisfies the same test. Both, or neither. Status is `Copied` or blank; blank renders `Original`.
+
+**What this supersedes in the slices above:** S6's description-bucket matcher and S7's
+`New`/`Ambiguous`/`Drifted` delta surfacing, plus the S6+S7 amendment's `parent_lost` advisory. The
+**effective-value read** from that amendment **stays** — it is not reverted.
+
+| Wave | Scope | Primary files |
+|---|---|---|
+| **W0** ✅ | ADR-0014 Amendment B — docs only, no code | `docs/adr/0014-*.md`, this plan, the HTML spec + handoff |
+| **W1** | Matcher + carry — **the core** | `services/boq_revision/row_match.py`, `carry.py`, `api/boq/wizard/review_carry.py`, `boq_review_row.json` |
+| **W2** | Review screen collapse | `revisionReviewDelta.ts`, `ReviewTree.tsx`, `boqTypes.ts`, `review_screen.py:1370-1393` |
+| **W3** | Entry un-lock (A1) | `api/boq/wizard/revision.py`, `controllers/boqs.py:24-29`, `BoqMasterPanel.tsx`, `BoqDropZone.tsx` |
+| **W4** | Config → `Pending` + work-package carry (A2) | `revision.py:467`, `api/boq/wizard/test_column_carry.py` |
+| **W5** | Reporting at parse / mapping / commit (A8) | `revision.py:218-230`, `parse_run.py:872-874`, `commit_pipeline.py:655`, `CommitResultsModal.tsx` |
+| **W6** | Rate-carry `is_current` fix (A10 — **resolved**) | `cross_boq_carry.py:233-236`, `revision.py:225`, cross-version fixtures |
+
+**W1 shape.** `MatchRow(row_id, excel_row, description)` — `row_id` stays the caller's opaque identity
+(original = committed node name for the review carry, `source_row_number` for the committed-tier
+consumer; revised = `row_index`). `match_rows` builds a dict per side keyed by `excel_row`, **drops any
+position appearing more than once on either side**, and keeps pairs whose `normalize_n2(description)`
+are equal. `build_review_carry` then resolves the original's `parent_node` → that node's `excel_row` →
+requires **that** position matched too → emits `classification` + `parent_index` together, or nothing.
+Root (`parent_node` NULL) → `parent_index = -1`, condition 3 trivially satisfied.
+
+**W1 tests.** Rewrite `test_row_match.py` (exact match · shifted-by-insert · shifted-by-delete ·
+in-place text edit · duplicate Excel position either side · blank descriptions) and `test_carry.py` —
+**deleting `test_pcc_reparented_row_lands_on_twin_new_row_index`**, whose premise Amendment B reverses,
+and replacing it with its inverse. Keep `test_level_never_in_the_payload`. New fixtures for HTML
+scenarios 4, 6, 8 and **10 (the documented net-zero insert+delete hole — assert the known-wrong
+behaviour so nobody "fixes" it by accident, with a comment pointing at the ADR)**.
+
+**W1 acceptance.** A non-revision parse is **byte-identical** — prove it with `parse_run` (102) +
+`review_screen` (260), not by inspection.
+
+**Suite baselines at `d89153e8` (do not regress).** Revision: `normalize` 10 · `sheet_match` 9 ·
+`row_match` 10 · `carry` 12 · `column_diff` 17 · `revision_schema` 15 · `revision_entry` 17 ·
+`revision_mapping` 22 · `review_carry` 10 · `column_carry` 17 · `commit_overlay` 18 ·
+`cross_boq_carry` 17. Regression: `commit_pipeline` 54 · `pricing` 185 · `review_screen` 260 ·
+`parse_run` 102 · `classify` 38 · `commit_validation` 51 · `create_from_template` 35. Frontend:
+boq-wizard vitest **590**, `tsc` delta **0** in touched files. ⚠️ `commit_overlay` and
+`cross_boq_carry` are green **only because their fixtures are same-version** — exactly why they miss
+the W6 defect.
+
+---
+
 ## Guardrails / invariants to honor (every slice)
 
 - **Additive schema only** — every existing flow byte-unaffected; blank `revision_carry_status` /
@@ -730,11 +789,13 @@ BoQ runbook). `tsc` delta-0; backend suites green.
 
 ## Deferred (documented, not built in v1)
 
-1. **Near-match / "looks like original row 24"** (D6/D7). The typo case (`IP42` → `IP-42`) is REMOVED + NEW
-   under the locked key, so classification *and* the hand-fixed parent are both dropped. D6 proved the fuzzy
-   tier **layers on without changing the key** ⇒ additive later with **zero rework**. **Must be
-   human-confirmed, never auto-applied** — it keeps the "silently carried a wrong decision" failure mode (the
-   one failure the whole design is organised against) out of v1.
+1. **Near-match / "looks like original row 24"** (D6/D7). The typo case (`IP42` → `IP-42`) simply **does not
+   copy** under Amendment B's key — it fails condition 2 at a matching position — so classification *and* the
+   hand-fixed parent are both dropped. The fuzzy tier **layers on without changing the key** ⇒ additive later
+   with **zero rework**, and Amendment B makes it *cheaper*: the candidate set is now the single original row
+   at the same Excel position, not the whole sheet. **Must be human-confirmed, never auto-applied** — it keeps
+   the "silently carried a wrong decision" failure mode (the one failure the whole design is organised
+   against) out of v1.
 2. **Fuzzy suggestions in the unmatched-sheet dropdown** (D3). Sheets are median 5 / max 38 with meaningful
    names (only **5/506** are generic `'Sheet1'`); fuzzy's anchoring cost lands on the exact failure the screen
    exists to prevent.

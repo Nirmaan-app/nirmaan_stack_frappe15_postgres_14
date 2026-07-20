@@ -4,7 +4,25 @@ Date: 2026-07-17
 
 ## Status
 
-**Proposed — pending owner (Nitesh) sign-off. No code written.**
+**Proposed — pending owner (Nitesh) sign-off.**
+
+> ### ⚠️ AMENDMENT B — 2026-07-20, owner-directed
+>
+> Slices S1–S11 (#1098–#1107) were built and live-E2E-verified against the decisions below, then
+> reviewed against stakeholder expectations. **Three things were rejected and replaced.** Amendment B
+> supersedes **D1** (entry locking), **D5** (config lands `Config Done`), **D6** (the row match key,
+> *entirely*) and **D7** (carry vocabulary + both-or-neither), and **resolves D9's open version pin**.
+> Each amended decision carries its own dated block below; the "No code written" line above is retired
+> — the as-built is `frontend/.claude/plans/boq-revised-upload-plan.md`.
+>
+> **The single sentence that replaces D6/D7's rule:**
+>
+> > A row carries the original's classification **and** parenting forward **iff** it is at the **same
+> > Excel row** with the **same description**, **and** its parent satisfies the same test. Both, or
+> > neither. Everything else is an ordinary parsed row.
+>
+> Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
+> Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
 
 Charted and resolved as a wayfinder map:
 [#1086](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1086) — nine tickets,
@@ -50,6 +68,35 @@ hard-assumes row-identity and name-equality, so it informs the shape without bei
 ## Decision
 
 ### D1 — Entry is a radio on the upload screen; eligibility is "same project + ≥1 committed sheet" ([T1](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1087))
+
+> ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: the entry never locks
+>
+> **This is an implementation correction, not a reversal.** D1's closing line already specified
+> *"single screen, order-independent — file-drop and original-pick may happen in either order."*
+> The as-built delivers that **only before the file is dropped.**
+>
+> **Why it broke.** `BoqDropZone` POSTs the moment a valid file lands, so `origin` + `source_boq` are
+> baked at insert (`upload_file.py:252-255`) along with `boq_name` copied from the original
+> (`:235-239`) and the `version` auto-bump those drive (`controllers/boqs.py:24-29`). After that the
+> radio is frozen — enforced purely in the frontend (`BoqMasterPanel.tsx:67-70`); there is **no
+> server-side write-once guard**, and `read_only: 1` in `boqs.json:195/213` is a Desk-form flag only.
+> A user who picks the wrong original, or realises mid-flow this should be a New BoQ, has no path back
+> except delete and re-upload.
+>
+> **The amendment.** Origin is set **after** upload, not baked into it. A new conversion endpoint in
+> `api/boq/wizard/revision.py` (reusing `assert_revisable_source` verbatim) re-stamps
+> `origin` / `source_boq` / `boq_name` / `version` and seeds-or-clears `sheet_drafts`, and must work in
+> **both directions** — Revise → New re-seeds the drafts a revision skips (`upload_file.py:266-294`).
+> `entryLocked` and its three uses are deleted, as is `BoqDropZone`'s `pendingFileRef` hold machinery.
+>
+> **The sharp edge.** The version recompute must mirror `controllers/boqs.py:24-29` **exactly**
+> (`MAX(version)+1` scoped to project + `boq_name`), because `before_insert` has already run against
+> the *filename*-derived name by conversion time. Extract it into **one shared helper** so the hook and
+> the endpoint cannot drift — that is the whole risk of this change.
+>
+> **Rejected: defer the POST until Continue.** `fillFromParse` (`BoqUploadScreen.tsx:164-176`)
+> populates BoQ Name / Version / GST from the *parsed* doc, and `confirmedFields` on those three gate
+> Continue — so the parse must precede Continue by construction.
 
 **New | Revise** is a radio in the right pane of `BoqUploadScreen`, **default New**; flipping to Revise
 reveals an inline `react-select` of the project's revisable BOQs directly beneath it. The existing
@@ -188,7 +235,35 @@ and the hub *renders* seeded drafts ⇒ a human-driven mapping means **seeding w
 - **General-specs** → **carry the designation** (a smart default, re-toggleable), but **`preamble_text`
   always re-extracts** from the revised file. New sheets are never auto-general-specs.
 
-### D5 — Config column-diff: letter key, header text as a guard, everything unsafe → `Pending` + seed ([T5](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1091))
+### D5 — Config column-diff: letter key, header text as a guard, ~~everything unsafe~~ **everything** → `Pending` + seed ([T5](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1091))
+
+> ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: a carried config always lands `Pending`
+>
+> **What changed.** The outcome table's last row is deleted. A structurally clean sheet no longer
+> auto-lands `Config Done` — **every** carried sheet lands `Pending` with its map seeded, and the human
+> clicks **Mark Config as Done**.
+>
+> **Why.** The seed is the original's rectified role map, carried across a *different workbook*. D5's
+> own guard is explicitly incomplete — it says so: *"role change on a matched column is UNDETECTABLE by
+> construction (same letter + same text = zero signal)."* Auto-attesting on a signal known to be blind
+> to a whole class of change means the seeded map is never eyeballed by anyone, on exactly the sheets
+> the diff called clean. The attestation is cheap; the silent-wrong-map failure is not.
+>
+> **Scope — this changes the persisted status ONLY.** Write `"Pending"` unconditionally at
+> `revision.py:467`, and **leave `config_json` at `:461` alone**. The `status` variable stays in scope
+> so the `dispositions` block at `:477-485` still returns the honest `clean` / `unsafe` diagnosis —
+> that diagnosis is also the payload carrying `reasons` / `dangling_roles` /
+> `description_set_changed` to the config screen. **Do not touch `revision_carry.py:243` or
+> `column_diff.py:203`.** The diff still runs and still tells the truth; only the auto-attestation goes.
+>
+> **Must ride along — the work-package carry.** A carried draft gets **no** `work_packages` child rows
+> today (the fresh path auto-detects them at `upload_file.py:271-293`, and the revision path skips it),
+> and `SheetConfigPanel.tsx:1806` **disables the Config-Done attestation without one**. Landing
+> `Pending` without also carrying the original draft's work packages would make the button we now
+> depend on unclickable. These two ship together or not at all.
+>
+> **Accepted cost.** The hub Parse button stays disabled until ≥1 sheet is marked
+> (`BoqHubPage.tsx:738-746`, `canParse = reviewedCount >= 1`). **That is the intent, not a regression.**
 
 **Two of this ticket's own premises were wrong:**
 
@@ -248,7 +323,107 @@ on provably-clean sheets ⇒ wallpaper, violating the codebase's no-cry-wolf sta
 warning** naming the cost. Blast radius is **partial, not total** — `_description_parts` skips blank cells,
 so an added column that is blank on a row leaves that row's join unchanged.
 
-### D6 — Row match key: parser-symmetric content; the human-rectified path is the payload, not the key ([T3](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1089))
+### D6 — Row match key: ~~parser-symmetric content~~ **Excel position + description**; the human-rectified path is the payload, not the key ([T3](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1089))
+
+> ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: SUPERSEDED ENTIRELY
+>
+> **The whole description-bucket engine below is deleted.** The key becomes:
+>
+> > ### same Excel row + same description
+> >
+> > *A row carries its decisions forward only if it is still in the same place with the same words.*
+>
+> **The defect it fixes.** The shipped rule matches on **description identity alone, with no positional
+> constraint** (`row_match.py:115-169`) — two rows pair if their N2-normalised description occurs
+> exactly once on each side, so row 3 can pair with row 900. The carry then follows the original's
+> `parent_node` and **overwrites the fresh parser's parenting with it** (`carry.py:128-133` →
+> `review_carry.py:178-179`). So when a revision **inserts a new section heading**, the rows beneath it
+> still pair by description, their old parent still resolves, `parent_lost` stays False, no advisory
+> fires — and the carry silently drags them back under the *old* heading. The inserted heading ends up
+> **childless** and every affected row renders a calm `Original`. Nothing in the UI says a word.
+>
+> #### The sides
+>
+> | | Original | Revision |
+> |---|---|---|
+> | Source | committed `BOQ Nodes`, current version, mapped source sheet | freshly-parsed `BoQ Review Row`s |
+> | Position | `source_row_number` | `source_row_number` |
+> | Text | `description` (the joined one) | `description` (the joined one) |
+> | Excluded | blank description | blank description |
+>
+> **Text comparison stays `normalize_n2`** (trim + lowercase + collapse whitespace). **Nothing else is
+> folded** — no punctuation, no synonyms, no fuzzy tier. Unchanged from below.
+>
+> #### A row is `Copied` when all three hold
+>
+> 1. Its Excel row number appears **exactly once on each side**.
+> 2. The original row at that same Excel position has an **identical** normalised description.
+> 3. The original row's parent **also satisfies (1) and (2)** — or the original row is a **root**, which
+>    satisfies this trivially.
+>
+> #### Why position is the entire safety argument
+>
+> A parent always sits **above** its child (`hierarchy.py:618` — `parent_index = stack[-1]`, a monotonic
+> stack of *preceding* indices), and any inserted or deleted row shifts every position below it. So the
+> instant a row is introduced, **nothing beneath it can satisfy condition (1)** — the carry stops and
+> the fresh parser's answer flows through untouched. **The failure this amendment exists to fix becomes
+> structurally impossible rather than guarded against.** No walk, no span diff, no heading detection, no
+> twin map, no ambiguity class, and no need for a "did the parser find a new parent?" check.
+>
+> #### The honest record — this reinstates an option D6 rejected
+>
+> `source_row_number` + description is **named and rejected below**, and again in *Considered and
+> rejected*, as *"the same-file key — one inserted row shifts everything below ⇒ mass non-match ⇒
+> defeats the feature's whole point."* That objection is **factually correct and was not overturned.**
+> D6 replaced it with description-only matching precisely to recover that yield.
+>
+> **The amendment's central finding is that the recovered yield was bought with correctness.** The
+> shipped rule matches *more* rows and is wrong about *which* rows, in the one scenario a revision
+> exists to express — a restructure. Fewer rows carrying, correctly, beats more rows carrying, silently
+> mis-parented. This is recorded plainly so a future reader sees a **deliberate** reinstatement rather
+> than a rejected option that someone forgot to check.
+>
+> #### What the code loses
+>
+> `row_match.py` becomes a **keyed join**: delete `_by_key`, `_disambiguate`, `_section_keys`,
+> `_is_shallower`, and the `AMBIGUOUS` / `NEW` / `REMOVED` constants. `MatchRow` loses `order` and
+> `level` and gains `excel_row`. A position appearing **more than once on either side is dropped** (see
+> holes). **Four outcomes collapse to one: matched, or not.**
+>
+> #### One matcher, three consumers — and a structural bonus
+>
+> The algorithm swap propagates for free to `review_carry.py:130`, `commit_overlay.py:216` and
+> `cross_boq_carry.py` (via `commit_overlay.committed_excel_row_match`) — ADR-0010's "one owner" was
+> honoured, so **do not fork it**. `commit_overlay._match_rows_from_nodes:227-244` already keys
+> `row_id = n.source_row_number` and already filters blank N2 descriptions; drop the `level` it passes
+> and the committed-tier matcher is done.
+>
+> **The bonus, worth protecting.** Today the parse-seam run and the committed-tier run can legitimately
+> **disagree** — the committed run gets ADR-0009 effective `level`, the parse run gets parser `level`,
+> and a human re-parent between review and commit moves one and not the other. Under a position key
+> both inputs are **immutable after parse** and neither is a function of the tree, so the two runs are
+> **provably identical**. This is what makes re-deriving the `Copied` set at the committed tier safe
+> with no new schema. **Never let `level` back into the matcher.**
+>
+> #### Known holes — documented, not engineered around
+>
+> 1. **Insert + delete in one span.** A heading inserted at row 10 and a row deleted at row 20 realigns
+>    rows 21+ onto their original positions, so they copy a parent the new heading should have taken.
+>    Requires a **net-zero** row change with a heading among the insertions. Closing it means
+>    reintroducing a span scan — the complexity this amendment removes. **Pin it with a test asserting
+>    the known-wrong behaviour** so nobody "fixes" it by accident.
+> 2. **Non-unique Excel row numbers.** A synthetic row created during review is committed with its
+>    `row_index` as its row number (`commit_pipeline.py:207`), which *can* collide with a real Excel
+>    row. Rule: a position appearing more than once on either side is skipped. *(Measured 2026-07-20,
+>    dev bench: `source_row_number` is unique within its sheet for **all 29,752** current committed
+>    nodes — so this is defence, not a live workaround. Dev-only, per the evidentiary caveat.)*
+> 3. **Description column set changed.** If the sheet's mapped description columns change, every joined
+>    description changes and **nothing matches** — zero carry. Correct behaviour, but the config screen
+>    must say so *before* the user parses (D5 already raises this warning — keep it).
+> 4. **Template-origin originals** — no committed header baseline; config lands `Pending` (as it now
+>    always does) and row matching works normally. ~8 of 211 sheets.
+> 5. **Excluded rows** — `is_excluded` rows never become committed nodes, so their positions never
+>    match. Template-origin concern only. 41 rows live.
 
 **The core reframe.** Match rows on **parser-symmetric** content and carry the human's corrections as an
 overlay re-applied *through* the match map.
@@ -296,7 +471,62 @@ v1**: fuzzy similarity is exactly what silently carries a wrong rate.
 
 ### D7 — Review carry: ~~the override set only~~ **the EFFECTIVE value**, at a post-parse merge seam ([T6](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1092))
 
-> ## ⚠️ AMENDED 2026-07-20 — owner-directed, supersedes the "override set only" rule below
+> ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: both-or-neither, and one status
+>
+> **Layers on top of Amendment A below, which stays in force.** Reading the **effective** value is
+> correct and is **not** reverted. What changes is *when* the carry fires and *how* it is spoken about.
+>
+> **First, the trap.** Amendment A **doubled the D6 defect's blast radius**, and this must not be
+> mis-diagnosed later. Before it, the parent re-point was gated on `human_parent >= 0` — it fired for
+> the ~13% of rows a human had manually re-parented. Reading the *effective* value instead was right in
+> itself, but `parent_node` is **always** populated on a committed node, so the re-point began firing on
+> **every matched row unconditionally**. Amendment A did not create the defect; it removed the accidental
+> gate that had been containing it. **Do not revert it** — the effective-value read stays, and
+> Amendment B's condition 3 is the *deliberate* gate that replaces the accidental one.
+>
+> #### The four rules
+>
+> | | Rule |
+> |---|---|
+> | **Both or neither** | A matched row copies classification **and** parenting **together**. Never one alone. |
+> | **The parent must match too** | If the original row's parent is not itself a matched row, the row **does not copy**. A root satisfies this trivially. |
+> | **One status** | `Copied`, or nothing. Nothing renders as `Original` — the Status column's existing bottom rung (`ReviewTree.tsx:2635-2638`), byte-identical to a fresh upload. |
+> | **A non-copied row is just a parsed row** | Every classifier warning, review flag, structural check and the finalize gate apply exactly as they always have. **No revision-specific condition is added to any of them.** |
+>
+> #### What is copied, and what is never copied
+>
+> | Copy | From (committed `BOQ Nodes`) | To (revision `BoQ Review Row`) |
+> |---|---|---|
+> | Classification | `row_class` (already effective) | `classification` — the **parser** layer |
+> | Parent | `parent_node` → that node's Excel row → the revision row at the same Excel row | `parent_index` (`-1` for root) |
+>
+> **Everything else: write nothing.** Never `level` (ADR-0009 re-derives it at both validation and
+> commit; a planted stale value makes the `BOQ Nodes` controller throw — *verified benign* that a stale
+> review-row `level` sits beside a copied parent). Never the human layer
+> (`human_classification` / `human_parent` / `human_is_root`) — Amendment A's three reasons all still
+> hold. Never anything on a non-matched row.
+>
+> #### What is deleted
+>
+> - **`parent_lost` — the concept, not just the flag.** Condition 3 subsumes it: a row whose parent has
+>   no twin now simply does not copy, so there is no such thing as a matched row with un-re-pointed
+>   parenting. The `ReviewCarryWrite.parent_lost` field and its advisory both go.
+> - **Both muted advisory panels** (`ReviewTree.tsx:1952-1986`) — there is no removed-row advisory and
+>   no parent-lost advisory any more. Deleted, not adapted.
+> - **`New`, `Ambiguous` and `Drifted`** join the retired list. `Copied` is added to the
+>   `revision_carry_status` Select; the four legacy options stay inert for existing rows.
+> - **`revision_review_advisories`** in `review_carry.py`.
+>
+> #### ⚠️ The defect currently ships as a PASSING TEST
+>
+> `services/boq_revision/test_carry.py:95-113`,
+> `test_pcc_reparented_row_lands_on_twin_new_row_index`, asserts that **the carry beats the fresh
+> parser**. Its premise is that the parser is repeating a mistake the human already corrected. Under
+> Amendment B that premise is exactly backwards where the file has been restructured. **Rewrite it —
+> do not preserve it.** Its replacement is the inverse: an inserted row means the rows below are **not**
+> carried. `test_level_never_in_the_payload` stays.
+
+> ## ⚠️ AMENDED 2026-07-20 (Amendment A) — owner-directed, supersedes the "override set only" rule below
 >
 > **What changed.** The carry reads the original's **EFFECTIVE** classification and parenting and
 > writes them into the revision's **PARSER layer**:
@@ -480,6 +710,58 @@ and **D6's N2 key subsumes it**: an exact guard fires only on N2-equivalent-but-
 
 ### D9 — Cross-BOQ rate carry: carry-all, whole-BOQ, one explicit post-commit action ([T7](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1093))
 
+> ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: the version pin is resolved
+>
+> **The open blocker is closed. `BoQ Cell Pricing` is read by `is_current = 1`; the
+> `committed_version` pin is dropped.**
+>
+> **The defect** (confirmed live at branch tip `d89153e8`; **not** caused by this rework):
+>
+> | | |
+> |---|---|
+> | Count site | `revision.py:225` — `frappe.db.count("BoQ Cell Pricing", {"boq": source_boq, "is_current": 1})`, **no** `committed_version` filter |
+> | Carry read site | `cross_boq_carry.py:179-191` resolves the source sheet by `is_current=1` → `source_version = src.commit_version`, then `:233-236` calls `pricing.get_sheet_pricing(committed_version=ctx.source_version)`, which filters **strictly** (`pricing.py:666-673`) |
+> | Why they diverge | `BoQ Cell Pricing.is_current` is scoped to the full identity **including `committed_version`** (`pricing.py:101`), and re-committing a sheet **orphans its pricing onto the now-frozen version** — stated outright at `commit_pipeline.py:473-474`, which warns but does not migrate |
+>
+> **Result:** a source priced at v1 and then re-committed to v2 promises *"3 rates"* on the mapping
+> screen and carries **zero**. Live-observed on `BOQ-26-00023` / sheet `'LMS '`.
+>
+> **The ruling: align the read to the count, not the count to the read.** The carry takes whatever
+> pricing is current for the source BoQ + sheet, whichever committed version it is stranded on. The
+> rejected alternative — keep the pin, make the count match it, and prompt *"run Copy rates forward on
+> the original first"* — makes the user perform a repair whose only purpose is to satisfy an internal
+> version filter, on a screen that had already told them the rates existed.
+>
+> **The asymmetry this introduces, deliberately.** Rates are read **cross-version** (`is_current`) while
+> classification and parenting are read from the **current committed sheet**. That is coherent, not an
+> oversight: pricing is a *living* layer that gets re-edited and re-carried after the structure freezes,
+> whereas structure is frozen per commit by design. **Do not "fix" this into symmetry.**
+>
+> **Settled at the same time:** `BoQ Sheet.source_commit_version` is stamped at `commit_overlay.py:138`
+> as durable provenance and **read nowhere in the entire branch** — `cross_boq_carry.py:150-153`
+> deliberately refuses it. It stays **write-only provenance**. ⚠️ *A verification pass once concluded
+> "defect not confirmed" by grepping that field name — **the pin is the VALUE (`ctx.source_version`),
+> not the field.** Do not repeat that.*
+>
+> **Testing.** `test_cross_boq_carry.py` and `test_commit_overlay.py` are green today **only because
+> their fixtures are same-version**, which is precisely why they miss this. **A cross-version fixture is
+> required in both** — carry rates from an original whose pricing sits on an older committed version
+> than its sheet, and see them land.
+>
+> #### A7 — one number replaces the skip taxonomy
+>
+> `Copied` ⟺ matched ⟺ **rate-eligible**. Under Amendment B's D6 there is no `REMOVED` and no
+> `AMBIGUOUS`, so the `removed` / `ambiguous` skip reasons below **collapse into "not copied"**;
+> `no_rate_column`, `non_priceable` and `invalid` survive unchanged. The `Copied` set is re-derived at
+> the committed tier rather than stored — safe because the two matcher runs are now **provably
+> identical** (see D6's structural bonus).
+>
+> **As-built deviation to record (S10 / #1106, owner-directed):** the paragraph below specifies
+> *"reusing CL-6's amber attention-fill + filter verbatim"* for new rows. The owner **declined any new
+> PricingGrid cell highlighting** for the revised-BoQ work; `PricingGrid` stays **byte-identical** (its
+> 143 tests must not move) and the **existing "Show unpriced" filter is the review surface**. The
+> results-modal count stays.
+
 **Headline: this is not net-new plumbing — it is the commit pipeline's long-job pattern pointed at rates.**
 `BoQ Cell Pricing` needs **no migration**: `boq` is already in its 5-part identity, so destination records
 land correctly as-is. Only the API surface and UX are new.
@@ -546,7 +828,7 @@ makes a footer action the existing pattern. **Visibility:** `origin == "revision
 | `BoQ Sheet` | `source_boq` | Link → BOQs | D2 |
 | `BoQ Sheet` | `source_commit_version` | Int | D2 |
 | `BoQ Sheet` | `source_sheet_name` | Data, nullable, **write-once** | D3 |
-| `BoQ Review Row` | `revision_carry_status` | Select: *(blank)*/`Matched`/`New`/`Ambiguous`/`Drifted` | D7 |
+| `BoQ Review Row` | `revision_carry_status` | Select: *(blank)*/`Matched`/`New`/`Ambiguous`/`Drifted` — **Amendment B adds `Copied`; only `Copied` and blank are ever written, the other four stay inert for legacy rows** | D7 |
 
 **D5, D8 and D9 add none.** `BoQ Cell Pricing` + the four annotation layers + `BoQ Row Category` all already
 carry `boq` in their identity tuples, so cross-BOQ writes need no migration.
@@ -621,7 +903,7 @@ honest test if ever wanted: log sheet-name sets on the first N real revision upl
 | Seed-clone-then-diff (create-from-template's shape) | Creates a second row source to reconcile, and fights the destructive re-parse |
 | Direct-clone fast-path for unchanged sheets | Circular (can't know it's unchanged without reading cells); would stamp the grid from the **old** file; the overlay already delivers the win |
 | Copying the original's `Finalized` status | Marks a sheet commit-eligible with no parsed content behind it |
-| `source_row_number` + description as the row key | The same-file key — one inserted row shifts everything below ⇒ mass non-match |
+| ~~`source_row_number` + description as the row key~~ **REINSTATED 2026-07-20 (Amendment B)** | The original objection stands and was **not** overturned: one inserted row shifts everything below ⇒ mass non-match. It is reinstated anyway, because that *same* property is what stops the carry from dragging rows back under a superseded parent when the file is restructured. **The yield description-only matching recovered was bought with correctness.** Fewer rows carrying, correctly, beats more rows carrying, silently mis-parented. See D6's amendment block. |
 | description + rectified ancestor-path | Self-defeating — the rectified row is exactly the one that never matches |
 | Fuzzy row matching in v1 | Fuzzy similarity is exactly what silently carries a wrong rate |
 | Fuzzy sheet-name suggestions | Anchors the human toward a plausible-but-wrong pair — lands on the exact failure the screen exists to prevent |
@@ -648,10 +930,13 @@ honest test if ever wanted: log sheet-name sets on the first N real revision upl
 
 ## Deferred (documented, not built in v1)
 
-1. **Near-match / "looks like original row 24"** (D6/D7). The typo case (`IP42` → `IP-42`) is REMOVED + NEW
-   under the locked key, so the human redoes work they already did. D6 proved the fuzzy tier **layers on
-   without changing the key** ⇒ additive later with zero rework. **Must be human-confirmed, never
-   auto-applied.**
+1. **Near-match / "looks like original row 24"** (D6/D7). The typo case (`IP42` → `IP-42`) simply **does
+   not copy** under Amendment B's key (it fails condition 2 at a matching position), so the human redoes
+   work they already did. The fuzzy tier still **layers on without changing the key** ⇒ additive later
+   with zero rework. **Must be human-confirmed, never auto-applied.** *(Amendment B narrows this: under
+   the position key the near-match candidate set is now trivially small — the single original row at the
+   same Excel position — which makes a future human-confirmed tier considerably cheaper than the
+   whole-sheet fuzzy search D6 was contemplating.)*
 2. **Fuzzy suggestions in the unmatched-sheet dropdown** (D3). Sheets are median 5 / max 38 with meaningful
    names — a human reading `'Electrical Rev2'` against a list containing `'Electrical'` needs no algorithm,
    and fuzzy's anchoring cost lands on the exact failure being prevented.
