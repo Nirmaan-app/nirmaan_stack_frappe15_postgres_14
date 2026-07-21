@@ -5,7 +5,9 @@
 
 Coverage matrix:
   ENGINES
-    POS  Electrical available; HVAC + ELV present-but-unavailable; is_discipline_available gate.
+    POS  Electrical + HVAC available (HV-9 flip, owner GO 2026-07-22); exactly two available;
+         HVAC catalog returns its 17 categories.
+    NEG  ELV present-but-unavailable; its catalog throws; start_classify on it throws.
   ORCHESTRATOR (DB seeded tree; STUBBED AI voter via ai_voter's injectable client -- no live API)
     POS  whole sheet classifies every eligible row; rows persist as current with routing filled.
     POS  a range spanning an ineligible spacer + a superseded row classifies only the eligible
@@ -161,13 +163,29 @@ class TestEngines(FrappeTestCase):
             for k in ("id", "label", "discipline", "available"):
                 self.assertIn(k, e)
         by_disc = {e["discipline"]: e for e in listed}
+        # HV-9 (owner GO 2026-07-22): HVAC is LIVE. Electrical + HVAC available; ELV still not.
         self.assertTrue(by_disc["Electrical"]["available"])
-        self.assertFalse(by_disc["HVAC"]["available"])
+        self.assertTrue(by_disc["HVAC"]["available"])
         self.assertFalse(by_disc["ELV"]["available"])
+
+    def test_exactly_two_engines_available(self):
+        """HV-9 guard: the flip enables HVAC and NOTHING else -- ELV must stay disabled."""
+        listed = list_engines()
+        avail = sorted(e["discipline"] for e in listed if e["available"])
+        self.assertEqual(avail, ["Electrical", "HVAC"])
+        self.assertEqual(len(listed), 3)  # ELV still LISTED, just unavailable
+
+    def test_elv_remains_present_but_unavailable(self):
+        """THE NEGATIVE: an engine listed without a shipped ruleset stays gated."""
+        elv = engines.get_engine_by_discipline("ELV")
+        self.assertIsNotNone(elv)
+        self.assertFalse(elv["available"])
+        self.assertFalse(engines.is_discipline_available("ELV"))
 
     def test_is_discipline_available(self):
         self.assertTrue(engines.is_discipline_available("Electrical"))
-        self.assertFalse(engines.is_discipline_available("HVAC"))
+        self.assertTrue(engines.is_discipline_available("HVAC"))
+        self.assertFalse(engines.is_discipline_available("ELV"))
         self.assertFalse(engines.is_discipline_available("Nonexistent"))
 
     def test_category_catalog(self):
@@ -179,9 +197,15 @@ class TestEngines(FrappeTestCase):
         self.assertIn("db_switchgear", ids)
         # every category carries a non-empty display label (id fallback ensures this)
         self.assertTrue(cat["categories"] and all(c["label"] for c in cat["categories"]))
-        # an unavailable engine has no catalog -> throws
+        # HV-9: HVAC is live, so it now HAS a catalog -- the picker's 17 categories.
+        hv = get_category_catalog("HVAC")
+        self.assertEqual(hv["discipline"], "HVAC")
+        self.assertEqual(len(hv["categories"]), 17)
+        self.assertIn("hvac_raceway", {c["id"] for c in hv["categories"]})
+        self.assertTrue(all(c["label"] for c in hv["categories"]))
+        # an unavailable engine still has no catalog -> throws (ELV is now the exemplar)
         with self.assertRaises(frappe.ValidationError):
-            get_category_catalog("HVAC")
+            get_category_catalog("ELV")
 
 
 # ── ORCHESTRATOR ─────────────────────────────────────────────────────────────────
@@ -392,8 +416,9 @@ class TestStartClassify(FrappeTestCase):
         super().tearDownClass()
 
     def test_unavailable_engine_throws(self):
+        """HV-9: HVAC is live, so ELV is now the unavailable exemplar for this gate."""
         with self.assertRaises(frappe.ValidationError):
-            start_classify(boq=self.boq, sheet_name=self.sheet, discipline="HVAC", scope={"mode": "sheet"})
+            start_classify(boq=self.boq, sheet_name=self.sheet, discipline="ELV", scope={"mode": "sheet"})
 
     def test_bad_range_throws(self):
         with self.assertRaises(frappe.ValidationError):
