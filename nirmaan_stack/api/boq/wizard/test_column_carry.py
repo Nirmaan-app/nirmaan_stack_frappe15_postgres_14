@@ -2,15 +2,22 @@
 
 The pure disposition logic is pinned in `services/boq_revision/test_column_diff.py`. These
 tests exercise the WIRING in `confirm_revision_mapping`: a mapped DATA sheet is seeded with
-the original's rectified `column_role_map` and lands `Config Done` when the revised columns
-are structurally clean vs the committed grid, else `Pending`. Both the workbook tab read
-(`_read_revised_tab_names`) and the workbook column read (`_read_revised_columns`) are
-stubbed so the revised structure is deterministic.
+the original's rectified `column_role_map`, and the column diff decides a DIAGNOSIS. Both the
+workbook tab read (`_read_revised_tab_names`) and the workbook column read
+(`_read_revised_columns`) are stubbed so the revised structure is deterministic.
 
-Cases: clean -> Config Done + seed; shift/append/removed-mapped -> Pending + seed (map kept,
-"flag never auto-clear"); removed-unmapped / blank-header -> still clean; New sheet + gs +
-no-committed-BoQ-Sheet -> Pending, no config; workbook read failure + no-header-baseline ->
-Pending WHILE still carrying the map (the safe degrade).
+⚠️ AMENDED (Amendment B W4 / A2, 2026-07-21). The persisted `wizard_status` used to be the
+diff's verdict, so a clean sheet landed `Config Done` and reached parse unseen. It is now
+**always `Pending`** -- a human attests every revised sheet once. The verdict survives only in
+the returned `dispositions[]`, so **every diff-behaviour test asserts on the disposition, not on
+`wizard_status`** (via `_map_data_disposition`). Asserting `wizard_status` for those cases would
+now pass no matter what the diff decided -- that would retire the coverage, not move it.
+
+Cases: clean -> "Config Done" diagnosis + seed; shift/append/removed-mapped -> "Pending"
+diagnosis + seed (map kept, "flag never auto-clear"); removed-unmapped / blank-header -> still
+clean; New sheet + gs + no-committed-BoQ-Sheet -> no config; workbook read failure +
+no-header-baseline -> "Pending" diagnosis WHILE still carrying the map (the safe degrade);
+and the W4 work-package carry (`TestWorkPackageCarry`).
 """
 
 from unittest.mock import patch
@@ -126,28 +133,63 @@ class TestConfigColumnCarry(FrappeTestCase):
         )
         return drafts["Data"]
 
-    # ── clean -> Config Done + rectified seed ────────────────────────────────
-    def test_clean_matched_sheet_config_done_with_rectified_seed(self):
+    def _map_data_disposition(self, revised_header, revised_universe):
+        """The 'Data' sheet's returned DIAGNOSIS.
+
+        W4 split the persisted `wizard_status` (now always Pending) from the column-diff verdict.
+        The verdict survives ONLY here, so every diff-behaviour test must assert on this -- an
+        assertion on `wizard_status` alone would now pass no matter what the diff decided, which
+        would silently retire the coverage rather than move it.
+        """
+        res = self._confirm_response(
+            ["Data"],
+            [{"sheet_name": "Data", "source_sheet_name": "Data"}],
+            {"Data": {"header_cells": revised_header, "universe": revised_universe}},
+        )
+        return {d["sheet_name"]: d for d in res["dispositions"]}["Data"]
+
+    # ── clean diff -> "Config Done" DIAGNOSIS + rectified seed (persisted status is Pending) ──
+    def test_clean_matched_sheet_diagnosed_clean_with_rectified_seed(self):
         d = self._map_data(dict(_HEADER), set("ABCDEF"))
-        self.assertEqual(d.wizard_status, "Config Done")
+        # W4: even a perfectly clean sheet lands Pending -- the human attests once.
+        self.assertEqual(d.wizard_status, "Pending")
+        self.assertEqual(
+            self._map_data_disposition(dict(_HEADER), set("ABCDEF"))["status"], "Config Done"
+        )
         cfg = frappe.parse_json(d.sheet_config)
         self.assertEqual(cfg["column_role_map"], _ROLE_MAP)  # rectified map, not auto-guess
         self.assertEqual(cfg["header_row"], 1)
         self.assertNotIn("sheet_name", cfg)  # 6-key shape; parser injects sheet_name
 
-    def test_n2_drift_still_config_done(self):
+    def test_n2_drift_still_diagnosed_clean(self):
         drifted = {"A": " s.no ", "B": "DESCRIPTION", "C": "unit",
                    "D": "Qty", "E": "rate", "F": "amount"}
-        self.assertEqual(self._map_data(drifted, set("ABCDEF")).wizard_status, "Config Done")
+        self.assertEqual(
+            self._map_data_disposition(drifted, set("ABCDEF"))["status"], "Config Done"
+        )
 
-    def test_removed_unmapped_column_still_config_done(self):
+    def test_removed_unmapped_column_still_diagnosed_clean(self):
         rev = {k: v for k, v in _HEADER.items() if k != "A"}  # unmapped S.No gone
-        self.assertEqual(self._map_data(rev, set("BCDEF")).wizard_status, "Config Done")
+        self.assertEqual(self._map_data_disposition(rev, set("BCDEF"))["status"], "Config Done")
 
-    def test_blank_header_column_still_config_done(self):
+    def test_blank_header_column_still_diagnosed_clean(self):
         rev = dict(_HEADER)
         rev["E"] = ""  # blank header, still present in universe
-        self.assertEqual(self._map_data(rev, set("ABCDEF")).wizard_status, "Config Done")
+        self.assertEqual(
+            self._map_data_disposition(rev, set("ABCDEF"))["status"], "Config Done"
+        )
+
+    def test_every_mapped_sheet_lands_pending_regardless_of_diff(self):
+        """W4 / A2, stated once and directly: the persisted status does not depend on the diff.
+        Clean and unsafe both land Pending -- the diff only changes what `dispositions[]` says."""
+        clean = self._map_data(dict(_HEADER), set("ABCDEF"))
+        unsafe = self._map_data(
+            {"A": "S.No", "B": "Description", "C": "NEW",
+             "D": "Unit", "E": "Qty", "F": "Rate", "G": "Amount"},
+            set("ABCDEFG"),
+        )
+        self.assertEqual(clean.wizard_status, "Pending")
+        self.assertEqual(unsafe.wizard_status, "Pending")
 
     # ── unsafe -> Pending, but the rectified map is STILL seeded ──────────────
     def test_shifted_columns_pending_but_map_carried(self):
@@ -266,10 +308,11 @@ class TestConfigColumnCarry(FrappeTestCase):
         self.assertEqual([g.source_sheet_name for g in doc.general_specs_sheets], ["Make List"])
 
     # ── REAL workbook read (no stub on the column read) ──────────────────────
-    def test_real_workbook_read_clean_config_done(self):
+    def test_real_workbook_read_diagnosed_clean(self):
         # End-to-end over the REAL openpyxl read: the fixture 'Sheet1' header is
         # Sl.No. | Description | Unit | Qty | Rate | Amount | Formula (test) (cols A..G, G
-        # header-only/blank data). A committed sheet whose config matches -> Config Done.
+        # header-only/blank data). A committed sheet whose config matches -> a "Config Done"
+        # DIAGNOSIS (W4: the persisted status is Pending regardless).
         fixture_header = {
             "A": "Sl.No.", "B": "Description", "C": "Unit", "D": "Qty",
             "E": "Rate", "F": "Amount", "G": "Formula (test)",
@@ -289,11 +332,12 @@ class TestConfigColumnCarry(FrappeTestCase):
             "nirmaan_stack.api.boq.wizard.sheet_preview._fetch_boq_file_to_tempfile",
             side_effect=lambda url: _make_xlsx_tempfile(),
         ):
-            confirm_revision_mapping(
+            res = confirm_revision_mapping(
                 rev.name, [{"sheet_name": "Sheet1", "source_sheet_name": "Sheet1"}]
             )
         d = frappe.get_doc("BOQs", rev.name).sheet_drafts[0]
-        self.assertEqual(d.wizard_status, "Config Done")
+        self.assertEqual(d.wizard_status, "Pending")  # W4: always
+        self.assertEqual(res["dispositions"][0]["status"], "Config Done")  # the real verdict
         self.assertEqual(frappe.parse_json(d.sheet_config)["column_role_map"], fixture_role_map)
 
     def test_mapped_grid_only_sheet_without_boq_sheet_stays_pending(self):
@@ -304,3 +348,154 @@ class TestConfigColumnCarry(FrappeTestCase):
         )
         self.assertEqual(drafts["Make List"].wizard_status, "Pending")
         self.assertIn(drafts["Make List"].sheet_config or "", ("", "null", None))
+
+
+def _add_work_packages(boq, sheet, work_headers):
+    """Attach work packages to an ORIGINAL's CURRENT committed BoQ Sheet (the grandchild table).
+
+    Written directly rather than through the parent doc: `BoQ Sheet.area_dimensions` is a
+    list-valued JSON field, so a `doc.save()` here would trip the "cannot be a list" wall
+    (CLAUDE.md) -- the same reason `carry_work_packages` writes rows directly.
+    """
+    sheet_docname = frappe.db.get_value(
+        "BoQ Sheet", {"boq": boq, "sheet_name": sheet, "is_current": 1}, "name"
+    )
+    for wh in work_headers:
+        row = frappe.new_doc("BoQ Sheet Work Package")
+        row.parent = sheet_docname
+        row.parenttype = "BoQ Sheet"
+        row.parentfield = "work_packages"
+        row.work_header = wh
+        row.insert(ignore_permissions=True)
+    frappe.db.commit()
+
+
+def _draft_work_packages(boq, sheet_name):
+    """The work headers on one seeded revision draft, in idx order (the grandchild read)."""
+    draft = frappe.db.get_value(
+        "BoQ Sheet Draft", {"parent": boq, "parenttype": "BOQs", "sheet_name": sheet_name}, "name"
+    )
+    if not draft:
+        return []
+    return [
+        r.work_header
+        for r in frappe.get_all(
+            "BoQ Sheet Work Package",
+            filters={"parent": draft, "parenttype": "BoQ Sheet Draft"},
+            fields=["work_header"],
+            order_by="idx asc",
+        )
+    ]
+
+
+class TestWorkPackageCarry(FrappeTestCase):
+    """W4 / A2 -- the original's work packages must ride along to the revision's drafts.
+
+    This ships WITH "every sheet lands Pending" and is not separable from it. `SheetConfigPanel`
+    disables the Config-Done attestation checkbox unless the sheet has >= 1 work package, so a
+    revision seeded at Pending with no work packages would be un-attestable -- and therefore
+    un-parseable (`canParse` needs >= 1 marked sheet) and un-committable. Landing one change
+    without the other bricks the flow.
+
+    Work packages are a GRANDCHILD table (`BoQ Sheet Draft.work_packages`), which is why the
+    carry runs AFTER the parent save and writes rows directly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="WP ORIG")
+        _commit_data_sheet(cls.original.name, "Data")
+        _commit_gs_sheet(cls.original.name, "Make List", version=1)
+        # Two REAL Work Headers rows -- work_header is a required Link, so these must exist.
+        cls.headers = []
+        for label in ("WP Alpha", "WP Beta"):
+            name = f"{label} {frappe.generate_hash(length=4)}"
+            wh = frappe.new_doc("Work Headers")
+            wh.work_header_name = name
+            wh.insert(ignore_permissions=True)
+            cls.headers.append(name)
+        _add_work_packages(cls.original.name, "Data", cls.headers)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+        for name in cls.headers:
+            frappe.delete_doc("Work Headers", name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _confirm(self, tabs, mapping, revised_cols=None):
+        rev = _make_revision(self.project.name, self.original.name)
+        with patch(_READ_TABS, return_value=tabs), patch(
+            _READ_COLS, return_value=revised_cols or {}
+        ):
+            confirm_revision_mapping(rev.name, mapping)
+        return rev.name
+
+    def test_mapped_sheet_carries_the_originals_work_packages_in_order(self):
+        rev = self._confirm(
+            ["Data"],
+            [{"sheet_name": "Data", "source_sheet_name": "Data"}],
+            {"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        )
+        self.assertEqual(_draft_work_packages(rev, "Data"), self.headers)
+
+    def test_carried_sheet_can_actually_be_attested(self):
+        """The whole point of the carry, stated as the user-visible outcome: the sheet lands
+        Pending AND satisfies the >= 1 work-package precondition the attestation checkbox
+        enforces. Pending without this is a dead end."""
+        rev = self._confirm(
+            ["Data"],
+            [{"sheet_name": "Data", "source_sheet_name": "Data"}],
+            {"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        )
+        draft = frappe.get_doc("BOQs", rev).sheet_drafts[0]
+        self.assertEqual(draft.wizard_status, "Pending")
+        self.assertGreaterEqual(len(_draft_work_packages(rev, "Data")), 1)
+
+    def test_declared_new_sheet_carries_none(self):
+        """A New sheet claims no original, so there is nothing to carry -- it is configured from
+        scratch and the human assigns its work package."""
+        rev = self._confirm(
+            ["Brand New"], [{"sheet_name": "Brand New", "declared_new": True}]
+        )
+        self.assertEqual(_draft_work_packages(rev, "Brand New"), [])
+
+    def test_general_specs_source_carries_none(self):
+        """A general-specs source has no committed `BoQ Sheet` row at all, so it contributes
+        nothing -- and needs nothing (it is never config-attested)."""
+        rev = self._confirm(
+            ["Make List"],
+            [{"sheet_name": "Make List", "source_sheet_name": "Make List", "general_specs": True}],
+        )
+        self.assertEqual(_draft_work_packages(rev, "Make List"), [])
+
+    def test_source_without_work_packages_carries_none_without_erroring(self):
+        """An original that was never assigned a work package must not break the confirm -- the
+        revision simply starts unassigned, exactly like a fresh upload."""
+        orig = _make_boq(self.project.name, origin="upload", boq_name="WP-LESS ORIG")
+        _commit_data_sheet(orig.name, "Data")
+        rev_doc = _make_revision(self.project.name, orig.name)
+        with patch(_READ_TABS, return_value=["Data"]), patch(
+            _READ_COLS,
+            return_value={"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        ):
+            confirm_revision_mapping(
+                rev_doc.name, [{"sheet_name": "Data", "source_sheet_name": "Data"}]
+            )
+        self.assertEqual(_draft_work_packages(rev_doc.name, "Data"), [])
+
+    def test_carry_follows_the_mapping_not_the_sheet_name(self):
+        """The revised tab is a RENAME of the original. The carry must follow the confirmed
+        `source_sheet_name` pointer, never a name match -- a rename is the common case."""
+        rev = self._confirm(
+            ["Data Rev"],
+            [{"sheet_name": "Data Rev", "source_sheet_name": "Data"}],
+            {"Data Rev": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        )
+        self.assertEqual(_draft_work_packages(rev, "Data Rev"), self.headers)

@@ -182,6 +182,77 @@ def get_upload_status(job_id=None):
     return {"state": "done", **cached}
 
 
+def append_sheet_drafts(boq_doc, reader, sheets):
+    """Append one `sheet_drafts` row per workbook sheet. Call BEFORE saving `boq_doc`.
+
+    Extracted verbatim from `_upload_file_worker` (Amendment B W3) so the fresh-upload path and
+    `revision.convert_revision_entry`'s Revise -> New re-seed share ONE implementation. A
+    conversion that seeded drafts differently from a fresh upload would be a silent divergence
+    in the thing the entire wizard hangs off.
+
+    `wizard_status` comes from workbook sheet visibility: a visible sheet is `Pending`, a
+    hidden/very-hidden one `Hidden`.
+    """
+    sheet_states = reader.list_sheet_states()
+    work_headers = frappe.get_all(
+        "Work Headers",
+        fields=["work_header_name"],
+        order_by="work_header_name asc",
+    )
+    for idx, sheet_name in enumerate(sheets, start=1):
+        state = sheet_states.get(sheet_name, "visible")
+        wiz_status = "Pending" if state == "visible" else "Hidden"
+
+        work_pkg = None
+        for wh in work_headers:
+            if wh["work_header_name"].lower() in sheet_name.lower():
+                work_pkg = wh["work_header_name"]
+                break
+
+        boq_doc.append(
+            "sheet_drafts",
+            {
+                "sheet_name": sheet_name,
+                "sheet_order": idx,
+                "wizard_status": wiz_status,
+                # NOTE: `BoQ Sheet Draft` has no `work_package` field -- work packages are the
+                # `work_packages` GRANDCHILD table. This key has never persisted, so the
+                # auto-detect above is inert. Preserved verbatim in this extraction rather than
+                # "fixed": making it write for real would change fresh-upload behaviour, which
+                # is a separate, owner-visible decision.
+                "work_package": work_pkg,
+            },
+        )
+
+
+def prefill_sheet_configs(boq_doc, reader):
+    """Auto-guess `sheet_config` for every Pending draft. Call AFTER saving `boq_doc`.
+
+    Post-save because `frappe.db.set_value` needs the child rows' real docnames. Failure is
+    per-sheet isolated: an exception leaves that sheet's `sheet_config` as None and the caller
+    continues normally. Shared by the upload worker and the W3 conversion re-seed.
+    """
+    for draft in boq_doc.sheet_drafts:
+        if draft.wizard_status != "Pending":
+            continue
+        try:
+            header_row = reader.detect_header_row(draft.sheet_name)
+            if header_row is None:
+                continue
+            detected = auto_guess_sheet_config(reader, draft.sheet_name, header_row)
+            frappe.db.set_value(
+                "BoQ Sheet Draft",
+                draft.name,
+                "sheet_config",
+                json.dumps(detected.model_dump()),
+            )
+        except Exception:
+            frappe.log_error(
+                title="BoQ auto-guess failed",
+                message=frappe.get_traceback(),
+            )
+
+
 def _upload_file_worker(project_id, file_url, file_name, user, is_template_source=0, source_boq=None):
     """Async worker: open workbook, create BOQs row + sheet_drafts, publish result.
 
@@ -264,62 +335,14 @@ def _upload_file_worker(project_id, file_url, file_name, user, is_template_sourc
         # mapping (ADR-0014 D2/D3). The unconfirmed-revision marker is exactly
         # origin=="revision" AND an empty sheet_drafts, so this skip is load-bearing.
         if not source_boq:
-            # Step 8: Get sheet visibility states.
-            sheet_states = reader.list_sheet_states()
-
-            # Step 9: Auto-detect work_package; build sheet_drafts.
-            work_headers = frappe.get_all(
-                "Work Headers",
-                fields=["work_header_name"],
-                order_by="work_header_name asc",
-            )
-            for idx, sheet_name in enumerate(sheets, start=1):
-                state = sheet_states.get(sheet_name, "visible")
-                wiz_status = "Pending" if state == "visible" else "Hidden"
-
-                work_pkg = None
-                for wh in work_headers:
-                    if wh["work_header_name"].lower() in sheet_name.lower():
-                        work_pkg = wh["work_header_name"]
-                        break
-
-                boq_doc.append(
-                    "sheet_drafts",
-                    {
-                        "sheet_name": sheet_name,
-                        "sheet_order": idx,
-                        "wizard_status": wiz_status,
-                        "work_package": work_pkg,
-                    },
-                )
+            append_sheet_drafts(boq_doc, reader, sheets)
 
         # Step 10: Save the BOQs row (cascades sheet_drafts child rows; a revision has none).
         boq_doc.insert(ignore_permissions=True)
 
-        # Step 10.5: Prefill sheet_config with auto-guessed SheetConfig for each Pending sheet.
-        # Child row names are now assigned (post-insert), so set_value targets are valid.
-        # Failure is per-sheet isolated: an exception leaves sheet_config as None and the
-        # upload continues normally. The reader is still open at this point.
-        # A revision has no seeded drafts, so this is a no-op for it (S3 seeds + configs).
-        for draft in boq_doc.sheet_drafts:
-            if draft.wizard_status != "Pending":
-                continue
-            try:
-                header_row = reader.detect_header_row(draft.sheet_name)
-                if header_row is None:
-                    continue
-                detected = auto_guess_sheet_config(reader, draft.sheet_name, header_row)
-                frappe.db.set_value(
-                    "BoQ Sheet Draft",
-                    draft.name,
-                    "sheet_config",
-                    json.dumps(detected.model_dump()),
-                )
-            except Exception:
-                frappe.log_error(
-                    title="BoQ auto-guess failed",
-                    message=frappe.get_traceback(),
-                )
+        # Step 10.5: auto-guess each Pending sheet's config (post-insert -- child row names
+        # exist now). A revision has no seeded drafts, so this is a no-op for it (S3 seeds).
+        prefill_sheet_configs(boq_doc, reader)
 
         # Step 11: Link the attachment to the now-known BOQs document name.
         frappe.db.set_value(

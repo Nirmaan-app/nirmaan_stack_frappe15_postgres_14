@@ -5,12 +5,22 @@ for one reason. The PURE decision lives in `services/boq_revision/column_diff.py
 module reads the committed tiers + the revised workbook and hands the primitives to it.
 
 At seeding, a matched DATA sheet's columns are diffed against the original's committed grid.
-A structurally clean sheet lands `Config Done` carrying the original's rectified role map;
-anything unsafe lands `Pending` (the human confirms the config once). The SEED is ALWAYS the
-original's rectified role map for BOTH dispositions -- never a fresh auto-guess -- so only
-`wizard_status` differs. The per-sheet diagnostics (dangling roles / description-set change /
-reasons) are RETURNED so the caller can surface them; they are deliberately NOT persisted
-(D5: no new schema -- the disposition rides `wizard_status` + the seeded `sheet_config`).
+The SEED is ALWAYS the original's rectified role map -- never a fresh auto-guess. The per-sheet
+diagnostics (dangling roles / description-set change / reasons) are RETURNED so the caller can
+surface them; they are deliberately NOT persisted (D5: no new schema -- the disposition rides
+`wizard_status` + the seeded `sheet_config`).
+
+⚠️ AMENDED (Amendment B W4 / A2, 2026-07-21): `SheetCarry.status` is now purely a DIAGNOSIS.
+It used to be written straight to `wizard_status`, so a structurally clean sheet landed
+`Config Done` and was never seen by a human. The owner's call: a revision's config is attested
+ONCE per sheet regardless -- a clean diff is evidence, not consent -- so `revision.py` now
+persists `Pending` unconditionally and reports this `status` only in its `dispositions[]`
+payload. The diff logic below is UNCHANGED; only its consumer moved.
+
+`carry_work_packages` ships WITH that change and is not optional: an attestable sheet needs at
+least one work package (`SheetConfigPanel`'s Config-Done checkbox is disabled without one), so
+landing every sheet at `Pending` without carrying the original's work packages would leave the
+button we now depend on permanently unclickable.
 """
 
 import os
@@ -43,7 +53,8 @@ class SheetCarry:
     """One mapped data sheet's carry outcome."""
 
     config_json: str          # the seed sheet_config, JSON-encoded
-    status: str               # "Config Done" (clean) | "Pending" (unsafe / unreadable)
+    status: str               # DIAGNOSIS only (W4): "Config Done" (clean) | "Pending" (unsafe).
+                              # NOT the persisted wizard_status -- see the module docstring.
     reasons: list[str] = field(default_factory=list)
     dangling_roles: list[str] = field(default_factory=list)
     description_set_changed: bool = False
@@ -246,3 +257,71 @@ def carry_config_dispositions(
             description_set_changed=diff.description_set_changed,
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Work-package carry (Amendment B W4 / A2)
+# ---------------------------------------------------------------------------
+
+def read_committed_work_packages(source_boq: str, source_sheets) -> dict:
+    """{source sheet_name -> [work_header, ...]} off the original's CURRENT committed sheets.
+
+    Work packages live on `BoQ Sheet.work_packages`, a GRANDCHILD table (child of a child), which
+    `frappe.get_doc` never hydrates -- so this is a direct `BoQ Sheet Work Package` read keyed by
+    the committed sheet's docname, the same shape `review_screen.get_committed_rows` already uses.
+
+    A general-specs source has no `BoQ Sheet` row at all and simply drops out. sheet_name VERBATIM
+    (#152). Sheets with no assignments are OMITTED (not returned as []), mirroring
+    `update_sheet_draft.get_boq_work_packages`.
+    """
+    names = list(source_sheets or [])
+    if not names:
+        return {}
+
+    sheets = frappe.get_all(
+        "BoQ Sheet",
+        filters={"boq": source_boq, "sheet_name": ["in", names], "is_current": 1},
+        fields=["name", "sheet_name"],
+    )
+    if not sheets:
+        return {}
+    sheet_by_docname = {s.name: s.sheet_name for s in sheets}
+
+    rows = frappe.get_all(
+        "BoQ Sheet Work Package",
+        filters={"parent": ["in", list(sheet_by_docname)], "parenttype": "BoQ Sheet"},
+        fields=["parent", "work_header"],
+        order_by="idx asc",
+    )
+    result: dict = {}
+    for r in rows:
+        sheet_name = sheet_by_docname.get(r.parent)
+        if sheet_name is None or not r.work_header:
+            continue
+        result.setdefault(sheet_name, []).append(r.work_header)
+    return result
+
+
+def carry_work_packages(draft_row_name: str, work_headers) -> int:
+    """Stamp `work_headers` onto one seeded `BoQ Sheet Draft` row. Returns the count written.
+
+    ⚠️ MUST be called AFTER the parent `BOQs` doc is saved -- `draft_row_name` is the child row's
+    real docname, which does not exist until then. This is why the carry cannot ride
+    `boq_doc.append("sheet_drafts", {... "work_packages": [...]})`: a grandchild Table-of-Table
+    does not cascade through the parent's save the way a flat field does.
+
+    Writes each row directly (`frappe.new_doc` + explicit parent/parenttype/parentfield), which is
+    exactly what `update_sheet_draft.set_sheet_work_packages` does -- and deliberately so: it never
+    touches a doc holding a list-valued JSON field, sidestepping the `doc.save()`/`delete_doc` wall.
+    No commit here; the caller owns the transaction.
+    """
+    written = 0
+    for work_header in work_headers or []:
+        pkg = frappe.new_doc("BoQ Sheet Work Package")
+        pkg.parent = draft_row_name
+        pkg.parenttype = "BoQ Sheet Draft"
+        pkg.parentfield = "work_packages"
+        pkg.work_header = work_header
+        pkg.insert(ignore_permissions=True)
+        written += 1
+    return written

@@ -15,7 +15,8 @@ scaffolding:
   * The `(area, rate_kind)` re-resolution runs against the DESTINATION's rate columns
     (`_current_rate_column_index`), so a column MOVE re-resolves correctly and the source's bare
     `col_letter` is NEVER a write target.
-  * A split skip taxonomy: `removed` (D6 REMOVED) / `ambiguous` (D6 AMBIGUOUS) / `no_rate_column`
+  * A split skip taxonomy: `removed` (unpaired -- Amendment B collapsed D6 REMOVED+AMBIGUOUS
+    into this one reason) / `no_rate_column`
     / `non_priceable` / `invalid`. Today's same-BOQ `non_match` conflated "gone" with "can't tell";
     cross-BOQ they need different human responses.
   * A long job with PER-SHEET failure isolation -- a loop over the per-sheet plan, NOT one giant
@@ -56,13 +57,12 @@ _STATUS_TTL_SEC = 3600  # 1h -- ample for a client to poll the fallback
 _MARKER_TTL_SEC = 3600
 _STALE_CARRY_SECONDS = 1200  # mirrors classify._STALE_CLASSIFY_SECONDS / parse_run
 
-# The split skip taxonomy (ADR-0014 D9). The four PLAN reasons a source cell can be classified as a
+# The split skip taxonomy (ADR-0014 D9). The PLAN reasons a source cell can be classified as a
 # hard skip, plus `invalid` which is apply-time only (a decision referencing no real carryable cell).
-# "ambiguous" is RETIRED by Amendment B -- the match no longer has an ambiguity class, so it is
-# never produced and always counts 0. The KEY is retained deliberately so the API response shape
-# stays stable for the frontend (`boqTypes.ts` types it, `CrossBoqCarryDialog.test.ts` fixtures
-# supply it). Drop it from both sides together in W5, not here.
-_PLAN_SKIP_REASONS = ("removed", "ambiguous", "no_rate_column", "non_priceable")
+# "ambiguous" was RETIRED by Amendment B (the match no longer has an ambiguity class) and DROPPED
+# in W5 together with `boqTypes.ts` + the `CrossBoqCarryDialog` fixtures -- both sides at once,
+# because removing it backend-only would leave the frontend summing an `undefined`.
+_PLAN_SKIP_REASONS = ("removed", "no_rate_column", "non_priceable")
 _APPLY_SKIP_REASONS = _PLAN_SKIP_REASONS + ("invalid",)
 
 
@@ -210,7 +210,7 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
       {source_excel_row, dest_excel_row, description, dest_description, source_rate, area,
        rate_kind, source_boq, source_version,
        outcome: 1|2|3,          # 1 HARD SKIP / 2 clean copy / 3 conflict
-       skip_reason,             # outcome 1 only: removed|ambiguous|no_rate_column|non_priceable
+       skip_reason,             # outcome 1 only: removed|no_rate_column|non_priceable
        target_col_letter,       # the RE-RESOLVED dest rate column (null on a skip)
        current_rate, reason}
     """
@@ -231,11 +231,15 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
         if p.get("is_filled")
     }
 
-    # Source version: the priced cells (the copy SOURCE) + node descriptions (for display).
-    src_pricing = pricing.get_sheet_pricing(
-        boq_name=ctx.source_boq, sheet_name=ctx.source_sheet_name,
-        committed_version=ctx.source_version,
-    )["pricing"]
+    # Source rates: the priced cells (the copy SOURCE), read CROSS-VERSION (ADR-0014 A10 /
+    # Amendment B W6). `is_current` is scoped per committed version, so a source sheet priced at
+    # v1 and then re-committed to v2 has its rates ORPHANED on v1 -- a version-pinned read
+    # returned zero and the carry silently landed nothing. `current_sheet_pricing_any_version`
+    # takes each cell's newest current row instead. STRUCTURE below stays version-pinned: the
+    # asymmetry is deliberate (pricing keeps being edited after the structure freezes).
+    src_pricing = pricing.current_sheet_pricing_any_version(
+        ctx.source_boq, ctx.source_sheet_name
+    )
     src_desc_by_row = {
         r.get("source_row_number"): r.get("description")
         for r in (
@@ -262,7 +266,10 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
             "area": area,
             "rate_kind": rate_kind,
             "source_boq": ctx.source_boq,
-            "source_version": ctx.source_version,
+            # The version this RATE actually lives on -- not necessarily the source sheet's
+            # current committed version (W6: an orphaned rate carries its own older version).
+            # Sheet-level provenance stays `ctx.source_version` in the plan envelope.
+            "source_version": p.get("committed_version"),
             "outcome": pricing._CF_SKIP,
             "skip_reason": None,
             "target_col_letter": None,

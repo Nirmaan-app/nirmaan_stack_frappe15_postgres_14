@@ -846,6 +846,9 @@ def _run_parse_worker(
         # non-revision parse -> the per-sheet merge seam below is skipped and the parse stays
         # byte-identical.
         revision_source_boq_name = revision_source_boq(boq_name)
+        # {sheet_name: {"copied", "needs_review", "total"}} -- W5's per-sheet carry report.
+        # Stays EMPTY for a non-revision parse, so the done payload is byte-identical there.
+        revision_carry_by_sheet: dict = {}
 
         for parsed_sheet in parsed.sheets:
             sheet_name = parsed_sheet.sheet_name
@@ -871,7 +874,20 @@ def _run_parse_worker(
                 # which compensating-deletes the sheet's rows + marks "Insert error" (D7's
                 # ready-made durable failure channel) -- the same transaction as the inserts.
                 if revision_source_boq_name:
-                    merge_revision_review_carry(boq_name, sheet_name, revision_source_boq_name)
+                    carry_counts = merge_revision_review_carry(
+                        boq_name, sheet_name, revision_source_boq_name
+                    )
+                    # W5 (A8): the merge already computes {copied, needs_review, total} per sheet
+                    # and used to DROP it on the floor, so the parse-completion modal could only
+                    # say "Parsed: <names>" and the user had no idea how much carried. Keep it,
+                    # keyed by sheet, for the done payload. VERBATIM sheet_name (#152).
+                    #
+                    # `total > 0` only: the merge returns all-zeros for a sheet it no-ops on (a
+                    # declared-New sheet, a general-specs sheet, a source with no committed
+                    # nodes). Reporting "0 of 0 copied" for those is noise, not information -- a
+                    # New sheet has nothing to carry BY DEFINITION and the user knows it.
+                    if carry_counts.get("total"):
+                        revision_carry_by_sheet[sheet_name] = carry_counts
 
                 # Mark Parsed -- but NOT general-specs sheets (they are not data sheets).
                 # Stamp parse-history fields alongside status in the same DB write so the
@@ -942,6 +958,8 @@ def _run_parse_worker(
         frappe.db.commit()
 
         # Step 8: Publish result targeted to the enqueueing user
+        # `revision_carry` is OMITTED entirely on a non-revision parse, so the payload shape is
+        # byte-identical there and the frontend's optional read simply stays undefined (W5/A8).
         _publish_parse_event(
             boq_name,
             "success",
@@ -949,6 +967,7 @@ def _run_parse_worker(
             parsed_sheets=parsed_sheets,
             not_parsed_sheets=not_eligible,
             failed_sheets=failed_sheets,
+            **({"revision_carry": revision_carry_by_sheet} if revision_carry_by_sheet else {}),
         )
 
     except Exception:

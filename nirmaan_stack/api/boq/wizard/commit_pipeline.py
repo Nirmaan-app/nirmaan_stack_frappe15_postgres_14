@@ -641,6 +641,7 @@ def _commit_one_sheet(
     )
 
     node_result = {"node_count": 0, "froze_nodes": 0}
+    overlay_summary = None  # W5: per-layer revision carry counts; None on a non-revision sheet
     if disposition == "finalized":
         node_result = _commit_node_tree(
             boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
@@ -652,9 +653,16 @@ def _commit_one_sheet(
         # byte-identical) and only here (finalized -> the priceable node tier the overlays sit on
         # now exists). Best-effort per layer (savepoints inside); shares this per-sheet transaction
         # (NO self-commit) so the whole overlay flushes atomically with the trailing commit below.
-        commit_overlay.carry_commit_overlay(
+        # W5 (A8): KEEP the per-layer summary it returns. It used to be discarded, so a carried
+        # layer was invisible and a FAILED one surfaced only in the Error Log (`_guarded` swallows
+        # the exception and returns 0) -- the commit-results modal had no revision awareness at
+        # all. `provenance` is 1/0; the rest are counts. It stays None for a non-revision sheet,
+        # which is how the result dict below decides to omit the key entirely.
+        overlay_summary = commit_overlay.carry_commit_overlay(
             boq_name, sheet_name, commit_version, boq_sheet_name, grid_rows
         )
+        if not overlay_summary or not overlay_summary.get("provenance"):
+            overlay_summary = None  # not a revision sheet (or nothing to carry) -> report nothing
 
     # OUTPUT-FIDELITY RECONCILIATION (Slice 2) -- grid tier. Verify the persisted faithful
     # grid equals the extracted grid_rows BEFORE the commit. (The node tier reconciles
@@ -668,7 +676,7 @@ def _commit_one_sheet(
 
     frappe.db.commit()
 
-    return {
+    result = {
         "sheet_name": sheet_name,
         "disposition": disposition,
         "sheet_disposition": sheet_disposition,
@@ -681,6 +689,11 @@ def _commit_one_sheet(
         "node_count": node_result["node_count"],
         "froze_nodes": node_result["froze_nodes"],
     }
+    # ADDITIVE, revision-only: absent on every non-revision commit, so the envelope stays
+    # byte-identical for the existing flows and the frontend's optional read is undefined.
+    if overlay_summary is not None:
+        result["revision_overlay"] = overlay_summary
+    return result
 
 
 def _write_grid(

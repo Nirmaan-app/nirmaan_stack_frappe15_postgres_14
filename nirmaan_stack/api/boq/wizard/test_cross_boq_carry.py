@@ -34,7 +34,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.boq.wizard import cross_boq_carry, pricing
+from nirmaan_stack.api.boq.wizard import commit_overlay, cross_boq_carry, pricing
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
@@ -101,6 +101,25 @@ def _price(boq, sheet, version, excel_row, col_letter, rate_kind, rate, area=Non
     d.is_current = 1
     d.priced_at = frappe.utils.now()
     d.insert(ignore_permissions=True)
+
+
+
+def _formula(boq, sheet, version, target_col, value_field="amount_total", value_key=""):
+    """A current amount-FORMULA record for one committed (boq, sheet, version)."""
+    d = frappe.new_doc("BoQ Cell Amount Formula")
+    d.boq = boq
+    d.sheet_name = sheet
+    d.committed_version = version
+    d.target_value_field = value_field
+    d.target_value_key = value_key
+    d.target_rate_subkey = ""
+    d.target_col = target_col
+    d.formula = json.dumps({"op": "mul", "args": [{"ref": "qty"}, {"ref": "rate_combined"}]})
+    d.formula_version = 1
+    d.is_current = 1
+    d.defined_at = frappe.utils.now()
+    d.insert(ignore_permissions=True)
+    return d
 
 
 def _stamp_provenance(dest_sheet_docname, source_boq, source_sheet_name, source_version=1):
@@ -263,7 +282,7 @@ class TestCrossBoqRateCarry(FrappeTestCase):
     def test_plan_counts(self):
         sheet, _ = self._plan_by_dest()
         self.assertEqual(sheet["counts"], {
-            "clean": 1, "conflict": 1, "removed": 3, "ambiguous": 0,
+            "clean": 1, "conflict": 1, "removed": 3,
             "no_rate_column": 1, "non_priceable": 1,
         })
         self.assertTrue(sheet["formulas_complete"])
@@ -373,3 +392,283 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         self.assertIsNone(summary)
         self.assertEqual(reason, "locked")
         self.assertIsNone(self._dest_rate(10), "a rejected carry mutates nothing")
+
+
+class TestCrossVersionSourcePricing(FrappeTestCase):
+    """W6 / ADR-0014 A10 -- the SOURCE rate read must follow `is_current`, not a version pin.
+
+    ⚠️ This class exists because the suite above is green ONLY because its fixture is
+    same-version (source sheet v1, pricing at committed_version 1), which is exactly why it
+    could not see the defect. Here the source sheet's CURRENT committed version is 2 while its
+    pricing still sits on the now-frozen version 1 -- the shape a re-commit leaves behind
+    (`commit_pipeline`'s BOQ_DOWNSTREAM_ORPHAN guard warns about it but never migrates it).
+
+    Live-observed on BOQ-26-00023 / sheet 'LMS ': the mapping screen promised rates and the
+    carry landed zero. Do NOT "simplify" this fixture back to one version.
+    """
+
+    SRC = "CV"
+    DEST = "CV Rev"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.orig = _make_boq(cls.project.name, origin="upload", boq_name="CROSSVER ORIG").name
+        cls.rev = _make_revision(cls.project.name, cls.orig).name
+
+        # The ORIGINAL was committed twice: v1 is frozen, v2 is current. Structure reads v2.
+        _seed_sheet(cls.orig, cls.SRC, 1, 0,
+            {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+            ])
+        cls.src_sheet = _seed_sheet(cls.orig, cls.SRC, 2, 1,
+            {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+            ])
+        # ...but the human priced BEFORE that re-commit, so the rates are ORPHANED on v1.
+        _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)
+        # Row 11 was priced on v1 AND re-priced after the re-commit -> two current rows, one cell.
+        _price(cls.orig, cls.SRC, 1, 11, "D", "combined_rate", 200.0)
+        _price(cls.orig, cls.SRC, 2, 11, "D", "combined_rate", 250.0)
+
+        cls.dest_sheet = _seed_sheet(cls.rev, cls.DEST, 1, 1,
+            {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+            ])
+        _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC, source_version=2)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in (cls.rev, cls.orig):
+            for dt in (_PRICING, _LOCK_DT, "BOQ Nodes", _SHEET):
+                frappe.db.delete(dt, {"boq": boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _plan(self):
+        res = cross_boq_carry.get_cross_boq_carry_plan(dest_boq=self.rev)
+        sheet = next(s for s in res["sheets"] if s["sheet_name"] == self.DEST)
+        return sheet, {r["source_excel_row"]: r for r in sheet["plan"]}
+
+    def test_source_sheet_resolves_to_its_current_committed_version(self):
+        # Structure stays per-commit: the carry context points at v2, the CURRENT sheet.
+        sheet, _ = self._plan()
+        self.assertEqual(sheet["source_version"], 2)
+
+    def test_fixture_is_genuinely_cross_version(self):
+        """Guards the guard. If someone "simplifies" this fixture to one version, the tests below
+        would keep passing while testing nothing -- so pin the precondition explicitly: the
+        version-PINNED read (the old source read) sees NOTHING at the sheet's current version
+        for row 10, and the cross-version read sees it."""
+        pinned = pricing.get_sheet_pricing(
+            boq_name=self.orig, sheet_name=self.SRC, committed_version=2
+        )["pricing"]
+        self.assertNotIn(10, [p["excel_row"] for p in pinned])
+        across = pricing.current_sheet_pricing_any_version(self.orig, self.SRC)
+        self.assertIn(10, [p["excel_row"] for p in across])
+
+    def test_rate_orphaned_on_a_frozen_version_still_carries(self):
+        """THE defect. Under a version-pinned source read this row is invisible and the plan is
+        empty; the mapping screen still promised it."""
+        _, by_src = self._plan()
+        self.assertIn(10, by_src, "an orphaned v1 rate must still be carryable")
+        self.assertEqual(by_src[10]["outcome"], pricing._CF_CLEAN)
+        self.assertEqual(by_src[10]["source_rate"], 100.0)
+        self.assertEqual(by_src[10]["dest_excel_row"], 10)
+
+    def test_cell_current_on_two_versions_carries_once_at_the_newest(self):
+        """`is_current` is scoped per committed version, so one cell can hold two current rows.
+        Highest committed_version wins -- the latest human pricing work, counted once."""
+        _, by_src = self._plan()
+        rows_for_11 = [r for r in self._plan()[0]["plan"] if r["source_excel_row"] == 11]
+        self.assertEqual(len(rows_for_11), 1, "one cell must not produce two plan rows")
+        self.assertEqual(by_src[11]["source_rate"], 250.0)
+
+    def test_current_committed_version_beats_a_higher_stranded_one(self):
+        """The dedup is anchored to the committed SHEET (`is_current=1`), not to
+        `MAX(committed_version)`. The two only agree while nothing has been superseded.
+
+        Here the live sheet is v2 but a pricing row is stranded on v3 (a commit that was later
+        rolled back / superseded, so its `BoQ Sheet` is no longer current). A bare max would
+        carry the v3 rate -- a number NOBODY can see on the current sheet. Anchoring makes the
+        visible v2 price win."""
+        _price(self.orig, self.SRC, 3, 50, "D", "combined_rate", 999.0)   # stranded ABOVE current
+        _price(self.orig, self.SRC, 2, 50, "D", "combined_rate", 222.0)   # the visible one
+        frappe.db.commit()
+        try:
+            picked = {
+                (p["excel_row"], p["col_letter"]): p
+                for p in pricing.current_sheet_pricing_any_version(self.orig, self.SRC)
+            }[(50, "D")]
+            self.assertEqual(picked["committed_version"], 2)
+            self.assertEqual(picked["rate"], 222.0, "the price on the CURRENT sheet wins")
+        finally:
+            frappe.db.delete(_PRICING, {"boq": self.orig, "sheet_name": self.SRC,
+                                        "excel_row": 50})
+            frappe.db.commit()
+
+    def test_falls_back_to_highest_version_when_no_current_sheet_row(self):
+        """Degrade path: with no `is_current=1` BoQ Sheet to anchor to, the newest stranded work
+        is still the best available answer -- it must not return nothing."""
+        rows = pricing.current_sheet_pricing_any_version(
+            self.orig, self.SRC, current_version=None
+        )
+        by_row = {p["excel_row"]: p for p in rows}
+        # Row 11 is priced on BOTH v1 (200) and v2 (250) -> highest wins in the degrade path too.
+        self.assertEqual(by_row[11]["rate"], 250.0)
+
+    def test_plan_row_reports_the_version_the_rate_actually_lives_on(self):
+        # Honest provenance: the sheet is at v2 but this rate came from v1.
+        _, by_src = self._plan()
+        self.assertEqual(by_src[10]["source_version"], 1)
+        self.assertEqual(by_src[11]["source_version"], 2)
+
+    def test_counts_see_both_carryable_rates(self):
+        sheet, _ = self._plan()
+        self.assertEqual(sheet["counts"]["clean"], 2)
+
+
+class TestOrphanedFormulaBlocksTheRateCarry(FrappeTestCase):
+    """⚠️ W6 FOLLOW-UP: does the un-fixed FORMULA orphaning defeat the fixed RATE carry?
+
+    W6 made the source RATE read cross-version, but deliberately left `commit_overlay`'s five
+    overlay layers version-pinned (A10 scoped the owner's call to rates). `BoQ Cell Amount
+    Formula` carries `committed_version` + `is_current` exactly like `BoQ Cell Pricing`, so the
+    SAME re-commit that orphans the rates orphans the formulas.
+
+    The objection to this concern is that a rate can only be entered once a formula is declared
+    (the mandatory amount-formula gate), so a priced source ALWAYS has formulas. That is true and
+    is not a rebuttal: the formulas exist, they are just stranded on the same frozen version the
+    rates were, so the version-pinned formula carry copies none of them forward.
+
+    This class walks the whole chain on ONE fixture and asserts each link, so the answer is
+    measured rather than argued -- and so that if the owner later widens the formula carry, the
+    exact assertions that must flip are written down.
+    """
+
+    SRC = "FX"
+    DEST = "FX Rev"
+    _AMOUNT = {"role": "amount_total", "area": None}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.orig = _make_boq(cls.project.name, origin="upload", boq_name="FORMULA ORIG").name
+        cls.rev = _make_revision(cls.project.name, cls.orig).name
+
+        role_map = {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE, "F": cls._AMOUNT}
+        nodes = [{"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0}]
+
+        # The ORIGINAL was committed twice: v1 frozen, v2 current.
+        _seed_sheet(cls.orig, cls.SRC, 1, 0, role_map, nodes)
+        cls.src_sheet = _seed_sheet(cls.orig, cls.SRC, 2, 1, role_map, nodes)
+
+        # The human worked on v1: declared the amount formula, THEN priced (the gate's order).
+        # The re-commit to v2 stranded BOTH on v1.
+        _formula(cls.orig, cls.SRC, 1, "F")
+        _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)
+
+        # The REVISION's committed sheet: same shape, no formulas of its own (a fresh commit
+        # declares none -- they were supposed to arrive via the overlay carry).
+        cls.dest_sheet = _seed_sheet(cls.rev, cls.DEST, 1, 1, role_map, nodes)
+        _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC, source_version=2)
+        # `carry_commit_overlay` resolves its source through the DRAFT pointer
+        # (`BoQ Sheet Draft.source_sheet_name`), not the committed stamp -- unlike
+        # `cross_boq_carry._resolve_sheet_carry`, which falls back to it. Seed the mapped draft
+        # the way `confirm_revision_mapping` would, or the carry no-ops as "declared New".
+        rev_doc = frappe.get_doc("BOQs", cls.rev)
+        rev_doc.append("sheet_drafts", {
+            "sheet_name": cls.DEST, "sheet_order": 1,
+            "wizard_status": "Pending", "source_sheet_name": cls.SRC,
+        })
+        rev_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in (cls.rev, cls.orig):
+            for dt in (_PRICING, _LOCK_DT, "BOQ Nodes", _SHEET, "BoQ Cell Amount Formula"):
+                frappe.db.delete(dt, {"boq": boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    # ── link 1: the source DOES have a formula, just not on its current version ──────
+    def test_source_formula_exists_but_is_stranded_on_the_frozen_version(self):
+        """Pins the rebuttal precisely: the formula was declared (it had to be, or the rate
+        could not have been entered) -- it is simply not visible at the current version."""
+        self.assertEqual(
+            len(pricing._current_formula_records(self.orig, self.SRC, 1)), 1,
+            "the formula the human declared is still there, on v1",
+        )
+        self.assertEqual(
+            pricing._current_formula_records(self.orig, self.SRC, 2), [],
+            "...and the version-pinned read the overlay carry performs sees NOTHING",
+        )
+
+    # ── link 2: W6 works -- the rate itself is found ─────────────────────────────────
+    def test_the_rate_is_found_because_w6_reads_cross_version(self):
+        found = pricing.current_sheet_pricing_any_version(self.orig, self.SRC)
+        self.assertEqual([p["excel_row"] for p in found if p["is_filled"]], [10])
+
+    # ── link 3: the formula carry copies nothing forward ─────────────────────────────
+    def test_overlay_carry_copies_no_formula_forward(self):
+        summary = commit_overlay.carry_commit_overlay(
+            self.rev, self.DEST, 1, self.dest_sheet,
+            [{"row_number": 10, "cells": {"B": "Item A", "F": 500}}],
+        )
+        frappe.db.commit()
+        self.assertEqual(summary["provenance"], 1, "this IS a revision sheet")
+        self.assertEqual(
+            summary["formulas"], 0,
+            "the stranded v1 formula does not carry -- the layer is still version-pinned",
+        )
+
+    # ── link 4: the revision is therefore not formula-complete ───────────────────────
+    def test_revision_sheet_is_not_formula_complete(self):
+        self.assertFalse(
+            pricing._sheet_formulas_complete(self.rev, self.DEST, 1),
+            "an amount column with no covering formula -> the mandatory gate fails closed",
+        )
+
+    # ── link 5: THE ANSWER -- the rate carry is refused despite having the rate ──────
+    def test_rate_carry_is_refused_even_though_w6_found_the_rate(self):
+        """The concern, confirmed end to end: W6 fixed the read, and the sheet still carries
+        nothing, because the gate the formula carry was supposed to satisfy fails closed.
+
+        If the owner widens the formula carry cross-version, THIS is the assertion that flips
+        (to a successful summary) -- and `test_overlay_carry_copies_no_formula_forward` flips
+        with it. Both are deliberate, not incidental."""
+        ctx = cross_boq_carry._resolve_sheet_carry(
+            self.rev,
+            frappe.db.get_value(_SHEET, self.dest_sheet,
+                                ["name", "sheet_name", "commit_version",
+                                 "source_boq", "source_sheet_name"], as_dict=True),
+        )
+        plan = cross_boq_carry._classify_carry(
+            ctx, cross_boq_carry.committed_excel_row_match(
+                ctx.source_boq, ctx.source_sheet_docname, ctx.dest_boq, ctx.dest_sheet_docname
+            ),
+        )
+        self.assertEqual(
+            [r["outcome"] for r in plan], [pricing._CF_CLEAN],
+            "the PLAN is healthy -- W6 resolved the rate to a clean copy",
+        )
+        summary, reason = cross_boq_carry._apply_sheet_carry(
+            ctx, [{"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"}],
+            "Administrator",
+        )
+        self.assertIsNone(summary)
+        self.assertEqual(reason, "formulas_incomplete")
+        self.assertIsNone(
+            frappe.db.get_value(_PRICING, {
+                "boq": self.rev, "sheet_name": self.DEST, "is_current": 1, "is_filled": 1,
+            }, "name"),
+            "and so the revision receives NO rate at all",
+        )

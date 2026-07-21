@@ -70,15 +70,22 @@ def _commit_gs_sheet(boq_name, sheet, version=1):
     return grid
 
 
-def _make_pricing_row(boq_name, sheet, excel_row, col, is_current=1):
+def _make_pricing_row(
+    boq_name, sheet, excel_row, col, is_current=1, committed_version=1, is_filled=1,
+    pricing_version=1,
+):
+    """A BoQ Cell Pricing row. `is_filled` and `committed_version` are explicit because W6's
+    count reads BOTH: only a FILLED cell carries, and a cell may hold one current row per
+    committed version (the orphaning the W6 fix rescues)."""
     doc = frappe.new_doc("BoQ Cell Pricing")
     doc.boq = boq_name
     doc.sheet_name = sheet
     doc.excel_row = excel_row
     doc.col_letter = col
-    doc.committed_version = 1
-    doc.pricing_version = 1
+    doc.committed_version = committed_version
+    doc.pricing_version = pricing_version
     doc.is_current = is_current
+    doc.is_filled = is_filled
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return doc
@@ -89,22 +96,53 @@ def _make_boq_sheet(boq_name, sheet):
     doc.boq = boq_name
     doc.sheet_name = sheet
     doc.sheet_order = 1
+    doc.is_current = 1
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return doc
 
 
-def _make_node(boq_sheet_name, human_classification, is_current=1):
-    """A CURRENT BOQ Node with a (possibly blank) human_classification. node_type='Other'
-    dodges the Preamble/Line-Item level/description/qty controller throws."""
+def _make_node(boq_sheet_name, row_class, is_current=1):
+    """A CURRENT BOQ Node with a (possibly blank) `row_class`. node_type='Other' dodges the
+    Preamble/Line-Item level/description/qty controller throws.
+
+    W6: `row_class` -- the committed EFFECTIVE classification -- is what the carry copies and
+    therefore what the Zone-1 count measures. `human_classification` holds only the
+    manually-typed layer and misses every AI-accepted decision."""
     doc = frappe.new_doc("BOQ Nodes")
     doc.sheet = boq_sheet_name
     doc.node_type = "Other"
-    doc.human_classification = human_classification
+    doc.row_class = row_class
     doc.is_current = is_current
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return doc
+
+
+def _reset_carry_layers(boq_name):
+    """Drop every carry-countable layer for one BoQ.
+
+    The fixture helpers `frappe.db.commit()`, which defeats FrappeTestCase's per-test rollback,
+    so anything a count test creates would leak into the next one. Each count test starts from
+    a known-empty carry state instead of depending on method order.
+    """
+    for dt, key in (
+        ("BOQ Nodes", "sheet"),
+        ("BoQ Cell Pricing", "boq"),
+        ("BoQ Sheet", "boq"),
+    ):
+        if key == "sheet":
+            sheets = frappe.get_all("BoQ Sheet", filters={"boq": boq_name}, fields=["name"])
+            rows = [
+                r
+                for s in sheets
+                for r in frappe.get_all(dt, filters={"sheet": s.name}, fields=["name"])
+            ]
+        else:
+            rows = frappe.get_all(dt, filters={key: boq_name}, fields=["name"])
+        for r in rows:
+            frappe.delete_doc(dt, r.name, force=True, ignore_permissions=True)
+    frappe.db.commit()
 
 
 def _cleanup_all(project_name):
@@ -158,16 +196,56 @@ class TestRevisionMappingProposal(FrappeTestCase):
         self.assertEqual(by_name["Electrical"]["commit_version"], 3)
 
     def test_zone1_carry_counts(self):
-        # 2 current rates (+1 superseded, not counted); 1 classified node (+1 blank, not counted).
+        _reset_carry_layers(self.original.name)
+        # 2 filled current rates; +1 superseded, +1 cleared (is_filled=0) -- neither carries, so
+        # neither counts. 1 classified node (+1 blank row_class, not counted).
         _make_pricing_row(self.original.name, "Electrical", 5, "F")
         _make_pricing_row(self.original.name, "Electrical", 6, "F")
         _make_pricing_row(self.original.name, "Electrical", 7, "F", is_current=0)
+        _make_pricing_row(self.original.name, "Electrical", 8, "F", is_filled=0)
         sheet = _make_boq_sheet(self.original.name, "Electrical")
         _make_node(sheet.name, "line_item")
-        _make_node(sheet.name, "")  # blank human_classification -> not counted
+        _make_node(sheet.name, "")  # blank row_class -> not counted
         p = self._proposal(["Electrical"])
         self.assertEqual(p["carry_counts"]["rates"], 2)
         self.assertEqual(p["carry_counts"]["classifications"], 1)
+
+    # ── W6 (ADR-0014 A10): the count must equal what the carry actually lands ────────
+    def test_zone1_rate_count_survives_a_recommit_that_orphaned_the_pricing(self):
+        """The W6 defect, as a count: a rate entered at v1 and then left behind by a re-commit
+        to v2 is still `is_current`, still the user's work, and DOES carry -- so it must count.
+        The old version-blind-but-carry-pinned pair reported it and landed nothing."""
+        _reset_carry_layers(self.original.name)
+        _make_pricing_row(self.original.name, "Electrical", 20, "F", committed_version=1)
+        p = self._proposal(["Electrical"])
+        self.assertEqual(p["carry_counts"]["rates"], 1)
+
+    def test_zone1_rate_count_dedupes_one_cell_priced_on_two_versions(self):
+        """`is_current` is scoped PER committed version, so one cell can hold two current rows.
+        It is still ONE rate that will carry (highest committed_version wins)."""
+        _reset_carry_layers(self.original.name)
+        _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=1)
+        _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=2)
+        p = self._proposal(["Electrical"])
+        self.assertEqual(p["carry_counts"]["rates"], 1)
+
+    def test_zone1_counts_exclude_an_unclaimed_original_sheet(self):
+        """An original sheet no revised tab claims carries NOTHING. Counting it is a lie -- the
+        F2 control only works if the number is what will actually land."""
+        _reset_carry_layers(self.original.name)
+        _make_pricing_row(self.original.name, "Electrical", 40, "F")
+        sheet = _make_boq_sheet(self.original.name, "Electrical")
+        _make_node(sheet.name, "line_item")
+        # The revised workbook has ONE tab that matches nothing -> 'Electrical' goes unclaimed.
+        p = self._proposal(["Brand New Sheet"])
+        self.assertEqual(p["carry_counts"], {"rates": 0, "classifications": 0})
+
+    def test_zone1_counts_exclude_a_general_specs_source(self):
+        """A general-specs source carries a DESIGNATION, never rates or classifications."""
+        _reset_carry_layers(self.original.name)
+        _make_pricing_row(self.original.name, "Approved Make List", 5, "F")
+        p = self._proposal(["Approved Make List"])
+        self.assertEqual(p["carry_counts"]["rates"], 0)
 
     def test_zone2_prefills_clean_match_and_flags_unmatched(self):
         p = self._proposal(["Electrical", "Brand New Sheet"])

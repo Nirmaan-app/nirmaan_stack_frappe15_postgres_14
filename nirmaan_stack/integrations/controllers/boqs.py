@@ -3,6 +3,42 @@ import frappe
 from frappe import _
 
 
+def next_boq_version(project, boq_name, is_template_source=False, exclude=None):
+    """The next `version` for a BoQ in its naming scope: COALESCE(MAX(version), 0) + 1.
+
+    THE one owner of the version rule (M1.25). `before_insert` calls it, and so does
+    `api/boq/wizard/revision.convert_revision_entry` -- which must recompute the version after
+    the fact, because converting a just-uploaded BoQ between New and Revise CHANGES its
+    `boq_name` (a revision reuses the original's name) and therefore its scope, long after
+    `before_insert` has run against the old one. They MUST NOT drift, so there is exactly one
+    query. Do not re-inline it.
+
+    Scope: `(project, boq_name)` normally; `(is_template_source=1, boq_name)` for the
+    project-less template seeds (ADR-0013 A1).
+
+    `exclude` is a BOQs docname to leave out of the MAX. It exists for the recompute case: the
+    converting doc already EXISTS and already holds a version, so counting itself would make
+    every conversion bump the number by one forever. On insert there is no docname yet, so the
+    caller passes nothing and the behaviour is unchanged.
+    """
+    if is_template_source:
+        # Version-scope template-source BoQs by boq_name across the project-less namespace.
+        where = 'is_template_source = 1 AND boq_name = %s'
+        params = [boq_name]
+    else:
+        where = 'project = %s AND boq_name = %s'
+        params = [project, boq_name]
+    if exclude:
+        where += ' AND name != %s'
+        params.append(exclude)
+
+    result = frappe.db.sql(
+        f'SELECT COALESCE(MAX(version), 0) + 1 FROM "tabBOQs" WHERE {where}',
+        tuple(params),
+    )
+    return result[0][0] if result else 1
+
+
 def before_insert(doc, method):
     # Template-source BoQs (Create-from-Template, ADR-0013 A1) are project-less: a
     # scratch authoring BoQ used to seed the master BoQ Template, not bound to any
@@ -13,20 +49,9 @@ def before_insert(doc, method):
     if not doc.boq_name:
         frappe.throw(_("BoQ Name is required"))
 
-    if doc.get("is_template_source"):
-        # Version-scope template-source BoQs by boq_name across the project-less namespace.
-        result = frappe.db.sql("""
-            SELECT COALESCE(MAX(version), 0) + 1
-            FROM "tabBOQs"
-            WHERE is_template_source = 1 AND boq_name = %s
-        """, (doc.boq_name,))
-    else:
-        result = frappe.db.sql("""
-            SELECT COALESCE(MAX(version), 0) + 1
-            FROM "tabBOQs"
-            WHERE project = %s AND boq_name = %s
-        """, (doc.project, doc.boq_name))
-    doc.version = result[0][0] if result else 1
+    doc.version = next_boq_version(
+        doc.project, doc.boq_name, is_template_source=bool(doc.get("is_template_source"))
+    )
 
     doc.status = "Draft"
     doc.uploaded_by = frappe.session.user
