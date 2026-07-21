@@ -45,6 +45,7 @@ import { ProjectProgressReports } from "./ProjectProgressReports";
 import { ProjectGSTReport } from "./ProjectGSTReport";
 
 const InventoryReport = lazy(() => import('./InventoryReport'));
+const MonthlyWIPPage = lazy(() => import('@/pages/monthly-wip/MonthlyWIPPage'));
 
 import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
@@ -621,6 +622,10 @@ export default function ProjectReports() {
 
   if (selectedReportType === "Project GST") {
     return <ProjectGSTReport />;
+  }
+
+  if (selectedReportType === "Monthly WIP") {
+    return <MonthlyWIPPage />;
   }
 
   // Default to Cash Sheet report if it's selected or if no specific project report is chosen

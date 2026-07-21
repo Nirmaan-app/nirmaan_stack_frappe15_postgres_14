@@ -25,7 +25,8 @@ const projectReportOptions: { label: string; value: ProjectReportType }[] = [
     { label: 'Outflow Report(Non-Project)', value: 'Outflow Report(Non-Project)' },
     { label: 'Project Progress Report', value: 'Project Progress Report' },
     { label: 'Inventory Report', value: 'Inventory Report' },
-    { label: 'Project GST', value: 'Project GST' }
+    { label: 'Project GST', value: 'Project GST' },
+    { label: 'Monthly WIP', value: 'Monthly WIP' }
 ];
 const VendorReportOptions: { label: string; value: VendorReportType }[] = [{
     label: 'Vendor Ledger', value: 'Vendor Ledger'
@@ -329,7 +330,7 @@ export default function ReportsContainer() {
                             <SelectTrigger className="w-[250px] text-red-600 border-red-600">
                                 <SelectValue placeholder="Select type..." />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent className="max-h-[320px] [&>div]:!h-auto [&>div]:max-h-[300px] [&>div]:overflow-y-auto [&>div]:scrollbar-thin">
                                 {currentReportOptions.map(option => (
                                     <SelectItem className='text-red-600' key={option.value} value={option.value}>
                                         {option.label}
