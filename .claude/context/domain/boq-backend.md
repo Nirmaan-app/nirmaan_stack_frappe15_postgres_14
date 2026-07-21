@@ -731,3 +731,207 @@ in its 5-part identity). Backend-only slice; the hub-footer action + grid amber-
   mismatch. No regressions (pricing 185, commit_overlay 18, review_carry 10, commit_pipeline 54, review_screen 260,
   parse_run 102, classify 38, commit_validation 51, revision suites). Residence ratchet holds (b1=0).
   **S10 (#1106, rate-carry FE) is the next slice.**
+
+---
+
+## Revised BoQ — Amendment B waves W3–W6 (2026-07-21, ADR-0014 A1/A2/A8/A10)
+
+Waves W0–W2 (docs, matcher+carry, review screen) shipped earlier; see
+`frontend/.claude/plans/boq-revised-upload-plan.md` for the full wave table and the W3–W6 as-built
+narrative. This section holds the BACKEND contracts those waves changed.
+
+### W6 — rate carry reads `is_current` CROSS-VERSION (A10)
+
+**The defect.** Pricing identity includes `committed_version` (`pricing._IDENTITY_FIELDS`), so
+`is_current` is scoped PER VERSION. Re-committing a sheet mints a new version and **orphans the
+prior version's pricing onto the now-frozen one** (`commit_pipeline`'s `BOQ_DOWNSTREAM_ORPHAN`
+guard warns, but never migrates). The cross-BOQ carry read its source strictly version-pinned, so
+a source priced at v1 and re-committed to v2 carried **zero** while the mapping screen promised
+rates. Live-observed on `BOQ-26-00023` / sheet `'LMS '`.
+
+**New reader — `pricing.current_sheet_pricing_any_version(boq_name, sheet_name, current_version=None)`**
+(NOT whitelisted). `is_current=1` across every `committed_version`, deduped per
+`(excel_row, col_letter)` by preferring, in order:
+
+1. the row on the sheet's **CURRENT committed version** — the `is_current=1` `BoQ Sheet`'s
+   `commit_version`, i.e. the live sheet the user is actually looking at;
+2. otherwise the highest `committed_version` (the newest stranded work);
+3. `pricing_version` as the final tiebreak.
+
+⚠️ **Anchored to the committed SHEET, not to `MAX(committed_version)`** (owner-directed). The two
+are different questions: a bare max assumes the largest version number is the live one, which is
+not authoritative — a pricing row stranded ABOVE the current sheet version (a superseded or
+rolled-back commit) would then beat the price the user can actually see. Rule 1 makes the visible
+price win by construction. `current_version` is resolved internally when the caller omits it;
+None (no current committed sheet) degrades to rules 2–3. There is **no `is_latest` field** — the
+one-current marker on `BoQ Sheet` is `is_current`.
+
+⚠️ **`get_sheet_pricing` is UNCHANGED and must stay so** — it backs `get_priced_rows` and the
+same-BOQ copy-forward, both of which are correctly pinned to one committed version.
+
+⚠️ **Deliberate asymmetry — do NOT "fix" into symmetry.** RATES read cross-version; STRUCTURE
+(nodes, descriptions, the D6 row match, `get_committed_rows_at_version`) stays per-commit. Pricing
+is a living layer that keeps being edited after the structure freezes.
+
+`cross_boq_carry._classify_carry` uses the new reader for the SOURCE side only. A plan row's
+`source_version` now reports the version **the rate lives on**, not the sheet's current version
+(sheet-level provenance stays `ctx.source_version` in the plan envelope).
+
+**`revision._carry_counts(source_boq, source_sheet_names)`** — re-signed and rewritten on both
+axes, because it was wrong on both:
+- **scope** — only the originals a revised tab actually claims, general-specs excluded. On the
+  mapping screen the drafts do not exist yet (an unconfirmed revision has empty `sheet_drafts`),
+  so the caller passes the Zone-2 **proposed** pairing as the scope.
+- **rates** — through the SAME `current_sheet_pricing_any_version` the carry uses (count and
+  behaviour cannot drift), counting only `is_filled` (an unfilled current row is a CLEARED price
+  and copies nothing).
+- **classifications** — **`row_class`**, the committed EFFECTIVE value the carry copies (see
+  `review_carry._NODE_FIELDS`). `human_classification` holds only the manually-typed layer and
+  misses every AI-accepted decision, so it was never what carries.
+
+⚠️ **KNOWN HOLE, owner call pending — the `commit_overlay` layers were NOT changed.** All five
+carried layers (formula / remark / color / remark-dismissal / category) read pinned to
+`ctx.source_version` and all five doctypes version-scope `is_current` identically, so they have
+the same orphaning exposure. A10 scoped the owner's decision to RATES, and a stale remark or
+category silently following a revision forward is arguably worse than one that does not.
+`test_commit_overlay.TestCommitOverlayCrossVersionSource` pins this as known-wrong-on-purpose
+(the `services/boq_revision/test_carry.py::TestKnownHole` convention).
+
+⚠️ **CONFIRMED BY TEST, not by argument** — `test_cross_boq_carry.TestOrphanedFormulaBlocksTheRateCarry`
+walks the whole chain on one fixture and asserts every link:
+
+1. the source's formula EXISTS but is stranded on the frozen version (`_current_formula_records`
+   at the current version returns `[]`);
+2. W6 finds the rate cross-version;
+3. the overlay carry copies **0** formulas forward;
+4. the revision is therefore NOT formula-complete;
+5. `_apply_sheet_carry` returns `formulas_incomplete` and the revision receives **no rate at all**.
+
+The natural objection — "a rate can only be entered once a formula is declared, so a priced
+source always has formulas" — is TRUE and is not a rebuttal: the formulas do exist, they are just
+stranded on the same frozen version the rates were, so the version-pinned formula carry copies
+none of them. **The annotation hole therefore defeats the W6 rate fix in exactly the scenario W6
+was built for.**
+
+✅ **OWNER DECISION 2026-07-21: leave it. The cross-version formula carry is DECLINED, not
+pending.** A revision of a re-committed source will arrive not formula-complete and its rate carry
+will report `formulas_incomplete`; the user re-declares the amount formula on the revision and
+re-runs the carry. This is a known, accepted cost — do NOT "fix" it as a bug. If it is ever
+revisited, links 3 and 5 of the test above are the assertions that flip; both are labelled.
+
+### W4 — mapped sheets land `Pending`; work packages carry (A2)
+
+`confirm_revision_mapping` splits what used to be one variable:
+- `disposition_status` — the column-diff DIAGNOSIS (`Config Done` / `Pending`), reported in the
+  returned `dispositions[]` and nowhere else.
+- the persisted `BoQ Sheet Draft.wizard_status` — **always `"Pending"`**. A clean diff is
+  evidence, not consent; the human attests every revised sheet exactly once.
+
+`revision_carry.SheetCarry.status` is therefore a diagnosis only. `carry_config_dispositions`'
+internal logic is unchanged — only its consumer moved.
+
+**Work-package carry (ships WITH the above, not separable).** `revision_carry` gains:
+- `read_committed_work_packages(source_boq, source_sheets) -> {sheet_name: [work_header]}` —
+  direct `BoQ Sheet Work Package` read keyed by the committed sheet's docname (work packages are a
+  GRANDCHILD table, never hydrated by `get_doc`). General-specs sources have no `BoQ Sheet` row and
+  drop out. Sheets with no assignments are OMITTED, mirroring `get_boq_work_packages`.
+- `carry_work_packages(draft_row_name, work_headers) -> int` — **must be called AFTER the parent
+  `BOQs` save** (the child row has no docname before it, so this cannot ride `boq_doc.append`).
+  Writes rows directly with explicit `parent`/`parenttype`/`parentfield`, the
+  `update_sheet_draft.set_sheet_work_packages` precedent that never touches a doc holding a
+  list-valued JSON field (the `doc.save()` / `delete_doc` wall).
+
+Why they are inseparable: `SheetConfigPanel` disables the Config-Done attestation checkbox unless
+the sheet has ≥1 work package. Landing every sheet at `Pending` without the carry would make every
+revised sheet permanently un-attestable → un-parseable (`canParse` needs ≥1 marked sheet) →
+un-committable.
+
+### W3 — entry un-lock (A1)
+
+**`controllers/boqs.next_boq_version(project, boq_name, is_template_source=False, exclude=None)`**
+is now THE one owner of the version rule (`COALESCE(MAX(version), 0) + 1`). `before_insert` calls
+it, and so does the conversion endpoint — which must recompute AFTER the fact, because converting
+changes `boq_name` (a revision reuses the original's) and therefore the scope, long after
+`before_insert` ran against the old one. **Do not re-inline this query.**
+
+⚠️ `exclude` is load-bearing: the converting doc already EXISTS and already holds a version, so
+counting itself would bump the number on every conversion, forever. On insert there is no docname
+yet and the caller omits it, so insert behaviour is unchanged.
+
+**`upload_file.append_sheet_drafts(boq_doc, reader, sheets)`** (pre-save) and
+**`prefill_sheet_configs(boq_doc, reader)`** (post-save) extracted verbatim from
+`_upload_file_worker`, so the fresh-upload path and the Revise→New re-seed share ONE
+implementation.
+
+> Pre-existing, untouched: `append_sheet_drafts` passes `"work_package": work_pkg` (singular).
+> `BoQ Sheet Draft` has **no such field** (work packages are the `work_packages` grandchild table),
+> so that auto-detect has never persisted and is inert. Preserved verbatim in the extraction —
+> making it write for real would change fresh-upload behaviour, which is an owner-visible decision.
+
+**`revision.convert_revision_entry(boq, mode, source_boq=None, file_name=None)`**
+(`@frappe.whitelist(methods=["POST"])`). Flips a just-uploaded BoQ between New and Revision in BOTH
+directions. Idempotent (converting to the current mode re-validates and returns without writing).
+Returns `{status, origin, source_boq, boq_name, version, seeded}`.
+- `mode="revise"` — requires `source_boq`, re-validates via `assert_revisable_source` (the D1 rule
+  keeps one owner), adopts the original's `boq_name`, DROPS the seeded drafts. An unconfirmed
+  revision is marked by exactly `origin=="revision"` AND empty `sheet_drafts` (S2's emergent
+  marker), so dropping them is required, not incidental.
+- `mode="new"` — clears `source_boq`, restores the filename-derived `boq_name`, re-seeds drafts
+  from the workbook via the shared helpers.
+- Guarded by `_assert_entry_still_convertible`: rejects a template SOURCE, anything committed,
+  anything parsed/parsing, and a revision whose mapping is already CONFIRMED (`source_sheet_name`
+  is write-once by D3 — delete + re-upload is the escape hatch).
+- Grandchild `BoQ Sheet Work Package` rows are deleted explicitly before clearing their parents;
+  they do NOT cascade off a parent save.
+
+⚠️ **`file_name` is the CLIENT's original filename and is the only exact source** for the restored
+New name. Frappe **uniquifies** a colliding upload (`my_boq_file.xlsx` → `my_boq_filef57551.xlsx`),
+so reading `File.file_name` back reproduces the hash suffix — observed in test. The upload screen
+holds the true name in its store (`droppedFile.name`). Server-side fallbacks (File row, then URL
+basename) remain for a direct API call; the field is user-editable, so a slightly-off name beats
+throwing.
+
+⚠️ **Import cycle:** `upload_file` imports `assert_revisable_source` from `revision`, so
+`revision` must import `upload_file` **inside** `convert_revision_entry`, not at module level.
+
+### W5 — reporting (A8)
+
+Two numbers that were computed and then discarded now ride their existing payloads. Both keys are
+**ABSENT on a non-revision flow**, so those payloads stay byte-identical.
+
+| Surface | Key | Shape |
+|---|---|---|
+| `boq:parse_run_done` (success) | `revision_carry` | `{sheet_name: {copied, needs_review, total}}`, sheet_name VERBATIM (#152) |
+| `commit_boq` → each `committed[]` entry | `revision_overlay` | `{provenance, formulas, remarks, colors, remark_dismissals, categories}` |
+
+`revision_overlay` is nulled when the summary is falsy or `provenance` is 0 — i.e. a non-revision
+sheet, or a revision sheet with nothing to carry, reports nothing rather than a row of zeros.
+Before this, a FAILED overlay layer surfaced ONLY in the Error Log (`commit_overlay._guarded`
+swallows the exception and returns 0).
+
+**Retired `"ambiguous"` skip reason DROPPED** from `cross_boq_carry._PLAN_SKIP_REASONS`,
+`boqTypes.ts`, `CrossBoqCarryDialog.tsx` and the fixtures **together** — a backend-only removal
+would have left the frontend summing `undefined`. Amendment B collapsed the match to
+"paired or not", so `removed` is now the single not-carried reason.
+
+### Test-fixture generation is idempotent (2026-07-21)
+
+`services/boq_parser/tests/fixtures/generate_synthetic.py` `_save()` now **skips a fixture that
+already exists**. `test_parse_run` (5 `setUpClass` calls), `test_reader` and `test_classifier` all
+call `generate_all()`, so merely RUNNING those suites used to rewrite all 11 tracked `.xlsx`
+fixtures. Content was always identical, bytes were not — every run left 11 modified files in the
+working tree, which buries real changes and invites committing them by accident.
+
+Pinning the document timestamps is NOT sufficient (measured): an `.xlsx` is a zip, and both the
+zip's per-member dates AND some of openpyxl's XML element ordering vary **between processes** (the
+latter tracks `PYTHONHASHSEED` — stable within a process, different across runs). So the committed
+fixtures are treated as the artifact: present means authoritative. A MISSING fixture is still
+generated, so a fresh checkout works. To genuinely regenerate after changing a fixture's shape:
+`generate_all(force=True)` or `python generate_synthetic.py --force`, which deletes them first.
+
+⚠️ `generate_synthetic.py` lives INSIDE the fixtures directory, so
+`git checkout -- .../tests/fixtures/` reverts the GENERATOR too. Restore only `*.xlsx`.
+
+> Unrelated pre-existing breakage found while verifying this: `api/boq/wizard/test_upload_file.py`
+> passes `tempfile_path=` to `_upload_file_worker`, which has never accepted that kwarg — 8 errors
+> at HEAD, untouched by this work.

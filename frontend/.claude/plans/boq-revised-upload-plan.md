@@ -724,10 +724,82 @@ ADR blocks: D1 / D5 / D6 / D7 / D9, each dated `AMENDED 2026-07-20 (Amendment B)
 | **W0** ✅ | ADR-0014 Amendment B — docs only, no code | `docs/adr/0014-*.md`, this plan, the HTML spec + handoff |
 | **W1** | Matcher + carry — **the core** | `services/boq_revision/row_match.py`, `carry.py`, `api/boq/wizard/review_carry.py`, `boq_review_row.json` |
 | **W2** | Review screen collapse | `revisionReviewDelta.ts`, `ReviewTree.tsx`, `boqTypes.ts`, `review_screen.py:1370-1393` |
-| **W3** | Entry un-lock (A1) | `api/boq/wizard/revision.py`, `controllers/boqs.py:24-29`, `BoqMasterPanel.tsx`, `BoqDropZone.tsx` |
-| **W4** | Config → `Pending` + work-package carry (A2) | `revision.py:467`, `api/boq/wizard/test_column_carry.py` |
-| **W5** | Reporting at parse / mapping / commit (A8) | `revision.py:218-230`, `parse_run.py:872-874`, `commit_pipeline.py:655`, `CommitResultsModal.tsx` |
-| **W6** | Rate-carry `is_current` fix (A10 — **resolved**) | `cross_boq_carry.py:233-236`, `revision.py:225`, cross-version fixtures |
+| **W3** ✅ | Entry un-lock (A1) | `api/boq/wizard/revision.py`, `controllers/boqs.py`, `upload_file.py`, `BoqMasterPanel.tsx` |
+| **W4** ✅ | Config → `Pending` + work-package carry (A2) | `revision.py`, `revision_carry.py`, `api/boq/wizard/test_column_carry.py` |
+| **W5** ✅ | Reporting at parse / commit (A8) | `parse_run.py`, `commit_pipeline.py`, `BoqHubPage.tsx`, `CommitResultsModal.tsx` |
+| **W6** ✅ | Rate-carry `is_current` fix (A10 — **resolved**) | `pricing.py`, `cross_boq_carry.py`, `revision.py`, cross-version fixtures |
+
+### W3–W6 as built (2026-07-21)
+
+**W6 — rate carry reads `is_current` cross-version.** New internal reader
+`pricing.current_sheet_pricing_any_version(boq, sheet, current_version=None)`: `is_current=1`
+across EVERY `committed_version`, deduped per `(excel_row, col_letter)` by preferring the row on
+the sheet's CURRENT committed version (the `is_current=1` `BoQ Sheet`), else the highest
+`committed_version`, else `pricing_version`. **Anchored to the committed sheet, not `MAX()`**
+(owner-directed): a rate stranded ABOVE the current version must not beat the price the user can
+actually see. There is no `is_latest` field — the marker is `is_current`. `get_sheet_pricing` is untouched — it still backs `get_priced_rows`
+and the same-BOQ copy-forward, both of which are correctly version-pinned.
+`cross_boq_carry._classify_carry`'s SOURCE read switched to it; **structure stays version-pinned**
+(the deliberate asymmetry). A plan row's `source_version` now reports the version the RATE lives
+on, not the sheet's.
+`revision._carry_counts` rewritten on BOTH axes and re-signed `(source_boq, source_sheet_names)`:
+rates go through the SAME reader (so count and behaviour cannot drift) and count only `is_filled`;
+classifications read **`row_class`** (the effective value the carry copies) instead of
+`human_classification` (which misses every AI-accepted decision); both scoped to the
+proposed-mapped, non-general-specs sources — the drafts do not exist yet on that screen, so the
+Zone-2 proposal is the scope.
+Tests: `test_cross_boq_carry` 17 → **23** (new `TestCrossVersionSourcePricing`, incl. a
+`test_fixture_is_genuinely_cross_version` guard-the-guard); `test_revision_mapping` 22 → **26**;
+`test_commit_overlay` 20 → **29**.
+
+⚠️ **KNOWN, DELIBERATE, NOT AN OVERSIGHT — the overlay layers were NOT changed.**
+`commit_overlay`'s five carried layers (formula / remark / color / remark-dismissal / category)
+have the IDENTICAL cross-version exposure — all five reads are pinned to `ctx.source_version` and
+all five doctypes version-scope `is_current` the same way — but A10 scoped the owner's call to
+RATES, and a stale remark silently following a revision forward is arguably worse than one that
+does not. `TestCommitOverlayCrossVersionSource` pins the current behaviour as known-wrong-on-purpose
+(the `TestKnownHole` convention). **CONFIRMED BY TEST; owner DECLINED the fix on 2026-07-21 —
+the asymmetry stands, do not "fix" it as a bug.** amount
+FORMULAS are in that set, so a revision of a re-committed source arrives not formula-complete →
+the mandatory amount-formula gate locks every rate AND S9's rate carry fails the sheet with
+`formulas_incomplete`. `test_cross_boq_carry.TestOrphanedFormulaBlocksTheRateCarry` walks all
+five links end to end. The objection "a rate needs a formula, so a priced source has formulas" is
+true but not a rebuttal — the formulas are stranded on the same frozen version the rates were.
+
+**W4 — config → `Pending` + work-package carry.** The single `status` variable in
+`confirm_revision_mapping` is split: `disposition_status` (the column-diff DIAGNOSIS, still
+`Config Done`/`Pending`, reported in `dispositions[]`) vs the persisted `wizard_status`, now
+**always `Pending`** — a clean diff is evidence, not consent. `revision_carry.py` gains
+`read_committed_work_packages` + `carry_work_packages`; the carry runs AFTER `boq_doc.save()`
+(grandchild rows have no parent docname before it) and writes rows directly, the
+`set_sheet_work_packages` precedent that sidesteps the list-JSON `doc.save()` wall.
+The two ship together: without the WP carry, `SheetConfigPanel` disables the Config-Done checkbox,
+so every sheet would land Pending and be permanently un-attestable → un-parseable → un-committable.
+Tests: `test_column_carry` 17 → **24**. The four clean-diff tests were re-pointed at
+`_map_data_disposition`, NOT flipped to assert `Pending` — flipping them would have made them pass
+regardless of what the diff decided, retiring the coverage instead of moving it.
+
+**W3 — entry un-lock.** `controllers/boqs.next_boq_version(project, boq_name, is_template_source,
+exclude)` is now the ONE owner of the version rule; `before_insert` and the new endpoint both call
+it. `exclude` is load-bearing: the converting doc already exists and holds a version, so counting
+itself would ratchet the number on every flip. `upload_file.append_sheet_drafts` /
+`prefill_sheet_configs` extracted verbatim so the Revise→New re-seed and the fresh upload share one
+implementation. New endpoint `revision.convert_revision_entry(boq, mode, source_boq, file_name)`:
+both directions, idempotent, guarded against template-source / committed / parsed / mapping-confirmed.
+⚠️ `file_name` is the CLIENT's filename and is the only exact source for the restored New name —
+Frappe UNIQUIFIES a colliding upload (`my_boq_file.xlsx` → `my_boq_filef57551.xlsx`), so reading
+`File.file_name` back reproduces the hash suffix (observed in test). Server-side fallbacks remain.
+⚠️ `revision.py` must import `upload_file` INSIDE the function — `upload_file` imports
+`assert_revisable_source` from `revision`, so a module-level import is a cycle.
+Tests: `test_revision_entry` 17 → **31**.
+
+**W5 — reporting.** `merge_revision_review_carry`'s `{copied, needs_review, total}` is accumulated
+per sheet and rides `boq:parse_run_done` as `revision_carry`; `carry_commit_overlay`'s per-layer
+summary rides each `committed[]` entry as `revision_overlay`. Both keys are ABSENT on a
+non-revision flow, so those payloads stay byte-identical. The retired `"ambiguous"` skip reason was
+dropped from `_PLAN_SKIP_REASONS`, `boqTypes.ts`, `CrossBoqCarryDialog.tsx` and the fixtures
+**together** (backend-only removal would have left the frontend summing `undefined`).
+The mapping-screen surface was folded into W6 (it is the same `_carry_counts` rewrite).
 
 **W1 shape.** `MatchRow(row_id, excel_row, description)` — `row_id` stays the caller's opaque identity
 (original = committed node name for the review carry, `source_row_number` for the committed-tier

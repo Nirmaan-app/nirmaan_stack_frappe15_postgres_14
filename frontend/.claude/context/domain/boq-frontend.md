@@ -1841,3 +1841,79 @@ config screen surfaces it:
   a column is gone, so a false positive must never trap the user (this is the deliberate departure from
   `hasStrandedRoles`, which is a pure-config check and DOES hard-gate). `BoQSheetDraft.source_sheet_name` widened in
   `boqTypes.ts`. Tests: `revisionConfigFlags.test.ts` (8); boq-wizard vitest 558 green; tsc clean in touched files.
+
+---
+
+## Revised BoQ — Amendment B W3 + W5 (frontend, 2026-07-21)
+
+Backend contracts: `.claude/context/domain/boq-backend.md` § "Amendment B waves W3–W6".
+Wave table + as-built narrative: `frontend/.claude/plans/boq-revised-upload-plan.md`.
+
+### W3 — the New|Revise entry is LIVE after upload (A1)
+
+`entryLocked` is **deleted** from `BoqMasterPanel.tsx` along with all three of its uses (the
+RadioGroup, the Revise item, the original picker). It was a pure frontend invention — the server
+never enforced it — and it forced a user who picked wrong to delete and start over.
+
+**What replaced it.** A change now routes through the PURE `revisionEntry.ts`
+(`planEntryChange` → `EntryAction`), which owns "what does this change mean" so the panel stays a
+thin renderer (ADR-0010 F4). Four outcomes:
+
+| Action | When | Effect |
+|---|---|---|
+| `local` | no BOQs doc yet | the store value IS the truth and rides the upload POST — **byte-identical to pre-W3** |
+| `await-source` | Revise picked, no original yet | wait for the picker (the endpoint REQUIRES `source_boq`) rather than throwing at the user |
+| `noop` | the server already holds this exact entry | skip the call |
+| `convert` | otherwise | POST `revision.convert_revision_entry` |
+
+⚠️ **Unknown server state resolves to `convert`, never `noop`.** While the doc is still loading,
+a redundant convert is idempotent server-side, whereas a wrongly skipped one leaves the radio
+disagreeing with the doc.
+
+⚠️ **`file_name` must be sent on Revise → New.** The store's `droppedFile.name` is the only exact
+source for the restored BoQ name — Frappe uniquifies a colliding upload, so the server's fallback
+read of `File.file_name` can come back with a hash suffix. See the backend doc.
+
+**KEEP, do not conflate with the lock:**
+- `noneToRevise` — a DATA-AVAILABILITY gate ("this project has no committed BoQ to revise"),
+  orthogonal to the upload lifecycle, plus the effect that force-switches back to `"new"` when the
+  revisable list resolves empty.
+- `BoqDropZone`'s `pendingFileRef` — ORDER-INDEPENDENCE (ADR-0014 D1: drop-then-pick must work as
+  well as pick-then-drop). A different concern entirely; `BoqDropZone.tsx` is untouched by W3.
+
+After a successful convert the screen re-reads the doc so BoQ Name / Version reflect the server's
+recomputed values; `fillFromParse` resetting `confirmedFields` to all-false is CORRECT here — the
+name and version genuinely changed, so the user must re-confirm them.
+
+### W5 — the carry numbers are finally shown (A8)
+
+Both backend payloads gained an OPTIONAL key, absent on non-revision flows (so those render
+exactly as before): `boq:parse_run_done` → `revision_carry` (per sheet, VERBATIM sheet_name #152),
+and each `committed[]` entry → `revision_overlay` (per layer).
+
+Copy for both lives in the PURE `revisionCarryReport.ts` — formatting is out of JSX so it is
+unit-testable and the two modals cannot drift apart on wording. Both of its functions return
+`null` for "say nothing", which is the honest answer for a non-revision flow AND for a revision
+sheet with nothing to match against (a declared-New / unmapped sheet, `total` 0). The per-sheet
+breakdown is EMPTY when only one sheet carried — the headline already said it.
+
+⚠️ `SheetCarryLine` carries BOTH `sheetName` (VERBATIM — the React key) and `label`
+(display-trimmed). Never key off the display text.
+
+The parse-completion modal's carry line is INFORMATIONAL → `text-muted-foreground`, following the
+existing "independent sub-lines, each shown only if non-empty" convention. The commit-results
+modal names only NON-ZERO layers and omits `provenance` from the human list (it is a 1/0
+"this is a revision sheet" flag, not a count).
+
+**Retired `"ambiguous"` skip reason dropped** from `boqTypes.ts` (`CrossBoqCarryPlanRow.skip_reason`,
+`CrossBoqCarryCounts`, `CarryRatesDonePayload.skipped`), `CrossBoqCarryDialog.tsx` (two sums + the
+`SKIP_REASON_LABEL` entry) and the fixtures — **together with the backend**, since a backend-only
+removal would have left the dialog summing `undefined`.
+
+> `CrossBoqCarryDialog.tsx` contains two INTENTIONAL literal NUL bytes (they document and
+> implement a NUL key separator). Git treats the file as binary and plain `grep` reports no
+> matches — use `grep -a`.
+
+**Suite deltas:** boq-wizard vitest 594 → **618** (`revisionCarryReport.test.ts` 15,
+`revisionEntry.test.ts` 9). `tsc` delta **0** in touched files. `PricingGrid.test.ts` stays at
+**143** — the owner declined any new PricingGrid work for this feature (S10/#1106).
