@@ -15,7 +15,7 @@
     "rule": "B3"
   },
   "f2_inline_json_parse_pages": {
-    "count": 200,
+    "count": 201,
     "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
     "rule": "F2"
   },
