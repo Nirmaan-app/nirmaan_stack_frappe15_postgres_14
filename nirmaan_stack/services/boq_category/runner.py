@@ -102,6 +102,12 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
     # deliberately carries no key, so electrical is provably unchanged. See classify_line.
     ancestor_resolution = rules_doc.get("ancestor_resolution")
 
+    # HV-6b notes-as-fallback matching surface (per-discipline, OPT-IN). The discipline's rules
+    # file may carry a top-level "matching_surface": "notes_fallback". ABSENT (or any other value)
+    # => the LEGACY single-pass surface, byte-identical to pre-HV-6b. rules_electrical.json
+    # deliberately carries no key, so electrical is provably unchanged. See classify_line's gate.
+    matching_surface = rules_doc.get("matching_surface")
+
     # Per-category exclusion guards (false-friend suppressors). Two kinds:
     #   token  -- whole-token match (inline `exclude_if` on any rule, and
     #             `exclusion`-type rules whose match_mode is not 'regex').
@@ -135,6 +141,7 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         "scoring": scoring,
         "decay": decay,
         "ancestor_resolution": ancestor_resolution,
+        "matching_surface": matching_surface,
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "anc_exclude_regex_by_cat": {k: tuple(v) for k, v in anc_exclude_regex_by_cat.items()},
@@ -502,6 +509,7 @@ def classify_line(
     discipline: str = "Electrical",
     ancestor_headers: list[str] | None = None,
     decay_override: dict | None = None,
+    _notes_fallback_pass: bool = False,
 ) -> dict:
     """Classify ONE committed BoQ line into an electrical pricing category.
 
@@ -529,6 +537,10 @@ def classify_line(
         When provided (e.g. {"rules_multiplier": 0.5}) it WINS, letting an offline sweep vary the
         multiplier in a pure loop with zero file edits. Effective m >= 1.0 (or absent/malformed/<=0)
         runs the flat path byte-identical to pre-D1; only 0 < m < 1.0 activates ancestor decay.
+    _notes_fallback_pass : bool, keyword-only, PRIVATE (HV-6b)
+        Recursion guard for the notes-as-fallback matching surface. Callers must NEVER set this:
+        it marks the inner notes-free pass so it cannot re-trigger the gate. See the gate comment
+        in the body for the two-pass semantics and the composed order of operations.
 
     Returns
     -------
@@ -546,6 +558,59 @@ def classify_line(
     output, and nothing outside the returned dict is mutated.
     """
     ruleset = load_ruleset(discipline)
+
+    # -----------------------------------------------------------------------
+    # HV-6b NOTES-AS-FALLBACK MATCHING SURFACE (per-discipline, OPT-IN).
+    #
+    # Config: the discipline's rules_<disc>.json top-level "matching_surface":
+    # "notes_fallback". ABSENT (or any other value) => the legacy single-pass
+    # surface, byte-identical. rules_electrical.json deliberately carries no key.
+    #
+    # TWO-PASS SEMANTICS (the measured probe variant, 2026-07-21):
+    #   PASS 1 (notes-free): item_keyword + exclusion rules match the row DESCRIPTION
+    #     only; ancestor rules match ancestor DESCRIPTIONS only, each at its own level.
+    #     Implemented by re-entering with ancestor_texts := ancestor_headers and an
+    #     EMPTY notes list -- so the notes-free ancestor surface is the header feed
+    #     context_builder already assembles (no feed change, no new accessor needed).
+    #   PASS 2 (fallback): ONLY when pass 1 ABSTAINS (blank category) do we fall
+    #     through to the legacy full surface below (descriptions + all notes, own and
+    #     ancestor). A pass-1 verdict WINS outright and is returned as-is.
+    #
+    # COMPOSED ORDER OF OPERATIONS -- the gate sits OUTSIDE every existing mechanism
+    # and changes none of them. Each pass runs the complete unmodified pipeline:
+    # nearest-hit resolution, proximity decay, ancestor-scoped guards, exclusion
+    # zeroing, agreement bonus/cap, the deterministic tie-break chain, conflict
+    # penalty, band assignment and the geometry override all behave exactly as they
+    # do today -- they simply run against a narrower text surface in pass 1. The two
+    # passes never interleave: pass 2 is a clean re-run, not a merge.
+    #
+    # GUARDS: `_notes_fallback_pass` prevents infinite recursion (pass 1 can never
+    # re-trigger the gate). When ancestor_headers is None the caller has not supplied
+    # a notes-free ancestor surface, so the gate CANNOT be honoured and we run legacy
+    # -- documented, deliberate, and the reason the production caller always passes it.
+    #
+    # WHY: measured on the combined 2,354-row corpus, notes (spec boilerplate averaging
+    # ~700 chars) cost the rule engine 161 net rows via false token matches, while
+    # rescuing 32 bare-fragment rows whose description names no item. Consulting notes
+    # only on abstain keeps both. 68.39% -> 75.49%. The AI feed is UNTOUCHED: the voter
+    # still reads notes in full, because it reads them semantically.
+    # -----------------------------------------------------------------------
+    if (not _notes_fallback_pass
+            and ruleset.get("matching_surface") == "notes_fallback"
+            and ancestor_headers is not None):
+        first = classify_line(
+            description,
+            ancestor_headers,
+            None,
+            discipline=discipline,
+            ancestor_headers=ancestor_headers,
+            decay_override=decay_override,
+            _notes_fallback_pass=True,
+        )
+        if first["category_id"]:
+            first["matching_pass"] = "notes_free"
+            return first
+
     rules = ruleset["rules"]
     scoring = ruleset["scoring"]
     cap = scoring["cap"]
@@ -727,6 +792,10 @@ def classify_line(
                         "reason": inh_reason,
                         "runner_up": None,
                         "all_scores": scores,
+                        # HV-6b provenance (see the main return).
+                        "matching_pass": ("notes_fallback" if _notes_fallback_pass is False
+                                          and ruleset.get("matching_surface") == "notes_fallback"
+                                          and ancestor_headers is not None else "legacy"),
                     }
         return {
             "category_id": abstain_category_id,
@@ -736,6 +805,11 @@ def classify_line(
             "reason": "no category signal matched; routed to review (blank).",
             "runner_up": None,
             "all_scores": scores,
+            # HV-6b provenance (see the main return). A row reaching here under the gate
+            # abstained on BOTH surfaces -- notes-free and legacy full.
+            "matching_pass": ("notes_fallback" if _notes_fallback_pass is False
+                              and ruleset.get("matching_surface") == "notes_fallback"
+                              and ancestor_headers is not None else "legacy"),
         }
 
     # FIX 5: rank with a tiny bonus for categories carrying a DIRECT (item_keyword)
@@ -803,4 +877,10 @@ def classify_line(
         "reason": reason,
         "runner_up": runner_up_out,
         "all_scores": scores,
+        # HV-6b provenance: which surface produced this verdict. "notes_free" is stamped
+        # by the gate above on a winning pass 1; "notes_fallback" means pass 1 abstained
+        # and the legacy full surface decided; "legacy" means the gate was not active.
+        "matching_pass": ("notes_fallback" if _notes_fallback_pass is False
+                          and ruleset.get("matching_surface") == "notes_fallback"
+                          and ancestor_headers is not None else "legacy"),
     }

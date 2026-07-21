@@ -727,7 +727,9 @@ class TestHV6ShippedAssets(unittest.TestCase):
         path = _os.path.join(_os.path.dirname(_runner.__file__), "rules_hvac.json")
         with open(path, encoding="utf-8") as fh:
             doc = _json.load(fh)
-        self.assertEqual(doc["version"], "4.0-hv6")
+        # HV-6 shipped 4.0-hv6; HV-6b bumped the same ruleset to 4.1-hv6b (matching surface only,
+        # no rule changes). This assertion tracks the MAJOR line so the HV-6 rules stay pinned.
+        self.assertTrue(doc["version"].startswith("4."), doc["version"])
 
     def test_pnl_anc_type_retained_by_measurement(self):
         """Deleting it measured -0.98 pp (23 rows broken); headers_only measured -0.21 pp.
@@ -740,6 +742,88 @@ class TestHV6ShippedAssets(unittest.TestCase):
         text = ai_voter._read_prompt("HVAC")
         self.assertIn("F1 The CHW/DX boundary is the FEED MEDIUM", text)
         self.assertIn("F2 A VRF system's own controls are `hvac_vrf`", text)
+
+
+_HV6B_BOILERPLATE = (
+    "Galvanizing shall be Class VIII light coating of zinc. All duct construction and "
+    "installation shall be in accordance with SMACNA standards. Cable tray and raceway "
+    "supports as per drawings & specifications. Valves, strainers and unions included."
+)
+
+
+class TestHV6bNotesFallbackSurface(unittest.TestCase):
+    """HV-6b: two-pass matching surface. Pass 1 is notes-free; the legacy full surface runs
+    ONLY when pass 1 abstains. Owner gate waiver 2026-07-21 (ADP -6 accepted)."""
+
+    def test_pass1_resolves_from_ancestor_descriptions_alone(self):
+        """A bare dimension leaf still resolves in pass 1 via the ancestor DESCRIPTION."""
+        r = classify_line("600 mm width x 75 mm x 2mm", ["Cable Tray and Raceway"],
+                          ["GI cable tray / raceway with covers"],
+                          discipline="HVAC", ancestor_headers=["Cable Tray and Raceway"])
+        self.assertEqual(r["category_id"], "hvac_raceway")
+        self.assertEqual(r["matching_pass"], "notes_free")
+
+    def test_boilerplate_note_does_not_pollute_pass1(self):
+        """The NEGATIVE this slice exists for: a spec-boilerplate note naming cable tray,
+        valves and strainers must NOT drag a clearly-described VAV box off its category."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"])
+        self.assertEqual(r["category_id"], "hvac_vav_box")
+        self.assertEqual(r["matching_pass"], "notes_free")
+
+    def test_fallback_engages_only_when_pass1_abstains(self):
+        """A row whose own description names nothing falls through to the legacy full surface."""
+        r = classify_line("As above", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"])
+        self.assertEqual(r["matching_pass"], "notes_fallback")
+        self.assertTrue(r["category_id"])
+
+    def test_both_surfaces_abstaining_stays_blank(self):
+        r = classify_line("600 mm width x 75 mm x 2mm", ["SUMMARY"], [],
+                          discipline="HVAC", ancestor_headers=["SUMMARY"])
+        self.assertEqual(r["category_id"], "")
+        self.assertEqual(r["band"], "ABSTAIN")
+        self.assertEqual(r["matching_pass"], "notes_fallback")
+
+    def test_gate_cannot_engage_without_ancestor_headers(self):
+        """No notes-free ancestor surface supplied -> legacy single pass, documented behaviour."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC")
+        self.assertEqual(r["matching_pass"], "legacy")
+
+    def test_gate_composes_with_nearest_hit_and_decay(self):
+        """Each pass runs the FULL unmodified pipeline: nearest-hit + decay still apply."""
+        r = classify_line("2.00 TR - Hi-Wall", ["VRF SYSTEM WORKS", "Air Cooled DX Split Units"],
+                          [], discipline="HVAC",
+                          ancestor_headers=["VRF SYSTEM WORKS", "Air Cooled DX Split Units"],
+                          decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(r["matching_pass"], "notes_free")
+        self.assertTrue(r["category_id"])
+
+    def test_hvac_carries_the_flag_and_version(self):
+        import json as _json
+        import os as _os
+        from nirmaan_stack.services.boq_category import runner as _runner
+        self.assertEqual(load_ruleset("HVAC").get("matching_surface"), "notes_fallback")
+        path = _os.path.join(_os.path.dirname(_runner.__file__), "rules_hvac.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = _json.load(fh)
+        self.assertEqual(doc["version"], "4.1-hv6b")
+        self.assertEqual(doc["matching_surface"], "notes_fallback")
+
+    def test_electrical_carries_no_flag_and_runs_legacy(self):
+        """BACKWARDS COMPAT: electrical must not opt in, and must report the legacy pass."""
+        self.assertIsNone(load_ruleset("Electrical").get("matching_surface"))
+        r = classify_line("Supply of 4C x 16 sq.mm XLPE armoured cable", ["CABLING"], [],
+                          discipline="Electrical", ancestor_headers=["CABLING"])
+        self.assertEqual(r["matching_pass"], "legacy")
+
+    def test_private_recursion_guard_is_not_a_caller_knob(self):
+        """Pass 1 must never re-trigger the gate."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"],
+                          _notes_fallback_pass=True)
+        self.assertEqual(r["matching_pass"], "legacy")
 
 
 if __name__ == "__main__":
