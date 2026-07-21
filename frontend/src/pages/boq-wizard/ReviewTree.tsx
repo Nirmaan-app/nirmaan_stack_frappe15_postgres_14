@@ -1930,10 +1930,21 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             )}
           </div>
 
+          {/* The one shared reason, stated ONCE. Amendment B collapsed the carry taxonomy to a
+              single class ("this row did not copy"), which is why the entries below carry no
+              per-row badge -- but the reason was then written nowhere, so the panel named rows
+              without ever saying what was wrong with them. This line is that missing sentence;
+              keep it here (not on each row) so the collapse stays honest without going noisy. */}
+          <div className="px-3 pb-2 text-[11px] leading-snug text-amber-800/80 dark:text-amber-200/70">
+            These rows changed since the original, so nothing was copied onto them — confirm their
+            classification.
+          </div>
+
           <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1">
             {/* One clickable entry per row needing review -> reveal + scroll. No per-row badge:
-                there is only one reason to be here now (this row did not copy), so a chip
-                repeating it on every line would be pure noise. */}
+                there is only one reason to be here now (this row did not copy) and the line above
+                states it once for the whole panel, so a chip repeating it on every line would be
+                pure noise. */}
             {revisionDelta.needsActionRows.map((d) => (
               <button
                 key={`delta-${d.rowIndex}`}
