@@ -110,13 +110,22 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
     # Either kind firing ZEROES that category's score.
     exclude_tokens_by_cat: dict[str, list[str]] = {}
     exclude_regex_by_cat: dict[str, list[str]] = {}
+    # HV-5 M1: exclusion rules flagged `applies_to_ancestor` are evaluated against the RESOLUTION
+    # POINT's text instead of the line's own text. They live in their own map so they never fire on
+    # desc_blob, and they are consumed ONLY on the nearest-hit path (so legacy disciplines, which
+    # have no resolution point, are structurally unable to reach them).
+    anc_exclude_regex_by_cat: dict[str, list[str]] = {}
+    anc_exclude_tokens_by_cat: dict[str, list[str]] = {}
     for r in rules:
         cat = r["category_id"]
         if r.get("signal_type") == "exclusion":
-            if r.get("match_mode") == "regex":
-                exclude_regex_by_cat.setdefault(cat, []).extend(r.get("match", []))
+            if r.get("applies_to_ancestor"):
+                target = (anc_exclude_regex_by_cat if r.get("match_mode") == "regex"
+                          else anc_exclude_tokens_by_cat)
             else:
-                exclude_tokens_by_cat.setdefault(cat, []).extend(r.get("match", []))
+                target = (exclude_regex_by_cat if r.get("match_mode") == "regex"
+                          else exclude_tokens_by_cat)
+            target.setdefault(cat, []).extend(r.get("match", []))
         for tok in r.get("exclude_if", []) or []:
             exclude_tokens_by_cat.setdefault(cat, []).append(tok)
 
@@ -128,6 +137,8 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         "ancestor_resolution": ancestor_resolution,
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
+        "anc_exclude_regex_by_cat": {k: tuple(v) for k, v in anc_exclude_regex_by_cat.items()},
+        "anc_exclude_tokens_by_cat": {k: tuple(v) for k, v in anc_exclude_tokens_by_cat.items()},
         "name_by_cat": {c["category_id"]: c["name"] for c in categories},
     }
 
@@ -365,7 +376,41 @@ def _infer_from_ancestors_nearest(ntexts, nheaders, ruleset: dict, m: float) -> 
         if r.get("signal_type") in stypes and _rule_fires_at(r, idx, ntexts, nheaders):
             sums[r["category_id"]] = sums.get(r["category_id"], 0.0) + float(r["weight"]) * factor
     anc_blob = " ".join(ntexts)
-    return {c: round(v, 6) for c, v in sums.items() if v > 0 and not _excluded(c, ruleset, anc_blob)}
+    # HV-5 M1: the resolution point forbids categories for its own children (the 4A composite law).
+    suppressed = _ancestor_suppressed(ruleset, ntexts[idx])
+    return {c: round(v, 6) for c, v in sums.items()
+            if v > 0 and c not in suppressed and not _excluded(c, ruleset, anc_blob)}
+
+
+def _ancestor_suppressed(ruleset: dict, resolution_text: str) -> set:
+    """HV-5 M1: categories the RESOLUTION POINT itself forbids for its children.
+
+    THE LAW IT ENCODES (the owner's 4A composite ruling, lifted from the line to the ancestor):
+    when a section header describes a HOST item -- a pipe, a duct, a valve -- and mentions
+    insulation only as an ATTRIBUTE of that host ("MS chilled water pipes shall be insulated with
+    nitrile rubber insulation"), the children of that header price as the HOST, never as Insulation.
+    HV-3's guard could only read the line's own text, so a bare "100 mm + 32 mm thick nitrile rubber
+    insulation" child under such a header scored Insulation at 1.000/HIGH -- confidently wrong, and
+    auto-acceptable. This closes that family.
+
+    Insulation still wins where insulation IS the item: the discriminating signal is DISTANCE, not
+    vocabulary. "Duct Insulation" / "pipe insulation" are compound nouns with the words adjacent;
+    the attribute form always separates them with intervening words ("ducts WITH 16 mm thk
+    insulation"). The shipped patterns require >= 2 intervening words, so the three 4A item families
+    (duct insulation, underdeck, AHU-room) are untouched.
+
+    Only reachable from the nearest-hit path -- a legacy discipline has no resolution point.
+    """
+    if not resolution_text:
+        return set()
+    out = set()
+    for cat, pats in ruleset.get("anc_exclude_regex_by_cat", {}).items():
+        if any(re.search(p, resolution_text, re.IGNORECASE) for p in pats):
+            out.add(cat)
+    for cat, toks in ruleset.get("anc_exclude_tokens_by_cat", {}).items():
+        if any(_contains(t, resolution_text) for t in toks):
+            out.add(cat)
+    return out
 
 
 def _inheritance_tiebreak_meta(ruleset: dict, ntexts, nheaders, idx):
@@ -534,12 +579,20 @@ def classify_line(
     res_factor = 1.0
     nanc_texts: list[str] = []
     nanc_headers: list[str] = []
+    anc_suppressed: set = set()
     if nearest_hit:
         nanc_texts, nanc_headers = _norm_ancestors(ancestor_texts, ancestor_headers)
         res_idx = _resolution_index(ruleset, nanc_texts, nanc_headers, ("ancestor",))
         if res_idx is not None:
             _d = (len(nanc_texts) - 1) - res_idx
             res_factor = (m ** _d) if decay_active else 1.0
+        # HV-5 M1: the resolution point may FORBID categories for its children (see
+        # _ancestor_suppressed). Resolved against the nearest ancestor that carries any signal --
+        # the inheritance path picks its own point, so it recomputes this below.
+        _mi = res_idx if res_idx is not None else _resolution_index(
+            ruleset, nanc_texts, nanc_headers, ("item_keyword", "ancestor"))
+        if _mi is not None:
+            anc_suppressed = _ancestor_suppressed(ruleset, nanc_texts[_mi])
 
     # 1-2: gather fired rules per category, summing weights + tracking signal types
     fired: list[dict] = []
@@ -621,7 +674,7 @@ def classify_line(
         if len(sigtypes_by_cat.get(cat, ())) >= 2:
             s += scoring["agreement_bonus"]
         s = min(cap, s)
-        if _excluded(cat, ruleset, desc_blob):
+        if _excluded(cat, ruleset, desc_blob) or cat in anc_suppressed:
             s = 0.0
         scores[cat] = round(s, 6)
 

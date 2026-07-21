@@ -1,7 +1,7 @@
 <!--
 hvac_ai_category_prompt.md
-version: hvac-v1.1 (2026-07-20)
-date: 2026-07-20
+version: hvac-v1.2 (2026-07-21)
+date: 2026-07-21
 model: claude-opus-4-8
 CANONICAL HVAC rate-guidance AI category prompt (Build slice HV-1). This is the SINGLE
 SOURCE OF TRUTH for the Option-B independent AI voter on HVAC and is loaded + sent VERBATIM.
@@ -15,6 +15,11 @@ v1.1 (HV-3, 2026-07-20): the ONLY change is the new 17th category `hvac_raceway`
 ruling: cable trays / raceways price separately from cabling) -- added to the category list,
 with `hvac_cables` narrowed to cabling only and the Cabling/Raceway boundary rule rewritten.
 NO other prompt surgery, and NO AI run was made in that slice; v1.1 is still UNMEASURED.
+
+v1.2 (HV-5, 2026-07-21): adds ONE new section -- BOUNDARY RULINGS (owner law) -- encoding the
+owner's Boundary Rulings register R1-R10 plus the composite-host law, mirroring the same rulings
+now shipped in rules_hvac.json v3. No other prompt surgery. NO AI run was made in that slice, so
+v1.2 is UNMEASURED; it takes effect and is measured at the next AI run.
 -->
 
 # HVAC BoQ line categorisation — independent voter (Option B)
@@ -72,6 +77,45 @@ piping" header is piping; the same under a "Chilled water pipe" header is piping
 - **Pumps.** A CHW/condenser pump set is `hvac_pumps`. A unit drain pump or a VRF heat pump is NOT.
 - **Panels.** A starter/control/VFD panel is `hvac_panels`. A "double skin panel" is an AHU/plenum
   casing (`hvac_ahu` / `hvac_adp`), NOT a panel.
+
+## Boundary rulings (OWNER LAW -- these override your own reading)
+
+These are procurement-boundary decisions taken by the owner against the pricing workbook. Where one
+applies, follow it even if the line's wording pulls you elsewhere.
+
+- **R1 Flexible duct is ADP.** Flexible / aluminium-foil / flexi duct is an air-distribution PRODUCT
+  (`hvac_adp`). `hvac_ducting` means RIGID fabricated sheet-metal ductwork only. A flex-duct size
+  leaf is ADP, never Ducting.
+- **R2 Pipeline instruments are Valve Package.** BTU / energy / flow meters, thermometers,
+  thermowells, pressure and temperature gauges and test points price with `hvac_valve_package` (the
+  pipe-fitting supplier). `hvac_sensors` keeps the BMS basket ONLY: sensors, transmitters,
+  controllers, thermostats, BACnet/BMS integration.
+- **R3 Plenums are ADP.** A supply/return air plenum is `hvac_adp` even when the header names the
+  AHUs it serves ("SUPPLY AIR PLENUMS FOR AHUs"). The plenum is the product; the AHU is its destination.
+- **R4 Panels are Panels.** A starter / control / VFD / MCC panel is `hvac_panels` even when the
+  header names the equipment it serves. "AHU Starter Panel" is a PANEL, not an AHU.
+- **R5 Damper accessories are ADP.** Actuators, fire sensors and MFD / damper control panels supplied
+  as part of a damper assembly are `hvac_adp`. This applies ONLY in damper context -- a BMS sensor
+  outside damper context is still Sensors, and a generic control panel is still Panels.
+- **R6 Canvas / flexible connections follow the SERVED context.** Under a fan section -> `hvac_fans`.
+  Under a duct or air-distribution section -> `hvac_adp`. Read the section header to decide.
+- **R7 Filters split by whether the filter is the subject.** A filter INTEGRAL to a fan/AHU/unit line
+  prices with that unit. A STANDALONE filter item (MERV, HEPA, pre-filter, temporary construction
+  filters) is `hvac_misc`.
+- **R8 Air curtains are `hvac_misc`**, not Fans -- even though the specification names a fan.
+- **R9 An FCU quoted with a factory-fitted valve package stays `hvac_chw_units`.** The composite
+  prices with the unit, not with valves.
+- **R10 Work and service lines are `hvac_misc`.** Recommissioning, tapping, dismantling, modification,
+  re-routing and associated civil chipping/chasing are Misc REGARDLESS of the system they touch -- a
+  tapping into a chilled-water line is service work, not Piping. EXCEPTION: where those verbs appear
+  inside a supply-and-install (SITC) scope, the supplied ITEM still decides the category.
+- **Composite host law (the 4A ruling).** When a line or its section header describes a HOST item --
+  a pipe, a duct, a valve -- and mentions insulation only as an ATTRIBUTE of it ("MS chilled water
+  pipes shall be insulated with nitrile rubber insulation", "5/8 dia with 13 mm insulation"), the row
+  prices as the HOST, never as `hvac_insulation`. Insulation wins only where insulation IS the item:
+  duct insulation, pipe insulation, underdeck insulation, AHU-room insulation.
+- **Bellows.** Flexible connections / rubber bellows in a pipeline are `hvac_valve_package` -- never
+  `hvac_misc`.
 
 ## Abstention
 

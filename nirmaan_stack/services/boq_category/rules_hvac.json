@@ -1,6 +1,7 @@
 {
   "discipline": "HVAC",
-  "version": "2.0-hv4-v2",
+  "version": "3.0-hv5-v3",
+  "boundary_register": "HV-5 (2026-07-21) encodes the owner's Boundary Rulings register as rule law. R1 flexible/foil duct -> ADP (Ducting is rigid fabricated sheet-metal only). R2 pipeline instruments (BTU/energy/flow meter, thermometer, gauges, test points, thermowells) -> Valve Package at full weight; Sensors keeps the BMS basket only. R3 plenum -> ADP, beating an AHU section. R4 starter/control/VFD panel -> Panels, beating an AHU section. R5 damper accessories (actuators, fire sensors, MFD/damper control panels) -> ADP in damper context only. R6 canvas/flexible connections resolve by SERVED context: fan section -> Fans, duct/ADP section -> ADP. R7 filters integral to a unit -> that unit; standalone filter items -> Misc. R8 air curtains -> Misc. R9 an FCU quoted with a factory-fitted valve package stays CHW Units. R10 work/service lines (recommissioning, tapping, dismantling, modification) -> Misc regardless of the system they touch, guarded so a supply+install scope still wins. Each rule carries its provenance in `source`. MEASURED RULES-ONLY this slice; the parallel prompt v1.2 edits are measured at the next AI run.",
   "note": "HVAC category ruleset v2 (Build slice HV-4, 2026-07-20). v2 = v1 + the nearest-hit ancestor resolution flag (see ancestor_resolution) + TWO label-mined ancestor rules, each clearing the declared mining floor (support >= 8 truth rows, >= 2 distinct BoQs, precision >= 85%) with its figures recorded in its own source string: VLV-ANC-TYPE (support=136/boqs=5/prec=86.1) and FAN-ANC-TYPE (support=76/boqs=6/prec=96.2). Set-1 rules accuracy 52.86% -> 66.91% on the same 1,366 rows. MINED ON PROVISIONAL LABELS -- a re-mine is OWED at clean labels, and the 5x gain:loss keep-rule that governed the batch loop applies fresh at that re-mine. Batches that measured negative (duct / ADP / insulation / BMS ancestor vocabulary) and one that measured net-positive but traded badly (ADP, +3 rows for ~30 lost) were REJECTED and are recorded in the rescore report for retry at clean labels. NO weight changes were made to any v1 rule. Original HV-3 note follows. HVAC category ruleset v1 (Build slice HV-3, 2026-07-20). v1 changes are EVIDENCE-DRIVEN from the Set-1 label scoring (_classification_review/hvac_labels_and_scoring/SCORING_V0.md, 1366 scored line items) and each carries source 'set1-scoring 2026-07-20 (provisional labels)'. FOUR changes only: (a) RACEWAY CARVE-OUT -- new hvac_raceway category owns cable tray / raceway vocabulary, removed from Cables, with a false-friend guard each way; (b) H4 CONFIRMED (100%, n=66) -- an insulation word that is an ATTRIBUTE of a pipe/valve line no longer claims the row (the owner's 4A ruling); (c) H2 REVERSED -- the air-distribution ancestor was RIGHT 84% of the time, so the token is KEPT rather than dropped, but ADP-ANC's weight STAYS AT 0.4 (raising it to 0.45/0.5 was measured at 52.86% -> 50.29% and owner-REJECTED; this note previously said 'RAISED 0.4 -> 0.5', which never shipped -- corrected at HV-4); (d) H1 + H7 REFUTED -- their proposed edits are NOT applied; a WEAK provisional BTU/energy-meter -> Valve Package rule is added instead. H3/H5/H6 came back MIXED and are deliberately UNTOUCHED -- proximity decay reshuffles those piles and they re-arbitrate at clean labels. The top-level 'decay' block is the HVAC proximity-decay curve, PROVISIONAL-FIT (see its own note). Original HV-1 note follows. HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
   "ancestor_resolution": "nearest_hit",
   "_ancestor_resolution_note": "HV-4: HVAC resolves ancestor signals at the NEAREST ancestor that fires anything, instead of flattening the whole chain into one blob. Only signals at that resolution point contribute; farther ancestors contribute nothing. This also switches HVAC onto the deterministic tie-break chain (score -> rule weight -> distinct signal types -> declaration order) instead of the legacy alphabetical-by-category_id tiebreak. OPT-IN per discipline: rules_electrical.json carries no such key and runs the legacy blob path byte-identically (proven on its 2,888-row labelled corpus).",
@@ -35,7 +36,7 @@
       "rule_id": "ADP-KW",
       "category_id": "hvac_adp",
       "signal_type": "item_keyword",
-      "match": ["diffuser", "grille", "grill", "damper", "fire damper", "volume control damper", "vcd", "spigot", "collar", "louver", "louvre", "register", "slot diffuser", "egg crate", "trap door", "canvas connection"],
+      "match": ["diffuser", "grille", "grill", "damper", "fire damper", "volume control damper", "vcd", "spigot", "collar", "louver", "louvre", "register", "slot diffuser", "egg crate", "trap door"],
       "match_mode": "any_token",
       "weight": 0.55,
       "plain": "An air-distribution product: grille/diffuser/damper (incl. fire damper)/VCD/louver/spigot/collar.",
@@ -50,6 +51,77 @@
       "weight": 0.4,
       "plain": "A plenum box is an air-distribution product (not an electrical/control panel).",
       "source": "corpus recon"
+    },
+    {
+      "rule_id": "ADP-FLEXDUCT",
+      "category_id": "hvac_adp",
+      "signal_type": "item_keyword",
+      "match": ["flexible duct", "flexi duct", "foil duct", "aluminium foil flexible duct", "aluminum foil flexible duct", "flexible ducting"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "R1: a flexible / aluminium-foil duct is an air-distribution PRODUCT, not fabricated ductwork. Ducting means rigid sheet-metal work made to gauge; a flex duct is bought as an accessory.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
+    },
+    {
+      "rule_id": "ADP-FLEXDUCT-ANC",
+      "category_id": "hvac_adp",
+      "signal_type": "ancestor",
+      "match": ["flexible duct", "flexi duct", "foil duct", "flexible ducting"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "R1 (ancestor form): size leaves under a flexible/foil duct header inherit ADP.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
+    },
+    {
+      "rule_id": "DUCT-FLEX-EXCL",
+      "category_id": "hvac_ducting",
+      "signal_type": "exclusion",
+      "match": ["flexible duct", "flexi duct", "foil duct", "flexible ducting"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R1 guard (line): Ducting NEVER scores in a flexible/foil duct context -- Ducting is rigid fabricated sheet-metal only.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
+    },
+    {
+      "rule_id": "DUCT-FLEX-ANC-EXCL",
+      "category_id": "hvac_ducting",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["flexible duct", "flexi duct", "foil duct", "flexible ducting"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R1 guard (ancestor): children of a flexible/foil duct header can never be Ducting either.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
+    },
+    {
+      "rule_id": "ADP-CANVAS",
+      "category_id": "hvac_adp",
+      "signal_type": "item_keyword",
+      "match": ["canvas connection", "canvass connection", "flexible connection"],
+      "match_mode": "any_token",
+      "weight": 0.42,
+      "plain": "R6: a canvas / flexible connection resolves by SERVED CONTEXT. The rule grammar has no conditional, so the ruling is expressed as a WEIGHT WINDOW: with the 0.05 direct-signal ranking bonus this scores 0.47 effective, which clears the duct-section ancestor (DUCT-ANC 0.45 -> ADP wins under a duct/air-distribution header) but stays under the fan-section ancestor (FAN-ANC-TYPE 0.5 -> Fans wins under a fan header). CAUTION: that window is only 0.03 wide (0.40 < w < 0.45); any future change to DUCT-ANC, FAN-ANC-TYPE or scoring.direct_signal_bonus will silently break this ruling. It is covered both directions by tests.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP / Fans rate sheets"
+    },
+    {
+      "rule_id": "ADP-DAMPER-ANC",
+      "category_id": "hvac_adp",
+      "signal_type": "ancestor",
+      "match": ["damper", "dampers", "fire damper", "smoke damper", "motorized damper", "volume control damper"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "R5: damper ACCESSORIES price with the damper package. A child of a damper header -- actuator, fire sensor, MFD/damper control panel -- is ADP.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP / Dampers rate sheet"
+    },
+    {
+      "rule_id": "ADP-PLENUM-ANC",
+      "category_id": "hvac_adp",
+      "signal_type": "ancestor",
+      "match": ["plenum", "plenums"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "R3: a plenum is an air-distribution product. At 0.5 this outranks AHU-ANC (0.45) at the same resolution point, so 'SUPPLY AIR PLENUMS FOR AHUs' resolves to ADP, not AHU.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
     },
     {
       "rule_id": "ADP-ANC",
@@ -76,11 +148,11 @@
       "rule_id": "PIPE-ANC",
       "category_id": "hvac_piping",
       "signal_type": "ancestor",
-      "match": ["piping"],
+      "match": ["piping", "pipe", "drain pipe", "refrigerant pipe", "ms pipe", "chilled water pipe", "condenser water pipe"],
       "match_mode": "any_token",
       "weight": 0.4,
-      "plain": "Sits under a Piping section header.",
-      "source": "corpus recon"
+      "plain": "Sits under a Piping section header. M2 (HV-5): the SINGULAR 'pipe' tokens were added -- real headers say 'DRAIN PIPE' and 'REFRIGERANT PIPE', which the plural-only token missed, so pure pipe-size leaves inherited Insulation or VRF instead of Piping. This is hypothesis H5, deferred since HV-3 and settled here by the deep-dive trace evidence.",
+      "source": "owner ruling 2026-07-21, workbook provenance Piping rate sheet"
     },
     {
       "rule_id": "INS-KW",
@@ -153,11 +225,21 @@
       "rule_id": "VLV-METER-PROV",
       "category_id": "hvac_valve_package",
       "signal_type": "item_keyword",
-      "match": ["btu meter", "energy meter", "ultrasonic meter", "flow meter"],
+      "match": ["btu meter", "energy meter", "ultrasonic meter", "flow meter", "thermometer", "thermo well", "thermowell", "pressure gauge", "temperature gauge", "test point", "pressure test point"],
       "match_mode": "any_token",
-      "weight": 0.2,
-      "plain": "PROVISIONAL (HV-3): a BTU / energy / flow meter is priced with the valve package. Hypothesis H7 proposed routing these to Sensors and the Set-1 labels REFUTED it outright -- 0 of 31 rows were labelled Sensors, and every labelled meter row came back Valve Package. Deliberately WEAK (0.2) so a meter line lands LOW and stays visible for review rather than asserting a category: the evidence is a provisional, noisy-label read and is owed a re-check at clean labels.",
-      "source": "set1-scoring 2026-07-20 (provisional labels)"
+      "weight": 0.55,
+      "plain": "R2: pipeline instruments -- BTU / energy / flow meters, thermometers, thermowells, pressure and temperature gauges, test points -- price with the VALVE PACKAGE (the pipe-fitting supplier), not with Sensors. PROMOTED FROM PROVISIONAL: HV-3 shipped this at weight 0.2 pending evidence because H7 had proposed Sensors and the labels refuted it; the owner's workbook now settles it, so it carries full keyword weight.",
+      "source": "owner ruling 2026-07-21, workbook provenance Valve Package rate sheet"
+    },
+    {
+      "rule_id": "VLV-INSTRUMENT-ANC",
+      "category_id": "hvac_valve_package",
+      "signal_type": "ancestor",
+      "match": ["btu meter", "energy meter", "ultrasonic meter", "flow meter", "thermometer", "thermo well", "thermowell", "pressure gauge", "test point"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "R2 (ancestor form): size leaves under an instrument header ('Ultrasonic BTU meters') inherit Valve Package. This also makes the instrument preamble an INFORMATIVE resolution point, so the walk stops there instead of continuing out to the enclosing section.",
+      "source": "owner ruling 2026-07-21, workbook provenance Valve Package rate sheet"
     },
     {
       "rule_id": "VAV-KW",
@@ -183,7 +265,7 @@
       "rule_id": "SNS-KW",
       "category_id": "hvac_sensors",
       "signal_type": "item_keyword",
-      "match": ["sensor", "thermostat", "transmitter", "co2 sensor", "co2", "iaq", "bacnet", "bms", "controller", "dp sensor", "pressure sensor", "temperature sensor", "humidity sensor", "air flow measuring station", "thermometer", "pressure gauge"],
+      "match": ["sensor", "thermostat", "transmitter", "co2 sensor", "co2", "iaq", "bacnet", "bms", "controller", "dp sensor", "pressure sensor", "temperature sensor", "humidity sensor", "air flow measuring station"],
       "match_mode": "any_token",
       "weight": 0.5,
       "ambiguous_with": ["hvac_vav_box"],
@@ -407,6 +489,82 @@
       "source": "pricing catalogue"
     },
     {
+      "rule_id": "AHU-PLENUM-ANC-EXCL",
+      "category_id": "hvac_ahu",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["plenum", "plenums"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R3 guard: when the resolution point is a PLENUM header, AHU is forbidden for its children even though the header names the AHUs the plenums serve. The plenum is the product; the AHU is only its destination.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP rate sheet"
+    },
+    {
+      "rule_id": "AHU-PANEL-ANC-EXCL",
+      "category_id": "hvac_ahu",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["(?:starter|control|vfd|mcc|electrical)\\s+panel"],
+      "match_mode": "regex",
+      "weight": 0.0,
+      "plain": "R4 guard: when the resolution point is a PANEL header, AHU is forbidden for its children. 'AHU STARTER PANEL' is a panel that serves an AHU, not an AHU.",
+      "source": "owner ruling 2026-07-21, workbook provenance Panels rate sheet"
+    },
+    {
+      "rule_id": "PNL-DAMPER-ANC-EXCL",
+      "category_id": "hvac_panels",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["damper", "dampers"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R5 guard (Panels side): a control panel under a DAMPER header is part of the damper package (ADP). Generic panels outside damper context are untouched -- this fires only at a damper resolution point.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP / Dampers rate sheet"
+    },
+    {
+      "rule_id": "SNS-DAMPER-ANC-EXCL",
+      "category_id": "hvac_sensors",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["damper", "dampers"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R5 guard (Sensors side): actuators and fire sensors under a DAMPER header belong to the damper package. BMS-context sensors are untouched -- this fires only at a damper resolution point.",
+      "source": "owner ruling 2026-07-21, workbook provenance ADP / Dampers rate sheet"
+    },
+    {
+      "rule_id": "VLV-FCU-ANC-EXCL",
+      "category_id": "hvac_valve_package",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["fan coil", "fcu"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R9 guard: an FCU quoted 'along with factory fitted valve package' stays CHW Units -- the composite prices with the unit. Without this the HV-4 valve-header rule pulls the FCU capacity leaves to Valve Package.",
+      "source": "owner ruling 2026-07-21, workbook provenance CHW Units / FCU rate sheet"
+    },
+    {
+      "rule_id": "INS-COMPOSITE-ANC-EXCL",
+      "category_id": "hvac_insulation",
+      "signal_type": "exclusion",
+      "applies_to_ancestor": true,
+      "match": ["\\b(?:pipes?|piping|ducts?|ductwork|valves?)\\b(?:\\s+\\S+){2,40}?\\s+insulat"],
+      "match_mode": "regex",
+      "weight": 0.0,
+      "plain": "M1 -- the owner's 4A composite ruling lifted from the line to the ANCESTOR. When a section header describes a HOST item (pipe / duct / valve) and mentions insulation only as an attribute of it ('MS chilled water pipes shall be insulated with nitrile rubber insulation'), its children price as the HOST, never as Insulation. The pattern requires at least TWO intervening words between the host noun and the insulation word, which is what separates the attribute form from the compound-noun item form: 'duct insulation', 'pipe insulation' and 'underdeck insulation' are adjacent and therefore NEVER match, so the three 4A insulation-is-the-item families still win.",
+      "source": "owner ruling 2026-07-21, workbook provenance Insulation rate sheet"
+    },
+    {
+      "rule_id": "PNL-ANC-TYPE",
+      "category_id": "hvac_panels",
+      "signal_type": "ancestor",
+      "match": ["starter panel", "control panel", "vfd panel", "mcc panel", "electrical panel", "panel board"],
+      "match_mode": "any_token",
+      "weight": 0.5,
+      "plain": "R4: a panel section header places Panels at 0.5, outranking AHU-ANC (0.45) at the same resolution point.",
+      "source": "owner ruling 2026-07-21, workbook provenance Panels rate sheet"
+    },
+    {
       "rule_id": "PNL-ANC",
       "category_id": "hvac_panels",
       "signal_type": "ancestor",
@@ -446,6 +604,57 @@
       "weight": 0.45,
       "plain": "A standalone HVAC service/hardware line: T&B/commissioning, water treatment, vibration isolators, dismantling/recommissioning. A positive read for genuine HVAC misc, NOT a fallback for uncertainty (that stays blank).",
       "source": "pricing catalogue"
+    },
+    {
+      "rule_id": "MSC-WORKLINE",
+      "category_id": "hvac_misc",
+      "signal_type": "item_keyword",
+      "match": ["recommissioning", "re-commissioning", "tapping", "modification work", "re-routing", "rerouting", "shifting", "relocation", "chipping", "chasing", "chassing", "making good", "dismantling", "dismantle", "dismantling and disposal"],
+      "match_mode": "any_token",
+      "weight": 0.6,
+      "exclude_if": ["sitc", "supply, installation", "supply and installation", "supply & installation", "supply, installing", "supply, and installation", "supply, fabrication"],
+      "plain": "R10 (owner redraw 2026-07-21) at weight 0.6, ABOVE the item-keyword band (0.55) on purpose: a work line must outrank the system noun it names, or 'Dismantling of existing ducting' scores Ducting. WORK / SERVICE lines -- recommissioning, tapping, dismantling, modification, re-routing, associated civil chipping/chasing -- join T&B and commissioning in Misc REGARDLESS of the system they touch. A tapping into a chilled-water line is service work, not Piping. GUARDED by exclude_if: where those verbs appear inside a supply-and-install scope (an SITC line), the ITEM still wins and this rule stands down.",
+      "source": "owner ruling 2026-07-21, workbook provenance Misc / Services rate sheet"
+    },
+    {
+      "rule_id": "MSC-FILTER-STANDALONE",
+      "category_id": "hvac_misc",
+      "signal_type": "item_keyword",
+      "match": ["merv", "hepa", "pre filter", "prefilter", "fine filter", "filter media"],
+      "match_mode": "any_token",
+      "weight": 0.45,
+      "plain": "R7: a STANDALONE filter item (MERV/HEPA/pre-filter, incl. temporary construction-phase filters) is Misc. Filters INTEGRAL to a fan/AHU/unit line stay with that unit -- that half of the ruling is carried by AHU-FILTER-EXCL below, not by this rule.",
+      "source": "owner ruling 2026-07-21, workbook provenance Misc rate sheet"
+    },
+    {
+      "rule_id": "AHU-FILTER-EXCL",
+      "category_id": "hvac_ahu",
+      "signal_type": "exclusion",
+      "match": ["^\\s*(?:merv|hepa)\\b", "\\bfilters?\\s+for\\b", "temporary filters?"],
+      "match_mode": "regex",
+      "weight": 0.0,
+      "plain": "R7 guard: a line whose SUBJECT is the filter ('MERV 13 Filters for AHUs', 'temporary filters for Air Handling Units') is a standalone filter item, so AHU is forbidden and Misc wins. A genuine AHU line that merely lists its filters among its parts does not match these patterns and keeps AHU.",
+      "source": "owner ruling 2026-07-21, workbook provenance Misc rate sheet"
+    },
+    {
+      "rule_id": "MSC-AIRCURTAIN",
+      "category_id": "hvac_misc",
+      "signal_type": "item_keyword",
+      "match": ["air curtain", "air curtains"],
+      "match_mode": "any_token",
+      "weight": 0.55,
+      "plain": "R8: air curtains are Misc, not Fans.",
+      "source": "owner ruling 2026-07-21, workbook provenance Misc rate sheet"
+    },
+    {
+      "rule_id": "FAN-AIRCURTAIN-EXCL",
+      "category_id": "hvac_fans",
+      "signal_type": "exclusion",
+      "match": ["air curtain", "air curtains"],
+      "match_mode": "any_token",
+      "weight": 0.0,
+      "plain": "R8 guard: an air-curtain line names a fan in its specification, so Fans is forbidden outright.",
+      "source": "owner ruling 2026-07-21, workbook provenance Misc rate sheet"
     }
   ]
 }

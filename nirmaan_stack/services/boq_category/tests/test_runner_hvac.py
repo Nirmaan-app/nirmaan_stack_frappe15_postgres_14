@@ -263,11 +263,16 @@ class TestHvacMeterProvisionalRule(unittest.TestCase):
     """HV-3 change (d): H1 and H7 were REFUTED, so neither proposed edit was applied. A WEAK
     provisional BTU/energy-meter -> Valve Package rule was added in H7's place."""
 
-    def test_btu_meter_is_valve_package_and_stays_low(self):
+    def test_btu_meter_is_valve_package_at_full_weight(self):
+        # HV-3 shipped this PROVISIONAL at weight 0.2 and asserted band == LOW, so a noisy-label
+        # read stayed visible for review. HV-5's ruling R2 settles the boundary from the owner's
+        # workbook, so the rule was promoted to full keyword weight and the row is no longer LOW.
+        # The assertion is updated rather than preserved -- that promotion IS the ruling.
         r = classify_line("BTU meters -Ultrasonic type with accessories", [], discipline="HVAC")
         self.assertEqual(r["category_id"], "hvac_valve_package")
-        # Deliberately weak: a provisional read must stay visible for review, never assert HIGH.
-        self.assertEqual(r["band"], "LOW")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+        rule = next(x for x in load_ruleset("HVAC")["rules"] if x["rule_id"] == "VLV-METER-PROV")
+        self.assertEqual(rule["weight"], 0.55)
 
     def test_no_btu_to_sensors_rule_was_added(self):
         # NEGATIVE: H7's actual proposal (meters -> Sensors) was refuted 0/31 and must be absent.
@@ -437,6 +442,180 @@ class TestNearestHitDecayComposition(unittest.TestCase):
         self.assertAlmostEqual(dec["score"], round(flat["score"] * 0.5, 6), places=6)
 
 
+class TestBoundaryRulings(unittest.TestCase):
+    """HV-5: the owner's Boundary Rulings register R1-R10, encoded as rule law.
+    Every ruling gets a POSITIVE (the law applies) and, where it has one, its GUARD NEGATIVE
+    (the law must NOT reach past its boundary)."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    # -- R1 flexible/foil duct -> ADP; Ducting is rigid fabricated sheet metal only
+    def test_r1_flexible_duct_is_adp(self):
+        r = self._c("SITC insulated Aluminium foil flexible ducts with 16 mm thk insulation")
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    def test_r1_guard_ducting_never_scores_in_flex_context(self):
+        r = self._c("Uninsulated flexible duct 150mm dia")
+        self.assertEqual(r["all_scores"].get("hvac_ducting", 0.0), 0.0)
+
+    def test_r1_guard_rigid_ducting_unaffected(self):
+        # NEGATIVE: the ruling must not damage genuine rigid ductwork.
+        r = self._c("0.63 mm (24 SWG) GSS ducting up to 750mm")
+        self.assertEqual(r["category_id"], "hvac_ducting")
+
+    # -- R2 pipeline instruments -> Valve Package; Sensors keeps the BMS basket only
+    def test_r2_thermometer_is_valve_package(self):
+        r = self._c("Supply of Dial type Thermometers for chilled water line")
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_r2_btu_meter_leaf_inherits_valve_package(self):
+        r = self._c(NEUTRAL, ["Supply, Installing, testing and commissioning of Ultrasonic BTU meters"])
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_r2_guard_sensors_keeps_bms_basket(self):
+        # NEGATIVE: the BMS basket must stay with Sensors.
+        r = self._c("Supply and installation of BACnet controller for BMS integration")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    # -- R3 plenum -> ADP, beating an AHU section
+    def test_r3_plenum_beats_ahu_section(self):
+        r = self._c(NEUTRAL, ["SUPPLY AIR PLENUMS FOR AHUs Supply and Installation of double skin"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    # -- R4 panels -> Panels, beating an AHU section
+    def test_r4_ahu_starter_panel_is_panels(self):
+        r = self._c("22.38 kW", ["AHU STARTER PANEL Supply Installation of Electrical starter panel"])
+        self.assertEqual(r["category_id"], "hvac_panels")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    # -- R5 damper accessories -> ADP, in damper context ONLY
+    def test_r5_damper_control_panel_is_adp(self):
+        r = self._c("MFD Control panel - Main",
+                    ["Supply of Motorized Smoke and Fire Damper complete with actuator"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    def test_r5_guard_generic_panel_stays_panels(self):
+        # NEGATIVE: outside damper context a control panel is still Panels.
+        r = self._c("Supply of electrical starter panel for the chiller plant")
+        self.assertEqual(r["category_id"], "hvac_panels")
+
+    def test_r5_guard_bms_sensor_stays_sensors(self):
+        # NEGATIVE: outside damper context a BMS sensor is still Sensors.
+        r = self._c("Supply of BACnet temperature transmitter for BMS")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    # -- R6 canvas/flexible connections resolve by SERVED context
+    def test_r6_canvas_under_fan_section_is_fans(self):
+        r = self._c("Canvas connection for the unit",
+                    ["VENTILATION FANS", "SITC of Inline fan for toilet exhaust"])
+        self.assertEqual(r["category_id"], "hvac_fans")
+
+    def test_r6_canvas_under_duct_section_is_adp(self):
+        r = self._c("Canvas connection for the unit",
+                    ["AIR DISTRIBUTION SYSTEM", "GI DUCTING WORK"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    # -- R7 filters: standalone -> Misc; integral to a unit -> that unit
+    def test_r7_standalone_filter_is_misc(self):
+        r = self._c("MERV 14 Filters for AHUs with frame and necessary supports")
+        self.assertEqual(r["category_id"], "hvac_misc")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    def test_r7_guard_integral_filter_stays_with_the_unit(self):
+        # NEGATIVE: an AHU line that merely lists its filters is still an AHU.
+        r = self._c("Double skin air handling unit 20000 CFM with pre filters and cooling coil")
+        self.assertEqual(r["category_id"], "hvac_ahu")
+
+    # -- R8 air curtains -> Misc
+    def test_r8_air_curtain_is_misc_not_fans(self):
+        r = self._c("Air curtain suitable for door size 2000 mm W x 2400 mm H")
+        self.assertEqual(r["category_id"], "hvac_misc")
+        self.assertEqual(r["all_scores"].get("hvac_fans", 0.0), 0.0)
+
+    # -- R9 FCU with factory-fitted valve package stays CHW Units
+    def test_r9_fcu_with_valve_package_stays_chw(self):
+        r = self._c("1.0TR", ["FAN COIL UNIT (FCU) along with factory fitted valve package as per specs"])
+        self.assertEqual(r["category_id"], "hvac_chw_units")
+        self.assertEqual(r["all_scores"].get("hvac_valve_package", 0.0), 0.0)
+
+    # -- R10 work/service lines -> Misc, guarded against SITC scopes
+    def test_r10_work_line_is_misc_regardless_of_system(self):
+        r = self._c("Recommissioning and tapping a provision in existing chilled water line")
+        self.assertEqual(r["category_id"], "hvac_misc")
+
+    def test_r10_dismantling_beats_the_system_noun(self):
+        r = self._c("Dismantling of existing ducting and disposal")
+        self.assertEqual(r["category_id"], "hvac_misc")
+
+    def test_r10_guard_sitc_scope_still_wins(self):
+        # NEGATIVE: the same verb inside a supply-and-install scope must NOT claim the row.
+        r = self._c("Supply, Installation of ducting including making good the openings")
+        self.assertEqual(r["category_id"], "hvac_ducting")
+        self.assertEqual(r["all_scores"].get("hvac_misc", 0.0), 0.0)
+
+
+class TestM1AncestorAwareCompositeGuard(unittest.TestCase):
+    """HV-5 M1: the 4A composite ruling lifted from the line to the RESOLUTION POINT.
+    Tested BOTH directions -- it must kill the composite-host family and leave the three
+    insulation-is-the-item families untouched."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    def test_m1_composite_pipe_header_yields_piping_not_insulation(self):
+        # The 1.000/HIGH confident-wrong family from the deep-dive (traces 2-4).
+        r = self._c("100 mm + 32 mm thick nitrile rubber insulation with GC cloth",
+                    ["CHILLED WATER PIPING & VALVES",
+                     "Supply of MS Class C ERW pipes. All MS Chilled water pipes shall be "
+                     "insulated with Nitrile rubber insulation & finished 24G Aluminium cladding"])
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_m1_composite_valve_header_yields_valve_not_insulation(self):
+        r = self._c("400 mm Dia",
+                    ["Slim seal Butterfly valves PN 16 wafer type with cast iron body suitable "
+                     "for insulation with 32mm insulations"])
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_m1_negative_duct_insulation_is_still_insulation(self):
+        # 4A family 1: insulation IS the item -- adjacent compound noun, must NOT be suppressed.
+        r = self._c("19mm", ["Supply, installation, and testing of closed cell thermal insulation "
+                             "for ductwork"])
+        self.assertEqual(r["category_id"], "hvac_insulation")
+
+    def test_m1_negative_underdeck_insulation_is_still_insulation(self):
+        # 4A family 2.
+        r = self._c(".Under deck insulation 32mm thick Nitrile rubber insulation",
+                    ["UNDERDECK INSULATION"])
+        self.assertEqual(r["category_id"], "hvac_insulation")
+
+    def test_m1_is_hvac_gated(self):
+        # A10: the ancestor-exclusion map is consumed only on the nearest-hit path, and
+        # electrical carries no such rules at all.
+        el = load_ruleset("Electrical")
+        self.assertEqual(el.get("anc_exclude_regex_by_cat", {}), {})
+        self.assertEqual(el.get("anc_exclude_tokens_by_cat", {}), {})
+        self.assertTrue(load_ruleset("HVAC")["anc_exclude_regex_by_cat"])
+
+
+class TestM2SingularPipeTokens(unittest.TestCase):
+    """HV-5 M2 / hypothesis H5, settled: the piping ancestor rule carries the SINGULAR forms."""
+
+    def test_m2_drain_pipe_header_resolves_to_piping(self):
+        r = classify_line("25mm dia", [
+            "DRAIN PIPE -with necessary supports and fittings. Supply and Laying CPVC drain pipe "
+            "including with 9 mm thick nitrile foam insulation"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_m2_singular_tokens_present(self):
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "PIPE-ANC")
+        for tok in ("pipe", "drain pipe", "refrigerant pipe"):
+            self.assertIn(tok, anc["match"])
+
+
 class TestAiVoterPromptResolution(unittest.TestCase):
     """HV-1 seam: the AI voter resolves its prompt file per discipline (path-level, no API)."""
 
@@ -447,10 +626,10 @@ class TestAiVoterPromptResolution(unittest.TestCase):
         self.assertTrue(p.endswith("hvac_ai_category_prompt.md"))
         self.assertTrue(os.path.exists(p))
         text = ai_voter._read_prompt("HVAC")
-        self.assertIn("hvac-v1.1", text)
+        self.assertIn("hvac-v1.2", text)
         self.assertIn("hvac_ducting", text)
         self.assertIn("hvac_raceway", text)  # HV-3: the 17th category is in the AI category list
-        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.1")
+        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.2")
 
     def test_electrical_prompt_path_unchanged(self):
         from nirmaan_stack.services.boq_category import ai_voter
