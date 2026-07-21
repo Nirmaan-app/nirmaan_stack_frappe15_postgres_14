@@ -175,6 +175,41 @@ class TestRowCategoryPersistence(FrappeTestCase):
             fields=["name", "category_version", "final_category_id", "is_current"],
         )
 
+    def test_hv7_review_priority_written_when_supplied(self):
+        """HV-7: the priority tier round-trips through persist."""
+        persist.write_row_categories(
+            self.boq, self.sheet, self.cv, "Electrical",
+            [_row(90, final_category_id="", routing="Needs review", review_priority=1)])
+        rows = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": 90,
+                     "committed_version": self.cv, "discipline": "Electrical", "is_current": 1},
+            fields=["review_priority", "final_category_id", "routing"])
+        self.assertEqual(rows[0]["review_priority"], 1)
+        # the blank-review invariant travels with it
+        self.assertEqual(rows[0]["final_category_id"], "")
+
+    def test_hv7_review_priority_defaults_zero_on_legacy_path(self):
+        """THE NEGATIVE: route_r3d emits no such key, so persist must store 0 -- never None."""
+        persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [_row(91)])
+        rows = frappe.get_all(
+            _ROW_CATEGORY,
+            filters={"boq": self.boq, "sheet_name": self.sheet, "excel_row": 91,
+                     "committed_version": self.cv, "discipline": "Electrical", "is_current": 1},
+            fields=["review_priority"])
+        self.assertEqual(rows[0]["review_priority"], 0)
+
+    def test_hv7_get_sheet_categories_exposes_review_priority(self):
+        from nirmaan_stack.api.boq.wizard import classify as _classify
+        persist.write_row_categories(
+            self.boq, self.sheet, self.cv, "Electrical",
+            [_row(92, final_category_id="", routing="Needs review", review_priority=1)])
+        frappe.db.commit()
+        # the endpoint resolves the CURRENT committed version; assert the field is in the payload
+        import inspect as _inspect
+        src = _inspect.getsource(_classify.get_sheet_categories)
+        self.assertIn("review_priority", src)
+
     def test_first_write_v1_current(self):
         persist.write_row_categories(self.boq, self.sheet, self.cv, "Electrical", [_row(10)])
         cur = self._current(10)

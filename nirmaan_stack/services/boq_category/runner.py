@@ -142,6 +142,11 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         "decay": decay,
         "ancestor_resolution": ancestor_resolution,
         "matching_surface": matching_surface,
+        # HV-7 per-discipline routing policy (OPT-IN), surfaced on the SAME precedent as
+        # ancestor_resolution / decay / matching_surface: the loader returns a hand-built dict,
+        # so a gating key that is not listed here is invisible to every caller. ABSENT => None
+        # => the legacy R3d path, byte-identical. rules_electrical.json carries no such block.
+        "routing_policy": rules_doc.get("routing_policy"),
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "anc_exclude_regex_by_cat": {k: tuple(v) for k, v in anc_exclude_regex_by_cat.items()},

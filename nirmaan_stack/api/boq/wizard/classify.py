@@ -349,7 +349,7 @@ def get_sheet_categories(boq=None, sheet_name=None, discipline="Electrical"):
         },
         fields=[
             "excel_row", "rule_category_id", "ai_category_id", "final_category_id",
-            "routing", "routing_reason", "human_category_id",
+            "routing", "routing_reason", "review_priority", "human_category_id",
         ],
         order_by="excel_row asc",
     )

@@ -23,6 +23,7 @@
   "final_category_id",
   "routing",
   "routing_reason",
+  "review_priority",
   "human_section",
   "human_category_id",
   "human_verdict_at",
@@ -152,6 +153,13 @@
    "fieldname": "routing_reason",
    "fieldtype": "Small Text",
    "label": "Routing Reason"
+  },
+  {
+   "default": "0",
+   "description": "TELEMETRY ONLY -- it must NEVER drive reviewer-facing UI (owner policy amendment 2026-07-22). Set when the AI voter was doubtful (confidence below the discipline's priority_max_ai_confidence) or both voters abstained; 0 on an auto-accepted row and 0 on the legacy R3d path. Every review row is presented identically -- blank final_category_id, routing 'Needs review' -- exactly as Electrical. This field exists for eval / cockpit analytics only.",
+   "fieldname": "review_priority",
+   "fieldtype": "Check",
+   "label": "Review Priority"
   },
   {
    "fieldname": "human_section",
