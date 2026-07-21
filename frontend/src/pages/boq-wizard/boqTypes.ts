@@ -4,6 +4,9 @@
 // S5b (#1103, ADR-0014 D7): revised-BoQ review delta types live in the pure delta module
 // (revisionReviewDelta.ts imports nothing from here -> one-directional, no cycle).
 import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
+// W5: the revision-carry REPORT shapes live with the pure copy helpers that consume them
+// (revisionCarryReport.ts imports nothing from here -> one-directional, no cycle).
+import type { RevisionCarryBySheet, RevisionOverlaySummary } from "./revisionCarryReport";
 
 /**
  * Friendly display labels for all 21 parser role values.
@@ -225,6 +228,12 @@ export interface ParseRunDonePayload {
   failed_sheets?: string[];
   // error fields
   error_code?: "missing_file" | "fetch_failed" | "no_eligible_sheets" | "parse_failed" | "internal";
+  /**
+   * W5: per-sheet revision review-carry counts, keyed by VERBATIM sheet_name (#152). OMITTED
+   * entirely on a non-revision parse, so the payload stays byte-identical there. Rides the
+   * get_parse_status poll too (_publish_parse_event caches the whole payload it publishes).
+   */
+  revision_carry?: RevisionCarryBySheet;
 }
 
 /**
@@ -1277,7 +1286,7 @@ export interface CrossBoqCarryPlanRow {
   source_boq: string;
   source_version: number;
   outcome: 1 | 2 | 3;
-  skip_reason: "removed" | "ambiguous" | "no_rate_column" | "non_priceable" | null;
+  skip_reason: "removed" | "no_rate_column" | "non_priceable" | null;
   target_col_letter: string | null;
   current_rate: number | null;
   reason: string | null;
@@ -1288,7 +1297,6 @@ export interface CrossBoqCarryCounts {
   clean: number;
   conflict: number;
   removed: number;
-  ambiguous: number;
   no_rate_column: number;
   non_priceable: number;
 }
@@ -1333,7 +1341,6 @@ export interface CarryRatesDonePayload {
   conflicts_kept?: number;
   skipped?: {
     removed: number;
-    ambiguous: number;
     no_rate_column: number;
     non_priceable: number;
     invalid: number;
@@ -1413,6 +1420,12 @@ export interface CommittedSheetResult {
   disposition?: string;
   row_count?: number;
   node_count?: number;
+  /**
+   * W5: per-layer overlay carry counts. ADDITIVE and revision-only -- absent on every
+   * non-revision commit (and on a revision sheet that carried nothing), so the envelope stays
+   * byte-identical for the existing flows.
+   */
+  revision_overlay?: RevisionOverlaySummary;
 }
 
 /** One sheet that FAILED to commit, from the commit_boq envelope (Slice 5 backend).

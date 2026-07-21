@@ -43,7 +43,7 @@ function sheet(over: Partial<CrossBoqCarrySheet> = {}): CrossBoqCarrySheet {
     source_version: 1,
     dest_version: 1,
     plan: [],
-    counts: { clean: 0, conflict: 0, removed: 0, ambiguous: 0, no_rate_column: 0, non_priceable: 0 },
+    counts: { clean: 0, conflict: 0, removed: 0, no_rate_column: 0, non_priceable: 0 },
     formulas_complete: true,
     needs_new_value_count: 0,
     ...over,
@@ -56,7 +56,7 @@ function sheet(over: Partial<CrossBoqCarrySheet> = {}): CrossBoqCarrySheet {
 const ELECTRICAL = sheet({
   sheet_name: "Electrical",
   needs_new_value_count: 5,
-  counts: { clean: 3, conflict: 1, removed: 1, ambiguous: 0, no_rate_column: 1, non_priceable: 0 },
+  counts: { clean: 3, conflict: 1, removed: 1, no_rate_column: 1, non_priceable: 0 },
   plan: [
     row({ source_excel_row: 5, dest_excel_row: 10, outcome: 2 }), // clean
     row({ source_excel_row: 6, dest_excel_row: 11, outcome: 3, current_rate: 999 }), // conflict
@@ -70,7 +70,7 @@ const PLUMBING = sheet({
   sheet_name: "Plumbing",
   formulas_complete: false,
   needs_new_value_count: 0,
-  counts: { clean: 1, conflict: 1, removed: 0, ambiguous: 0, no_rate_column: 0, non_priceable: 0 },
+  counts: { clean: 1, conflict: 1, removed: 0, no_rate_column: 0, non_priceable: 0 },
   plan: [
     row({ source_excel_row: 20, dest_excel_row: 120, outcome: 2 }),
     row({ source_excel_row: 21, dest_excel_row: 121, outcome: 3, current_rate: 500 }),

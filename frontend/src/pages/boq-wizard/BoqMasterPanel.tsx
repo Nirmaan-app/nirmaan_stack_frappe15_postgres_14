@@ -1,6 +1,7 @@
-import { useEffect } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useEffect, useState } from "react";
+import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import ReactSelect from "react-select";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { getSelectStyles } from "@/config/selectTheme";
 import { formatDate } from "@/utils/FormatDate";
+import { getFrappeError } from "@/utils/frappeErrors";
+import { planEntryChange } from "./revisionEntry";
+import type { BOQsDoc } from "./boqTypes";
 import {
   useBoqWizardStore,
   type GstChoice,
@@ -32,6 +36,16 @@ interface RevisableOption {
 interface BoqMasterPanelProps {
   projectName: string;
   customer?: string | null;
+  /** W3: `BOQs.origin` as last read from the server (undefined while the doc is still loading). */
+  boqOrigin?: BOQsDoc["origin"] | null;
+  /** W3: `BOQs.source_boq` as last read from the server. */
+  boqSourceBoq?: string | null;
+  /**
+   * W3: re-read the BOQs doc after a successful convert. The server recomputes boq_name and
+   * version for the new naming scope, so the panel must re-fill from the doc (which also
+   * re-arms the unconfirmed treatment -- those two values genuinely changed).
+   */
+  onEntryConverted?: () => void | Promise<unknown>;
 }
 
 /**
@@ -50,27 +64,74 @@ interface BoqMasterPanelProps {
  * Excluded from unconfirmed treatment per spec (M1.19, M1.32):
  *   Project and Customer (read-only) and Notes (optional).
  */
-export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
+export function BoqMasterPanel({
+  projectName,
+  customer,
+  boqOrigin,
+  boqSourceBoq,
+  onEntryConverted,
+}: BoqMasterPanelProps) {
   const {
     panelValues,
     confirmedFields,
     setPanelValue,
     confirmField,
     selectedProjectId,
-    uploadStatus,
+    boqDocName,
     revisionMode,
     sourceBoq,
     setRevisionMode,
     setSourceBoq,
   } = useBoqWizardStore();
 
-  // Once an upload has fired, the entry (mode + original) is baked into the created BOQs doc
-  // and must not change under the user -- lock the radio + picker until they reset ("Replace
-  // file" returns to idle). Order-independence still holds fully in the idle state.
-  const entryLocked = uploadStatus !== "idle";
-
   function touch(field: keyof typeof confirmedFields) {
     confirmField(field);
+  }
+
+  // ── Entry un-lock (ADR-0014 Amendment B W3) ───────────────────────────────
+  // The radio + picker used to freeze the instant a file dropped, because origin/source_boq are
+  // baked into the BOQs doc at insert -- a wrong pick meant delete and start over. They stay live
+  // now: once the doc exists a change is pushed through convert_revision_entry (the one owner of
+  // those fields); before it exists the store value still just rides the upload POST.
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const { call: callConvert, loading: converting } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.revision.convert_revision_entry"
+  );
+
+  async function applyEntryChange(next: { mode: RevisionMode; sourceBoq: string | null }) {
+    const action = planEntryChange({
+      boqDocName,
+      mode: next.mode,
+      sourceBoq: next.sourceBoq,
+      serverOrigin: boqOrigin,
+      serverSourceBoq: boqSourceBoq,
+    });
+    // "convert" implies a doc exists (planEntryChange's first rule); the re-check narrows the type.
+    if (action.kind !== "convert" || !boqDocName) return;
+
+    // The store was updated by the caller before this ran, so these render-closure values are
+    // still the PRE-change entry -- exactly what a failed convert must be rolled back to.
+    const prevMode = revisionMode;
+    const prevSource = sourceBoq;
+
+    setConvertError(null);
+    try {
+      await callConvert({
+        boq: boqDocName,
+        mode: action.mode,
+        source_boq: action.sourceBoq ?? undefined,
+      });
+      await onEntryConverted?.();
+    } catch (e: unknown) {
+      // Inline, never a toast (wizard convention). The backend's message is the useful one --
+      // it names the reason (already committed / already parsed / mapping confirmed).
+      setConvertError(
+        getFrappeError(e) || "Could not change the upload type. Please try again."
+      );
+      // Never leave the controls disagreeing with the server.
+      setRevisionMode(prevMode);
+      if (prevMode === "revise") setSourceBoq(prevSource);
+    }
   }
 
   // ── Revisable-original picker (ADR-0014 D1) ───────────────────────────────
@@ -128,8 +189,17 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
         <Label>Upload type</Label>
         <RadioGroup
           value={revisionMode}
-          onValueChange={(val) => setRevisionMode(val as RevisionMode)}
-          disabled={entryLocked}
+          onValueChange={(val) => {
+            const mode = val as RevisionMode;
+            setRevisionMode(mode);
+            // Leaving revise clears the original (store rule), so New converts with no source.
+            void applyEntryChange({
+              mode,
+              sourceBoq: mode === "revise" ? sourceBoq : null,
+            });
+          }}
+          // Disabled only while a convert is in flight, so the entry cannot be double-fired.
+          disabled={converting}
           className="flex gap-6"
         >
           <div className="flex items-center gap-2">
@@ -139,7 +209,7 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
             </Label>
           </div>
           <div className="flex items-center gap-2">
-            <RadioGroupItem value="revise" id="mode-revise" disabled={noneToRevise || entryLocked} />
+            <RadioGroupItem value="revise" id="mode-revise" disabled={noneToRevise} />
             <Label
               htmlFor="mode-revise"
               className={cn(
@@ -157,16 +227,31 @@ export function BoqMasterPanel({ projectName, customer }: BoqMasterPanelProps) {
           </p>
         )}
 
+        {/* W3: convert in flight / failed. Inline only -- the wizard never toasts. */}
+        {converting && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Updating upload type...
+          </p>
+        )}
+        {convertError && <p className="text-sm text-destructive">{convertError}</p>}
+
         {/* Inline original picker -- appears directly beneath the radio in Revise mode. */}
         {revisionMode === "revise" && (
           <div className="pt-1">
             <ReactSelect<RevisableOption, false>
               value={selectedRevisable}
               options={revisableOptions}
-              onChange={(opt) => setSourceBoq(opt ? opt.value : null)}
+              onChange={(opt) => {
+                const next = opt ? opt.value : null;
+                setSourceBoq(next);
+                // Clearing the picker is not pushed: convert_revision_entry requires a source,
+                // and Continue already blocks a revision with no original (needsOriginal).
+                void applyEntryChange({ mode: "revise", sourceBoq: next });
+              }}
               formatOptionLabel={formatRevisableOption}
               isLoading={revisableLoading}
-              isDisabled={entryLocked}
+              isDisabled={converting}
               placeholder="Select the BoQ to revise..."
               classNamePrefix="react-select"
               styles={getSelectStyles<RevisableOption, false>()}

@@ -41,6 +41,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { BOQsDoc, BoQSheetDraft, CarryRatesDonePayload, CarryStatusResponse, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { RevisionCarryReport } from "./revisionCarryReport";
+import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
@@ -122,6 +124,9 @@ interface ParseStatusResponse {
   not_parsed_sheets?: string[];
   failed_sheets?: string[];
   error_code?: ParseRunDonePayload["error_code"];
+  // W5: the poll reads the SAME cached payload _publish_parse_event published, so the
+  // revision-carry counts ride this path too.
+  revision_carry?: ParseRunDonePayload["revision_carry"];
 }
 
 const BoqHubPage = () => {
@@ -160,6 +165,8 @@ const BoqHubPage = () => {
     parsed: string[];
     notParsed: string[];
     failed: string[];
+    /** W5: null off a revision parse (nothing carried) -> the carry sub-line is not rendered. */
+    carry: RevisionCarryReport | null;
   } | null>(null);
   const [parseError, setParseError] = useState<{ message: string; severity: "destructive" | "neutral" } | null>(null);
 
@@ -331,6 +338,9 @@ const BoqHubPage = () => {
           parsed: payload.parsed_sheets ?? [],
           notParsed: payload.not_parsed_sheets ?? [],
           failed: payload.failed_sheets ?? [],
+          // W5: fold the per-sheet carry counts into their sentence HERE (once, at the outcome
+          // seam shared by socket + poll) rather than in the modal body.
+          carry: summarizeRevisionCarry(payload.revision_carry),
         });
       } else {
         setParseError(
@@ -391,6 +401,7 @@ const BoqHubPage = () => {
       not_parsed_sheets: msg.not_parsed_sheets,
       failed_sheets: msg.failed_sheets,
       error_code: msg.error_code,
+      revision_carry: msg.revision_carry,
     });
   }, [parsePollData, applyParseOutcome]);
 
@@ -1635,6 +1646,24 @@ const BoqHubPage = () => {
                   Parsed: {parseResult.parsed.join(", ")}
                 </p>
               )}
+              {/* W5: revision review-carry, INFORMATIONAL -- muted, and rendered only when the
+                  payload carried the counts (i.e. this was a revision parse). The per-sheet
+                  breakdown appears only when more than one sheet carried. */}
+              {parseResult.carry && (
+                <div className="text-muted-foreground">
+                  <p>{parseResult.carry.headline}</p>
+                  {parseResult.carry.perSheet.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 pl-4">
+                      {parseResult.carry.perSheet.map((s) => (
+                        // VERBATIM sheet_name as the key (#152); s.label is display-trimmed.
+                        <li key={s.sheetName} className="list-disc">
+                          {s.label} &mdash; {s.text}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {parseResult.notParsed.length > 0 && (
                 <p className="text-muted-foreground">
                   Not parsed (skipped, hidden, or general-specs):{" "}
@@ -1679,7 +1708,8 @@ const BoqHubPage = () => {
               )}
               {parseResult.parsed.length === 0 &&
                 parseResult.notParsed.length === 0 &&
-                parseResult.failed.length === 0 && (
+                parseResult.failed.length === 0 &&
+                !parseResult.carry && (
                   <p className="text-foreground">Parse complete.</p>
                 )}
             </div>

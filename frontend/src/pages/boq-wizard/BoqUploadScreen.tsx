@@ -153,7 +153,9 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
 
   // Fetch the BOQs doc once boqDocName is set (i.e. after socket success).
   // Third arg null disables SWR fetch until boqDocName is available (per sdk gotcha in CLAUDE.md).
-  const { data: boqDoc } = useFrappeGetDoc<BOQsDoc>(
+  // mutate is the W3 re-read after an entry conversion: convert_revision_entry recomputes
+  // boq_name + version server-side, and the fill effect below re-runs off the fresh doc.
+  const { data: boqDoc, mutate: mutateBoqDoc } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqDocName ?? "",
     boqDocName ? undefined : null
@@ -238,6 +240,11 @@ export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreen
             <BoqMasterPanel
               projectName={project?.project_name ?? ""}
               customer={project?.customer}
+              // W3 entry un-lock: the panel needs the SERVER's current entry to decide
+              // whether a radio/picker change is a real conversion or a no-op.
+              boqOrigin={boqDoc?.origin}
+              boqSourceBoq={boqDoc?.source_boq ?? null}
+              onEntryConverted={mutateBoqDoc}
             />
           </CardContent>
         </Card>

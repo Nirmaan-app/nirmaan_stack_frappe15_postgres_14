@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { CommitBoqResponse } from "./boqTypes";
+import { formatRevisionOverlay } from "./revisionCarryReport";
 
 interface CommitResultsModalProps {
   open: boolean;
@@ -73,18 +74,27 @@ export function CommitResultsModal({
                 Committed ({committed.length})
               </p>
               <ul className="space-y-1">
-                {committed.map((c) => (
-                  <li
-                    key={c.sheet_name}
-                    className="flex items-start gap-1.5 text-sm text-emerald-700 dark:text-emerald-400"
-                  >
-                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span className="min-w-0">
-                      {/* Display-trimmed; the modal never re-sends these names. */}
-                      {c.sheet_name.trim() || c.sheet_name} &mdash; committed v{c.commit_version}
-                    </span>
-                  </li>
-                ))}
+                {committed.map((c) => {
+                  // W5: the overlay layers a REVISION sheet carried across from the original
+                  // (formulas / remarks / colors / flag dismissals / categories). null off a
+                  // revision, so a non-revision commit renders exactly as before.
+                  const overlay = formatRevisionOverlay(c.revision_overlay);
+                  return (
+                    <li
+                      key={c.sheet_name}
+                      className="flex items-start gap-1.5 text-sm text-emerald-700 dark:text-emerald-400"
+                    >
+                      <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span className="min-w-0">
+                        {/* Display-trimmed; the modal never re-sends these names. */}
+                        {c.sheet_name.trim() || c.sheet_name} &mdash; committed v{c.commit_version}
+                        {overlay && (
+                          <span className="block text-xs text-muted-foreground">{overlay}</span>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}
