@@ -174,6 +174,14 @@ interface SheetCardProps {
    * is the only extra signal that needs passing in.
    */
   staleReason?: string;
+  /**
+   * ADR-0013 A1: this BoQ was cloned from the master template (BOQsDoc.origin === "template").
+   * A template BoQ has NO source workbook, so the Configure + Parse affordances are suppressed:
+   * the stepper starts at ② Review (stage ① renders as a passive Config-Done summary) and
+   * renderActions hides every Configure / Edit-Config / Re-parse control (Review + Export CSV stay).
+   * Default false/undefined => upload origin (byte-identical to the pre-existing behaviour).
+   */
+  isTemplateOrigin?: boolean;
 }
 
 export function SheetCard({
@@ -190,6 +198,7 @@ export function SheetCard({
   committedState,
   staleReason,
   downstreamState,
+  isTemplateOrigin,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -218,6 +227,7 @@ export function SheetCard({
     effectiveStatus,
     hasPriorParse: draft.has_prior_parse === 1,
     committed: committedState,
+    isTemplateOrigin,
   });
 
   // #164: this sheet is under active parse/re-parse -- disable its actions + show a
@@ -419,10 +429,15 @@ export function SheetCard({
   };
 
   // ── Action row for the button-bearing zone (relocated verbatim per status) ──
+  // ADR-0013 A1: a TEMPLATE-origin BoQ has no source workbook, so every Configure /
+  // Edit-Config / Skip / Set-Pending / Include / Re-parse control is suppressed
+  // (`showConfig`). Review + Export CSV survive -- they are review/export affordances,
+  // not workbook-config. On upload origin `showConfig` is true -> byte-identical behaviour.
+  const showConfig = !isTemplateOrigin;
   const renderActions = () => {
     switch (effectiveStatus) {
       case "Pending":
-        return (
+        return showConfig ? (
           <>
             {/* Review Config: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
             <Button size="sm" variant="ghost" disabled={isSaving}
@@ -434,9 +449,9 @@ export function SheetCard({
               Skip Sheet
             </Button>
           </>
-        );
+        ) : null;
       case "Config Done":
-        return (
+        return showConfig ? (
           <>
             {/* Edit Config: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
             <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
@@ -455,9 +470,9 @@ export function SheetCard({
               </Button>
             )}
           </>
-        );
+        ) : null;
       case "Skip":
-        return (
+        return showConfig ? (
           <>
             <Button size="sm" variant="ghost" disabled={isSaving}
               onClick={openLabelEdit} className="h-6 px-2 text-xs">
@@ -468,16 +483,16 @@ export function SheetCard({
               Include
             </Button>
           </>
-        );
+        ) : null;
       case "Hidden":
-        return (
+        return showConfig ? (
           <Button size="sm" variant="outline" disabled={isSaving}
             onClick={() => void handleStatusChange("Pending")} className="h-6 px-2 text-xs">
             Include
           </Button>
-        );
+        ) : null;
       case "Parse failed":
-        return (
+        return showConfig ? (
           <>
             {/* Review Config: navigates to the per-sheet spoke (Module 3 Slice 3b-ii).
                 #164: Parse-failed is force-re-parse eligible (v5.46), so it can be
@@ -491,7 +506,7 @@ export function SheetCard({
               Skip Sheet
             </Button>
           </>
-        );
+        ) : null;
       case "Parsed":
         return (
           <>
@@ -501,13 +516,16 @@ export function SheetCard({
               onClick={() => onOpenReview?.(draft.sheet_name)}>
               Review
             </Button>
-            {/* Edit Config: navigates to the per-sheet spoke (Module 3 Slice 3b-ii). */}
-            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
-              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
-              Edit Config
-            </Button>
+            {/* Edit Config: navigates to the per-sheet spoke (Module 3 Slice 3b-ii).
+                Template origin -> suppressed (no source workbook to re-configure). */}
+            {showConfig && (
+              <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
+                onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+                Edit Config
+              </Button>
+            )}
             {/* Re-parse Sheet: discards this Parsed sheet's rows + any review-screen edits. */}
-            {canReparse && (
+            {showConfig && canReparse && (
               <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
                 Re-parse Sheet
@@ -524,14 +542,17 @@ export function SheetCard({
               Review
             </Button>
             {/* A1: Edit Config -> the spoke, where a Finalized sheet shows the
-                un-mark-and-edit affordance (makes the freeze reversible in-UI). */}
-            <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
-              onClick={() => onOpenSpoke?.(draft.sheet_name)}>
-              Edit Config
-            </Button>
+                un-mark-and-edit affordance (makes the freeze reversible in-UI).
+                Template origin -> suppressed (no source workbook to re-configure). */}
+            {showConfig && (
+              <Button size="sm" variant="ghost" disabled={isSaving || isParsing}
+                onClick={() => onOpenSpoke?.(draft.sheet_name)}>
+                Edit Config
+              </Button>
+            )}
             {/* Re-parse Sheet: discards a hand-reviewed+checked sheet's rows + all review work.
                 Reordered BEFORE Export CSV (WI-B). */}
-            {canReparse && (
+            {showConfig && canReparse && (
               <Button size="sm" variant="outline" disabled={isSaving || isParsing}
                 onClick={() => onReparse?.(draft.sheet_name)}>
                 Re-parse Sheet
@@ -597,8 +618,9 @@ export function SheetCard({
               Parsing&hellip;
             </span>
           )}
-          {/* Dirty indicator: Config Done sheet whose config changed since last parse. */}
-          {effectiveStatus === "Config Done" && draft.has_prior_parse === 1 && (
+          {/* Dirty indicator: Config Done sheet whose config changed since last parse.
+              Template origin -> suppressed (no Parse button to act on it). */}
+          {showConfig && effectiveStatus === "Config Done" && draft.has_prior_parse === 1 && (
             <span className="rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
               needs re-parse
             </span>
@@ -770,15 +792,18 @@ export function SheetCard({
                   )}
 
                   {/* Next-step CTA (WI-B): Config Done points at the footer's Parse workbook.
-                      Shown for all Config Done (incl. dirty / needs-re-parse). */}
-                  {n === 1 && effectiveStatus === "Config Done" && (
+                      Shown for all Config Done (incl. dirty / needs-re-parse). Template
+                      origin -> suppressed (no Parse button; the stepper starts at Review). */}
+                  {showConfig && n === 1 && effectiveStatus === "Config Done" && (
                     <p className="mt-1.5 pl-[84px] text-xs text-muted-foreground">
                       Ready to parse &mdash; click <span className="font-medium">Parse workbook</span> below.
                     </p>
                   )}
 
-                  {/* General-specs note: selector-governed, no buttons. */}
-                  {n === 1 && stages.aside === "general_specs" && (
+                  {/* General-specs note: selector-governed, no buttons. Template origin ->
+                      suppressed (the general-specs selector is hidden; disposition is fixed
+                      by the template), leaving just the "General specs" badge. */}
+                  {showConfig && n === 1 && stages.aside === "general_specs" && (
                     <p className="mt-1.5 pl-[84px] text-xs text-muted-foreground">
                       This sheet is the general specifications sheet. Change it via the selector above.
                     </p>

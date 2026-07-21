@@ -77,7 +77,7 @@
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
 import { useMemo, useRef, useEffect, useState, Fragment } from "react";
-import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, Trash2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -105,7 +105,30 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RestructureModal } from "./RestructureModal";
+// Create-from-Template (ADR-0013 T10/T11): PURE selection/eligibility helpers. Imported so
+// the row-selection + create/delete affordances (behind default-OFF props) stay unit-testable.
+import {
+  isSelectableRow,
+  isRowExcluded,
+  countSelectedLineItemsNoQty,
+  rowPickerLabel,
+} from "./templateSelection";
 // Row-detail panel READ views: the ancestor chain + direct-children list (additive, no layout
 // change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
 import { ParentChain } from "./ParentChain";
@@ -124,6 +147,10 @@ import {
   descriptionCellValue,
   sheetHasDescriptionParts,
 } from "./reviewRender";
+// A2-D1 (decision D5): isolated per-row per-area qty cells with LOCAL draft state so the
+// multi-area "Total Quantity" cell live-sums as the user types, WITHOUT re-rendering the
+// (non-memoized) whole tree on a keystroke. See AreaQtyCells.tsx for the alignment contract.
+import { AreaQtyCells } from "./AreaQtyCells";
 // DUAL-AI (ADR-0003 sec 8A): the Gemini provider column + detail-panel accept block. Visual
 // clones of Nitesh's Claude "AI Rec" column + "AI suggestion" block, reading gemini_* + calling
 // the gemini endpoints. Mounted ADDITIVELY beside the Claude pieces (Nitesh's stay untouched).
@@ -439,9 +466,33 @@ interface ReviewTreeProps {
   // should relax to reclaim the vertical space the normal page chrome would otherwise use.
   // Optional/defaulted so every existing caller renders exactly as before.
   expanded?: boolean;
+  // ── Create-from-Template (ADR-0013 A2) -- template-origin review customizations ──
+  // templateOrigin: the BoQ's origin === "template". When true the review screen hides the
+  // provenance/AI columns (Status, AI Rec, Gemini, Rate*, Amount*) and makes the Total-Quantity
+  // descriptor cell inline-editable. SEPARATE from templateControls (selectable||canCreateRows,
+  // which is readOnly-coupled) so provenance columns stay hidden even on a finalized/locked
+  // template sheet. DEFAULT false -> upload renders BYTE-IDENTICAL (every gate is a no-op).
+  templateOrigin?: boolean;
+  // ── Create-from-Template (ADR-0013 T10/T11) -- DEFAULT-OFF regression-safe additions ──
+  // selectable: render a per-eligible-row selection checkbox (preamble / line_item) that
+  //   toggles is_excluded via template_select.set_row_excluded (server-side subtree/ancestor
+  //   cascade). Excluded rows render dimmed. Template-origin BoQs only.
+  // canCreateRows: render a per-row actions menu (Insert above/below + Delete on synthetic
+  //   rows) driving template_rows.create_review_row / delete_review_row.
+  // When BOTH are false (every upload-flow caller) the tree renders BYTE-IDENTICAL to before:
+  // no extra column, no totalCols change, no opacity, no advisory line.
+  selectable?: boolean;
+  canCreateRows?: boolean;
+  // Invoked after a selection toggle / row create / row delete so the parent re-fetches
+  // get_review_rows (the server cascade flips is_excluded across the subtree / the keyspace
+  // is renumbered). SheetReviewPage wires this to mutate() (+ breaksMutate).
+  onSelectionChanged?: () => void;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged }: ReviewTreeProps) {
+  // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
+  // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
+  const templateControls = selectable || canCreateRows;
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   // FIX 1: transient highlight for scroll-to-parent affordance (~1.5s flash)
   const [highlightedIdx, setHighlightedIdx] = useState<number | null>(null);
@@ -596,6 +647,110 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const { call: revertToParserCall, loading: isRevertingToParser } = useFrappePostCall<{
     message: { ok: boolean; reverted_children: number[] };
   }>("nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser");
+
+  // ── Create-from-Template (ADR-0013 T10/T11) -- write paths (template-origin only) ─────
+  // T10: durable selection toggle. The server applies the two-direction cascade + re-emits
+  // the selection sets; we just re-fetch (onSelectionChanged) so is_excluded updates across
+  // the affected subtree / ancestor chain.
+  const { call: setRowExcludedCall } = useFrappePostCall<{
+    message: { status: string; excluded_indices: number[]; included_indices: number[] };
+  }>("nirmaan_stack.api.boq.wizard.template_select.set_row_excluded");
+  const [selectionError, setSelectionError] = useState<string | null>(null);
+  // T11: row create / delete (renumber-on-insert). create opens a small dialog; delete
+  // confirms in an AlertDialog (synthetic rows only). Both re-fetch on success.
+  const { call: createRowCall, loading: isCreatingRow } = useFrappePostCall<{
+    message: { status: string; new_row_index: number };
+  }>("nirmaan_stack.api.boq.wizard.template_rows.create_review_row");
+  const { call: deleteRowCall, loading: isDeletingRow } = useFrappePostCall<{
+    message: { status: string };
+  }>("nirmaan_stack.api.boq.wizard.template_rows.delete_review_row");
+  // Create-row dialog state (anchor + position) + the small form fields.
+  const [createDialog, setCreateDialog] = useState<{ anchorRowIndex: number; position: "above" | "below" } | null>(null);
+  const [createCls, setCreateCls] = useState<string>("line_item");
+  const [createDesc, setCreateDesc] = useState("");
+  const [createUnit, setCreateUnit] = useState("");
+  const [createParent, setCreateParent] = useState<string>("-1"); // "-1" => root
+  const [createError, setCreateError] = useState<string | null>(null);
+  // Delete-row confirm state.
+  const [deleteDialog, setDeleteDialog] = useState<ReviewRow | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // T10: advisory (non-blocking) count of SELECTED line items with no quantity.
+  const noQtyCount = useMemo(() => countSelectedLineItemsNoQty(rows), [rows]);
+
+  // T10: flip a row's selection. include=true -> excluded=0 (select + ancestor chain);
+  // include=false -> excluded=1 (deselect + descendant subtree). onEditIntent acquires the
+  // draft lock (the endpoint also acquires it server-side); re-fetch on success.
+  const handleToggleExcluded = async (row: ReviewRow, include: boolean) => {
+    // NO onEditIntent here: set_row_excluded acquires + enforces the draft single-editor lock
+    // server-side (its own guard). Firing the client-side lock acquire (onEditIntent) at the
+    // same instant as the server acquire RACES on the lock's check-then-insert ("BoQ Sheet
+    // Pricing Lock ... already exists") because a checkbox has no focus-then-save gap to
+    // sequence them (unlike a value edit). The server acquire is the single authority here.
+    setSelectionError(null);
+    try {
+      await setRowExcludedCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: row.row_index,
+        excluded: include ? 0 : 1,
+      });
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setSelectionError(getFrappeError(e) || "Could not update the selection. Please try again.");
+    }
+  };
+
+  // T11: open the create-row dialog anchored on `row`. Seeds the parent to the anchor's own
+  // effective parent (so a new row lands as a sibling by default) and resets the form.
+  const openCreateDialog = (row: ReviewRow, position: "above" | "below") => {
+    onEditIntent?.();
+    setCreateCls("line_item");
+    setCreateDesc("");
+    setCreateUnit("");
+    setCreateParent(String(row.effective_parent_index ?? -1));
+    setCreateError(null);
+    setCreateDialog({ anchorRowIndex: row.row_index, position });
+  };
+
+  const submitCreate = async () => {
+    if (!createDialog) return;
+    onEditIntent?.();
+    setCreateError(null);
+    try {
+      await createRowCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        anchor_row_index: createDialog.anchorRowIndex,
+        position: createDialog.position,
+        classification: createCls,
+        parent_index: createParent, // "-1" or a pre-insert row_index; backend int-coerces + remaps
+        description: createDesc,
+        unit: createUnit,
+      });
+      setCreateDialog(null);
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setCreateError(getFrappeError(e) || "Could not create the row. Please try again.");
+    }
+  };
+
+  const submitDelete = async () => {
+    if (!deleteDialog) return;
+    onEditIntent?.();
+    setDeleteError(null);
+    try {
+      await deleteRowCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152
+        row_index: deleteDialog.row_index,
+      });
+      setDeleteDialog(null);
+      onSelectionChanged?.();
+    } catch (e: unknown) {
+      setDeleteError(getFrappeError(e) || "Could not delete the row. Please try again.");
+    }
+  };
 
   // Apply the checked AI suggestion(s). On success reuse onSaved -> mutate (the row
   // re-fetches with status "Accepted": badge clears, Status -> "AI Accepted").
@@ -784,8 +939,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors } = useMemo(() => {
-    const displayDescriptors = columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role));
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
+    // A2: for template origin, additionally hide the pricing columns (Rate*/Amount*) -- they are
+    // populated later in the pricing editor, not at template review. This predicate matches ONLY
+    // rate*/amount* roles; it must NEVER match qty_total/qty/unit/make_model (qty_total must stay a
+    // visible + inline-editable descriptor -- the whole quantity-entry customization depends on it).
+    const displayDescriptors = columnDescriptors.filter(
+      d => !FIXED_ROLE_DEDUPE.has(d.role)
+        && !(templateOrigin && (d.role.startsWith("rate") || d.role.startsWith("amount"))),
+    );
     // MC-4: the role:"description" descriptors (excluded from displayDescriptors by
     // FIXED_ROLE_DEDUPE). Already in Excel order (backend sort). The fan-out replaces
     // the single Description anchor with one column per entry here.
@@ -817,6 +979,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const editableAreaDescriptors = displayDescriptors.filter(
       d => d.value_key !== null && EDITABLE_AREA_FIELDS.has(d.value_field),
     );
+    // A2-D1 (decision D5): the ordered per-area qty descriptors + the flat qty_total descriptor,
+    // delegated together to <AreaQtyCells> in the multi-area template body. filter() preserves
+    // displayDescriptors order (Excel-letter sort), and the backend inserts the area cols
+    // CONTIGUOUSLY right before Total (R-T1), so [area cols..., Total] render as one aligned block.
+    const areaQtyDescriptors = displayDescriptors.filter(
+      d => d.value_key !== null && d.value_field === "qty_by_area",
+    );
+    const qtyTotalDescriptor = displayDescriptors.find(
+      d => d.value_key === null && d.value_field === "qty_total",
+    ) ?? null;
     return {
       displayDescriptors,
       appendDescriptors,
@@ -827,12 +999,27 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       editableDescriptors,
       editableTextDescriptors,
       editableAreaDescriptors,
+      // A2 multi-area: true when this sheet has per-area qty columns. Drives the three-way cell
+      // logic below (single-area edits qty_total; multi-area edits per-area cells + renders the
+      // Total as a read-only sum). A pure function of the descriptors -> ref-stable per sheet.
+      hasPerAreaQty: displayDescriptors.some(d => d.value_field === "qty_by_area"),
+      areaQtyDescriptors,
+      qtyTotalDescriptor,
     };
-  }, [columnDescriptors]);
+  }, [columnDescriptors, templateOrigin]);
 
   // append-to-notes-as-columns: render the combined "Append Notes" column only when
   // the sheet actually maps append-columns (no empty trailing column otherwise).
   const hasAppendCombined = appendDescriptors.length > 0;
+
+  // A2-D1 (decision D5): in the multi-area template body the per-area qty cells + the Total cell
+  // are delegated to the isolated <AreaQtyCells> (live-sum Total, per-row local draft, no whole-tree
+  // re-render on keystroke). Same gate as the old inline per-area path
+  // (templateOrigin && !readOnly && hasPerAreaQty). firstAreaQtyCol anchors the whole block at the
+  // FIRST per-area descriptor position in the descriptor loop. Both are no-ops for upload / single-area
+  // / read-only sheets, so those paths stay byte-identical.
+  const multiAreaInline = templateOrigin && !readOnly && hasPerAreaQty;
+  const firstAreaQtyCol = areaQtyDescriptors[0]?.col ?? null;
 
   // append-to-notes-as-columns: build the combined-cell string for one row -- every
   // non-empty append value, in Excel-letter order, as "<header-else-letter>: <value>"
@@ -903,7 +1090,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // displayDescriptors changes (e.g., navigating to a different sheet).
   const [visibleCols, setVisibleCols] = useState<Set<string>>(
     () => new Set([
-      ...columnDescriptors.filter(d => !FIXED_ROLE_DEDUPE.has(d.role)).map(d => d.col),
+      ...columnDescriptors
+        .filter(d => !FIXED_ROLE_DEDUPE.has(d.role)
+          && !(templateOrigin && (d.role.startsWith("rate") || d.role.startsWith("amount"))))
+        .map(d => d.col),
       ...extraDescColLetters, // MC-4: extra (non-first) description columns are hideable
     ])
   );
@@ -1023,6 +1213,66 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
       setPendingEdit(null);
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
+    }
+  };
+
+  // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
+  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged. save_review_edit
+  // has NO separate server-side lock acquire, so the single client onEditIntent cannot create the
+  // duplicate-lock race that the T10 selection checkbox hit.
+  const saveQtyInline = async (row: ReviewRow, raw: string) => {
+    const prev = row.qty_total ?? "";
+    if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    // A2 negative-qty guard: a Total Quantity cannot be negative (server rejects too). Block the
+    // write and surface the error; the input keeps the value so the user can correct it.
+    if (String(raw).trim() !== "" && Number(raw) < 0) {
+      setSaveError("Quantity cannot be negative.");
+      return;
+    }
+    onEditIntent?.(); // B1: acquire the draft lock on first edit-intent (client side only)
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: row.row_index,
+        field: "qty_total",
+        value: raw,
+        reason: "",
+      });
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
+      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
+    }
+  };
+
+  // A2 multi-area: inline PER-AREA qty edit -- silent save (field="qty_by_area", area=<name>),
+  // mirrors saveQtyInline. The server (_apply_and_save_row_edit) re-sums qty_total for template
+  // origin, so the read-only Total cell updates on the mutate() refresh after onSaved.
+  const saveAreaQtyInline = async (row: ReviewRow, d: ColumnDescriptor, raw: string) => {
+    const prev = row.qty_by_area?.[d.value_key as string] ?? "";
+    if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
+    // A2 negative-qty guard (belt -- AreaQtyCells already blocks the onSaveArea call for a
+    // negative; this guards any other caller). Server save_review_edit rejects it regardless.
+    if (String(raw).trim() !== "" && Number(raw) < 0) {
+      setSaveError("Quantity cannot be negative.");
+      return;
+    }
+    onEditIntent?.(); // B1: client-side lock acquire (save_review_edit adds no server-side race)
+    setSaveError(null);
+    try {
+      const res = await saveCall({
+        boq_name: boqName,
+        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
+        row_index: row.row_index,
+        field: "qty_by_area",
+        area: d.value_key, // descriptor value_key == the area name
+        value: raw,
+        reason: "",
+      });
+      onSaved?.(res.message.edited_at);
+    } catch (e: unknown) {
       setSaveError(getFrappeError(e) || "Save failed. Please try again.");
     }
   };
@@ -1579,6 +1829,22 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
+      {/* T10: soft, NON-BLOCKING advisory -- selected line items missing a quantity. */}
+      {selectable && noQtyCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {noQtyCount} selected line {noQtyCount === 1 ? "item has" : "items have"} no quantity.
+          </span>
+        </div>
+      )}
+      {/* T10/T11: inline selection error (kept off toasts -- wizard convention). */}
+      {selectionError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
+          <span>{selectionError}</span>
+        </div>
+      )}
+
       <div className="rounded-md border border-border overflow-hidden">
       {/* B1.1b-ii: controls bar -- column-subset selector + classification toggles */}
       <div className="flex items-center gap-4 px-3 py-2 border-b border-border bg-muted/20 flex-wrap">
@@ -1747,12 +2013,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             {/* B2b BUILD 3: sticky moved from <tr> to individual <th> cells (solid bg, no bleed-through).
                 Corner cell (expander) gets both-axis sticky at z-30. Other <th> get top-only at z-20. */}
             <tr className="border-b border-border">
-              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header. */}
-              <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+              {/* Expander column (B2b): corner -- both axes sticky, solid bg. Empty header.
+                  A2: HIDDEN for template origin (the row-detail panel it opens is suppressed
+                  there -- see the body cell + the detail-panel row + totalCols). With it gone
+                  the template grid has NO frozen-left column; that is intentional (Include is
+                  simply the first cell, not sticky). MUST move in lockstep with them. */}
+              {!templateOrigin && (
+                <th className="px-1 py-2 w-8 border-r border-border sticky top-0 left-0 z-30 bg-muted" />
+              )}
+              {/* T10/T11: template-controls column (select checkbox + row-actions menu).
+                  Rendered ONLY when selectable or canCreateRows -> the upload flow is unaffected. */}
+              {templateControls && (
+                <th className="px-2 py-2 text-left font-medium text-muted-foreground w-24 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                  {/* The cell carries the include checkbox AND the row-actions (⋯) menu, so the
+                      header names both. canCreateRows alone (no selection) => actions only. */}
+                  {selectable ? (canCreateRows ? "Include / Actions" : "Include") : ""}
+                </th>
+              )}
               {/* Excel Row: positional anchor -- source_row_number, no mapped letter */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
                 Excel Row
               </th>
+              {/* A2: Status + AI Rec provenance columns are HIDDEN for template origin (a clone has
+                  no AI layer). Wrapped together in one fragment; renders UNCHANGED when
+                  !templateOrigin (upload). MUST gate on the identical expression as the matching
+                  body cells + the totalCols base-8 decrement, or the grid misaligns. */}
+              {!templateOrigin && (<>
               {/* Status (B2c): edit-provenance badge -- green "Edited" or blank. Not frozen-left.
                   §9 #159: header-cell Popover filter (Edited / Original / All) on statusFilter. */}
               <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -1843,8 +2129,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   </Popover>
                 </div>
               </th>
+              </>)}
               {/* Gemini (DUAL-AI, ADR-0003): SECOND provider column -- mounted directly after the
-                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled. */}
+                  Claude "AI Rec" header. Visual clone of the AI Rec <th>; only when geminiEnabled.
+                  A2: geminiEnabled is passed as (geminiEnabled && !isTemplateOrigin), so this is
+                  never mounted for template origin. */}
               {geminiEnabled && (
                 <GeminiHeaderCell geminiFilter={geminiFilter} setGeminiFilter={setGeminiFilter} />
               )}
@@ -1988,7 +2277,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // non-empty remark -- a marker's job is to advertise the remark, so no toggle
               // or open-panel gating. Clicking the marker opens the detail panel (no reveal row).
               const hasRemark = typeof row.remarks === "string" && row.remarks.trim() !== "";
-              const remarkMarkerShown = hasRemark;
+              // A2: the marker's ONLY action is toggleDetailRow, and the detail panel is suppressed
+              // for template origin -- so it would be a dead click. Gated HERE (not at the JSX) so
+              // the ml-auto marker wrapper also drops when the remark was its only occupant.
+              // Consequence: a cloned row carrying a source remark does not surface it on a template
+              // review. Accepted -- remarks are not a template-review concern (owner call).
+              const remarkMarkerShown = hasRemark && !templateOrigin;
               // B2c: colSpan for flag-reasons + detail panel rows -- 8 fixed anchors
               // (expander, Excel Row, Status, AI Rec [AI-3a], Sl.No, Parent, Classification,
               // Description). append-to-notes-as-columns: +1 when "Append Notes" is shown.
@@ -2000,7 +2294,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               // anchor; the extra visible description cols ride pickerColumns. In legacy
               // mode pickerColumns === displayDescriptors, so this is identical to before.
               const visibleDescriptorCount = pickerColumns.filter(c => visibleCols.has(c.col)).length;
-              const totalCols = 8 + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+              // T10/T11: +1 for the template-controls column when it is mounted (else unchanged).
+              // A2: template origin hides THREE fixed anchors -- Status, AI Rec, and (row-detail
+              // suppressed) the Expander -> the base 8 drops by 3. Folded into ONE term because all
+              // three vanish together on the same condition; split it into separate terms only if a
+              // future change un-hides one of them independently.
+              // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
+              const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
               // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
               const isEdited = row.edited_at !== null || (Array.isArray(row.edit_log) && row.edit_log.length > 0);
               // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
@@ -2079,10 +2379,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       // (mutually exclusive so the two ring widths can't conflict in Tailwind).
                       searchHitSet.has(row.row_index) && currentHitRowIdx !== row.row_index && "ring-1 ring-inset ring-blue-300 dark:ring-blue-700",
                       currentHitRowIdx === row.row_index && "ring-2 ring-inset ring-blue-500 dark:ring-blue-400",
+                      // T10: pruned (excluded) rows read as excluded -- dimmed (opacity is
+                      // orthogonal to the bg tiers above, so it composes without masking them).
+                      selectable && isRowExcluded(row) && "opacity-50",
                     )}
                   >
                     {/* Expander column (B2b BUILD 1): frozen-left sticky -- always visible on horizontal scroll.
-                        stopPropagation is mandatory (prevents table-dismiss from firing on the same click). */}
+                        stopPropagation is mandatory (prevents table-dismiss from firing on the same click).
+                        A2: HIDDEN for template origin -- MUST gate on the identical expression as the
+                        matching <th>, the detail-panel row, and the totalCols base-8 decrement. */}
+                    {!templateOrigin && (
                     <td className="px-1 py-1.5 align-top w-8 border-r border-border sticky left-0 z-10 bg-background">
                       <button
                         type="button"
@@ -2095,12 +2401,77 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           : <ChevronRight className="h-3 w-3" />}
                       </button>
                     </td>
+                    )}
+
+                    {/* T10/T11: template-controls cell -- selection checkbox (eligible rows) +
+                        row-actions menu. Only mounted when templateControls is on. stopPropagation
+                        so interacting here does not dismiss an open detail/flag panel. */}
+                    {templateControls && (
+                      <td className="px-2 py-1.5 align-top w-24 border-r border-border">
+                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {selectable && isSelectableRow(row) && (
+                            <Checkbox
+                              checked={!isRowExcluded(row)}
+                              onCheckedChange={(c) => { void handleToggleExcluded(row, c === true); }}
+                              aria-label={isRowExcluded(row) ? "Include this row" : "Exclude this row"}
+                            />
+                          )}
+                          {canCreateRows && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
+                                  aria-label="Row actions"
+                                  title="Insert or delete rows"
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start">
+                                <DropdownMenuItem onClick={() => openCreateDialog(row, "above")}>
+                                  Insert row above
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openCreateDialog(row, "below")}>
+                                  Insert row below
+                                </DropdownMenuItem>
+                                {/* Delete has been PROMOTED out of this menu to the inline trash
+                                    button below -- same guard, same confirm dialog. Deliberately
+                                    NOT duplicated here: two affordances for one action in one cell,
+                                    with the hidden one reachable only via an unlabelled ⋯, is noise. */}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                          {/* Inline delete -- ONLY for a user-created row (is_synthetic=1, set by
+                              template_rows.create_review_row and re-checked server-side by
+                              delete_review_row, so this gate is UX, not the boundary). Rendering it
+                              inline also makes "which rows did I add?" answerable at a glance, which
+                              the ⋯ menu could not. Opens the existing confirm dialog -- never a
+                              direct write (a deleted row's children get re-parented; no undo). */}
+                          {canCreateRows && row.is_synthetic === 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteDialog(row); }}
+                              className="h-5 w-5 flex items-center justify-center rounded text-destructive/70 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              aria-label={`Delete added row ${row.source_row_number}`}
+                              title="Delete this added row"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
 
                     {/* Excel Row */}
                     <td className="px-2 py-1.5 text-muted-foreground font-mono align-top w-10 border-r border-border">
                       {row.source_row_number}
                     </td>
 
+                    {/* A2: Status + AI Rec cells HIDDEN for template origin -- gate on the IDENTICAL
+                        !templateOrigin expression as the matching headers, or the grid misaligns. */}
+                    {!templateOrigin && (<>
                     {/* Status (B2c): edit-provenance badge -- not frozen-left.
                         AI-3a: an accepted suggestion (indigo/violet) takes precedence over Edited
                         -- an accepted suggestion writes to human_* and would otherwise read
@@ -2155,9 +2526,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         </div>
                       ) : null}
                     </td>
+                    </>)}
 
                     {/* Gemini (DUAL-AI, ADR-0003): SECOND provider cell -- mounted directly after
-                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled. */}
+                        the Claude "AI Rec" cell. Visual clone reading gemini_*; only when enabled.
+                        A2: geminiEnabled is false for template origin, so this never mounts. */}
                     {geminiEnabled && <GeminiBodyCell row={row} />}
 
                     {/* Sl.No */}
@@ -2304,16 +2677,66 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </td>
                     )}
 
-                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols */}
+                    {/* Descriptor-driven data columns: only rendered when col is in visibleCols.
+                        A2: for template origin the Total-Quantity (qty_total) cell is inline-editable
+                        (silent save on blur/Enter); every other descriptor cell stays read-only. */}
                     {displayDescriptors.map(d => {
+                      // A2-D1 (decision D5): multi-area template -> delegate the CONTIGUOUS per-area
+                      // qty cells + the qty_total cell to <AreaQtyCells> (live-sum Total + per-row
+                      // local draft; a keystroke re-renders ONLY that row's cells). Anchored at the
+                      // FIRST per-area descriptor and evaluated OUTSIDE the visibleCols guard below so
+                      // a hidden first-area col still anchors the block; <AreaQtyCells> emits the SAME
+                      // set of <td>s (each gated by visibleCols) in the SAME order the loop would have.
+                      if (multiAreaInline) {
+                        const isAreaQtyCol = d.value_key !== null && d.value_field === "qty_by_area";
+                        const isQtyTotalCol = d.value_key === null && d.value_field === "qty_total";
+                        if (isAreaQtyCol) {
+                          if (d.col !== firstAreaQtyCol) return null; // later area cols emitted by <AreaQtyCells>
+                          return (
+                            <AreaQtyCells
+                              key="area-qty-cells"
+                              row={row}
+                              areaDescriptors={areaQtyDescriptors}
+                              totalDescriptor={qtyTotalDescriptor}
+                              visibleCols={visibleCols}
+                              onSaveArea={saveAreaQtyInline}
+                            />
+                          );
+                        }
+                        if (isQtyTotalCol) return null; // Total emitted by <AreaQtyCells>
+                      }
                       if (!visibleCols.has(d.col)) return null;
                       const val = resolveDescriptorValue(row, d);
+                      // A2: single-area template -> the ONE qty_total cell is inline-editable;
+                      // gated OFF when multi-area (there <AreaQtyCells> renders the Total as a
+                      // read-only summed cell).
+                      const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
+                        && d.value_key === null && d.value_field === "qty_total";
                       return (
                         <td
                           key={d.col}
                           className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
                         >
-                          {renderDescriptorCell(val)}
+                          {isInlineQty ? (
+                            <input
+                              key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              defaultValue={row.qty_total ?? ""}
+                              onBlur={(e) => saveQtyInline(row, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              placeholder="0"
+                              className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+                            />
+                          ) : (
+                            renderDescriptorCell(val)
+                          )}
                         </td>
                       );
                     })}
@@ -2349,8 +2772,11 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                   )}
 
                   {/* B2b BUILD 1: inline read-only detail panel -- single-open (Option-B with flag accordion).
-                      Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it. */}
-                  {expandedDetailRow === row.row_index && (
+                      Interior clicks stopped from bubbling so reading inside the panel does NOT dismiss it.
+                      A2: suppressed entirely for template origin (its caret is gone above). The
+                      !templateOrigin term is defence -- navigateToRow can still set expandedDetailRow,
+                      but it is only reachable from INSIDE this panel, so no live path opens it. */}
+                  {!templateOrigin && expandedDetailRow === row.row_index && (
                     <tr className="bg-muted/30">
                       <td colSpan={totalCols} className="px-3 py-3 border-b border-border">
                         {/* Detail-panel layout pass (FINDING B): a DISTINCT nested card.
@@ -3093,6 +3519,102 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
         />
       )}
+
+      {/* ── T11: create-row dialog (template-origin only) -- classification + description +
+          unit + optional parent. A plain Button (not DialogClose) so it stays open on a
+          backend error; the inline createError surfaces the real message. ── */}
+      <Dialog open={createDialog !== null} onOpenChange={(o) => { if (!o) setCreateDialog(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Insert row {createDialog?.position === "above" ? "above" : "below"}
+            </DialogTitle>
+            <DialogDescription>
+              The new row is inserted {createDialog?.position === "above" ? "above" : "below"} the
+              anchor and is selected by default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Classification</label>
+              <Select value={createCls} onValueChange={setCreateCls}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ASSIGNABLE_CLASSIFICATIONS.map((c) => (
+                    <SelectItem key={c} value={c} className="text-xs">{CLS_LABELS[c] ?? c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Description</label>
+              <Input
+                value={createDesc}
+                onChange={(e) => setCreateDesc(e.target.value)}
+                placeholder="Row description (optional)"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Unit</label>
+              <Input
+                value={createUnit}
+                onChange={(e) => setCreateUnit(e.target.value)}
+                placeholder="Unit (optional)"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Parent</label>
+              <Select value={createParent} onValueChange={setCreateParent}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent className="max-h-64">
+                  <SelectItem value="-1" className="text-xs">Top level (root)</SelectItem>
+                  {rows.map((r) => (
+                    <SelectItem key={r.row_index} value={String(r.row_index)} className="text-xs">
+                      {rowPickerLabel(r)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {createError && <p className="text-xs text-destructive">{createError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" disabled={isCreatingRow} onClick={() => setCreateDialog(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={isCreatingRow} onClick={() => { void submitCreate(); }}>
+              {isCreatingRow ? "Adding…" : "Add row"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── T11: delete-row confirm (template-origin, synthetic rows only). ── */}
+      <AlertDialog
+        open={deleteDialog !== null}
+        onOpenChange={(o) => { if (!o) { setDeleteDialog(null); setDeleteError(null); } }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this row?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialog
+                ? `This removes the row${deleteDialog.description ? ` "${deleteDialog.description}"` : ""} you created. Any child rows re-attach to its parent.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingRow}>Cancel</AlertDialogCancel>
+            {/* Plain Button (not AlertDialogAction) so the dialog stays open on a backend error. */}
+            <Button variant="destructive" size="sm" disabled={isDeletingRow} onClick={() => { void submitDelete(); }}>
+              {isDeletingRow ? "Deleting…" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

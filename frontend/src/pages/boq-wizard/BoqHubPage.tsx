@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { BoqPresence } from "./BoqPresence";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useUserData } from "@/hooks/useUserData";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -165,6 +166,10 @@ const BoqHubPage = () => {
   const [pricedResult, setPricedResult] = useState<ExportPricedWorkbookResponse | null>(null);
   const [pricedResultsOpen, setPricedResultsOpen] = useState(false);
 
+  // A-T6 "Set as master template" (ADR-0013 A1): confirm dialog + inline error state.
+  const [setMasterOpen, setSetMasterOpen] = useState(false);
+  const [setMasterError, setSetMasterError] = useState<string | null>(null);
+
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
@@ -237,6 +242,17 @@ const BoqHubPage = () => {
   const { call: callRunParse } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.parse_run.run_parse"
   );
+
+  // A-T6: materialize this committed seed BoQ into the (single) master BoQ Template.
+  const { call: callSetMaster, loading: setMasterLoading } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.template_materialize.set_as_master_template"
+  );
+
+  // A-T6 role gate: only Admin + Estimates may set the master template (server-enforced too).
+  const { user_id, role } = useUserData();
+  const isTemplateAdmin =
+    user_id === "Administrator" ||
+    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string);
 
   // get_review_rows imperative call (Slice D2b) -- per-card CSV export fetch.
   // GET-capable endpoint (whitelist bare); useFrappePostCall gives the .call() form.
@@ -412,11 +428,40 @@ const BoqHubPage = () => {
     );
   }
 
+  // ── Origin (ADR-0013 A1) ──────────────────────────────────────────────────
+  // "template" = cloned from the master template (no source workbook). The hub then
+  // SUPPRESSES the Configure + Parse surfaces: the general-specs checklist, the Parse /
+  // Re-parse footer buttons + parse-gate, and every per-card Configure control (threaded
+  // down via isTemplateOrigin). The stepper starts at Review. "upload" / undefined =>
+  // the pre-existing upload flow, byte-identical.
+  const isTemplateOrigin = boq.origin === "template";
+
   // ── Stable onSaved callback (passed to each SheetCard) ────────────────────
   // Calls SWR mutate to re-fetch the BOQ after any successful card action.
   // Server is the source of truth; no local-state authority over wizard_status.
   // mutateWpMap refreshes the work-package map in case a spoke save happened.
   const handleSaved = () => { void mutate(); void mutateWpMap(); void mutateStale(); };
+
+  // ── A-T6 "Set as master template" ─────────────────────────────────────────
+  // Materializes this committed seed BoQ (is_template_source === 1) into the ONE master
+  // BoQ Template, REPLACING the current active master. On success -> the templates admin
+  // page; on error -> inline message (dialog stays open). Server re-checks the role gate.
+  const handleSetAsMaster = async () => {
+    setSetMasterError(null);
+    try {
+      await callSetMaster({ seed_boq: boq.name });
+      setSetMasterOpen(false);
+      navigate("/upload-boq/templates");
+    } catch (e) {
+      setSetMasterError(
+        getFrappeError(e) ||
+        "Could not set this BoQ as the master template. Please try again."
+      );
+    }
+  };
+
+  // A-T6 gate: a committed seed BoQ + an authorized user. Committed-ness reuses the same
+  // committedMap the card badges + the Committed tally use (computed below); see the button.
 
   // ── Work-package map (Slice 3f-readback) ────────────────────────────────────
   // Derived from the get_boq_work_packages response once loaded; empty while loading.
@@ -809,7 +854,8 @@ const BoqHubPage = () => {
             {boq.boq_name}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            V{boq.version ?? 1} &middot; Map sheets before parsing
+            V{boq.version ?? 1} &middot;{" "}
+            {isTemplateOrigin ? "Cloned from template — review, commit & price" : "Map sheets before parsing"}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
@@ -843,6 +889,8 @@ const BoqHubPage = () => {
       {/* ── General specifications checklist (M2.10, Slice 2b-frontend-ii) ── */}
       {/* Candidate set = nonHiddenDrafts; backend rejects Hidden sheets.      */}
       {/* Ticked = currently designated (set membership M2.16). Save = 1 write. */}
+      {/* A1: HIDDEN for template origin -- disposition is fixed by the master template. */}
+      {!isTemplateOrigin && (
       <div className="overflow-hidden rounded-lg border border-border bg-background">
         {/* Header: title + description on the left, Save on the right (card rhythm). */}
         <div className="flex flex-col gap-1 px-4 pt-3 pb-2.5 sm:flex-row sm:items-start sm:justify-between">
@@ -906,6 +954,7 @@ const BoqHubPage = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
       {/* A2: "All Sheets" section header above the card grid. */}
@@ -934,6 +983,7 @@ const BoqHubPage = () => {
             committedState={committedMap.get(draft.sheet_name)}
             staleReason={staleMap.get(draft.sheet_name)}
             downstreamState={downstreamSheets[draft.sheet_name]}
+            isTemplateOrigin={isTemplateOrigin}
           />
         ))}
 
@@ -969,6 +1019,7 @@ const BoqHubPage = () => {
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
                     staleReason={staleMap.get(draft.sheet_name)}
+                    isTemplateOrigin={isTemplateOrigin}
                   />
                 ))}
               </div>
@@ -1027,8 +1078,11 @@ const BoqHubPage = () => {
       {/* ── Parse-gate footer (M2.11/M2.12) ─────────────────────────────── */}
       <div className="border-t border-border pt-4 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          {reviewedCount} of {totalDataCount} data{" "}
-          {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
+          {/* Template origin has no Configure/Parse step, so the "reviewed" (Config Done)
+              tally is meaningless -- lead with the plain data-sheet count instead. */}
+          {isTemplateOrigin
+            ? `${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"}`
+            : `${reviewedCount} of ${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"} reviewed`}
           {parsedCount > 0 && ` · ${parsedCount} parsed`}
           {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} checked`}
           {committedCount > 0 && ` · ${committedCount} committed`}
@@ -1041,6 +1095,11 @@ const BoqHubPage = () => {
             is uncluttered and the status line (the justify-between sibling) regains space. */}
         <div className="flex shrink-0 items-center gap-2">
           <TooltipProvider>
+            {/* Parse + Re-parse are HIDDEN for a template-origin BoQ -- there is no source
+                workbook to (re-)parse; the stepper starts at Review. Commit / Tendering /
+                Export still apply (a cloned BoQ is committed + priced like any other). */}
+            {!isTemplateOrigin && (
+              <>
             {/* Parse workbook (primary). */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1085,6 +1144,8 @@ const BoqHubPage = () => {
                   : "No previously-parsed sheets to re-parse"}
               </TooltipContent>
             </Tooltip>
+              </>
+            )}
             {/* Commit (Phase 5 Slice 4b). Enabled when >= 1 sheet is commit-eligible (the
                 gate); opens the commit modal. The eligible set comes from
                 get_committable_sheets, NOT from committed-state. */}
@@ -1133,6 +1194,17 @@ const BoqHubPage = () => {
                   : "No committed sheets to price yet"}
               </TooltipContent>
             </Tooltip>
+            {/* A-T6 (ADR-0013 A1): materialize this committed SEED BoQ into the ONE master
+                template. Shown only for a committed seed BoQ (is_template_source === 1) to an
+                Admin/Estimates user; opens a REPLACE-warning confirm before calling. */}
+            {boq.is_template_source === 1 && committedMap.size > 0 && isTemplateAdmin && (
+              <Button
+                size="sm"
+                onClick={() => { setSetMasterError(null); setSetMasterOpen(true); }}
+              >
+                Set as master template
+              </Button>
+            )}
             {/* Export overflow menu -- holds the two export actions (declutters the row).
                 A labelled "Export" + chevron trigger (NOT the top-of-card "More options"
                 MoreHorizontal menu -- distinct on purpose). Always opens; each item is
@@ -1398,6 +1470,42 @@ const BoqHubPage = () => {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleSpecsCancel}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSpecsConfirm}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── A-T6 "Set as master template" confirm (ADR-0013 A1) ─────────────── */}
+      {/* REPLACE warning. Confirm uses a plain Button (NOT AlertDialogAction) so the    */}
+      {/* dialog stays open + shows the inline error on failure; success navigates away. */}
+      <AlertDialog
+        open={setMasterOpen}
+        onOpenChange={(isOpen) => { if (!isOpen && !setMasterLoading) setSetMasterOpen(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Set as master template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will <span className="font-medium text-foreground">replace</span> the current
+              active master template with this BoQ. New BoQs created from a template will clone
+              this workbook&rsquo;s sheets going forward. BoQs already created from the previous
+              template are unaffected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {setMasterError && (
+            <p className="px-6 text-sm text-destructive">{setMasterError}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setMasterLoading}>Cancel</AlertDialogCancel>
+            <Button onClick={() => void handleSetAsMaster()} disabled={setMasterLoading}>
+              {setMasterLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Setting...
+                </>
+              ) : (
+                "Replace master template"
+              )}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

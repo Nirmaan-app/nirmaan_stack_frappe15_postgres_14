@@ -204,6 +204,57 @@ prop can be removed from `new-data-table.tsx` only after these 3 hybrid facets a
 Distinguish an **id→name resolution** (backend already handles it via `LINK_FIELD_MAP` → migrate
 freely) from a **value rename** (Check/Select display relabel → legacy island until a decision).
 
+## Enforcement (2026-07-08) — the ratchet + the ownership manifests
+
+The ADR's own warning — *"if a rule can't be checked, it's documentation and it drifts"* — came
+true: one week after adoption of the two proofs, the un-mechanized rules had measurable drift
+(39 ad-hoc `workflow_state` writers across 8 files, 114 raw-`updateDoc` files, ~200 inline
+`JSON.parse` in pages). Two enforcement artifacts now close the loop; both are **Proposed**
+tooling shipped ahead of sign-off so the rules arrive as a *working* system, not prose.
+
+### 1. The ratchet — `scripts/residence_check.py` + `scripts/residence_baseline.json`
+
+Five mechanized checks (stdlib-only, no bench context), each mapping to a rule, each with a
+**committed baseline** measured 2026-07-08:
+
+| Check | Rule | Baseline |
+|---|---|---|
+| `b3_workflow_state_writers` — `workflow_state =` lines in `api/` + `integrations/` | B3 | 39 |
+| `b1_pure_module_purity` — `frappe.db/get_all(/get_doc(/sql(` inside declared `PURE_MODULES` | B1 | 0 |
+| `b2_predicate_literal_scatter` — files hardcoding `"Vendor Selected"` outside the predicate home | B2 | 8 |
+| `f5_raw_updatedoc_files` — files calling `useFrappeUpdateDoc`/`updateDoc(` | F5 | 114 |
+| `f2_inline_json_parse_pages` — `JSON.parse` occurrences in `frontend/src/pages` | F2 | 200 |
+
+**Policy: auto-tightening ratchet.** A count **above** baseline fails (exit 1, with a
+`route_hint` naming the owning module); a count **below** baseline passes and the baseline file
+is rewritten downward automatically, so retired debt can never creep back — the commit diff of
+`residence_baseline.json` *is* the progress record. The existing 39/8/114/200 violations stay
+legal; violation N+1 is blocked at the door. **v1 wiring is script + CLAUDE.md rule only**
+(agents and humans run it before committing backend/frontend changes); a Claude-Code hook / CI
+gate is deliberately deferred until sign-off, so a false positive cannot block work while the
+rules are still Proposed.
+
+### 2. The ownership manifests — `## Residence — concept → owner` per domain doc
+
+The rules say what *kind* of module owns a concept; they don't tell an agent *which* module
+already owns it — so compliant-looking scatter kept appearing (a new helper in the right folder
+is still scatter). Each domain context doc now grows a small verified table:
+**concept → owner (module) → nothing else may…**, with **UNASSIGNED** rows for concepts whose
+home genuinely doesn't exist yet (do not pick one ad-hoc; ask). First manifest:
+`.claude/context/domain/procurement.md` (the worst-scoring domain; 8 rows, every path
+verified). The **no-new-scatter rule** binds the two artifacts: an edit touching a manifest
+concept routes through its owner, or at minimum must not create a new copy — and the ratchet is
+what makes "at minimum" enforceable.
+
+### Correction — the B1 precedent
+
+The Decision table cites `services/finance.py` as a B1 pure-module precedent. On inspection it
+is **mixed**: `get_source_document_financials` is pure calculation, but the module also makes
+live `frappe.get_all` calls (payment fetches). The genuinely pure exemplar is
+`services/procurement_approval.py` (this ADR's own first proof — zero live `frappe.*` data
+calls, enforced by `b1_pure_module_purity`). `finance.py` is a **split candidate** (pure calc
+vs. fetch), not a precedent; the original table is left as written for the record.
+
 ## Deferred backlog (future implementation, in residence-rule order)
 
 1. **Mutate-bridge freshness residence** — `invalidateSidebarCounts()` fired inline with

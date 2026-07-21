@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Residence Enforcement Package — ADR-0010 · Nirmaan Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,600;9..144,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #faf7f1;
+    --paper-deep: #f3eee4;
+    --ink: #1c1712;
+    --ink-soft: #5c5348;
+    --ink-faint: #8a8072;
+    --rule: #d9d1c2;
+    --oxide: #b23a26;
+    --oxide-deep: #8c2c1c;
+    --moss: #3e6b4f;
+    --term-bg: #191512;
+    --term-ink: #e8e0d2;
+    --term-green: #7fc98a;
+    --term-red: #e8917f;
+    --term-dim: #9a8f80;
+    --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --display: "Fraunces", Georgia, serif;
+    --mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--paper);
+    background-image: radial-gradient(circle at 1px 1px, rgba(28,23,18,.035) 1px, transparent 0);
+    background-size: 22px 22px;
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { max-width: 880px; margin: 0 auto; padding: 0 32px 120px; }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding: 64px 0 36px; border-bottom: 3px solid var(--ink); }
+  .kicker {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    letter-spacing: .22em; text-transform: uppercase; color: var(--oxide);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .kicker .doc-no { color: var(--ink-faint); }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: clamp(38px, 6vw, 58px);
+    line-height: 1.04; letter-spacing: -.015em; margin: 22px 0 16px;
+  }
+  h1 em { font-style: italic; font-weight: 400; color: var(--oxide); }
+  .dek { font-size: 20px; line-height: 1.5; color: var(--ink-soft); max-width: 62ch; }
+  .meta-strip {
+    display: flex; flex-wrap: wrap; gap: 0; margin-top: 30px;
+    border-top: 1px solid var(--rule); font-family: var(--mono); font-size: 12.5px;
+  }
+  .meta-strip div { padding: 10px 26px 2px 0; }
+  .meta-strip dt { color: var(--ink-faint); text-transform: uppercase; letter-spacing: .12em; font-size: 10px; }
+  .meta-strip dd { font-weight: 600; margin-top: 2px; }
+  .badge {
+    display: inline-block; background: var(--oxide); color: var(--paper);
+    padding: 1px 8px 2px; border-radius: 2px;
+  }
+
+  /* ---------- section furniture ---------- */
+  section { margin-top: 72px; }
+  .sec-head { display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid var(--ink); padding-bottom: 10px; margin-bottom: 26px; }
+  .sec-no {
+    font-family: var(--display); font-style: italic; font-weight: 300;
+    font-size: 34px; color: var(--oxide); min-width: 44px;
+  }
+  h2 { font-family: var(--display); font-weight: 600; font-size: 27px; letter-spacing: -.01em; }
+  h3 { font-family: var(--display); font-weight: 600; font-size: 19px; margin: 30px 0 10px; }
+  p + p { margin-top: 14px; }
+  section > p, section .prose { max-width: 68ch; }
+  strong { font-weight: 600; }
+  a { color: var(--oxide-deep); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  code {
+    font-family: var(--mono); font-size: .82em; background: var(--paper-deep);
+    border: 1px solid var(--rule); border-radius: 3px; padding: 1px 5px; white-space: nowrap;
+  }
+
+  /* ---------- tl;dr ---------- */
+  .tldr {
+    margin-top: 44px; border: 1.5px solid var(--ink); background: var(--paper-deep);
+    padding: 26px 30px; position: relative;
+  }
+  .tldr::before {
+    content: "TL;DR"; position: absolute; top: -11px; left: 22px;
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .2em;
+    background: var(--oxide); color: var(--paper); padding: 2px 10px 3px;
+  }
+  .tldr p { max-width: none; }
+
+  /* ---------- pull quote ---------- */
+  .pull {
+    border-left: 4px solid var(--oxide); padding: 6px 0 6px 24px; margin: 28px 0;
+    font-family: var(--display); font-style: italic; font-size: 21px; line-height: 1.45;
+    color: var(--ink-soft); max-width: 58ch;
+  }
+  .pull cite { display: block; font-family: var(--mono); font-style: normal; font-size: 11.5px; letter-spacing: .1em; color: var(--ink-faint); margin-top: 10px; text-transform: uppercase; }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 22px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  thead th {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint); text-align: left;
+    border-bottom: 2px solid var(--ink); padding: 8px 14px 8px 0;
+  }
+  tbody td { border-bottom: 1px solid var(--rule); padding: 11px 14px 11px 0; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  td .m, th .m { font-family: var(--mono); font-size: 13px; }
+  .num { font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .num.zero { color: var(--moss); }
+  .tag {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    border: 1px solid currentColor; border-radius: 2px; padding: 1px 6px 2px; white-space: nowrap;
+  }
+  .tag.rule-tag { color: var(--oxide-deep); }
+  .tag.unassigned { color: var(--ink-faint); background: var(--paper-deep); }
+
+  /* ---------- artifact cards ---------- */
+  .artifacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 16px; margin-top: 26px; }
+  .card { border: 1px solid var(--ink); background: var(--paper); padding: 20px 22px; position: relative; }
+  .card .ordinal {
+    position: absolute; top: 16px; right: 18px; font-family: var(--display);
+    font-style: italic; font-weight: 300; font-size: 30px; color: var(--rule);
+  }
+  .card h3 { margin: 0 0 6px; font-size: 17px; padding-right: 36px; }
+  .card .path { font-family: var(--mono); font-size: 11.5px; color: var(--oxide-deep); word-break: break-all; display: block; margin-bottom: 10px; }
+  .card p { font-size: 14.5px; color: var(--ink-soft); line-height: 1.55; }
+
+  /* ---------- terminal ---------- */
+  .term {
+    background: var(--term-bg); color: var(--term-ink); border-radius: 6px;
+    margin: 20px 0; overflow: hidden; box-shadow: 0 12px 32px -18px rgba(28,23,18,.55);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    border-bottom: 1px solid rgba(232,224,210,.12);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--term-dim);
+  }
+  .dots { display: flex; gap: 5px; }
+  .dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(232,224,210,.22); }
+  .term pre {
+    padding: 16px 18px 18px; overflow-x: auto; font-family: var(--mono);
+    font-size: 12.75px; line-height: 1.75; white-space: pre;
+  }
+  .term .cmd { color: var(--term-ink); font-weight: 600; }
+  .term .cmd::before { content: "$ "; color: var(--term-dim); font-weight: 400; }
+  .term .ok { color: var(--term-green); }
+  .term .bad { color: var(--term-red); }
+  .term .dim { color: var(--term-dim); }
+  .term .hl { color: #f0c674; }
+
+  /* ---------- policy ledger ---------- */
+  .ledger { margin: 24px 0; border: 1px solid var(--ink); }
+  .ledger-row { display: grid; grid-template-columns: 190px 1fr; border-bottom: 1px solid var(--rule); }
+  .ledger-row:last-child { border-bottom: none; }
+  .ledger-row .cond {
+    font-family: var(--mono); font-size: 13.5px; font-weight: 600; padding: 16px 18px;
+    border-right: 1px solid var(--rule); background: var(--paper-deep); display: flex; align-items: center;
+  }
+  .ledger-row .effect { padding: 16px 20px; font-size: 15px; }
+  .ledger-row .effect .verdict { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  .v-fail .verdict { color: var(--oxide); }
+  .v-pass .verdict { color: var(--moss); }
+
+  /* ---------- timeline ---------- */
+  .timeline { margin-top: 28px; border-left: 2px solid var(--ink); padding-left: 0; }
+  .step { position: relative; padding: 0 0 30px 30px; }
+  .step:last-child { padding-bottom: 4px; }
+  .step::before {
+    content: ""; position: absolute; left: -7px; top: 7px; width: 12px; height: 12px;
+    border-radius: 50%; background: var(--paper); border: 2.5px solid var(--oxide);
+  }
+  .step .when { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-faint); }
+  .step h3 { margin: 4px 0 6px; }
+  .step p { font-size: 15px; color: var(--ink-soft); max-width: 64ch; }
+
+  /* ---------- outcome list ---------- */
+  .outcomes { margin-top: 26px; display: grid; gap: 0; border-top: 1px solid var(--ink); }
+  .outcome { display: grid; grid-template-columns: 150px 1fr; gap: 20px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+  .outcome .who { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--oxide-deep); padding-top: 4px; }
+  .outcome p { font-size: 15.5px; max-width: none; }
+
+  /* ---------- footer ---------- */
+  footer {
+    margin-top: 90px; border-top: 3px solid var(--ink); padding-top: 18px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  }
+
+  @media (max-width: 640px) {
+    body { font-size: 16px; }
+    .ledger-row { grid-template-columns: 1fr; }
+    .ledger-row .cond { border-right: none; border-bottom: 1px dashed var(--rule); }
+    .outcome { grid-template-columns: 1fr; gap: 6px; }
+  }
+  @media print {
+    body { background: white; }
+    .term { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header class="masthead">
+    <div class="kicker">
+      <span>Nirmaan Stack · Engineering Brief</span>
+      <span class="doc-no">ADR-0010 · Enforcement</span>
+    </div>
+    <h1>The Residence<br>Enforcement <em>Package</em></h1>
+    <p class="dek">How ten architecture rules stopped being prose and became a running system — a
+    violation ratchet, per-domain ownership manifests, and the measured baselines that make
+    “don’t make it worse” checkable on every commit.</p>
+    <dl class="meta-strip">
+      <div><dt>Date</dt><dd>08 Jul 2026</dd></div>
+      <div><dt>Branch</dt><dd>develop (uncommitted)</dd></div>
+      <div><dt>Status</dt><dd><span class="badge">Proposed</span> — pre-sign-off</dd></div>
+      <div><dt>Spec</dt><dd>docs/adr/0010-module-residence-rules.md</dd></div>
+      <div><dt>Author</dt><dd>Abhishek + Claude</dd></div>
+    </dl>
+  </header>
+
+  <div class="tldr">
+    <p>ADR-0010 defines <strong>residence rules</strong>: every domain concept — a calculation, a JSON
+    shape, a document’s state, a write path — must have <strong>one owning module</strong>. The rules
+    existed only as prose, and prose drifts. This package adds the missing enforcement:
+    <strong>① a ratchet script</strong> (<code>scripts/residence_check.py</code>) that measures five
+    violation counts against committed baselines and fails any commit that <em>increases</em> one, while
+    automatically tightening the floor whenever debt is retired; and <strong>② ownership manifests</strong>
+    (first: procurement) that tell a human or an AI agent <em>which module already owns a concept</em>
+    before they create a duplicate. Verified end-to-end: clean tree exits 0, a planted violation exits 1
+    with a hint pointing at the owner, a simulated fix auto-tightens the baseline 41&nbsp;→&nbsp;39.</p>
+  </div>
+
+  <!-- ================================================================ -->
+  <section id="problem">
+    <div class="sec-head"><span class="sec-no">01</span><h2>The problem: rules that can’t be checked, drift</h2></div>
+    <p>The codebase already legislates <strong>placement</strong> — which folder a file belongs in — and
+    that is largely followed. The June architecture review found the real gap is
+    <strong>residence</strong>: which module <em>owns</em> a concept. A rule with no home gets re-implemented
+    at every call site; each copy starts identical and slowly diverges. Because this codebase is
+    AI-co-developed, the effect compounds: agents pattern-match the surrounding code, so every existing
+    copy makes the next copy more likely. A new helper in the <em>correct folder</em> is still scatter.</p>
+    <div class="pull">“If a rule can’t be checked, it’s documentation — and it drifts.”
+      <cite>ADR-0010, one week before its own rules drifted</cite></div>
+    <p>One week after ADR-0010 was adopted with two worked proofs, we measured the un-mechanized rules
+    against the tree:</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Drift, measured 08 Jul 2026</th><th>Rule violated</th><th style="text-align:right">Count</th></tr></thead>
+      <tbody>
+        <tr><td>Ad-hoc <span class="m">workflow_state =</span> writers in <span class="m">api/</span> + <span class="m">integrations/</span></td><td><span class="tag rule-tag">B3</span> state is derived, never written ad-hoc</td><td style="text-align:right"><span class="num">39</span></td></tr>
+        <tr><td>Files hardcoding <span class="m">"Vendor Selected"</span> instead of importing the shared predicate</td><td><span class="tag rule-tag">B2</span> one owner per data shape</td><td style="text-align:right"><span class="num">8</span></td></tr>
+        <tr><td>Frontend files calling raw <span class="m">updateDoc</span> outside the write-safety seam</td><td><span class="tag rule-tag">F5</span> writes through one seam</td><td style="text-align:right"><span class="num">114</span></td></tr>
+        <tr><td>Inline <span class="m">JSON.parse</span> of backend shapes inside <span class="m">pages/</span></td><td><span class="tag rule-tag">F2</span> shapes parsed at one accessor</td><td style="text-align:right"><span class="num">200</span></td></tr>
+      </tbody>
+    </table></div>
+    <p>None of these can be fixed in one move — a hard “zero violations” gate would block every PR or force
+    a big-bang refactor nobody schedules. The enforcement has to make the status quo legal and
+    <em>regression</em> illegal. That shape has a name: a ratchet.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="artifacts">
+    <div class="sec-head"><span class="sec-no">02</span><h2>What was built — four artifacts</h2></div>
+    <div class="artifacts">
+      <div class="card"><span class="ordinal">i</span>
+        <h3>The ratchet script</h3>
+        <span class="path">scripts/residence_check.py</span>
+        <p>Stdlib-only Python, no bench context, runs from any cwd. Five checks, each mapped to an ADR
+        rule. On failure it prints a <em>route hint</em> — the module the concept lives in — so the
+        violator (human or agent) learns the correct home at the moment of the mistake.</p>
+      </div>
+      <div class="card"><span class="ordinal">ii</span>
+        <h3>The committed baselines</h3>
+        <span class="path">scripts/residence_baseline.json</span>
+        <p>The measured floor: <span class="m">39 / 0 / 8 / 114 / 200</span>. Checked into git — so every
+        time debt is retired and the script tightens a number, the <strong>diff of this file is the
+        progress record</strong>, visible in every PR.</p>
+      </div>
+      <div class="card"><span class="ordinal">iii</span>
+        <h3>The ownership manifest</h3>
+        <span class="path">.claude/context/domain/procurement.md</span>
+        <p>A verified table — <em>concept → owner → nothing else may…</em> — for the worst-scoring domain.
+        Eight rows; every path grep-verified against real code. Two rows are honestly
+        <strong>UNASSIGNED</strong>: no owner exists yet, so the rule is “don’t pick one ad-hoc — ask.”</p>
+      </div>
+      <div class="card"><span class="ordinal">iv</span>
+        <h3>The paper trail</h3>
+        <span class="path">docs/adr/0010 §Enforcement + CLAUDE.md ×2</span>
+        <p>An <em>Enforcement</em> amendment in the ADR (policy, baselines, and one honest correction — see
+        §05), plus one-line pointers in both always-loaded CLAUDE.md files so every future agent session
+        knows to run the check and consult the manifest.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="mechanics">
+    <div class="sec-head"><span class="sec-no">03</span><h2>How the ratchet works</h2></div>
+    <p>Each check counts current violations of one rule and compares against its committed baseline.
+    The policy is deliberately asymmetric — counts may only move <em>down</em>:</p>
+    <div class="ledger">
+      <div class="ledger-row v-fail">
+        <div class="cond">current &gt; baseline</div>
+        <div class="effect"><span class="verdict">✗ Fail — exit 1</span>
+          New violations were introduced. The run names the check, the delta, and prints the route hint
+          pointing at the owning module. The commit should not proceed.</div>
+      </div>
+      <div class="ledger-row v-pass">
+        <div class="cond">current &lt; baseline</div>
+        <div class="effect"><span class="verdict">✓ Pass — and tighten</span>
+          Debt was retired. The baseline file is rewritten downward automatically, so the improvement
+          becomes the new floor and can never silently creep back.</div>
+      </div>
+      <div class="ledger-row v-pass">
+        <div class="cond">current = baseline</div>
+        <div class="effect"><span class="verdict">✓ Pass — holding</span>
+          Status quo. Legal, by design — old debt is paid down incrementally, not by decree.</div>
+      </div>
+    </div>
+
+    <h3>Verified end-to-end — the three transcripts below are real runs</h3>
+
+    <div class="term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span> scenario 1 · clean tree</div>
+      <pre><span class="cmd">python3 scripts/residence_check.py</span>
+<span class="ok">✓ b3_workflow_state_writers (rule B3): current=39 baseline=39 — holding at 39</span>
+<span class="ok">✓ b1_pure_module_purity (rule B1): current=0 baseline=0 — holding at 0</span>
+<span class="ok">✓ b2_predicate_literal_scatter (rule B2): current=8 baseline=8 — holding at 8</span>
+<span class="ok">✓ f5_raw_updatedoc_files (rule F5): current=114 baseline=114 — holding at 114</span>
+<span class="ok">✓ f2_inline_json_parse_pages (rule F2): current=200 baseline=200 — holding at 200</span>
+<span class="dim">exit=0</span></pre>
+    </div>
+
+    <div class="term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span> scenario 2 · a planted violation (temp file with a state write + hardcoded literal)</div>
+      <pre><span class="cmd">python3 scripts/residence_check.py</span>
+<span class="bad">✗ b3_workflow_state_writers (rule B3): current=40 baseline=39 — 1 NEW violation(s)
+  introduced (39 -> 40) — remove them or route through the owner</span>
+<span class="hl">    -> workflow_state has no assigned deriver yet (ADR-0010 Candidate 6) — do NOT add
+       a new writer; see the Residence manifest in .claude/context/domain/procurement.md</span>
+<span class="bad">✗ b2_predicate_literal_scatter (rule B2): current=9 baseline=8 — 1 NEW violation(s)
+  introduced (8 -> 9) — remove them or route through the owner</span>
+<span class="hl">    -> the awaiting-approval predicate lives in services/procurement_approval.py
+       (AWAITING_APPROVAL_STATES / is_awaiting_approval) — import it, don't hardcode states.</span>
+<span class="dim">exit=1</span></pre>
+    </div>
+
+    <div class="term">
+      <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span> scenario 3 · simulated retired debt (baseline loosened to 41; tree has 39)</div>
+      <pre><span class="cmd">python3 scripts/residence_check.py</span>
+<span class="ok">✓ b3_workflow_state_writers (rule B3): current=39 baseline=41 — debt retired (41 -> 39)
+  — baseline tightened, nice</span>
+<span class="dim">… four more ✓ …</span>
+<span class="hl">Tightened baseline for: b3_workflow_state_writers</span>
+<span class="dim">exit=0   # residence_baseline.json rewritten: 41 → 39</span></pre>
+    </div>
+
+    <p><strong>v1 wiring is deliberately modest:</strong> the script runs by rule (both CLAUDE.md files
+    instruct running it before committing), not by hook. A Claude-Code hook or CI gate comes only after
+    owner sign-off — so while the rules are still <em>Proposed</em>, a false positive can annoy but never
+    block work.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="checks">
+    <div class="sec-head"><span class="sec-no">04</span><h2>The five checks and their baselines</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Check</th><th>Rule</th><th>What it counts</th><th style="text-align:right">Baseline</th></tr></thead>
+      <tbody>
+        <tr><td><span class="m">b3_workflow_state_writers</span></td><td><span class="tag rule-tag">B3</span></td>
+            <td>Lines assigning <span class="m">workflow_state</span> in <span class="m">api/</span> + <span class="m">integrations/</span> — state should come from one deriver (the future Candidate 6)</td>
+            <td style="text-align:right"><span class="num">39</span></td></tr>
+        <tr><td><span class="m">b1_pure_module_purity</span></td><td><span class="tag rule-tag">B1</span></td>
+            <td>Live <span class="m">frappe.db / get_all( / get_doc( / sql(</span> calls inside declared <span class="m">PURE_MODULES</span>. Python <span class="m">tokenize</span> strips docstrings first, so <em>documenting</em> the purity rule can’t trip it</td>
+            <td style="text-align:right"><span class="num zero">0</span></td></tr>
+        <tr><td><span class="m">b2_predicate_literal_scatter</span></td><td><span class="tag rule-tag">B2</span></td>
+            <td>Files hardcoding <span class="m">"Vendor Selected"</span> outside the predicate home (<span class="m">services/procurement_approval.py</span>)</td>
+            <td style="text-align:right"><span class="num">8</span></td></tr>
+        <tr><td><span class="m">f5_raw_updatedoc_files</span></td><td><span class="tag rule-tag">F5</span></td>
+            <td>Frontend files calling <span class="m">useFrappeUpdateDoc / updateDoc(</span> instead of going through the write-safety seam (<span class="m">useEditingLock</span>)</td>
+            <td style="text-align:right"><span class="num">114</span></td></tr>
+        <tr><td><span class="m">f2_inline_json_parse_pages</span></td><td><span class="tag rule-tag">F2</span></td>
+            <td>Inline <span class="m">JSON.parse</span> occurrences in <span class="m">frontend/src/pages</span> — backend shapes belong in one typed accessor</td>
+            <td style="text-align:right"><span class="num">200</span></td></tr>
+      </tbody>
+    </table></div>
+    <p>The set is extendable by design: adding a check is one <code>Check(...)</code> entry in the
+    registry plus an <code>--init</code> re-measure; declaring a new pure module is one line in
+    <code>PURE_MODULES</code>. The intended trajectory is a <em>growing</em> pure-module registry and
+    <em>shrinking</em> baselines.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="manifest">
+    <div class="sec-head"><span class="sec-no">05</span><h2>The ownership manifest — “which module owns this?”</h2></div>
+    <p>The rules say what <em>kind</em> of module owns a concept; they don’t tell an agent
+    <em>which one already does</em>. The manifest closes that gap. Excerpt from the procurement table
+    (8 rows total, every path verified):</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Concept</th><th>Owner</th><th>Nothing else may…</th></tr></thead>
+      <tbody>
+        <tr><td>Awaiting-approval predicate</td>
+            <td><span class="m">services/procurement_approval.py</span></td>
+            <td>hardcode the state literals or re-implement the pending-item check</td></tr>
+        <tr><td>Loss % / benchmark rule</td>
+            <td><span class="m">utils/lossPercent.ts</span> + <span class="m">api/send_vendor_quotes.py</span> (FE↔BE parity pair)</td>
+            <td>re-derive the 10% threshold inline</td></tr>
+        <tr><td>PR/SB <span class="m">workflow_state</span> transitions</td>
+            <td><span class="tag unassigned">UNASSIGNED</span> — Candidate 6, the future deriver</td>
+            <td>add a <em>new</em> writer (ratchet-enforced)</td></tr>
+        <tr><td><span class="m">order_list</span> child-row shape</td>
+            <td><span class="tag unassigned">UNASSIGNED</span> — no single accessor yet</td>
+            <td>add new inline parses</td></tr>
+        <tr><td>Counts / aggregates over rows</td>
+            <td>the database — <span class="m">GROUP BY / EXISTS</span>, <span class="m">sidebar_counts.py</span>-style</td>
+            <td>tally rows in a Python/JS loop</td></tr>
+      </tbody>
+    </table></div>
+    <p>The <strong>UNASSIGNED</strong> rows are the honest part: for those concepts an owner genuinely
+    doesn’t exist yet, and the correct behaviour is <em>ask, don’t invent</em> — while the ratchet
+    guarantees the pile at least stops growing. The section ends with a template note so other domains
+    copy the shape as they’re touched: rows must be <em>verified, not aspirational</em>.</p>
+    <p>Building this surfaced one correction now recorded in the ADR:
+    <code>services/finance.py</code>, previously cited as the B1 pure-module precedent, is actually
+    <strong>mixed</strong> — pure calculation alongside live <code>frappe.get_all</code> calls. The genuinely
+    pure exemplar is <code>services/procurement_approval.py</code> (baseline-enforced at zero), and
+    <code>finance.py</code> is reclassified as a split candidate. A sign-off package that corrects its own
+    precedent is more credible, not less.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="process">
+    <div class="sec-head"><span class="sec-no">06</span><h2>How it was created</h2></div>
+    <div class="timeline">
+      <div class="step"><span class="when">Recon &amp; measurement</span>
+        <h3>Grep the drift before designing the cure</h3>
+        <p>Every proposed check was measured against the live tree first (39 / 8 / 114 / 200), so the
+        tooling was shaped by real counts — not hypothetical ones. This is also where the
+        <span class="m">finance.py</span>-is-mixed discovery happened.</p></div>
+      <div class="step"><span class="when">Two decisions</span>
+        <h3>Auto-tighten · script-only v1</h3>
+        <p>Owner-chosen: baselines tighten automatically on decrease (the git diff becomes the progress
+        record), and v1 runs by rule rather than by hook — no enforcement hard-gate until the rules are
+        ratified.</p></div>
+      <div class="step"><span class="when">Parallel build</span>
+        <h3>Two subagents, independently verified</h3>
+        <p>The ratchet script and the procurement manifest were built concurrently by separate agents,
+        then cross-checked in the main session: every manifest path re-verified on disk, the script
+        re-run from scratch. The script agent independently improved the B1 check — stripping docstrings
+        via <span class="m">tokenize</span> so a comment <em>about</em> <span class="m">frappe.db</span>
+        can’t register as a violation.</p></div>
+      <div class="step"><span class="when">Policy</span>
+        <h3>compare() — the contract in ~15 lines</h3>
+        <p>The ratchet policy lives in one pure function (<span class="m">Verdict(ok, message,
+        new_baseline)</span>): above-baseline fails, below-baseline passes and tightens, equal holds.
+        No I/O in the policy; the main loop applies rewrites.</p></div>
+      <div class="step"><span class="when">Verification</span>
+        <h3>Three scenarios, real transcripts</h3>
+        <p>Clean pass (exit 0) · planted violation (exit 1, correct route hints for both tripped checks)
+        · simulated fix (exit 0, baseline auto-rewritten 41 → 39). The transcripts in §03 are unedited
+        output.</p></div>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section id="results">
+    <div class="sec-head"><span class="sec-no">07</span><h2>What you get from having this</h2></div>
+    <div class="outcomes">
+      <div class="outcome"><span class="who">For AI agents</span>
+        <p>The failure mode this kills is <em>compliant-looking scatter</em> — a new helper in the right
+        folder that duplicates an owned rule. The manifest answers “who owns this?” before code is
+        written; the ratchet catches the miss afterwards and its route hint teaches the correct home at
+        the exact moment of the mistake. Both CLAUDE.md files wire this into every future session.</p></div>
+      <div class="outcome"><span class="who">For code review</span>
+        <p>“Did this PR make the architecture worse?” becomes a one-command answer instead of a judgment
+        call. Reviewers stop having to remember which of 39 state-writers are grandfathered — the
+        baseline remembers.</p></div>
+      <div class="outcome"><span class="who">For progress</span>
+        <p>Every retired violation permanently lowers a number in a committed JSON file. Debt paydown is
+        visible in ordinary PR diffs, it can never silently regress, and the trajectory
+        (39 → … → 0, then Candidate 6 assigns the owner) is legible to anyone reading git history.</p></div>
+      <div class="outcome"><span class="who">For sign-off</span>
+        <p>ADR-0010 now arrives as a working system: ten rules, two shipped proofs
+        (<span class="m">sidebar_counts</span>, self-fetching facets), running enforcement with measured
+        baselines, and one self-correction. Ratifying it ratifies something already true — and unlocks
+        the harder gate (hook / CI) with confidence it won’t misfire.</p></div>
+    </div>
+
+    <h3>Deliberately not in v1</h3>
+    <p class="prose">No hook or CI gate (post-sign-off), no fixing of the 39/114/200 existing violations
+    (that’s the backlog’s job — Candidate 6 first, since the scattered state writers are also a known
+    correctness bug), no manifests for other domains yet (they’re added as domains are touched, using
+    the procurement template).</p>
+
+    <h3>Next steps</h3>
+    <p class="prose">① Commit the package · ② present to Nitesh for ADR-0010 ratification · ③ wire the
+    hook/CI gate · ④ let the backlog shrink the baselines — each fix auto-tightens the floor.</p>
+  </section>
+
+  <footer>
+    <span>nirmaan_stack · docs/architecture/residence-enforcement.html</span>
+    <span>generated 08 Jul 2026 · ADR-0010 Enforcement · Proposed</span>
+  </footer>
+
+</div>
+</body>
+</html>

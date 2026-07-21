@@ -310,6 +310,7 @@ scheduler_events = {
         "nirmaan_stack.tasks.item_status_update.update_item_status",
         "nirmaan_stack.tasks.cleanup_orphan_commission_attachments.cleanup_orphan_commission_attachments",
         "nirmaan_stack.tasks.cashflow_gap_limit_default.set_default_cashflow_gap_limit",
+        "nirmaan_stack.tasks.cleanup_orphan_private_files.cleanup_orphan_private_files",
 	],
 	"cron": {
 		"30 4 * * *": [
@@ -318,6 +319,11 @@ scheduler_events = {
 		],
 		"0 1 * * *": [
 			"nirmaan_stack.tasks.pmo_task_renewal.renew_due_recurring_tasks"
+		],
+		# Every 6 h — bulk-download temp .bin sweep (grace is also 6 h, so an
+		# orphan lives at most ~12 h).
+		"0 */6 * * *": [
+			"nirmaan_stack.tasks.cleanup_temp_downloads.cleanup_temp_downloads"
 		]
 	}
 }

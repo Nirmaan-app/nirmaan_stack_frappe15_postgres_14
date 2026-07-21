@@ -1,0 +1,27 @@
+{
+  "b1_pure_module_purity": {
+    "count": 0,
+    "description": "frappe.db/get_all/get_doc/sql usages inside declared PURE_MODULES (a pure module must have none).",
+    "rule": "B1"
+  },
+  "b2_predicate_literal_scatter": {
+    "count": 8,
+    "description": "Files hardcoding the \"Vendor Selected\" state literal instead of importing the shared predicate.",
+    "rule": "B2"
+  },
+  "b3_workflow_state_writers": {
+    "count": 40,
+    "description": "Lines that assign workflow_state in api/ + integrations/ (state should be derived, not written ad-hoc).",
+    "rule": "B3"
+  },
+  "f2_inline_json_parse_pages": {
+    "count": 200,
+    "description": "Inline JSON.parse occurrences in pages/ (backend shapes should be parsed at one typed accessor).",
+    "rule": "F2"
+  },
+  "f5_raw_updatedoc_files": {
+    "count": 114,
+    "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
+    "rule": "F5"
+  }
+}
