@@ -1,6 +1,6 @@
 <!--
 hvac_ai_category_prompt.md
-version: hvac-v1.2 (2026-07-21)
+version: hvac-v1.3 (2026-07-21)
 date: 2026-07-21
 model: claude-opus-4-8
 CANONICAL HVAC rate-guidance AI category prompt (Build slice HV-1). This is the SINGLE
@@ -18,8 +18,14 @@ NO other prompt surgery, and NO AI run was made in that slice; v1.1 is still UNM
 
 v1.2 (HV-5, 2026-07-21): adds ONE new section -- BOUNDARY RULINGS (owner law) -- encoding the
 owner's Boundary Rulings register R1-R10 plus the composite-host law, mirroring the same rulings
-now shipped in rules_hvac.json v3. No other prompt surgery. NO AI run was made in that slice, so
-v1.2 is UNMEASURED; it takes effect and is measured at the next AI run.
+now shipped in rules_hvac.json v3. No other prompt surgery. v1.2 WAS measured at the Set-2 exam:
+91.57% (Set-1) / 90.29% (Set-2 out-of-sample).
+
+v1.3 (HV-6, 2026-07-21): adds exactly TWO discriminators to the BOUNDARY RULINGS section,
+mirroring the two rulings shipped in rules_hvac.json v4 -- (F1) the CHW/DX feed-medium law and
+(F2) VRF controllers price with the VRF package. The Misc definition is UNCHANGED by explicit
+owner ruling. No other prompt surgery. The two voters must be changed TOGETHER or they diverge.
+NO AI run was made in this slice, so v1.3 is UNMEASURED; it is certified at the HV-7 run.
 -->
 
 # HVAC BoQ line categorisation — independent voter (Option B)
@@ -116,6 +122,22 @@ applies, follow it even if the line's wording pulls you elsewhere.
   duct insulation, pipe insulation, underdeck insulation, AHU-room insulation.
 - **Bellows.** Flexible connections / rubber bellows in a pipeline are `hvac_valve_package` -- never
   `hvac_misc`.
+- **F1 The CHW/DX boundary is the FEED MEDIUM, never the form factor.** `cassette`, `hi-wall`,
+  `ductable`, `wall-mounted` and `split` are FORM words: they describe the box, not the category.
+  A WATER-FED unit (chilled water / CHW / water-fed / water-cooled, and FCU / fan coil by
+  definition) is `hvac_chw_units`. A REFRIGERANT-FED unit (refrigerant, R410A/R32, DX, condensing
+  unit) is `hvac_dx_unit`. The context may come from the line's own text OR from its section
+  header -- a bare `1.6 TR Cassette Ac` under a CHILLED WATER section is CHW, and the same words
+  under a DX SPLIT section are DX. **VRF keeps precedence:** VRF/VRV systems are refrigerant-fed
+  too, so a line under a VRF/VRV section is `hvac_vrf`, not `hvac_dx_unit`. If a form word appears
+  with NEITHER a water nor a refrigerant context anywhere, do not guess -- prefer a blank
+  `category_id` over a coin-flip between CHW and DX.
+- **F2 A VRF system's own controls are `hvac_vrf`.** Corded / wireless / hand-held remotes,
+  centralised or central remote controllers, and the Intelligent Touch Manager are part of the VRF
+  package and price with it. `hvac_sensors` keeps the BMS basket ONLY: BACnet/BMS integration
+  controllers, transmitters, thermostats, and field sensors. The discriminator is WHAT THE DEVICE
+  CONTROLS -- a controller that drives the VRF indoor/outdoor units is VRF; a controller that
+  integrates equipment INTO a building management system is Sensors.
 
 ## Abstention
 

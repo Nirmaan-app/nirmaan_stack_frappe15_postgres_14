@@ -626,10 +626,10 @@ class TestAiVoterPromptResolution(unittest.TestCase):
         self.assertTrue(p.endswith("hvac_ai_category_prompt.md"))
         self.assertTrue(os.path.exists(p))
         text = ai_voter._read_prompt("HVAC")
-        self.assertIn("hvac-v1.2", text)
+        self.assertIn("hvac-v1.3", text)
         self.assertIn("hvac_ducting", text)
         self.assertIn("hvac_raceway", text)  # HV-3: the 17th category is in the AI category list
-        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.2")
+        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.3")
 
     def test_electrical_prompt_path_unchanged(self):
         from nirmaan_stack.services.boq_category import ai_voter
@@ -642,6 +642,104 @@ class TestAiVoterPromptResolution(unittest.TestCase):
         from nirmaan_stack.services.boq_category import ai_voter
         with self.assertRaises(ValueError):
             ai_voter._prompt_path("ELV")
+
+
+class TestHV6ChwDxFeedMediumLaw(unittest.TestCase):
+    """HV-6 ruling 1: the CHW/DX boundary is the FEED MEDIUM, never the form factor.
+
+    Form words (cassette / hi-wall / ductable / split) describe the box. They resolve only
+    together with a water-fed or refrigerant-fed context, which may come from the line's own
+    text OR its section header. With NEITHER context the row must stay weak -- not a guess.
+    """
+
+    def test_water_context_resolves_form_factor_to_chw(self):
+        r = classify_line("1.6 TR Cassette Ac", ["Chilled Water Cassette Units"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_chw_units")
+        self.assertEqual(r["band"], "HIGH")
+
+    def test_refrigerant_context_resolves_same_form_factor_to_dx(self):
+        r = classify_line("2.00 TR - Hi-Wall", ["Air Cooled DX Split Units"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_dx_unit")
+        self.assertEqual(r["band"], "HIGH")
+
+    def test_bare_form_factor_without_either_context_is_not_high(self):
+        """The NEGATIVE: no feed medium anywhere -> stay LOW/contested, never a confident guess."""
+        r = classify_line("2.00 TR - Cassette", ["Summary"], discipline="HVAC")
+        self.assertNotIn(r["band"], ("HIGH", "MED"))
+
+    def test_vrf_keeps_precedence_at_the_resolution_point(self):
+        """VRF is refrigerant-fed too: a VRF/VRV resolution point forbids DX for its children."""
+        r = classify_line("2.00 TR - Hi-Wall", ["VRV / VRF Air Cooled DX Split Units"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_dx_anc_deliberately_omits_the_bare_refrigerant_token(self):
+        """Regression guard: 'refrigerant' in DX-ANC collides with VRF and cost 4 VRF rows when
+        measured at HV-6. It must not be reintroduced."""
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "DX-ANC")
+        self.assertNotIn("refrigerant", anc["match"])
+
+    def test_chw_anc_carries_the_water_fed_vocabulary(self):
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "CHW-ANC")
+        for tok in ("chilled water", "chw", "water fed", "water cooled"):
+            self.assertIn(tok, anc["match"])
+
+
+class TestHV6VrfControllers(unittest.TestCase):
+    """HV-6 ruling 2: a VRF system's OWN controls price with the VRF package; Sensors keeps the
+    BMS basket. Guarded in both directions."""
+
+    def test_centralised_remote_controller_is_vrf(self):
+        r = classify_line("Only ON/OFF Type Centralised Remote Controller system", ["VRF WORKS"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_corded_remote_controller_is_vrf(self):
+        r = classify_line("Supply of corded remote controller for the above indoor units",
+                          ["VRF WORKS"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_bms_integration_controller_stays_sensors(self):
+        """The NEGATIVE: a BACnet/BMS integration controller is NOT a VRF control."""
+        r = classify_line("Controller for BACnet integration of VAV boxes with BMS",
+                          ["BMS / Controls"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    def test_field_sensor_with_transmitter_stays_sensors(self):
+        r = classify_line("Supply and fixing of duct mounted temperature sensor with transmitter",
+                          ["SENSORS AND CONTROLS"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+
+class TestHV6ShippedAssets(unittest.TestCase):
+    """HV-6 provenance: rules v4 ships the four new rules; PNL-ANC-TYPE is RETAINED by
+    measurement (both in-scope fixes scored worse on the combined 2,354-row corpus)."""
+
+    def test_rules_version_is_v4_and_new_rules_present(self):
+        rs = load_ruleset("HVAC")
+        ids = {r["rule_id"] for r in rs["rules"]}
+        for rid in ("DX-ANC", "DX-VRF-EXCL", "VRF-CONTROLS", "SNS-VRFCTRL-EXCL"):
+            self.assertIn(rid, ids)
+        import json as _json
+        import os as _os
+        from nirmaan_stack.services.boq_category import runner as _runner
+        path = _os.path.join(_os.path.dirname(_runner.__file__), "rules_hvac.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = _json.load(fh)
+        self.assertEqual(doc["version"], "4.0-hv6")
+
+    def test_pnl_anc_type_retained_by_measurement(self):
+        """Deleting it measured -0.98 pp (23 rows broken); headers_only measured -0.21 pp.
+        It correctly resolves bare fragment leaves ('For 15HP') under a panel header."""
+        ids = {r["rule_id"] for r in load_ruleset("HVAC")["rules"]}
+        self.assertIn("PNL-ANC-TYPE", ids)
+
+    def test_prompt_v13_carries_both_hv6_discriminators(self):
+        from nirmaan_stack.services.boq_category import ai_voter
+        text = ai_voter._read_prompt("HVAC")
+        self.assertIn("F1 The CHW/DX boundary is the FEED MEDIUM", text)
+        self.assertIn("F2 A VRF system's own controls are `hvac_vrf`", text)
 
 
 if __name__ == "__main__":

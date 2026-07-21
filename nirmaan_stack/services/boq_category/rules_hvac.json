@@ -1,6 +1,7 @@
 {
   "discipline": "HVAC",
-  "version": "3.0-hv5-v3",
+  "version": "4.0-hv6",
+  "final_rulings": "HV-6 (2026-07-21) encodes the owner's THREE FINAL rulings as rule law, each carrying source 'owner ruling 2026-07-21'. (1) CHW/DX BOUNDARY -- the FEED MEDIUM decides, never the form factor: water-fed -> hvac_chw_units, refrigerant-fed -> hvac_dx_unit, and cassette/hi-wall/ductable/split are FORM words that resolve only together with a context signal from the line's own text OR its section header (CHW-CASSETTE/DX-CASSETTE re-stated, CHW-ANC widened with water-fed/water-cooled, new DX-ANC mirroring CHW-ANC at 0.4). Bare form with NEITHER context stays weak and contested on purpose -- do not guess. VRF keeps precedence because VRF is refrigerant-fed too (new ancestor-scoped DX-VRF-EXCL); the bare word 'refrigerant' is deliberately NOT a DX-ANC token, since measuring it cost 4 VRF rows. (2) VRF CONTROLLERS -- a VRF/VRV system's OWN controls (corded/wireless remote, centralised remote controller, intelligent touch manager) price with the VRF package (new VRF-CONTROLS at 0.55), guarded the other way so Sensors keeps the BMS basket only (new SNS-VRFCTRL-EXCL). (3) MISC -- owner ruling: UNCHANGED, deliberately. PNL-ANC-TYPE was NOT modified: both implementable fixes measured WORSE on the combined 2,354-row corpus (delete -0.98 pp / 23 rows broken; headers_only -0.21 pp / 5 broken) because the rule correctly resolves bare fragment leaves such as 'For 15HP' under a panel header. Its Set-2 defect is real but the in-scope remedies cost more than they save -- see _classification_review/hvac_rules_v4_verify/VERIFY_V4.md. MEASURED RULES-ONLY: 68.22% -> 68.39% on the combined corpus; prompt v1.3's parallel edits are measured at the HV-7 certification run.",
   "boundary_register": "HV-5 (2026-07-21) encodes the owner's Boundary Rulings register as rule law. R1 flexible/foil duct -> ADP (Ducting is rigid fabricated sheet-metal only). R2 pipeline instruments (BTU/energy/flow meter, thermometer, gauges, test points, thermowells) -> Valve Package at full weight; Sensors keeps the BMS basket only. R3 plenum -> ADP, beating an AHU section. R4 starter/control/VFD panel -> Panels, beating an AHU section. R5 damper accessories (actuators, fire sensors, MFD/damper control panels) -> ADP in damper context only. R6 canvas/flexible connections resolve by SERVED context: fan section -> Fans, duct/ADP section -> ADP. R7 filters integral to a unit -> that unit; standalone filter items -> Misc. R8 air curtains -> Misc. R9 an FCU quoted with a factory-fitted valve package stays CHW Units. R10 work/service lines (recommissioning, tapping, dismantling, modification) -> Misc regardless of the system they touch, guarded so a supply+install scope still wins. Each rule carries its provenance in `source`. MEASURED RULES-ONLY this slice; the parallel prompt v1.2 edits are measured at the next AI run.",
   "note": "HVAC category ruleset v2 (Build slice HV-4, 2026-07-20). v2 = v1 + the nearest-hit ancestor resolution flag (see ancestor_resolution) + TWO label-mined ancestor rules, each clearing the declared mining floor (support >= 8 truth rows, >= 2 distinct BoQs, precision >= 85%) with its figures recorded in its own source string: VLV-ANC-TYPE (support=136/boqs=5/prec=86.1) and FAN-ANC-TYPE (support=76/boqs=6/prec=96.2). Set-1 rules accuracy 52.86% -> 66.91% on the same 1,366 rows. MINED ON PROVISIONAL LABELS -- a re-mine is OWED at clean labels, and the 5x gain:loss keep-rule that governed the batch loop applies fresh at that re-mine. Batches that measured negative (duct / ADP / insulation / BMS ancestor vocabulary) and one that measured net-positive but traded badly (ADP, +3 rows for ~30 lost) were REJECTED and are recorded in the rescore report for retry at clean labels. NO weight changes were made to any v1 rule. Original HV-3 note follows. HVAC category ruleset v1 (Build slice HV-3, 2026-07-20). v1 changes are EVIDENCE-DRIVEN from the Set-1 label scoring (_classification_review/hvac_labels_and_scoring/SCORING_V0.md, 1366 scored line items) and each carries source 'set1-scoring 2026-07-20 (provisional labels)'. FOUR changes only: (a) RACEWAY CARVE-OUT -- new hvac_raceway category owns cable tray / raceway vocabulary, removed from Cables, with a false-friend guard each way; (b) H4 CONFIRMED (100%, n=66) -- an insulation word that is an ATTRIBUTE of a pipe/valve line no longer claims the row (the owner's 4A ruling); (c) H2 REVERSED -- the air-distribution ancestor was RIGHT 84% of the time, so the token is KEPT rather than dropped, but ADP-ANC's weight STAYS AT 0.4 (raising it to 0.45/0.5 was measured at 52.86% -> 50.29% and owner-REJECTED; this note previously said 'RAISED 0.4 -> 0.5', which never shipped -- corrected at HV-4); (d) H1 + H7 REFUTED -- their proposed edits are NOT applied; a WEAK provisional BTU/energy-meter -> Valve Package rule is added instead. H3/H5/H6 came back MIXED and are deliberately UNTOUCHED -- proximity decay reshuffles those piles and they re-arbitrate at clean labels. The top-level 'decay' block is the HVAC proximity-decay curve, PROVISIONAL-FIT (see its own note). Original HV-1 note follows. HVAC category ruleset v0 (Build slice HV-1). Mirrors the electrical rule grammar EXACTLY (rule_id, category_id, signal_type item_keyword/ancestor/exclusion, match, match_mode, weight, plain, source). Weights follow electrical conventions: a strong distinctive keyword 0.55-0.6, a supporting/ambiguous keyword 0.30-0.45, an ancestor section header 0.40-0.45; item_keyword matches description+notes, ancestor matches the parent_node ancestor chain. UNMEASURED v0 seeded from the HVAC corpus recon + pricing catalogue; weights are provisional and tunable via scoring.json (shared with electrical). COLLISION OWNERS: ADP owns dampers (incl. fire dampers); Cables owns ALL HVAC cabling incl. VRF control cabling (VRF keeps only refnet/gas/stand ancillaries); cassette/hi-wall/TR is ambiguous CHW-vs-DX-vs-VRF and is scored WEAK so it lands LOW/MED (never false-HIGH) unless a chilled-water/split/VRF context resolves it; Panels excludes double-skin/plenum casing (that is AHU/ADP); Pumps + Piping exclude drain-pump/drip-tray (that belongs to the unit).",
   "ancestor_resolution": "nearest_hit",
@@ -331,18 +332,18 @@
       "match_mode": "any_token",
       "weight": 0.35,
       "ambiguous_with": ["hvac_dx_unit", "hvac_vrf"],
-      "plain": "A cassette/hi-wall/ductable terminal: CHW only WITH a chilled-water context; scored weak because bare it is ambiguous vs DX and VRF.",
-      "source": "corpus recon"
+      "plain": "CHW/DX boundary law (HV-6): cassette / hi-wall / ductable is a FORM FACTOR, not a category. It resolves to CHW only together with a WATER-FED context -- from the line's own text or its section header (CHW-ANC). Bare form with neither context stays weak and contested on purpose: do not guess.",
+      "source": "owner ruling 2026-07-21"
     },
     {
       "rule_id": "CHW-ANC",
       "category_id": "hvac_chw_units",
       "signal_type": "ancestor",
-      "match": ["chilled water", "chw", "fan coil"],
+      "match": ["chilled water", "chw", "fan coil", "water fed", "water cooled"],
       "match_mode": "any_token",
       "weight": 0.4,
-      "plain": "Sits under a Chilled Water / FCU section header.",
-      "source": "corpus recon"
+      "plain": "CHW/DX boundary law (HV-6): sits under a Chilled Water / FCU / water-fed section header. The FEED MEDIUM decides the category, not the form factor.",
+      "source": "owner ruling 2026-07-21"
     },
     {
       "rule_id": "DX-KW",
@@ -355,6 +356,16 @@
       "source": "pricing catalogue"
     },
     {
+      "rule_id": "DX-ANC",
+      "category_id": "hvac_dx_unit",
+      "signal_type": "ancestor",
+      "match": ["dx system", "dx unit", "dx split", "air cooled dx", "condensing unit"],
+      "match_mode": "any_token",
+      "weight": 0.4,
+      "plain": "CHW/DX boundary law (HV-6): sits under a DX / condensing-unit section header. Mirrors CHW-ANC (0.4) so the FEED MEDIUM decides from section context too, regardless of form factor. The bare word 'refrigerant' is deliberately NOT a token here: VRF is refrigerant-fed as well, and VRF keeps precedence (see DX-VRF-EXCL).",
+      "source": "owner ruling 2026-07-21"
+    },
+    {
       "rule_id": "DX-CASSETTE",
       "category_id": "hvac_dx_unit",
       "signal_type": "item_keyword",
@@ -362,8 +373,8 @@
       "match_mode": "any_token",
       "weight": 0.35,
       "ambiguous_with": ["hvac_chw_units", "hvac_vrf"],
-      "plain": "A cassette/hi-wall/split terminal: DX only in a split/non-VRF context; scored weak because bare it is ambiguous vs CHW and VRF.",
-      "source": "corpus recon"
+      "plain": "CHW/DX boundary law (HV-6): cassette / hi-wall / split is a FORM FACTOR, not a category. It resolves to DX only together with a REFRIGERANT-FED context -- from the line's own text or its section header (DX-ANC). Bare form with neither context stays weak and contested on purpose: do not guess.",
+      "source": "owner ruling 2026-07-21"
     },
     {
       "rule_id": "VRF-KW",
@@ -386,6 +397,16 @@
       "weight": 0.5,
       "plain": "A VRF ancillary: refnet/Y-joint, refrigerant gas topping, or ODU stand. NOTE: VRF control CABLING is hvac_cables, not here.",
       "source": "corpus recon"
+    },
+    {
+      "rule_id": "VRF-CONTROLS",
+      "category_id": "hvac_vrf",
+      "signal_type": "item_keyword",
+      "match": ["(?:corded|wireless|wired|hand\\s*held)\\s+remote", "remote\\s+control(?:ler|s)?", "centrali[sz]ed?\\s+control(?:ler|s)?", "central\\s+remote\\s+control", "intelligent\\s+touch\\s+manager"],
+      "match_mode": "regex",
+      "weight": 0.55,
+      "plain": "VRF controllers ruling (HV-6): a VRF/VRV system's OWN controls -- corded / wireless remote, centralised remote controller, intelligent touch manager -- price with the VRF package. Sensors keeps the BMS basket only (BACnet/BMS integration controllers, transmitters, thermostats); see SNS-VRFCTRL-EXCL for the other direction.",
+      "source": "owner ruling 2026-07-21"
     },
     {
       "rule_id": "VRF-ANC",
@@ -655,6 +676,27 @@
       "weight": 0.0,
       "plain": "R8 guard: an air-curtain line names a fan in its specification, so Fans is forbidden outright.",
       "source": "owner ruling 2026-07-21, workbook provenance Misc rate sheet"
+    },
+    {
+      "rule_id": "DX-VRF-EXCL",
+      "category_id": "hvac_dx_unit",
+      "signal_type": "exclusion",
+      "match": ["\\bvrf\\b", "\\bvrv\\b"],
+      "match_mode": "regex",
+      "applies_to_ancestor": true,
+      "weight": 0.0,
+      "plain": "CHW/DX boundary law (HV-6), VRF precedence: VRF/VRV systems are refrigerant-fed too, so a RESOLUTION POINT naming VRF/VRV forbids DX for its children -- DX means NON-VRF direct expansion. Ancestor-scoped (HV-5 mechanism) because the form-factor leaf itself rarely repeats the system name.",
+      "source": "owner ruling 2026-07-21"
+    },
+    {
+      "rule_id": "SNS-VRFCTRL-EXCL",
+      "category_id": "hvac_sensors",
+      "signal_type": "exclusion",
+      "match": ["(?:corded|wireless|wired|hand\\s*held)\\s+remote", "remote\\s+control(?:ler|s)?", "intelligent\\s+touch\\s+manager"],
+      "match_mode": "regex",
+      "weight": 0.0,
+      "plain": "VRF controllers ruling (HV-6), other direction: a VRF remote / central controller is NOT a BMS sensor, so Sensors is forbidden on those lines. Sensors keeps BACnet/BMS integration controllers, transmitters and thermostats.",
+      "source": "owner ruling 2026-07-21"
     }
   ]
 }
