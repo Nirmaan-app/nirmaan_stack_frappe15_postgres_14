@@ -27,6 +27,12 @@ from nirmaan_stack.services.boq_revision.carry import (
     NO_PARENT,
     ReviewCarryWrite,
     build_review_carry,
+    decide_review_carry,
+    explain_non_carry,
+)
+from nirmaan_stack.services.boq_revision.reasons import (
+    PARENT_NOT_CARRIED,
+    SOURCE_UNCLASSIFIED,
 )
 from nirmaan_stack.services.boq_revision.row_match import MatchRow, match_rows
 
@@ -308,6 +314,103 @@ class TestKnownHole(unittest.TestCase):
         # KNOWN-WRONG: it copies, and it re-points to Section A rather than the new heading.
         self.assertIn(2, carries)
         self.assertEqual(carries[2].parent_index, 0)
+
+
+class TestExplainNonCarry(unittest.TestCase):
+    """The reason half of the same decision (needs-review taxonomy).
+
+    `explain_non_carry` covers ONLY rows that MATCHED and were still refused. A row that never
+    matched is deliberately absent: its reason lives on the position/description axis, which needs
+    both sides' rows and belongs to `diagnose.py`. Splitting it that way is what keeps a vague
+    catch-all code out of the vocabulary.
+    """
+
+    def _reasons(self, nodes, revs, original_by_id=None):
+        match = match_rows(
+            [MatchRow(row_id=n["name"], excel_row=n["source_row_number"],
+                      description=n["description"]) for n in nodes],
+            [MatchRow(row_id=r["row_id"], excel_row=r["excel_row"],
+                      description=r["description"]) for r in revs],
+        )
+        by_id = {n["name"]: n for n in nodes} if original_by_id is None else original_by_id
+        return explain_non_carry(revs, by_id, match)
+
+    def test_unmatched_parent_is_reported_as_parent_not_carried(self):
+        nodes = [
+            _node("goneSec", "Deleted Section", 1, row_class="preamble"),
+            _node("child", "Child item", 2, row_class="preamble", parent_node="goneSec"),
+        ]
+        revs = [_rev(0, "Replacement Section", 1, "preamble"), _rev(1, "Child item", 2, "note")]
+        self.assertEqual(self._reasons(nodes, revs)[1], PARENT_NOT_CARRIED)
+
+    def test_blank_row_class_is_reported_as_source_unclassified(self):
+        nodes = [_node("n", "Odd row", 1, row_class="")]
+        revs = [_rev(0, "Odd row", 1)]
+        self.assertEqual(self._reasons(nodes, revs)[0], SOURCE_UNCLASSIFIED)
+
+    def test_a_matcher_node_map_disagreement_is_source_unclassified(self):
+        # Defensive branch: the match paired the row, but the node map has no record for it.
+        nodes = [_node("n", "Real row", 1)]
+        revs = [_rev(0, "Real row", 1)]
+        self.assertEqual(self._reasons(nodes, revs, original_by_id={})[0], SOURCE_UNCLASSIFIED)
+
+    def test_an_unmatched_row_is_absent_because_diagnose_owns_it(self):
+        nodes = [_node("n", "Real row", 1)]
+        revs = [_rev(0, "Real row", 1), _rev(1, "Brand new row", 2)]
+        self.assertNotIn(1, self._reasons(nodes, revs))
+
+    def test_a_copied_row_is_never_given_a_reason(self):
+        nodes = [_node("n", "Real row", 1)]
+        revs = [_rev(0, "Real row", 1)]
+        self.assertEqual(self._reasons(nodes, revs), {})
+
+
+class TestDecideReviewCarry(unittest.TestCase):
+    """`decide_review_carry` is the one traversal both public functions project from -- so the two
+    halves cannot disagree about a row."""
+
+    def _fixture(self):
+        nodes = [
+            _node("sec", "Section", 1, row_class="preamble"),
+            _node("kid", "Kid", 2, parent_node="sec"),
+            _node("goneSec", "Doomed Section", 3, row_class="preamble"),
+            _node("orphan", "Orphan item", 4, parent_node="goneSec"),
+            _node("blank", "Blank class", 5, row_class=""),
+        ]
+        revs = [
+            _rev(0, "Section", 1), _rev(1, "Kid", 2),
+            _rev(2, "Replaced Section", 3), _rev(3, "Orphan item", 4),
+            _rev(4, "Blank class", 5), _rev(5, "Brand new", 6),
+        ]
+        match = match_rows(
+            [MatchRow(row_id=n["name"], excel_row=n["source_row_number"],
+                      description=n["description"]) for n in nodes],
+            [MatchRow(row_id=r["row_id"], excel_row=r["excel_row"],
+                      description=r["description"]) for r in revs],
+        )
+        return revs, {n["name"]: n for n in nodes}, match
+
+    def test_the_two_halves_are_disjoint(self):
+        revs, by_id, match = self._fixture()
+        carries, reasons = decide_review_carry(revs, by_id, match)
+        self.assertFalse(set(carries) & set(reasons))
+
+    def test_each_projection_equals_its_half(self):
+        revs, by_id, match = self._fixture()
+        carries, reasons = decide_review_carry(revs, by_id, match)
+        self.assertEqual(build_review_carry(revs, by_id, match), carries)
+        self.assertEqual(explain_non_carry(revs, by_id, match), reasons)
+
+    def test_the_expected_split_for_a_mixed_sheet(self):
+        revs, by_id, match = self._fixture()
+        carries, reasons = decide_review_carry(revs, by_id, match)
+        self.assertEqual(set(carries), {0, 1})
+        self.assertEqual(reasons, {3: PARENT_NOT_CARRIED, 4: SOURCE_UNCLASSIFIED})
+        # 2 (reworded) and 5 (new) matched nothing -> neither half claims them.
+        self.assertNotIn(2, carries)
+        self.assertNotIn(2, reasons)
+        self.assertNotIn(5, carries)
+        self.assertNotIn(5, reasons)
 
 
 if __name__ == "__main__":
