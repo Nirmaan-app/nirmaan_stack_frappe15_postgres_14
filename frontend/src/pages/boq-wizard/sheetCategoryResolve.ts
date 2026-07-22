@@ -3,6 +3,7 @@
 // sheetCategoryResolve.test.ts (the codebase's pure-helper pattern, ADR-0010 F4).
 
 import type {
+  ClassifyScope,
   EngineCatalog,
   ResolvedSheetCategory,
   SheetCategoryRow,
@@ -90,4 +91,66 @@ export function buildSheetEngineCatalogs(
     });
   }
   return out;
+}
+
+// ── HV-10b: completion summary = COMBINED EFFECTIVE outcome ─────────────────────────
+// Owner ruling (2026-07-22): the "xx classified, yy flagged for review" completion message must
+// report the COMBINED effective outcome (what the grid shows), not a per-engine denominator. It is
+// computed from the resolved read (the grid's source of truth), scoped to the union of the run
+// set's row range(s).
+
+/**
+ * The row scope a completion summary covers: the WHOLE sheet, or an explicit set of Excel rows
+ * (the union of one run set's per-engine ranges). Whole-sheet DOMINATES a mixed union: if any
+ * engine in the run set ran whole-sheet, the union is the whole sheet.
+ */
+export type ScopeUnion = { mode: "sheet" } | { mode: "rows"; rows: number[] };
+
+/**
+ * Fold one run set's per-engine scopes into a single ScopeUnion (owner condition 1):
+ *   - any `{mode:"sheet"}` present            -> `{mode:"sheet"}` (whole-sheet dominates)
+ *   - all ranges                              -> `{mode:"rows"}` = every Excel row any range covers
+ *   - empty / unknown (defensive)             -> `{mode:"sheet"}` (never UNDER-report a run's rows)
+ * PURE + stateless: each call depends only on the scopes passed, so a fresh run set that calls this
+ * with only its own scopes RESETS the union (no carry from a prior run set -- the reset semantics
+ * the page relies on by REPLACING its ref each onStarted).
+ */
+export function unionScopes(scopes: readonly ClassifyScope[]): ScopeUnion {
+  if (scopes.length === 0) return { mode: "sheet" };
+  if (scopes.some((s) => s.mode === "sheet")) return { mode: "sheet" };
+  const rows = new Set<number>();
+  for (const s of scopes) {
+    if (s.mode === "range") {
+      for (let r = s.start; r <= s.end; r++) rows.add(r);
+    }
+  }
+  return { mode: "rows", rows: [...rows].sort((a, b) => a - b) };
+}
+
+/**
+ * The COMBINED EFFECTIVE completion summary over the resolved read, scoped to `rangeUnion`:
+ *   - categorised = rows whose EFFECTIVE verdict is non-blank (an auto-accept OR a human verdict --
+ *                   so a pre-existing human verdict counts as categorised, owner condition)
+ *   - review      = rows whose effective verdict is blank (the blank-review law)
+ * Whole-sheet scope counts every resolved row; a rows scope counts only rows in the union. This is
+ * the SAME split the grid renders, so the message and the grid agree by construction. A single
+ * whole-sheet engine with no human verdicts yields exactly the engine's own (auto-accept / review)
+ * numbers -- the equality-by-construction guarantee (tested).
+ */
+export function summariseResolvedOutcome(
+  resolvedRows: readonly Pick<ResolvedSheetCategory, "excel_row" | "effective_category_id">[],
+  rangeUnion: ScopeUnion,
+): { categorised: number; review: number } {
+  const inScope =
+    rangeUnion.mode === "sheet"
+      ? () => true
+      : (excelRow: number) => rangeUnion.rows.includes(excelRow);
+  let categorised = 0;
+  let review = 0;
+  for (const r of resolvedRows) {
+    if (!inScope(r.excel_row)) continue;
+    if ((r.effective_category_id ?? "").trim()) categorised++;
+    else review++;
+  }
+  return { categorised, review };
 }

@@ -77,6 +77,9 @@ import {
   buildSheetEngineCatalogs,
   removeRunningDiscipline,
   resolvedToSheetCategoryRow,
+  summariseResolvedOutcome,
+  unionScopes,
+  type ScopeUnion,
 } from "./sheetCategoryResolve";
 import { ClassifyProgressModal } from "./ClassifyProgressModal";
 import {
@@ -585,6 +588,17 @@ const SheetPricingPage = () => {
   runningDisciplinesRef.current = runningDisciplines;
   const ranDisciplinesRef = useRef<string[]>([]);
   ranDisciplinesRef.current = ranDisciplines;
+  // HV-10b: the row-range union of the CURRENT run set (owner condition 1). Set fresh on each
+  // onStarted -- a new run set REPLACES it, so it never carries across run sets (the reset
+  // semantics); a whole-sheet or unknown-scope run collapses it to {mode:"sheet"}. The COMBINED
+  // EFFECTIVE completion summary is scoped to this union. Default {sheet} covers a run recovered
+  // from the status poll (started elsewhere -> scope unknown -> whole sheet).
+  const scopeUnionRef = useRef<ScopeUnion>({ mode: "sheet" });
+  // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
+  // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
+  // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
+  const catDataRef = useRef<{ message: GetSheetCategoriesResolvedResponse } | undefined>(undefined);
+  catDataRef.current = catData;
 
   // T1 reconnect-gate refs (NOT state -- must never add a re-render source). sawDisconnectRef flips
   // true on a socket "disconnect"; lastReconnectRefetchRef stamps the last gated refetch so a
@@ -820,16 +834,21 @@ const SheetPricingPage = () => {
       runningDisciplinesRef.current = nextRunning;
       setRunningDisciplines(nextRunning);
       const allDone = nextRunning.length === 0;
-      if (allDone) {
-        setClassifyRunning(false);
-        classifyRunningRef.current = false;
-        setClassifyProgress(null);
+      if (!allDone) {
+        // A mid-run engine finished; repaint the grid but WAIT for the rest before summarising --
+        // the completion summary is the COMBINED outcome, so it is composed only once every engine
+        // in the run set has terminated (HV-10b).
+        void mutateCategories();
+        return;
       }
-      // The most-recently-completed engine's summary is shown (single-engine = the only summary).
-      setClassifySummary({
-        total_in_range: p.total_in_range ?? 0,
-        eligible_classified: p.eligible_classified ?? 0,
-        needs_review: p.needs_review ?? 0,
+      setClassifyRunning(false);
+      classifyRunningRef.current = false;
+      setClassifyProgress(null);
+
+      // Non-count fields carried from the terminal payload. HV-10b changes ONLY the NUMBERS' source
+      // (per-engine denominator -> combined effective); the wording, skip rollup and ai_status note
+      // are unchanged, carried as the last-completing engine reported them.
+      const carry = {
         auto_accepted: p.auto_accepted ?? 0,
         skipped_total: p.skipped_total ?? 0,
         skipped_by_reason: p.skipped_by_reason ?? {},
@@ -838,8 +857,37 @@ const SheetPricingPage = () => {
         ai_status: p.ai_status ?? null,
         status: p.status,
         error_code: p.error_code,
+      };
+
+      if (p.status === "error") {
+        // Error path unchanged -- the error modal reads status/error_code, not the counts.
+        setClassifySummary({
+          total_in_range: 0,
+          eligible_classified: 0,
+          needs_review: 0,
+          ...carry,
+        });
+        void mutateCategories();
+        return;
+      }
+
+      // SUCCESS, all engines done: the completion summary is the COMBINED EFFECTIVE outcome over the
+      // resolved read (the grid's source of truth), scoped to this run set's row range union
+      // (HV-10b). Computed from the FRESH resolved rows (post-refetch) so the message == the
+      // resolved effective split == what the grid then shows. categorised = effective non-blank
+      // (an auto-accept OR a human verdict); review = effective blank (the blank-review law).
+      const union = scopeUnionRef.current;
+      void mutateCategories().then((fresh) => {
+        const rows =
+          fresh?.message?.categories ?? catDataRef.current?.message?.categories ?? [];
+        const { categorised, review } = summariseResolvedOutcome(rows, union);
+        setClassifySummary({
+          ...carry,
+          eligible_classified: categorised,
+          needs_review: review,
+          total_in_range: categorised + review,
+        });
       });
-      void mutateCategories();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boqId, sheetName, mutateCategories],
@@ -909,6 +957,9 @@ const SheetPricingPage = () => {
           const next = addRunningDisciplines(runningDisciplinesRef.current, [discipline]);
           runningDisciplinesRef.current = next;
           setRunningDisciplines(next);
+          // HV-10b: a run recovered from the poll has no captured scope, so the summary cannot be
+          // range-scoped precisely -- degrade the union to whole-sheet (never UNDER-report a run).
+          scopeUnionRef.current = { mode: "sheet" };
         }
         if (typeof msg.done === "number" && typeof msg.total === "number") {
           setClassifyProgress({ done: msg.done, total: msg.total });
@@ -2625,11 +2676,18 @@ const SheetPricingPage = () => {
         boqId={boqId ?? ""}
         sheetName={sheetName ?? ""}
         onClose={() => setClassifyOpen(false)}
-        onStarted={(disciplines) => {
+        onStarted={(launches) => {
           // HV-10: capture the launched disciplines so the pollers/filters accept their events.
-          const next = addRunningDisciplines(runningDisciplinesRef.current, disciplines);
+          const next = addRunningDisciplines(
+            runningDisciplinesRef.current,
+            launches.map((l) => l.discipline),
+          );
           runningDisciplinesRef.current = next;
           setRunningDisciplines(next);
+          // HV-10b: a FRESH run set REPLACES the scope union with just this run set's scopes (the
+          // reset-between-run-sets semantics); multiple engines in one launch fold via unionScopes
+          // (whole-sheet dominates a mixed union). The completion summary is scoped to it.
+          scopeUnionRef.current = unionScopes(launches.map((l) => l.scope));
           setClassifyRunning(true);
           classifyRunningRef.current = true;
           setClassifyProgress(null);

@@ -6,6 +6,8 @@ import {
   buildSheetEngineCatalogs,
   removeRunningDiscipline,
   resolvedToSheetCategoryRow,
+  summariseResolvedOutcome,
+  unionScopes,
 } from "./sheetCategoryResolve";
 import type { EngineCatalog, ResolvedSheetCategory } from "./boqTypes";
 
@@ -137,5 +139,109 @@ describe("buildSheetEngineCatalogs (grouped picker, N-generic)", () => {
       { Plumbing: "Plumbing" },
     );
     expect(out[0].categories.map((c) => c.id)).toEqual(["plumbing_pipe"]);
+  });
+});
+
+// ── HV-10b: completion summary = combined effective outcome ─────────────────────────
+
+/** A minimal resolved row for the summary helper (it reads only excel_row + effective). */
+function erow(excel_row: number, effective: string): Pick<ResolvedSheetCategory, "excel_row" | "effective_category_id"> {
+  return { excel_row, effective_category_id: effective };
+}
+
+describe("unionScopes (one run set's per-engine ranges -> one ScopeUnion)", () => {
+  it("empty scopes -> whole sheet (defensive: never under-report)", () => {
+    expect(unionScopes([])).toEqual({ mode: "sheet" });
+  });
+
+  it("a single whole-sheet scope -> whole sheet", () => {
+    expect(unionScopes([{ mode: "sheet" }])).toEqual({ mode: "sheet" });
+  });
+
+  it("a single range -> exactly its inclusive Excel rows", () => {
+    expect(unionScopes([{ mode: "range", start: 14, end: 17 }])).toEqual({
+      mode: "rows",
+      rows: [14, 15, 16, 17],
+    });
+  });
+
+  it("two disjoint ranges -> the sorted union of both", () => {
+    expect(unionScopes([{ mode: "range", start: 2, end: 4 }, { mode: "range", start: 6, end: 7 }])).toEqual({
+      mode: "rows",
+      rows: [2, 3, 4, 6, 7],
+    });
+  });
+
+  it("overlapping ranges dedup", () => {
+    expect(unionScopes([{ mode: "range", start: 2, end: 5 }, { mode: "range", start: 4, end: 8 }])).toEqual({
+      mode: "rows",
+      rows: [2, 3, 4, 5, 6, 7, 8],
+    });
+  });
+
+  it("MIXED case (owner condition 1): one whole-sheet + one range -> whole sheet dominates", () => {
+    expect(
+      unionScopes([{ mode: "sheet" }, { mode: "range", start: 14, end: 17 }]),
+    ).toEqual({ mode: "sheet" });
+  });
+
+  it("RESET between run sets: each call depends only on its own scopes (no accumulation)", () => {
+    // The page REPLACES scopeUnionRef with unionScopes(<this run set's scopes>) on every onStarted,
+    // so a fresh run set never carries a prior set's rows. Modelled here as two sequential calls.
+    const runSet1 = unionScopes([{ mode: "range", start: 2, end: 5 }]);
+    const runSet2 = unionScopes([{ mode: "range", start: 14, end: 17 }]);
+    expect(runSet1).toEqual({ mode: "rows", rows: [2, 3, 4, 5] });
+    expect(runSet2).toEqual({ mode: "rows", rows: [14, 15, 16, 17] }); // no 2..5 leaked in
+  });
+});
+
+describe("summariseResolvedOutcome (combined effective over the resolved read)", () => {
+  it("EQUALITY BY CONSTRUCTION: single-engine whole sheet, no human -> the engine's own numbers", () => {
+    // 3 auto-accepted (non-blank effective) + 2 needs-review (blank) == a single engine's payload
+    // {eligible_classified:3, needs_review:2}. The combined split must equal that exactly.
+    const rows = [erow(2, "panels"), erow(3, "cables"), erow(4, "earthing"), erow(5, ""), erow(6, "")];
+    expect(summariseResolvedOutcome(rows, { mode: "sheet" })).toEqual({ categorised: 3, review: 2 });
+  });
+
+  it("CONCURRENT two-engine E2E shape: 16 rows -> combined 7 categorised / 9 review", () => {
+    // Rows 7-9 (Electrical: DB and Switchgear) + 10-13 (HVAC: Ducting) resolve non-blank = 7;
+    // rows 2-6 + 14-17 resolve blank = 9. This is the split the grid showed; the per-engine
+    // denominators (13 / 12 review) must NOT appear.
+    const rows = [
+      erow(2, ""), erow(3, ""), erow(4, ""), erow(5, ""), erow(6, ""),
+      erow(7, "db_switchgear"), erow(8, "db_switchgear"), erow(9, "db_switchgear"),
+      erow(10, "hvac_ducting"), erow(11, "hvac_ducting"), erow(12, "hvac_ducting"), erow(13, "hvac_ducting"),
+      erow(14, ""), erow(15, ""), erow(16, ""), erow(17, ""),
+    ];
+    expect(summariseResolvedOutcome(rows, { mode: "sheet" })).toEqual({ categorised: 7, review: 9 });
+  });
+
+  it("RANGE-scoped run: only rows in the union are counted (rest of the sheet ignored)", () => {
+    // Whole-sheet resolved read, but the run set covered only rows 14-17 -> summary is those 4.
+    const rows = [
+      erow(7, "db_switchgear"), erow(10, "hvac_ducting"),
+      erow(14, ""), erow(15, ""), erow(16, ""), erow(17, ""),
+    ];
+    expect(
+      summariseResolvedOutcome(rows, unionScopes([{ mode: "range", start: 14, end: 17 }])),
+    ).toEqual({ categorised: 0, review: 4 });
+  });
+
+  it("a PRE-EXISTING HUMAN verdict counts as categorised (its category is the effective verdict)", () => {
+    // The resolved endpoint writes a human pick into effective_category_id, so a row a machine
+    // would leave blank counts as categorised once a human verdict lands (owner condition).
+    const rows = [erow(2, "db_switchgear") /* human */, erow(3, ""), erow(4, "")];
+    expect(summariseResolvedOutcome(rows, { mode: "sheet" })).toEqual({ categorised: 1, review: 2 });
+  });
+
+  it("whitespace-only effective is treated as blank (review), not categorised", () => {
+    expect(summariseResolvedOutcome([erow(2, "   "), erow(3, "x")], { mode: "sheet" })).toEqual({
+      categorised: 1,
+      review: 1,
+    });
+  });
+
+  it("empty resolved read -> zero / zero", () => {
+    expect(summariseResolvedOutcome([], { mode: "sheet" })).toEqual({ categorised: 0, review: 0 });
   });
 });
