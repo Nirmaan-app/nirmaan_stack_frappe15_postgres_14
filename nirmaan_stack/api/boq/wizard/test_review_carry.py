@@ -15,6 +15,8 @@ a row whose PARENT was deleted (copies NOTHING -- both-or-neither), a row that M
 nothing), and a blank spacer (no stamp).
 """
 
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -29,8 +31,24 @@ from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _make_project,
 )
 from nirmaan_stack.api.boq.wizard.test_revision_mapping import _make_revision
+from nirmaan_stack.services.boq_revision.reasons import (
+    ALL_REASONS,
+    PARENT_NOT_CARRIED,
+    POSITION_SHIFTED,
+    ROW_INSERTED,
+)
 
 _SHEET = "Data"
+
+#: The no-op summary shape (unmapped / declared-New sheet, or a source with no committed nodes).
+_NO_OP_SUMMARY = {
+    "copied": 0, "needs_review": 0, "total": 0, "reason_counts": {}, "change_summary": None,
+}
+
+
+def _counts_only(summary):
+    """The three count keys -- what `revision_review_counts` returns."""
+    return {k: summary[k] for k in ("copied", "needs_review", "total")}
 
 
 def _commit_node(boq, sheet_docname, node_type, row_class, description, source_row_number,
@@ -195,7 +213,9 @@ class TestReviewCarryMerge(FrappeTestCase):
         rows = {idx: frappe.db.get_value(
             "BoQ Review Row", name,
             ["revision_carry_status", "classification", "parent_index",
-             "human_classification", "human_parent", "human_is_root"],
+             "human_classification", "human_parent", "human_is_root",
+             "revision_review_reason", "revision_shift_delta", "revision_shift_anchor",
+             "revision_reviewed"],
             as_dict=True,
         ) for idx, name in names.items()}
         return rev, summary, rows
@@ -205,11 +225,26 @@ class TestReviewCarryMerge(FrappeTestCase):
         for idx in self._COPIED_ROWS:
             self.assertEqual(rows[idx].revision_carry_status, "Copied", f"row {idx}")
 
-    def test_non_copied_rows_get_no_stamp(self):
-        # Blank status is what makes a non-copied row render "Original", identical to a fresh upload.
+    def test_non_copied_rows_are_stamped_needs_review(self):
+        # S2 REVERSED the Amendment B behaviour: a non-copied content row used to be left blank so
+        # it rendered "Original" like a fresh upload. Blank now means "not a revision row at all"
+        # (upload/template, or a spacer), and every non-copied content row carries a reason.
         _rev, _summary, rows = self._merge()
         for idx in self._NOT_COPIED_ROWS:
-            self.assertIn(rows[idx].revision_carry_status, (None, ""), f"row {idx}")
+            self.assertEqual(rows[idx].revision_carry_status, "Needs Review", f"row {idx}")
+            self.assertIn(rows[idx].revision_review_reason, ALL_REASONS, f"row {idx}")
+
+    def test_copied_rows_carry_no_reason(self):
+        _rev, _summary, rows = self._merge()
+        for idx in self._COPIED_ROWS:
+            self.assertIn(rows[idx].revision_review_reason, (None, ""), f"row {idx}")
+
+    def test_nothing_is_pre_affirmed(self):
+        # The affirmation is the REVIEWER's, never the parser's -- a stamp that arrived
+        # pre-affirmed would walk straight through the finalize gate.
+        _rev, _summary, rows = self._merge()
+        for idx in self._NOT_COPIED_ROWS:
+            self.assertEqual(rows[idx].revision_reviewed, 0, f"row {idx}")
 
     def test_retired_statuses_are_never_stamped(self):
         _rev, _summary, rows = self._merge()
@@ -246,12 +281,26 @@ class TestReviewCarryMerge(FrappeTestCase):
         _rev, _summary, rows = self._merge()
         self.assertEqual(rows[9].classification, "note")   # the PARSE's value, not the node's
         self.assertEqual(rows[9].parent_index, 5)          # untouched fresh-parse value
-        self.assertIn(rows[9].revision_carry_status, (None, ""))
+        self.assertEqual(rows[9].revision_carry_status, "Needs Review")
+        self.assertEqual(rows[9].revision_review_reason, PARENT_NOT_CARRIED)
 
     def test_moved_row_copies_nothing(self):
+        # It moved from Excel 40 to 41, so the carry refuses it -- but the diagnosis can still say
+        # WHY, and the offset it reports is what folds it into a shift block.
         _rev, _summary, rows = self._merge()
         self.assertEqual(rows[10].classification, "note")  # not the original's 'preamble'
-        self.assertIn(rows[10].revision_carry_status, (None, ""))
+        self.assertEqual(rows[10].revision_carry_status, "Needs Review")
+        self.assertEqual(rows[10].revision_review_reason, POSITION_SHIFTED)
+        self.assertEqual(rows[10].revision_shift_delta, 1)
+        self.assertEqual(rows[10].revision_shift_anchor, 40)
+
+    def test_the_needs_review_stamp_writes_no_parser_field(self):
+        # The stamp ANNOTATES; it must not decide. A needs-review row's classification and
+        # parenting are the fresh parser's, untouched -- identical to a fresh-upload row.
+        _rev, _summary, rows = self._merge()
+        self.assertEqual(rows[1].classification, "line_item")
+        self.assertEqual(rows[9].classification, "note")
+        self.assertEqual(rows[9].parent_index, 5)
 
     def test_human_layer_is_never_written(self):
         # The carry writes the PARSER layer only -- if it touched human_*, `_row_has_override`
@@ -273,10 +322,59 @@ class TestReviewCarryMerge(FrappeTestCase):
             self.assertNotIn(retired, summary)
 
     def test_counts_read_path_agrees_with_the_merge_summary(self):
-        # `revision_review_counts` derives from the PERSISTED stamp rather than re-running the
-        # match -- the two must not be able to disagree.
+        # `revision_review_counts` reads the PERSISTED stamp rather than re-running the match --
+        # the two must not be able to disagree. Since S2 it counts `Needs Review` DIRECTLY instead
+        # of deriving `total - copied`, so this also proves the taxonomy stamped every content row.
         rev, summary, _rows = self._merge()
-        self.assertEqual(revision_review_counts(rev, _SHEET), summary)
+        self.assertEqual(revision_review_counts(rev, _SHEET), _counts_only(summary))
+
+    def test_reason_counts_roll_up_the_stamps(self):
+        _rev, summary, _rows = self._merge()
+        self.assertEqual(
+            summary["reason_counts"],
+            {ROW_INSERTED: 1, PARENT_NOT_CARRIED: 1, POSITION_SHIFTED: 1},
+        )
+        self.assertEqual(sum(summary["reason_counts"].values()), summary["needs_review"])
+
+    def test_change_summary_records_the_shift_block(self):
+        # "Shifted item" moved 40 -> 41, which is a one-row insertion above it.
+        _rev, summary, _rows = self._merge()
+        blocks = summary["change_summary"]["shift_blocks"]
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["anchor"], 40)
+        self.assertEqual(blocks[0]["change"], 1)
+        self.assertEqual(blocks[0]["shifted_count"], 1)
+
+    def test_change_summary_records_the_removed_original(self):
+        # "Deleted Section" (Excel 30) is gone from the revision entirely. "Shifted item" is NOT
+        # removed -- its text is still present, just one row lower.
+        _rev, summary, _rows = self._merge()
+        removed = summary["change_summary"]["removed_rows"]
+        self.assertEqual(summary["change_summary"]["removed_count"], 1)
+        self.assertEqual(removed[0]["excel_row"], 30)
+        self.assertEqual(removed[0]["description"], "Deleted Section")
+
+    def test_change_summary_is_persisted_on_the_draft_as_json(self):
+        # It rides the SAME set_value as the Parsed status in the worker; here we assert the blob
+        # survives the round trip (a Python object handed to a JSON field is the
+        # `description_parts_raw` resave-crash class of bug -- hence the explicit json.dumps).
+        #
+        # ⚠️ READ SHAPE: `get_value` on a JSON field returns a DICT, not the stored string. Any
+        # reader must tolerate both, exactly like `revision_carry._as_dict` -- assuming a string
+        # here is what made this test fail first time round.
+        rev, summary, _rows = self._merge()
+        child = frappe.db.get_value(
+            "BoQ Sheet Draft", {"parent": rev, "parenttype": "BOQs", "sheet_name": _SHEET}, "name"
+        )
+        frappe.db.set_value("BoQ Sheet Draft", child, "revision_change_summary",
+                            json.dumps(summary["change_summary"]))
+        frappe.db.commit()
+        stored = frappe.db.get_value("BoQ Sheet Draft", child, "revision_change_summary")
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        self.assertIsInstance(stored, dict)
+        self.assertEqual(stored["removed_count"], 1)
+        self.assertEqual(stored["shift_blocks"][0]["anchor"], 40)
 
 
 class TestRevisionSourceGuard(FrappeTestCase):
@@ -311,7 +409,7 @@ class TestRevisionSourceGuard(FrappeTestCase):
         rev_doc.save(ignore_permissions=True)
         frappe.db.commit()
         summary = merge_revision_review_carry(rev.name, "Fresh", self.original.name)
-        self.assertEqual(summary, {"copied": 0, "needs_review": 0, "total": 0})
+        self.assertEqual(summary, _NO_OP_SUMMARY)
 
     def test_counts_are_zero_for_a_sheet_with_no_rows(self):
         rev = _make_revision(self.project.name, self.original.name)

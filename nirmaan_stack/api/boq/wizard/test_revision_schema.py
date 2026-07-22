@@ -76,6 +76,14 @@ class TestRevisionSchemaFields(FrappeTestCase):
         ("BoQ Sheet", "source_commit_version", "Int"),
         ("BoQ Sheet", "source_sheet_name", "Data"),
         ("BoQ Review Row", "revision_carry_status", "Select"),
+        # S2 -- the needs-review diagnosis + the reviewer's affirmation.
+        ("BoQ Review Row", "revision_review_reason", "Data"),
+        ("BoQ Review Row", "revision_shift_delta", "Int"),
+        ("BoQ Review Row", "revision_shift_anchor", "Int"),
+        ("BoQ Review Row", "revision_reviewed", "Check"),
+        ("BoQ Review Row", "revision_reviewed_by", "Link"),
+        ("BoQ Review Row", "revision_reviewed_at", "Datetime"),
+        ("BoQ Sheet Draft", "revision_change_summary", "JSON"),
     ]
 
     def test_six_new_columns_exist_on_the_runtime_db(self):
@@ -100,11 +108,20 @@ class TestRevisionSchemaFields(FrappeTestCase):
 
     def test_revision_carry_status_options_are_exact(self):
         opts = frappe.get_meta("BoQ Review Row").get_field("revision_carry_status").options
-        # Amendment B (2026-07-20): leading blank + `Copied`, which is the ONLY value ever written.
-        # The four legacy values stay in the Select so rows stamped before the amendment still
-        # validate -- they are never produced again. REMOVED was never a value on this side.
-        self.assertEqual(opts, "\nCopied\nMatched\nNew\nAmbiguous\nDrifted")
+        # S2 (2026-07-22): `Needs Review` joins `Copied` as a value the merge writes -- together
+        # they now cover every CONTENT row of a revision sheet. Leading blank means "not a revision
+        # row at all" (upload/template, or a spacer). The four legacy values stay in the Select so
+        # rows stamped before Amendment B still validate; they are never produced again. REMOVED
+        # was never a value on this side.
+        self.assertEqual(opts, "\nCopied\nNeeds Review\nMatched\nNew\nAmbiguous\nDrifted")
         self.assertNotIn("REMOVED", opts)
+
+    def test_needs_review_status_matches_the_vocabulary_constant(self):
+        # Pins the Select against its source of truth -- a typo in either is a silent no-stamp.
+        from nirmaan_stack.services.boq_revision.reasons import NEEDS_REVIEW
+        self.assertEqual(NEEDS_REVIEW, "Needs Review")
+        opts = frappe.get_meta("BoQ Review Row").get_field("revision_carry_status").options
+        self.assertIn(NEEDS_REVIEW, (opts or "").split("\n"))
 
     def test_copied_is_the_only_status_the_carry_writes(self):
         # Pins the vocabulary at its source, so retiring a legacy option later is a deliberate act.

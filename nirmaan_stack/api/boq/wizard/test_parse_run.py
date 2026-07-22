@@ -2837,8 +2837,23 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
                       "W5 dropped the carry report from the done payload")
         self.assertEqual(
             payload["revision_carry"],
-            {self.SHEET: {"copied": 2, "needs_review": 1, "total": 3}},
+            {self.SHEET: {"copied": 2, "needs_review": 1, "total": 3,
+                          "reason_counts": {"row_inserted": 1}}},
         )
+
+    def test_the_payload_omits_the_sheet_level_change_summary(self):
+        """S2: `change_summary` rides the DRAFT, never the socket payload.
+
+        It is read by the review screen, which already loads the draft, and can run to 50 shift
+        blocks plus 50 removed rows with descriptions -- broadcasting that to every connected
+        client for a modal that only ever prints "N of M copied" is pure weight.
+        """
+        rev = self._make_boq_doc(origin="revision", source_boq=self.original.name)
+        self._seed_draft(rev.name, source_sheet_name=self.SHEET)
+
+        payload = self._parse_and_capture(rev.name)
+
+        self.assertNotIn("change_summary", payload["revision_carry"][self.SHEET])
 
     def test_carry_report_agrees_with_the_persisted_stamp(self):
         """The reported numbers must equal what the review screen will independently read.
@@ -2854,8 +2869,9 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
 
         payload = self._parse_and_capture(rev.name)
 
-        self.assertEqual(payload["revision_carry"][self.SHEET],
-                         revision_review_counts(rev.name, self.SHEET))
+        counts = {k: payload["revision_carry"][self.SHEET][k]
+                  for k in ("copied", "needs_review", "total")}
+        self.assertEqual(counts, revision_review_counts(rev.name, self.SHEET))
 
     def test_carry_report_is_keyed_by_the_verbatim_sheet_name(self):
         """#152: the key is the sheet_name as stored, spaces and all -- the frontend looks the
@@ -2950,7 +2966,8 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
                          "fixture broken: both sheets must actually parse")
         self.assertEqual(list(payload["revision_carry"]), [self.SHEET])
         self.assertEqual(payload["revision_carry"][self.SHEET],
-                         {"copied": 2, "needs_review": 1, "total": 3})
+                         {"copied": 2, "needs_review": 1, "total": 3,
+                          "reason_counts": {"row_inserted": 1}})
 
     def test_revision_with_no_committed_source_contributes_nothing(self):
         """A MAPPED sheet whose source has no committed nodes is also kept out of the report.

@@ -852,6 +852,10 @@ def _run_parse_worker(
 
         for parsed_sheet in parsed.sheets:
             sheet_name = parsed_sheet.sheet_name
+            # Per-sheet, reset each iteration: the S2 sheet-level change events (shift blocks +
+            # removed originals). Stays None for every non-revision sheet, and the status write
+            # below then omits the field entirely so that path is byte-identical.
+            sheet_change_summary = None
             try:
                 # Re-parse safety: delete existing rows before inserting.
                 # On failure the compensating delete in the except block cleans up partials.
@@ -877,6 +881,11 @@ def _run_parse_worker(
                     carry_counts = merge_revision_review_carry(
                         boq_name, sheet_name, revision_source_boq_name
                     )
+                    # S2: the sheet-level events ride the draft, not the socket payload -- they are
+                    # read by the review screen (which already loads the draft) and would only bloat
+                    # a broadcast the hub modal never reads. Popped so the payload keeps the lean
+                    # {copied, needs_review, total, reason_counts} shape.
+                    sheet_change_summary = carry_counts.pop("change_summary", None)
                     # W5 (A8): the merge already computes {copied, needs_review, total} per sheet
                     # and used to DROP it on the floor, so the parse-completion modal could only
                     # say "Parsed: <names>" and the user had no idea how much carried. Keep it,
@@ -896,13 +905,24 @@ def _run_parse_worker(
                     # CLEAR-ON-SUCCESS (reactive #166): a sheet that now parses cleanly
                     # must not carry a stale failure notice. Clear the three failure
                     # fields in the SAME set_value as the status/parse-history write.
-                    _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields={
+                    parsed_fields = {
                         "has_prior_parse": 1,
                         "last_parsed_at": frappe.utils.now(),
                         "parse_failure_category": None,
                         "parse_failure_reason": None,
                         "parse_failure_at": None,
-                    })
+                    }
+                    if revision_source_boq_name:
+                        # S2: rides the SAME set_value -- no new write site. Written on every
+                        # revision sheet including the None case, so a re-parse that resolves the
+                        # last change clears a stale blob rather than leaving it to contradict the
+                        # rows. The key is ABSENT off a revision, keeping that path byte-identical.
+                        # json.dumps explicitly: a JSON field handed a Python object through
+                        # set_value is the `description_parts_raw` resave-crash class of bug.
+                        parsed_fields["revision_change_summary"] = (
+                            json.dumps(sheet_change_summary) if sheet_change_summary else None
+                        )
+                    _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields=parsed_fields)
 
                 parsed_sheets.append(sheet_name)
 
