@@ -28,6 +28,32 @@ def _make_xlsx_tempfile():
     return tmp.name
 
 
+def _run_worker(workbook=None, **kwargs):
+    """Invoke `_upload_file_worker` with the workbook FETCH stubbed to a local fixture copy.
+
+    The worker takes no file path. `cfd691b6` (2026-06-14, "make Upload BoQ work across
+    multi-container deploys") moved the fetch INSIDE it -- it now re-fetches from durable
+    storage by `file_url`, because the web endpoint and the RQ worker may run in SEPARATE
+    containers with no shared /tmp, so a path written by the web process is unreadable there.
+    Tests therefore stub the FETCH SEAM instead of handing over a path; this mirrors
+    `test_revision_entry._run_worker`.
+
+    (These tests kept passing the removed `tempfile_path=` kwarg for ~5 weeks, erroring with
+    TypeError before a single assertion ran -- invisible because the suite is run per module
+    and nothing touched this one. Routing every call through one helper is what keeps the next
+    signature change a single-line fix instead of eight silent ones.)
+
+    `workbook`: what the stubbed fetch returns; defaults to a fresh copy of the simple fixture.
+    Each call gets its OWN copy because the worker's `finally` deletes whatever it is handed.
+    Pass an explicit path for the failure branches (the reader is stubbed there anyway).
+    """
+    with patch(
+        "nirmaan_stack.api.boq.wizard.upload_file._fetch_boq_file_to_tempfile",
+        return_value=workbook if workbook is not None else _make_xlsx_tempfile(),
+    ):
+        _upload_file_worker(**kwargs)
+
+
 def _make_project_fixture():
     """Create a Projects row with the minimal fields needed to satisfy legacy hooks."""
     # Test fixture placeholders. Production code does NOT create Projects rows --
@@ -85,9 +111,8 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
 
     def test_boq_created_correct_fields(self):
         """Worker creates BOQs row with wizard_state=In progress and populates sheet_drafts."""
-        _upload_file_worker(
+        _run_worker(
             project_id=self.__class__.test_project.name,
-            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
             user="Administrator",
@@ -115,9 +140,8 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
 
     def test_filename_underscores_to_spaces(self):
         """File name with underscores produces boq_name with spaces."""
-        _upload_file_worker(
+        _run_worker(
             project_id=self.__class__.test_project.name,
-            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="RFQ_Bangalore_HVAC_BOQ.xlsx",
             user="Administrator",
@@ -139,9 +163,8 @@ class TestUploadFileWorkerPositive(FrappeTestCase):
         prior.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        _upload_file_worker(
+        _run_worker(
             project_id=self.__class__.test_project.name,
-            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
             user="Administrator",
@@ -230,16 +253,20 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
             side_effect=Exception("simulated corrupt file"),
         ):
             with patch("frappe.publish_realtime") as mock_pub:
-                _upload_file_worker(
+                _run_worker(
+                    workbook="/nonexistent/path/corrupted.xlsx",
                     project_id=self.__class__.test_project.name,
-                    tempfile_path="/nonexistent/path/corrupted.xlsx",
                     file_url="/private/files/corrupted.xlsx",
                     file_name="corrupted.xlsx",
                     user="Administrator",
                 )
+                # `user=` is asserted, not ignored: the event is USER-TARGETED (cfd691b6's
+                # `_publish_and_record`). An untargeted broadcast would reach every connected
+                # client, and each one's upload screen filters on its own store state.
                 mock_pub.assert_any_call(
                     "boq:wizard_parse_done",
                     {"status": "error", "error_code": "corrupted"},
+                    user="Administrator",
                 )
 
         boq_count = frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name})
@@ -254,9 +281,9 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
             return_value=mock_reader,
         ):
             with patch("frappe.publish_realtime") as mock_pub:
-                _upload_file_worker(
+                _run_worker(
+                    workbook="/nonexistent/path/zero_sheets.xlsx",
                     project_id=self.__class__.test_project.name,
-                    tempfile_path="/nonexistent/path/zero_sheets.xlsx",
                     file_url=_FAKE_FILE_URL,
                     file_name="synthetic_simple.xlsx",
                     user="Administrator",
@@ -264,6 +291,7 @@ class TestUploadFileWorkerNegative(FrappeTestCase):
                 mock_pub.assert_any_call(
                     "boq:wizard_parse_done",
                     {"status": "error", "error_code": "zero_sheets"},
+                    user="Administrator",
                 )
 
         boq_count = frappe.db.count("BOQs", filters={"project": self.__class__.test_project.name})
@@ -295,9 +323,8 @@ class TestPrefillSheetConfig(FrappeTestCase):
 
     def test_pending_sheet_gets_sheet_config(self):
         """Pending sheet must have a non-None sheet_config containing header_row after upload."""
-        _upload_file_worker(
+        _run_worker(
             project_id=self.__class__.test_project.name,
-            tempfile_path=_make_xlsx_tempfile(),
             file_url=_FAKE_FILE_URL,
             file_name="synthetic_simple.xlsx",
             user="Administrator",
@@ -328,9 +355,8 @@ class TestPrefillSheetConfig(FrappeTestCase):
         mock_reader.list_sheet_states.return_value = {"Sheet1": "hidden"}
 
         with patch("nirmaan_stack.api.boq.wizard.upload_file.BoqReader", return_value=mock_reader):
-            _upload_file_worker(
+            _run_worker(
                 project_id=self.__class__.test_project.name,
-                tempfile_path=_make_xlsx_tempfile(),
                 file_url=_FAKE_FILE_URL,
                 file_name="synthetic_simple.xlsx",
                 user="Administrator",
@@ -357,9 +383,8 @@ class TestPrefillSheetConfig(FrappeTestCase):
             side_effect=RuntimeError("simulated auto-guess failure"),
         ):
             with patch("frappe.publish_realtime") as mock_pub:
-                _upload_file_worker(
+                _run_worker(
                     project_id=self.__class__.test_project.name,
-                    tempfile_path=_make_xlsx_tempfile(),
                     file_url=_FAKE_FILE_URL,
                     file_name="synthetic_simple.xlsx",
                     user="Administrator",
@@ -367,6 +392,7 @@ class TestPrefillSheetConfig(FrappeTestCase):
                 mock_pub.assert_any_call(
                     "boq:wizard_parse_done",
                     {"boq_name": ANY, "status": "success"},
+                    user="Administrator",
                 )
 
         boqs = frappe.get_all(
