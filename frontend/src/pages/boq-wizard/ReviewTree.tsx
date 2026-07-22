@@ -100,6 +100,7 @@ import {
 import {
   isCollateralReason,
   isConfirmedRow,
+  isUnaffirmed,
   reasonSentence,
   reasonShortLabel,
 } from "./revisionChangeBlocks";
@@ -304,13 +305,25 @@ const CLASS_FILTER_VALUES = ["preamble", "line_item", "note", "spacer", "subtota
 
 // §9 #159: Status filter option labels. AI-3a adds the third state "ai_accepted"
 // (an AI suggestion was Accepted -- distinct provenance from a plain human edit).
-type StatusFilter = "all" | "edited" | "original" | "ai_accepted";
+// S5 adds the three REVISION states. They are offered only on a revision sheet (same gate as the
+// Looks OK column) -- off a revision no row carries a carry stamp, so the options would all filter
+// to nothing.
+type StatusFilter =
+  | "all" | "edited" | "original" | "ai_accepted"
+  | "copied" | "needs_review" | "reviewed";
 const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
   all: "All",
   edited: "Edited",
   original: "Original",
   ai_accepted: "AI Accepted",
+  copied: "Copied",
+  needs_review: "Needs review",
+  reviewed: "Reviewed",
 };
+
+/** The base options, and the revision-only additions appended after them. */
+const BASE_STATUS_FILTERS: readonly StatusFilter[] = ["all", "edited", "original", "ai_accepted"];
+const REVISION_STATUS_FILTERS: readonly StatusFilter[] = ["copied", "needs_review", "reviewed"];
 
 // AI-3a: AI Rec column filter. "all" = no narrowing (show every row); "any" = rows with a
 // pending AI suggestion; "high"/"medium"/"low" = rows whose suggestion carries that
@@ -519,11 +532,9 @@ interface ReviewTreeProps {
    * frozen or the user is not the lock holder, and the column then renders read-only.
    */
   onAffirmRow?: (rowIndex: number, affirmed: boolean) => void | Promise<void>;
-  /** S5: confirm one shift block's COLLATERAL rows at once. Same presence-is-the-gate rule. */
-  onAffirmBlock?: (anchor: number, delta: number) => void | Promise<void>;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow, onAffirmBlock }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -1662,8 +1673,17 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
     // is Original since save_review_remark never stamps edited_at/edit_log).
+    // S5: the three revision states read the row's OWN stamp via the pure predicates rather than
+    // `revisionDelta`'s membership set -- so this stays a function of `row` alone and needs no
+    // extra memo dependency to stay fresh.
     if (statusFilter === "ai_accepted") {
       if (row.ai_suggestion_status !== "Accepted") return false;
+    } else if (statusFilter === "copied") {
+      if (!isRowCopied(row)) return false;
+    } else if (statusFilter === "needs_review") {
+      if (!isUnaffirmed(row)) return false;
+    } else if (statusFilter === "reviewed") {
+      if (!isConfirmedRow(row)) return false;
     } else if (statusFilter !== "all") {
       const edited = isReviewRowEdited(row);
       if (statusFilter === "edited" ? !edited : edited) return false;
@@ -1796,8 +1816,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             )}
           </div>
 
+          {/* HEIGHT-BOUNDED + scrolling (owner, 2026-07-22). This panel lists one entry per flagged
+              row, so a sheet with a few hundred classifier warnings pushed the review grid itself
+              off-screen when opened. Capped rather than truncated -- every entry is still reachable,
+              it just scrolls in place. */}
           {warningsPanelOpen && (
-            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2">
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-2 max-h-72 overflow-y-auto">
               {/* Must-fix structural breaks -- grouped distinctly above the advisories. */}
               {breakWarnRows.length > 0 && (
                 <div className="space-y-1">
@@ -1969,37 +1993,32 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               radius, and carries the bulk affirm for its collateral. Comes from the sheet-level
               summary the parse stamped; nothing is re-derived here. */}
           {revisionDelta.changeBlocks.length > 0 && (
-            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-3 py-2 space-y-1.5">
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-3 py-2 space-y-1.5 max-h-40 overflow-y-auto">
+              {/* NO bulk affirm here (owner, 2026-07-22). A "Looks OK for all N moved" button made
+                  the block the unit of judgement, and a reviewer who can clear a whole shift in one
+                  click will not open the rows -- which is exactly the reading the gate exists to
+                  force. Every row is confirmed individually, in its own Looks OK cell. */}
               {revisionDelta.changeBlocks.map((b) => (
                 <div key={b.key} className="flex items-start gap-2 flex-wrap">
                   <span className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
                     {b.text}
                   </span>
-                  {/* Bulk affirm -- COLLATERAL ONLY, and only when there is collateral to clear.
-                      The causal rows of the same block (the inserted / reworded ones) are never
-                      swept up: the server refuses them too, so the button can never promise
-                      something the gate then blocks on. */}
-                  {onAffirmBlock && b.anchor != null && b.delta != null
-                    && (b.shiftedCount ?? 0) > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => { void onAffirmBlock(b.anchor!, b.delta!); }}
-                      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-950/40 transition-colors"
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
-                      Looks OK for all {b.shiftedCount} moved
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
           )}
 
-          <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1">
-            {/* One clickable entry per row still needing confirmation -> reveal + scroll. Each
-                carries its OWN reason now (S4 replaced the single shared sentence), because the
-                taxonomy distinguishes a genuinely new row from one that merely moved -- and those
-                need different amounts of thought. */}
+          {/* One clickable entry per row still needing confirmation -> reveal + scroll. Each
+              carries its OWN reason (S4 replaced the single shared sentence), because the taxonomy
+              distinguishes a genuinely new row from one that merely moved, and those need different
+              amounts of thought.
+
+              HEIGHT-BOUNDED + scrolling (owner, 2026-07-22): one row inserted near the top of a
+              sheet can leave hundreds of rows here, and an unbounded list pushed the actual review
+              grid off-screen -- the panel that explains the work was crowding out the work. The cap
+              keeps the panel a fixed-size header no matter the sheet. */}
+          <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1 max-h-56 overflow-y-auto">
+
             {revisionDelta.needsActionRows.map((d) => {
               const r = byRowIndex.get(d.rowIndex);
               return (
@@ -2271,7 +2290,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         <PopoverContent align="start" className="w-auto min-w-[140px] p-2">
                           <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2">Status</p>
                           <div className="space-y-0.5">
-                            {(["all", "edited", "original", "ai_accepted"] as const).map(opt => (
+                            {/* S5: the revision states are appended only on a revision sheet --
+                              same gate as the Looks OK column, because off a revision every one of
+                              them filters to an empty tree. */}
+                            {[
+                              ...BASE_STATUS_FILTERS,
+                              ...(showAffirmColumn ? REVISION_STATUS_FILTERS : []),
+                            ].map(opt => (
                               <button
                                 key={opt}
                                 type="button"
@@ -2291,15 +2316,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </Popover>
                     </div>
                   </th>
-                  {/* S5 "Looks OK" -- the per-row confirmation, next to Status because it is the
-                    same axis (what state is this row in, and who put it there). Present ONLY on a
-                    revision sheet with carry content, and MUST gate on the identical expression as
-                    the matching body cell + the totalCols term, or the grid misaligns. */}
-                  {showAffirmColumn && (
-                    <th className="px-2 py-2 text-center font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
-                      Looks OK
-                    </th>
-                  )}
                   {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
                   Popover mirrors the Status/Classification filter pattern. */}
                   <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -2406,6 +2422,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                     </Popover>
                   </div>
                 </th>
+                {/* S5 "Looks OK" -- the per-row confirmation, placed directly after Classification
+                  (owner, 2026-07-22): confirming a row IS a judgement about its classification, so
+                  the tick belongs beside the value it is confirming rather than over with the
+                  provenance badges. Present ONLY on a revision sheet with carry content, and MUST
+                  gate on the identical expression as the matching body cell + the totalCols term,
+                  or every colSpan drifts by one.
+                  NOTE it sits OUTSIDE the !templateOrigin fragment that wraps Status / AI Rec --
+                  it has to, being after Classification -- which is safe because a template-origin
+                  BoQ is never a revision, so showAffirmColumn is false there anyway. */}
+                {showAffirmColumn && (
+                  <th className="px-2 py-2 text-center font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                    Looks OK
+                  </th>
+                )}
                 {/* MC-4: Description fan-out -- one <th> per mapped description column when
                   the sheet carries description_parts_raw; else the single legacy anchor
                   (byte-identical). First column = wide always-on anchor; the rest are
@@ -2767,33 +2797,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           )}
                         </td>
 
-                        {/* S5 "Looks OK": the per-row confirmation. Rendered for every row so the
-                          column stays aligned, but only a stamped row has anything to confirm --
-                          a Copied row is already a decision and an unstamped row is not a revision
-                          row at all. Read-only when `onAffirmRow` is withheld (frozen sheet / not
-                          the lock holder), the wizard's presence-is-the-gate convention. */}
-                        {showAffirmColumn && (
-                          <td className="px-2 py-1.5 align-top w-20 border-r border-border text-center">
-                            {(needsRevisionReview || isConfirmedRow(row)) && (
-                              <label className="inline-flex items-center justify-center cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  className="h-3.5 w-3.5 accent-green-600 cursor-pointer disabled:cursor-default"
-                                  checked={!needsRevisionReview}
-                                  disabled={!onAffirmRow}
-                                  onChange={(e) => {
-                                    void onAffirmRow?.(row.row_index, e.target.checked);
-                                  }}
-                                  aria-label={`Confirm row ${row.source_row_number ?? row.row_index}`}
-                                  title={needsRevisionReview
-                                    ? reasonSentence(row)
-                                    : "Confirmed — click to undo"}
-                                />
-                              </label>
-                            )}
-                          </td>
-                        )}
-
                         {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
                         classification + parent each get one (H/M/L); both -> two side by
                         side; none / resolved -> blank. */}
@@ -2926,6 +2929,35 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                           )}
                         </div>
                       </td>
+
+                      {/* S5 "Looks OK": the per-row confirmation, directly after Classification --
+                        confirming a row IS a judgement about its classification. Rendered for every
+                        row so the column stays aligned, but only a STAMPED row has anything to
+                        confirm: a Copied row is already a decision, and an unstamped row is not a
+                        revision row at all. Read-only when `onAffirmRow` is withheld (frozen sheet /
+                        not the lock holder) -- the wizard's presence-is-the-gate convention, so
+                        there is no second per-cell `editable` signal. */}
+                      {showAffirmColumn && (
+                        <td className="px-2 py-1.5 align-top w-20 border-r border-border text-center">
+                          {(needsRevisionReview || isConfirmedRow(row)) && (
+                            <label className="inline-flex items-center justify-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="h-3.5 w-3.5 accent-green-600 cursor-pointer disabled:cursor-default"
+                                checked={!needsRevisionReview}
+                                disabled={!onAffirmRow}
+                                onChange={(e) => {
+                                  void onAffirmRow?.(row.row_index, e.target.checked);
+                                }}
+                                aria-label={`Confirm row ${row.source_row_number ?? row.row_index}`}
+                                title={needsRevisionReview
+                                  ? reasonSentence(row)
+                                  : "Confirmed — click to undo"}
+                              />
+                            </label>
+                          )}
+                        </td>
+                      )}
 
                       {/* MC-4: Description fan-out body cells. FIRST column = the anchor
                         (depth indent + "(no description)" fallback via the shared inner);

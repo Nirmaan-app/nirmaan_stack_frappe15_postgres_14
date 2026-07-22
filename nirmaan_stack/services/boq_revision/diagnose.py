@@ -217,27 +217,37 @@ def _classify_rows(revised_rows, orig_desc_index, dup_positions, carried_ids, no
 
 
 def _group_blocks(shifted):
-    """Pass 2 -- fold consecutive equal-offset shifted rows into blocks.
-
-    Consecutive in DOCUMENT order: a run breaks the moment the offset changes or a non-shifted row
-    interrupts. The interruption shows up as a gap in Excel positions (pass 1 appends only shifted
-    rows), hence the explicit adjacency test.
+    """Pass 2 -- fold shifted rows into blocks, one per EDIT.
 
     `change` is the block's LOCAL edit -- its cumulative offset minus the offset already in force
-    above it. On a second edit point the two differ, and only `change` names what a human did
-    there.
+    above it. On a second edit point the two differ, and only `change` names what a human did there.
+
+    THE CONTINUATION TEST IS `change == 0`, i.e. "the offset did not change at this row". A block
+    STARTS exactly where the offset moves, which is exactly where someone edited.
+
+    ⚠️ It is deliberately NOT Excel-row adjacency, which is what this originally used and which was
+    WRONG. Blank/spacer rows never enter the match, so a sheet with a spacer between two shifted
+    rows has a GAP in Excel numbering with no edit behind it. The adjacency test read that gap as a
+    new block, and because such a block inherits the offset already in force, its `change` came out
+    as 0 -- a "block" recording no edit at all, which then rendered as a phantom "0 rows deleted".
+    Live case: BOQ-26-00214 sheet FPS, one insertion at Excel 7 reported as three blocks.
+
+    Alignment genuinely being RESTORED still starts a new block, and needs no special case: a
+    matched row resets `offset_above` to 0 in pass 1, so the next shifted row has
+    `change == delta != 0`.
     """
     blocks: list = []
     for rid, excel_row, delta, offset_above in shifted:
-        if blocks and blocks[-1]["delta"] == delta and blocks[-1]["prev_excel"] + 1 == excel_row:
+        change = delta - offset_above
+        if blocks and change == 0:
+            # The offset did not move here -- this row is collateral of the block above, however
+            # many spacers or unresolved rows sit between them.
             blocks[-1]["rows"].append(rid)
-            blocks[-1]["prev_excel"] = excel_row
             continue
         blocks.append({
             "delta": delta,
-            "change": delta - offset_above,
+            "change": change,
             "first_excel": excel_row,
-            "prev_excel": excel_row,
             "rows": [rid],
         })
     return blocks

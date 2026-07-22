@@ -128,7 +128,7 @@ describe("buildChangeBlocks", () => {
                        inserted_excel_rows: [50, 51] }],
     });
     expect(entry.kind).toBe("insert");
-    expect(entry.text).toBe("2 rows inserted at row 50 — 340 rows below shifted down.");
+    expect(entry.text).toBe("2 rows inserted at row 50 — rows below shifted down.");
     expect(entry.anchor).toBe(50);
     expect(entry.delta).toBe(2);
     expect(entry.shiftedCount).toBe(340);
@@ -140,7 +140,25 @@ describe("buildChangeBlocks", () => {
                        inserted_excel_rows: [] }],
     });
     expect(entry.kind).toBe("delete");
-    expect(entry.text).toBe("3 rows deleted at row 210 — 88 rows below shifted up.");
+    expect(entry.text).toBe("3 rows deleted at row 210 — rows below shifted up.");
+  });
+
+  it("never renders a phantom delete for a zero-change block", () => {
+    // ⚠️ REGRESSION -- BOQ-26-00214 sheet FPS. A spacer used to split a shifted run into extra
+    // blocks that recorded no edit (change 0); those fell into the `else` delete branch and
+    // printed "0 rows deleted at row 27 — 18 rows below shifted up." The parse no longer emits
+    // them, but already-stamped sheets still carry them until re-parsed.
+    const entries = buildChangeBlocks({
+      shift_blocks: [
+        { anchor: 7, delta: 1, change: 1, shifted_count: 18, inserted_excel_rows: [7] },
+        { anchor: 27, delta: 1, change: 0, shifted_count: 18, inserted_excel_rows: [] },
+        { anchor: 46, delta: 1, change: 0, shifted_count: 1, inserted_excel_rows: [] },
+      ],
+      block_count: 3,
+    });
+    expect(entries.map((e) => e.kind)).toEqual(["insert"]);
+    expect(entries[0].text).toBe("1 row inserted at row 7 — rows below shifted down.");
+    expect(entries.some((e) => e.text.includes("0 rows deleted"))).toBe(false);
   });
 
   it("keys a block by anchor AND delta", () => {
@@ -187,7 +205,21 @@ describe("buildChangeBlocks", () => {
       shift_blocks: [{ anchor: 1, delta: 1, change: 1, shifted_count: 1, inserted_excel_rows: [] }],
       block_count: 4,
     });
+    expect(entries[1].kind).toBe("more");
     expect(entries[1].text).toBe("…and 3 more changes not listed.");
+  });
+
+  it("does not invent 'more changes' for blocks it filtered out itself", () => {
+    // `block_count` counts what the PARSE persisted. Comparing it to the RENDERED count made the
+    // change-0 guard look like a truncation and reported changes that do not exist.
+    const entries = buildChangeBlocks({
+      shift_blocks: [
+        { anchor: 7, delta: 1, change: 1, shifted_count: 18, inserted_excel_rows: [7] },
+        { anchor: 27, delta: 1, change: 0, shifted_count: 18, inserted_excel_rows: [] },
+      ],
+      block_count: 2,
+    });
+    expect(entries.map((e) => e.kind)).toEqual(["insert"]);
   });
 
   it("puts the removed line last", () => {

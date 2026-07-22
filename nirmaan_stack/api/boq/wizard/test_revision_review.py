@@ -20,7 +20,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard.review_carry import unaffirmed_needs_review
 from nirmaan_stack.api.boq.wizard.review_screen import (
-    affirm_revision_block,
     affirm_revision_row,
     get_review_rows,
     mark_sheet_parsed_check_done,
@@ -196,45 +195,39 @@ class TestAffirmRow(_Base):
             affirm_revision_row(boq, _SHEET, 0)
 
 
-class TestAffirmBlock(_Base):
-    def _block_sheet(self):
-        # Anchor 3: one inserted row (causal) + two shifted rows (collateral), plus a second block
-        # at a different offset that must stay untouched.
+class TestNoBulkAffirmExists(_Base):
+    """⚠️ Owner reversal, 2026-07-22: there is NO bulk affirm, by design.
+
+    `affirm_revision_block` cleared a whole shift block in one call. It was removed WITH its
+    button, not merely unwired -- a reviewer who can clear a shift at once will not open the rows,
+    which is the reading the gate exists to force, and a whitelisted endpoint that can bulk-clear
+    the gate reopens that hole regardless of what the UI offers.
+
+    If you are here because you are adding one back: it needs the owner, not a refactor.
+    """
+
+    def test_no_bulk_affirm_endpoint_is_exposed(self):
+        import nirmaan_stack.api.boq.wizard.review_screen as rs
+        for name in dir(rs):
+            self.assertNotIn("affirm_revision_block", name)
+
+    def test_rows_of_one_block_must_each_be_confirmed(self):
         rows = [
             _needs(0, reason=ROW_INSERTED, revision_shift_anchor=3),
             _needs(1, reason=POSITION_SHIFTED, revision_shift_anchor=3, revision_shift_delta=1),
             _needs(2, reason=POSITION_SHIFTED, revision_shift_anchor=3, revision_shift_delta=1),
-            _needs(3, reason=POSITION_SHIFTED, revision_shift_anchor=9, revision_shift_delta=2),
         ]
-        return _seed_sheet(self.project.name, rows, source_boq=self.original.name)
+        boq, names = _seed_sheet(self.project.name, rows, source_boq=self.original.name)
 
-    def test_the_collateral_rows_of_one_block_are_affirmed(self):
-        boq, names = self._block_sheet()
-        res = affirm_revision_block(boq, _SHEET, anchor=3, delta=1)
-        self.assertEqual(res["affirmed"], 2)
-        self.assertEqual(sorted(res["row_indexes"]), [1, 2])
-        for idx in (1, 2):
-            self.assertEqual(self._row(names[idx], "revision_reviewed").revision_reviewed, 1)
+        affirm_revision_row(boq, _SHEET, 1)
+        # Its block-mate is untouched -- confirming one moved row says nothing about the next.
+        self.assertEqual(self._row(names[2], "revision_reviewed").revision_reviewed, 0)
+        self.assertEqual(unaffirmed_needs_review(boq, _SHEET)["count"], 2)
 
-    def test_a_causal_row_sharing_the_anchor_is_never_swept_up(self):
-        # The inserted row IS the edit the reviewer must look at; bulk-clearing it would make the
-        # gate decorative.
-        boq, names = self._block_sheet()
-        affirm_revision_block(boq, _SHEET, anchor=3, delta=1)
-        self.assertEqual(self._row(names[0], "revision_reviewed").revision_reviewed, 0)
-
-    def test_the_block_is_keyed_by_anchor_AND_delta(self):
-        boq, names = self._block_sheet()
-        affirm_revision_block(boq, _SHEET, anchor=3, delta=1)
-        self.assertEqual(self._row(names[3], "revision_reviewed").revision_reviewed, 0)
-
-    def test_an_unknown_block_is_a_quiet_no_op(self):
-        boq, _names = self._block_sheet()
-        self.assertEqual(affirm_revision_block(boq, _SHEET, anchor=99, delta=7)["affirmed"], 0)
-
-    def test_only_position_shifted_is_bulk_affirmable(self):
-        # Pins the endpoint's filter against the vocabulary, so widening COLLATERAL_REASONS is a
-        # deliberate act rather than a silent side effect.
+    def test_the_collateral_split_survives_for_the_panels_use(self):
+        # The vocabulary distinction is NOT retired with the endpoint: the review panel still
+        # colours a moved row differently from an inserted one, and the diagnosis still falls back
+        # to the causal label when its shift probe is ambiguous.
         self.assertEqual(COLLATERAL_REASONS, frozenset({POSITION_SHIFTED}))
 
 

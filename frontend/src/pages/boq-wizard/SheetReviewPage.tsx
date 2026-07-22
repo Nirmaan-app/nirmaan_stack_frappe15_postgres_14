@@ -601,9 +601,6 @@ const SheetReviewPage = () => {
   const { call: affirmRowCall } = useFrappePostCall<{ message: { ok: boolean } }>(
     "nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_row",
   );
-  const { call: affirmBlockCall } = useFrappePostCall<{ message: { affirmed: number } }>(
-    "nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_block",
-  );
   const [affirmError, setAffirmError] = useState<string | null>(null);
 
   const handleAffirmRow = async (rowIndex: number, affirmed: boolean) => {
@@ -618,21 +615,6 @@ const SheetReviewPage = () => {
       void mutate();
     } catch (e: unknown) {
       setAffirmError(getFrappeError(e) || "Could not save that confirmation.");
-    }
-  };
-
-  const handleAffirmBlock = async (anchor: number, delta: number) => {
-    setAffirmError(null);
-    try {
-      await affirmBlockCall({
-        boq_name: boqId ?? "",
-        sheet_name: sheetName ?? "", // VERBATIM #152
-        anchor,
-        delta,
-      });
-      void mutate();
-    } catch (e: unknown) {
-      setAffirmError(getFrappeError(e) || "Could not confirm those rows.");
     }
   };
 
@@ -1231,7 +1213,6 @@ const SheetReviewPage = () => {
           // disabled rather than there being a second per-cell "editable" signal. Both refetch so
           // the row stamps, the blocking count and the Finalize button all resettle together.
           onAffirmRow={readOnly ? undefined : handleAffirmRow}
-          onAffirmBlock={readOnly ? undefined : handleAffirmBlock}
         />
       )}
 

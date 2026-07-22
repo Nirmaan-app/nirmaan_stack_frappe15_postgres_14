@@ -42,10 +42,10 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
 # Claude BOQ Upload Review AI Settings). Read it perm-bypassing via the shared
 # extraction settings reader -- get_review_rows surfaces gemini_enabled from it.
 from nirmaan_stack.services.extraction.files import get_boq_classifier_settings
-# S3 (revision needs-review): the status value + the collateral/causal boundary that bounds the
-# block bulk-affirm. `reasons` is a zero-import leaf, so a module-level import is cycle-safe --
-# unlike `review_carry`, which this module still imports lazily inside functions.
-from nirmaan_stack.services.boq_revision.reasons import NEEDS_REVIEW, is_collateral
+# S3 (revision needs-review): the status value the affirm endpoint and the finalize gate both key
+# on. `reasons` is a zero-import leaf, so a module-level import is cycle-safe -- unlike
+# `review_carry`, which this module still imports lazily inside functions.
+from nirmaan_stack.services.boq_revision.reasons import NEEDS_REVIEW
 
 
 # ---------------------------------------------------------------------------
@@ -2917,77 +2917,17 @@ def affirm_revision_row(
     return {"ok": True, "row_index": row_index, "revision_reviewed": 1 if is_affirmed else 0}
 
 
-@frappe.whitelist(methods=["POST"])
-def affirm_revision_block(
-    boq_name: str = None,
-    sheet_name: str = None,
-    anchor=None,
-    delta=None,
-) -> dict:
-    """Affirm one SHIFT BLOCK's collateral rows in a single click (S3).
-
-    A block is keyed by `(anchor, delta)` -- the anchor alone is not enough, because two blocks can
-    in principle resolve to the same anchor with different offsets.
-
-    ⚠️ COLLATERAL ONLY. The filter is `revision_review_reason` in the collateral set (today:
-    `position_shifted` alone), so an inserted / reworded / parent-lost row inside the same anchor
-    range is NEVER swept up -- those are causal and must be ticked individually. That asymmetry is
-    the whole reason the gate stays meaningful under bulk affirm, and it is also why the diagnosis
-    falls back to a CAUSAL label whenever its shift probe is ambiguous.
-
-    There is deliberately NO sheet-wide "affirm everything" endpoint. One row moved because of one
-    edit the reviewer is looking at; a whole sheet is not one judgement.
-
-    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_block
-    """
-    if not boq_name:
-        frappe.throw("boq_name is required.", title="Missing field: boq_name")
-    if not sheet_name:
-        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
-    if anchor is None or delta is None:
-        frappe.throw("anchor and delta are required.", title="Missing block key")
-    if not frappe.db.exists("BOQs", boq_name):
-        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
-
-    _guard_sheet_not_frozen(boq_name, sheet_name)
-    _guard_sheet_not_parsing(boq_name, sheet_name)
-    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
-
-    try:
-        anchor = int(anchor)
-        delta = int(delta)
-    except (ValueError, TypeError):
-        frappe.throw("anchor and delta must be integers.", title="Invalid block key")
-
-    rows = frappe.db.get_all(
-        "BoQ Review Row",
-        filters={
-            "boq": boq_name,
-            "sheet_name": sheet_name,          # VERBATIM (#152)
-            "revision_carry_status": NEEDS_REVIEW,
-            "revision_shift_anchor": anchor,
-            "revision_shift_delta": delta,
-            "revision_reviewed": 0,
-        },
-        fields=["name", "row_index", "revision_review_reason"],
-        order_by="row_index asc",
-    )
-    # Second gate, in Python rather than the filter: the collateral set is a property of the
-    # VOCABULARY, not of the query, so it is tested with the same `is_collateral` the frontend
-    # reads. A causal row that happens to share the anchor is skipped here.
-    affirmable = [r for r in rows if is_collateral(r.revision_review_reason or "")]
-    if not affirmable:
-        return {"ok": True, "affirmed": 0, "row_indexes": []}
-
-    fields = _affirm_fields(True)
-    for r in affirmable:
-        frappe.db.set_value("BoQ Review Row", r.name, fields)
-    frappe.db.commit()
-    return {
-        "ok": True,
-        "affirmed": len(affirmable),
-        "row_indexes": [r.row_index for r in affirmable],
-    }
+# ⚠️ THERE IS DELIBERATELY NO BULK AFFIRM (owner, 2026-07-22 -- reversing the S3 design).
+#
+# `affirm_revision_block` briefly existed and cleared one shift block's collateral rows in a single
+# call. It was removed WITH its button, not just unwired: a reviewer who can clear a whole shift at
+# once will not open the rows, which is precisely the reading this gate exists to force -- and a
+# whitelisted endpoint that can bulk-clear the gate reopens that hole whether or not any UI calls
+# it. Every row is confirmed individually through `affirm_revision_row`.
+#
+# The collateral/causal split in `services/boq_revision/reasons.py` SURVIVES this removal: the
+# review panel still uses it to colour a moved row differently from an inserted one, and the
+# diagnosis still falls back to the causal label when its shift probe is ambiguous.
 
 
 @frappe.whitelist()

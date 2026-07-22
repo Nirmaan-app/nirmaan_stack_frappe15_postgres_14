@@ -228,6 +228,62 @@ class TestTwoEditPoints(unittest.TestCase):
         self.assertEqual(diag.reasons[4].anchor, 5)
 
 
+class TestSpacersDoNotSplitABlock(unittest.TestCase):
+    """⚠️ REGRESSION -- BOQ-26-00214 sheet FPS, 2026-07-22.
+
+    Blank rows never enter the match, so a spacer between two shifted rows leaves a GAP in Excel
+    numbering with no edit behind it. Grouping on Excel adjacency read that gap as a new block; the
+    block inherited the offset already in force, so its `change` came out 0 -- a block recording no
+    edit -- and the panel rendered a phantom "0 rows deleted at row 27".
+
+    One insertion must stay ONE block no matter how many spacers sit below it.
+    """
+
+    def _sheet_with_spacers(self):
+        # The spacer exists in BOTH sheets -- that is the point. It occupies an Excel row on each
+        # side, so it adds no offset of its own; it only creates a GAP in the content rows' Excel
+        # numbering. (A spacer present on one side only would be a real +1, and the offset SHOULD
+        # change there.) Original content: 1,2,3,4,5, [6 blank], 7,8,9.
+        nodes = [
+            _node("n1", "Item 1", 1), _node("n2", "Item 2", 2), _node("n3", "Item 3", 3),
+            _node("n4", "Item 4", 4), _node("n5", "Item 5", 5),
+            _node("n6", "Item 6", 7), _node("n7", "Item 7", 8), _node("n8", "Item 8", 9),
+        ]
+        # One row inserted at Excel 3 -> everything below shifts +1, the blank included.
+        revs = [
+            _rev(0, "Item 1", 1), _rev(1, "Item 2", 2),
+            _rev(2, "Inserted", 3),
+            _rev(3, "Item 3", 4), _rev(4, "Item 4", 5), _rev(5, "Item 5", 6),
+            _rev(6, "", 7),                                   # the spacer, now one row lower
+            _rev(7, "Item 6", 8), _rev(8, "Item 7", 9), _rev(9, "Item 8", 10),
+        ]
+        return _seam(nodes, revs)
+
+    def test_a_spacer_does_not_start_a_new_block(self):
+        _carries, diag = self._sheet_with_spacers()
+        self.assertEqual(len(diag.shift_blocks), 1, "a spacer is not an edit")
+
+    def test_the_single_block_counts_every_shifted_row(self):
+        _carries, diag = self._sheet_with_spacers()
+        block = diag.shift_blocks[0]
+        self.assertEqual(block.change, 1)
+        self.assertEqual(block.anchor, 3)
+        self.assertEqual(block.shifted_count, 6, "Items 3-8 all shifted, spacers aside")
+
+    def test_no_block_ever_reports_a_zero_change(self):
+        # A block with change 0 records no edit; it is the shape that rendered "0 rows deleted".
+        _carries, diag = self._sheet_with_spacers()
+        for block in diag.shift_blocks:
+            self.assertNotEqual(block.change, 0)
+
+    def test_every_shifted_row_shares_the_one_anchor(self):
+        # The anchor is the bulk-affirm key, so a split block would leave rows unreachable from the
+        # panel's "Looks OK for all moved" button.
+        _carries, diag = self._sheet_with_spacers()
+        anchors = {r.anchor for r in diag.reasons.values() if r.code == POSITION_SHIFTED}
+        self.assertEqual(anchors, {3})
+
+
 class TestRepeatedDescriptions(unittest.TestCase):
     """Real BoQs repeat descriptions constantly ("Supply and fix conduit"), so the probe has to
     cope -- and has to fail SAFE when it cannot."""

@@ -177,7 +177,8 @@ export interface RevisionChangeSummary {
 export interface ChangeBlockEntry {
   /** Stable React key. `(anchor, delta)` is the block identity -- anchor alone is not unique. */
   key: string;
-  kind: "insert" | "delete" | "removed";
+  /** `more` is the cap disclosure -- not an edit, and never a bulk-affirm target. */
+  kind: "insert" | "delete" | "removed" | "more";
   text: string;
   /** Present for insert/delete only -- the bulk-affirm target. */
   anchor?: number;
@@ -203,10 +204,17 @@ export function buildChangeBlocks(
   const entries: ChangeBlockEntry[] = [];
 
   for (const b of summary.shift_blocks ?? []) {
+    // A block with change 0 records NO edit -- it is a grouping artefact, and rendering it walked
+    // straight into the `change > 0 ? insert : delete` branch and printed "0 rows deleted at row N".
+    // The parse no longer produces these (a spacer used to split a run; see diagnose._group_blocks),
+    // but sheets stamped before that fix still carry them until they are re-parsed, so the guard
+    // stays rather than relying on the data being clean.
+    if (!b.change) continue;
+    // The collateral COUNT is deliberately NOT stated (owner, 2026-07-22). "340 rows below shifted"
+    // invites the reviewer to treat the block as one bulk fact and skip the rows themselves, which
+    // is the opposite of what the panel is for -- it points at work, it does not summarise it away.
     const shifted = b.shifted_count ?? 0;
-    const below = shifted > 0
-      ? ` — ${plural(shifted, "row", "rows")} below shifted ${b.change > 0 ? "down" : "up"}.`
-      : ".";
+    const below = shifted > 0 ? ` — rows below shifted ${b.change > 0 ? "down" : "up"}.` : ".";
     entries.push({
       key: `blk-${b.anchor}-${b.delta}`,
       kind: b.change > 0 ? "insert" : "delete",
@@ -219,13 +227,18 @@ export function buildChangeBlocks(
     });
   }
 
-  // No silent caps: if the parse capped its enumeration, say so rather than under-reporting.
-  const blockCount = summary.block_count ?? entries.length;
-  if (blockCount > entries.length) {
+  // No silent caps: if the PARSE capped its enumeration, say so rather than under-reporting.
+  //
+  // Compared against the PERSISTED list length, not against `entries` -- the disclosure is about
+  // the parse truncating, and comparing it to the rendered count would also fire for blocks this
+  // function filtered out itself (the change-0 guard above), inventing changes that do not exist.
+  const persisted = (summary.shift_blocks ?? []).length;
+  const blockCount = summary.block_count ?? persisted;
+  if (blockCount > persisted) {
     entries.push({
       key: "blk-more",
-      kind: "insert",
-      text: `…and ${blockCount - entries.length} more changes not listed.`,
+      kind: "more",
+      text: `…and ${blockCount - persisted} more changes not listed.`,
     });
   }
 
