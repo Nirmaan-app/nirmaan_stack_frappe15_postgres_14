@@ -26,7 +26,7 @@ Indian invoices and payment receipts need a handful of fields keyed in every tim
 - `api/invoice_autofill.extract_invoice_fields(file_url)` → `extract(..., doc_kind="invoice")`. Returns `invoice_no, invoice_date, amount, net_amount, supplier_gstin, receiver_gstin, confidence{}, entities[], min_confidence, processor_id (= gemini_model), validation{}`.
 - `api/payment_autofill.extract_payment_fields(file_url)` → `extract(..., doc_kind="payment")`. Returns `utr, payment_date, transfer_amount, …`.
 
-Five frontend dialogs consume these (InvoiceDialog, NewProjectInvoiceDialog, UpdatePaymentDialog, NewNonProjectExpense, NewInflowPayment) — unchanged by the swap.
+Frontend dialogs consuming these (unchanged by the seam swap): InvoiceDialog, NewProjectInvoiceDialog, UpdatePaymentDialog, NewNonProjectExpense, NewInflowPayment. **Added 2026-07-22 — Project Expenses:** `ProjectExpenses/components/NewProjectExpenseDialog.tsx` consumes `extract_invoice_fields` (invoice → ref/date/amount), and `ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx` consumes `extract_payment_fields` (receipt → payment ref/date) at Mark-as-Paid. See `.claude/context/domain/expenses.md` → "Project invoice/payment split".
 
 ### Trust is computed, not model-reported
 

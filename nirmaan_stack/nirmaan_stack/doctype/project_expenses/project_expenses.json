@@ -15,8 +15,15 @@
   "description",
   "comment",
   "amount",
+  "payment_details_section",
+  "payment_attachment",
+  "payment_ref",
   "payment_date",
-  "payment_by"
+  "payment_by",
+  "invoice_details_section",
+  "invoice_attachment",
+  "invoice_ref",
+  "invoice_date"
  ],
  "fields": [
   {
@@ -45,10 +52,10 @@
    "default": "Requested",
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
-   "options": "Requested\nApproved\nPaid",
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Requested\nApproved\nPaid"
   },
   {
    "fieldname": "description",
@@ -80,12 +87,47 @@
    "fieldtype": "Link",
    "label": "Type",
    "options": "Expense Type"
+  },
+  {
+   "fieldname": "payment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "payment_attachment",
+   "fieldtype": "Attach",
+   "label": "Payment Attachment"
+  },
+  {
+   "fieldname": "payment_ref",
+   "fieldtype": "Data",
+   "label": "Payment Ref"
+  },
+  {
+   "fieldname": "invoice_details_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice Details"
+  },
+  {
+   "fieldname": "invoice_attachment",
+   "fieldtype": "Attach",
+   "label": "Invoice Attachment"
+  },
+  {
+   "fieldname": "invoice_ref",
+   "fieldtype": "Data",
+   "label": "Invoice Ref"
+  },
+  {
+   "fieldname": "invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.751032",
+ "modified": "2026-07-22 17:11:31.124083",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Expenses",
@@ -188,21 +230,21 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Executive",
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   },
   {
@@ -302,12 +344,12 @@
    "write": 1
   },
   {
-   "role": "Nirmaan HR Lead",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Lead",
    "share": 1
   }
  ],

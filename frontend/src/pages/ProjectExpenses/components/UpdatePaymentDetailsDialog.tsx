@@ -1,4 +1,10 @@
-// src/pages/non-project-expenses/components/UpdatePaymentDetailsDialog.tsx
+// src/pages/ProjectExpenses/components/UpdatePaymentDetailsDialog.tsx
+//
+// Two-stage "Mark as Paid" for a Project Expense (Approved -> Paid), mirroring the
+// Non-Project UpdatePaymentDetailsDialog: upload the payment receipt -> AI extracts
+// Payment Ref + Date -> attach proof + set status Paid. The Accountant may also
+// record / replace the invoice here. Because the expense doc already exists, every
+// upload is docname-linked so the File shows under the doc's attachments.
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
@@ -16,19 +22,23 @@ import { Label } from "@/components/ui/label";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
 import { Separator } from "@/components/ui/separator";
-import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
+import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
+import { useUserData } from "@/hooks/useUserData";
+import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { cn } from "@/lib/utils";
 
 interface UpdatePaymentDetailsDialogProps {
     isOpen: boolean;
     setIsOpen: (open: boolean) => void;
-    expense: NonProjectExpenses;
+    expense: ProjectExpenses;
     onSuccess?: () => void;
     /** When true, submitting also advances the expense to status "Paid". */
     markAsPaid?: boolean;
+    getProjectName?: (id?: string) => string;
+    getVendorName?: (id?: string) => string;
 }
 
 interface PaymentFormState {
@@ -39,15 +49,22 @@ interface PaymentFormState {
 }
 
 type AttachmentUpdateAction = "keep" | "replace" | "remove";
+const DOCTYPE = "Project Expenses";
 const ATTACHMENT_ACCEPTED_TYPES: AcceptedFileType[] = ["image/*", "application/pdf", "text/csv", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"];
-
+const SUPPORTED_AUTOFILL_EXTS = ["pdf", "png", "jpg", "jpeg"];
+const isSupportedForAutofill = (file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
+    return SUPPORTED_AUTOFILL_EXTS.includes(ext);
+};
 
 export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProps> = ({
-    isOpen, setIsOpen, expense, onSuccess, markAsPaid = false
+    isOpen, setIsOpen, expense, onSuccess, markAsPaid = false, getProjectName, getVendorName
 }) => {
     const { toast } = useToast();
+    const { user_id } = useUserData();
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
+    const { isCEOHold, showBlockedToast } = useCEOHoldGuard(expense?.projects);
 
     const [formState, setFormState] = useState<PaymentFormState>({ payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
     const [newAttachmentFile, setNewAttachmentFile] = useState<File | null>(null);
@@ -70,18 +87,12 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     // Non-blocking — just a warning so the accountant verifies before paying.
     const [amountMismatch, setAmountMismatch] = useState<{ receiptAmount: number; expenseAmount: number } | null>(null);
 
-    const SUPPORTED_AUTOFILL_EXTS = ["pdf", "png", "jpg", "jpeg"];
-    const isSupportedForAutofill = (file: File) => {
-        const ext = file.name.split(".").pop()?.toLowerCase() || "";
-        return SUPPORTED_AUTOFILL_EXTS.includes(ext);
-    };
-
     const runPaymentAutofill = useCallback(async (file: File) => {
         const session = ++extractionSessionRef.current;
         setIsAutofilling(true);
         try {
             const uploaded = await upload(file, {
-                doctype: "Non Project Expenses",
+                doctype: DOCTYPE,
                 docname: expense.name,
                 fieldname: "payment_attachment",
                 isPrivate: true,
@@ -136,7 +147,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             setExistingAttachmentUrl(expense.payment_attachment);
             setNewAttachmentFile(null);
             setNewInvoiceFile(null);
-            setAttachmentAction(expense.payment_attachment ? "keep" : "remove"); // If no existing, default to allow new upload (effectively 'remove' existing null)
+            setAttachmentAction(expense.payment_attachment ? "keep" : "remove"); // If no existing, default to allow new upload
             setFormErrors({});
             setUploadedPaymentUrl(null);
             setAutofilledFields(new Set());
@@ -207,12 +218,18 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
     };
 
     const handleSubmit = async () => {
+        if (isCEOHold) {
+            showBlockedToast();
+            return;
+        }
         if (!validate()) {
             toast({ title: "Validation Error", description: "Please check payment details.", variant: "destructive" });
             return;
         }
 
-        const dataToUpdate: Partial<NonProjectExpenses> = {
+        // Record<string, any>: null is used to CLEAR a field (undefined would be
+        // omitted from the payload and Frappe would retain the current value).
+        const dataToUpdate: Record<string, any> = {
             payment_date: formState.payment_date,
             payment_ref: formState.payment_ref.trim() || null,
             invoice_date: formState.invoice_date || null,
@@ -220,6 +237,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
         };
         if (markAsPaid) {
             dataToUpdate.status = "Paid";
+            dataToUpdate.payment_by = expense.payment_by || user_id;
         }
 
         try {
@@ -229,7 +247,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     dataToUpdate.payment_attachment = uploadedPaymentUrl;
                 } else {
                     const uploadedFile = await upload(newAttachmentFile, {
-                        doctype: "Non Project Expenses", docname: expense.name,
+                        doctype: DOCTYPE, docname: expense.name,
                         fieldname: "payment_attachment", isPrivate: true,
                     });
                     dataToUpdate.payment_attachment = uploadedFile.file_url;
@@ -237,18 +255,18 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
             } else if (attachmentAction === "remove") {
                 dataToUpdate.payment_attachment = null;
             }
-            // If action is "keep", payment_attachment is not added to dataToUpdate, so Frappe retains current value.
+            // If action is "keep", payment_attachment is not added, so Frappe retains it.
 
             // Invoice attachment: upload the new / replacement file if the accountant added one.
             if (newInvoiceFile) {
                 const uploadedInvoice = await upload(newInvoiceFile, {
-                    doctype: "Non Project Expenses", docname: expense.name,
+                    doctype: DOCTYPE, docname: expense.name,
                     fieldname: "invoice_attachment", isPrivate: true,
                 });
                 dataToUpdate.invoice_attachment = uploadedInvoice.file_url;
             }
 
-            await updateDoc("Non Project Expenses", expense.name, dataToUpdate);
+            await updateDoc(DOCTYPE, expense.name, dataToUpdate);
             toast({ title: "Success", description: markAsPaid ? "Expense marked Paid." : "Payment details updated.", variant: "success" });
             onSuccess?.();
             setIsOpen(false);
@@ -271,7 +289,6 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
         (markAsPaid && !hasPaymentAttachment) ||
         (hasInvoiceAttachmentNow && !formState.invoice_ref.trim());
 
-
     return (
         <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
             <AlertDialogContent>
@@ -283,10 +300,22 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 
                 {/* Expense details, so the accountant has full context before paying */}
                 <div className="rounded-md border bg-muted/40 p-3 text-sm space-y-1.5">
+                    {getProjectName && (
+                        <div className="flex items-start justify-between gap-4">
+                            <span className="text-muted-foreground">Project</span>
+                            <span className="font-medium text-right">{getProjectName(expense.projects)}</span>
+                        </div>
+                    )}
                     <div className="flex items-start justify-between gap-4">
                         <span className="text-muted-foreground">Expense Type</span>
-                        <span className="font-medium text-right">{expense.type || "--"}</span>
+                        <span className="font-medium text-right">{expense.expense_type_name || expense.type || "--"}</span>
                     </div>
+                    {getVendorName && (
+                        <div className="flex items-start justify-between gap-4">
+                            <span className="text-muted-foreground">Vendor</span>
+                            <span className="font-medium text-right">{getVendorName(expense.vendor)}</span>
+                        </div>
+                    )}
                     <div className="flex items-start justify-between gap-4">
                         <span className="text-muted-foreground">Amount</span>
                         <span className="font-semibold text-right">{formatToRoundedIndianRupee(expense.amount)}</span>
@@ -303,7 +332,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     )}
                 </div>
 
-                <div className="space-y-4 py-2">
+                <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto pr-1">
                     <p className="text-sm font-medium">Record Payment Details</p>
                     {/* Soft warning: the uploaded receipt's amount doesn't match the expense amount. */}
                     {amountMismatch && (
@@ -323,7 +352,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                         <>
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label htmlFor="payment_date_update_pd" className="text-right col-span-1">Payment Date <sup className="text-destructive">*</sup></Label>
-                                <Input id="payment_date_update_pd" name="payment_date" type="date" value={formState.payment_date} onChange={handleInputChange} className={cn("col-span-3", autofilledFields.has("payment_date") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} />
+                                <Input id="payment_date_update_pd" name="payment_date" type="date" value={formState.payment_date} max={formatDateFns(new Date(), "yyyy-MM-dd")} onChange={handleInputChange} className={cn("col-span-3", autofilledFields.has("payment_date") && "bg-amber-50 border-amber-300 focus-visible:ring-amber-400")} />
                                 {formErrors.payment_date && <p className="col-span-3 col-start-2 text-xs text-destructive mt-1">{formErrors.payment_date}</p>}
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
@@ -335,71 +364,71 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
                     )}
 
                     <div className="space-y-2">
-                            {/* Existing saved receipt (hidden once a new file is staged) */}
-                            {effectiveExistingUrl && !newAttachmentFile && (
-                                <div className="flex items-center justify-between p-2 bg-muted/60 rounded-md text-sm">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                        <Download className="h-4 w-4 text-primary flex-shrink-0" />
-                                        <a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a>
-                                    </div>
-                                    <Button variant="ghost" size="icon" onClick={handleRemoveExistingAttachment} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><X className="h-4 w-4" /><span className="sr-only">Remove existing attachment</span></Button>
+                        {/* Existing saved receipt (hidden once a new file is staged) */}
+                        {effectiveExistingUrl && !newAttachmentFile && (
+                            <div className="flex items-center justify-between p-2 bg-muted/60 rounded-md text-sm">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <Download className="h-4 w-4 text-primary flex-shrink-0" />
+                                    <a href={SITEURL + effectiveExistingUrl} target="_blank" rel="noopener noreferrer" className="truncate hover:underline" title={`View ${effectiveExistingUrl.split('/').pop()}`}>{effectiveExistingUrl.split('/').pop()}</a>
                                 </div>
-                            )}
-                            {attachmentAction === "remove" && existingAttachmentUrl && !newAttachmentFile && (
-                                <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/30 rounded-md text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
-                                    <AlertTriangle className="h-4 w-4 flex-shrink-0" /><span>Attachment will be removed.</span>
-                                </div>
-                            )}
-                            {!isAutofilling && autofilledFields.size > 0 && (
-                                <div className="flex items-center gap-1.5 text-xs text-amber-800">
-                                    <Sparkles className="h-3.5 w-3.5" /> Auto-filled from receipt — please verify.
-                                </div>
-                            )}
-                            {paymentStage === "upload" ? (
-                                /* Stage 1 — big "Upload Payment Receipt" card (auto-fill), like the create dialog */
-                                <div className="rounded-lg border border-dashed p-3 space-y-2">
-                                    {isAutofilling ? (
-                                        <div className="flex flex-col items-center gap-3 py-6">
-                                            <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
-                                            <div className="text-center space-y-1">
-                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Reading your receipt…</p>
-                                                <p className="text-xs text-muted-foreground">AI is extracting payment details. This usually takes a few seconds.</p>
-                                            </div>
+                                <Button variant="ghost" size="icon" onClick={handleRemoveExistingAttachment} className="h-7 w-7 text-destructive hover:bg-destructive/10" disabled={isLoadingOverall}><X className="h-4 w-4" /><span className="sr-only">Remove existing attachment</span></Button>
+                            </div>
+                        )}
+                        {attachmentAction === "remove" && existingAttachmentUrl && !newAttachmentFile && (
+                            <div className="flex items-center gap-2 p-2 bg-amber-50 dark:bg-amber-900/30 rounded-md text-sm text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
+                                <AlertTriangle className="h-4 w-4 flex-shrink-0" /><span>Attachment will be removed.</span>
+                            </div>
+                        )}
+                        {!isAutofilling && autofilledFields.size > 0 && (
+                            <div className="flex items-center gap-1.5 text-xs text-amber-800">
+                                <Sparkles className="h-3.5 w-3.5" /> Auto-filled from receipt — please verify.
+                            </div>
+                        )}
+                        {paymentStage === "upload" ? (
+                            /* Stage 1 — big "Upload Payment Receipt" card (auto-fill), like the create dialog */
+                            <div className="rounded-lg border border-dashed p-3 space-y-2">
+                                {isAutofilling ? (
+                                    <div className="flex flex-col items-center gap-3 py-6">
+                                        <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
+                                        <div className="text-center space-y-1">
+                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Reading your receipt…</p>
+                                            <p className="text-xs text-muted-foreground">AI is extracting payment details. This usually takes a few seconds.</p>
                                         </div>
-                                    ) : (
-                                        <>
-                                            <div className="text-center space-y-1">
-                                                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{effectiveExistingUrl ? "Replace Payment Receipt" : "Upload Payment Receipt"}</h3>
-                                                <p className="text-xs text-muted-foreground">We'll read the receipt and fill in Payment Ref and Payment Date for you.</p>
-                                            </div>
-                                            <CustomAttachment
-                                                label="Choose Receipt (PDF or image)"
-                                                selectedFile={newAttachmentFile}
-                                                onFileSelect={handleNewFileSelected}
-                                                onError={handleAttachmentError}
-                                                maxFileSize={5 * 1024 * 1024}
-                                                acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
-                                                disabled={isLoadingOverall}
-                                            />
-                                            <p className="text-[11px] text-center text-muted-foreground">Supported for auto-fill: PDF, PNG, JPG · max 5 MB</p>
-                                        </>
-                                    )}
-                                </div>
-                            ) : (
-                                /* Stage 2 — plain attachment control to view / replace the processed receipt */
-                                <CustomAttachment
-                                    label="Upload Payment Proof"
-                                    selectedFile={newAttachmentFile}
-                                    onFileSelect={handleNewFileSelected}
-                                    onError={handleAttachmentError}
-                                    maxFileSize={5 * 1024 * 1024}
-                                    acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
-                                    disabled={isLoadingOverall}
-                                />
-                            )}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="text-center space-y-1">
+                                            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{effectiveExistingUrl ? "Replace Payment Receipt" : "Upload Payment Receipt"}</h3>
+                                            <p className="text-xs text-muted-foreground">We'll read the receipt and fill in Payment Ref and Payment Date for you.</p>
+                                        </div>
+                                        <CustomAttachment
+                                            label="Choose Receipt (PDF or image)"
+                                            selectedFile={newAttachmentFile}
+                                            onFileSelect={handleNewFileSelected}
+                                            onError={handleAttachmentError}
+                                            maxFileSize={5 * 1024 * 1024}
+                                            acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
+                                            disabled={isLoadingOverall}
+                                        />
+                                        <p className="text-[11px] text-center text-muted-foreground">Supported for auto-fill: PDF, PNG, JPG · max 5 MB</p>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            /* Stage 2 — plain attachment control to view / replace the processed receipt */
+                            <CustomAttachment
+                                label="Upload Payment Proof"
+                                selectedFile={newAttachmentFile}
+                                onFileSelect={handleNewFileSelected}
+                                onError={handleAttachmentError}
+                                maxFileSize={5 * 1024 * 1024}
+                                acceptedTypes={ATTACHMENT_ACCEPTED_TYPES}
+                                disabled={isLoadingOverall}
+                            />
+                        )}
                     </div>
 
-                    {/* Invoice Details — always shown (invoice can be recorded while paying). */}
+                    {/* Invoice Details — always shown (invoice can be recorded / corrected while paying). */}
                     <Separator className="my-1" />
                     <p className="text-sm font-medium">Invoice Details</p>
                     <div className="grid grid-cols-4 items-center gap-4">

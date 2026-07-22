@@ -20,6 +20,12 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "amount",
     "payment_date",
     "payment_by",
+    // Invoice / payment split (mirrors Non-Project); read by the list columns + dialogs.
+    "invoice_attachment",
+    "invoice_ref",
+    "invoice_date",
+    "payment_attachment",
+    "payment_ref",
 ];
 
 // Searchable fields for the Project Expenses table
