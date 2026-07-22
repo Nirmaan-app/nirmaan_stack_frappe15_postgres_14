@@ -165,3 +165,34 @@ export const NewProjectRoute = () => {
         </div>
     )
 }
+
+/**
+ * Guards the Pricing Module (/hvac-pricing).
+ *
+ * Authorized (frontend, profile side of the PM-1 DB-verified access set):
+ * the hardcoded "Administrator" user, or role_profile
+ * "Nirmaan Admin Profile" / "Nirmaan Estimates Executive Profile".
+ * The backend API (`_require_pricing_access`) additionally accepts the
+ * "Nirmaan Estimates Executive" Role and is the real enforcement layer;
+ * this guard is the UI gate only.
+ */
+export const PricingRoute = () => {
+    const { role, user_id } = useUserData()
+
+    if (
+        user_id === "Administrator" ||
+        role === "Nirmaan Admin Profile" ||
+        role === "Nirmaan Estimates Executive Profile"
+    ) {
+        return <Outlet />
+    }
+
+    return (
+        <div className="flex items-center justify-center h-[50vh]">
+            <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">Access Denied</h2>
+                <p className="text-gray-600 mt-2">You don't have permission to access the Pricing Module.</p>
+            </div>
+        </div>
+    )
+}

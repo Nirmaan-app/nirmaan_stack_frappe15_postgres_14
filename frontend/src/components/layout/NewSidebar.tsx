@@ -29,7 +29,8 @@ import {
   Landmark, PencilRuler, SquareStack,
   Warehouse, ClipboardList,
   FileChartLine,
-  Tickets
+  Tickets,
+  Table2
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
@@ -396,6 +397,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Pricing Module (PM-2). Same access strings as <PricingRoute />:
+    // Administrator + Admin / Estimates Executive profile.
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
+      ? [
+        {
+          key: '/hvac-pricing',
+          icon: Table2,
+          label: 'HVAC Pricing',
+        },
+      ]
+      : []),
 
 
 
@@ -707,6 +719,7 @@ export function NewSidebar() {
     "pmo-dashboard",
     'commission-tracker',
     "upload-boq",
+    "hvac-pricing",
 
   ]), [])
 
@@ -749,6 +762,7 @@ export function NewSidebar() {
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
     '/upload-boq': ['upload-boq'],
+    '/hvac-pricing': ['hvac-pricing'],
   }), []);
 
   const openKey = useMemo(() => {
@@ -859,7 +873,8 @@ export function NewSidebar() {
                     "Internal Transfer Memos",
                     "Warehouse",
                     "PMO Dashboard",
-                    "Upload BoQ"]).has(item?.label) ? (
+                    "Upload BoQ",
+                    "HVAC Pricing"]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

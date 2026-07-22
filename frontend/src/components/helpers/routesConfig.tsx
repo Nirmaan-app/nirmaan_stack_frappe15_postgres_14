@@ -56,7 +56,7 @@ import CreditsPage from "@/pages/credits/CreditsPage";
 //---New Vendors-AQ2 Page
 import VendorsAQ2 from "@/pages/vendors-wp-categories/vendors-aq2";
 import WorkPackages from "@/pages/work-packages";
-import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute } from "@/utils/auth/ProtectedRoute";
+import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute } from "@/utils/auth/ProtectedRoute";
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
@@ -752,6 +752,17 @@ export const appRoutes: RouteObject[] = [
           // BoQ per-sheet pricing screen (Phase 5 Slice 3a) -- read-only committed pricing.
           // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes.
           { path: "upload-boq/hub/:boqId/pricing/:sheetName", lazy: () => import("@/pages/boq-wizard/SheetPricingPage") },
+
+          // Pricing Module (PM-2) -- HVAC pricing spreadsheet. Guarded by
+          // PricingRoute (Admin + Estimates Executive profile); the page module
+          // exports Component per the M1.59 lazy() contract.
+          {
+            path: "hvac-pricing",
+            element: <PricingRoute />,
+            children: [
+              { index: true, lazy: () => import("@/pages/pricing/HvacPricingPage") },
+            ],
+          },
 
           { path: "pdf", element: <PDF /> }, // Should PDF rendering be a route? Or triggered differently?
           { path: "milestone-update", element: <NewMilestones /> },
