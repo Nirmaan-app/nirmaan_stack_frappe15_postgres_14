@@ -591,12 +591,23 @@ Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor)
   jszip before luckyexcel) and reads `window.luckysheet` / `window.LuckyExcel`. **Never `import` these packages**
   (that would bundle ~3 MB into the app chunk); keep them out of the import graph.
 - **Lazy `Component` export (M1.59)** — the page module ends with `export { HvacPricingPage as Component }`.
-- **Checkout-lock flow:** page loads READ-ONLY; "Edit" → `checkout` → re-init `luckysheet.create` with
-  `allowEdit:true` + Save/Release; a held lock shows "Locked by <holder>" and stays read-only. Save posts
-  `getAllSheets()`; unmount + `beforeunload` best-effort `release` (fetch `keepalive` with the CSRF header).
-  Re-init (not a live toggle) is how allowEdit changes — `luckysheet.destroy()` then `create`.
-- **Watermark** = pointer-events-none data-URI-SVG background overlay (full name + email, tiled, ~30°, low
-  opacity) in BOTH read-only and edit modes; must never block sheet interaction.
+- **Sheet init is POST-MOUNT, never synchronous (PM-3):** `luckysheet.create` must run only after the container
+  div is mounted. Every create path (load / import / edit / release) calls `requestSheet(sheets, allowEdit)` (a
+  nonce-bumped state request); a `useEffect` keyed on `status === "ready" && renderReq` performs the actual
+  `initSheet`. NEVER call `luckysheet.create` synchronously inside an async callback — the container is rendered
+  only in the non-empty branch, so a pre-`"ready"` create hits a null container (`getElementById → null →
+  addEventListener` crash). Re-init (not a live toggle) is how `allowEdit` changes — `destroy()` then `create`.
+- **Toolbar always on (PM-3):** `showtoolbar: true` unconditionally; `showinfobar: false`; other bars default.
+  Edit-only actions stay gated by `allowEdit`, NOT by hiding the toolbar.
+- **Checkout-lock flow + honest banner (PM-3):** page loads READ-ONLY; "Edit" → `checkout` → re-init with
+  `allowEdit:true` + Save/Release. On a checkout FAILURE, re-fetch the true lock state: show "Locked by <holder>
+  — read only (since <t> IST)" ONLY when `checked_out_by` is non-null AND ≠ current session user AND not expired;
+  otherwise surface the REAL error and keep Edit available (retryable). NEVER show an "another user" fallback on a
+  null holder (that phantom-lock bug is DIAG-3). Save posts `getAllSheets()`; unmount + `beforeunload` best-effort
+  `release` (fetch `keepalive` with the CSRF header).
+- **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
+  email, tiled ~30°, font 21/weight 600, opacity 0.15) in BOTH read-only and edit modes; must never block sheet
+  interaction.
 - **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement

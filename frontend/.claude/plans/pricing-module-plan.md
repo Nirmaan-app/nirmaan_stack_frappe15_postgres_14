@@ -97,6 +97,42 @@ Access is limited to administrators and estimation users.
   Estimates Executive" but a Project-Lead *profile* — the backend admits them, the frontend guard (profile-only)
   does not. Intentional (backend is the enforcement layer); flagged for owner review.
 
+## PM-3 v2 — DELIVERED (fixes; frontend only)
+
+Premise = three read-only diags (DIAG-1/2/3), each re-verified against code before changing.
+
+- **STEP 0 — checkout root cause:** queried `tabError Log` for 2026-07-22 18:00–18:25 IST (and any-time for
+  `pricing`/`checkout`) → **0 rows**. The failed checkout never reached the server Error Log, so there is no
+  backend root cause to fix and `workbook.py` was **NOT edited** (no API signature change). Fix 3 (honest banner)
+  now surfaces the real client-side error on the next live run instead of masking it as a phantom lock.
+- **Fix 1 — post-mount sheet init (kills the DIAG-1 empty-state crash):** `luckysheet.create` no longer runs
+  synchronously inside async callbacks. Every create path (load / import / edit / release) now calls
+  `requestSheet(sheets, allowEdit)` (a nonce-bumped state request); a `useEffect` keyed on
+  `status === "ready" && renderReq` runs `initSheet` only after the `"ready"` render has mounted the container
+  div. The pre-mount `getElementById → null → addEventListener` crash is now structurally impossible.
+- **Fix 2 — always-on toolbar (DIAG-2):** `showtoolbar: true` unconditionally (was `allowEdit`); `showinfobar`
+  stays `false`; other bars keep luckysheet defaults. Edit-only actions remain gated by `allowEdit`.
+- **Fix 3 — honest lock banner (DIAG-3):** `handleEdit`'s catch no longer treats every failure as a lock
+  conflict. It re-fetches the true lock state and shows **"Locked by X — read only (since <t> IST)"** ONLY when
+  a re-fetched `checked_out_by` is non-null AND ≠ current session user AND not expired. A checkout failure on a
+  **free** lock now shows the **real error message** and keeps **Edit available (retryable)** — never the
+  `"another user"` fallback on a null holder. Holder-since time shown in IST on both the load and conflict banners.
+- **Fix 4 — clock:** no code change. DIAG-3 confirmed `_lock_expired` compares `now_datetime()` on both sides
+  (IST-consistent); the UTC `SELECT now()` is never used in a comparison. **Closed: no timezone expiry bug.**
+- **Fix 5 — brand watermark:** re-rendered in the **Nirmaan brand red `#D03B45`** (= `rgb(208,59,69)`), found
+  hardcoded across `src` (51 uses; canonical spots `NewSidebar.tsx` active-state `text-[#D03B45]` +
+  `ProtectedRoute.tsx` `TailSpin color="#D03B45"`; not a named token — the shadcn `--primary` is a separate rose
+  `hsl(346.8 77.2% 49.8%)`, and `#dc2626`/`#ef4444` are generic destructive reds). Raised prominence: **opacity
+  0.07 → 0.15, font 15 → 21px + weight 600, tile 340×170 → 300×150 (denser)**, still `pointer-events: none`,
+  sheet stays comfortably readable.
+- **Verification:** tsc (in-container) 0 new errors in slice files; `yarn build` clean (3m17s), benign warnings
+  only; `HvacPricingPage` chunk 9.25 KB (vendored libs remain unbundled). No backend path fired → no Frappe-test
+  run (PM-1 suite stays at 12/12 baseline, untouched).
+- **DIAG-3 one-liners on record:** (1) the blocked-Edit was a **frontend false positive** — the access log shows
+  zero successful checkouts and a free lock throughout (Fix 3 addresses it); (2) **clock closed, no bug** (Fix 4);
+  (3) **dual identity** (`Administrator` vs `admins@nirmaan.app` = two lock identities for one human) is **account
+  hygiene, no code change this slice** — owner call, tracked in PM-3+.
+
 ## PM-3+ — deferred
 
 - Role tightening / reconciling the profile-vs-role asymmetry above (owner call).
