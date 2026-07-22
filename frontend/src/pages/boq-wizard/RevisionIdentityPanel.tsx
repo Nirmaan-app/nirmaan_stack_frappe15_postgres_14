@@ -6,22 +6,28 @@ import type { CommittedSheet } from "./revisionMapping";
 /**
  * Zone 1 -- "What you're revising" (ADR-0014 D3, the F2 control).
  *
- * Shows the picked original's identity PLUS what will carry -- the committed-sheet list and
- * the carry counts (rates + classifications). This is deliberately NOT a restatement of the
- * pick: it must surface what the user did NOT see at pick time and that DIFFERS between the
- * right and a wrong original ("0 rates will carry" is the F2 alarm). Counts are cheap COUNTs
- * on the committed tier -- no parse.
+ * Shows the picked original's IDENTITY -- name, version, commit date and its committed-sheet
+ * list. This is deliberately NOT a restatement of the pick: the sheet list is what the user did
+ * NOT see at pick time and what differs between the right and a wrong original.
+ *
+ * ⚠️ The carry COUNTS deliberately do NOT render here (owner call, 2026-07-22). The endpoint
+ * still returns `carry_counts`, but on this screen any number is a CEILING, not a projection:
+ * the row match that decides what actually carries (same Excel row + same description + the
+ * parent matched too) cannot run until the revised workbook is parsed, and rates never carry
+ * automatically at all -- they are an explicit post-commit action (`cross_boq_carry`). Showing
+ * it here read as a promise the screen cannot keep. The real, MATCHED numbers are reported
+ * where they are known: `revisionCarryReport.ts` (hub parse modal + CommitResultsModal).
+ * Do not re-add a count to this panel without a way to make it a real projection.
  */
 export interface RevisionIdentity {
   boq_name: string;
   source_version: number | null;
   committed_at: string | null;
   committed_sheets: CommittedSheet[];
-  carry_counts: { rates: number; classifications: number };
 }
 
 export function RevisionIdentityPanel({ identity }: { identity: RevisionIdentity }) {
-  const { boq_name, source_version, committed_at, committed_sheets, carry_counts } = identity;
+  const { boq_name, source_version, committed_at, committed_sheets } = identity;
   return (
     <Card>
       <CardHeader>
@@ -53,16 +59,6 @@ export function RevisionIdentityPanel({ identity }: { identity: RevisionIdentity
             ))}
           </div>
         </div>
-
-        <p className="text-muted-foreground">
-          This will carry{" "}
-          <span className="font-medium text-foreground">{carry_counts.rates.toLocaleString()}</span>{" "}
-          rate{carry_counts.rates === 1 ? "" : "s"} and{" "}
-          <span className="font-medium text-foreground">
-            {carry_counts.classifications.toLocaleString()}
-          </span>{" "}
-          classification{carry_counts.classifications === 1 ? "" : "s"}.
-        </p>
       </CardContent>
     </Card>
   );

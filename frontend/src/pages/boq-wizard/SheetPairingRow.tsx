@@ -26,6 +26,17 @@ interface PairingOption {
   isNew?: boolean;
 }
 
+/**
+ * The two column labels, declared ONCE here and imported by the page's column header, so the
+ * sm+ header and the sub-sm in-row labels can never drift apart. NEW = the tab in the workbook
+ * just uploaded; OLD = the committed original it revises.
+ */
+export const PAIRING_COLUMNS = { newSheet: "New", oldSheet: "Old" } as const;
+
+/** Column-header voice: micro-caps, muted -- reads as a table spine, not as body copy. */
+export const PAIRING_COLUMN_LABEL_CLASS =
+  "text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground";
+
 interface SheetPairingRowProps {
   revised: RevisedSheetProposal;
   decision: SheetDecision;
@@ -60,6 +71,11 @@ export function SheetPairingRow({
       )}
     >
       <div className="min-w-0 flex-1">
+        {/* Below sm the row stacks, so the page's two-column header cannot apply -- each zone
+            carries its own label there instead. sm+ falls back to that single header. */}
+        <p className={cn(PAIRING_COLUMN_LABEL_CLASS, "mb-0.5 sm:hidden")}>
+          {PAIRING_COLUMNS.newSheet}
+        </p>
         <p className="truncate text-sm font-medium text-foreground" title={revised.sheet_name}>
           {revised.sheet_name || <span className="italic text-muted-foreground">(unnamed tab)</span>}
         </p>
@@ -70,6 +86,9 @@ export function SheetPairingRow({
       </div>
 
       <div className="w-full sm:w-72">
+        <p className={cn(PAIRING_COLUMN_LABEL_CLASS, "mb-0.5 sm:hidden")}>
+          {PAIRING_COLUMNS.oldSheet}
+        </p>
         <ReactSelect<PairingOption, false>
           value={selected}
           options={options}

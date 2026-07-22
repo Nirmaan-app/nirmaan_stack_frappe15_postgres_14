@@ -10,9 +10,14 @@ import {
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { RevisionIdentityPanel } from "./RevisionIdentityPanel";
-import { SheetPairingRow } from "./SheetPairingRow";
+import {
+  PAIRING_COLUMNS,
+  PAIRING_COLUMN_LABEL_CLASS,
+  SheetPairingRow,
+} from "./SheetPairingRow";
 import {
   initDecisions,
   isGeneralSpecsOriginal,
@@ -32,6 +37,8 @@ interface ProposalResponse {
   source_version: number | null;
   committed_at: string | null;
   committed_sheets: CommittedSheet[];
+  // Still on the wire, deliberately NOT rendered -- see RevisionIdentityPanel's docstring: on
+  // this screen the number can only be the original's inventory (a ceiling), never a projection.
   carry_counts: { rates: number; classifications: number };
   revised_sheets: RevisedSheetProposal[];
   self_collision: boolean;
@@ -173,7 +180,6 @@ function RevisionMappingPage() {
             source_version: proposal.source_version,
             committed_at: proposal.committed_at,
             committed_sheets: committed,
-            carry_counts: proposal.carry_counts,
           }}
         />
 
@@ -189,6 +195,24 @@ function RevisionMappingPage() {
             <CardTitle className="text-base">Revised sheets</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
+            {/* Column header. Geometry MIRRORS SheetPairingRow's sm+ layout exactly -- same
+                gap-4, same flex-1 / w-72 split, same px-3 -- so "New" sits over the revised tab
+                name and "Old" over the original picker. Hidden below sm, where the row stacks
+                and each zone carries its own label instead. */}
+            <div className="hidden items-end gap-4 border-b px-3 pb-2 sm:flex">
+              <p className={cn(PAIRING_COLUMN_LABEL_CLASS, "min-w-0 flex-1")}>
+                {PAIRING_COLUMNS.newSheet}{" "}
+                <span className="font-normal normal-case tracking-normal">
+                  — sheet in this workbook
+                </span>
+              </p>
+              <p className={cn(PAIRING_COLUMN_LABEL_CLASS, "w-72")}>
+                {PAIRING_COLUMNS.oldSheet}{" "}
+                <span className="font-normal normal-case tracking-normal">
+                  — original it revises
+                </span>
+              </p>
+            </div>
             {proposal.revised_sheets.map((s) => (
               <SheetPairingRow
                 key={s.sheet_name}
