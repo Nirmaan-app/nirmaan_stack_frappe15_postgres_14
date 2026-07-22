@@ -649,6 +649,12 @@ export function InvoiceDialog<T extends DocumentType>({
           )
         );
         globalMutate("Recon-Total-Invoiced-By-Document");
+        // Also refresh the PO/WO Invoices reconciliation pages (keyless
+        // useFrappeGetCall → default SWR key is the request URL; match by method name).
+        globalMutate((key) => {
+          const k = typeof key === "string" ? key : JSON.stringify(key ?? "");
+          return k.includes("po_wise_invoice_data") || k.includes("sr_wise_invoice_data");
+        });
         handleClose();
       } else {
         throw new Error(
@@ -1179,9 +1185,10 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             </div>
 
-            {/* Credit Note — read-only indicator, shown ONLY when editing. In add mode the
-                "Add Invoice" / "Add Credit" entry button already decides it, so no checkbox. */}
-            {isEditMode && (
+            {/* Credit Note — read-only indicator, shown ONLY when editing an invoice that
+                actually IS a credit note. Hidden for normal invoices (no noise) and in add
+                mode the "Add Invoice" / "Add Credit" entry button already decides it. */}
+            {isEditMode && invoiceData.is_credit_note && (
               <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
                 <Checkbox
                   id="is_credit_note"

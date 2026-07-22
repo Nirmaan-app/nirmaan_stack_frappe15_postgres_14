@@ -206,7 +206,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
                 <TableCell className="text-gray-600 text-sm">
                     {getUserName ? getUserName(invoice.uploaded_by) : invoice.uploaded_by || '--'}
                 </TableCell>
-                {!hideActions && <TableCell className="text-center space-x-1">
+                {!hideActions && <TableCell className="text-center"><div className="flex items-center justify-center gap-1">
                     {onEditEntry && (
                         <Button
                             variant="ghost"
@@ -252,6 +252,7 @@ const InvoiceTableRow: React.FC<InvoiceTableRowProps> = ({
                         </Dialog>
                     )}
                     {!onEditEntry && !showDeleteButton && "--"}
+                    </div>
                 </TableCell>}
             </TableRow>
             {enableMapping && expanded && hasMapping && (

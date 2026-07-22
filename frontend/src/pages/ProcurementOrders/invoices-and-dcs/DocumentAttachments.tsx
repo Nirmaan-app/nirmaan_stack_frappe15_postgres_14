@@ -93,8 +93,11 @@ export const DocumentAttachments = <T extends DocumentType>({
   //   console.log("DocumentAttachments", project, documentData);
 
   const { toggleNewInvoiceDialog, toggleEditInvoiceDialog, setSelectedInvoice, setNewInvoiceIsCredit } = useDialogStore();
-  const { role } = useUserData();
+  const { role, user_id } = useUserData();
   const isAccountant = role === "Nirmaan Accountant Profile" || role === "Nirmaan Accountant Lead Profile" || role === "Nirmaan Admin Profile";
+  // Admins (Nirmaan Admin Profile or the Administrator user) may delete ANY invoice,
+  // including Approved ones. Everyone else is limited to Pending/Rejected.
+  const isAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile";
   const { toast } = useToast();
 
   // Fetch users list for displaying "Uploaded By" names
@@ -320,6 +323,16 @@ export const DocumentAttachments = <T extends DocumentType>({
           await mutateInvoices(); // Refresh the vendor invoices list
           await mutateAttachments(); // Refresh attachments
           await docMutate(); // Refresh the parent PO/SR document data
+          // Mirror the create/edit refresh so the PO page dialogs and the Vendor
+          // Invoice Recon tables reflect the deletion (they read separate SWR keys).
+          globalMutate("Recon-Total-Invoiced-By-Document");
+          // Also refresh the PO/WO Invoices reconciliation pages. They use a keyless
+          // useFrappeGetCall, so the default SWR key is the request URL — match the
+          // method name substring to invalidate it.
+          globalMutate((key) => {
+            const k = typeof key === "string" ? key : JSON.stringify(key ?? "");
+            return k.includes("po_wise_invoice_data") || k.includes("sr_wise_invoice_data");
+          });
         } else {
           throw new Error(
             response.message?.message || "Failed to delete invoice entry."
@@ -344,9 +357,11 @@ export const DocumentAttachments = <T extends DocumentType>({
   }, [setSelectedInvoice, toggleEditInvoiceDialog]);
 
   const canDeleteInvoice = useCallback((item: VendorInvoice): boolean => {
-    // Only allow deletion if status is Pending or Rejected (or other statuses you define)
+    // Admins can delete any invoice, including Approved ones.
+    if (isAdmin) return true;
+    // Everyone else: only Pending or Rejected.
     return ["Pending", "Rejected"].includes(item?.status || "");
-  }, []);
+  }, [isAdmin]);
 
   // Legacy upload handlers removed — now using UploadDCMIRDialog
 
@@ -594,15 +609,18 @@ export const DocumentAttachments = <T extends DocumentType>({
                     >
                       <CirclePlus className="h-4 w-4 mr-1" /> Add Invoice
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-primary border-primary hover:bg-primary/5"
-                      onClick={() => { setNewInvoiceIsCredit(true); toggleNewInvoiceDialog(); }}
-                      disabled={disabledAddInvoice || false}
-                    >
-                      <CirclePlus className="h-4 w-4 mr-1" /> Add Credit
-                    </Button>
+                    {/* Credit notes are PO-only — never show Add Credit on WO/SR invoices. */}
+                    {isPO && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-primary border-primary hover:bg-primary/5"
+                        onClick={() => { setNewInvoiceIsCredit(true); toggleNewInvoiceDialog(); }}
+                        disabled={disabledAddInvoice || false}
+                      >
+                        <CirclePlus className="h-4 w-4 mr-1" /> Add Credit
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
