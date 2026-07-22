@@ -358,6 +358,21 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   `CLASSIFY_DISCIPLINE` constant was the HV-10 bug); a future engine flips `available` in the
   registry and flows through with zero code change. Every new page input stays identity-stable
   (`useMemo`/`useCallback`) so the `PricingGrid` `React.memo` shield holds.
+- **Completion summary = COMBINED EFFECTIVE outcome (HV-10b, owner ruling 2026-07-22):** the
+  "xx classified, yy flagged for review" message (both the `ClassifyProgressModal` line and the
+  post-close toast) reports the COMBINED effective split, NOT a per-engine denominator (the old
+  last-engine-wins `classifySummary` was the defect: a 2-engine run showed one engine's 13/12).
+  When ALL running disciplines terminate, `applyClassifyDone` composes the summary from the FRESH
+  resolved read (the grid's source of truth, post-`mutateCategories`) via the pure
+  `summariseResolvedOutcome(resolvedRows, rangeUnion)`: categorised = effective non-blank (an
+  auto-accept OR a human verdict -- so a pre-existing human verdict counts as categorised),
+  review = effective blank. It is scoped to the run set's `rangeUnion` (`unionScopes`): a fresh
+  run set (each `onStarted`) REPLACES the union (reset semantics); multiple engines fold together
+  and **whole-sheet DOMINATES a mixed union**; a run recovered from the poll (unknown scope) or an
+  empty scope degrades to whole-sheet. Single-engine whole-sheet with no human verdicts equals the
+  engine's own numbers by construction (pinned by test). To carry the range up, `ClassifySheetDialog`'s
+  `onStarted` now passes `Array<{discipline, scope}>` (signature-only; no dialog behaviour change).
+  The error path and the message WORDING are unchanged -- only the numbers' SOURCE changed.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
