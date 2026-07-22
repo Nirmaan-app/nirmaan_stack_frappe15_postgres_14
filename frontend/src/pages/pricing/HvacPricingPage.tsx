@@ -9,7 +9,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
-import { loadPricingLibs, watermarkBackground } from "./pricingLibs";
+import { loadPricingLibs, serializeSheets, watermarkBackground } from "./pricingLibs";
 
 declare global {
 	interface Window {
@@ -270,7 +270,9 @@ export function HvacPricingPage() {
 	const handleSave = useCallback(async () => {
 		setBusy(true);
 		try {
-			const sheets = window.luckysheet.getAllSheets();
+			// Compact the payload (strip rebuilt/runtime grid keys) so it POSTs --
+			// the raw getAllSheets() (~26 MB) exceeds the request-size limit (DIAG-5).
+			const sheets = serializeSheets(window.luckysheet.getAllSheets());
 			await callSave({
 				name: workbookNameRef.current,
 				workbook_json: JSON.stringify(sheets),

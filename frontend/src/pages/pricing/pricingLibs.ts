@@ -103,3 +103,34 @@ export function watermarkBackground(fullName: string, email: string): string {
 		`</svg>`;
 	return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
+
+// Per-sheet keys that Luckysheet REBUILDS from `celldata` on load (the expanded
+// grid) or that are pure runtime state (selection). Dropping them keeps the
+// stored form compact + canonical (celldata-only) so it POSTs -- the full
+// getAllSheets() (~26 MB once `data` is rebuilt for all sheets) exceeds the
+// request-size limit and the save hangs (DIAG-5). Proven LOSSLESS: the PM-4
+// recovery stored exactly this shape and every sheet's `data` rebuilt on reload.
+const REBUILT_SHEET_KEYS: readonly string[] = [
+	"data", // expanded 2D grid, rebuilt from celldata
+	"visibledatarow", // cumulative row-offset cache, recomputed on load
+	"visibledatacolumn", // cumulative col-offset cache, recomputed on load
+	"jfgird_select_save", // runtime selection state
+	"luckysheet_selection_range", // runtime selection state
+];
+
+/**
+ * Compact the Luckysheet workbook for persistence: strip the rebuilt/runtime keys
+ * (see REBUILT_SHEET_KEYS), keep everything else (celldata, config, calcChain,
+ * name/index/order/status, display settings). THE single source for the save
+ * shape -- every save-shaped path must go through this helper.
+ */
+export function serializeSheets(sheets: any[]): any[] {
+	return (sheets || []).map((sheet) => {
+		const out: Record<string, any> = {};
+		for (const key of Object.keys(sheet)) {
+			if (REBUILT_SHEET_KEYS.includes(key)) continue;
+			out[key] = sheet[key];
+		}
+		return out;
+	});
+}
