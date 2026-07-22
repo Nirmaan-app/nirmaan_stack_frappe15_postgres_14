@@ -603,8 +603,16 @@ Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor)
   `allowEdit:true` + Save/Release. On a checkout FAILURE, re-fetch the true lock state: show "Locked by <holder>
   — read only (since <t> IST)" ONLY when `checked_out_by` is non-null AND ≠ current session user AND not expired;
   otherwise surface the REAL error and keep Edit available (retryable). NEVER show an "another user" fallback on a
-  null holder (that phantom-lock bug is DIAG-3). Save posts `getAllSheets()`; unmount + `beforeunload` best-effort
-  `release` (fetch `keepalive` with the CSRF header).
+  null holder (that phantom-lock bug is DIAG-3). unmount + `beforeunload` best-effort `release` (fetch `keepalive`
+  with the CSRF header).
+- **Save posts the COMPACT form via `serializeSheets(getAllSheets())` (PM-5) — the single source for the save
+  shape.** `serializeSheets` (in `pricingLibs.ts`) strips the rebuilt/runtime keys (`data`, `visibledatarow`,
+  `visibledatacolumn`, `jfgird_select_save`, `luckysheet_selection_range`) and keeps `celldata` + `config` +
+  `calcChain` + display settings. The raw `getAllSheets()` is ~26 MB (Luckysheet rebuilds `data` for every sheet
+  at load); compacting → ~14 MB so it POSTs. LOSSLESS — the engine rebuilds `data` from `celldata` on load; this
+  is the same celldata-only canonical shape already stored. Any new save-shaped path MUST go through
+  `serializeSheets`. (Known residual: the axios Save-button path can stall through the Vite DEV proxy on the large
+  body even after compaction — a dev-proxy issue, not the payload; see `pricing-module-plan.md` PM-5.)
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
   email, tiled ~30°, font 21/weight 600, opacity 0.15) in BOTH read-only and edit modes; must never block sheet
   interaction.

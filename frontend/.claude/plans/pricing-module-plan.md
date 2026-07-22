@@ -161,6 +161,36 @@ Owner reported "still giving error" after PM-3. Drove it live in Chrome (`:8080`
   **Lesson (load-bearing): a test that commits against the live site DB must NEVER blanket-delete a doctype — scope
   every cleanup to rows the test created.** Filed as a standing rule; see also root CLAUDE.md list-JSON wall.
 
+## PM-5 — Save payload compaction (serializeSheets) + a residual dev-proxy hang (OWNER DECISION)
+
+Premise = DIAG-5, re-verified: `handleSave` posted the full `getAllSheets()` (~26 MB) and the save hung.
+
+- **Fix (commit `92958568`):** new `serializeSheets(sheets)` in `pricingLibs.ts` — THE single source for the save
+  shape — drops the rebuilt/runtime keys **`data`, `visibledatarow`, `visibledatacolumn`, `jfgird_select_save`,
+  `luckysheet_selection_range`** and keeps `celldata` + `config` + `calcChain` + display settings. `handleSave`
+  posts `serializeSheets(getAllSheets())`. **Payload 26.6 MB → 14.3 MB** (18.1 MB as the wrapped request body).
+  **Lossless** — Luckysheet rebuilds `data` from `celldata` on load. Stored shape stays the celldata-only
+  canonical form already in the DB (restored copy) + produced by import → **no migration, no API change.**
+- **DIAG-5 one-liners on record:** the 26 MB save wall (rebuilt `data` for all sheets); "reading 'data'" was
+  **not reproducible** on a clean load (engine rebuilds `data` for ALL sheets at create) — most-likely a stale
+  pre-reload tab; strip-on-save is the canonical compact form. Version-history size: 20 × ~14 MB ≈ **280 MB**
+  per workbook — accepted as MVP; compression/dedup is a later concern.
+- **Live verify (`:8080`, hard-reload first):** all 17 tabs render; Edit → set `Ducting!P34 = "PM5-SAVE-TEST"`
+  → Save. The **compact POST completes: HTTP 200, ~1.6 s, 18.1 MB body**; DB `current_version` bumped and a
+  Version row appeared; hard reload → **the change persisted and `data` rebuilt on all tabs** (spot-checked ADP
+  / Insulation / Sensors — real content). Then reverted `P34` to empty (original) via a second save and
+  **released the lock (`checked_out_by` NULL)**; workbook left clean (an empty cell keeps a tiny `ct` format
+  stub — no value). (Test churn left version rows v2–v4; prune keeps newest 20, no data loss.)
+- **⚠️ RESIDUAL — OWNER DECISION (not a size limit, not the fix):** the app's Save **button** path
+  (frappe-react-sdk **axios**) **intermittently HANGS through the Vite dev proxy** at the ~18 MB body — one
+  attempt persisted server-side but the proxy returned **503**; another hung >17 s and did not persist. The
+  **identical-size `fetch` to the same endpoint returns a clean 200 in ~1.6 s**, and `list_workbooks` returns
+  200 — so the **backend + payload size are fine**; the stall is the **axios-through-Vite-dev-proxy** path,
+  which production (nginx → gunicorn multi-worker) does not use. Per scope I did **NOT** change any proxy /
+  werkzeug / site size or timeout config — that's an owner decision. Recommended: confirm Save on a
+  production-like server, and/or a small backend save endpoint that streams/accepts the body without the dev
+  proxy in the middle. **Until then, treat the app Save button as verified-correct-but-flaky in dev.**
+
 ## PM-3+ — deferred
 
 - Role tightening / reconciling the profile-vs-role asymmetry above (owner call).
