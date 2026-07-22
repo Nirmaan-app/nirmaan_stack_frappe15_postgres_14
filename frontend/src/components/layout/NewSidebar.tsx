@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 
 import { messaging, VAPIDKEY } from "@/firebase/firebaseConfig";
+import { PRICING_WORKBOOKS } from "@/pages/pricing/pricingWorkbooks";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { useNotificationStore } from "@/zustand/useNotificationStore";
 import { getToken } from "firebase/messaging";
@@ -397,16 +398,17 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // Pricing Module (PM-2). Same access strings as <PricingRoute />:
-    // Administrator + Admin / Estimates Executive profile.
+    // Pricing Module (PM-2 -> PW-1). ONE role gate, three flat items generated from
+    // the PRICING_WORKBOOKS registry (the single source shared with the routes and
+    // the page). Flat items, not a collapsible group -- the sidebar's only real
+    // group is "Admin Options"; everything else here is top-level. Same access
+    // strings as <PricingRoute />: Administrator + Admin / Estimates Executive profile.
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string)
-      ? [
-        {
-          key: '/hvac-pricing',
-          icon: Table2,
-          label: 'HVAC Pricing',
-        },
-      ]
+      ? PRICING_WORKBOOKS.map((w) => ({
+        key: w.path,
+        icon: Table2,
+        label: w.label,
+      }))
       : []),
 
 
@@ -719,7 +721,8 @@ export function NewSidebar() {
     "pmo-dashboard",
     'commission-tracker',
     "upload-boq",
-    "hvac-pricing",
+    // Pricing Module (PW-1): one key per registry workbook.
+    ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
 
   ]), [])
 
@@ -762,7 +765,11 @@ export function NewSidebar() {
     '/pmo-dashboard': ['pmo-dashboard'],
     '/work-order-rate-card': ['work-order-rate-card'],
     '/upload-boq': ['upload-boq'],
-    '/hvac-pricing': ['hvac-pricing'],
+    // Pricing Module (PW-1): each registry workbook maps to its own single-segment
+    // key, which is what drives the active-item highlight.
+    ...Object.fromEntries(
+      PRICING_WORKBOOKS.map((w) => [w.path, [w.path.slice(1)]])
+    ),
   }), []);
 
   const openKey = useMemo(() => {
@@ -874,7 +881,8 @@ export function NewSidebar() {
                     "Warehouse",
                     "PMO Dashboard",
                     "Upload BoQ",
-                    "HVAC Pricing"]).has(item?.label) ? (
+                    // Pricing Module (PW-1): flat nav buttons, one per registry workbook.
+                    ...PRICING_WORKBOOKS.map((w) => w.label)]).has(item?.label) ? (
                     <SidebarMenuButton
                       className={`${((!openKey && selectedKeys !== "notifications" && item?.label === "Dashboard") || item?.key === openKey)
                         ? "bg-[#FFD3CC] text-[#D03B45] hover:text-[#D03B45] hover:bg-[#FFD3CC]"

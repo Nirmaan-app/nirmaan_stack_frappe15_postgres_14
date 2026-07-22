@@ -1,15 +1,27 @@
-// HVAC Pricing page (PM-2). Lazy route module -- exports `Component` per the
-// M1.59 lazy() contract. Mounts the vendored Luckysheet engine (script-injected,
-// not bundled), reads/writes the workbook through the PM-1 whitelisted API, and
-// enforces a single-editor checkout lock. Access is gated by <PricingRoute />;
-// the backend API is the real enforcement layer.
+// Generic pricing workbook page (PM-2 -> PW-1). ONE module serves every entry in
+// the PRICING_WORKBOOKS registry (HVAC / Electrical / ELV); each has its own route
+// object, and the page resolves WHICH workbook it is from its own route path.
+// Lazy route module -- exports `Component` per the M1.59 lazy() contract. Mounts
+// the vendored Luckysheet engine (script-injected, not bundled), reads/writes the
+// workbook through the PM-1 whitelisted API, and enforces a single-editor checkout
+// lock. Access is gated by <PricingRoute />; the backend API is the real
+// enforcement layer.
+//
+// PW-1 replaced two single-workbook assumptions: selection was `rows[0]` of an
+// unfiltered list (a MOVING target -- list_workbooks orders by `modified desc`),
+// and the empty state fired on "zero workbooks in the SYSTEM", which made import
+// unreachable for every page once any one workbook existed. Both are now keyed on
+// the registry entry's `title`, so each page has an independent
+// empty -> import -> ready lifecycle.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useFrappePostCall } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
 import { loadPricingLibs, serializeSheets, watermarkBackground } from "./pricingLibs";
+import { workbookForPath } from "./pricingWorkbooks";
 
 declare global {
 	interface Window {
@@ -18,16 +30,19 @@ declare global {
 	}
 }
 
-const CONTAINER_ID = "hvac-pricing-luckysheet";
-const WORKBOOK_TITLE = "HVAC Pricing";
+// Shared across the three pages: only ONE ever mounts at a time (each workbook is
+// its own route object, so switching fully unmounts the previous page and the
+// cleanup effect destroys the engine before the next create).
+const CONTAINER_ID = "pricing-workbook-luckysheet";
 const M = "nirmaan_stack.api.pricing.workbook";
 
 type PageStatus =
 	| "loading" // scripts + first data read in flight
-	| "empty" // no workbook yet -> import
+	| "empty" // no workbook with THIS title yet -> import
 	| "ready" // workbook loaded into the sheet
 	| "scripts-error"
 	| "access-denied"
+	| "unknown-workbook" // route path not in the registry
 	| "error";
 
 type LockState = "readonly" | "mine" | "locked-by-other";
@@ -39,8 +54,14 @@ function isPermissionError(err: any): boolean {
 	return /PermissionError/i.test(blob);
 }
 
-export function HvacPricingPage() {
+export function PricingWorkbookPage() {
 	const { full_name, user_id } = useUserData();
+	const { pathname } = useLocation();
+
+	// WHICH workbook this page is. Each registry path is its own route object, so
+	// this is fixed for the life of the mount (switching workbooks remounts).
+	const entry = useMemo(() => workbookForPath(pathname), [pathname]);
+	const workbookTitle = entry?.title ?? "";
 
 	const [status, setStatus] = useState<PageStatus>("loading");
 	const [errorMsg, setErrorMsg] = useState<string>("");
@@ -95,7 +116,7 @@ export function HvacPricingPage() {
 			window.luckysheet.create({
 				container: CONTAINER_ID,
 				data: sheets && sheets.length ? sheets : undefined,
-				title: WORKBOOK_TITLE,
+				title: workbookTitle,
 				lang: "en",
 				allowEdit,
 				showinfobar: false,
@@ -107,7 +128,7 @@ export function HvacPricingPage() {
 			});
 			sheetInitedRef.current = true;
 		},
-		[destroySheet]
+		[destroySheet, workbookTitle]
 	);
 
 	// Request a (re)create of the sheet. Never calls luckysheet.create directly --
@@ -130,6 +151,12 @@ export function HvacPricingPage() {
 	// -- initial load: inject libs, list, load first workbook -------------
 	useEffect(() => {
 		let cancelled = false;
+		// An unregistered path has no workbook to load -- surface it instead of
+		// falling through to a blank page.
+		if (!entry) {
+			setStatus("unknown-workbook");
+			return;
+		}
 		(async () => {
 			try {
 				await loadPricingLibs();
@@ -143,11 +170,16 @@ export function HvacPricingPage() {
 			try {
 				const listed = await callList({});
 				const rows: any[] = listed?.message || [];
-				if (!rows.length) {
+				// PW-1: select BY TITLE, not by list position. `title` is unique on the
+				// Pricing Workbook doctype, so this is an exact 0-or-1 match, and "no
+				// match" means empty FOR THIS PAGE -- other workbooks existing is
+				// irrelevant here (that global check is what made import unreachable).
+				const match = rows.find((r: any) => r.title === entry.title);
+				if (!match) {
 					if (!cancelled) setStatus("empty");
 					return;
 				}
-				const name: string = rows[0].name;
+				const name: string = match.name;
 				workbookNameRef.current = name;
 				const got = await callGet({ name });
 				const wb = got?.message || {};
@@ -175,6 +207,10 @@ export function HvacPricingPage() {
 		return () => {
 			cancelled = true;
 		};
+		// Runs ONCE per mount. Safe because every registry path is its own route
+		// object, so switching workbooks unmounts this page (and the cleanup effect
+		// below releases the lock + destroys the engine) rather than re-rendering it
+		// with a different `entry`.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
@@ -347,8 +383,10 @@ export function HvacPricingPage() {
 					if (!exportJson?.sheets?.length) {
 						throw new Error("The selected file has no readable sheets.");
 					}
+					// Created under THIS page's registry title, so the next load's
+					// title-keyed selection finds it from this route and no other.
 					const created = await callCreate({
-						title: WORKBOOK_TITLE,
+						title: workbookTitle,
 						workbook_json: JSON.stringify(exportJson.sheets),
 					});
 					workbookNameRef.current = created?.message?.name || "";
@@ -365,10 +403,23 @@ export function HvacPricingPage() {
 				}
 			});
 		},
-		[callCreate, requestSheet]
+		[callCreate, requestSheet, workbookTitle]
 	);
 
 	// -- render ------------------------------------------------------------
+	if (status === "unknown-workbook") {
+		return (
+			<div className="flex items-center justify-center h-[50vh]">
+				<div className="text-center max-w-md">
+					<h2 className="text-xl font-semibold text-destructive">Unknown pricing workbook</h2>
+					<p className="text-muted-foreground mt-2 break-words">
+						No pricing workbook is configured for <code>{pathname}</code>.
+					</p>
+				</div>
+			</div>
+		);
+	}
+
 	if (status === "access-denied") {
 		return (
 			<div className="flex items-center justify-center h-[50vh]">
@@ -398,7 +449,7 @@ export function HvacPricingPage() {
 	return (
 		<div className="flex flex-col h-[calc(100vh-100px)]">
 			<div className="flex flex-wrap items-center gap-2 p-2 border-b border-border">
-				<h1 className="text-base font-semibold text-foreground mr-2">HVAC Pricing</h1>
+				<h1 className="text-base font-semibold text-foreground mr-2">{workbookTitle}</h1>
 
 				{status === "ready" && lock === "readonly" && (
 					<Button size="sm" disabled={busy} onClick={handleEdit}>
@@ -443,7 +494,8 @@ export function HvacPricingPage() {
 				<div className="flex-1 flex items-center justify-center">
 					<div className="text-center">
 						<p className="text-muted-foreground mb-4">
-							No pricing workbook yet. Import an Excel file to get started.
+							No <span className="font-medium">{workbookTitle}</span> workbook yet. Import an
+							Excel file to get started.
 						</p>
 						<label className="inline-flex items-center px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium cursor-pointer">
 							Import Excel (.xlsx)
@@ -482,4 +534,4 @@ export function HvacPricingPage() {
 	);
 }
 
-export { HvacPricingPage as Component };
+export { PricingWorkbookPage as Component };

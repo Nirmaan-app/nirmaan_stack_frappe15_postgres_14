@@ -167,7 +167,10 @@ export const NewProjectRoute = () => {
 }
 
 /**
- * Guards the Pricing Module (/hvac-pricing).
+ * Guards the Pricing Module -- ALL of its workbook routes (/hvac-pricing,
+ * /electrical-pricing, /elv-pricing; see pages/pricing/pricingWorkbooks.ts).
+ * The gate is per-MODULE, not per-workbook: it carries no title or route
+ * coupling, so a new registry workbook needs no change here (PW-1).
  *
  * Authorized (frontend, profile side of the PM-1 DB-verified access set):
  * the hardcoded "Administrator" user, or role_profile
