@@ -133,6 +133,34 @@ Premise = three read-only diags (DIAG-1/2/3), each re-verified against code befo
   (3) **dual identity** (`Administrator` vs `admins@nirmaan.app` = two lock identities for one human) is **account
   hygiene, no code change this slice** — owner call, tracked in PM-3+.
 
+## PM-4 — live Chrome verification + real checkout root cause + DATA-LOSS INCIDENT
+
+Owner reported "still giving error" after PM-3. Drove it live in Chrome (`:8080` dev). Findings:
+
+- **The five PM-3 fixes are CONFIRMED live:** read-only load renders (post-mount init, no null crash),
+  toolbar is visible, watermark is brand-red + prominent, and the honest banner works — clicking Edit showed
+  the REAL error ("There was an error.") next to a still-available Edit button instead of a phantom lock.
+- **Real root cause of the persistent error (the thing DIAG-3 could not see):** `checkout` returned **HTTP 417**.
+  `checkout` / `release` did a full `doc.save()` on the Pricing Workbook; once `workbook_json` holds an imported
+  (array-shaped) sheets blob, Frappe hydrates it back as a Python **list**, and `get_valid_dict` then throws
+  **"Value for Workbook JSON cannot be a list"** — the same **list-valued-JSON `doc.save()`/`delete_doc` wall**
+  documented in the root CLAUDE.md for BoQ. The PM-1 tests missed it because they used **dict** payloads (which
+  hydrate as dicts, not lists). **Fix:** write lock fields with `frappe.db.set_value` (metadata write, no
+  whole-doc validation) + a `DoesNotExist` guard. Verified live: Edit → "You hold the edit lock" + Save/Release,
+  Release → back to read-only; DB `checked_out_by` set/cleared with `update_modified=False`. Commit `f4f79190`.
+- **⚠️ DATA-LOSS INCIDENT (caused + fully recovered this session).** The test `_purge_all` blanket-deleted **all**
+  Pricing Workbook / Version / Log rows, and `bench run-tests --site localhost` runs against the **live** DB and
+  commits. Running the suite **wiped the owner's real workbook** (`ecnfm06kl5`, 17 sheets). (The original PM-1
+  `_purge_all` had the same flaw; it only bit once real data existed.) **Recovery:** the data was still in the
+  browser tab's Luckysheet memory — extracted `getAllSheets()` (17 sheets, ~26 MB), dropped the redundant
+  expanded `data` grid (Luckysheet rebuilds it from `celldata`), and re-created the workbook via `create_workbook`
+  from the page (18 MB body; the full 33 MB exceeded the request limit). Restored as `3cl1hv4c1l`, title
+  "HVAC Pricing", **celldata counts byte-identical to the live grid**, verified in the DB. **Fix:** `_purge_all`
+  is now **SCOPED to only the workbook names the suite created** (tracked in `_created_names`), raw `db.delete`
+  (never `delete_doc`, never filterless). Re-ran the suite: **13/13 pass AND the real workbook survives intact**.
+  **Lesson (load-bearing): a test that commits against the live site DB must NEVER blanket-delete a doctype — scope
+  every cleanup to rows the test created.** Filed as a standing rule; see also root CLAUDE.md list-JSON wall.
+
 ## PM-3+ — deferred
 
 - Role tightening / reconciling the profile-vs-role asymmetry above (owner call).
