@@ -336,6 +336,28 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
   needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
   routing literal are unchanged).
+- **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
+  pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
+  `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
+  working). The SERVER applies a per-ROW ladder across every discipline with current rows: human
+  wins (most-recent between disciplines) > auto-accepted > higher-`ai_confidence` between multiple
+  autos (row flagged `cross_engine_conflict`) > blank. **`cross_engine_conflict` is TELEMETRY-ONLY --
+  computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`); the pure
+  `resolvedToSheetCategoryRow` adapter (`sheetCategoryResolve.ts`) DROPS it so it can't reach a
+  rendered surface, and maps each resolved row onto the grid's `SheetCategoryRow` so `PricingGrid` +
+  `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (blank rows still blank + amber).
+  `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
+  (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
+  picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
+  `ClassifyStatusPoller` each -- single-engine = the old single poll; the modal completes when all
+  running disciplines terminate). Socket done/progress filters are MEMBERSHIP in
+  `(ran UNION running)`, never `=== a constant`. **The picker's `onSelect(id, discipline)` CARRIES
+  the picked group's discipline** -- the write (`set_row_category`) lands on that engine's row
+  identity (upsert-on-missing mints it); "Clear" (`discipline=null`) targets the row's resolved
+  human discipline. **NEVER hardcode a discipline string in this pathway** (the deleted
+  `CLASSIFY_DISCIPLINE` constant was the HV-10 bug); a future engine flips `available` in the
+  registry and flows through with zero code change. Every new page input stays identity-stable
+  (`useMemo`/`useCallback`) so the `PricingGrid` `React.memo` shield holds.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
