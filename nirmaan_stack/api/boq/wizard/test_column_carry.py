@@ -39,6 +39,9 @@ from nirmaan_stack.api.boq.wizard.test_revision_mapping import (
 
 _READ_TABS = "nirmaan_stack.api.boq.wizard.revision._read_revised_tab_names"
 _READ_COLS = "nirmaan_stack.api.boq.wizard.revision_carry._read_revised_columns"
+# The New-tab auto-guess seam. `revision._prefill_new_sheet_configs` imports this at CALL time
+# (cycle avoidance), so the patch must target the SOURCE module, not a name bound in `revision`.
+_FETCH_FILE = "nirmaan_stack.api.boq.wizard.sheet_preview._fetch_boq_file_to_tempfile"
 
 # A small original DATA sheet: A=S.No (UNMAPPED clean label), B..F mapped.
 _ROLE_MAP = {
@@ -286,15 +289,24 @@ class TestConfigColumnCarry(FrappeTestCase):
         self.assertEqual([d["sheet_name"] for d in res["dispositions"]], ["Data"])
 
     # ── no data config to carry -> unchanged S3 behaviour (Pending, no config) ─
-    def test_new_sheet_pending_no_config(self):
-        drafts, _ = self._confirm(
-            tabs=["Data", "Fresh"],
-            mapping=[
-                {"sheet_name": "Data", "source_sheet_name": "Data"},
-                {"sheet_name": "Fresh", "source_sheet_name": None, "declared_new": True},
-            ],
-            revised_cols={"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
-        )
+    def test_new_sheet_pending_no_carried_config_when_guess_unavailable(self):
+        """A New sheet claims no original, so the S4 CARRY seeds it nothing.
+
+        It now falls through to the fresh-upload auto-guess instead
+        (`_prefill_new_sheet_configs`); this case pins the DEGRADE -- an unreadable workbook
+        leaves it blank for manual config rather than failing the confirm. The guess landing is
+        pinned separately in `TestNewSheetConfigPrefill`. The patch is explicit so this asserts
+        the degrade on purpose, not because the fixture URL happens to be unreadable.
+        """
+        with patch(_FETCH_FILE, side_effect=OSError("no such file")):
+            drafts, _ = self._confirm(
+                tabs=["Data", "Fresh"],
+                mapping=[
+                    {"sheet_name": "Data", "source_sheet_name": "Data"},
+                    {"sheet_name": "Fresh", "source_sheet_name": None, "declared_new": True},
+                ],
+                revised_cols={"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+            )
         self.assertEqual(drafts["Fresh"].wizard_status, "Pending")
         self.assertIn(drafts["Fresh"].sheet_config or "", ("", "null", None))
 
@@ -499,3 +511,81 @@ class TestWorkPackageCarry(FrappeTestCase):
             {"Data Rev": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
         )
         self.assertEqual(_draft_work_packages(rev, "Data Rev"), self.headers)
+
+
+class TestNewSheetConfigPrefill(FrappeTestCase):
+    """A declared-NEW tab gets the fresh-upload AUTO-GUESS (bug fix, 2026-07-22).
+
+    Before this, a New tab in a revision landed with `sheet_config` NULL and no way to get one:
+    the upload worker's `prefill_sheet_configs` is a no-op for a revision (it seeds no drafts),
+    and `confirm_revision_mapping` -- which does seed them -- only had the S4 carry, which needs
+    a mapped original. So the same workbook auto-detected on a fresh upload and came up blank as
+    a revision. The guess now runs at confirm, scoped to New tabs.
+
+    These tests use the REAL `synthetic_simple.xlsx` fixture (one tab, "Sheet1") through the
+    `_fetch_boq_file_to_tempfile` seam, so the guess actually executes.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="PREFILL ORIG")
+        _commit_data_sheet(cls.original.name, "Data")
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in frappe.get_all("BOQs", filters={"project": cls.project.name}, fields=["name"]):
+            frappe.db.delete("BoQ Sheet", {"boq": boq.name})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def _confirm_with_real_workbook(self, tabs, mapping, revised_cols=None):
+        rev = _make_revision(self.project.name, self.original.name)
+        with patch(_READ_TABS, return_value=tabs), patch(
+            _READ_COLS, return_value=revised_cols or {}
+        ), patch(_FETCH_FILE, return_value=_make_xlsx_tempfile()):
+            confirm_revision_mapping(rev.name, mapping)
+        doc = frappe.get_doc("BOQs", rev.name)
+        return {d.sheet_name: d for d in doc.sheet_drafts}
+
+    def test_declared_new_sheet_gets_an_auto_guessed_config(self):
+        drafts = self._confirm_with_real_workbook(
+            ["Sheet1"], [{"sheet_name": "Sheet1", "declared_new": True}]
+        )
+        cfg = frappe.parse_json(drafts["Sheet1"].sheet_config or "null")
+        self.assertIsInstance(cfg, dict, "New sheet was seeded no config at all")
+        # The guess's job is to locate the header and map columns; both must be real.
+        self.assertTrue(cfg.get("header_row"), f"no header_row in the guess: {cfg}")
+        self.assertTrue(cfg.get("column_role_map"), f"no column roles in the guess: {cfg}")
+
+    def test_the_guess_never_overwrites_a_mapped_sheets_carried_config(self):
+        """The load-bearing scoping. Under A2 EVERY revised draft is Pending, so an unscoped
+        `prefill_sheet_configs` would re-guess the mapped sheets too and destroy the S4 carry --
+        silently, since a guess also produces a plausible-looking config."""
+        drafts = self._confirm_with_real_workbook(
+            ["Data", "Sheet1"],
+            [
+                {"sheet_name": "Data", "source_sheet_name": "Data"},
+                {"sheet_name": "Sheet1", "declared_new": True},
+            ],
+            {"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        )
+        carried = frappe.parse_json(drafts["Data"].sheet_config)
+        self.assertEqual(
+            carried["column_role_map"], _ROLE_MAP,
+            "the mapped sheet's carried role map was overwritten by the auto-guess",
+        )
+        self.assertTrue(frappe.parse_json(drafts["Sheet1"].sheet_config or "null"))
+
+    def test_a_mapped_only_confirm_never_opens_the_workbook(self):
+        """No New tabs -> no fetch. Keeps the common (all-mapped) revision free of an extra
+        workbook read; `_prefill_new_sheet_configs` returns before importing anything."""
+        rev = _make_revision(self.project.name, self.original.name)
+        with patch(_READ_TABS, return_value=["Data"]), patch(
+            _READ_COLS,
+            return_value={"Data": {"header_cells": dict(_HEADER), "universe": set("ABCDEF")}},
+        ), patch(_FETCH_FILE) as fetch:
+            confirm_revision_mapping(rev.name, [{"sheet_name": "Data", "source_sheet_name": "Data"}])
+        fetch.assert_not_called()

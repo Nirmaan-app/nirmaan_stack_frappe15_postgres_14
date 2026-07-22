@@ -596,6 +596,63 @@ def get_removed_source_sheets(boq: str) -> dict:
     }
 
 
+def _prefill_new_sheet_configs(boq_doc, new_tabs) -> None:
+    """Auto-guess `sheet_config` for the revision's declared-New tabs. Call AFTER the save.
+
+    WHY THIS EXISTS. A MAPPED tab is seeded from the original's rectified role map (S4/D5) --
+    a better seed than any guess. A NEW tab has no original, and before this it got nothing at
+    all: the fresh-upload auto-guess runs inside `_upload_file_worker`, which deliberately seeds
+    NO drafts for a revision (empty `sheet_drafts` IS the unconfirmed-revision marker), so the
+    `prefill_sheet_configs` call there iterates an empty list, and the open workbook `reader`
+    dies with the worker. Drafts are then born HERE, in a later request with no reader -- so a
+    New sheet opened its config screen blank while a fresh upload of the same workbook
+    auto-detected everything. The guess runs here instead, through the SAME shared
+    `prefill_sheet_configs` the upload worker uses (one implementation, so the paths cannot
+    drift).
+
+    ⚠️ SCOPED to `new_tabs`, and the scoping is load-bearing: under A2 every revised draft is
+    `Pending`, so an unfiltered call would overwrite every MAPPED sheet's carried role map.
+
+    Work packages are deliberately NOT carried onto a New tab (owner call, 2026-07-22): there is
+    no original to carry from, so it stays a manual pick on the config screen.
+
+    Best-effort. The drafts are already saved and the caller is about to commit, so a workbook
+    fetch/read failure degrades to the old behaviour (New tab configured by hand) rather than
+    rolling back the whole confirm. Per-sheet failure is already isolated inside
+    `prefill_sheet_configs`.
+    """
+    if not new_tabs:
+        return
+    # Function-level imports: `upload_file` imports THIS module (`assert_revisable_source`), so a
+    # module-level import back would be a cycle -- same reason `_read_revised_tab_names` and
+    # `convert_revision_entry` import locally.
+    from nirmaan_stack.api.boq.wizard.sheet_preview import (  # noqa: PLC0415
+        _fetch_boq_file_to_tempfile,
+    )
+    from nirmaan_stack.api.boq.wizard.upload_file import (  # noqa: PLC0415
+        prefill_sheet_configs,
+    )
+    from nirmaan_stack.services.boq_parser.reader import BoqReader  # noqa: PLC0415
+
+    worker_tmp = None
+    try:
+        # S3 safety: bytes via the tempfile pattern, NEVER a local path built from `file_url`.
+        worker_tmp = _fetch_boq_file_to_tempfile(boq_doc.source_file_url)
+        prefill_sheet_configs(boq_doc, BoqReader(worker_tmp), only_sheet_names=new_tabs)
+    except Exception:
+        frappe.logger("boq_revision").warning(
+            f"revised-BoQ {boq_doc.name}: could not auto-guess config for new sheets "
+            f"{sorted(new_tabs)}; they stay blank for manual config",
+            exc_info=True,
+        )
+    finally:
+        if worker_tmp:
+            try:
+                os.remove(worker_tmp)
+            except OSError:
+                pass
+
+
 @frappe.whitelist(methods=["POST"])
 def confirm_revision_mapping(boq: str, mapping) -> dict:
     """Validate the human-confirmed mapping, then SEED the revision's drafts (ADR-0014 D3/D4).
@@ -619,7 +676,10 @@ def confirm_revision_mapping(boq: str, mapping) -> dict:
 
     Seeding: every tab -> a `BoQ Sheet Draft` at its VERBATIM `sheet_name` + tab-order
     `sheet_order`, `source_sheet_name` stamped write-once on mapped tabs. S4 (D5) seeds each
-    mapped DATA sheet with the original's rectified `column_role_map` (`sheet_config`).
+    mapped DATA sheet with the original's rectified `column_role_map` (`sheet_config`); a
+    declared-NEW tab has no original to seed from, so it gets the fresh-upload AUTO-GUESS
+    instead (`_prefill_new_sheet_configs` -- see there for why the upload worker's own call
+    cannot cover it). Work packages are carried onto MAPPED tabs only.
 
     ⚠️ `wizard_status` is **always `Pending`** (Amendment B W4 / A2). It used to be `Config Done`
     for a structurally clean sheet, which meant a revision could reach parse with nobody having
@@ -789,6 +849,12 @@ def confirm_revision_mapping(boq: str, mapping) -> dict:
             src_sheet = source_by_draft_tab.get(draft.sheet_name)  # VERBATIM (#152)
             if src_sheet:
                 carry_work_packages(draft.name, wp_by_source.get(src_sheet))
+
+    # A declared-New tab has no original to seed from, so it gets the fresh-upload AUTO-GUESS
+    # instead -- the upload worker's own call is a no-op for a revision (it seeds no drafts), and
+    # nothing else ever ran it. Derived from the VALIDATED state (`claimed`), not re-read from the
+    # payload: every tab is by now provably either mapped or explicitly declared New.
+    _prefill_new_sheet_configs(boq_doc, set(tab_names) - set(claimed.values()))
 
     frappe.db.commit()
     return {"status": "saved", "seeded": seeded, "dispositions": dispositions}

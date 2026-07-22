@@ -225,15 +225,24 @@ def append_sheet_drafts(boq_doc, reader, sheets):
         )
 
 
-def prefill_sheet_configs(boq_doc, reader):
+def prefill_sheet_configs(boq_doc, reader, only_sheet_names=None):
     """Auto-guess `sheet_config` for every Pending draft. Call AFTER saving `boq_doc`.
 
     Post-save because `frappe.db.set_value` needs the child rows' real docnames. Failure is
     per-sheet isolated: an exception leaves that sheet's `sheet_config` as None and the caller
-    continues normally. Shared by the upload worker and the W3 conversion re-seed.
+    continues normally. Shared by the upload worker, the W3 conversion re-seed, and the S3
+    revision confirm.
+
+    `only_sheet_names`: when given, restrict the guess to those VERBATIM sheet names (#152).
+    Default None = every Pending draft, byte-identical to the fresh-upload behaviour. The
+    revision seam (`revision._prefill_new_sheet_configs`) passes its declared-New tabs, and
+    that scoping is LOAD-BEARING: under A2 every revised draft is `Pending`, so an unfiltered
+    call there would overwrite each MAPPED sheet's carried role map (S4) with a fresh guess.
     """
     for draft in boq_doc.sheet_drafts:
         if draft.wizard_status != "Pending":
+            continue
+        if only_sheet_names is not None and draft.sheet_name not in only_sheet_names:
             continue
         try:
             header_row = reader.detect_header_row(draft.sheet_name)
