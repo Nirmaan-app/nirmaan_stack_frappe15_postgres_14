@@ -94,11 +94,12 @@ function escapeXml(value: string): string {
 export function watermarkBackground(fullName: string, email: string): string {
 	const label = escapeXml([fullName, email].filter(Boolean).join("  ·  "));
 	// Denser tile (was 340x170) + larger font (was 15) + higher opacity (was 0.07)
-	// in brand red. 0.15 alpha stays clearly legible over the grid.
+	// in brand red. 0.22 alpha (raised from 0.15, PM-6) reads clearly darker while
+	// the sheet content stays comfortably legible over it.
 	const svg =
 		`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='150'>` +
 		`<text x='8' y='80' transform='rotate(-30 150 75)' ` +
-		`fill='rgba(208,59,69,0.15)' font-size='21' font-weight='600' ` +
+		`fill='rgba(208,59,69,0.22)' font-size='21' font-weight='600' ` +
 		`font-family='Inter, Arial, sans-serif'>${label}</text>` +
 		`</svg>`;
 	return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;

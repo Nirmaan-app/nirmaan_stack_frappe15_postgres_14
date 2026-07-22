@@ -70,7 +70,6 @@ export function HvacPricingPage() {
 	const { call: callGet } = useFrappePostCall(`${M}.get_workbook`);
 	const { call: callCheckout } = useFrappePostCall(`${M}.checkout`);
 	const { call: callRelease } = useFrappePostCall(`${M}.release`);
-	const { call: callSave } = useFrappePostCall(`${M}.save_workbook`);
 	const { call: callCreate } = useFrappePostCall(`${M}.create_workbook`);
 
 	const watermarkStyle = useMemo(
@@ -273,17 +272,56 @@ export function HvacPricingPage() {
 			// Compact the payload (strip rebuilt/runtime grid keys) so it POSTs --
 			// the raw getAllSheets() (~26 MB) exceeds the request-size limit (DIAG-5).
 			const sheets = serializeSheets(window.luckysheet.getAllSheets());
-			await callSave({
-				name: workbookNameRef.current,
-				workbook_json: JSON.stringify(sheets),
+			// LARGE-BODY SAVE GOES VIA RAW FETCH, NOT THE SDK/axios (PM-6): the axios
+			// path stalls intermittently through the Vite dev proxy on the ~18 MB body,
+			// while an identical same-origin fetch completes reliably (~1.6 s). Mirrors
+			// the wizard multipart-upload precedent. Checkout/release/get/list stay on
+			// the SDK (small bodies). Endpoint/payload/stored shape are all unchanged.
+			const token =
+				(window as any).frappe?.csrf_token || (window as any).csrf_token || "";
+			const res = await fetch(`/api/method/${M}.save_workbook`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Frappe-CSRF-Token": token,
+				},
+				body: JSON.stringify({
+					name: workbookNameRef.current,
+					workbook_json: JSON.stringify(sheets),
+				}),
 			});
+			if (!res.ok) {
+				// Surface the REAL Frappe message (keeps lock + Edit state intact).
+				let msg = `Save failed (HTTP ${res.status}).`;
+				try {
+					const data = await res.json();
+					if (data?._server_messages) {
+						const parsed = JSON.parse(data._server_messages);
+						msg =
+							parsed
+								.map((m: string) => {
+									try {
+										return JSON.parse(m).message;
+									} catch {
+										return String(m);
+									}
+								})
+								.join(" ") || msg;
+					} else if (typeof data?.message === "string") {
+						msg = data.message;
+					}
+				} catch {
+					/* non-JSON body -> keep the HTTP fallback */
+				}
+				throw new Error(msg);
+			}
 			setSavedAt(new Date().toLocaleTimeString());
 		} catch (e: any) {
 			setErrorMsg(e?.message || "Save failed.");
 		} finally {
 			setBusy(false);
 		}
-	}, [callSave]);
+	}, []);
 
 	const handleRelease = useCallback(async () => {
 		setBusy(true);
