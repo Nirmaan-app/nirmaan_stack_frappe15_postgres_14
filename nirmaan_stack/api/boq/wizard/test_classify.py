@@ -655,6 +655,20 @@ class TestGetSheetCategories(FrappeTestCase):
         elevens = [c for c in res["categories"] if c["excel_row"] == 11]
         self.assertEqual(len(elevens), 1)
 
+    def test_write_persists_rules_version_stamp(self):
+        """HV-11 part 1b: the STAMP END stays faithful -- write_row_categories persists the
+        rules_version it is handed. The HV-9 empty stamp was UPSTREAM (the loader dropped the key,
+        so orchestrator fed ''); the writer was always correct. Pin it so a future regression here
+        is caught now that the loader surfaces a real version."""
+        persist.write_row_categories(self.boq, self.sheet, 1, "Electrical",
+                                     [_cat_row(21, rules_version="4.2-hv7")])
+        stamped = frappe.db.get_value(
+            _ROW_CATEGORY,
+            {"boq": self.boq, "sheet_name": self.sheet, "excel_row": 21, "is_current": 1},
+            "rules_version",
+        )
+        self.assertEqual(stamped, "4.2-hv7")
+
     def test_freeze_reader_shape_unchanged(self):
         """HV-10 regression guard: get_sheet_categories stays single-discipline (freeze +
         get_freeze_summary depend on this exact shape). No `disciplines`, no `votes`."""

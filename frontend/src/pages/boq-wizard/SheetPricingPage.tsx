@@ -81,10 +81,9 @@ import {
   unionScopes,
   type ScopeUnion,
 } from "./sheetCategoryResolve";
-import { ClassifyProgressModal } from "./ClassifyProgressModal";
+import { ClassifyProgressModal, aiStatusWarning } from "./ClassifyProgressModal";
 import {
   ClassifySheetDialog,
-  aiStatusNote,
   isNeedsReviewCategory,
   reduceProgress,
   skipRollupText,
@@ -594,6 +593,14 @@ const SheetPricingPage = () => {
   // EFFECTIVE completion summary is scoped to this union. Default {sheet} covers a run recovered
   // from the status poll (started elsewhere -> scope unknown -> whole sheet).
   const scopeUnionRef = useRef<ScopeUnion>({ mode: "sheet" });
+  // HV-11: per-discipline ai_status accumulated over the CURRENT run set (reset on each onStarted,
+  // one entry recorded per engine as its done arrives). At all-done it is mirrored into
+  // classifyAiStatusByDiscipline so the modal + toast render the AI-off warning (naming the off
+  // discipline[s]); the healthy path (all "ran") yields an empty warning, so the text is unchanged.
+  const aiStatusByDisciplineRef = useRef<Record<string, string | null | undefined>>({});
+  const [classifyAiStatusByDiscipline, setClassifyAiStatusByDiscipline] = useState<
+    Record<string, string | null | undefined>
+  >({});
   // HV-10b: a ref mirror of the resolved read so the terminal-summary compute (fired after
   // mutateCategories refetches) can read the FRESH resolved rows even if the awaited mutate return
   // is unavailable. Updated every render (cheap; the value is already memo-stable per fetch).
@@ -791,6 +798,9 @@ const SheetPricingPage = () => {
     setClassifyModalOpen(false);
     setClassifyProgress(null);
     setClassifySummary(null);
+    // HV-11: the per-discipline ai_status warning is per-run-set -- a tab switch starts clean.
+    setClassifyAiStatusByDiscipline({});
+    aiStatusByDisciplineRef.current = {};
     setShowNeedsReview(false);
     // HV-10: the running set is per-sheet (the pollers re-derive from the new sheet's ran set).
     setRunningDisciplines([]);
@@ -833,6 +843,9 @@ const SheetPricingPage = () => {
       const nextRunning = removeRunningDiscipline(runningDisciplinesRef.current, p.discipline);
       runningDisciplinesRef.current = nextRunning;
       setRunningDisciplines(nextRunning);
+      // HV-11: record THIS engine's ai_status for the run set's AI-off warning -- on EVERY done, not
+      // just all-done, so a per-discipline map accumulates even when an engine finishes mid-run.
+      aiStatusByDisciplineRef.current[p.discipline] = p.ai_status ?? null;
       const allDone = nextRunning.length === 0;
       if (!allDone) {
         // A mid-run engine finished; repaint the grid but WAIT for the rest before summarising --
@@ -844,6 +857,9 @@ const SheetPricingPage = () => {
       setClassifyRunning(false);
       classifyRunningRef.current = false;
       setClassifyProgress(null);
+      // HV-11: publish the accumulated per-discipline ai_status so the modal + toast render the
+      // AI-off warning (silent when every ran discipline had AI on).
+      setClassifyAiStatusByDiscipline({ ...aiStatusByDisciplineRef.current });
 
       // Non-count fields carried from the terminal payload. HV-10b changes ONLY the NUMBERS' source
       // (per-engine denominator -> combined effective); the wording, skip rollup and ai_status note
@@ -2596,6 +2612,7 @@ const SheetPricingPage = () => {
         sheetName={(sheetName ?? "").trim()}
         progress={classifyProgress}
         summary={classifySummary}
+        aiStatusByDiscipline={classifyAiStatusByDiscipline}
         onClose={() => {
           setClassifyModalOpen(false);
           setClassifyProgress(null);
@@ -2635,9 +2652,9 @@ const SheetPricingPage = () => {
                 {skipRollupText(classifySummary.skipped_by_reason)}
               </span>
             )}
-            {aiStatusNote(classifySummary.ai_status) && (
+            {aiStatusWarning(classifyAiStatusByDiscipline) && (
               <span className="mt-0.5 block text-amber-700 dark:text-amber-300">
-                {aiStatusNote(classifySummary.ai_status)}
+                {aiStatusWarning(classifyAiStatusByDiscipline)}
               </span>
             )}
           </div>
@@ -2688,6 +2705,9 @@ const SheetPricingPage = () => {
           // reset-between-run-sets semantics); multiple engines in one launch fold via unionScopes
           // (whole-sheet dominates a mixed union). The completion summary is scoped to it.
           scopeUnionRef.current = unionScopes(launches.map((l) => l.scope));
+          // HV-11: a fresh run set RESETS the per-discipline ai_status accumulation.
+          aiStatusByDisciplineRef.current = {};
+          setClassifyAiStatusByDiscipline({});
           setClassifyRunning(true);
           classifyRunningRef.current = true;
           setClassifyProgress(null);

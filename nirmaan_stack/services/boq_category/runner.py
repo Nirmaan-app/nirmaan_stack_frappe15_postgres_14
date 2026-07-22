@@ -147,6 +147,11 @@ def load_ruleset(discipline: str = "Electrical") -> dict:
         # so a gating key that is not listed here is invisible to every caller. ABSENT => None
         # => the legacy R3d path, byte-identical. rules_electrical.json carries no such block.
         "routing_policy": rules_doc.get("routing_policy"),
+        # HV-11: the ruleset version, surfaced on the SAME precedent (the HV-9 finding -- this key
+        # was the one the hand-built return dropped, so orchestrator's ruleset.get("version") saw
+        # None and rules_version persisted EMPTY on every row). Present-and-None if a source lacks
+        # it. rules_hvac.json = "4.2-hv7", rules_electrical.json = "2.1-tuning2".
+        "version": rules_doc.get("version"),
         "exclude_tokens_by_cat": {k: tuple(v) for k, v in exclude_tokens_by_cat.items()},
         "exclude_regex_by_cat": {k: tuple(v) for k, v in exclude_regex_by_cat.items()},
         "anc_exclude_regex_by_cat": {k: tuple(v) for k, v in anc_exclude_regex_by_cat.items()},

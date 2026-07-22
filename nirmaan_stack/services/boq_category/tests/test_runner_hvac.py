@@ -829,5 +829,43 @@ class TestHV6bNotesFallbackSurface(unittest.TestCase):
         self.assertEqual(r["matching_pass"], "legacy")
 
 
+class TestHV11RulesVersionProvenance(unittest.TestCase):
+    """HV-11 part 1: the loader now SURFACES the ruleset version (the HV-9 gap -- the hand-built
+    return dropped the key, so orchestrator's ruleset.get('version') saw None and rules_version
+    persisted EMPTY on every row). The orchestrator already reads ruleset.get('version') and stamps
+    it (orchestrator.py:125 -> row dict -> persist.write_row_categories), so this one loader line
+    completes the provenance chain -- exactly the HV-7 routing_policy precedent."""
+
+    def test_loader_surfaces_hvac_version(self):
+        # SURFACED (not dropped): the value the whole classify path now stamps on HVAC rows.
+        self.assertEqual(load_ruleset("HVAC")["version"], "4.2-hv7")
+
+    def test_loader_surfaces_electrical_version(self):
+        # Additive provenance for the legacy engine too -- its ruleset carries a version.
+        self.assertEqual(load_ruleset("Electrical")["version"], "2.1-tuning2")
+
+    def test_absent_version_surfaces_present_and_none_gap_class(self):
+        """The GAP CLASS HV-9 closed, pinned exactly as routing_policy / ancestor_resolution: a key
+        absent from the SOURCE surfaces as PRESENT-and-None on the loader's return (.get semantics),
+        never dropped (which is what made rules_version silently empty)."""
+        from nirmaan_stack.services.boq_category import runner as _runner
+        orig = _runner._read_json
+
+        def _strip_version(filename):
+            doc = dict(orig(filename))
+            doc.pop("version", None)
+            return doc
+
+        _runner.load_ruleset.cache_clear()
+        _runner._read_json = _strip_version
+        try:
+            rs = _runner.load_ruleset("HVAC")
+            self.assertIn("version", rs)        # PRESENT on the return dict...
+            self.assertIsNone(rs["version"])    # ...and None when the source lacks it (not dropped)
+        finally:
+            _runner._read_json = orig
+            _runner.load_ruleset.cache_clear()  # drop the stripped ruleset so other tests re-read
+
+
 if __name__ == "__main__":
     unittest.main()
