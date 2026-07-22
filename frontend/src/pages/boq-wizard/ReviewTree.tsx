@@ -89,8 +89,20 @@ import {
   isReviewRowEdited,
   isRowCopied,
   REVISION_COPIED_BADGE,
+  REVISION_NEEDS_REVIEW_BADGE,
+  REVISION_NEEDS_REVIEW_ROW_CLASS,
+  REVISION_REVIEWED_BADGE,
   type RevisionReviewMeta,
 } from "./revisionReviewDelta";
+// S4: the reason vocabulary + its wording, and the collateral/causal boundary that bounds the
+// block bulk-affirm. Backend ships codes, this module owns every sentence (WARN_BREAK_LABELS
+// precedent) -- so re-wording never needs a migration.
+import {
+  isCollateralReason,
+  isConfirmedRow,
+  reasonSentence,
+  reasonShortLabel,
+} from "./revisionChangeBlocks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -501,9 +513,17 @@ interface ReviewTreeProps {
   // a revision sheet; carries the D6 REMOVED-originals count/sample + the source version for the
   // advisory line + chip. Per-row deltas ride each row's revision_carry_status (no prop needed).
   revisionMeta?: RevisionReviewMeta | null;
+  /**
+   * S5: confirm ONE `Needs Review` row ("Looks OK"). Its PRESENCE is the read-only gate, the
+   * wizard's convention for every write affordance -- the page withholds it when the sheet is
+   * frozen or the user is not the lock holder, and the column then renders read-only.
+   */
+  onAffirmRow?: (rowIndex: number, affirmed: boolean) => void | Promise<void>;
+  /** S5: confirm one shift block's COLLATERAL rows at once. Same presence-is-the-gate rule. */
+  onAffirmBlock?: (anchor: number, delta: number) => void | Promise<void>;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, geminiEnabled = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow, onAffirmBlock }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -1434,6 +1454,19 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // S5b (#1103, ADR-0014 D7): the revised-BoQ delta summary -- the ONE fold of per-row
   // revision_carry_status + the removed-originals meta into {mode, needs-action rows, chip data}.
   // Pure + memoized on (rows, revisionMeta); inert (mode "none") for a non-revision sheet.
+  // S4: row_index -> row, so the needs-action panel can read each listed row's own reason without
+  // an O(n) scan per entry. Keyed on `rows` only -- it is a pure index of them.
+  const byRowIndex = useMemo(
+    () => new Map(rows.map((r) => [r.row_index, r])),
+    [rows],
+  );
+
+  // S5: does this sheet get the "Looks OK" column at all? Only a revision sheet with content to
+  // diff against -- a declared-New / unmapped sheet has nothing to confirm. Read by the <th>, the
+  // body <td> AND the totalCols term; all three must gate on THIS, or the grid misaligns.
+  const showAffirmColumn = revisionMeta?.is_revision === true
+    && (revisionMeta?.total_count ?? 0) > 0;
+
   const revisionDelta = useMemo(
     () => computeRevisionDelta(rows, revisionMeta),
     [rows, revisionMeta],
@@ -1930,33 +1963,75 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
             )}
           </div>
 
-          {/* The one shared reason, stated ONCE. Amendment B collapsed the carry taxonomy to a
-              single class ("this row did not copy"), which is why the entries below carry no
-              per-row badge -- but the reason was then written nowhere, so the panel named rows
-              without ever saying what was wrong with them. This line is that missing sentence;
-              keep it here (not on each row) so the collapse stays honest without going noisy. */}
-          <div className="px-3 pb-2 text-[11px] leading-snug text-amber-800/80 dark:text-amber-200/70">
-            These rows changed since the original, so nothing was copied onto them — confirm their
-            classification.
-          </div>
+          {/* S4: WHAT CHANGED, grouped by EVENT rather than by row. One row inserted near the top
+              of a 400-row sheet leaves ~399 rows unable to carry -- listing 399 warnings describes
+              the sheet, not the edit. Each entry states one insertion / deletion and its blast
+              radius, and carries the bulk affirm for its collateral. Comes from the sheet-level
+              summary the parse stamped; nothing is re-derived here. */}
+          {revisionDelta.changeBlocks.length > 0 && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-3 py-2 space-y-1.5">
+              {revisionDelta.changeBlocks.map((b) => (
+                <div key={b.key} className="flex items-start gap-2 flex-wrap">
+                  <span className="text-[11px] leading-snug text-amber-900 dark:text-amber-100">
+                    {b.text}
+                  </span>
+                  {/* Bulk affirm -- COLLATERAL ONLY, and only when there is collateral to clear.
+                      The causal rows of the same block (the inserted / reworded ones) are never
+                      swept up: the server refuses them too, so the button can never promise
+                      something the gate then blocks on. */}
+                  {onAffirmBlock && b.anchor != null && b.delta != null
+                    && (b.shiftedCount ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { void onAffirmBlock(b.anchor!, b.delta!); }}
+                      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-200 hover:bg-amber-100/70 dark:hover:bg-amber-950/40 transition-colors"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Looks OK for all {b.shiftedCount} moved
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1">
-            {/* One clickable entry per row needing review -> reveal + scroll. No per-row badge:
-                there is only one reason to be here now (this row did not copy) and the line above
-                states it once for the whole panel, so a chip repeating it on every line would be
-                pure noise. */}
-            {revisionDelta.needsActionRows.map((d) => (
-              <button
-                key={`delta-${d.rowIndex}`}
-                type="button"
-                onClick={() => revealAndScrollToRow(d.rowIndex)}
-                className="w-full text-left flex items-center gap-2 rounded px-2 py-1.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35 transition-colors"
-              >
-                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                  {d.excelRow !== null ? `Row ${d.excelRow}` : `#${d.rowIndex}`}
-                </span>
-              </button>
-            ))}
+            {/* One clickable entry per row still needing confirmation -> reveal + scroll. Each
+                carries its OWN reason now (S4 replaced the single shared sentence), because the
+                taxonomy distinguishes a genuinely new row from one that merely moved -- and those
+                need different amounts of thought. */}
+            {revisionDelta.needsActionRows.map((d) => {
+              const r = byRowIndex.get(d.rowIndex);
+              return (
+                <button
+                  key={`delta-${d.rowIndex}`}
+                  type="button"
+                  onClick={() => revealAndScrollToRow(d.rowIndex)}
+                  className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35 transition-colors"
+                >
+                  <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    {d.excelRow !== null ? `Row ${d.excelRow}` : `#${d.rowIndex}`}
+                  </span>
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none whitespace-nowrap",
+                        isCollateralReason(r?.revision_review_reason)
+                          ? "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200"
+                          : "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200",
+                      )}>
+                        {reasonShortLabel(r?.revision_review_reason)}
+                      </span>
+                    </span>
+                    {r && (
+                      <span className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                        {reasonSentence(r)}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -2216,6 +2291,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                       </Popover>
                     </div>
                   </th>
+                  {/* S5 "Looks OK" -- the per-row confirmation, next to Status because it is the
+                    same axis (what state is this row in, and who put it there). Present ONLY on a
+                    revision sheet with carry content, and MUST gate on the identical expression as
+                    the matching body cell + the totalCols term, or the grid misaligns. */}
+                  {showAffirmColumn && (
+                    <th className="px-2 py-2 text-center font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
+                      Looks OK
+                    </th>
+                  )}
                   {/* AI Rec (AI-3a): confidence badges for a pending AI suggestion. Filter
                   Popover mirrors the Status/Classification filter pattern. */}
                   <th className="px-2 py-2 text-left font-medium text-muted-foreground w-20 border-r border-border whitespace-nowrap sticky top-0 z-20 bg-muted">
@@ -2432,9 +2516,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 // three vanish together on the same condition; split it into separate terms only if a
                 // future change un-hides one of them independently.
                 // MUST move in lockstep with the {!templateOrigin && …} header/body wraps above/below.
-                const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
+                // S5: `showAffirmColumn` adds the "Looks OK" column. It MUST appear in exactly
+                // three places -- this term, the <th>, and the body <td> -- all gated on the same
+                // expression, or every colSpan below drifts by one.
+                const totalCols = (8 - (templateOrigin ? 3 : 0)) + (templateControls ? 1 : 0) + (geminiEnabled ? 1 : 0) + (showAffirmColumn ? 1 : 0) + visibleDescriptorCount + (hasAppendCombined ? 1 : 0);
                 // B2c: edit-provenance rule -- edited_at set OR edit_log non-empty.
                 const isEdited = isReviewRowEdited(row);
+                // S4: stamped `Needs Review` and not yet confirmed -- the state that BLOCKS
+                // finalize. Membership, not a re-derived predicate: `revisionDelta` is the gate
+                // that knows whether this is even a revision sheet.
+                const needsRevisionReview = revisionDelta.needsActionRowIndexes.has(row.row_index);
                 // AI-3a: pending-suggestion shape for the AI Rec cell + the row tint.
                 const aiInfo = aiSuggestionInfo(row);
                 const hasPendingAi = aiInfo.hasClass || aiInfo.hasParent;
@@ -2503,6 +2594,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         // with the indigo tint instead of overwriting it.
                         geminiEdgeAccent && "border-l-2 border-l-violet-400 dark:border-l-violet-500",
                         isEdited && "bg-green-50 dark:bg-green-950/30",
+                        // S4: a revision row nobody has confirmed yet. A red LEFT BORDER + a light
+                        // wash rather than a fill, so it composes with the tints above instead of
+                        // masking them (the channel-collision rule) -- and so it never reads as the
+                        // must-fix structural red, which is a panel fill and is fixed a completely
+                        // different way. Inert off a revision: nothing is stamped there.
+                        needsRevisionReview && REVISION_NEEDS_REVIEW_ROW_CLASS,
                         // FIX 1: transient amber flash wins over green tint (placed after in cn())
                         highlightedIdx === row.row_index && "bg-amber-100 dark:bg-amber-900/40",
                         // §9 #159 search highlight -- RINGS (inset box-shadow), layered OVER the
@@ -2626,6 +2723,28 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             <span className="rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                               Edited
                             </span>
+                          ) : needsRevisionReview ? (
+                            /* S4: the one revision state that HOLDS the sheet -- nothing downstream
+                               moves until it is confirmed. Ranks below Edited / Accepted because
+                               those describe work already done in THIS revision; a row that was
+                               edited has been answered, and the backend has already confirmed it. */
+                            <span className={cn(
+                              "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+                              REVISION_NEEDS_REVIEW_BADGE.className,
+                            )}>
+                              {REVISION_NEEDS_REVIEW_BADGE.label}
+                            </span>
+                          ) : isConfirmedRow(row) ? (
+                            /* Confirmed by the reviewer. Calm on purpose -- the work is done and
+                               the row should stop competing for attention. The stamp is KEPT
+                               rather than blanked, so "was reviewed" stays distinguishable from
+                               "never needed review". */
+                            <span className={cn(
+                              "rounded-full py-0.5 px-2 text-[10px] font-medium leading-none shrink-0 whitespace-nowrap",
+                              REVISION_REVIEWED_BADGE.className,
+                            )}>
+                              {REVISION_REVIEWED_BADGE.label}
+                            </span>
                           ) : isRowCopied(row) ? (
                             /* S5b (#1103, ADR-0014 D7 + Amendment B): "Copied" -- this row carried the
                                original's effective classification AND parenting (same Excel row, same
@@ -2647,6 +2766,33 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                             </span>
                           )}
                         </td>
+
+                        {/* S5 "Looks OK": the per-row confirmation. Rendered for every row so the
+                          column stays aligned, but only a stamped row has anything to confirm --
+                          a Copied row is already a decision and an unstamped row is not a revision
+                          row at all. Read-only when `onAffirmRow` is withheld (frozen sheet / not
+                          the lock holder), the wizard's presence-is-the-gate convention. */}
+                        {showAffirmColumn && (
+                          <td className="px-2 py-1.5 align-top w-20 border-r border-border text-center">
+                            {(needsRevisionReview || isConfirmedRow(row)) && (
+                              <label className="inline-flex items-center justify-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="h-3.5 w-3.5 accent-green-600 cursor-pointer disabled:cursor-default"
+                                  checked={!needsRevisionReview}
+                                  disabled={!onAffirmRow}
+                                  onChange={(e) => {
+                                    void onAffirmRow?.(row.row_index, e.target.checked);
+                                  }}
+                                  aria-label={`Confirm row ${row.source_row_number ?? row.row_index}`}
+                                  title={needsRevisionReview
+                                    ? reasonSentence(row)
+                                    : "Confirmed — click to undo"}
+                                />
+                              </label>
+                            )}
+                          </td>
+                        )}
 
                         {/* AI Rec (AI-3a): confidence badge(s) for a PENDING suggestion --
                         classification + parent each get one (H/M/L); both -> two side by

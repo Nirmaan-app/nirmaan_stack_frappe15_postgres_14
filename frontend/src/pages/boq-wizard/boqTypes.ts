@@ -578,6 +578,17 @@ export interface ReviewRow {
   // byte-identical off a revision. "REMOVED" is never a value (an original-only outcome with no
   // revised row -- surfaced as the panel's muted removed-row advisory line instead).
   revision_carry_status?: RevisionCarryStatus | null;
+  // ── S4: the needs-review diagnosis + the reviewer's confirmation. ADDITIVE-ONLY. ────────────
+  // `revision_review_reason` is a code from services/boq_revision/reasons.py; the WORDING lives in
+  // revisionChangeBlocks.ts so it can change with no migration. `revision_shift_delta` /
+  // `_anchor` use 0 for "not applicable" (a real shift is never 0; Excel rows are 1-based), and
+  // together the anchor + delta identify the shift BLOCK a bulk affirm targets.
+  // `revision_reviewed` is the stored "Looks OK" -- an unconfirmed stamped row blocks finalize.
+  // All blank/0 off a revision, so the red treatment and the Looks OK column stay inert there.
+  revision_review_reason?: string | null;
+  revision_shift_delta?: number | null;
+  revision_shift_anchor?: number | null;
+  revision_reviewed?: number | null;
 }
 
 /**
@@ -1110,6 +1121,15 @@ export interface MarkParsedCheckDoneResponse {
   // A2 (template origin): number of SELECTED line-item rows still missing a quantity. Present only
   // on the {ok:false} template finalize-gate rejection; absent for the structural-break case.
   qty_gap?: number;
+  // S3 (revision): rows stamped `Needs Review` that nobody has confirmed yet. Present only on that
+  // rejection; `breaks` is [] alongside it, since the two gates refuse for different reasons and
+  // structural breaks are checked first.
+  unaffirmed_count?: number;
+  unaffirmed?: Array<{
+    row_index: number;
+    source_row_number: number | null;
+    revision_review_reason: string | null;
+  }>;
 }
 
 /** Response shape of unmark_sheet_parsed_check_done (reverts to "Parsed"). */
