@@ -73,6 +73,18 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Auto-approval (of a small Expense)** — a positive Expense below ₹5,000 is created directly at *Approved*, skipping *Requested*. It is an **approval shortcut only** — it makes no claim that the money has been paid, so an auto-approved Expense is still not counted as settled spend until it is separately marked *Paid*. A refund (non-positive amount) or an amount of ₹5,000 or more follows the full *Requested → Approved → Paid* path.
 
+## Vendor invoices & credit notes
+
+- **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.
+
+- **Vendor Invoice status** — the single field for where a Vendor Invoice sits: *Pending* → *Approved* or *Rejected*. A new invoice starts *Pending* and holds exactly one status at a time. *Pending* and *Approved* both count toward a PO/WO's invoiced total; *Rejected* does not.
+
+- **Approved invoice** — a Vendor Invoice at status *Approved*: treated as financially committed (it counts toward the invoiced total and drives billing status). Editing or deleting one is restricted to an *Admin* — the rationale and the (deliberately uneven) enforcement live in [ADR-0014](docs/adr/0014-invoice-mutation-permissions.md).
+
+- **Credit Note** — a **Purchase-Order-only** Vendor Invoice variant recording a vendor credit: its amount is stored negative and it is excluded from the PO's invoiced quantity. Work Orders (Service Requests) have no credit notes.
+
+- **Admin (Nirmaan)** — the elevated actor these financial-mutation rules gate on: the *Administrator* user or a holder of the *Nirmaan Admin Profile*. Deliberately narrower than the broader "privileged" role sets (e.g. PMO Executive, Accountant Lead) used on read/visibility surfaces.
+
 ## Module residence
 
 - **Placement vs residence** — *Placement* is which folder a file lives in (already legislated in CLAUDE.md). *Residence* is which single module **owns** a concept — a business calculation, a data shape, a document's state, or write-safety. A concept with no residence scatters across call sites and drifts. The ten residence rules and the residence map live in [ADR-0010](docs/adr/0010-module-residence-rules.md).

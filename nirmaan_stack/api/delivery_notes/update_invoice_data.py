@@ -504,6 +504,27 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
     if not vendor_invoice_name:
         frappe.throw("Invoice ID or date key is required.")
 
+    # Server-side guard (defense-in-depth): an APPROVED invoice may only be deleted by a
+    # Nirmaan admin. Pending / Rejected invoices stay deletable by anyone who can reach
+    # this endpoint (the UI already restricts who sees the delete button). Mirrors the
+    # frontend admin gate so a direct API call cannot bypass it. Placed BEFORE the
+    # transaction so the message reaches the client instead of being wrapped into the
+    # generic 400 by the except block below.
+    if frappe.db.get_value("Vendor Invoices", vendor_invoice_name, "status") == "Approved":
+        is_admin = (
+            frappe.session.user == "Administrator"
+            or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
+        )
+        if not is_admin:
+            # Return (don't throw) a status object so the frontend's `status !== 200`
+            # branch surfaces THIS exact message in its "Deletion Failed" toast. A
+            # frappe.throw would reach the SDK as a generic error string (the real
+            # message lands in _server_messages, which the toast path doesn't read).
+            return {
+                "status": 403,
+                "message": "Only an admin can delete an approved invoice.",
+            }
+
     try:
         # --- Start Transaction ---
         frappe.db.begin()
