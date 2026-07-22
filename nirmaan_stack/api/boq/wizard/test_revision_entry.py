@@ -223,6 +223,18 @@ class TestListRevisableBoqs(FrappeTestCase):
         self.assertEqual(row["boq_name"], "Shape Check BoQ")
         self.assertEqual(row["version"], 1)
         self.assertIn("uploaded_at", row)
+        # `origin` feeds the picker's Type badge. Dropping it does not error -- the badge just
+        # silently reads every row as "Original Upload" -- so the key is pinned here.
+        self.assertEqual(row["origin"], "upload")
+
+    def test_origin_is_returned_raw_so_a_chain_shows_as_a_revision(self):
+        original = _make_boq(self.project.name)
+        _commit_sheet(original.name)
+        revision = _make_boq(self.project.name, origin="revision", source_boq=original.name)
+        _commit_sheet(revision.name)
+        by_name = {r["name"]: r for r in list_revisable_boqs(self.project.name)["revisable"]}
+        self.assertEqual(by_name[revision.name]["origin"], "revision")
+        self.assertEqual(by_name[original.name]["origin"], "upload")
 
     def test_other_project_boq_not_listed(self):
         boq = _make_boq(self.project.name)

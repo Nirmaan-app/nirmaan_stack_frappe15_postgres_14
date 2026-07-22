@@ -278,8 +278,13 @@ def list_revisable_boqs(project: str) -> dict:
           {"name": str,          # BOQs docname (the picker value + source_boq)
            "boq_name": str,
            "version": int,
-           "uploaded_at": str | None},  # as Frappe returns the Datetime; latest first
+           "uploaded_at": str | None,   # as Frappe returns the Datetime; latest first
+           "origin": str | None},       # raw BOQs.origin -- drives the picker's Type badge
         ...]}
+
+    `origin` is returned RAW (never normalised here): because chains are allowed this list
+    mixes originals, revisions and template-born BoQs, and the frontend maps the value to the
+    same Type badge the BoQ list shows. A blank means a row predating the field.
     """
     if not project:
         frappe.throw("project is required.", title="Missing field: project")
@@ -291,7 +296,7 @@ def list_revisable_boqs(project: str) -> dict:
     boqs = frappe.get_all(
         "BOQs",
         filters={"project": project, "is_template_source": 0},
-        fields=["name", "boq_name", "version", "uploaded_at"],
+        fields=["name", "boq_name", "version", "uploaded_at", "origin"],
         order_by="uploaded_at desc",
     )
     if not boqs:
@@ -313,6 +318,7 @@ def list_revisable_boqs(project: str) -> dict:
             "boq_name": b.boq_name,
             "version": b.version,
             "uploaded_at": b.uploaded_at,
+            "origin": b.origin,
         }
         for b in boqs
         if b.name in committed_names

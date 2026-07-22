@@ -3,6 +3,7 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,6 +11,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { getSelectStyles } from "@/config/selectTheme";
 import { formatDate } from "@/utils/FormatDate";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { originBadge } from "./boqOriginBadge";
 import { planEntryChange } from "./revisionEntry";
 import type { BOQsDoc } from "./boqTypes";
 import {
@@ -24,6 +26,9 @@ interface RevisableBoq {
   boq_name: string;
   version: number;
   uploaded_at: string | null;
+  // Raw `BOQs.origin`, widened to a plain string for the same reason BoqProjectTab widens it:
+  // live rows carry values outside the doctype's declared Select options. See boqOriginBadge.ts.
+  origin?: string | null;
 }
 
 /** react-select option: value = BOQs docname (sent as source_boq). */
@@ -31,6 +36,7 @@ interface RevisableOption {
   value: string;
   label: string;
   uploaded_at: string | null;
+  origin?: string | null;
 }
 
 interface BoqMasterPanelProps {
@@ -155,6 +161,7 @@ export function BoqMasterPanel({
     value: b.name,
     label: `${b.boq_name} — v${b.version}`,
     uploaded_at: b.uploaded_at,
+    origin: b.origin,
   }));
   const selectedRevisable =
     revisableOptions.find((o) => o.value === sourceBoq) ?? null;
@@ -166,16 +173,34 @@ export function BoqMasterPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noneToRevise, revisionMode]);
 
-  const formatRevisableOption = (o: RevisableOption) => (
-    <div className="flex flex-col">
-      <span className="text-sm text-foreground">{o.label}</span>
-      {o.uploaded_at && (
-        <span className="text-xs text-muted-foreground">
-          uploaded {formatDate(o.uploaded_at)}
-        </span>
-      )}
-    </div>
-  );
+  // The Type badge is the SAME one the BoQ list renders -- shared mapping in boqOriginBadge.ts.
+  // It matters most here: chains are allowed (a committed revision is itself revisable), so this
+  // list mixes originals, revisions and template-born BoQs and the name alone does not say which.
+  // react-select runs formatOptionLabel for the menu AND the closed control, so the badge rides
+  // the current selection too -- no extra branch on `context` needed.
+  const formatRevisableOption = (o: RevisableOption) => {
+    const type = originBadge(o.origin);
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="truncate text-sm text-foreground">{o.label}</span>
+        {/* Meta line: the badge sits BESIDE "uploaded ...", sized to that line's height
+            (h-4 = text-xs line-height; border-box, so the border does not add to it). */}
+        <div className="flex min-w-0 items-center gap-2">
+          {o.uploaded_at && (
+            <span className="truncate text-xs text-muted-foreground">
+              uploaded {formatDate(o.uploaded_at)}
+            </span>
+          )}
+          <Badge
+            variant={type.variant}
+            className="h-4 shrink-0 whitespace-nowrap px-1.5 py-0 text-xs font-medium leading-none"
+          >
+            {type.label}
+          </Badge>
+        </div>
+      </div>
+    );
+  };
 
   // Sparkle + opacity only when field has a real value AND is unconfirmed.
   const boqNameUnconfirmed = !confirmedFields.boqName && panelValues.boqName !== "";

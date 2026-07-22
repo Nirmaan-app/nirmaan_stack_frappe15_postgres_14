@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate } from "@/utils/FormatDate";
+import { originBadge } from "./boqOriginBadge";
 
 interface BoqProjectTabProps {
   projectId: string;
@@ -26,7 +27,7 @@ interface BoqListRow {
   uploaded_at: string;
   creation: string;
   // Deliberately widened to a plain string, NOT the "upload" | "template" union in boqTypes.ts:
-  // live data already violates that union (see ORIGIN_BADGES below).
+  // live data already violates that union (see boqOriginBadge.ts).
   origin?: string | null;
 }
 
@@ -35,26 +36,6 @@ const WIZARD_STATE_LABELS: Record<string, string> = {
   "In progress": "In progress",
   "Configured": "Configured",
   "Parsed": "Parsed",
-};
-
-type OriginBadgeVariant = "outline" | "orange" | "purple";
-
-// How the BoQ was created. `origin` is a read-only Select on BOQs whose DECLARED options are only
-// "upload\ntemplate", but live rows also carry "revision" (written by the revised-BoQ flow, which
-// lands on a separate branch) -- a Frappe Select's options are a UI hint, never a DB constraint, so
-// the data is the authority here, not boqs.json.
-const ORIGIN_BADGES: Record<string, { label: string; variant: OriginBadgeVariant }> = {
-  upload: { label: "Original Upload", variant: "outline" },
-  revision: { label: "Revised Upload", variant: "orange" },
-  template: { label: "Template", variant: "purple" },
-};
-
-// Blank/null origin = a row created before the field existed, which is always an Excel upload
-// (owner call). An UNKNOWN value renders its raw string rather than an empty cell, so an origin
-// added later by another module stays visible instead of silently disappearing from this column.
-const originBadge = (origin?: string | null) => {
-  const key = (origin ?? "").trim() || "upload";
-  return ORIGIN_BADGES[key] ?? { label: key, variant: "outline" as const };
 };
 
 const COLUMN_COUNT = 5;
