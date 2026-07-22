@@ -579,18 +579,41 @@ store.
 
 The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
 
-### Pricing Module (HVAC Pricing) -- Frontend Conventions
+### Pricing Module (HVAC / Electrical / ELV Pricing) -- Frontend Conventions
 
-Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor). Lives in
-`src/pages/pricing/` (`HvacPricingPage.tsx` + local `pricingLibs.ts`). Live status / decisions:
-`frontend/.claude/plans/pricing-module-plan.md`.
+Standalone estimation-pricing pages (SEPARATE from the BoQ wizard/pricing editor). Lives in
+`src/pages/pricing/` (`PricingWorkbookPage.tsx` + `pricingWorkbooks.ts` + local `pricingLibs.ts`). Live
+status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
 
+- **`pricingWorkbooks.ts` is THE single source of truth (PW-1).** One `PRICING_WORKBOOKS` registry entry per
+  workbook page (`{ path, title, label }`) feeds all three consumers: the generic page (identity), the route
+  entries in `routesConfig.tsx` (paths), and the sidebar spread in `NewSidebar.tsx` (keys + labels). Adding a
+  workbook page = one registry entry + one route object + nothing else in the sidebar (its four touches are
+  registry-driven: the role-gated item spread, `allKeys`, `groupMappings`, and the flat-label discriminator Set).
+  Two rules are load-bearing: (1) **`title` must match the Pricing Workbook doctype's unique `title` exactly** —
+  it is both the selection key and the import title; (2) **`path` must stay a SINGLE top-level segment**, because
+  the sidebar's active-item matching is single-segment (`pathname.slice(1).split("/")[0]`, then
+  `` `/${selectedKeys}` === subitem.key ``) — a nested `/pricing/hvac` would never highlight.
+- **ONE generic page, one route object PER workbook (PW-1) — do NOT collapse them into `/pricing/:key`.**
+  `PricingWorkbookPage` resolves its own entry from `useLocation().pathname` via `workbookForPath`; an
+  unregistered path renders a visible "Unknown pricing workbook" state, never a blank page. Separate route
+  objects are deliberate: they guarantee a real UNMOUNT on workbook switch, which is what destroys the
+  Luckysheet **global singleton** and fires the `releaseBeacon` that frees the server-side checkout lock. A
+  single param route reuses the element (no remount) and would strand the lock for 30 min — live-verified in
+  PW-1: switching away mid-edit left `checked_out_by` NULL with zero stale sheet content.
+- **Selection is BY TITLE, never by list position (PW-1).** `list_workbooks` is unfiltered and ordered
+  `modified desc`, so the old `rows[0]` pick silently changed which workbook opened as people saved. Select with
+  `rows.find(r => r.title === entry.title)`. Likewise the empty state is **per-title** (`!match`), NOT
+  "zero workbooks in the system" (`!rows.length`) — the latter made Import unreachable for every page once any
+  one workbook existed, so workbooks #2/#3 could not be created through the product at all. Import creates with
+  `entry.title`, giving each page an independent empty → import → ready lifecycle.
 - **Vendored engine, script-injected — NOT bundled.** Luckysheet / LuckyExcel / JSZip are vendored under
   `nirmaan_stack/public/pricing_libs/` and served at `/assets/nirmaan_stack/pricing_libs/`. `pricingLibs.ts`
   injects the CSS `<link>`s + `<script>`s at runtime in dependency order (plugin.js before luckysheet.umd.js;
   jszip before luckyexcel) and reads `window.luckysheet` / `window.LuckyExcel`. **Never `import` these packages**
   (that would bundle ~3 MB into the app chunk); keep them out of the import graph.
-- **Lazy `Component` export (M1.59)** — the page module ends with `export { HvacPricingPage as Component }`.
+- **Lazy `Component` export (M1.59)** — the page module ends with `export { PricingWorkbookPage as Component }`.
+  All three route entries lazy-import the SAME module, so they share one ~10 KB chunk.
 - **Sheet init is POST-MOUNT, never synchronous (PM-3):** `luckysheet.create` must run only after the container
   div is mounted. Every create path (load / import / edit / release) calls `requestSheet(sheets, allowEdit)` (a
   nonce-bumped state request); a `useEffect` keyed on `status === "ready" && renderReq` performs the actual
@@ -620,8 +643,8 @@ Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor)
   real message and keeps lock + Edit state. **Everything else (checkout/release/get/list) stays on the SDK** —
   small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
-  email, tiled ~30°, font 21/weight 600, opacity 0.15) in BOTH read-only and edit modes; must never block sheet
-  interaction.
+  email, tiled ~30°, font 21/weight 600, opacity 0.22 per PM-6) in BOTH read-only and edit modes; must never
+  block sheet interaction. Keyed on the USER, not the workbook — it needs no per-workbook parametrization.
 - **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement

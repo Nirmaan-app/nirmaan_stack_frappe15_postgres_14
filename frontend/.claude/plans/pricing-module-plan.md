@@ -1,6 +1,7 @@
 # Pricing Module — Plan & Status
 
-**Last updated:** 2026-07-22 (PM-1 delivered). Standalone estimation-pricing module, **outside the BoQ
+**Last updated:** 2026-07-23 (PW-1 delivered — three workbook pages: HVAC / Electrical / ELV).
+Standalone estimation-pricing module, **outside the BoQ
 upload wizard**. This is the live status + decision record; per-slice detail accrues here, NOT in the
 always-loaded `CLAUDE.md` (which carries only the stable summary).
 
@@ -216,6 +217,74 @@ compacted body, while an identical `fetch` completed cleanly (200, ~1.6 s).
   to pick up new code. To live-test a frontend change here: restart `yarn dev` (reads disk fresh) AND clear the
   SW/site-data in the browser. (This is why PM-5's button appeared to still hang — the browser was running stale
   pre-fix code; the fetch fix itself was fine.)
+
+## PW-1 — Generic workbook page + registry (HVAC / Electrical / ELV)
+
+Premise = the RECON of 2026-07-23, whose findings were re-verified against code before any edit: the page was
+not "HVAC-shaped" but **exactly-one-workbook-shaped**. Two defects, both fixed here:
+
+- **`rows[0]` selection (was `HvacPricingPage.tsx:144-153`).** `list_workbooks` is called with NO arguments and
+  the page took the FIRST row. Confirmed against the backend: `list_workbooks` orders by **`modified desc`**, so
+  `rows[0]` was a **moving target** — which workbook opened would change as people saved. Two of three workbooks
+  were unreachable, and the hardcoded heading could sit over another discipline's data.
+- **Global empty-state gate (was `:146-148`).** `status="empty"` fired on `!rows.length` = zero workbooks in the
+  **system**, and the Import control renders only in that branch — so once workbook #1 existed, **workbooks #2
+  and #3 could not be created through the product at all**. Import also hardcoded the title (`:350-353`).
+
+**Shape (commit `<feat>`):** one generic `PricingWorkbookPage.tsx` (renamed from `HvacPricingPage.tsx` via
+`git mv`, history preserved) + a new `pricingWorkbooks.ts` registry
+(`{path,title,label}` × HVAC / Electrical / ELV). Selection is now `rows.find(r => r.title === entry.title)`;
+the empty state is per-title; Import creates with `entry.title`. All 11 recon-listed title sites are
+registry-driven, including the `<h1>` at `:401` which bypassed the old constant. Unknown path → a visible
+"Unknown pricing workbook" state, never blank.
+
+**Why three route objects and NOT `/pricing/:key`** (the shape decision): (1) the sidebar's active-item matching
+is **single-segment** (`pathname.slice(1).split("/")[0]`, then `` `/${selectedKeys}` === subitem.key ``), so
+nested sub-paths would never highlight; (2) one param route reuses the route element — **no remount** — and the
+page owns a Luckysheet **global singleton** plus a 30-minute server checkout lock, so a missed unmount strands
+the lock (the `SheetPricingPage.tsx:644` same-element hazard, but worse). Separate route objects make the
+existing unmount cleanup (`releaseBeacon` + `destroySheet`) do the right thing for free. **Live-proven below.**
+
+**Sidebar: flat ×3, NOT a group** — the sidebar has exactly ONE real collapsible group (`admin-actions`);
+everything else is top-level. The four touches are now registry-driven, so touch 1 is a single role gate
+emitting three items. (A "Pricing" group remains a pure sidebar change if the list grows; noted, not taken.)
+
+**Live verification (`:8080`, fresh Vite + SW cleared; all green):**
+- **6a HVAC regression:** loaded the REAL `3cl1hv4c1l` (access log confirms open/checkout/save on it), heading
+  "HVAC Pricing", 17 sheets. Edit → cell → **Save 200 in 2072 ms (17.27 MB)** → v10→11 → reload persisted →
+  reverted (v→12) → Release. **Unchanged from PM-6 behaviour.**
+- **6b separation + lock independence:** `/electrical-pricing` loaded the SYNTHETIC (`00uc366qqr`, 1 sheet
+  `PW1Synthetic`, cell `PW1-SYNTHETIC-ELECTRICAL`) while `/hvac-pricing` still loaded HVAC. With Electrical
+  checked out, HVAC's lock stayed `None` and its Edit stayed available.
+- **6c per-title empty state:** `/elv-pricing` showed **its own** empty state + Import ("No ELV Pricing workbook
+  yet") while the other two were ready — the precise behaviour the old global gate made impossible.
+- **6d switch safety:** navigating away **mid-edit** (no Release click) left Electrical's `checked_out_by`
+  **NULL** — the unmount beacon fires on SPA route switch — with zero stale content (17 HVAC sheets back, no
+  `PW1Synthetic`). **No stranded lock.** Sidebar showed all three links for a qualifying user.
+- **6e cleanup:** synthetic removed by **exact docname** via raw `frappe.db.delete` (NOT `delete_doc` — the
+  list-valued-JSON wall, PM-4; NOT any filterless delete — the PM-4 data-loss incident rule): 1 version row,
+  6 log rows, 1 workbook row. HVAC snapshot **byte-identical before/after cleanup** (v=12, 12 versions,
+  same `modified`, 16,763,239 bytes, test cell gone, lock NULL). `/electrical-pricing` back to its empty state,
+  ready for the owner's real import.
+
+**Dev-environment note (extends PM-6's):** a Vite was already running on `:8080` from before the edits and was
+serving stale code; it was stopped **by explicit PID** (never `pkill vite`) and restarted, then verified by
+curling the served module for this slice's markers before trusting any browser result. Also observed and left
+alone: a **pre-existing, app-wide, dev-only** `SyntaxError: Unexpected token '{'` at document line 32 — the Vite
+dev server serves the RAW Jinja shell, so `frappe.boot = {{ boot }}` is unrendered. It reproduces on untouched
+routes (e.g. `/upload-boq`) and does not exist in the built app. **Not a PW-1 regression; out of scope.**
+
+**Tooling deviation (declared):** the slice specified Playwright for the live verify. Playwright is **not
+installed** in this repo/container, installing it was out of scope, and a fresh Playwright browser could not
+authenticate without entering the owner's password. The verify was driven through the **Chrome MCP tools against
+the owner's authenticated session** — the same mechanism used for PM-4/PM-6 — covering 6a–6e in full.
+
+**Backwards-compat:** `/hvac-pricing` behaviour is UNCHANGED for the existing workbook (proven in 6a); no
+backend change, no migration; route + sidebar edits are additive except the one updated lazy import path.
+
+**ELV status:** the cleaned ELV file is ready and the page is live at `/elv-pricing` with its Import control —
+**the real Electrical + ELV imports are the owner's manual step** (PW-1 deliberately imported no real files).
+Once the ELV import passes, the Google-sheet sharing for the ELV source can be revoked along with the others.
 
 ## PM-3+ — deferred
 
