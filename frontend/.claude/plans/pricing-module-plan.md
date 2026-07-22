@@ -191,6 +191,32 @@ Premise = DIAG-5, re-verified: `handleSave` posted the full `getAllSheets()` (~2
   production-like server, and/or a small backend save endpoint that streams/accepts the body without the dev
   proxy in the middle. **Until then, treat the app Save button as verified-correct-but-flaky in dev.**
 
+## PM-6 — Save transport switched to fetch (+ darker watermark)
+
+Premise = PM-5's residual: the SDK/axios save stalled intermittently through the Vite dev proxy on the ~18 MB
+compacted body, while an identical `fetch` completed cleanly (200, ~1.6 s).
+
+- **Fix (commit `a041a6ac`):** `handleSave` now posts via a **same-origin raw `fetch`** to
+  `/api/method/…save_workbook` (session cookie + `X-Frappe-CSRF-Token` from `window.frappe`/`window.csrf_token`),
+  matching the `releaseBeacon` + wizard multipart-upload precedent. Failure parses `_server_messages` to surface
+  the real Frappe message and keeps lock + Edit state. The unused SDK `callSave` was removed.
+  **Only the save call changed transport — checkout/release/get/list stay on the SDK** (small bodies).
+- **Watermark darker:** fill opacity **0.15 → 0.22** (same `#D03B45`, 21px/weight 600, tile 300×150, −30°,
+  pointer-events none). Live-confirmed visibly darker, sheet still readable.
+- **Live-verified on the real Save button** (3 repeats + revert): **HTTP 200 in ~1.6–1.8 s each, ZERO hangs**
+  (#1 1784ms, #2 1686ms, #3 1634ms, revert 1653ms; 18.1 MB body). DB `current_version` bumped 4→8, the change
+  persisted + reverted, and Release cleared the lock (`checked_out_by` NULL). Backwards-compat: **endpoint,
+  payload shape, and stored form unchanged — only the client transport + overlay styling. No API change, no
+  migration.** tsc 0-new-errors; `yarn build` clean; page chunk ~10 KB (libs unbundled).
+- **Dev-environment note (for future live tests on this box):** `:8080` is a **standalone `yarn dev` (Vite)** —
+  NOT managed by `bench start` (whose Procfile is web/watch/socketio/schedule/worker only). Vite's file watcher
+  does **not** see Windows-host edits through the Docker bind mount (inotify), so a running Vite serves STALE
+  source until restarted; a container-side `touch` does not force it. Also the **PWA service worker re-registers
+  on load and can serve cached old assets** — clearing it (unregister + `caches` clear) + a fresh tab is needed
+  to pick up new code. To live-test a frontend change here: restart `yarn dev` (reads disk fresh) AND clear the
+  SW/site-data in the browser. (This is why PM-5's button appeared to still hang — the browser was running stale
+  pre-fix code; the fetch fix itself was fine.)
+
 ## PM-3+ — deferred
 
 - Role tightening / reconciling the profile-vs-role asymmetry above (owner call).

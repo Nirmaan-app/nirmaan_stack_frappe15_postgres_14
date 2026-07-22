@@ -611,8 +611,14 @@ Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor)
   `calcChain` + display settings. The raw `getAllSheets()` is ~26 MB (Luckysheet rebuilds `data` for every sheet
   at load); compacting → ~14 MB so it POSTs. LOSSLESS — the engine rebuilds `data` from `celldata` on load; this
   is the same celldata-only canonical shape already stored. Any new save-shaped path MUST go through
-  `serializeSheets`. (Known residual: the axios Save-button path can stall through the Vite DEV proxy on the large
-  body even after compaction — a dev-proxy issue, not the payload; see `pricing-module-plan.md` PM-5.)
+  `serializeSheets`.
+- **Save uses a raw `fetch`, NOT the SDK (PM-6, large-body precedent).** `handleSave` POSTs the compacted body via
+  same-origin `fetch` to `/api/method/…save_workbook` (session cookie + `X-Frappe-CSRF-Token` from
+  `window.frappe`/`window.csrf_token`), mirroring the `releaseBeacon` + wizard multipart-upload precedent — the
+  SDK/axios path stalled intermittently through the Vite dev proxy on the ~18 MB body, while `fetch` completes in
+  ~1.6 s (live-verified: 3 button saves + revert, all 200, no hang). Failure parses `_server_messages` for the
+  real message and keeps lock + Edit state. **Everything else (checkout/release/get/list) stays on the SDK** —
+  small bodies, no reason to change. Watermark opacity is **0.22** (PM-6, darker; still `#D03B45`).
 - **Watermark** = pointer-events-none data-URI-SVG overlay in the **Nirmaan brand red `#D03B45`** (full name +
   email, tiled ~30°, font 21/weight 600, opacity 0.15) in BOTH read-only and edit modes; must never block sheet
   interaction.
