@@ -273,6 +273,33 @@ All wizard endpoints live in `nirmaan_stack/api/boq/wizard/` (snake_case files; 
 
 ---
 
+## Pricing Module
+
+Standalone estimation-pricing module (separate from the BoQ wizard). Frontend serves a spreadsheet
+editor (Luckysheet-as-static-assets planned) whose workbook state is persisted server-side. Live status
++ roadmap: **`frontend/.claude/plans/pricing-module-plan.md`**.
+
+- **Doctypes** (`nirmaan_stack/nirmaan_stack/doctype/`): `Pricing Workbook` (title, `workbook_json`,
+  `current_version`, `checked_out_by`/`checked_out_at`), `Pricing Workbook Version` (per-save snapshot),
+  `Pricing Access Log` (open/save/checkout/release/create audit). **All three are `System Manager`-only** —
+  the whitelisted API is the single-point access gate, so endpoints read/write with `ignore_permissions=True`.
+- **API** (`nirmaan_stack/api/pricing/workbook.py`): `list_workbooks` / `get_workbook` / `checkout` /
+  `release` / `save_workbook` / `create_workbook`, all `@frappe.whitelist()` and all gated by
+  `_require_pricing_access()`.
+- **Access rule (owner decision, DB-discovered names):** ALLOW if session user is `Administrator`, OR the
+  user's `role_profile_name` is in the ACCESS SET, OR `frappe.get_roles(user)` intersects it. The ACCESS SET
+  is a module-level constant with the EXACT DB-verified strings (2026-07-22): `Nirmaan Admin Profile`,
+  `Nirmaan Estimates Executive Profile`, `Nirmaan Estimates Executive` (admins + estimation only). Re-query
+  the DB before editing it. Only `workbook_json` parsing is validated; structure is frontend-owned.
+- **Lock semantics:** `checkout` grants when the lock is free, already the caller's, or held >30 min
+  (auto-expiry) — otherwise it throws naming the holder. `save_workbook` requires a live (non-expired) lock,
+  bumps `current_version`, writes a Version row, and prunes to the newest 20 snapshots. `release` clears the
+  lock for the holder or Administrator.
+- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (12 tests). Run:
+  `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.pricing.test_pricing_workbook`.
+
+---
+
 ## Reference Docs
 
 | Domain | File |
