@@ -83,11 +83,21 @@ class TestPricingWorkbook(FrappeTestCase):
 				user.append("roles", {"role": role})
 		user.save(ignore_permissions=True)
 
+	# Names of workbooks THIS suite created -- the ONLY rows _purge_all may delete.
+	_created_names: set = set()
+
 	@classmethod
 	def _purge_all(cls):
-		for dt in (wb.LOG_DT, wb.VERSION_DT, wb.WORKBOOK_DT):
-			for name in frappe.get_all(dt, pluck="name"):
-				frappe.delete_doc(dt, name, force=True, ignore_permissions=True)
+		# SCOPED to workbooks this suite created -- NEVER a blanket delete. This
+		# suite runs against the live site DB (`--site localhost`) and commits, so
+		# a filterless `frappe.db.delete(dt)` would DESTROY real production
+		# workbooks (it did, once). Raw db.delete (not delete_doc) also side-steps
+		# the list-valued-JSON load wall for imported array-shaped workbooks.
+		for nm in list(cls._created_names):
+			frappe.db.delete(wb.VERSION_DT, {"workbook": nm})
+			frappe.db.delete(wb.LOG_DT, {"workbook": nm})
+			frappe.db.delete(wb.WORKBOOK_DT, {"name": nm})
+		cls._created_names.clear()
 
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -110,7 +120,10 @@ class TestPricingWorkbook(FrappeTestCase):
 	# -- helpers -----------------------------------------------------------
 	def _create_as(self, user, title, payload):
 		frappe.set_user(user)
-		return wb.create_workbook(title, json.dumps(payload))
+		res = wb.create_workbook(title, json.dumps(payload))
+		# Track for the SCOPED purge so we never blanket-delete real workbooks.
+		type(self)._created_names.add(res["name"])
+		return res
 
 	# -- access gate -------------------------------------------------------
 	def test_negative_user_denied_list_and_get(self):
@@ -250,3 +263,23 @@ class TestPricingWorkbook(FrappeTestCase):
 
 		doc = frappe.get_doc(wb.WORKBOOK_DT, name)
 		self.assertFalse(doc.checked_out_by)
+
+	# -- regression: list-valued workbook_json -----------------------------
+	def test_checkout_release_when_workbook_json_is_a_list(self):
+		# A real imported workbook stores a JSON ARRAY (LuckyExcel `sheets`),
+		# which Frappe hydrates back as a Python list. checkout/release must NOT
+		# do a full doc.save() on such a doc -- that trips Frappe's
+		# "Value ... cannot be a list" guard (417 in production). The earlier
+		# tests only used dict payloads, so this wall went unnoticed until live.
+		list_payload = [{"name": "Sheet1", "celldata": []}]
+		name = self._create_as(POS_USER, "WB list", list_payload)["name"]
+
+		# Sanity: the stored JSON hydrates as a list.
+		doc = frappe.get_doc(wb.WORKBOOK_DT, name)
+		self.assertIsInstance(json.loads(wb._as_json_string(doc.workbook_json)), list)
+
+		# Both lock ops must succeed (previously raised ValidationError).
+		result = wb.checkout(name)
+		self.assertEqual(result["checked_out_by"], POS_USER)
+		wb.release(name)
+		self.assertFalse(frappe.db.get_value(wb.WORKBOOK_DT, name, "checked_out_by"))

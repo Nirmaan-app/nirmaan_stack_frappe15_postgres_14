@@ -169,38 +169,52 @@ def get_workbook(name):
 @frappe.whitelist()
 def checkout(name):
 	user = _require_pricing_access()
-	doc = frappe.get_doc(WORKBOOK_DT, name)
+	lock = frappe.db.get_value(
+		WORKBOOK_DT, name, ["checked_out_by", "checked_out_at"], as_dict=True
+	)
+	if not lock:
+		frappe.throw(_("Workbook {0} not found.").format(name), frappe.DoesNotExistError)
+	holder, checked_out_at = lock.checked_out_by, lock.checked_out_at
 
-	holder = doc.checked_out_by
 	# Blocked only when someone ELSE holds a still-valid (non-expired) lock.
-	if holder and holder != user and not _lock_expired(doc.checked_out_at):
+	if holder and holder != user and not _lock_expired(checked_out_at):
 		frappe.throw(
 			_("Workbook is checked out by {0}.").format(holder),
 			frappe.ValidationError,
 		)
 
-	doc.checked_out_by = user
-	doc.checked_out_at = now_datetime()
-	doc.save(ignore_permissions=True)
+	now = now_datetime()
+	# Write the lock fields with db.set_value, NOT doc.save(): an imported workbook
+	# stores `workbook_json` as a JSON ARRAY, which Frappe hydrates back as a Python
+	# list, and a full doc.save() then trips get_valid_dict's "Value ... cannot be a
+	# list" guard (the same list-valued-JSON save wall documented for BoQ). Lock
+	# fields are metadata, so a targeted set_value is correct and side-steps it.
+	frappe.db.set_value(
+		WORKBOOK_DT,
+		name,
+		{"checked_out_by": user, "checked_out_at": now},
+		update_modified=False,
+	)
 
 	_log(name, "checkout")
 	frappe.db.commit()
-	return {
-		"status": "checked_out",
-		"checked_out_by": user,
-		"checked_out_at": doc.checked_out_at,
-	}
+	return {"status": "checked_out", "checked_out_by": user, "checked_out_at": now}
 
 
 @frappe.whitelist()
 def release(name):
 	user = _require_pricing_access()
-	doc = frappe.get_doc(WORKBOOK_DT, name)
+	holder = frappe.db.get_value(WORKBOOK_DT, name, "checked_out_by")
 
-	if doc.checked_out_by and (doc.checked_out_by == user or user == "Administrator"):
-		doc.checked_out_by = None
-		doc.checked_out_at = None
-		doc.save(ignore_permissions=True)
+	if holder and (holder == user or user == "Administrator"):
+		# Targeted set_value (not doc.save) -- see the checkout note on the
+		# list-valued workbook_json save wall.
+		frappe.db.set_value(
+			WORKBOOK_DT,
+			name,
+			{"checked_out_by": None, "checked_out_at": None},
+			update_modified=False,
+		)
 
 	_log(name, "release")
 	frappe.db.commit()
