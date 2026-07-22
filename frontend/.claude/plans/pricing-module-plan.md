@@ -57,13 +57,50 @@ Access is limited to administrators and estimation users.
 
 ---
 
-## PM-2 — PLANNED (frontend)
+## PM-2 — DELIVERED (frontend)
 
-- Luckysheet static-asset bundle mounted in a dedicated route/page (inside the React SPA), gated by a
-  `ProtectedRoute` guard mirroring the backend ACCESS SET, plus the sidebar entry (four-touch recipe in
-  `NewSidebar.tsx`).
-- Wire the editor to the PM-1 endpoints: load via `get_workbook`, acquire lock via `checkout`, autosave via
-  `save_workbook` (lock-aware, surfacing the version + expiry), release on unload.
-- Editor watermark (user + timestamp) over the grid.
+- **Vendored engine** at `nirmaan_stack/public/pricing_libs/` (served `/assets/nirmaan_stack/pricing_libs/`):
+  luckysheet@2.1.13 dist (css, plugins, assets/iconfont, `plugins/js/plugin.js`, `luckysheet.umd.js`),
+  luckyexcel@1.0.1 `luckyexcel.umd.js`, jszip@3.10.1 `jszip.min.js`. Excluded `*.map`, `demoData`, the esm
+  build, `expendPlugins`. **Completeness note:** `fonts/` (fontawesome, referenced by `css/luckysheet.css` +
+  `plugins/plugins.css` via `../fonts/…`) and `plugins/images/` are INCLUDED — they are runtime deps of the
+  included CSS and are not in the exclude list; dropping them ships a broken toolbar. ~6.8 MB, 47 files.
+  Fetched via `npm pack` in the container and committed. Vendoring (~7 MB) is the MVP tradeoff; npm-proper /
+  CDN is deferred with the Univer upgrade. The libs are **script-injected at runtime, NOT bundled by Vite**
+  (verified: the `HvacPricingPage` chunk is ~8.6 KB; the 3 MB luckysheet UMD is not inside it).
+- **Page** `frontend/src/pages/pricing/HvacPricingPage.tsx` (+ local `pricingLibs.ts` helper) — lazy module,
+  named `Component` export (M1.59). On mount: inject CSS + scripts (plugin.js before luckysheet.umd.js; jszip
+  before luckyexcel), then `list_workbooks`. Empty → "Import Excel (.xlsx)" via `LuckyExcel.transformExcelToLucky`
+  → `create_workbook`. Exists → `get_workbook` → `luckysheet.create` (read-only first, `showinfobar:false`).
+  **Lock flow:** "Edit" → `checkout` → re-init `allowEdit:true` + "You hold the edit lock" banner + Save/Release;
+  checkout held-by-another → "Locked by <holder>", stay read-only. Save → `save_workbook(getAllSheets())`, shows
+  saved-at; keeps lock. Unmount + `beforeunload` → best-effort `release` (fetch keepalive w/ CSRF). PermissionError
+  → Access Denied panel; script-load failure → visible error (never blank).
+- **Watermark:** pointer-events-none data-URI-SVG background overlay, ~30° tiled full-name + email at low
+  opacity; applies in read-only AND edit modes.
+- **Guard** `PricingRoute` in `ProtectedRoute.tsx` (NewProjectRoute single-source pattern): Administrator OR
+  role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. **Route** = one lazy entry
+  `hvac-pricing` wrapped by `<PricingRoute />`. **Sidebar** = four-touch M1.57 recipe (`Table2` icon), same
+  access strings as the guard.
+- **Verification:** tsc (in-container) 0 new errors in slice files; `yarn build` clean (2m49s), known-benign
+  warnings only (large chunks, caniuse, PWA). No Frappe-test harness on this slice (frontend) — tsc + build +
+  manual matrix stand in.
+
+### On record
+
+- **Recon correction:** `a7b8237c` is `develop`'s tip (v2.11.14), NOT `main`'s (`main` = `b92fd6b2`, v2.10.15).
+  The PM-1 brief's "off main tip (a7b8237c)" carried a mislabel from the earlier recon writeup; the branch is
+  correctly rooted at `a7b8237c` per the explicit hash + the repo's feature→develop→main flow.
+- **Report delivery standing rule:** every run's full report is also written to the owner's Desktop as a dated
+  `.md` (resolve Desktop via the environment, never hardcode) for upload — not relied on via inline paste.
+- **Access asymmetry surfaced (STEP 0):** two Project Leads (`aseem@`, `bhanu@`) carry the *Role* "Nirmaan
+  Estimates Executive" but a Project-Lead *profile* — the backend admits them, the frontend guard (profile-only)
+  does not. Intentional (backend is the enforcement layer); flagged for owner review.
+
+## PM-3+ — deferred
+
+- Role tightening / reconciling the profile-vs-role asymmetry above (owner call).
+- A `patches.txt` entry if any data migration becomes needed (none this slice).
 - Version history browse/restore UI over `Pricing Workbook Version`.
-- (Deferred) Univer migration evaluation.
+- Real-time co-edit (multi-user live), beyond the single-editor checkout lock.
+- npm-proper (bundled) or CDN assets instead of vendored; **Univer** migration evaluation.

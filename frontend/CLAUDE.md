@@ -579,6 +579,29 @@ store.
 
 The FULL per-slice component contracts (keyboard-nav matrix, the row-memo anti-defeat rule, the formula engine F1–F4, reconciliation, collapse/expand, lock/unlock, the two-ribbon toolbar, search/column-hide, export/download, review-screen render contracts, etc.) live in **`.claude/context/domain/boq-frontend.md`**. Load it before pricing-editor / review-screen frontend work. The STABLE conventions + LOAD-BEARING invariants are summarized above (§ "Pricing editor … LOAD-BEARING invariants" and § "Review screen … load-bearing invariants").
 
+### Pricing Module (HVAC Pricing) -- Frontend Conventions
+
+Standalone estimation-pricing page (SEPARATE from the BoQ wizard/pricing editor). Lives in
+`src/pages/pricing/` (`HvacPricingPage.tsx` + local `pricingLibs.ts`). Live status / decisions:
+`frontend/.claude/plans/pricing-module-plan.md`.
+
+- **Vendored engine, script-injected — NOT bundled.** Luckysheet / LuckyExcel / JSZip are vendored under
+  `nirmaan_stack/public/pricing_libs/` and served at `/assets/nirmaan_stack/pricing_libs/`. `pricingLibs.ts`
+  injects the CSS `<link>`s + `<script>`s at runtime in dependency order (plugin.js before luckysheet.umd.js;
+  jszip before luckyexcel) and reads `window.luckysheet` / `window.LuckyExcel`. **Never `import` these packages**
+  (that would bundle ~3 MB into the app chunk); keep them out of the import graph.
+- **Lazy `Component` export (M1.59)** — the page module ends with `export { HvacPricingPage as Component }`.
+- **Checkout-lock flow:** page loads READ-ONLY; "Edit" → `checkout` → re-init `luckysheet.create` with
+  `allowEdit:true` + Save/Release; a held lock shows "Locked by <holder>" and stays read-only. Save posts
+  `getAllSheets()`; unmount + `beforeunload` best-effort `release` (fetch `keepalive` with the CSRF header).
+  Re-init (not a live toggle) is how allowEdit changes — `luckysheet.destroy()` then `create`.
+- **Watermark** = pointer-events-none data-URI-SVG background overlay (full name + email, tiled, ~30°, low
+  opacity) in BOTH read-only and edit modes; must never block sheet interaction.
+- **Access strings (PM-1 DB-verified, profile side):** `PricingRoute` guard + the sidebar spread both gate on
+  Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
+  (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement
+  layer — keep the guard/sidebar strings in sync with each other, not necessarily with the backend Role set.
+
 ## Important Notes
 
 - **Frappe Backend Required**: This frontend cannot run standalone; it requires a Frappe backend (see `../CLAUDE.md` for backend documentation)
