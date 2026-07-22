@@ -39,6 +39,11 @@ import { ReconciliationStatus } from '../constants';
 // --- Components ---
 import { ReconciliationDialog } from "./ReconciliationDialog";
 import { InvoiceDataDialog } from "@/pages/ProcurementOrders/purchase-order/components/InvoiceDataDialog";
+import {
+    useInvoiceRowAdminActions,
+    InvoiceRowActionsCell,
+    InvoiceRowAdminActionDialogs,
+} from "../hooks/useInvoiceRowAdminActions";
 
 // --- Interfaces ---
 interface Projects {
@@ -231,6 +236,9 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
         },
         getAttachmentUrl,
     });
+
+    // --- Admin-only row Actions (edit + delete an invoice) ---
+    const invoiceActions = useInvoiceRowAdminActions("Procurement Orders", mutateInvoices);
 
     // Helper to get project name
     const getProjectName = useMemo(() => memoize((projectId: string) => {
@@ -621,12 +629,31 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                         </Button>
                     );
                 },
-                size: 80,
+                size: 130,
             }
         );
 
+        // Admin-only Actions column: edit + delete the invoice.
+        if (invoiceActions.isAdmin) {
+            baseColumns.push({
+                id: "actions",
+                header: () => <div className="text-right">Actions</div>,
+                cell: ({ row }) => (
+                    <InvoiceRowActionsCell
+                        invoiceName={row.original.name}
+                        invoiceNo={row.original.invoice_no}
+                        parentDocName={row.original.procurement_order}
+                        onEdit={invoiceActions.requestEdit}
+                        onDelete={invoiceActions.requestDelete}
+                    />
+                ),
+                size: 90,
+                enableSorting: false,
+            });
+        }
+
         return baseColumns;
-    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, getGstName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId]);
+    }, [getAttachmentUrl, getProjectName, getVendorName, getUserFullName, getGstName, canUpdateReconciliation, openReconciliationDialog, isReconciliationProcessing, role, vendorId, invoiceActions.isAdmin, invoiceActions.requestEdit, invoiceActions.requestDelete]);
 
     // --- Use Server Data Table Hook in Client Mode ---
     const {
@@ -1013,6 +1040,11 @@ export const PoInvoices: React.FC<PoInvoicesProps> = ({ vendorId, vendorName }) 
                 currentInvoiceAmount={dialogState.currentInvoiceAmount}
                 currentReconciledAmount={dialogState.currentReconciledAmount}
             />
+
+            {/* Admin-only invoice edit + delete dialogs */}
+            {invoiceActions.isAdmin && (
+                <InvoiceRowAdminActionDialogs actions={invoiceActions} refresh={mutateInvoices} />
+            )}
         </div>
     );
 };
