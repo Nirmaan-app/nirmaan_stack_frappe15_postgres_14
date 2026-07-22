@@ -46,13 +46,25 @@ export function HvacPricingPage() {
 	const [errorMsg, setErrorMsg] = useState<string>("");
 	const [lock, setLock] = useState<LockState>("readonly");
 	const [holder, setHolder] = useState<string>("");
+	const [holderSince, setHolderSince] = useState<string>("");
 	const [savedAt, setSavedAt] = useState<string>("");
 	const [busy, setBusy] = useState<boolean>(false);
+
+	// Post-mount (re)create request. The actual luckysheet.create runs from the
+	// effect below, which fires only when status === "ready" so the container div
+	// (rendered only in the non-empty branch) is guaranteed mounted. `nonce`
+	// makes each request a fresh object so re-inits (edit/release) re-fire.
+	const [renderReq, setRenderReq] = useState<{
+		sheets: any[];
+		allowEdit: boolean;
+		nonce: number;
+	} | null>(null);
 
 	// Refs that must survive re-renders / be readable in unmount cleanup.
 	const workbookNameRef = useRef<string>("");
 	const sheetInitedRef = useRef<boolean>(false);
 	const lockMineRef = useRef<boolean>(false);
+	const nonceRef = useRef<number>(0);
 
 	const { call: callList } = useFrappePostCall(`${M}.list_workbooks`);
 	const { call: callGet } = useFrappePostCall(`${M}.get_workbook`);
@@ -88,7 +100,9 @@ export function HvacPricingPage() {
 				lang: "en",
 				allowEdit,
 				showinfobar: false,
-				showtoolbar: allowEdit,
+				// Toolbar is always visible (read-only OR edit); edit-only actions
+				// stay gated by allowEdit. Other bars keep luckysheet defaults.
+				showtoolbar: true,
 				enableAddRow: allowEdit,
 				enableAddBackTop: false,
 			});
@@ -96,6 +110,23 @@ export function HvacPricingPage() {
 		},
 		[destroySheet]
 	);
+
+	// Request a (re)create of the sheet. Never calls luckysheet.create directly --
+	// the post-mount effect does, once the container is guaranteed mounted.
+	const requestSheet = useCallback((sheets: any[], allowEdit: boolean) => {
+		nonceRef.current += 1;
+		setRenderReq({ sheets, allowEdit, nonce: nonceRef.current });
+	}, []);
+
+	// Post-mount sheet (re)init. Runs ONLY when status === "ready", so the
+	// container div (rendered only in the non-empty branch) exists -- this makes
+	// the empty-state pre-mount crash impossible and unifies every create path
+	// (load / import / edit / release) behind one mounted-container gate.
+	useEffect(() => {
+		if (status === "ready" && renderReq) {
+			initSheet(renderReq.sheets, renderReq.allowEdit);
+		}
+	}, [status, renderReq, initSheet]);
 
 	// -- initial load: inject libs, list, load first workbook -------------
 	useEffect(() => {
@@ -123,11 +154,13 @@ export function HvacPricingPage() {
 				const wb = got?.message || {};
 				const sheets = wb.workbook_json ? JSON.parse(wb.workbook_json) : [];
 				if (cancelled) return;
-				// Page loads read-only first (spec 2d).
-				initSheet(sheets, false);
+				// Page loads read-only first (spec 2d). The create runs from the
+				// post-mount effect once status flips to "ready".
+				requestSheet(sheets, false);
 				setLock("readonly");
 				if (wb.checked_out_by && !wb.lock_is_mine && !wb.lock_expired) {
 					setHolder(wb.checked_out_by);
+					setHolderSince(wb.checked_out_at || "");
 				}
 				setStatus("ready");
 			} catch (e: any) {
@@ -180,32 +213,54 @@ export function HvacPricingPage() {
 			const got = await callGet({ name: workbookNameRef.current });
 			const wb = got?.message || {};
 			const sheets = wb.workbook_json ? JSON.parse(wb.workbook_json) : [];
-			initSheet(sheets, allowEdit);
+			requestSheet(sheets, allowEdit);
 			return wb;
 		},
-		[callGet, initSheet]
+		[callGet, requestSheet]
 	);
 
 	const handleEdit = useCallback(async () => {
 		setBusy(true);
+		setErrorMsg("");
 		try {
 			await callCheckout({ name: workbookNameRef.current });
 			await reloadSheet(true);
 			lockMineRef.current = true;
 			setLock("mine");
 			setHolder("");
+			setHolderSince("");
 		} catch (e: any) {
 			if (isPermissionError(e)) {
 				setStatus("access-denied");
-			} else {
-				// Held by another editor -> show current holder, stay read-only.
-				try {
-					const got = await callGet({ name: workbookNameRef.current });
-					setHolder(got?.message?.checked_out_by || "another user");
-				} catch {
-					setHolder("another user");
-				}
+				return;
+			}
+			// DIAG-3: never mislabel a transient / non-lock failure as "locked by
+			// another". Re-fetch the TRUE lock state and only claim a conflict when
+			// someone ELSE genuinely holds a live (non-expired) lock.
+			let heldBy: string | null = null;
+			let heldAt: string | null = null;
+			let expired = true;
+			let mine = false;
+			try {
+				const got = await callGet({ name: workbookNameRef.current });
+				const wb = got?.message || {};
+				heldBy = wb.checked_out_by || null;
+				heldAt = wb.checked_out_at || null;
+				expired = !!wb.lock_expired;
+				mine = !!wb.lock_is_mine;
+			} catch {
+				/* fall through to the generic-error branch */
+			}
+			if (heldBy && !mine && !expired) {
+				// Genuine conflict: another user holds a live lock.
+				setHolder(heldBy);
+				setHolderSince(heldAt || "");
 				setLock("locked-by-other");
+			} else {
+				// Free / expired / already-mine, but checkout still failed -> surface
+				// the REAL error and keep Edit available (retryable). No phantom lock.
+				setErrorMsg(e?.message || "Could not acquire the edit lock. Please try again.");
+				setLock("readonly");
 			}
 		} finally {
 			setBusy(false);
@@ -257,7 +312,9 @@ export function HvacPricingPage() {
 						workbook_json: JSON.stringify(exportJson.sheets),
 					});
 					workbookNameRef.current = created?.message?.name || "";
-					initSheet(exportJson.sheets, false);
+					// Defer create to the post-mount effect: setting status "ready"
+					// mounts the container, then the effect runs luckysheet.create.
+					requestSheet(exportJson.sheets, false);
 					setLock("readonly");
 					setStatus("ready");
 				} catch (e: any) {
@@ -268,7 +325,7 @@ export function HvacPricingPage() {
 				}
 			});
 		},
-		[callCreate, initSheet]
+		[callCreate, requestSheet]
 	);
 
 	// -- render ------------------------------------------------------------
@@ -308,6 +365,10 @@ export function HvacPricingPage() {
 						Edit
 					</Button>
 				)}
+				{status === "ready" && lock === "readonly" && errorMsg && (
+					// A failed checkout on a FREE lock: show the real error, Edit stays retryable.
+					<span className="text-sm text-destructive">{errorMsg}</span>
+				)}
 				{status === "ready" && lock === "mine" && (
 					<>
 						<span className="text-sm text-emerald-600 font-medium">
@@ -327,11 +388,13 @@ export function HvacPricingPage() {
 				{status === "ready" && lock === "locked-by-other" && (
 					<span className="text-sm text-amber-600 font-medium">
 						Locked by {holder} — read only
+						{holderSince ? ` (since ${holderSince.slice(0, 16)} IST)` : ""}
 					</span>
 				)}
 				{status === "ready" && lock === "readonly" && holder && (
 					<span className="text-sm text-amber-600 font-medium">
 						Currently held by {holder}
+						{holderSince ? ` (since ${holderSince.slice(0, 16)} IST)` : ""}
 					</span>
 				)}
 			</div>

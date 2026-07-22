@@ -85,15 +85,21 @@ function escapeXml(value: string): string {
 }
 
 /**
- * Build a tiled, ~30deg-rotated, low-opacity watermark as a CSS
- * background-image (data-URI SVG). Applied to a pointer-events:none overlay.
+ * Build a tiled, ~30deg-rotated watermark as a CSS background-image (data-URI
+ * SVG), applied to a pointer-events:none overlay. Rendered in the Nirmaan brand
+ * red (#D03B45 = rgb(208,59,69); the sidebar/loader accent, 51 uses across src)
+ * at raised prominence -- larger font, denser tile, higher opacity -- while
+ * keeping the sheet comfortably readable.
  */
 export function watermarkBackground(fullName: string, email: string): string {
 	const label = escapeXml([fullName, email].filter(Boolean).join("  ·  "));
+	// Denser tile (was 340x170) + larger font (was 15) + higher opacity (was 0.07)
+	// in brand red. 0.15 alpha stays clearly legible over the grid.
 	const svg =
-		`<svg xmlns='http://www.w3.org/2000/svg' width='340' height='170'>` +
-		`<text x='10' y='90' transform='rotate(-30 170 85)' ` +
-		`fill='rgba(0,0,0,0.07)' font-size='15' font-family='Inter, Arial, sans-serif'>${label}</text>` +
+		`<svg xmlns='http://www.w3.org/2000/svg' width='300' height='150'>` +
+		`<text x='8' y='80' transform='rotate(-30 150 75)' ` +
+		`fill='rgba(208,59,69,0.15)' font-size='21' font-weight='600' ` +
+		`font-family='Inter, Arial, sans-serif'>${label}</text>` +
 		`</svg>`;
 	return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 }
