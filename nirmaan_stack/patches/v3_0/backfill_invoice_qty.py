@@ -2,8 +2,8 @@ import frappe
 
 # Backfill `Purchase Order Item.invoice_qty`.  TWO steps, split by trust/cost:
 #
-#   Step 1 -- execute():  deterministic backfill for EVERY live PO, NO AI. Leaves the
-#             under-invoiced ("MISMATCH") POs unwritten for Step 2.
+#   Step 1 -- execute():  deterministic backfill for EVERY live PO, NO AI. Under-invoiced
+#             ("MISMATCH") POs get ORDERED qty now; Step 2 later refines them to EXACT.
 #
 #   Step 2 -- import_cache(apply=True):  cache-first Gemini extraction on the MISMATCH POs.
 #             MANUAL, NEVER on migrate (external AI = cost/latency/missing-creds must not block a
@@ -106,7 +106,7 @@ def execute():
             frappe.db.commit()   # batch-commit: thousands of POs, avoid one giant txn
     frappe.db.commit()
     print(f"[backfill_invoice_qty] backfill done — {len(pos)} POs: {counts}")
-    print(f"    {counts['MISMATCH']} MISMATCH POs left for extraction — run import_cache(apply=True) (or run()).")
+    print(f"    {counts['MISMATCH']} MISMATCH POs set to ordered qty NOW — run import_cache(apply=True) (or run()) to refine them to EXACT.")
 
 
 def _po_bucket(po_name, project, po_total, completed):
@@ -126,12 +126,11 @@ def _po_bucket(po_name, project, po_total, completed):
 def _write_bucket(po_name, bucket):
     """Write invoice_qty on the PO's item rows for its classified bucket.
 
-    MISMATCH is deliberately NOT written here -- an under-invoiced PO is left untouched so
-    the extraction path (import_cache) can read its files, write the line mappings, and
-    recompute the EXACT invoice_qty. The backfill only sets the CERTAIN cases.
+    MISMATCH (under-invoiced, not all line-mapped) gets ORDERED qty NOW -- the SAME fallback the
+    runtime recompute uses (an invoice is often raised before delivery is recorded, so a delivered/0
+    value would sit at 0 and churn). Step 2 extraction (import_cache) later refines a MISMATCH PO to
+    EXACT once its invoices are line-mapped. Matches dry_run_invoice_qty.py's choice-i.
     """
-    if bucket == "MISMATCH":
-        return                                        # left for the extraction path
     items = frappe.get_all(
         "Purchase Order Item",
         filters={"parent": po_name, "parenttype": "Procurement Orders"},
@@ -142,7 +141,7 @@ def _write_bucket(po_name, bucket):
         value_of = lambda it: summed.get(it.name, 0)
     elif bucket == "ZERO":
         value_of = lambda it: 0
-    else:  # COMPLETED / DIRECT -> ordered qty
+    else:  # COMPLETED / DIRECT / MISMATCH -> ordered qty
         value_of = lambda it: float(it.quantity or 0)
     for it in items:
         # Additional Charges (freight / P&F / etc.) are not real line quantities -> always 0.
@@ -250,12 +249,14 @@ _AF_FIELDS = (
 
 
 def _load_cache():
-    """Read extraction_cache.json (a list of entries); [] if it doesn't exist yet."""
+    """Read extraction_cache.json (a list of entries); [] if it doesn't exist yet
+    or is empty (the cache ships as a 0-byte file = an empty cache)."""
     try:
         with open(_CACHE) as fh:
-            return json.load(fh)
+            text = fh.read().strip()
     except FileNotFoundError:
         return []
+    return json.loads(text) if text else []
 
 
 def _write_cache(entries):
@@ -361,7 +362,7 @@ def import_cache(project=None, apply=False):
 
     mismatched = _find_mismatched(project)
     hit = fail_skip = miss = new_ok = new_fail = 0
-    changed = False
+    changed = ready_checked = False
     for po in mismatched:
         po_doc = frappe.get_doc("Procurement Orders", po)
         for inv in _active_invoices(po):
@@ -380,16 +381,49 @@ def import_cache(project=None, apply=False):
             else:
                 miss += 1
                 print(f"  MISS  {inv.name}  ({po} / {inv.invoice_no}) -> Gemini")
-                if apply:
+                if not apply:
+                    continue
+                # LAZY pre-flight — only when a real Gemini call is actually needed, so a
+                # cache-only replay (prod) never requires a key. A config failure here is
+                # SYSTEMIC (identical for every invoice): abort loudly BEFORE marking any
+                # invoice 'failed', so one bad key never poisons the cache with N failures.
+                if not ready_checked:
+                    ready_checked = True
+                    reason = _gemini_ready_or_reason()
+                    if reason:
+                        if changed:
+                            _write_cache(list(by_key.values()))
+                        print(f"\n[import_cache] ❌ GEMINI UNAVAILABLE — {reason}\n"
+                              f"  This is a CONFIG error, NOT an invoice problem — every MISMATCH invoice\n"
+                              f"  would fail the same way. Aborted before marking anything 'failed' (cache\n"
+                              f"  untouched for the misses). Fix Document AI Settings (Gemini API key /\n"
+                              f"  auth mode), then re-run. {hit} cache HIT(s) applied so far.")
+                        return
+                try:
                     vi = _gemini_apply(inv, po_doc)
-                    if vi:
-                        new_ok += 1
-                        _store(by_key, _mapped_entry(vi))
-                    else:
-                        new_fail += 1
-                        _store(by_key, _failed_entry(inv.name, po, inv.invoice_no, inv.invoice_attachment))
-                        _log_failure(po, inv)
-                    changed = True
+                except Exception as e:
+                    # A real Gemini/extraction ERROR after a passing pre-flight (quota, revoked
+                    # key, unreadable file). NOT the invoice's fault -> do NOT cache a 'failed'
+                    # entry (that would block retry). Persist the ones that DID map, show the
+                    # reason, and abort — it will repeat for the remaining invoices.
+                    msg = str(e).splitlines()[0][:200]
+                    recompute_po_invoice_qty(po)
+                    frappe.db.commit()
+                    if changed:
+                        _write_cache(list(by_key.values()))
+                    print(f"\n[import_cache] ❌ GEMINI FAILED on {inv.name}  ({po} / {inv.invoice_no})\n"
+                          f"  reason: {msg}\n"
+                          f"  {new_ok} invoice(s) mapped before this; nothing marked 'failed' for the\n"
+                          f"  error. Fix it and re-run to resume.")
+                    return
+                if vi:
+                    new_ok += 1
+                    _store(by_key, _mapped_entry(vi))
+                else:
+                    new_fail += 1
+                    _store(by_key, _failed_entry(inv.name, po, inv.invoice_no, inv.invoice_attachment))
+                    _log_failure(po, inv)
+                changed = True
         if apply:
             recompute_po_invoice_qty(po)
             frappe.db.commit()
@@ -434,24 +468,43 @@ def _content_hash(attachment_id):
             if attachment_id else None)
 
 
+def _gemini_ready_or_reason():
+    """Pre-flight for the Gemini step. Returns None when extraction is configured and a
+    client can actually be built; otherwise a one-line human reason. Uses the SAME client
+    builder the extraction path uses, so the reason is identical (missing Gemini API key /
+    GCP project id / extraction disabled). Lets import_cache fail LOUDLY on a config error
+    instead of recording it as N per-invoice 'failed' entries."""
+    from nirmaan_stack.services.extraction.files import get_extraction_settings
+    from nirmaan_stack.services.extraction import get_extractor
+    settings = get_extraction_settings()
+    if not settings.get("enabled"):
+        return "Document extraction is DISABLED in Document AI Settings."
+    try:
+        get_extractor(settings)._build_client(settings)
+        return None
+    except Exception as e:
+        return str(e).splitlines()[0][:200]
+
+
 def _gemini_apply(inv, po_doc):
     """Cache MISS: a non-interactive Gemini read + apply. Returns the applied Vendor Invoices
-    doc on success (>= MIN_MATCH), or None on any failure (no file / low match / error)."""
+    doc on success (>= MIN_MATCH), or None for a CLEAN miss (no file attached, or extraction
+    genuinely below MIN_MATCH). RAISES on a Gemini/extraction error (missing API key, auth,
+    quota, unreadable file) so the caller can tell an infra/config failure apart from a real
+    per-invoice miss — swallowing the error here is what turns ONE bad API key into N bogus
+    'failed' invoices."""
     from nirmaan_stack.api.invoice_autofill import extract_invoice_fields
     fu = (frappe.db.get_value("Nirmaan Attachments", inv.invoice_attachment, "attachment")
           if inv.invoice_attachment else None)
     if not fu:
         return None
-    try:
-        res = extract_invoice_fields(fu, docname=po_doc.name)
-        lm = (res or {}).get("line_match") or {}
-        s = lm.get("summary", {})
-        m, u = s.get("matched", 0), s.get("unmatched", 0)
-        if m / max(1, m + u) < MIN_MATCH:
-            return None
-        vi = frappe.get_doc("Vendor Invoices", inv.name)
-        _apply_autofill(vi, res, po_doc)
-        _save_no_modified(vi)
-        return vi
-    except Exception:
+    res = extract_invoice_fields(fu, docname=po_doc.name)
+    lm = (res or {}).get("line_match") or {}
+    s = lm.get("summary", {})
+    m, u = s.get("matched", 0), s.get("unmatched", 0)
+    if m / max(1, m + u) < MIN_MATCH:
         return None
+    vi = frappe.get_doc("Vendor Invoices", inv.name)
+    _apply_autofill(vi, res, po_doc)
+    _save_no_modified(vi)
+    return vi

@@ -14,12 +14,13 @@ Rejected). It resolves by TRUST LEVEL to one of four states:
   TRUSTED-FULL -- fully billed (all counted invoices Approved AND their amount >= PO total
                   within TOL) OR project Completed -> ordered quantity per row. Also fully
                   trustable (a fully-invoiced PO can't be undercounted).
-  DELIVERED    -- counted invoices exist but the PO is only PARTIALLY trustable: line data
-                  is incomplete AND it is not yet fully billed -> fall back to the DELIVERED
-                  (received) quantity, the real-world amount that actually arrived. Avoids
-                  BOTH the ordered-qty OVERcount and the mapped-only UNDERcount -- e.g. a
-                  directly-backfilled PO later revised with a new line-mapped invoice would
-                  otherwise drop its old (unmapped) invoices' rows to 0.
+  ORDERED-FB   -- counted invoices exist but line data is incomplete (not every invoice mapped)
+                  -> ordered quantity per row (same figure as TRUSTED-FULL). An invoice can be
+                  raised BEFORE its delivery is recorded, so a received-qty fallback would read 0
+                  and then churn as delivery qty is updated later; ordered qty stays stable and
+                  non-zero the moment a PO is invoiced. Becomes EXACT once every invoice is
+                  line-mapped. (Owner decision 2026-07 -- accepts a partial bill reading as fully
+                  invoiced until mapped.)
   ZERO         -- no counted invoices (none / all rejected / only credit notes) and the
                   project is not Completed -> 0.
 
@@ -121,14 +122,15 @@ def recompute_po_invoice_qty(po_name: str) -> None:
         _write(lambda r: float(r.quantity or 0))
         return
 
-    # 3) DELIVERED — counted invoices exist but the PO is only PARTIALLY trustable: line data is
-    # incomplete AND it is not yet fully billed. Fall back to the DELIVERED (received) quantity --
-    # the real-world amount that actually arrived. This avoids BOTH the ordered-qty OVERcount and
-    # the mapped-only UNDERcount (e.g. a directly-backfilled PO later revised with a new line-mapped
-    # invoice, whose old unmapped invoices would otherwise drop their rows to 0). It becomes EXACT
-    # once every invoice on the PO is line-mapped (branch 1).
+    # 3) ORDERED (fallback) — counted invoices exist but line data is incomplete (not every invoice
+    # is line-mapped). Use the ORDERED quantity per row (same figure as TRUSTED-FULL above).
+    # Rationale (owner decision, 2026-07): an invoice is often raised BEFORE its delivery is recorded,
+    # so a received-qty fallback sits at 0 and then CHURNS every time delivery qty is later updated.
+    # Ordered qty keeps invoice_qty stable and non-zero the moment a PO is invoiced. Trade-off
+    # accepted: a partially-billed PO reads as fully invoiced until every invoice is line-mapped
+    # -> EXACT (branch 1) gives the precise figure.
     if counted:
-        _write(lambda r: float(r.received_quantity or 0))
+        _write(lambda r: float(r.quantity or 0))
         return
 
     # 4) ZERO — no counted invoices and project not Completed.

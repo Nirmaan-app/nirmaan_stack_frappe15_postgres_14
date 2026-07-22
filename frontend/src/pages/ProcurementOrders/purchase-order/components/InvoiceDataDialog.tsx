@@ -65,7 +65,7 @@ export const InvoiceDataDialog = ({
   const approvedInvoices = fetchedInvoices ?? [];
   const isPO = documentType === "Procurement Orders";
   const docNumberLabel = isPO ? "PO Number:" : "WO Number:";
-  const visibleInvoices = vendorInvoices?.filter(inv => visibleStatuses.includes(inv.status)) ?? [];
+  const visibleInvoices = approvedInvoices.filter(inv => visibleStatuses.includes(inv.status));
 
   // `invoice_attachment` on a Vendor Invoice is a Link to a `Nirmaan Attachments`
   // doc (an ID, not a file URL). Resolve IDs → file URLs in one batch when the

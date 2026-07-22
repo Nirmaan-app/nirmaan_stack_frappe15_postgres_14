@@ -46,17 +46,19 @@ trusted_full = (every counted invoice Approved AND Σ amount ≥ po_total − TO
 |---|---|---|---|---|
 | 1 | **EXACT** | full | **every** counted invoice is mapped | Σ **signed Matched** line qty per row (a return note's negative qty subtracts) |
 | 2 | **TRUSTED-FULL** | full | `trusted_full` (all Approved & amount ≥ total, or Completed) | ordered `quantity` per row |
-| 3 | **DELIVERED** | partial | has counted invoices, but **not** all mapped **and not** `trusted_full` | **`received_quantity`** (delivered qty) per row |
+| 3 | **ORDERED-FB** | partial | has counted invoices, but **not** all mapped | ordered **`quantity`** per row (same figure as TRUSTED-FULL) |
 | 4 | **ZERO** | none | no counted invoices and project not Completed | 0 |
 
 Plus the wrapper rule: **Additional Charges rows are forced to 0 in every state** (short-circuit in the `_write` helper).
 
-The checks run **in that order** — EXACT (complete line data) beats TRUSTED-FULL beats DELIVERED. Only EXACT runs the line-sum SQL (Σ Matched qty grouped by `po_item_row`); the other states read a single per-row field.
+The checks run **in that order** — EXACT (complete line data) beats TRUSTED-FULL beats ORDERED-FB. Only EXACT runs the line-sum SQL (Σ Matched qty grouped by `po_item_row`); the other states read a single per-row field. (Since TRUSTED-FULL and ORDERED-FB both yield ordered qty, any PO with counted invoices that isn't fully line-mapped resolves to **ordered qty**.)
 
 **Why self-classifying (re-derive, don't increment):** there is no stored intermediate, so nothing goes stale. A reject/delete of an old invoice, or an edit long after the backfill, just re-runs `recompute` and the PO re-derives correctly (e.g. rejecting an approved invoice on a TRUSTED-FULL PO drops it to the right value automatically). Writes use `frappe.db.set_value(..., update_modified=False)` so the PO's `on_update` controller does **not** fire — this is a cache write, not a PO edit.
 
-### The trust ladder — why DELIVERED is the partial fallback (important history)
-The middle state has changed twice. It started **all-or-nothing**: EXACT only when *every* counted invoice was mapped, else the ordered-qty estimate. Then it briefly became **PARTIAL** — Σ the *mapped* invoices' matched qty, "growing to exact" as each was resolved. PARTIAL had a real defect: on a PO with a **mix** of mapped and permanently-unmapped invoices it *undercounts*, because the unmapped invoices contribute 0 matched qty. The trigger is common — a PO **backfilled DIRECT** (fully billed → ordered qty, invoices never line-mapped) that is later **revised** and gets one new line-mapped invoice: PARTIAL would drop every old row to ~0. So the middle state is now **DELIVERED**: when we can't fully trust the line data *and* the PO isn't fully billed, fall back to the **received (delivered) quantity** — the real-world amount that actually arrived. It avoids **both** failure modes: the ordered-qty **over**-count (ordered ≥ delivered) and the mapped-only **under**-count. It still converges to **EXACT** the moment every invoice on the PO is line-mapped (resolve them all in the Resolve UI). `received_quantity` is live-maintained by the Delivery Notes controller (`_recompute_received`), so it's a reliable source, not a mostly-empty field.
+### The trust ladder — why the partial fallback is ORDERED qty (important history)
+The middle state has changed **three times**. It started **all-or-nothing**: EXACT only when *every* counted invoice was mapped, else the ordered-qty estimate. Then it briefly became **PARTIAL** — Σ the *mapped* invoices' matched qty, "growing to exact" as each was resolved. PARTIAL *undercounts* a **mixed** PO (unmapped invoices contribute 0 matched qty) — e.g. a PO **backfilled DIRECT** (fully billed → ordered qty, invoices never line-mapped) that is later **revised** and gets one new line-mapped invoice: PARTIAL would drop every old row to ~0. It then became **DELIVERED** — fall back to `received_quantity` — to avoid both the ordered-qty overcount and the mapped-only undercount.
+
+**DELIVERED had its own defect → now ORDERED qty (owner decision, 2026-07-22).** An invoice is often raised *before* its delivery is recorded, so `received_quantity` sits at **0** and then **churns** every time delivery qty is later updated — a genuinely-invoiced PO reads as 0. So the partial fallback is now **ORDERED qty** (state **ORDERED-FB**, the same figure as TRUSTED-FULL): stable and non-zero the moment a PO is invoiced, with no dependency on delivery data. It still converges to **EXACT** the moment every invoice on the PO is line-mapped (resolve them all in the Resolve UI). **Trade-off accepted:** a partially-billed PO now reads as *fully* invoiced until it reaches EXACT — do not "fix" this back to delivered/proportional without owner sign-off. (Rejected alternative: proportional-by-amount `ordered × invoiced/total` — more accurate, no overcount, but the owner chose plain ordered qty.) See memory `project_invoice_qty_ordered_fallback`.
 
 > This function is app-wide — it runs on **every** runtime invoice event, not only in the backfill. Any change to it changes both.
 
@@ -96,9 +98,9 @@ bench --site <site> execute nirmaan_stack.patches.v3_0.backfill_invoice_qty.run
 Or run the steps separately — `…backfill_invoice_qty.execute`, then `…import_cache --kwargs "{'apply': True}"` (import_cache defaults to `apply=False`, a dry preview that writes nothing).
 
 - **`execute()` — deterministic, no AI.** Classifies every live PO (excl. Merged) via its **own** classifier `_po_bucket` and writes with `_write_bucket`:
-  - `EXACT` (all counted mapped) → line sums · `COMPLETED` (project done) / `DIRECT` (all Approved & amount ≥ total−TOL) → ordered qty · `ZERO` (no invoices) → 0 · **`MISMATCH` (under-invoiced / pending) → left UNWRITTEN** for the extraction step.
-  - `_po_bucket`/`_write_bucket` are **independent of `recompute`** — do not assume they share code. (They stay consistent: EXACT↔EXACT, DIRECT/COMPLETED↔TRUSTED-FULL, and MISMATCH is refined by the recompute in `import_cache`.)
-- **`import_cache(apply=True)` — extraction on the MISMATCH POs.** For each still-unmapped invoice: **HIT** (mapped entry in the cache) → replay, no AI; **FAIL** (failed entry) → skip, no retry; **MISS** (not cached) → Gemini reads it **once** → registers a `mapped` or `failed` entry. Then calls `recompute_po_invoice_qty(po)` per PO (→ EXACT once fully mapped, else DELIVERED). Non-interactive; **builds the cache as it goes**.
+  - `EXACT` (all counted mapped) → line sums · `COMPLETED` (project done) / `DIRECT` (all Approved & amount ≥ total−TOL) / **`MISMATCH` (under-invoiced / pending) → ordered qty NOW** · `ZERO` (no invoices) → 0. (MISMATCH is later refined to EXACT by the extraction step; matches `dry_run`'s choice-i.)
+  - `_po_bucket`/`_write_bucket` are **independent of `recompute`** — do not assume they share code. (They stay consistent: EXACT↔EXACT, and DIRECT/COMPLETED/**MISMATCH**↔ordered qty (TRUSTED-FULL/ORDERED-FB); MISMATCH is further refined to EXACT by the recompute in `import_cache`.)
+- **`import_cache(apply=True)` — extraction on the MISMATCH POs.** For each still-unmapped invoice: **HIT** (mapped entry in the cache) → replay, no AI; **FAIL** (failed entry) → skip, no retry; **MISS** (not cached) → Gemini reads it **once** → registers a `mapped` or `failed` entry. Then calls `recompute_po_invoice_qty(po)` per PO (→ EXACT once fully mapped, else ordered qty / ORDERED-FB). Non-interactive; **builds the cache as it goes**.
 
 There is **no terminal fixing** — all human fixing is the Resolve UI.
 
@@ -158,9 +160,9 @@ Normally the Add/Edit dialog only shows the editable AI mapping for **Pending** 
 ## 10. Design decisions & rationale (the WHYs)
 
 - **Derived, self-classifying, re-derive-not-increment** → no stale state; every event self-corrects (reject/delete/edit included). §3.
-- **Trust ladder: EXACT → TRUSTED-FULL → DELIVERED → ZERO** → when line data is complete use it (EXACT); when the PO is fully billed use ordered qty (TRUSTED-FULL); when only partially trustable fall back to **delivered (received) qty**, not the mapped-only sum (undercounts a mixed PO) nor ordered qty (overcounts). Replaced the earlier PARTIAL sum, which dropped a DIRECT-then-revised PO's old unmapped rows to ~0. §3.
-- **`received_quantity` as the partial-trust fallback** → the PO has invoices but no complete line data and isn't fully billed; delivered qty is the real amount that arrived (`received ≤ ordered`), so it's a tighter, honest estimate that converges to EXACT once every invoice is mapped.
-- **MISMATCH left unwritten by `execute()`** → the deterministic pass can't call Gemini; extraction/recompute fills it.
+- **Trust ladder: EXACT → TRUSTED-FULL → ORDERED-FB → ZERO** → when line data is complete use it (EXACT); otherwise, whenever the PO has any counted invoice that isn't fully line-mapped, use **ordered qty** (TRUSTED-FULL when fully billed, ORDERED-FB when partial). Fallback history: all-or-nothing → PARTIAL (undercounted mixed POs) → DELIVERED/received qty → **ORDERED qty**. §3.
+- **Ordered qty as the partial fallback (not delivered/proportional)** → owner decision 2026-07-22: an invoice can precede its delivery record, so a received-qty fallback reads **0** and churns as deliveries land later; ordered qty is stable + non-zero and converges to EXACT once every invoice is mapped. Overcount on a partial bill is the accepted trade-off; proportional-by-amount (`ordered × invoiced/total`) was rejected for simplicity. Memory: `project_invoice_qty_ordered_fallback`.
+- **MISMATCH written as ordered qty by `execute()`** → the deterministic pass now gives it the ordered-qty fallback immediately (was: left unwritten, which stranded MISMATCH POs at stale values); Step 2 extraction/recompute later refines it to EXACT. This re-aligns the backfill with `dry_run`'s choice-i and the runtime recompute.
 - **Cache in the app dir, self-building, Gemini-once** → test→prod replay without re-paying for AI; failures are remembered, not retried.
 - **Credit notes = negative amount + `is_credit_note` + excluded** → a credit reduces billing; it must not add qty. Two exclusion paths agree (recompute uses the flag, the backfill's `_active_invoices` uses `amount ≥ 0`).
 - **Additional Charges = 0** → not real quantities.
@@ -184,7 +186,7 @@ Normally the Add/Edit dialog only shows the editable AI mapping for **Pending** 
 
 | Concern | File |
 |---|---|
-| **Core deriver** (EXACT/TRUSTED-FULL/DELIVERED/ZERO) | `nirmaan_stack/api/invoices/_item_billing_sync.py` |
+| **Core deriver** (EXACT/TRUSTED-FULL/ORDERED-FB/ZERO) | `nirmaan_stack/api/invoices/_item_billing_sync.py` |
 | One-time backfill + extraction + cache | `nirmaan_stack/patches/v3_0/backfill_invoice_qty.py` |
 | Read-only classification/extraction PREVIEW | `nirmaan_stack/dry_run_invoice_qty.py` |
 | Fuzzy+Gemini line matcher | `nirmaan_stack/api/invoices/_line_match.py` |
@@ -201,6 +203,6 @@ Normally the Add/Edit dialog only shows the editable AI mapping for **Pending** 
 ## 13. Future / open items
 
 - **"Too many re-renders" crash** in the Add-Invoice path (opening PO Attachments + Add Invoice) — not located statically; needs the browser console's component name to fix.
-- **DELIVERED is a proxy, not the exact billed qty** — a partially-trustable PO reads at its delivered (received) qty until every invoice is line-mapped (then EXACT). `received` can slightly exceed the truly-invoiced qty (goods received but not yet billed); resolving all invoices removes the approximation. If a "provisional" indicator is wanted, it belongs in the read/display layer, not `recompute`.
-- **`dry_run` mirrors the backfill buckets, not `recompute`** — its Stage-1 preview predicts what `execute()`/`_po_bucket` writes; it does not model the runtime DELIVERED fallback (that only applies after a live invoice event / `import_cache` recompute).
+- **ORDERED-FB is a proxy, not the exact billed qty** — a partially-billed PO reads at its **ordered** qty until every invoice is line-mapped (then EXACT). Ordered qty **over**states a partial bill (accepted trade-off, owner 2026-07-22); it does NOT depend on delivery data. If a "provisional / % billed" indicator is wanted, it belongs in the read/display layer, not `recompute`.
+- **`dry_run` and the backfill both give MISMATCH ordered qty; so does `recompute`** — Stage-1 preview (`_po_bucket`), the backfill (`_write_bucket`), and the runtime fallback (ORDERED-FB) now all resolve a not-fully-mapped PO to ordered qty, so the preview matches what actually gets written (it still doesn't model the *EXACT* refinement that lands after `import_cache` line-maps the invoices).
 - **Resolve UI naming** (`temp_resolve` / `pages/temp`) could be promoted to a permanent name in one pass (backend module + page path + the 3 method strings + route) — deferred.
