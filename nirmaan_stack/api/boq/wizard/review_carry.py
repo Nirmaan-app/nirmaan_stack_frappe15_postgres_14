@@ -298,6 +298,51 @@ def _change_summary(diagnosis) -> dict | None:
     }
 
 
+#: How many blocking rows the gate names in its refusal before saying "and N more". The COUNT is
+#: always exact -- only the enumeration is capped.
+_GATE_ROW_SAMPLE = 20
+
+
+def unaffirmed_needs_review(boq_name: str, sheet_name: str) -> dict:
+    """Rows that block finalize: stamped `Needs Review` and not yet affirmed.
+
+    ⚠️ THE SINGLE HOME (ADR-0010 F1). `mark_sheet_parsed_check_done` refuses on this, and
+    `get_review_rows` reports its count so the button can be pre-disabled. They MUST be the same
+    function, not equivalent logic: two predicates that agree today will drift, and the drift shows
+    up as a sheet whose Finalize button is enabled and whose server call refuses -- or worse, one
+    that blocks on a row the UI never renders, which is a permanently un-finalizable sheet and a
+    dead downstream (no commit, no pricing, no tendering).
+
+    The affirm endpoints derive their eligibility from the SAME status test, so every row this
+    function can count is a row a reviewer can clear. That is the anti-deadlock property, and it
+    holds by construction rather than by review.
+
+    Scope mirrors the structural-break gate exactly (`is_excluded=0`), so the two blocking
+    conditions can never disagree about which rows are in play.
+
+    INERT off a revision: an upload/template row has a blank `revision_carry_status`, so the
+    filter matches nothing and the count is 0. Equally inert on a sheet parsed BEFORE S2, whose
+    non-copied rows carry no stamp -- see `revision_review_counts` for why that is the right
+    answer rather than a gap.
+
+    Returns {"count": <exact>, "rows": [{row_index, source_row_number, revision_review_reason}]},
+    the list capped at _GATE_ROW_SAMPLE for the refusal message.
+    """
+    rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,          # VERBATIM (#152)
+            "is_excluded": 0,
+            "revision_carry_status": NEEDS_REVIEW,
+            "revision_reviewed": 0,
+        },
+        fields=["row_index", "source_row_number", "revision_review_reason"],
+        order_by="row_index asc",
+    )
+    return {"count": len(rows), "rows": rows[:_GATE_ROW_SAMPLE]}
+
+
 def revision_review_counts(boq_name: str, sheet_name: str) -> dict:
     """READ-ONLY sheet-level carry counts for the review screen's meta block.
 

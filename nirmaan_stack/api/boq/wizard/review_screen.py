@@ -42,6 +42,10 @@ from nirmaan_stack.api.boq.wizard.update_sheet_draft import (
 # Claude BOQ Upload Review AI Settings). Read it perm-bypassing via the shared
 # extraction settings reader -- get_review_rows surfaces gemini_enabled from it.
 from nirmaan_stack.services.extraction.files import get_boq_classifier_settings
+# S3 (revision needs-review): the status value + the collateral/causal boundary that bounds the
+# block bulk-affirm. `reasons` is a zero-import leaf, so a module-level import is cycle-safe --
+# unlike `review_carry`, which this module still imports lazily inside functions.
+from nirmaan_stack.services.boq_revision.reasons import NEEDS_REVIEW, is_collateral
 
 
 # ---------------------------------------------------------------------------
@@ -1163,6 +1167,24 @@ def _apply_and_save_row_edit(
         else:
             doc.chosen_source = "manual"
 
+        # (4) S3 AUTO-AFFIRM. Setting a classification or a parent IS the confirmation a
+        #     `Needs Review` row was waiting for -- demanding a separate "Looks OK" tick after
+        #     the reviewer has actively answered would be busywork, and it would leave the
+        #     finalize gate blocking on rows that are demonstrably handled.
+        #
+        #     Gated to THIS branch on purpose, which is the whole point: a VALUE edit (qty /
+        #     unit / rate / per-area) never reaches here, so fixing a quantity does NOT affirm
+        #     the row. That is a deliberate DIVERGENCE from `flags_dismissed`, which any data
+        #     edit re-opens -- a quantity fix says nothing about classification either way.
+        #
+        #     A revert routes through here too (reason "reverted to parser") and would wrongly
+        #     affirm; `revert_to_parser` therefore clears the affirmation in its final
+        #     normalize write, which lands after every helper call.
+        if getattr(doc, "revision_carry_status", None) == NEEDS_REVIEW:
+            doc.revision_reviewed = 1
+            doc.revision_reviewed_by = user
+            doc.revision_reviewed_at = frappe.utils.now()
+
     # Defect 1 fix: frappe.get_doc() loads JSON list fields as Python lists.
     # Frappe's get_valid_dict rejects Python lists for JSON fieldtype on save.
     # Pre-serialize them (guard prevents double-encoding already-string values).
@@ -1245,6 +1267,12 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # revision sheet's matched-content rows (Matched/New/Ambiguous); blank on every
         # upload/template row -> the frontend Status column + delta panel stay inert off a revision.
         "revision_carry_status",
+        # S3: the needs-review diagnosis + the reviewer's affirmation. All blank/0 off a revision,
+        # so the frontend's red treatment and Looks OK column stay inert there.
+        "revision_review_reason",
+        "revision_shift_delta",
+        "revision_shift_anchor",
+        "revision_reviewed",
         # C-flag-dismissal: per-row "Looks OK" acknowledgment (NOT an edit; row stays
         # "Original"). Rides the row payload so the frontend can render the dismissed
         # marker + derive the "N total -- C cleared" summary; no new endpoint.
@@ -1367,6 +1395,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
     from nirmaan_stack.api.boq.wizard.review_carry import (
         revision_review_counts,
         revision_source_boq,
+        unaffirmed_needs_review,
     )
     source_boq = revision_source_boq(boq_name)
     if source_boq:
@@ -1377,6 +1406,21 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
             "copied_count": counts["copied"],
             "needs_review_count": counts["needs_review"],
             "total_count": counts["total"],
+            # S3: the FINALIZE-BLOCKING subset -- needs-review rows the reviewer has not yet
+            # affirmed. Distinct from `needs_review_count`, which never moves as they work: this
+            # one falls to 0 and is what gates the button. Same function the server's refusal
+            # uses, so the two cannot disagree (ADR-0010 F1).
+            "unaffirmed_count": unaffirmed_needs_review(boq_name, sheet_name)["count"],
+            # S3: the sheet-level change events (shift blocks + removed originals) the warnings
+            # panel groups by. A JSON field reads back as a dict OR a string depending on the read
+            # path, so it is coerced here rather than at the call site.
+            "change_summary": _coerce_json_obj(
+                frappe.db.get_value(
+                    "BoQ Sheet Draft",
+                    {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet_name},
+                    "revision_change_summary",
+                )
+            ),
             # source_version -> the "copied from v{n}" chip label (the source docname itself is not
             # surfaced -> not shipped).
             "source_version": frappe.db.get_value("BOQs", source_boq, "version"),
@@ -2593,6 +2637,12 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
             or (doc.gemini_suggested_parent is not None and doc.gemini_suggested_parent >= 0)
             or doc.gemini_suggested_is_root):
         normalize["gemini_suggestion_status"] = "Pending"
+    # S3: a revert puts the row back at the parse baseline, so the reviewer's confirmation of what
+    # it USED to say no longer stands -- the row returns to blocking. This also undoes the
+    # chokepoint's auto-affirm, which fires on the helper's human_* clears above; landing here (the
+    # final write, after every helper call) is what makes the clear win.
+    if getattr(doc, "revision_carry_status", None) == NEEDS_REVIEW:
+        normalize.update(_affirm_fields(False))
     frappe.db.set_value("BoQ Review Row", row_name, normalize, update_modified=False)
 
     frappe.db.commit()
@@ -2777,6 +2827,169 @@ def dismiss_row_flags(
     return {"flags_dismissed": 1 if is_dismissed else 0}
 
 
+# ---------------------------------------------------------------------------
+# S3: the revision needs-review affirmation ("Looks OK")
+# ---------------------------------------------------------------------------
+
+def _affirm_fields(affirmed: bool, user: str | None = None) -> dict:
+    """The affirmation write, both directions. One builder so set and clear stay symmetric."""
+    if affirmed:
+        return {
+            "revision_reviewed": 1,
+            "revision_reviewed_by": user or frappe.session.user,
+            "revision_reviewed_at": frappe.utils.now(),
+        }
+    return {"revision_reviewed": 0, "revision_reviewed_by": None, "revision_reviewed_at": None}
+
+
+@frappe.whitelist(methods=["POST"])
+def affirm_revision_row(
+    boq_name: str = None,
+    sheet_name: str = None,
+    row_index=None,
+    affirmed=True,
+) -> dict:
+    """The reviewer's "Looks OK" on ONE `Needs Review` row (S3).
+
+    Mirrors `dismiss_row_flags`' write path exactly: `frappe.db.set_value`, NOT the
+    `_apply_and_save_row_edit` chokepoint -- so an affirmation appends no `edit_log`, stamps no
+    `edited_at`, and never flips the row to "Edited". It is an acknowledgement, not a data edit.
+
+    ⚠️ A SEPARATE FIELD FROM `flags_dismissed`, deliberately. That one means "I've seen this row's
+    parser advisories (classifier warning / orphan / needs-review) and they're fine"; this one
+    means "I've confirmed this row's classification against the revision". A row can carry both,
+    and overloading one flag would make dismissing a classifier warning silently clear the
+    revision affirmation, and vice versa.
+
+    ELIGIBILITY IS THE GATE'S OWN TEST -- `revision_carry_status == "Needs Review"`, whatever the
+    reason code, including the defensive ones. This is the anti-deadlock property: every row the
+    gate can block on is a row this endpoint accepts. Do NOT narrow it by reason code.
+
+    `affirmed` falsy un-affirms (the row returns to blocking), which is what makes the tick
+    reversible and what `revert_to_parser` leans on.
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_row
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    if isinstance(affirmed, str):
+        is_affirmed = affirmed.strip().lower() in ("1", "true", "yes")
+    else:
+        is_affirmed = bool(affirmed)
+
+    row = frappe.db.get_value(
+        "BoQ Review Row",
+        {"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},  # VERBATIM (#152)
+        ["name", "revision_carry_status"],
+        as_dict=True,
+    )
+    if not row:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+    if row.revision_carry_status != NEEDS_REVIEW:
+        # A copied row has nothing to affirm and an upload/template row is not a revision row at
+        # all. Refusing keeps `revision_reviewed` meaningful: it is set ONLY where it can matter.
+        frappe.throw(
+            f"Row {row_index} is not awaiting revision review.",
+            title="Nothing to confirm",
+        )
+
+    frappe.db.set_value("BoQ Review Row", row.name, _affirm_fields(is_affirmed))
+    frappe.db.commit()
+    return {"ok": True, "row_index": row_index, "revision_reviewed": 1 if is_affirmed else 0}
+
+
+@frappe.whitelist(methods=["POST"])
+def affirm_revision_block(
+    boq_name: str = None,
+    sheet_name: str = None,
+    anchor=None,
+    delta=None,
+) -> dict:
+    """Affirm one SHIFT BLOCK's collateral rows in a single click (S3).
+
+    A block is keyed by `(anchor, delta)` -- the anchor alone is not enough, because two blocks can
+    in principle resolve to the same anchor with different offsets.
+
+    ⚠️ COLLATERAL ONLY. The filter is `revision_review_reason` in the collateral set (today:
+    `position_shifted` alone), so an inserted / reworded / parent-lost row inside the same anchor
+    range is NEVER swept up -- those are causal and must be ticked individually. That asymmetry is
+    the whole reason the gate stays meaningful under bulk affirm, and it is also why the diagnosis
+    falls back to a CAUSAL label whenever its shift probe is ambiguous.
+
+    There is deliberately NO sheet-wide "affirm everything" endpoint. One row moved because of one
+    edit the reviewer is looking at; a whole sheet is not one judgement.
+
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.affirm_revision_block
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if anchor is None or delta is None:
+        frappe.throw("anchor and delta are required.", title="Missing block key")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
+    try:
+        anchor = int(anchor)
+        delta = int(delta)
+    except (ValueError, TypeError):
+        frappe.throw("anchor and delta must be integers.", title="Invalid block key")
+
+    rows = frappe.db.get_all(
+        "BoQ Review Row",
+        filters={
+            "boq": boq_name,
+            "sheet_name": sheet_name,          # VERBATIM (#152)
+            "revision_carry_status": NEEDS_REVIEW,
+            "revision_shift_anchor": anchor,
+            "revision_shift_delta": delta,
+            "revision_reviewed": 0,
+        },
+        fields=["name", "row_index", "revision_review_reason"],
+        order_by="row_index asc",
+    )
+    # Second gate, in Python rather than the filter: the collateral set is a property of the
+    # VOCABULARY, not of the query, so it is tested with the same `is_collateral` the frontend
+    # reads. A causal row that happens to share the anchor is skipped here.
+    affirmable = [r for r in rows if is_collateral(r.revision_review_reason or "")]
+    if not affirmable:
+        return {"ok": True, "affirmed": 0, "row_indexes": []}
+
+    fields = _affirm_fields(True)
+    for r in affirmable:
+        frappe.db.set_value("BoQ Review Row", r.name, fields)
+    frappe.db.commit()
+    return {
+        "ok": True,
+        "affirmed": len(affirmable),
+        "row_indexes": [r.row_index for r in affirmable],
+    }
+
+
 @frappe.whitelist()
 def get_structural_breaks(boq_name: str = None, sheet_name: str = None) -> dict:
     """
@@ -2940,6 +3153,34 @@ def mark_sheet_parsed_check_done(
         # FULLY HARD gate (S2): ANY structural break (#7 / #8 / cycle) blocks finalize,
         # REGARDLESS of confirm. No override path -- a finalized sheet must be committable.
         return {"ok": False, "breaks": breaks}
+
+    # S3 REVISION GATE: every `Needs Review` row must be affirmed before the sheet can finalize.
+    #
+    # This gate holds the whole downstream -- no finalize means no commit, no pricing, no
+    # tendering -- so its correctness is about DEADLOCK, not about catching everything. The
+    # anti-deadlock property is structural: `affirm_revision_row` accepts exactly the rows this
+    # predicate counts (the same `Needs Review` status test, whatever the reason code), so a
+    # blocking row is always clearable. It is deliberately the SAME function `get_review_rows`
+    # reports to the client, so the button's disabled state and this refusal cannot drift apart
+    # (ADR-0010 F1).
+    #
+    # Inert everywhere it should be: an upload/template sheet has no stamps; a declared-New
+    # revision sheet has none either (nothing to carry from); a general-specs sheet has no review
+    # rows; and a sheet parsed BEFORE S2 has no stamps, so no already-parsed BoQ is retroactively
+    # locked out of finalize. Re-parsing deletes the rows, which drops the affirmations with them
+    # -- intended: a fresh parse is a fresh review.
+    #
+    # Reported like `breaks`: the caller gets the exact count plus a capped sample of rows so the
+    # message can name what to go and look at.
+    from nirmaan_stack.api.boq.wizard.review_carry import unaffirmed_needs_review
+    unaffirmed = unaffirmed_needs_review(boq_name, sheet_name)
+    if unaffirmed["count"]:
+        return {
+            "ok": False,
+            "breaks": [],
+            "unaffirmed_count": unaffirmed["count"],
+            "unaffirmed": unaffirmed["rows"],
+        }
 
     # A2 (template origin ONLY): every SELECTED line_item must carry a VALID quantity before
     # finalize -- present (multi-area = at least one area, since qty_total = sum(areas)) AND not
