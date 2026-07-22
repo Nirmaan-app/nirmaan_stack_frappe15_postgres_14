@@ -373,6 +373,16 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   engine's own numbers by construction (pinned by test). To carry the range up, `ClassifySheetDialog`'s
   `onStarted` now passes `Array<{discipline, scope}>` (signature-only; no dialog behaviour change).
   The error path and the message WORDING are unchanged -- only the numbers' SOURCE changed.
+- **AI-status on the completion surfaces (HV-11): HEALTHY PATH SILENT, FALLBACK LOUD.** The pure
+  `aiStatusWarning(aiStatusByDiscipline)` (`ClassifyProgressModal.tsx`) drives an AI-off warning on
+  BOTH the modal line + the post-close toast. It returns "" when every ran discipline had AI ON
+  (`ran`) or had no eligible rows (null) -- so the healthy completion text stays byte-identical
+  (zero noise); when ANY discipline reports `disabled`/`no_key` it returns ONE plain line NAMING the
+  off discipline(s) (multi-engine names ONLY the off one). `SheetPricingPage` accumulates ai_status
+  PER DISCIPLINE over the run set (`aiStatusByDisciplineRef`, reset each `onStarted`, one entry per
+  engine's done) -- do NOT revert to the old single last-engine-wins `aiStatusNote` render, which
+  masked a mixed multi-engine run. The done payload's `ai_status` values are `ran | disabled |
+  no_key | null`.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
