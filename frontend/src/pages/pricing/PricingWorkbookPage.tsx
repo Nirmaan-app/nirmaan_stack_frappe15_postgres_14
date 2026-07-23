@@ -64,6 +64,8 @@ import {
 	summarize,
 	type ImportReport,
 } from "./pricingTransforms";
+import { ImportReportDialog, reportIsNoop } from "./ImportReportDialog";
+import { REASON_NEEDS_HELPER, applyLiveFix, assessHit } from "./pricingLiveFix";
 import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
 
@@ -103,7 +105,11 @@ type LockState = "readonly" | "mine" | "locked-by-other";
  */
 type PendingAction =
 	| { kind: "save"; sheets: any[]; hits: FormulaScanHit[] }
-	| { kind: "replace"; sheets: any[]; hits: FormulaScanHit[]; fileName: string };
+	// PW-2b-ii: replace and import carry the pipeline's ImportReport (shown in the
+	// merged confirm), NOT the advisory scan -- the report's `abstained` list already
+	// surfaces the cells the pipeline could not fix.
+	| { kind: "replace"; sheets: any[]; report: ImportReport; fileName: string }
+	| { kind: "import"; sheets: any[]; report: ImportReport; fileName: string };
 
 function isPermissionError(err: any): boolean {
 	const status = err?.httpStatus ?? err?.httpStatusCode;
@@ -173,6 +179,12 @@ export function PricingWorkbookPage() {
 	const [sandbox, setSandbox] = useState<boolean>(false);
 	// PW-2a: a write awaiting the user's confirmation (advisory and/or replace).
 	const [pending, setPending] = useState<PendingAction | null>(null);
+	// PW-2b-ii: the LAST import/replace report, re-openable from the action bar.
+	// Session-only -- persistence across reloads is deferred.
+	const [lastReport, setLastReport] = useState<{ report: ImportReport; fileName: string } | null>(
+		null
+	);
+	const [viewingReport, setViewingReport] = useState<boolean>(false);
 
 	// Post-mount (re)create request. The actual luckysheet.create runs from the
 	// effect below, which fires only when status === "ready" so the container div
@@ -523,6 +535,47 @@ export function PricingWorkbookPage() {
 		}
 	}, [engineSupported, performSave]);
 
+	// -- live fix (PW-2b-ii) ----------------------------------------------
+	/**
+	 * Re-run the FR-6 re-entry + serialize + scan against the LIVE engine. Called after
+	 * a fix so the advisory list and the to-be-saved payload both reflect the fixed
+	 * cells -- the fixed content rides the SAME save, no separate cycle.
+	 */
+	const rescanLive = useCallback((): { sheets: any[]; hits: FormulaScanHit[] } => {
+		const reentered = reenterNormalizedFormulas(window.luckysheet);
+		if (reentered.length) {
+			/* the engine recomputes synchronously enough for the scan; save re-checks */
+		}
+		const sheets = serializeSheets(window.luckysheet.getAllSheets());
+		const hits = scanWorkbookFormulas(sheets, engineSupported());
+		return { sheets, hits };
+	}, [engineSupported]);
+
+	const handleFixHit = useCallback(
+		(hit: FormulaScanHit) => {
+			const res = applyLiveFix(window.luckysheet, hit);
+			if (!res.applied) {
+				setErrorMsg(res.reason || "That formula could not be fixed automatically.");
+				return;
+			}
+			const { sheets, hits } = rescanLive();
+			setPending({ kind: "save", sheets, hits });
+		},
+		[rescanLive]
+	);
+
+	const handleFixAll = useCallback(() => {
+		if (!pending || pending.kind !== "save") return;
+		let anyApplied = false;
+		for (const hit of pending.hits) {
+			if (!assessHit(hit).fixable) continue;
+			if (applyLiveFix(window.luckysheet, hit).applied) anyApplied = true;
+		}
+		if (!anyApplied) return;
+		const { sheets, hits } = rescanLive();
+		setPending({ kind: "save", sheets, hits });
+	}, [pending, rescanLive]);
+
 	const handleRelease = useCallback(async () => {
 		setBusy(true);
 		try {
@@ -617,23 +670,19 @@ export function PricingWorkbookPage() {
 		}
 	}, []);
 
-	const handleImport = useCallback(
-		async (file: File) => {
+	/**
+	 * Commit a converted-and-serialized workbook via create_workbook. Split from the
+	 * convert step so a non-trivial ImportReport can gate it behind the confirm dialog.
+	 * `sheets` is the COMPACT (serialized) form -- PM-5.
+	 */
+	const performImport = useCallback(
+		async (sheets: any[]) => {
 			setBusy(true);
-			setErrorMsg("");
 			try {
-				const { sheets, report } = await runImportPipeline(file);
-				logReport(report, `import ${file.name}`);
-				// Created under THIS page's registry title, so the next load's
-				// title-keyed selection finds it from this route and no other.
-				//
-				// GZIP + MULTIPART, the ONE transport for create (FR-5). Persists the
-				// COMPACT form (PM-5: every save-shaped path goes through
-				// serializeSheets); LuckyExcel's raw output carries the rebuilt `data`
-				// grids and is far larger. Lossless: the engine rebuilds `data` from
-				// `celldata` on load, and this is the same shape the workbook takes
-				// after its first save.
-				const form = await buildWorkbookForm(JSON.stringify(serializeSheets(sheets)), {
+				// GZIP + MULTIPART (FR-5), created under THIS page's registry title so the
+				// next title-keyed load finds it. Lossless: the engine rebuilds `data`
+				// from `celldata` on load.
+				const form = await buildWorkbookForm(JSON.stringify(sheets), {
 					title: workbookTitle,
 				});
 				const res = await fetch(`/api/method/${M}.create_workbook`, {
@@ -648,8 +697,8 @@ export function PricingWorkbookPage() {
 				}
 				const created = await res.json();
 				workbookNameRef.current = created?.message?.name || "";
-				// Defer create to the post-mount effect: setting status "ready"
-				// mounts the container, then the effect runs luckysheet.create.
+				// Defer create to the post-mount effect: setting status "ready" mounts the
+				// container, then the effect runs luckysheet.create.
 				requestSheet(sheets, false);
 				setLock("readonly");
 				setStatus("ready");
@@ -660,7 +709,32 @@ export function PricingWorkbookPage() {
 				setBusy(false);
 			}
 		},
-		[logReport, requestSheet, runImportPipeline, workbookTitle]
+		[requestSheet, workbookTitle]
+	);
+
+	const handleImport = useCallback(
+		async (file: File) => {
+			setBusy(true);
+			setErrorMsg("");
+			try {
+				const { sheets: converted, report } = await runImportPipeline(file);
+				logReport(report, `import ${file.name}`);
+				const sheets = serializeSheets(converted);
+				// A non-trivial report gates the create behind the confirm dialog; a pure
+				// no-op imports directly (today's behaviour).
+				if (!reportIsNoop(report)) {
+					setPending({ kind: "import", sheets, report, fileName: file.name });
+					return;
+				}
+				await performImport(sheets);
+			} catch (e: any) {
+				if (isPermissionError(e)) setStatus("access-denied");
+				else setErrorMsg(e?.message || "Import failed.");
+			} finally {
+				setBusy(false);
+			}
+		},
+		[logReport, performImport, runImportPipeline]
 	);
 
 	// -- replace from excel (PW-2a, admin + lock held) ----------------------
@@ -677,11 +751,12 @@ export function PricingWorkbookPage() {
 				const { sheets: converted, report } = await runImportPipeline(file);
 				logReport(report, `replace ${file.name}`);
 				// Compact FIRST: this is both what gets posted and what gets rendered
-				// (the engine rebuilds `data` from `celldata`), so scan and payload and
-				// render are all the same array.
+				// (the engine rebuilds `data` from `celldata`), so payload and render are
+				// the same array. The dialog shows the pipeline's ImportReport (its
+				// `abstained` list is the "could not fix" surface) -- no separate advisory
+				// scan on a replace, the pipeline already handled the fixable constructs.
 				const sheets = serializeSheets(converted);
-				const hits = scanWorkbookFormulas(sheets, engineSupported());
-				setPending({ kind: "replace", sheets, hits, fileName: file.name });
+				setPending({ kind: "replace", sheets, report, fileName: file.name });
 			} catch (e: any) {
 				if (isPermissionError(e)) setStatus("access-denied");
 				else setErrorMsg(e?.message || "Could not read that Excel file.");
@@ -689,7 +764,7 @@ export function PricingWorkbookPage() {
 				setBusy(false);
 			}
 		},
-		[engineSupported, logReport, runImportPipeline]
+		[logReport, runImportPipeline]
 	);
 
 	const performReplace = useCallback(
@@ -735,9 +810,15 @@ export function PricingWorkbookPage() {
 		const action = pending;
 		setPending(null);
 		if (!action) return;
-		if (action.kind === "save") await performSave(action.sheets);
+		if (action.kind === "save") {
+			await performSave(action.sheets);
+			return;
+		}
+		// import / replace: remember the report so it can be re-opened, then commit.
+		setLastReport({ report: action.report, fileName: action.fileName });
+		if (action.kind === "import") await performImport(action.sheets);
 		else await performReplace(action.sheets);
-	}, [pending, performReplace, performSave]);
+	}, [pending, performImport, performReplace, performSave]);
 
 	// -- render ------------------------------------------------------------
 	if (status === "unknown-workbook") {
@@ -846,6 +927,15 @@ export function PricingWorkbookPage() {
 						<Button size="sm" variant="outline" disabled={busy} onClick={handleRelease}>
 							Release
 						</Button>
+						{lastReport && (
+							<button
+								type="button"
+								className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+								onClick={() => setViewingReport(true)}
+							>
+								View import report
+							</button>
+						)}
 						{savedAt && (
 							<span className="text-xs text-muted-foreground">Saved at {savedAt}</span>
 						)}
@@ -927,48 +1017,68 @@ export function PricingWorkbookPage() {
 				</div>
 			)}
 
-			{/* Confirm gate for replace, and the warn-only formula advisory (PW-2a). */}
-			<AlertDialog open={!!pending} onOpenChange={(open) => !open && setPending(null)}>
+			{/* Save-time advisory with consent-based live fixing (PW-2a + PW-2b-ii). */}
+			<AlertDialog
+				open={pending?.kind === "save"}
+				onOpenChange={(open) => !open && setPending(null)}
+			>
 				<AlertDialogContent className="max-w-2xl">
 					<AlertDialogHeader>
 						<AlertDialogTitle>
-							{pending?.kind === "replace"
-								? "Replace this workbook?"
-								: "Check these formulas before saving"}
+							{pending?.kind === "save" && pending.hits.length
+								? "Check these formulas before saving"
+								: "Ready to save"}
 						</AlertDialogTitle>
 						<AlertDialogDescription asChild>
 							<div className="space-y-3">
-								{pending?.kind === "replace" && (
-									<p>
-										This replaces the entire workbook content with{" "}
-										<span className="font-medium text-foreground">{pending.fileName}</span>. The
-										current content is preserved as version history; any unsaved edits are
-										discarded.
-									</p>
-								)}
-								{!!pending?.hits.length && (
+								{pending?.kind === "save" && pending.hits.length > 0 ? (
 									<>
-										<p>
-											{pending.hits.length} formula
-											{pending.hits.length === 1 ? "" : "s"} may not calculate correctly in the
-											pricing engine. This is a warning only — you can continue and save.
-										</p>
-										<div className="max-h-64 overflow-y-auto rounded-md border border-border">
+										<div className="flex items-center justify-between gap-2">
+											<p>
+												{pending.hits.length} formula
+												{pending.hits.length === 1 ? "" : "s"} may not calculate correctly in the
+												pricing engine. Fix the eligible ones, or save anyway.
+											</p>
+											{pending.hits.some((h) => assessHit(h).fixable) && (
+												<Button size="sm" variant="outline" disabled={busy} onClick={handleFixAll}>
+													Fix all fixable
+												</Button>
+											)}
+										</div>
+										<div className="max-h-72 overflow-y-auto rounded-md border border-border">
 											<table className="w-full text-xs">
 												<tbody>
-													{pending.hits.slice(0, MAX_LISTED_HITS).map((h, i) => (
-														<tr key={`${h.sheet}-${h.cell}-${i}`} className="border-b border-border last:border-0">
-															<td className="px-2 py-1 align-top whitespace-nowrap font-medium text-foreground">
-																{h.sheet} — {h.cell}
-															</td>
-															<td className="px-2 py-1 align-top">
-																<code className="break-all">{h.formula}</code>
-																<div className="text-muted-foreground mt-0.5">
-																	{h.reasons.join(" ")}
-																</div>
-															</td>
-														</tr>
-													))}
+													{pending.hits.slice(0, MAX_LISTED_HITS).map((h, i) => {
+														const a = assessHit(h);
+														return (
+															<tr key={`${h.sheet}-${h.cell}-${i}`} className="border-b border-border last:border-0 align-top">
+																<td className="px-2 py-1 whitespace-nowrap font-medium text-foreground">
+																	{h.sheet} — {h.cell}
+																</td>
+																<td className="px-2 py-1">
+																	<code className="break-all">{h.formula}</code>
+																	<div className="text-muted-foreground mt-0.5">
+																		{h.reasons.join(" ")}
+																	</div>
+																</td>
+																<td className="px-2 py-1 whitespace-nowrap text-right">
+																	{a.fixable ? (
+																		<Button
+																			size="sm"
+																			disabled={busy}
+																			onClick={() => handleFixHit(h)}
+																		>
+																			Fix
+																		</Button>
+																	) : a.reason === REASON_NEEDS_HELPER ? (
+																		<span className="text-muted-foreground">needs Replace from Excel</span>
+																	) : (
+																		<span className="text-muted-foreground">no automatic fix</span>
+																	)}
+																</td>
+															</tr>
+														);
+													})}
 												</tbody>
 											</table>
 										</div>
@@ -978,6 +1088,8 @@ export function PricingWorkbookPage() {
 											</p>
 										)}
 									</>
+								) : (
+									<p>All formulas look good. Save the workbook?</p>
 								)}
 							</div>
 						</AlertDialogDescription>
@@ -985,11 +1097,33 @@ export function PricingWorkbookPage() {
 					<AlertDialogFooter>
 						<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
 						<AlertDialogAction disabled={busy} onClick={handlePendingConfirm}>
-							{pending?.kind === "replace" ? "Replace workbook" : "Save anyway"}
+							{pending?.kind === "save" && pending.hits.length ? "Save anyway" : "Save"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			{/* Import / replace confirm, merged with the pipeline's ImportReport (PW-2b-ii). */}
+			<ImportReportDialog
+				open={pending?.kind === "replace" || pending?.kind === "import"}
+				report={pending?.kind === "replace" || pending?.kind === "import" ? pending.report : null}
+				fileName={
+					pending?.kind === "replace" || pending?.kind === "import" ? pending.fileName : undefined
+				}
+				variant={pending?.kind === "import" ? "import" : "replace"}
+				busy={busy}
+				onConfirm={handlePendingConfirm}
+				onClose={() => setPending(null)}
+			/>
+
+			{/* Re-open the LAST import/replace report (session-only). */}
+			<ImportReportDialog
+				open={viewingReport && !!lastReport}
+				report={lastReport?.report ?? null}
+				fileName={lastReport?.fileName}
+				variant="view"
+				onClose={() => setViewingReport(false)}
+			/>
 		</div>
 	);
 }
