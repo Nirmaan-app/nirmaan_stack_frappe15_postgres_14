@@ -938,6 +938,47 @@ generated, so a fresh checkout works. To genuinely regenerate after changing a f
 
 ---
 
+## ⚠️ ADR-0014 Amendment D (2026-07-23) — the per-sheet carry moves RATES ONLY
+
+**Owner-directed reversal of Amendment C's annotation carry.** `cross_boq_carry.apply_sheet_carry`
+now writes rates and nothing else. Remark / colour / `remark` dismissal / category are never copied
+between a revision and its original by any seam.
+
+**Why.** A carried remark is indistinguishable in the pricing editor's Review block from one written
+on the revision itself — both render as the same grey `Note` entry with no provenance — so the carry
+silently grew the revision's review list with the original author's text, and with Overwrite armed
+it superseded the reviewer's own remark at the same row. Observed on `BOQ-26-00269` / `FDA`: two
+carried remarks, one replacing a hand-written one (`row7 v1` frozen, source text inserted as `v2`).
+
+**Deleted (do not reintroduce).**
+
+| File | Removed |
+|---|---|
+| `committed_carry.py` | `LAYER_KEYS`, `_AnnotLayer`, `_ANNOT_LAYERS`, `_CarryCtx`, `build_carry_ctx`, `carry_layers`, `plan_layer_counts`, `_walk_layers`, `_walk_annot_layer`, `_walk_category_layer`, `_zero_layer_outcome`, `_source_filters`, `_dest_current_map`, `_dest_max_version_map`, `_dest_column_letters`, `_dest_column_universe` — the module is now provenance stamp + excel-row twin match only (575 → 158 lines) |
+| `cross_boq_carry.py` | `_plan_layer_counts`, `_coerce_layers`, the `layers` param on `apply_sheet_carry`, the `layers` key on the plan payload, `summary.setdefault("layers", {})` |
+| `services/boq_category/persist.py` | `carry_row_categories`, `CARRY_READ_FIELDS`, `current_category_keys` — their only caller was the category layer |
+
+**Kept, and load-bearing.** `stamp_revision_provenance` (the rate carry resolves its source through
+it) and `committed_excel_row_match` (the Amendment B D6 match the rate plan is derived from).
+Formulas still never carry and `_sheet_formulas_complete` still gates the whole action.
+
+**Wire tolerance.** A stale client POSTing `layers` is harmless: the whitelisted HTTP path routes
+through `frappe.call`, which filters kwargs to the signature. ⚠️ A *direct Python* call with
+`layers=` raises `TypeError` — the tolerance is a property of the HTTP seam only, and
+`test_a_stale_client_posting_layers_still_carries_rates_only` drives `frappe.call` for that reason.
+
+**No schema change, no migration.** All four annotation doctypes keep their own endpoints and
+freeze-and-supersede lifecycles; only the cross-BoQ copy is gone. Annotations already carried by an
+Amendment C build are left in place — removing the feature does not retroactively un-write them.
+
+**Tests.** `test_committed_carry.py` (967 → 690) keeps its rich fixtures and INVERTS them: the
+source still seeds every annotation kind across a role SWAP, a dropped column, a removed row and a
+two-engine category fan-out, and now asserts none of it lands. `TestCarryLayersPresenceAndOverwrite`
+deleted; `TestCommitOverlayShiftStopsCarry` re-pointed at `_excel_twin_map` directly. 22 tests green.
+`test_cross_boq_carry.py`: 40 green, incl. `test_a_carry_writes_no_annotation_of_any_kind`.
+
+---
+
 ## ⚠️ ADR-0014 Amendment C (2026-07-23) — the commit carries nothing; carry is per-sheet
 
 Owner-directed reversal of **D8** + re-siting of **D9**. Slices C1–C6, commits `8c60a25f`,

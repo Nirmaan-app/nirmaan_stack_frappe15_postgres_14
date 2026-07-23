@@ -1920,6 +1920,37 @@ removal would have left the dialog summing `undefined`.
 
 ---
 
+## ⚠️ ADR-0014 Amendment D (2026-07-23) — the carry dialog is RATES-ONLY
+
+Amendment C's "Annotations & categories" block is DELETED from `CrossBoqCarryDialog.tsx` (1085 →
+~690 lines), along with the `layers` field on the apply POST.
+
+**Removed:** `CARRY_LAYERS`, `layerCountsOf`, `layerCountsLine`, `layerRowStates`,
+`initialLayerChoices`, `armedOverwrites`, `buildLayersPayload`, `carryLayerItemTotal`, the
+`LayerRow` component, the `LayerChoices` type, the `layerChoices` state, and the
+`CrossBoqCarryLayerKey` / `...LayerCounts` / `...LayerChoice` types plus `CrossBoqCarrySheet.layers`
+and `ApplySheetCarryResponse.layers` in `boqTypes.ts`.
+
+**Changed, and worth knowing:**
+
+- `carryButtonState` readiness is now `counts.clean + counts.conflict > 0`. A sheet whose only
+  carryable content was annotations reads *"Nothing left to carry from the original"* — correct,
+  since there is nothing left to carry. `CarryButtonState.ready` lost its `layerItems` field.
+- The destructive footer was **re-pointed, not deleted**: the new pure `armedRateOverwrites(sheet,
+  selected, overwrite)` counts SELECTED conflict cells with overwrite armed. Without this, removing
+  the layers would have removed the dialog's only "there is no undo" warning while the genuinely
+  destructive action (replacing a hand-typed rate) stayed silent.
+- `summarizeSheetCarry` drops the `and N items` clause → `Carried 12 rates.`
+- The `classificationFrozen` prop is gone from the dialog (it existed only to block the category
+  layer). `SheetPricingPage` still uses the variable for the Category picker + Classify button; it
+  just no longer passes it down. `onApplied` also dropped `void mutateCategories()` — the carry can
+  no longer change a category, so that refetch was pure waste.
+
+**Tests:** 5 layer `describe` blocks removed, `carryButtonState` + `summarizeSheetCarry` rewritten,
+new `armedRateOverwrites` block added. 671/671 boq-wizard vitest green, tsc clean.
+
+---
+
 ## ⚠️ ADR-0014 Amendment C (2026-07-23) — the carry moves into the pricing editor
 
 Slices C3–C6, commits `580d113c`, `6453a3fd`, `0855527e`, `081de0f8` (local/UNPUSHED). Backend:

@@ -665,6 +665,52 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 
 ### D8 — Annotation/formula/category carry: the re-arm taxonomy IS the carry taxonomy ([T8](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1094))
 
+> ## ⚠️ AMENDED 2026-07-23 (Amendment D) — owner-directed: the carry moves RATES ONLY
+>
+> **What is reversed.** Amendment C's four-layer annotation carry, in full. The per-sheet
+> "Carry rates from original" action now moves **rates and nothing else**. Remark, colour, `remark`
+> dismissal and category are no longer planned, no longer offered and no longer written by any
+> seam. D8's carry taxonomy is retired outright — there is no carryable set left for it to classify.
+>
+> | Layer | D8 (original) | Amendment C | **Amendment D** |
+> |---|---|---|---|
+> | **Amount Formula** | carried at commit | never carries | never carries *(unchanged)* |
+> | Remark · Colour · `remark` dismissal · Category | carried at commit | per-sheet action, opt-in + Keep/Overwrite | **never carries** |
+> | The re-armed set (4 computed dismissals + reconciliation choice) | never | never | never *(unchanged)* |
+> | Rates (D9) | — | per-sheet action | per-sheet action *(unchanged)* |
+>
+> **Why.** A carried remark is indistinguishable, in the pricing editor's Review block, from one
+> written on the revision itself — both render as the same grey `Note` entry with no provenance.
+> So the carry silently grew the revision's review list with the original author's text, and with
+> Overwrite armed it superseded the reviewer's own remark at the same row (observed on
+> `BOQ-26-00269` / `FDA`: two carried remarks, one of them replacing a hand-written one). The
+> annotations were arriving un-asked-for and un-attributed. Rates do not have this problem: a rate
+> is a value in a cell the reviewer is looking at, and the dialog reports every one of them.
+>
+> **What this does NOT change.** Each layer keeps its own first-class write path in the pricing
+> editor — `BoQ Cell Remark` / `BoQ Cell Color` / `BoQ Cell Dismissal` / `BoQ Row Category` all
+> retain their endpoints and their freeze-and-supersede lifecycles. Only the *cross-BoQ copy* is
+> gone. No schema change, no migration, and annotations already carried by an Amendment C build
+> stay exactly where they are.
+>
+> **The provenance stamp still stands** (see the Amendment C block below) — unchanged, and still
+> load-bearing: it is how the rate carry finds its source at all.
+>
+> **A consequence worth stating.** A revision sheet whose only carryable content was annotations
+> now reads *"Nothing left to carry from the original"* and the button is disabled. That is
+> correct: there is nothing left to carry.
+>
+> **Code deleted.** `committed_carry`: `LAYER_KEYS`, `_AnnotLayer`, `_ANNOT_LAYERS`, `_CarryCtx`,
+> `build_carry_ctx`, `carry_layers`, `plan_layer_counts`, `_walk_layers`, `_walk_annot_layer`,
+> `_walk_category_layer` and the dest column/version index helpers. `cross_boq_carry`:
+> `_plan_layer_counts`, `_coerce_layers`, the `layers` parameter, the `layers` plan block.
+> `services/boq_category/persist`: `carry_row_categories`, `CARRY_READ_FIELDS`,
+> `current_category_keys` (their only caller was the category layer). Frontend: the dialog's
+> annotation block and its eight pure helpers, plus the `layers` types in `boqTypes.ts`. The
+> dialog's destructive footer was **re-pointed at armed rate overwrites** rather than deleted —
+> otherwise removing the layers would have removed the only "there is no undo" warning while the
+> genuinely destructive action remained.
+
 > ## ⚠️ AMENDED 2026-07-23 (Amendment C) — owner-directed: the commit carries NOTHING
 >
 > **What is reversed.** The *timing* table below ("Rides D2's commit overlay (silent, no confirm)")
