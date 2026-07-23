@@ -14,14 +14,8 @@ import {
   sheetCountsDisplay,
   sheetWritableKeys,
   carryButtonState,
-  carryLayerItemTotal,
   CARRY_DISABLED_REASON,
-  layerCountsLine,
-  layerRowStates,
-  initialLayerChoices,
-  buildLayersPayload,
-  armedOverwrites,
-  applyTotals,
+  armedRateOverwrites,
   summarizeSheetCarry,
 } from "./CrossBoqCarryDialog";
 import type {
@@ -212,12 +206,6 @@ describe("sheetWritableKeys", () => {
 
 // ── AMENDMENT C / C3: the pricing-screen button's state ────────────────────────────
 describe("carryButtonState (the pricing-screen button)", () => {
-  const LAYERS_EMPTY = {
-    remarks: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
-    colors: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
-    remark_dismissals: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
-    categories: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
-  };
   const base = {
     isRevisionSheet: true,
     loading: false,
@@ -254,226 +242,83 @@ describe("carryButtonState (the pricing-screen button)", () => {
     expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.formulas });
   });
 
-  it("is disabled when nothing is carryable on either axis", () => {
+  it("is READY on rates, counting clean + conflict", () => {
+    expect(carryButtonState(base)).toEqual({ kind: "ready", rateCells: 3 });
+  });
+
+  it("counts a CONFLICT as work -- overwriting an existing rate is a real action", () => {
+    const s = carryButtonState({
+      ...base,
+      sheet: sheet({ counts: { clean: 0, conflict: 5, removed: 0, no_rate_column: 0, non_priceable: 0 } }),
+    });
+    expect(s).toEqual({ kind: "ready", rateCells: 5 });
+  });
+
+  it("is disabled when no rate cell is carryable", () => {
     const s = carryButtonState({
       ...base,
       sheet: sheet({
         counts: { clean: 0, conflict: 0, removed: 4, no_rate_column: 2, non_priceable: 1 },
-        layers: LAYERS_EMPTY,
       }),
     });
     expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.nothing });
   });
 
-  it("is READY on rates alone, counting clean + conflict", () => {
-    expect(carryButtonState(base)).toEqual({ kind: "ready", rateCells: 3, layerItems: 0 });
-  });
-
-  it("is READY on annotations alone -- a sheet with no carryable rate still opens", () => {
+  // AMENDMENT D: the annotation carry is GONE, so annotations no longer make the button ready.
+  // Before D, a sheet with 0 carryable rates but N carryable remarks opened the dialog.
+  it("AMENDMENT D: a sheet whose only carryable content was annotations is 'nothing to carry'", () => {
     const s = carryButtonState({
       ...base,
       sheet: sheet({
         counts: { clean: 0, conflict: 0, removed: 0, no_rate_column: 0, non_priceable: 0 },
-        layers: { ...LAYERS_EMPTY, remarks: { carryable: 4, present: 0, unmatched: 2, dropped: 0 } },
       }),
     });
-    expect(s).toEqual({ kind: "ready", rateCells: 0, layerItems: 4 });
-  });
-
-  it("counts an ALREADY-PRESENT annotation as work -- overwrite is a real action", () => {
-    const s = carryButtonState({
-      ...base,
-      sheet: sheet({
-        counts: { clean: 0, conflict: 0, removed: 0, no_rate_column: 0, non_priceable: 0 },
-        layers: { ...LAYERS_EMPTY, categories: { carryable: 0, present: 12, unmatched: 0, dropped: 0 } },
-      }),
-    });
-    expect(s).toEqual({ kind: "ready", rateCells: 0, layerItems: 12 });
-  });
-
-  it("excludes unmatched / dropped -- they can never land", () => {
-    expect(
-      carryLayerItemTotal(
-        sheet({
-          layers: {
-            ...LAYERS_EMPTY,
-            colors: { carryable: 1, present: 2, unmatched: 9, dropped: 7 },
-          },
-        }),
-      ),
-    ).toBe(3);
-  });
-
-  it("tolerates a pre-Amendment-C payload with no layers block", () => {
-    expect(carryLayerItemTotal(sheet())).toBe(0);
-    expect(carryButtonState(base).kind).toBe("ready");
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.nothing });
   });
 });
 
-// ── AMENDMENT C / C4: the annotation-layer block ───────────────────────────────────
-const L0 = { carryable: 0, present: 0, unmatched: 0, dropped: 0 };
-const layers = (over: Partial<Record<string, typeof L0>> = {}) => ({
-  remarks: L0, colors: L0, remark_dismissals: L0, categories: L0, ...over,
-}) as NonNullable<CrossBoqCarrySheet["layers"]>;
+// ── AMENDMENT D: the destructive footer now reports armed RATE overwrites ──────────
+describe("armedRateOverwrites (the destructive footer)", () => {
+  const conflictSheet = sheet({
+    sheet_name: "S1",
+    plan: [
+      row({ dest_excel_row: 10, outcome: 3 }),
+      row({ dest_excel_row: 11, outcome: 3 }),
+      row({ dest_excel_row: 12, outcome: 2 }),
+      row({ dest_excel_row: 13, outcome: 1, skip_reason: "removed" }),
+    ],
+  });
+  // MUST mirror row()'s defaults -- rate_kind is "combined_rate", not "rate".
+  const k = (r: number) =>
+    cellKey("S1", { dest_excel_row: r, area: null, rate_kind: "combined_rate" });
 
-describe("layerCountsLine (the counts line IS the outcome preview)", () => {
-  it("reads 'nothing to carry' when the layer is empty", () => {
-    expect(layerCountsLine(L0, false)).toEqual({
-      lead: "nothing to carry", conflict: null, conflictIsDestructive: false, trailing: [],
-    });
+  it("is 0 with no sheet", () => {
+    expect(armedRateOverwrites(null, new Set(), {})).toBe(0);
   });
 
-  it("swaps kept <-> replaced with the toggle, in place", () => {
-    const counts = { carryable: 12, present: 3, unmatched: 0, dropped: 0 };
-    expect(layerCountsLine(counts, false).conflict).toBe("3 kept");
-    expect(layerCountsLine(counts, false).conflictIsDestructive).toBe(false);
-    expect(layerCountsLine(counts, true).conflict).toBe("3 replaced");
-    expect(layerCountsLine(counts, true).conflictIsDestructive).toBe(true);
+  it("counts only SELECTED conflicts with overwrite armed", () => {
+    const selected = new Set([k(10), k(11), k(12)]);
+    expect(armedRateOverwrites(conflictSheet, selected, { [k(10)]: true, [k(11)]: false })).toBe(1);
   });
 
-  it("makes an all-conflicts layer on Keep visibly a no-op", () => {
-    // THE failure mode this line exists to close: 0 clean + N conflicts set to Keep changes
-    // nothing, and without the preview the row still looks armed.
-    const line = layerCountsLine({ carryable: 0, present: 340, unmatched: 0, dropped: 0 }, false);
-    expect(line.lead).toBe("0 to copy");
-    expect(line.conflict).toBe("340 kept");
+  it("ignores an armed overwrite on an UNSELECTED conflict -- it will not be written", () => {
+    expect(armedRateOverwrites(conflictSheet, new Set([k(11)]), { [k(10)]: true })).toBe(0);
   });
 
-  it("appends unmatched and column-gone only when non-zero", () => {
-    expect(layerCountsLine({ carryable: 1, present: 0, unmatched: 2, dropped: 3 }, false).trailing)
-      .toEqual(["2 unmatched", "3 column gone"]);
-    expect(layerCountsLine({ carryable: 1, present: 0, unmatched: 0, dropped: 0 }, false).trailing)
-      .toEqual([]);
-  });
-});
-
-describe("layerRowStates", () => {
-  it("hides the Keep/Overwrite toggle when there is no conflict to decide", () => {
-    const rows = layerRowStates(sheet({ layers: layers({ remarks: { carryable: 5, present: 0, unmatched: 0, dropped: 0 } }) }));
-    expect(rows.find((r) => r.key === "remarks")!.showToggle).toBe(false);
+  it("never counts a clean copy or a hard skip -- neither replaces anything", () => {
+    const selected = new Set([k(12), k(13)]);
+    expect(armedRateOverwrites(conflictSheet, selected, { [k(12)]: true, [k(13)]: true })).toBe(0);
   });
 
-  it("shows the toggle exactly when something is already present", () => {
-    const rows = layerRowStates(sheet({ layers: layers({ remarks: { carryable: 5, present: 2, unmatched: 0, dropped: 0 } }) }));
-    const r = rows.find((x) => x.key === "remarks")!;
-    expect(r.showToggle).toBe(true);
-    expect(r.presentLabel).toBe("2 rows already have a remark");
-  });
-
-  it("disables an empty layer", () => {
-    expect(layerRowStates(sheet({ layers: layers() })).every((r) => r.disabled)).toBe(true);
-  });
-
-  it("blocks CATEGORIES on a classification freeze and leaves the others alone", () => {
-    const full = { carryable: 3, present: 1, unmatched: 0, dropped: 0 };
-    const rows = layerRowStates(
-      sheet({ layers: layers({ categories: full, remarks: full }) }),
-      { classificationFrozen: true },
-    );
-    const cat = rows.find((r) => r.key === "categories")!;
-    const rem = rows.find((r) => r.key === "remarks")!;
-    expect(cat.disabled).toBe(true);
-    expect(cat.blockedNote).toMatch(/frozen/i);
-    expect(cat.showToggle).toBe(false);
-    expect(rem.disabled).toBe(false);
-    expect(rem.blockedNote).toBeNull();
-  });
-
-  it("tolerates a pre-Amendment-C payload with no layers block", () => {
-    expect(layerRowStates(sheet()).every((r) => r.disabled)).toBe(true);
-  });
-});
-
-describe("initialLayerChoices / buildLayersPayload", () => {
-  const S = sheet({
-    layers: layers({
-      remarks: { carryable: 4, present: 2, unmatched: 0, dropped: 0 },
-      categories: { carryable: 9, present: 0, unmatched: 0, dropped: 0 },
-    }),
-  });
-
-  it("carries every non-empty layer by default, with conflicts on KEEP", () => {
-    const c = initialLayerChoices(S);
-    expect(c.remarks).toEqual({ carry: true, overwrite: false });
-    expect(c.categories).toEqual({ carry: true, overwrite: false });
-    expect(c.colors).toEqual({ carry: false, overwrite: false });
-  });
-
-  it("starts a frozen category layer OFF", () => {
-    expect(initialLayerChoices(S, { classificationFrozen: true }).categories.carry).toBe(false);
-  });
-
-  it("force-clears a blocked layer in the payload even if the choice says carry", () => {
-    const stale = { ...initialLayerChoices(S), categories: { carry: true, overwrite: true } };
-    const payload = buildLayersPayload(S, stale, { classificationFrozen: true });
-    expect(payload.categories).toEqual({ carry: false, overwrite: false });
-    expect(payload.remarks.carry).toBe(true);
-  });
-});
-
-describe("armedOverwrites (the destructive footer)", () => {
-  const S = sheet({
-    layers: layers({
-      remarks: { carryable: 4, present: 3, unmatched: 0, dropped: 0 },
-      categories: { carryable: 0, present: 340, unmatched: 0, dropped: 0 },
-    }),
-  });
-
-  it("is empty while everything is on Keep", () => {
-    expect(armedOverwrites(S, initialLayerChoices(S))).toEqual([]);
-  });
-
-  it("lists only the layers whose overwrite will actually replace something", () => {
-    const c = {
-      ...initialLayerChoices(S),
-      remarks: { carry: true, overwrite: true },
-      categories: { carry: true, overwrite: true },
-      colors: { carry: true, overwrite: true }, // nothing present -> not armed
-    };
-    expect(armedOverwrites(S, c)).toEqual([
-      { key: "remarks", label: "remarks", count: 3 },
-      { key: "categories", label: "categories", count: 340 },
-    ]);
-  });
-
-  it("uses the SINGULAR noun at a count of one -- the footer always states a count", () => {
-    // Found in live E2E: the footer read "Overwriting 1 remarks".
-    const one = sheet({
-      layers: layers({ remarks: { carryable: 0, present: 1, unmatched: 0, dropped: 0 } }),
-    });
-    const c = { ...initialLayerChoices(one), remarks: { carry: true, overwrite: true } };
-    expect(armedOverwrites(one, c)).toEqual([{ key: "remarks", label: "remark", count: 1 }]);
-  });
-
-  it("ignores an overwrite on a layer that is not being carried", () => {
-    const c = { ...initialLayerChoices(S), remarks: { carry: false, overwrite: true } };
-    expect(armedOverwrites(S, c).map((a) => a.key)).toEqual([]);
-  });
-});
-
-describe("applyTotals (the primary button's numbers)", () => {
-  const S = sheet({
-    layers: layers({
-      remarks: { carryable: 4, present: 3, unmatched: 9, dropped: 2 },
-      categories: { carryable: 10, present: 0, unmatched: 0, dropped: 0 },
-    }),
-  });
-
-  it("counts carryable items, and present ones only when overwrite is armed", () => {
-    expect(applyTotals(S, 47, initialLayerChoices(S))).toEqual({ rates: 47, items: 14 });
-    const armedC = { ...initialLayerChoices(S), remarks: { carry: true, overwrite: true } };
-    expect(applyTotals(S, 47, armedC)).toEqual({ rates: 47, items: 17 });
-  });
-
-  it("excludes an unticked layer entirely", () => {
-    const c = { ...initialLayerChoices(S), categories: { carry: false, overwrite: false } };
-    expect(applyTotals(S, 0, c)).toEqual({ rates: 0, items: 4 });
+  it("counts every armed conflict when the user bulk-overwrites", () => {
+    const selected = new Set([k(10), k(11), k(12)]);
+    expect(armedRateOverwrites(conflictSheet, selected, { [k(10)]: true, [k(11)]: true })).toBe(2);
   });
 });
 
 describe("summarizeSheetCarry (the post-apply line)", () => {
   const res = (over: Partial<ApplySheetCarryResponse> = {}): ApplySheetCarryResponse => ({
-    ok: true, copied: 0, conflicts_overwritten: 0, conflicts_kept: 0, skipped: {}, layers: {},
+    ok: true, copied: 0, conflicts_overwritten: 0, conflicts_kept: 0, skipped: {},
     ...over,
   });
 
@@ -482,12 +327,14 @@ describe("summarizeSheetCarry (the post-apply line)", () => {
       .toBe("Carried 12 rates.");
   });
 
-  it("adds the layer items that landed", () => {
-    const s = res({
-      copied: 5,
-      layers: { remarks: { carried: 3, replaced: 1, kept: 9, unmatched: 0, dropped: 0 } },
-    });
-    expect(summarizeSheetCarry(s, 0)).toBe("Carried 5 rates and 4 items.");
+  // AMENDMENT D: the line used to append "and N items" for the annotation layers. The carry
+  // moves rates only, so the sentence is rates-only too.
+  it("reports rates alone -- there is no annotation total to append", () => {
+    expect(summarizeSheetCarry(res({ copied: 5 }), 0)).toBe("Carried 5 rates.");
+  });
+
+  it("uses the singular for exactly one rate", () => {
+    expect(summarizeSheetCarry(res({ copied: 1 }), 0)).toBe("Carried 1 rate.");
   });
 
   it("reports what was deliberately left alone", () => {
