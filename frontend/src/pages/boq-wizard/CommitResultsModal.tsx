@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { CommitBoqResponse } from "./boqTypes";
-import { formatRevisionOverlay } from "./revisionCarryReport";
 
 interface CommitResultsModalProps {
   open: boolean;
@@ -75,10 +74,10 @@ export function CommitResultsModal({
               </p>
               <ul className="space-y-1">
                 {committed.map((c) => {
-                  // W5: the overlay layers a REVISION sheet carried across from the original
-                  // (formulas / remarks / colors / flag dismissals / categories). null off a
-                  // revision, so a non-revision commit renders exactly as before.
-                  const overlay = formatRevisionOverlay(c.revision_overlay);
+                  // AMENDMENT C (C5): a revision commit carries NOTHING but the D2 provenance
+                  // stamp, so there is no per-layer sub-line to report here any more. The carry
+                  // is the explicit per-sheet action in the pricing editor, which reports its own
+                  // summary there.
                   return (
                     <li
                       key={c.sheet_name}
@@ -88,9 +87,6 @@ export function CommitResultsModal({
                       <span className="min-w-0">
                         {/* Display-trimmed; the modal never re-sends these names. */}
                         {c.sheet_name.trim() || c.sheet_name} &mdash; committed v{c.commit_version}
-                        {overlay && (
-                          <span className="block text-xs text-muted-foreground">{overlay}</span>
-                        )}
                       </span>
                     </li>
                   );

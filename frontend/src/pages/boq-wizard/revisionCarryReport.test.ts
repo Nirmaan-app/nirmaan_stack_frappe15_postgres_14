@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  formatRevisionOverlay,
   summarizeRevisionCarry,
   type RevisionCarryBySheet,
-  type RevisionOverlaySummary,
 } from "./revisionCarryReport";
 
 /**
@@ -98,52 +96,6 @@ describe("summarizeRevisionCarry", () => {
     const report = summarizeRevisionCarry({ "Electrical": counts(0, 40) });
     expect(report!.headline).toBe(
       "Carried from the original: 0 of 40 rows copied; 40 rows need review."
-    );
-  });
-});
-
-describe("formatRevisionOverlay", () => {
-  function overlay(over: Partial<RevisionOverlaySummary> = {}): RevisionOverlaySummary {
-    return {
-      provenance: 1,
-      formulas: 0,
-      remarks: 0,
-      colors: 0,
-      remark_dismissals: 0,
-      categories: 0,
-      ...over,
-    };
-  }
-
-  it("says nothing off a revision sheet (key absent, or provenance 0)", () => {
-    expect(formatRevisionOverlay(undefined)).toBeNull();
-    expect(formatRevisionOverlay(null)).toBeNull();
-    expect(formatRevisionOverlay(overlay({ provenance: 0, remarks: 5 }))).toBeNull();
-  });
-
-  it("names only the non-zero layers, in backend carry order", () => {
-    const text = formatRevisionOverlay(
-      overlay({ formulas: 2, remarks: 12, colors: 3, remark_dismissals: 0, categories: 8 })
-    );
-    expect(text).toBe("carried 2 amount formulas, 12 remarks, 3 colors, 8 categories");
-  });
-
-  it("singularises a single-row layer", () => {
-    expect(formatRevisionOverlay(overlay({ remarks: 1, categories: 1 }))).toBe(
-      "carried 1 remark, 1 category"
-    );
-    expect(formatRevisionOverlay(overlay({ formulas: 1, remark_dismissals: 1 }))).toBe(
-      "carried 1 amount formula, 1 flag dismissal"
-    );
-  });
-
-  it("never lists provenance as a count", () => {
-    expect(formatRevisionOverlay(overlay({ remarks: 4 }))).toBe("carried 4 remarks");
-  });
-
-  it("still reports a revision sheet that carried no annotations", () => {
-    expect(formatRevisionOverlay(overlay())).toBe(
-      "revision of the original — no annotations to carry"
     );
   });
 });

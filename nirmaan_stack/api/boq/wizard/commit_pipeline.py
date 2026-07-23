@@ -641,28 +641,22 @@ def _commit_one_sheet(
     )
 
     node_result = {"node_count": 0, "froze_nodes": 0}
-    overlay_summary = None  # W5: per-layer revision carry counts; None on a non-revision sheet
     if disposition == "finalized":
         node_result = _commit_node_tree(
             boq_name, sheet_name, boq_sheet_name, prior_sheet_names,
             commit_version, committed_at,
         )
-        # S8 (#1104, ADR-0014 D8): the silent revision commit-overlay carry -- the re-arm-EXEMPT
-        # annotation/formula/category layers + the D2 provenance triple land on the freshly
-        # committed sheet. Runs ONLY for a revision sheet (a non-revision commit no-ops inside ->
-        # byte-identical) and only here (finalized -> the priceable node tier the overlays sit on
-        # now exists). Best-effort per layer (savepoints inside); shares this per-sheet transaction
-        # (NO self-commit) so the whole overlay flushes atomically with the trailing commit below.
-        # W5 (A8): KEEP the per-layer summary it returns. It used to be discarded, so a carried
-        # layer was invisible and a FAILED one surfaced only in the Error Log (`_guarded` swallows
-        # the exception and returns 0) -- the commit-results modal had no revision awareness at
-        # all. `provenance` is 1/0; the rest are counts. It stays None for a non-revision sheet,
-        # which is how the result dict below decides to omit the key entirely.
-        overlay_summary = committed_carry.carry_commit_overlay(
-            boq_name, sheet_name, commit_version, boq_sheet_name, grid_rows
-        )
-        if not overlay_summary or not overlay_summary.get("provenance"):
-            overlay_summary = None  # not a revision sheet (or nothing to carry) -> report nothing
+        # AMENDMENT C (C5, ADR-0014): stamp the D2 provenance triple. A revision commit carries
+        # NOTHING else -- no formulas, no annotations, no categories. Formulas are hand-declared per
+        # sheet exactly as in the normal phase, and that declaration gates the per-sheet "Carry
+        # rates from original" action in the pricing editor, which moves the rates AND the four
+        # row-addressed annotation layers together (cross_boq_carry.apply_sheet_carry).
+        #
+        # The STAMP must stay: cross_boq_carry._resolve_sheet_carry reads `source_sheet_name` off
+        # the committed BoQ Sheet to find the source at all. It is sheet-level identity, not row
+        # information. Runs only for a FINALIZED sheet (the node tier the carry addresses now
+        # exists); a non-revision commit no-ops inside -> byte-identical.
+        committed_carry.stamp_revision_provenance(boq_name, sheet_name, boq_sheet_name)
 
     # OUTPUT-FIDELITY RECONCILIATION (Slice 2) -- grid tier. Verify the persisted faithful
     # grid equals the extracted grid_rows BEFORE the commit. (The node tier reconciles
@@ -689,10 +683,6 @@ def _commit_one_sheet(
         "node_count": node_result["node_count"],
         "froze_nodes": node_result["froze_nodes"],
     }
-    # ADDITIVE, revision-only: absent on every non-revision commit, so the envelope stays
-    # byte-identical for the existing flows and the frontend's optional read is undefined.
-    if overlay_summary is not None:
-        result["revision_overlay"] = overlay_summary
     return result
 
 

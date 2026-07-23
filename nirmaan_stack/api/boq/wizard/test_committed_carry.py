@@ -24,6 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq.wizard import committed_carry, commit_pipeline, pricing
+from nirmaan_stack.api.boq.wizard.review_carry import _source_sheet_name, revision_source_boq
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
     _make_boq,
@@ -191,6 +192,43 @@ def _wipe_boqs(project_name):
     frappe.db.commit()
 
 
+def _carry_all(boq, sheet_name, dest_version, dest_sheet_docname, grid_rows):
+    """AMENDMENT C shim. The commit seam no longer carries anything (C5), but the LAYER semantics
+    this module has always covered -- twin mapping, the colour survivor check, the category field
+    split, the re-armed set never carrying -- are unchanged; they simply moved to the post-commit
+    action. So: stamp provenance the way the commit does, then drive the SAME `carry_layers` engine
+    the action drives, and return the old summary shape.
+
+    `formulas` is pinned at 0 here because formulas NEVER carry now, in either seam. The classes
+    that used to assert the opposite are replaced by `TestFormulasNeverCarryAtCommit`."""
+    provenance = committed_carry.stamp_revision_provenance(boq, sheet_name, dest_sheet_docname)
+    summary = {"provenance": provenance, "formulas": 0, "remarks": 0, "colors": 0,
+               "remark_dismissals": 0, "categories": 0}
+    if not provenance:
+        return summary
+
+    source_boq = revision_source_boq(boq)
+    source_sheet_name = _source_sheet_name(boq, sheet_name)
+    src = frappe.db.get_value(
+        "BoQ Sheet",
+        {"boq": source_boq, "sheet_name": source_sheet_name, "is_current": 1},
+        ["name", "commit_version"], as_dict=True,
+    )
+    ctx = committed_carry.build_carry_ctx(
+        source_boq=source_boq, source_sheet_name=source_sheet_name,
+        source_version=src.commit_version,
+        dest_boq=boq, dest_sheet_name=sheet_name, dest_version=dest_version,
+        twin=committed_carry._excel_twin_map(source_boq, src.name, boq, dest_sheet_docname),
+        grid_rows=grid_rows,
+    )
+    out = committed_carry.carry_layers(
+        ctx, {k: {"carry": True, "overwrite": False} for k in committed_carry.LAYER_KEYS}
+    )
+    for key, bucket in out.items():
+        summary[key] = bucket["carried"] + bucket["replaced"]
+    return summary
+
+
 class TestCommitOverlayCarry(FrappeTestCase):
     """The rich end-to-end fixture: every carried + never-carried branch in ONE overlay run."""
 
@@ -247,7 +285,7 @@ class TestCommitOverlayCarry(FrappeTestCase):
             {"row_number": 99, "cells": {"A": "Brand New Item", "D": 5, "E": 6}},
         ]
         # ONE overlay run (carried records are fresh v1 inserts -- re-running would duplicate).
-        cls.summary = committed_carry.carry_commit_overlay(
+        cls.summary = _carry_all(
             cls.rev, cls.DEST, 1, cls.dest_sheet, grid_rows)
         frappe.db.commit()
 
@@ -272,23 +310,18 @@ class TestCommitOverlayCarry(FrappeTestCase):
         self.assertEqual(prov.source_commit_version, 1)
         self.assertEqual(prov.source_sheet_name, self.SRC)
 
-    # ---- formula: role swap re-resolves target_col; vanished column drops ----
-    def test_formulas_role_swapped_and_dropped(self):
-        by_area = {f["target_value_key"]: f for f in self._dest("BoQ Cell Amount Formula")}
-        self.assertEqual(set(by_area), {"Civil", "MEP"})       # Facade dropped (no dest column)
-        self.assertEqual(by_area["Civil"]["target_col"], "E")  # re-resolved to the swapped letter
-        self.assertEqual(by_area["MEP"]["target_col"], "D")
+    # ---- formula: AMENDMENT C -- never carries, in either seam ----
+    # These three assertions are the INVERSE of what this class asserted before C5 (a role SWAP
+    # re-resolving `target_col`, the gate opening, the body preserved). The fixture still seeds
+    # three source formulas across a swapped-role dest, so what changed is the ruling, not the
+    # inputs. `TestFormulasNeverCarryAtCommit` covers the same ground on a dedicated fixture.
+    def test_no_formula_carries_even_when_the_role_axis_would_re_resolve(self):
+        self.assertEqual(self._dest("BoQ Cell Amount Formula"), [])
 
-    def test_formula_carry_makes_sheet_formula_complete(self):
-        # Both dest amount columns (Civil@E, MEP@D) are now covered -> the gate opens.
-        self.assertTrue(pricing._sheet_formulas_complete(self.rev, self.DEST, 1))
-
-    def test_carried_formula_body_preserved(self):
-        civil = {f["target_value_key"]: f for f in self._dest("BoQ Cell Amount Formula")}["Civil"]
-        self.assertEqual(json.loads(civil["formula"]),
-                         {"ref": {"value_field": "qty_by_area", "value_key": "Civil"}})
-        self.assertEqual(civil["is_current"], 1)
-        self.assertEqual(civil["is_finalized"], 0)
+    def test_the_revision_is_not_formula_complete(self):
+        """The gate the whole feature hangs on: with no carried formula, every rate on this sheet
+        is locked until the user declares them by hand."""
+        self.assertFalse(pricing._sheet_formulas_complete(self.rev, self.DEST, 1))
 
     # ---- remark: twin-mapped to the shifted dest row; removed row drops ----
     def test_remark_carried_to_twin_row(self):
@@ -338,7 +371,7 @@ class TestCommitOverlayCarry(FrappeTestCase):
     # ---- summary ----
     def test_summary_counts(self):
         self.assertEqual(self.summary["provenance"], 1)
-        self.assertEqual(self.summary["formulas"], 2)
+        self.assertEqual(self.summary["formulas"], 0)  # AMENDMENT C: formulas never carry
         self.assertEqual(self.summary["remarks"], 1)
         self.assertEqual(self.summary["colors"], 1)
         self.assertEqual(self.summary["remark_dismissals"], 1)
@@ -376,7 +409,7 @@ class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Moved Item", 7, 1)
         frappe.db.commit()
 
-        committed_carry.carry_commit_overlay(
+        _carry_all(
             cls.rev, cls.SHEET, 1, cls.dest_sheet,
             [{"row_number": 2, "cells": {"D": 1}}, {"row_number": 7, "cells": {"D": 2}}])
         frappe.db.commit()
@@ -407,75 +440,41 @@ class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
         )
 
 
-class TestCommitOverlayFailClosed(FrappeTestCase):
-    """An uncovered DEST amount column after carry keeps the formula gate CLOSED (fail-closed)."""
+class TestFormulasNeverCarryAtCommit(FrappeTestCase):
+    """AMENDMENT C (C5): a revision commit carries NO formulas -- the sheet arrives NOT
+    formula-complete and every rate is locked until the user declares them by hand, exactly as in
+    the normal phase after a re-commit.
 
-    SRC = "S"
-    DEST = "S"
+    This class REPLACES `TestCommitOverlayFailClosed` and `TestCommitOverlayWildcardFormula`, which
+    asserted the opposite (a per-area override and an area-wildcard formula each carrying). Their
+    fixture is kept -- source formulas on both shapes -- so the reversal is what changed, not the
+    coverage: the same inputs now land nothing.
+    """
+
+    SRC = "FX"
+    DEST = "FX Rev"
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.project = _make_project()
-        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="FAILCLOSED ORIG")
-        cls.src_sheet = _commit_sheet(cls.original.name, cls.SRC, _role_map({"D": "Civil"}))
-        _node(cls.original.name, cls.src_sheet, "Line Item", "Only Item", 2, 0)
-        _mk_formula(cls.original.name, cls.SRC, 1, "Civil", "D")
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="FORMULA ORIG")
+        cls.src_sheet = _commit_sheet(
+            cls.original.name, cls.SRC, _role_map({"D": "Civil", "E": "MEP"}))
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Item Alpha", 2, 1)
+        _mk_formula(cls.original.name, cls.SRC, 1, "Civil", "D")  # per-area OVERRIDE
+        _mk_formula(cls.original.name, cls.SRC, 1, None, "E")     # area WILDCARD (all 32 live ones)
 
         cls.rev = _make_revision(cls.project.name, cls.original.name).name
         _seed_revision_draft(cls.rev, cls.DEST, cls.SRC)
-        # DEST adds a SECOND amount column (E=MEP) the source never covered.
-        cls.dest_sheet = _commit_sheet(cls.rev, cls.DEST, _role_map({"D": "Civil", "E": "MEP"}))
-        _node(cls.rev, cls.dest_sheet, "Line Item", "Only Item", 2, 0)
+        cls.dest_sheet = _commit_sheet(
+            cls.rev, cls.DEST, _role_map({"D": "Civil", "E": "MEP"}))
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Alpha", 2, 1)
         frappe.db.commit()
 
-        committed_carry.carry_commit_overlay(
-            cls.rev, cls.DEST, 1, cls.dest_sheet,
-            [{"row_number": 2, "cells": {"D": 1, "E": 2}}])
-        frappe.db.commit()
-
-    @classmethod
-    def tearDownClass(cls):
-        _wipe_boqs(cls.project.name)
-        _cleanup_project(cls.project.name)
-        super().tearDownClass()
-
-    def test_civil_carried(self):
-        f = frappe.get_all("BoQ Cell Amount Formula", filters={
-            "boq": self.rev, "committed_version": 1, "is_current": 1}, fields=["target_value_key"])
-        self.assertEqual([r["target_value_key"] for r in f], ["Civil"])
-
-    def test_uncovered_column_keeps_gate_closed(self):
-        # MEP@E has no carried formula -> the sheet is NOT formula-complete -> rates stay locked.
-        self.assertFalse(pricing._sheet_formulas_complete(self.rev, self.DEST, 1))
-
-
-class TestCommitOverlayWildcardFormula(FrappeTestCase):
-    """The COMMON prod shape: a single area-WILDCARD formula (target_value_key None) covering
-    every area. It carries once, re-resolving target_col to the first dest amount column, and
-    makes the (multi-area) dest sheet formula-complete."""
-
-    SHEET = "W"
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.project = _make_project()
-        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="WILDCARD ORIG")
-        # Source: two areas, ONE wildcard formula (declared with target_col E, the MEP column).
-        cls.src_sheet = _commit_sheet(cls.original.name, cls.SHEET,
-                                      _role_map({"D": "Civil", "E": "MEP"}))
-        _node(cls.original.name, cls.src_sheet, "Line Item", "Item", 2, 0)
-        _mk_formula(cls.original.name, cls.SHEET, 1, None, "E")   # WILDCARD (value_key None)
-
-        cls.rev = _make_revision(cls.project.name, cls.original.name).name
-        _seed_revision_draft(cls.rev, cls.SHEET, cls.SHEET)
-        cls.dest_sheet = _commit_sheet(cls.rev, cls.SHEET, _role_map({"D": "Civil", "E": "MEP"}))
-        _node(cls.rev, cls.dest_sheet, "Line Item", "Item", 2, 0)
-        frappe.db.commit()
-
-        cls.summary = committed_carry.carry_commit_overlay(
-            cls.rev, cls.SHEET, 1, cls.dest_sheet, [{"row_number": 2, "cells": {"D": 1, "E": 2}}])
+        cls.summary = _carry_all(cls.rev, cls.DEST, 1, cls.dest_sheet, [
+            {"row_number": 2, "cells": {"A": "Item Alpha", "D": 1, "E": 2}},
+        ])
         frappe.db.commit()
 
     @classmethod
@@ -484,18 +483,31 @@ class TestCommitOverlayWildcardFormula(FrappeTestCase):
         _cleanup_project(cls.project.name)
         super().tearDownClass()
 
-    def test_wildcard_carried_once_with_null_key(self):
-        rows = frappe.get_all("BoQ Cell Amount Formula", filters={
-            "boq": self.rev, "committed_version": 1, "is_current": 1},
-            fields=["target_value_key", "target_col"])
-        self.assertEqual(len(rows), 1)
-        self.assertIn(rows[0]["target_value_key"], (None, ""))   # stays a wildcard default
-        self.assertEqual(rows[0]["target_col"], "D")             # re-resolved to first amount col
+    def test_provenance_still_lands(self):
+        """The one thing a commit still does -- and it MUST, or the post-commit carry cannot find
+        its source at all."""
+        self.assertEqual(self.summary["provenance"], 1)
+        prov = frappe.db.get_value(
+            "BoQ Sheet", self.dest_sheet,
+            ["source_boq", "source_commit_version", "source_sheet_name"], as_dict=True)
+        self.assertEqual(prov.source_boq, self.original.name)
+        self.assertEqual(prov.source_sheet_name, self.SRC)
 
-    def test_wildcard_makes_multi_area_sheet_complete(self):
-        # One wildcard covers BOTH Civil and MEP amount columns -> the gate opens.
-        self.assertTrue(pricing._sheet_formulas_complete(self.rev, self.SHEET, 1))
-        self.assertEqual(self.summary["formulas"], 1)
+    def test_no_formula_record_lands_on_the_revision(self):
+        self.assertEqual(
+            frappe.get_all("BoQ Cell Amount Formula",
+                           filters={"boq": self.rev, "sheet_name": self.DEST, "is_current": 1}),
+            [],
+            "neither the per-area override nor the wildcard may carry",
+        )
+
+    def test_the_revision_is_not_formula_complete(self):
+        """THE consequence, and the gate the whole feature hangs on: rates are locked until the
+        user declares the formulas, and the carry button stays disabled until then."""
+        self.assertFalse(
+            pricing._sheet_formulas_complete(self.rev, self.DEST, 1),
+            "an amount column with no covering formula -> the mandatory gate fails closed",
+        )
 
 
 class TestCommitOverlayNonRevision(FrappeTestCase):
@@ -516,7 +528,7 @@ class TestCommitOverlayNonRevision(FrappeTestCase):
         super().tearDownClass()
 
     def test_upload_boq_is_a_noop(self):
-        summary = committed_carry.carry_commit_overlay(
+        summary = _carry_all(
             self.original.name, "Data", 1, self.sheet, [{"row_number": 2, "cells": {"D": 1}}])
         self.assertEqual(summary["provenance"], 0)
         self.assertEqual(summary["formulas"], 0)
@@ -528,7 +540,7 @@ class TestCommitOverlayNonRevision(FrappeTestCase):
         _seed_revision_draft(rev, "Fresh", None)   # declared-New: no source_sheet_name
         dest_sheet = _commit_sheet(rev, "Fresh", _role_map({"D": "Civil"}))
         frappe.db.commit()
-        summary = committed_carry.carry_commit_overlay(
+        summary = _carry_all(
             rev, "Fresh", 1, dest_sheet, [{"row_number": 2, "cells": {"D": 1}}])
         self.assertEqual(summary["provenance"], 0)
         self.assertIsNone(frappe.db.get_value("BoQ Sheet", dest_sheet, "source_boq"))
@@ -616,7 +628,7 @@ class TestCommitOverlayCrossVersionSource(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Item Beta", 3, 1)
         frappe.db.commit()
 
-        cls.summary = committed_carry.carry_commit_overlay(
+        cls.summary = _carry_all(
             cls.rev, cls.DEST, 1, cls.dest_sheet,
             [{"row_number": 2, "cells": {"A": "Item Alpha", "D": 1}},
              {"row_number": 3, "cells": {"A": "Item Beta", "D": 2}}])
@@ -734,248 +746,6 @@ class TestCommitOverlayCrossVersionSource(FrappeTestCase):
             {k: self.summary[k] for k in
              ("formulas", "remarks", "colors", "remark_dismissals", "categories")},
             {"formulas": 0, "remarks": 1, "colors": 1, "remark_dismissals": 1, "categories": 1})
-
-
-class TestCommitPipelineReportsTheOverlay(FrappeTestCase):
-    """W5 (A8): `_commit_one_sheet` must REPORT the overlay carry in its result envelope.
-
-    Every other test in this module calls `carry_commit_overlay` DIRECTLY and asserts on the
-    persisted rows, so all of them stay green even if the pipeline throws the returned
-    summary away -- which is exactly what it used to do. A carried layer was then invisible
-    to the user and, worse, a layer that FAILED was invisible too (`_guarded` swallows the
-    exception and returns 0), leaving the Error Log as the only trace. W5 captures the
-    summary into `overlay_summary` and adds `result["revision_overlay"]`.
-
-    These tests therefore drive the REAL seam -- `commit_pipeline._commit_one_sheet` over a
-    seeded revision -- and assert on the returned dict, so they fail if the capture, the
-    None-ing, or the conditional key is removed.
-
-    Three branches, matching the three ways `overlay_summary` can end up None:
-      * finalized + mapped + committed source -> present, with the CONCRETE per-layer counts;
-      * finalized + declared-NEW (unmapped)   -> the carry no-ops, provenance 0 -> key absent;
-      * general_specs (the grid_only tier)    -> the carry never runs at all -> key absent.
-    The non-revision branch is pinned in `test_commit_pipeline.py`, next to that file's
-    existing non-revision envelope tests.
-    """
-
-    SRC = "Data"
-    DEST = "Data Rev"
-    NEW_SHEET = "Fresh Scope"
-    GS_SHEET = "SOW Rev"
-
-    # The dest column config, snapshotted onto the committed BoQ Sheet from the draft. One
-    # per-area amount column (Civil@D) so the source's single formula re-validates and carries.
-    _CFG = {
-        "header_row": 1,
-        "header_row_count": 1,
-        "column_role_map": {
-            "A": {"role": "description", "area": None},
-            "D": {"role": _AREA_AMOUNT_ROLE, "area": "Civil"},
-        },
-        "column_headers": {"A": "Description", "D": "Amount Civil"},
-        "area_dimensions": ["Civil"],
-    }
-
-    # The faithful grid handed to _commit_one_sheet. Column D is present on every content row,
-    # which is what lets the source's (row 2, col D) color pass the survivor check.
-    _GRID_ROWS = [
-        {"row_number": 1, "cells": {"A": "Section"}},
-        {"row_number": 2, "cells": {"A": "Item Alpha", "D": 1000}},
-        {"row_number": 3, "cells": {"A": "Item Beta", "D": 2000}},
-    ]
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.project = _make_project()
-        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="PIPELINE ORIG")
-
-        # SOURCE: one committed sheet (Civil@D) + three nodes at Excel rows 1-3.
-        cls.src_sheet = _commit_sheet(cls.original.name, cls.SRC, _role_map({"D": "Civil"}))
-        _node(cls.original.name, cls.src_sheet, "Preamble", "Section", 1, 0, level=1)
-        _node(cls.original.name, cls.src_sheet, "Line Item", "Item Alpha", 2, 1)
-        _node(cls.original.name, cls.src_sheet, "Line Item", "Item Beta", 3, 2)
-
-        # SOURCE overlay: exactly ONE record per carried layer, all on row 2 / column D, so the
-        # expected summary is 1/1/1/1/1 and a layer that stopped carrying shows up as a 0.
-        _mk_formula(cls.original.name, cls.SRC, 1, "Civil", "D")
-        _mk_remark(cls.original.name, cls.SRC, 1, 2, "keep alpha")
-        _mk_color(cls.original.name, cls.SRC, 1, 2, "D", "green")
-        _mk_dismissal(cls.original.name, cls.SRC, 1, 2, "remark")
-        _mk_category(cls.original.name, cls.SRC, 1, 2, "Electrical",
-                     final="elec_machine", human="elec_human")
-
-        # DEST: the revision + its three drafts (mapped data / declared-New / general specs).
-        cls.rev = _make_revision(cls.project.name, cls.original.name).name
-        rev_doc = frappe.get_doc("BOQs", cls.rev)
-        rev_doc.append("sheet_drafts", {
-            "sheet_name": cls.DEST, "sheet_order": 1, "wizard_status": "Finalized",
-            "sheet_config": json.dumps(cls._CFG), "source_sheet_name": cls.SRC,
-        })
-        rev_doc.append("sheet_drafts", {
-            "sheet_name": cls.NEW_SHEET, "sheet_order": 2, "wizard_status": "Finalized",
-            "sheet_config": json.dumps(cls._CFG), "source_sheet_name": None,
-        })
-        rev_doc.append("sheet_drafts", {
-            "sheet_name": cls.GS_SHEET, "sheet_order": 3, "wizard_status": "Finalized",
-            "sheet_config": json.dumps(cls._CFG), "source_sheet_name": cls.SRC,
-        })
-        rev_doc.save(ignore_permissions=True)
-        frappe.db.commit()
-
-    @classmethod
-    def tearDownClass(cls):
-        _wipe_boqs(cls.project.name)
-        _cleanup_project(cls.project.name)
-        super().tearDownClass()
-
-    def tearDown(self):
-        # _commit_one_sheet ends in frappe.db.commit(), so its three tiers outlive
-        # FrappeTestCase's rollback. Purge everything the revision wrote (NOT the source) so
-        # each test starts at commit_version 1 and the tests stay order-independent.
-        for n in frappe.get_all("BOQ Nodes", filters={"boq": self.rev}, pluck="name"):
-            frappe.db.delete("BOQ Node Qty By Area", {"parent": n})
-        frappe.db.delete("BOQ Nodes", {"boq": self.rev})
-        for g in frappe.get_all("BoQ Committed Sheet Grid", filters={"boq": self.rev},
-                                pluck="name"):
-            frappe.db.delete("BoQ Committed Sheet Grid Row", {"parent": g})
-        frappe.db.delete("BoQ Committed Sheet Grid", {"boq": self.rev})
-        for s in frappe.get_all("BoQ Sheet", filters={"boq": self.rev}, pluck="name"):
-            frappe.db.delete("BoQ Sheet Work Package", {"parent": s})
-        frappe.db.delete("BoQ Sheet", {"boq": self.rev})
-        for dt in ("BoQ Cell Amount Formula", "BoQ Cell Remark", "BoQ Cell Color",
-                   "BoQ Cell Dismissal", "BoQ Row Category", "BoQ Review Row"):
-            frappe.db.delete(dt, {"boq": self.rev})
-        frappe.db.commit()
-        super().tearDown()
-
-    # ---- fixture helpers ----------------------------------------------
-
-    def _seed_review_rows(self, sheet_name):
-        """Three review rows whose Excel rows + descriptions mirror the source nodes, so the
-        committed dest nodes become the source rows' twins. `source_row_number` is the durable
-        Excel address the whole overlay carry addresses by."""
-        specs = [
-            (0, 1, "preamble", "Section", -1, {"level": 1}),
-            (1, 2, "line_item", "Item Alpha", 0, {"qty_total": 10.0, "rate_combined": 100.0}),
-            (2, 3, "line_item", "Item Beta", 0, {"qty_total": 20.0, "rate_combined": 100.0}),
-        ]
-        for row_index, excel_row, classification, description, parent_index, extra in specs:
-            rr = frappe.new_doc("BoQ Review Row")
-            rr.boq = self.rev
-            rr.sheet_name = sheet_name
-            rr.row_index = row_index
-            rr.source_row_number = excel_row
-            rr.classification = classification
-            rr.description = description
-            rr.parent_index = parent_index
-            rr.human_parent = -1
-            rr.human_is_root = 0
-            for field, value in extra.items():
-                setattr(rr, field, value)
-            rr.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-    def _draft(self, sheet_name):
-        for d in frappe.get_doc("BOQs", self.rev).sheet_drafts:
-            if d.sheet_name == sheet_name:
-                return d
-        raise AssertionError(f"draft {sheet_name!r} not found")
-
-    def _commit(self, sheet_name, disposition):
-        return commit_pipeline._commit_one_sheet(
-            self.rev, sheet_name, disposition, self._GRID_ROWS, self._draft(sheet_name)
-        )
-
-    # ---- (a) a REVISION commit reports real per-layer numbers ----------
-
-    def test_finalized_revision_sheet_reports_the_overlay_counts(self):
-        """The envelope carries the overlay's own per-layer summary, with real counts.
-
-        The fixture seeds exactly one carryable record per layer, so 1/1/1/1/1 (+ provenance)
-        is a value assertion, not a presence check: a threading rewired to `_empty_summary()`
-        or to a constant fails, and so does a layer that silently stopped carrying.
-        """
-        self._seed_review_rows(self.DEST)
-
-        res = self._commit(self.DEST, "finalized")
-
-        self.assertIn("revision_overlay", res,
-                      "W5 dropped the overlay summary from the commit result")
-        self.assertEqual(res["revision_overlay"], {
-            "provenance": 1, "formulas": 1, "remarks": 1, "colors": 1,
-            "remark_dismissals": 1, "categories": 1,
-        })
-
-    def test_reported_counts_match_what_actually_landed(self):
-        """The reported numbers must equal the rows the carry actually persisted.
-
-        A summary that drifts from the DB is worse than no summary -- the commit-results modal
-        would tell the user their annotations carried when they did not. Counting the dest
-        rows independently is the check the return value cannot fake.
-        """
-        self._seed_review_rows(self.DEST)
-
-        res = self._commit(self.DEST, "finalized")
-
-        summary = res["revision_overlay"]
-        for doctype, key in (("BoQ Cell Amount Formula", "formulas"),
-                             ("BoQ Cell Remark", "remarks"),
-                             ("BoQ Cell Color", "colors"),
-                             ("BoQ Row Category", "categories")):
-            landed = frappe.get_all(doctype, filters={
-                "boq": self.rev, "sheet_name": self.DEST,
-                "committed_version": res["commit_version"], "is_current": 1})
-            self.assertEqual(len(landed), summary[key], f"{doctype} count disagrees")
-        dismissals = frappe.get_all("BoQ Cell Dismissal", filters={
-            "boq": self.rev, "sheet_name": self.DEST,
-            "committed_version": res["commit_version"], "is_current": 1,
-            "flag_kind": "remark"})
-        self.assertEqual(len(dismissals), summary["remark_dismissals"])
-
-    def test_report_does_not_disturb_the_pre_w5_envelope(self):
-        """`revision_overlay` is ADDITIVE -- every pre-W5 key still comes back unchanged.
-
-        W5 must not have reshaped the envelope the commit loop and the results modal already
-        consume; the new key is the only difference.
-        """
-        self._seed_review_rows(self.DEST)
-
-        res = self._commit(self.DEST, "finalized")
-
-        self.assertEqual(
-            set(res) - {"revision_overlay"},
-            {"sheet_name", "disposition", "sheet_disposition", "grid_name", "boq_sheet_name",
-             "commit_version", "row_count", "froze_prior", "froze_prior_sheet", "node_count",
-             "froze_nodes"},
-        )
-
-    # ---- (b) the branches where the key must be ABSENT -----------------
-
-    def test_declared_new_sheet_omits_the_key(self):
-        """A declared-NEW (unmapped) revision sheet has no provenance -> no report.
-
-        `carry_commit_overlay` returns the zero summary (provenance 0) for an unmapped sheet;
-        `_commit_one_sheet` nulls that out rather than reporting an all-zeros overlay the user
-        would misread as "your annotations were dropped".
-        """
-        self._seed_review_rows(self.NEW_SHEET)
-
-        res = self._commit(self.NEW_SHEET, "finalized")
-
-        self.assertNotIn("revision_overlay", res)
-
-    def test_general_specs_sheet_omits_the_key(self):
-        """A general-specs sheet (grid_only tier) never enters the overlay branch at all.
-
-        The carry is gated on `disposition == "finalized"` because it needs the priceable node
-        tier the overlays sit on -- a general-specs sheet has none. Its envelope must therefore
-        look exactly like a non-revision one.
-        """
-        res = self._commit(self.GS_SHEET, "general_specs")
-
-        self.assertNotIn("revision_overlay", res)
-        self.assertEqual(res["node_count"], 0)
 
 
 class TestCarryLayersPresenceAndOverwrite(FrappeTestCase):
