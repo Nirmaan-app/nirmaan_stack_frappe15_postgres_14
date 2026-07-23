@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CarryRatesDonePayload, CarryStatusResponse, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import type { RevisionCarryReport } from "./revisionCarryReport";
 import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
@@ -49,18 +49,7 @@ import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
 import { CommitResultsModal } from "./CommitResultsModal";
 import { PricedTenderDialog } from "./PricedTenderDialog";
-import { CrossBoqCarryDialog } from "./CrossBoqCarryDialog";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
-
-// Per-sheet failure reasons emitted by the cross-BOQ carry worker's {failed:[{sheet_name, reason}]}
-// (S10 / #1106). Module-level (not redefined per event). Any unmapped reason falls back to itself.
-const CARRY_FAIL_REASON: Record<string, string> = {
-  locked: "another user is editing this sheet",
-  locked_deliberate: "this sheet is locked for editing",
-  formulas_incomplete: "amount formulas are not declared yet",
-  no_source: "no matching sheet in the original",
-  error: "an unexpected error occurred",
-};
 
 // Keyword list for presentation-only "likely non-data" hint.
 const LIKELY_SKIP_KEYWORDS = [
@@ -188,19 +177,6 @@ const BoqHubPage = () => {
   const [setMasterOpen, setSetMasterOpen] = useState(false);
   const [setMasterError, setSetMasterError] = useState<string | null>(null);
 
-  // Cross-BOQ rate carry (S10 / #1106, ADR-0014 D9). Footer action on a committed revision that
-  // pulls the ORIGINAL's rates across. Socket lifecycle mirrors the parse machinery below:
-  // carryInFlightRef gates applyCarryOutcome so socket-or-poll (first wins), on-mount recovery only
-  // re-arms `running`, never re-pops a stale `done`. carryNeedsNewValuesRef carries the plan's
-  // needs-new-value figure (captured at apply) into the results modal (the socket done-payload has
-  // `carried` but not that figure).
-  const [carryDialogOpen, setCarryDialogOpen] = useState(false);
-  const [carryInFlight, setCarryInFlight] = useState(false);
-  const carryInFlightRef = useRef(false);
-  const carryNeedsNewValuesRef = useRef(0);
-  const [carryResult, setCarryResult] = useState<CarryRatesDonePayload | null>(null);
-  const [carryResultsOpen, setCarryResultsOpen] = useState(false);
-
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
@@ -268,12 +244,16 @@ const BoqHubPage = () => {
   // the other; T4 #8 "two surfaces, two audiences"). REVISION-ONLY: the swrKey is null unless
   // the loaded doc is a revision, so a normal upload/template hub makes no extra call. The set
   // is fixed once the mapping is confirmed (source_sheet_name is write-once), so no mutate.
+  // Is this hub showing a REVISION? Gates the removed-sheet advisory below (ADR-0014 D4) and the
+  // fetch that feeds it. Declared here with its consumer -- it used to live inside the cross-BOQ
+  // carry lifecycle block, which Amendment C (C6) removed along with the hub's carry action.
+  const isRevisionDoc = boq?.origin === "revision" && !!boq?.source_boq;
   const { data: removedSheetsData } = useFrappeGetCall<{
     message: { removed: { sheet_name: string; general_specs: boolean }[]; source_version: number | null };
   }>(
     "nirmaan_stack.api.boq.wizard.revision.get_removed_source_sheets",
     { boq: boqId ?? "" },
-    boqId && boq?.origin === "revision" && !!boq?.source_boq ? undefined : null
+    boqId && isRevisionDoc ? undefined : null
   );
 
   // General-specs endpoint. Called in BoqHubPage because it targets the parent
@@ -405,75 +385,6 @@ const BoqHubPage = () => {
     });
   }, [parsePollData, applyParseOutcome]);
 
-  // ── Cross-BOQ rate carry lifecycle (S10 / #1106) ──────────────────────────
-  // Keep the ref mirror of carryInFlight current for applyCarryOutcome's gate.
-  useEffect(() => {
-    carryInFlightRef.current = carryInFlight;
-  }, [carryInFlight]);
-
-  // Apply a carry outcome from EITHER the realtime boq:carry_rates_done event or the poll fallback.
-  // Guards: (1) only this boq; (2) carryInFlightRef so socket-or-poll, first to resolve wins.
-  // Reads inflight from a ref so the callback stays stable for the one-time socket registration.
-  const applyCarryOutcome = useCallback(
-    (payload: CarryRatesDonePayload) => {
-      if (payload.boq_name !== boqId) return;
-      if (!carryInFlightRef.current) return;
-      setCarryInFlight(false);
-      if (payload.status === "success") {
-        // Refresh the committed-state read so the "Show unpriced" surface + badges reflect the
-        // just-landed rates on the next visit to a sheet's pricing editor.
-        void mutateCommittedState();
-      }
-      setCarryResult(payload);
-      setCarryResultsOpen(true);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [boqId]
-  );
-
-  // Status endpoint (dest_boq-keyed BOQ-scoped marker). Fetches once on mount (on-mount recovery:
-  // re-arms `running` after navigation / a missed socket event) and polls every 3s while in-flight
-  // (fallback for a room-targeted done-event the client missed). A stable swrKey keeps ONE cache
-  // entry; refreshInterval 0 stops the poll when idle without dropping the mount fetch. Gated to a
-  // REVISION doc -- a carry can only run on a committed revision, so a non-revision hub skips the
-  // call entirely (the endpoint would just return {state:"idle"}).
-  const isRevisionDoc = boq?.origin === "revision" && !!boq?.source_boq;
-  const { data: carryStatusData, mutate: mutateCarryStatus } = useFrappeGetCall<{ message: CarryStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.cross_boq_carry.get_cross_boq_carry_status",
-    { dest_boq: boqId ?? "" },
-    boqId && isRevisionDoc ? `boq-carry-status::${boqId}` : null,
-    { refreshInterval: carryInFlight ? 3000 : 0 }
-  );
-
-  useEffect(() => {
-    const msg = carryStatusData?.message;
-    if (!msg) return;
-    if (msg.state === "running") {
-      // On-mount recovery: a carry is running -> reflect it (never re-pop a stale `done`).
-      if (!carryInFlightRef.current) setCarryInFlight(true);
-      return;
-    }
-    if (msg.state === "done" && carryInFlightRef.current) {
-      applyCarryOutcome(msg);
-    }
-  }, [carryStatusData, applyCarryOutcome]);
-
-  // Fast path: realtime boq:carry_rates_done + reconnect self-heal (re-poll the status on
-  // (re)connect so a missed done-event recovers). Screen-scoped, mirrors the parse socket effect.
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: CarryRatesDonePayload) => applyCarryOutcome(payload);
-    const onReconnect = () => { void mutateCarryStatus(); };
-    socket.on("boq:carry_rates_done", handler);
-    socket.on("connect", onReconnect);
-    return () => {
-      socket.off("boq:carry_rates_done", handler);
-      socket.off("connect", onReconnect);
-    };
-    // socket + mutateCarryStatus are stable refs; applyCarryOutcome stable unless boqId changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, applyCarryOutcome]);
-
   // Seed/re-sync the checklist ticked set from server state whenever boq changes.
   // mutate() after Save re-fetches boq, which fires this effect so ticks re-sync.
   // Any unsaved local tick edits are overwritten on re-sync -- acceptable since the
@@ -604,11 +515,6 @@ const BoqHubPage = () => {
   const committedMap = new Map<string, CommittedSheetState>(
     (committedStateData?.message?.committed_state ?? []).map((c) => [c.sheet_name, c])
   );
-  // Cross-BOQ rate carry visibility (S10 / #1106, ADR-0014 D9): a committed REVISION only. The
-  // launch point is genuinely net-new -- VersionRibbon returns null below 2 versions, so a fresh
-  // revision at v1 has none. Gate = origin=="revision" AND source_boq set AND >= 1 committed sheet.
-  const canCarryRates =
-    boq.origin === "revision" && !!boq.source_boq && committedMap.size >= 1;
   // Tendering direct-nav (WI-1): the first committed sheet by sheet_order (nulls last).
   // Sourced from the RAW committed_state array so the ordering is explicit; sheet_name
   // is taken VERBATIM (#152) -- never trimmed. Feeds the Tendering footer button, which
@@ -650,15 +556,6 @@ const BoqHubPage = () => {
     void mutateCommittedState();
     setPricedResult(result);
     setPricedResultsOpen(true);
-  };
-
-  // After the carry dialog enqueues the long job (S10 / #1106): stash the plan's needs-new-value
-  // figure for the results modal, flip to in-flight (the button spins, the poll begins), and close
-  // the dialog. The terminal result arrives via boq:carry_rates_done (fast) or the status poll.
-  const handleCarryStarted = (needsNewValues: number) => {
-    carryNeedsNewValuesRef.current = needsNewValues;
-    setCarryInFlight(true);
-    setCarryDialogOpen(false);
   };
 
   // The skipped-formula columns as flat "Sheet: A, B" lines (empty when none skipped).
@@ -1361,35 +1258,6 @@ const BoqHubPage = () => {
                   : "No committed sheets to price yet"}
               </TooltipContent>
             </Tooltip>
-            {/* Carry rates from original (S10 / #1106, ADR-0014 D9) -- shown ONLY on a committed
-                revision (origin=="revision" + source_boq + >= 1 committed sheet). The one deliberate
-                post-commit money action; opens the whole-BoQ carry dialog. */}
-            {canCarryRates && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={carryInFlight}
-                      onClick={() => setCarryDialogOpen(true)}
-                    >
-                      {carryInFlight ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Carrying rates...
-                        </>
-                      ) : (
-                        "Carry rates from original"
-                      )}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Copy the original BoQ&rsquo;s priced rates into this committed revision
-                </TooltipContent>
-              </Tooltip>
-            )}
             {/* A-T6 (ADR-0013 A1): materialize this committed SEED BoQ into the ONE master
                 template. Shown only for a committed seed BoQ (is_template_source === 1) to an
                 Admin/Estimates user; opens a REPLACE-warning confirm before calling. */}
@@ -1538,86 +1406,6 @@ const BoqHubPage = () => {
         onOpenChange={setCommitResultsOpen}
         result={commitResult}
       />
-
-      {/* ── Cross-BOQ rate carry dialog (S10 / #1106) ───────────────────────── */}
-      {canCarryRates && (
-        <CrossBoqCarryDialog
-          open={carryDialogOpen}
-          boqId={boq.name}
-          sourceBoq={boq.source_boq ?? ""}
-          onClose={() => setCarryDialogOpen(false)}
-          onStarted={handleCarryStarted}
-        />
-      )}
-
-      {/* ── Rate-carry results modal (S10 / #1106) ──────────────────────────── */}
-      {/* Acknowledge-only (single OK), mirrors the parse-complete modal. Reports "N carried --
-          M rows need new values" (M from the plan, captured at apply) + any per-sheet failures.
-          The M rows are found via the pricing editor's "Show unpriced" filter. */}
-      <AlertDialog
-        open={carryResultsOpen}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setCarryResultsOpen(false);
-            setCarryResult(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {carryResult?.status === "success" ? "Rates carried" : "Rate carry finished with errors"}
-            </AlertDialogTitle>
-          </AlertDialogHeader>
-          {carryResult && (
-            <div className="space-y-1 py-1 text-sm">
-              <p className="font-medium text-foreground">
-                {carryResult.carried} rate{carryResult.carried === 1 ? "" : "s"} carried
-                {carryNeedsNewValuesRef.current > 0 &&
-                  ` · ${carryNeedsNewValuesRef.current} row${carryNeedsNewValuesRef.current === 1 ? "" : "s"} need new values`}
-              </p>
-              {carryNeedsNewValuesRef.current > 0 && (
-                <p className="text-muted-foreground">
-                  Use the &ldquo;Show unpriced&rdquo; filter in the pricing editor to find the rows
-                  that still need a rate.
-                </p>
-              )}
-              {(carryResult.conflicts_overwritten ?? 0) > 0 && (
-                <p className="text-muted-foreground">
-                  {carryResult.conflicts_overwritten} existing rate
-                  {carryResult.conflicts_overwritten === 1 ? "" : "s"} overwritten.
-                </p>
-              )}
-              {carryResult.failed.length > 0 && (
-                <div className="text-destructive">
-                  <p className="font-medium">Some sheets could not be carried:</p>
-                  <ul className="mt-1 space-y-1">
-                    {carryResult.failed.map((f) => (
-                      <li key={f.sheet_name} className="flex items-start gap-1.5">
-                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                        <span className="min-w-0">
-                          {f.sheet_name.trim() || f.sheet_name} &mdash;{" "}
-                          {CARRY_FAIL_REASON[f.reason] ?? f.reason}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogAction
-              onClick={() => {
-                setCarryResultsOpen(false);
-                setCarryResult(null);
-              }}
-            >
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* ── Parse completion modal (Bucket-2 Slice 2) ──────────────────────── */}
       {/* Acknowledge-only: single OK action. Open driven from result/error state.  */}

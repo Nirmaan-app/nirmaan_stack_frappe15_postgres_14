@@ -202,13 +202,12 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         super().tearDownClass()
 
     def setUp(self):
-        # Reset the DEST writable state each test: drop carried cells (keep the seeded conflict),
-        # clear locks + any Redis terminal payload.
+        # Reset the DEST writable state each test: drop carried cells (keep the seeded conflict)
+        # and clear locks. AMENDMENT C (C6): there is no Redis marker to clear any more -- the
+        # long job it belonged to is gone.
         frappe.db.delete(_PRICING, {"boq": self.rev, "sheet_name": self.DEST})
         _price(self.rev, self.DEST, 1, 11, "E", "combined_rate", 999.0)
         frappe.db.delete(_LOCK_DT, {"boq": self.rev})
-        frappe.cache().delete_value(cross_boq_carry._status_key(self.rev))
-        cross_boq_carry._clear_marker(self.rev)
         frappe.db.commit()
 
     # ── helpers ──────────────────────────────────────────────────────────────────
@@ -305,73 +304,64 @@ class TestCrossBoqRateCarry(FrappeTestCase):
         res = cross_boq_carry.get_cross_boq_carry_plan(source_boq=self.orig, dest_boq=self.rev)
         self.assertEqual(res["source_boq"], self.orig)
 
-    # ── apply (via the worker, called synchronously) ───────────────────────────────
-    def test_worker_clean_and_overwrite(self):
-        cross_boq_carry._carry_rates_worker(
-            dest_boq=self.rev,
-            decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
-                {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate",
-                 "overwrite": True},
-            ]},
-            user="Administrator",
+    # ── apply (AMENDMENT C: per-sheet is the unit of work) ────────────────────────
+    # These four properties were covered THROUGH the whole-BoQ worker (`_carry_rates_worker`),
+    # which C6 removed along with the hub action. The per-sheet failure isolation it provided IS
+    # the new unit of work, so they are asserted directly on `_apply_sheet_carry` -- same
+    # properties, one less layer of indirection.
+    def _ctx(self, sheet_docname):
+        return cross_boq_carry._resolve_sheet_carry(
+            self.rev,
+            frappe.db.get_value(_SHEET, sheet_docname,
+                                ["name", "sheet_name", "commit_version",
+                                 "source_boq", "source_sheet_name"], as_dict=True),
         )
-        self.assertEqual(self._dest_rate(10), 100.0, "clean copy landed at the re-resolved col E")
-        self.assertEqual(self._dest_rate(11), 200.0, "conflict overwritten")
-        self.assertIsNone(self._dest_rate(10, "D"), "nothing written at the source col_letter")
-        term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
-        self.assertEqual(term["state"], "done")
-        self.assertEqual(term["carried"], 2)
-        self.assertEqual(term["failed"], [])
 
-    def test_worker_conflict_kept_by_default(self):
-        cross_boq_carry._carry_rates_worker(
-            dest_boq=self.rev,
-            decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate"},  # no overwrite
-            ]},
-            user="Administrator",
+    def test_apply_clean_and_overwrite(self):
+        summary, reason = cross_boq_carry._apply_sheet_carry(
+            self._ctx(self.dest_sheet),
+            [{"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+             {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate", "overwrite": True}],
+            "Administrator",
         )
-        self.assertEqual(self._dest_rate(11), 999.0, "conflict kept -> existing rate untouched")
-        term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
-        self.assertEqual(term["carried"], 0)
-        self.assertEqual(term["conflicts_kept"], 1)
+        self.assertIsNone(reason)
+        self.assertEqual(summary["copied"], 1)
+        self.assertEqual(summary["conflicts_overwritten"], 1)
+        self.assertEqual(self._dest_rate(10), 100.0)
+        self.assertEqual(self._dest_rate(11), 200.0)
 
-    def test_worker_never_trusts_a_crafted_skip_decision(self):
-        # A crafted POST for a server-classified SKIP (non_priceable / no_rate_column) writes NOTHING.
-        cross_boq_carry._carry_rates_worker(
-            dest_boq=self.rev,
-            decisions_by_sheet={self.DEST: [
-                {"dest_excel_row": 12, "area": None, "rate_kind": "combined_rate"},   # non_priceable
-                {"dest_excel_row": 16, "area": None, "rate_kind": "supply_rate"},     # no_rate_column
-                {"dest_excel_row": 99999, "area": None, "rate_kind": "combined_rate"}, # invalid
-            ]},
-            user="Administrator",
+    def test_apply_keeps_a_conflict_by_default(self):
+        summary, reason = cross_boq_carry._apply_sheet_carry(
+            self._ctx(self.dest_sheet),
+            [{"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate"}],
+            "Administrator",
         )
-        self.assertIsNone(self._dest_rate(12))
-        self.assertIsNone(self._dest_rate(16))
-        term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
-        self.assertEqual(term["carried"], 0)
-        self.assertEqual(term["skipped"]["non_priceable"], 1)
-        self.assertEqual(term["skipped"]["no_rate_column"], 1)
-        self.assertEqual(term["skipped"]["invalid"], 1)
+        self.assertIsNone(reason)
+        self.assertEqual(summary["conflicts_kept"], 1)
+        self.assertEqual(self._dest_rate(11), 999.0, "the dest rate is untouched")
 
-    def test_worker_per_sheet_isolation_formula_gate(self):
-        # "Amt Rev" has an amount column with no formula -> it fails ISOLATED; "Data Rev" carries.
-        cross_boq_carry._carry_rates_worker(
-            dest_boq=self.rev,
-            decisions_by_sheet={
-                self.DEST: [{"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"}],
-                self.AMT_DEST: [{"dest_excel_row": 20, "area": None, "rate_kind": "combined_rate"}],
-            },
-            user="Administrator",
+    def test_apply_never_writes_a_hard_skip(self):
+        """A crafted decision naming an outcome-1 cell is counted and NEVER written -- the server
+        re-derives the plan, so the client cannot promote a skip."""
+        summary, reason = cross_boq_carry._apply_sheet_carry(
+            self._ctx(self.dest_sheet),
+            [{"dest_excel_row": 12, "area": None, "rate_kind": "combined_rate"}],
+            "Administrator",
         )
-        self.assertEqual(self._dest_rate(10), 100.0, "the good sheet carried despite the bad one")
-        term = cross_boq_carry.get_cross_boq_carry_status(dest_boq=self.rev)
-        self.assertEqual(term["carried"], 1)
-        self.assertEqual(term["failed"], [{"sheet_name": self.AMT_DEST,
-                                           "reason": "formulas_incomplete"}])
-        # Nothing was written on the failed sheet.
+        self.assertIsNone(reason)
+        self.assertEqual(summary["skipped"]["non_priceable"], 1)
+        self.assertEqual(summary["copied"], 0)
+
+    def test_apply_blocks_a_sheet_whose_formulas_are_incomplete(self):
+        """"Amt Rev" has an amount column with no covering formula -> the mandatory gate refuses
+        the WHOLE apply and writes nothing."""
+        summary, reason = cross_boq_carry._apply_sheet_carry(
+            self._ctx(self.amt_dest_sheet),
+            [{"dest_excel_row": 20, "area": None, "rate_kind": "combined_rate"}],
+            "Administrator",
+        )
+        self.assertIsNone(summary)
+        self.assertEqual(reason, "formulas_incomplete")
         self.assertIsNone(frappe.db.get_value(_PRICING, {
             "boq": self.rev, "sheet_name": self.AMT_DEST, "is_current": 1, "is_filled": 1}, "name"))
 
@@ -631,17 +621,21 @@ class TestOrphanedFormulaBlocksTheRateCarry(FrappeTestCase):
         )["pricing"]
         self.assertEqual([p["excel_row"] for p in found if p["is_filled"]], [])
 
-    # ── link 3: the formula carry copies nothing forward ─────────────────────────────
-    def test_overlay_carry_copies_no_formula_forward(self):
-        summary = committed_carry.carry_commit_overlay(
-            self.rev, self.DEST, 1, self.dest_sheet,
-            [{"row_number": 10, "cells": {"B": "Item A", "F": 500}}],
+    # ── link 3: the commit copies no formula forward ─────────────────────────────────
+    def test_commit_copies_no_formula_forward(self):
+        """Under AMENDMENT C (C5) the commit carries NOTHING but provenance, so this link holds
+        for a stronger reason than before: it is not that the stranded v1 formula failed to
+        re-resolve, it is that no formula carries at all."""
+        provenance = committed_carry.stamp_revision_provenance(
+            self.rev, self.DEST, self.dest_sheet
         )
         frappe.db.commit()
-        self.assertEqual(summary["provenance"], 1, "this IS a revision sheet")
+        self.assertEqual(provenance, 1, "this IS a revision sheet -- the stamp still lands")
         self.assertEqual(
-            summary["formulas"], 0,
-            "the stranded v1 formula does not carry -- the layer is still version-pinned",
+            frappe.get_all("BoQ Cell Amount Formula",
+                           filters={"boq": self.rev, "sheet_name": self.DEST, "is_current": 1}),
+            [],
+            "no formula carries at commit, stranded or otherwise",
         )
 
     # ── link 4: the revision is therefore not formula-complete ───────────────────────

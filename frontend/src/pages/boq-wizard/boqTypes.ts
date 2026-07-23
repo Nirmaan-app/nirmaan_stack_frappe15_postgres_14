@@ -6,7 +6,7 @@
 import type { RevisionCarryStatus, RevisionReviewMeta } from "./revisionReviewDelta";
 // W5: the revision-carry REPORT shapes live with the pure copy helpers that consume them
 // (revisionCarryReport.ts imports nothing from here -> one-directional, no cycle).
-import type { RevisionCarryBySheet, RevisionOverlaySummary } from "./revisionCarryReport";
+import type { RevisionCarryBySheet } from "./revisionCarryReport";
 
 /**
  * Friendly display labels for all 21 parser role values.
@@ -1286,7 +1286,7 @@ export interface ApplyCopyForwardResponse {
 // copy-forward classifier pointed cross-BOQ (see CopyForward* above): whole-BOQ, per-CELL,
 // DESTINATION-keyed. The source + dest excel rows DIFFER (D6 matches on description, not row
 // number), so a plan row carries BOTH. Backend: cross_boq_carry.get_cross_boq_carry_plan /
-// start_cross_boq_carry (long job -> boq:carry_rates_done) / get_cross_boq_carry_status (poll).
+// apply_sheet_carry (synchronous, per sheet -- AMENDMENT C).
 
 /**
  * One classified cross-BOQ carry plan row. outcome: 1 = HARD SKIP (never written, shown with
@@ -1397,31 +1397,6 @@ export interface CrossBoqCarryDecision {
   overwrite?: boolean;
 }
 
-/** Terminal payload of the boq:carry_rates_done socket event (mirrored by get_cross_boq_carry_status
- *  in its "done" branch). Success carries the tallies; an error carries an error_code. */
-export interface CarryRatesDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  carried: number;
-  conflicts_overwritten?: number;
-  conflicts_kept?: number;
-  skipped?: {
-    removed: number;
-    no_rate_column: number;
-    non_priceable: number;
-    invalid: number;
-  };
-  failed: { sheet_name: string; reason: string }[];
-  error_code?: string;
-}
-
-/** Response shape of get_cross_boq_carry_status (the polling fallback). "done" spreads the
- *  CarryRatesDonePayload; "running"/"idle" carry only the discriminator. */
-export type CarryStatusResponse =
-  | ({ state: "done" } & CarryRatesDonePayload)
-  | { state: "running" }
-  | { state: "idle" };
-
 /**
  * Response shape of export_priced_workbook (Phase 5 Slice 5a endpoint; consumed by 5b).
  * content_base64 is the stamped .xlsx bytes; the frontend decodes -> Blob -> download.
@@ -1486,12 +1461,6 @@ export interface CommittedSheetResult {
   disposition?: string;
   row_count?: number;
   node_count?: number;
-  /**
-   * W5: per-layer overlay carry counts. ADDITIVE and revision-only -- absent on every
-   * non-revision commit (and on a revision sheet that carried nothing), so the envelope stays
-   * byte-identical for the existing flows.
-   */
-  revision_overlay?: RevisionOverlaySummary;
 }
 
 /** One sheet that FAILED to commit, from the commit_boq envelope (Slice 5 backend).

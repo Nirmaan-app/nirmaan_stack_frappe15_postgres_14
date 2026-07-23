@@ -1,44 +1,47 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""S7a / plan-slice S9 (#1105, ADR-0014 D9) -- cross-BOQ RATE carry (backend).
+"""Cross-BOQ carry: the ORIGINAL's rates + annotations into a committed revision (ADR-0014 D9,
+as amended by AMENDMENT C).
 
-The money. After a revision is committed, one explicit post-commit action pulls the ORIGINAL's
-rates across into the revision. This is NOT net-new plumbing -- it is `pricing.py`'s same-BOQ
-copy-forward classifier pointed cross-BOQ, wearing `classify.py`'s Redis-marker long-job
-scaffolding:
+One explicit, deliberate action per SHEET, launched from the pricing editor after the user has
+declared that sheet's amount formulas by hand. It is `pricing.py`'s same-BOQ copy-forward
+classifier pointed cross-BOQ, plus the four row-addressed annotation layers:
 
-  * A source-driven, per-CELL plan (one Excel row yields several entries, one per area/rate_kind),
-    DESTINATION-keyed `(dest_excel_row, area, rate_kind)` -- the source and dest Excel rows DIFFER
-    (D6 matches on description, not row number), so each plan entry carries BOTH. D6 `NEW` rows
-    never enter the plan (they have no source rate) -- the grid is their review surface (S10).
+  * A source-driven, per-CELL rate plan (one Excel row yields several entries, one per
+    area/rate_kind), DESTINATION-keyed `(dest_excel_row, area, rate_kind)` -- the source and dest
+    Excel rows can differ, so each plan entry carries BOTH. Unmatched dest rows never enter the
+    plan (they have no source rate); they are reported as `needs_new_value_count` and found via the
+    editor's "Show unpriced" filter.
   * The `(area, rate_kind)` re-resolution runs against the DESTINATION's rate columns
-    (`_current_rate_column_index`), so a column MOVE re-resolves correctly and the source's bare
-    `col_letter` is NEVER a write target.
-  * A split skip taxonomy: `removed` (unpaired -- Amendment B collapsed D6 REMOVED+AMBIGUOUS
-    into this one reason) / `no_rate_column`
-    / `non_priceable` / `invalid`. Today's same-BOQ `non_match` conflated "gone" with "can't tell";
-    cross-BOQ they need different human responses.
-  * A long job with PER-SHEET failure isolation -- a loop over the per-sheet plan, NOT one giant
-    transaction: one `acquire_or_refresh` + one `frappe.db.commit()` + rollback-on-failure per
-    sheet, so a held lock (or an incomplete-formula sheet) fails ONE sheet, never the batch. Emits
-    `boq:carry_rates_done {carried, failed}`.
-  * Plan AND apply RE-DERIVE the plan server-side via the SAME classifier (`_classify_carry`) over
-    a freshly-derived D6 match -- a client-supplied outcome / target column / rate is NEVER trusted.
+    (`_current_rate_column_index`), so a column MOVE re-resolves and the source's bare `col_letter`
+    is NEVER a write target.
+  * A split skip taxonomy: `removed` (unpaired) / `no_rate_column` / `non_priceable` / `invalid`.
+  * Plan AND apply RE-DERIVE everything server-side via the SAME classifier (`_classify_carry`)
+    over a freshly-derived D6 match -- a client-supplied outcome / target column / rate is NEVER
+    trusted. Layer selection can only REDUCE what is written.
+  * `apply_sheet_carry` is SYNCHRONOUS and ATOMIC: one lock acquire, one commit, full rollback on
+    any error, so there is no state where the rates landed and the annotations did not.
 
-SOURCE VERSION: rates carry from the source sheet's CURRENT committed version (`is_current=1`),
-resolved per-sheet -- the freshest rates, chain-aware (a committed revision is itself revisable,
-D1), and consistent with how `committed_carry`'s twin map already reads both sides. The endpoint's
-`source_boq` / `source_version` params are advisory: the server re-derives the real source from
-`BOQs.source_boq` + each sheet's committed provenance (`BoQ Sheet.source_sheet_name`, stamped at
-commit by S8) and never trusts the client for identity.
+SOURCE VERSION: rates carry from the source sheet's CURRENT committed version, version-PINNED --
+the same version the structure and the annotation layers read. **AMENDMENT C reversed W6/A10's
+cross-version rate read**: once a revision exists the original is not edited further, so its current
+committed version is its final state and the carry moves exactly what a user looking at the original
+can see. `revision._carry_counts` is pinned identically, so the mapping screen's count and the carry
+can never disagree. `source_boq` / `source_version` params are advisory: the server re-derives the
+real source from `BOQs.source_boq` + each sheet's committed provenance and never trusts the client
+for identity.
+
+⚠️ AMENDMENT C (C6) removed the hub's whole-BoQ long job (`start_cross_boq_carry`,
+`_carry_rates_worker`, `get_cross_boq_carry_status`, the Redis marker/status block and the
+`boq:carry_rates_done` event). The per-sheet failure isolation they were built for IS the new unit
+of work.
 """
 
 import json
 
 import frappe
 from frappe.utils import now_datetime
-from frappe.utils.background_jobs import get_job_status
 
 from nirmaan_stack.api.boq.wizard import committed_carry, pricing
 from nirmaan_stack.api.boq.wizard.committed_carry import committed_excel_row_match
@@ -51,11 +54,6 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
 _BOQ_SHEET = "BoQ Sheet"
 _NODE = "BOQ Nodes"
 
-_STATUS_PREFIX = "boq_carry_rates_status"
-_MARKER_PREFIX = "boq_carry_rates_marker"
-_STATUS_TTL_SEC = 3600  # 1h -- ample for a client to poll the fallback
-_MARKER_TTL_SEC = 3600
-_STALE_CARRY_SECONDS = 1200  # mirrors classify._STALE_CLASSIFY_SECONDS / parse_run
 
 # The split skip taxonomy (ADR-0014 D9). The PLAN reasons a source cell can be classified as a
 # hard skip, plus `invalid` which is apply-time only (a decision referencing no real carryable cell).
@@ -70,57 +68,6 @@ def _zero_apply_skips() -> dict:
     """A FRESH zero-count dict over the apply-time skip taxonomy (a new dict each call -- the
     counters are mutated in place)."""
     return {reason: 0 for reason in _APPLY_SKIP_REASONS}
-
-
-# ── Redis key + marker helpers (BOQ-scoped -- the job is whole-BOQ) ─────────────────
-def _status_key(dest_boq):
-    return f"{_STATUS_PREFIX}::{dest_boq}"
-
-
-def _marker_key(dest_boq):
-    return f"{_MARKER_PREFIX}::{dest_boq}"
-
-
-def _set_marker(dest_boq, job_id, user):
-    frappe.cache().set_value(
-        _marker_key(dest_boq),
-        {"job_id": job_id, "enqueued_at": frappe.utils.now(), "user": user},
-        expires_in_sec=_MARKER_TTL_SEC,
-    )
-
-
-def _get_marker(dest_boq):
-    return frappe.cache().get_value(_marker_key(dest_boq))
-
-
-def _clear_marker(dest_boq):
-    frappe.cache().delete_value(_marker_key(dest_boq))
-
-
-def _maybe_self_heal(dest_boq, marker):
-    """Given a present marker, return 'running' | 'cleared' | 'cleared_stale'. Clears the marker
-    when the RQ job is terminal (finished/failed/unknown) or the enqueue is older than the stale
-    cap. Mirrors classify._maybe_self_heal / parse_run._maybe_self_heal_parse_state."""
-    job_id = marker.get("job_id")
-    status = None
-    if job_id:
-        try:
-            status = get_job_status(job_id)
-        except Exception:
-            status = None
-    if status in ("finished", "failed") or status is None:
-        _clear_marker(dest_boq)
-        return "cleared"
-    enqueued_at = marker.get("enqueued_at")
-    if enqueued_at:
-        try:
-            age = frappe.utils.time_diff_in_seconds(frappe.utils.now(), enqueued_at)
-        except Exception:
-            age = 0
-        if age > _STALE_CARRY_SECONDS:
-            _clear_marker(dest_boq)
-            return "cleared_stale"
-    return "running"
 
 
 # ── Source resolution (server-authoritative -- never trust the client for identity) ─
@@ -530,111 +477,6 @@ _APPLY_BLOCK_TITLE = {
 }
 
 
-# ── Endpoint: start the long carry job ─────────────────────────────────────────────
-@frappe.whitelist(methods=["POST"])
-def start_cross_boq_carry(source_boq=None, source_version=None, dest_boq=None,
-                          decisions_by_sheet=None) -> dict:
-    """Enqueue the whole-BOQ rate carry (a long job on the parse_run/classify pattern). Returns
-    immediately with the raw job_id. `decisions_by_sheet` = {sheet_name: [{dest_excel_row, area,
-    rate_kind, overwrite}, ...]} -- presence in a sheet's list = "carry this cell"; `overwrite`
-    matters ONLY for a conflict. The worker re-derives every outcome server-side (a client outcome
-    / target column / rate is never trusted). BOQ-scoped Redis marker; commit BEFORE the enqueue's
-    marker write mirrors classify.start_classify.
-    URL: /api/method/nirmaan_stack.api.boq.wizard.cross_boq_carry.start_cross_boq_carry
-    """
-    resolved_source = _require_revision(dest_boq)
-    _assert_source_boq_matches(dest_boq, source_boq, resolved_source)
-    decisions_by_sheet = _coerce_decisions(decisions_by_sheet)
-
-    # Double-fire guard + self-heal.
-    marker = _get_marker(dest_boq)
-    if marker and _maybe_self_heal(dest_boq, marker) == "running":
-        frappe.throw(
-            "A rate carry is already in progress for this BoQ. "
-            "Wait for it to finish before starting another.",
-            title="Carry in progress",
-        )
-
-    raw_job_id = frappe.generate_hash(length=32)
-    user = frappe.session.user
-    frappe.enqueue(
-        "nirmaan_stack.api.boq.wizard.cross_boq_carry._carry_rates_worker",
-        queue="long",
-        timeout=600,
-        job_id=raw_job_id,
-        user=user,
-        dest_boq=dest_boq,
-        decisions_by_sheet=decisions_by_sheet,
-    )
-    # Clear any stale terminal payload, set the marker, commit -- all AFTER a successful enqueue.
-    frappe.cache().delete_value(_status_key(dest_boq))
-    _set_marker(dest_boq, raw_job_id, user)
-    frappe.db.commit()
-    return {"status": "queued", "job_id": raw_job_id}
-
-
-def _carry_rates_worker(dest_boq=None, decisions_by_sheet=None, user=None) -> None:
-    """Background worker: loop the selected sheets with PER-SHEET failure isolation (one commit per
-    sheet, rollback-on-failure), then record + publish the terminal {carried, failed} payload. A
-    single sheet's held lock / incomplete formulas / unexpected error fails ONLY that sheet."""
-    decisions_by_sheet = decisions_by_sheet or {}
-    carried = 0
-    conflicts_overwritten = 0
-    conflicts_kept = 0
-    skipped = _zero_apply_skips()
-    failed = []
-
-    try:
-        for dest_row in _dest_committed_sheets(dest_boq):
-            sheet_name = dest_row.sheet_name
-            decisions = decisions_by_sheet.get(sheet_name)
-            if not decisions:
-                continue  # sheet not selected for this carry
-            ctx = _resolve_sheet_carry(dest_boq, dest_row)
-            if ctx is None:
-                failed.append({"sheet_name": sheet_name, "reason": "no_source"})
-                continue
-            try:
-                result, reason = _apply_sheet_carry(ctx, decisions, user)
-                if reason:
-                    failed.append({"sheet_name": sheet_name, "reason": reason})
-                    continue
-                carried += result["copied"] + result["conflicts_overwritten"]
-                conflicts_overwritten += result["conflicts_overwritten"]
-                conflicts_kept += result["conflicts_kept"]
-                for k, v in result["skipped"].items():
-                    skipped[k] += v
-            except Exception:
-                frappe.db.rollback()
-                frappe.log_error(
-                    title="BoQ cross-BOQ rate carry: sheet failed",
-                    message=f"sheet {sheet_name!r} of {dest_boq!r}\n\n{frappe.get_traceback()}",
-                )
-                failed.append({"sheet_name": sheet_name, "reason": "error"})
-
-        payload = {
-            "status": "success",
-            "boq_name": dest_boq,
-            "carried": carried,
-            "conflicts_overwritten": conflicts_overwritten,
-            "conflicts_kept": conflicts_kept,
-            "skipped": skipped,
-            "failed": failed,
-        }
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(title="BoQ cross-BOQ rate carry worker failed",
-                         message=frappe.get_traceback())
-        payload = {
-            "status": "error",
-            "boq_name": dest_boq,
-            "error_code": "carry_failed",
-            "carried": carried,
-            "failed": failed,
-        }
-    _publish_carry_event(dest_boq, user, payload)
-
-
 def _apply_sheet_carry(ctx: _SheetCarry, decisions, user, layers=None):
     """Apply ONE sheet's carry decisions. Returns (summary, None) on success (committed) or
     (None, reason) for a known-gate block ('locked_deliberate' | 'formulas_incomplete' | 'locked').
@@ -747,35 +589,6 @@ def _apply_sheet_carry(ctx: _SheetCarry, decisions, user, layers=None):
     return summary, None
 
 
-def _publish_carry_event(dest_boq, user, payload):
-    """Choke-point: record the terminal payload (Redis fallback), clear the marker, THEN publish.
-    Redis writes live outside the DB transaction, so they survive a worker rollback. Mirrors
-    classify._publish_classify_event."""
-    frappe.cache().set_value(_status_key(dest_boq), payload, expires_in_sec=_STATUS_TTL_SEC)
-    _clear_marker(dest_boq)
-    publish_kwargs = {"user": user} if user else {}
-    frappe.publish_realtime("boq:carry_rates_done", payload, **publish_kwargs)
-
-
-# ── Endpoint: polling fallback (on-mount recovery / reconnect self-heal for S10) ────
-@frappe.whitelist()
-def get_cross_boq_carry_status(dest_boq=None) -> dict:
-    """Polling fallback for a carry run, keyed by dest_boq. Same payload shape as the
-    boq:carry_rates_done socket event so one frontend handler serves both.
-    States: {"state":"done", **payload} | {"state":"running"} | {"state":"idle"}.
-    URL: /api/method/nirmaan_stack.api.boq.wizard.cross_boq_carry.get_cross_boq_carry_status
-    """
-    if not dest_boq:
-        frappe.throw("dest_boq is required.", title="Missing field: dest_boq")
-    term = frappe.cache().get_value(_status_key(dest_boq))
-    if term:
-        return {"state": "done", **term}
-    marker = _get_marker(dest_boq)
-    if marker and _maybe_self_heal(dest_boq, marker) == "running":
-        return {"state": "running"}
-    return {"state": "idle"}
-
-
 # ── Small shared guards / coercions ────────────────────────────────────────────────
 def _require_revision(dest_boq) -> str:
     """Validate dest_boq exists and is a revision (origin=revision with source_boq set), returning
@@ -856,17 +669,3 @@ def _coerce_layers(layers):
             "overwrite": pricing._coerce_bool(choice.get("overwrite")),
         }
     return out
-
-
-def _coerce_decisions(decisions_by_sheet):
-    """decisions_by_sheet may arrive as a JSON string over HTTP -> a dict of sheet_name -> list."""
-    if isinstance(decisions_by_sheet, str):
-        try:
-            decisions_by_sheet = json.loads(decisions_by_sheet or "{}")
-        except (ValueError, TypeError):
-            frappe.throw("decisions_by_sheet must be a JSON object.", title="Invalid decisions")
-    decisions_by_sheet = decisions_by_sheet or {}
-    if not isinstance(decisions_by_sheet, dict):
-        frappe.throw("decisions_by_sheet must be an object keyed by sheet_name.",
-                     title="Invalid decisions")
-    return decisions_by_sheet
