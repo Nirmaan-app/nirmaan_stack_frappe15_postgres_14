@@ -65,7 +65,7 @@ import {
 	type ImportReport,
 } from "./pricingTransforms";
 import { ImportReportDialog, reportIsNoop } from "./ImportReportDialog";
-import { REASON_NEEDS_HELPER, applyLiveFix, assessHit } from "./pricingLiveFix";
+import { REASON_NEEDS_HELPER, applyHelperFixesOffline, applyLiveFix, assessHit } from "./pricingLiveFix";
 import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
 
@@ -86,6 +86,17 @@ const M = "nirmaan_stack.api.pricing.workbook";
 
 /** Cap the advisory dialog's list; the rest are summarised as a count. */
 const MAX_LISTED_HITS = 25;
+
+/**
+ * A hit that the single "Fix all & save" action can fix (PW-2d v2 amendment): helper-FREE
+ * (rewritten in the live engine) OR helper-CLASS (materialized offline). Only a genuinely
+ * un-rewritable hit -- no sanctioned rewrite, or a declined inline array literal -- is saved
+ * as-is. Drives both the per-row status label and the footer's single primary action.
+ */
+function isAutoFixable(hit: FormulaScanHit): boolean {
+	const a = assessHit(hit);
+	return a.fixable || a.reason === REASON_NEEDS_HELPER;
+}
 
 type PageStatus =
 	| "loading" // scripts + first data read in flight
@@ -551,30 +562,50 @@ export function PricingWorkbookPage() {
 		return { sheets, hits };
 	}, [engineSupported]);
 
-	const handleFixHit = useCallback(
-		(hit: FormulaScanHit) => {
-			const res = applyLiveFix(window.luckysheet, hit);
-			if (!res.applied) {
-				setErrorMsg(res.reason || "That formula could not be fixed automatically.");
-				return;
-			}
-			const { sheets, hits } = rescanLive();
-			setPending({ kind: "save", sheets, hits });
-		},
-		[rescanLive]
-	);
-
-	const handleFixAll = useCallback(() => {
+	// PW-2d Option 3 (single-action dialog): "Fix all & save". Applies EVERY fixable hit
+	// then saves ONCE. The sequence, in order:
+	//   1. helper-FREE fixes into the LIVE engine first (guarded -- CAUTION #6).
+	//   2. ONE rescanLive -> the serialized payload (user edits + free fixes).
+	//   3. helper-CLASS hits fixed OFFLINE on that payload: materialize the helper columns with
+	//      pipeline-computed values + rewrite each hit, and store the hit's EXACT value where it
+	//      can be computed from the just-built helpers (else blank until recalc). NEVER a live
+	//      setCellValue on a non-active sheet -- that corrupts the sheet (CAUTION #6, abandoned
+	//      Option B); and NEVER a global refreshFormula -- it force-evaluates every formula and
+	//      cascades #NAME? across the workbook (CAUTION #7, abandoned step-6 re-entry).
+	//   4. ONE performSave (single version bump): user edits + free fixes + materialized helpers.
+	//   5. if any helper-class rewrite happened, re-init from the fixed sheets so the helpers LOAD
+	//      and the stored values DISPLAY (create() renders cached values -- no recompute, no #NAME?).
+	//   6. lastReport = the save-fix report.
+	const handleFixAndSave = useCallback(async () => {
 		if (!pending || pending.kind !== "save") return;
-		let anyApplied = false;
-		for (const hit of pending.hits) {
-			if (!assessHit(hit).fixable) continue;
-			if (applyLiveFix(window.luckysheet, hit).applied) anyApplied = true;
+		setBusy(true);
+		setErrorMsg("");
+		try {
+			// 1. helper-FREE fixes first, guarded, in the live engine.
+			for (const hit of pending.hits) {
+				if (assessHit(hit).fixable) applyLiveFix(window.luckysheet, hit);
+			}
+			// 2. ONE rescanLive -> serialized payload.
+			const { sheets, hits } = rescanLive();
+			// 3. helper-CLASS hits fixed OFFLINE on the payload.
+			const helperHits = hits.filter((h) => {
+				const a = assessHit(h);
+				return !a.fixable && a.reason === REASON_NEEDS_HELPER;
+			});
+			const { sheets: fixedSheets, report, rewrites } = applyHelperFixesOffline(sheets, helperHits);
+			// 4. ONE save (single version bump).
+			await performSave(fixedSheets);
+			// 5. Re-init from the fixed sheets so the helpers + stored values display.
+			if (rewrites.length) requestSheet(fixedSheets, true);
+			// 6. report.
+			setLastReport({ report, fileName: workbookTitle });
+			setPending(null);
+		} catch (e: any) {
+			setErrorMsg(e?.message || "Fix and save failed.");
+		} finally {
+			setBusy(false);
 		}
-		if (!anyApplied) return;
-		const { sheets, hits } = rescanLive();
-		setPending({ kind: "save", sheets, hits });
-	}, [pending, rescanLive]);
+	}, [pending, rescanLive, performSave, requestSheet, workbookTitle]);
 
 	const handleRelease = useCallback(async () => {
 		setBusy(true);
@@ -1033,23 +1064,19 @@ export function PricingWorkbookPage() {
 							<div className="space-y-3">
 								{pending?.kind === "save" && pending.hits.length > 0 ? (
 									<>
-										<div className="flex items-center justify-between gap-2">
-											<p>
-												{pending.hits.length} formula
-												{pending.hits.length === 1 ? "" : "s"} may not calculate correctly in the
-												pricing engine. Fix the eligible ones, or save anyway.
-											</p>
-											{pending.hits.some((h) => assessHit(h).fixable) && (
-												<Button size="sm" variant="outline" disabled={busy} onClick={handleFixAll}>
-													Fix all fixable
-												</Button>
-											)}
-										</div>
+										<p>
+											{pending.hits.length} formula
+											{pending.hits.length === 1 ? "" : "s"} may not calculate correctly in the
+											pricing engine.{" "}
+											{pending.hits.some(isAutoFixable)
+												? "The fixable ones are corrected automatically when you save."
+												: "None can be fixed automatically — they are saved as-is."}
+										</p>
 										<div className="max-h-72 overflow-y-auto rounded-md border border-border">
 											<table className="w-full text-xs">
 												<tbody>
 													{pending.hits.slice(0, MAX_LISTED_HITS).map((h, i) => {
-														const a = assessHit(h);
+														const fixable = isAutoFixable(h);
 														return (
 															<tr key={`${h.sheet}-${h.cell}-${i}`} className="border-b border-border last:border-0 align-top">
 																<td className="px-2 py-1 whitespace-nowrap font-medium text-foreground">
@@ -1062,18 +1089,14 @@ export function PricingWorkbookPage() {
 																	</div>
 																</td>
 																<td className="px-2 py-1 whitespace-nowrap text-right">
-																	{a.fixable ? (
-																		<Button
-																			size="sm"
-																			disabled={busy}
-																			onClick={() => handleFixHit(h)}
-																		>
-																			Fix
-																		</Button>
-																	) : a.reason === REASON_NEEDS_HELPER ? (
-																		<span className="text-muted-foreground">needs Replace from Excel</span>
+																	{fixable ? (
+																		<span className="text-emerald-600 dark:text-emerald-400">
+																			will be fixed
+																		</span>
 																	) : (
-																		<span className="text-muted-foreground">no automatic fix</span>
+																		<span className="text-muted-foreground">
+																			no automatic fix — saved as-is
+																		</span>
 																	)}
 																</td>
 															</tr>
@@ -1096,9 +1119,19 @@ export function PricingWorkbookPage() {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-						<AlertDialogAction disabled={busy} onClick={handlePendingConfirm}>
-							{pending?.kind === "save" && pending.hits.length ? "Save anyway" : "Save"}
-						</AlertDialogAction>
+						{/* PW-2d v2 amendment: ONE primary action. "Fix all & save" when anything is
+						    fixable (helper-free AND helper-class ride the same click); "Save anyway"
+						    when hits exist but none are fixable; "Save" when there are no hits. The
+						    old per-hit [Fix] / [Fix + save] buttons + save-without-fixing are gone. */}
+						{pending?.kind === "save" && pending.hits.length && pending.hits.some(isAutoFixable) ? (
+							<AlertDialogAction disabled={busy} onClick={handleFixAndSave}>
+								Fix all &amp; save
+							</AlertDialogAction>
+						) : (
+							<AlertDialogAction disabled={busy} onClick={handlePendingConfirm}>
+								{pending?.kind === "save" && pending.hits.length ? "Save anyway" : "Save"}
+							</AlertDialogAction>
+						)}
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>

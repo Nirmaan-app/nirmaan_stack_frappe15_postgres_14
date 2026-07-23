@@ -59,30 +59,36 @@ function sourceValue(index: Map<string, any>, r0: number, colIdx: number): any {
 const NUMERIC_LIKE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
 /**
- * Render one criterion the way the ENGINE will once the workbook is loaded.
+ * Canonicalize a raw cell value the way the ENGINE will once the workbook is loaded --
+ * returning the NORMALIZED value (a number for numeric-shaped input, else the string),
+ * or undefined when the cell is empty.
  *
  * ⚠️ CORPUS FACT, load-bearing: **LuckyExcel emits numeric cell values as UNTYPED
  * STRINGS** -- a cell holding 1 arrives as `{ v: "1.0" }` with no `ct.t === "n"`.
  * The engine normalizes it to the number 1 when it loads the workbook, so at runtime
- * its `A2&"|"&B2` key reads `...|1|...` while a key we built verbatim from the
- * converted JSON reads `...|1.0|...`. They never match and every helper-backed lookup
- * returns #N/A. Proven live twice in the PW-2b-i Tier-3 runs.
+ * its `A2&"|"&B2` key reads `...|1|...` while a key built verbatim from the converted
+ * JSON reads `...|1.0|...`. They never match and every helper-backed lookup returns #N/A.
+ * Proven live twice in the PW-2b-i Tier-3 runs.
  *
- * **NEVER TRUST `ct.t` ON CONVERTED (PRE-LOAD) CELLDATA.** Only the post-load cell
- * carries the numeric type, which is exactly what makes this trap convincing: inspect
- * the workbook in the browser and the type looks right. Canonicalize on the value's
- * SHAPE instead, which is what NUMERIC_LIKE is for.
+ * **NEVER TRUST `ct.t` ON CONVERTED (PRE-LOAD) CELLDATA.** Only the post-load cell carries
+ * the numeric type, which is exactly what makes this trap convincing: inspect the workbook
+ * in the browser and the type looks right. Canonicalize on the value's SHAPE (NUMERIC_LIKE).
+ *
+ * This is the SINGLE SOURCE for the criterion/helper-key canonicalization: `criterionText`
+ * (helper-key builder) and the PW-2d exact hit-value evaluator (`pricingHitEval`) both use it,
+ * so an offline-computed VLOOKUP key matches the materialized helper key by construction.
  */
-function criterionText(index: Map<string, any>, r0: number, colIdx: number): string | undefined {
-	const cell = index.get(`${r0}:${colIdx}`)?.v;
-	if (!cell) return undefined;
-	const raw = cell.v;
+export function canonicalizeCellValue(raw: any): number | string | undefined {
 	if (raw === undefined || raw === null || raw === "") return undefined;
-	if (typeof raw === "number") return String(raw);
-	if (typeof raw === "string" && NUMERIC_LIKE.test(raw.trim())) {
-		return String(Number(raw.trim())); // "1.0" -> "1", "1.50" -> "1.5"
-	}
+	if (typeof raw === "number") return raw;
+	if (typeof raw === "string" && NUMERIC_LIKE.test(raw.trim())) return Number(raw.trim()); // "1.0" -> 1
 	return String(raw); // "007", "COPPER", "1-2" -- untouched
+}
+
+/** The criterion as the ENGINE's `&` renders it: the canonical value stringified. */
+function criterionText(index: Map<string, any>, r0: number, colIdx: number): string | undefined {
+	const v = canonicalizeCellValue(index.get(`${r0}:${colIdx}`)?.v?.v);
+	return v === undefined ? undefined : String(v);
 }
 
 /**
@@ -111,9 +117,32 @@ export function sheetHasHelpers(sheet: any): boolean {
  * helpers VISIBLE -- hiding is the PW-2b-i spec's call, and it keeps a re-imported
  * sheet looking like the original.
  *
+/** Options for materializeHelpers. */
+export interface MaterializeOptions {
+	/**
+	 * Write EVERY ledgered pair unconditionally, bypassing the per-sheet `_mk`
+	 * pre-existing skip (default false).
+	 *
+	 * ⚠️ ONLY the SAVE-TIME helper fix (PW-2d `applyHelperFixes`) passes `force: true`,
+	 * and only because its pairs are NEW BY CONSTRUCTION: the allocator was seeded from
+	 * `maxColsBySheet`, so every column it minted lands strictly BEYOND the sheet's
+	 * existing content (recon Q4). Without `force`, a save-time fix on a sheet that
+	 * already carries import-generated `_mk` helpers would be skipped as "pre-existing"
+	 * while the rewritten VLOOKUP still pointed at the un-written columns -> #N/A (the
+	 * cross-run strand hazard). The IMPORT path passes NOTHING here, keeping the skip
+	 * that stops a re-import from duplicating helpers.
+	 */
+	force?: boolean;
+}
+
+/**
  * Returns the records actually written (skipped sheets are marked `reused: true`).
  */
-export function materializeHelpers(sheets: any[], ledger: HelperRecord[]): HelperRecord[] {
+export function materializeHelpers(
+	sheets: any[],
+	ledger: HelperRecord[],
+	options: MaterializeOptions = {}
+): HelperRecord[] {
 	if (!ledger.length) return [];
 	const byName = new Map<string, any>();
 	for (const s of sheets || []) byName.set(s?.name, s);
@@ -126,8 +155,12 @@ export function materializeHelpers(sheets: any[], ledger: HelperRecord[]): Helpe
 	// would then see the marker and skip every LATER pair on that sheet -- while the
 	// rewritten formulas still pointed at those columns, leaving them empty. That bug
 	// shipped into a live Tier-3 run and is what this snapshot prevents.
+	//
+	// `force` (save-time) bypasses the skip entirely -- see MaterializeOptions.
 	const preExisting = new Set<string>();
-	for (const s of sheets || []) if (sheetHasHelpers(s)) preExisting.add(s?.name);
+	if (!options.force) {
+		for (const s of sheets || []) if (sheetHasHelpers(s)) preExisting.add(s?.name);
+	}
 
 	const written: HelperRecord[] = [];
 	for (const rec of ledger) {
@@ -137,7 +170,7 @@ export function materializeHelpers(sheets: any[], ledger: HelperRecord[]): Helpe
 			continue;
 		}
 		// Idempotency: a sheet that already had generated helpers BEFORE this run keeps
-		// them (a re-import must not duplicate columns).
+		// them (a re-import must not duplicate columns). Never true under `force`.
 		if (preExisting.has(rec.sheet)) {
 			written.push({ ...rec, reused: true });
 			continue;

@@ -72,6 +72,8 @@ interface Row {
 	newF: string;
 	note?: string;
 	tone: "normal" | "frozen" | "flagged" | "declined";
+	// PW-2d save-fix rows only: whether the value was computed at once or is blank until recalc.
+	valueComputed?: boolean;
 }
 
 function buildRows(r: ImportReport): Row[] {
@@ -85,6 +87,7 @@ function buildRows(r: ImportReport): Row[] {
 			newF: t.newF ?? "",
 			note: t.note,
 			tone: "normal",
+			valueComputed: t.valueComputed,
 		});
 	}
 	for (const f of r.frozen) {
@@ -161,6 +164,17 @@ function ReportBody({ report }: { report: ImportReport }) {
 									<td className="px-2 py-1">
 										<code className="break-all text-muted-foreground line-through">{row.oldF}</code>
 										<div className="break-all text-foreground mt-0.5">{row.newF}</div>
+										{row.valueComputed !== undefined && (
+											<div
+												className={`mt-0.5 ${
+													row.valueComputed
+														? "text-emerald-600 dark:text-emerald-400"
+														: "text-muted-foreground"
+												}`}
+											>
+												{row.valueComputed ? "value computed" : "blank until recalc"}
+											</div>
+										)}
 										{row.note && (
 											<div
 												className={`mt-0.5 ${
@@ -215,11 +229,15 @@ export function ImportReportDialog({
 }: ImportReportDialogProps) {
 	const showReport = !reportIsNoop(report);
 
+	// PW-2d: a re-opened save-fix report reads "Fixed at save", not "Import report".
+	const isSaveFix = report?.origin === "save-fix";
 	const title =
 		variant === "replace"
 			? "Replace this workbook?"
 			: variant === "import"
 			? "Import this workbook?"
+			: isSaveFix
+			? "Fixed at save"
 			: "Import report";
 
 	return (

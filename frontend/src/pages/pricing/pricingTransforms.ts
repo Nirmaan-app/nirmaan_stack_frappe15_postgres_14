@@ -58,6 +58,9 @@ export interface TransformRecord {
 	newF: string | null; // null when frozen (formula removed, cached value kept)
 	note?: string;
 	helpers?: string[]; // e.g. ["Switches & Sockets!N:O"]
+	// PW-2d save-fix only: whether the rewritten cell's value was computed EXACTLY and stored
+	// (so it displays at once) vs left blank until the next recalc. Undefined for import.
+	valueComputed?: boolean;
 }
 
 export interface AbstainRecord {
@@ -96,6 +99,12 @@ export interface ImportReport {
 	clamp: ClampRecord[];
 	counts: Record<string, number>;
 	perSheet: Record<string, { transforms: number; frozen: number; abstained: number }>;
+	/**
+	 * Where this report came from (PW-2d). Labeling only -- the dialog reads it for its
+	 * heading; nothing in the pipeline branches on it. Absent/`"import"` = the import or
+	 * replace pipeline; `"save-fix"` = a save-time helper-class fix (`applyHelperFixes`).
+	 */
+	origin?: "import" | "save-fix";
 }
 
 export function emptyReport(): ImportReport {
