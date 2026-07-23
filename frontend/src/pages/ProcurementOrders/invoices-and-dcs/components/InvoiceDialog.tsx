@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
@@ -51,6 +52,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LineItemMappingReview, LineMatch } from "./LineItemMappingReview";
 
 type DocumentType = ProcurementOrder | ServiceRequests;
 
@@ -72,6 +74,34 @@ const initialInvoiceState = {
   invoice_no: "",
   amount: "",
   date: "",
+  is_credit_note: false,
+};
+
+// --- Credit / return note sign helpers ---
+// Force an amount string negative (credit / return note). "" / non-numeric → unchanged.
+const forceNegativeAmount = (amt: string): string => {
+  const n = Number(String(amt).replace(/,/g, ""));
+  if (!amt || !isFinite(n) || n === 0) return amt;
+  return String(-Math.abs(n));
+};
+
+// Apply a sign to every row's quantity — negative for a return note, positive otherwise.
+const applyQtySign = <T extends { quantity?: any }>(
+  rows: T[] | null,
+  negative: boolean
+): T[] | null => {
+  if (!Array.isArray(rows)) return rows;
+  return rows.map((r) => {
+    const q = Number(r?.quantity);
+    if (!isFinite(q) || q === 0) return r;
+    return { ...r, quantity: negative ? -Math.abs(q) : Math.abs(q) };
+  });
+};
+
+// Apply the sign to a lineMatch object's mappings[].quantity.
+const applyMatchQtySign = (lm: any, negative: boolean): any => {
+  if (!lm || !Array.isArray(lm.mappings)) return lm;
+  return { ...lm, mappings: applyQtySign(lm.mappings, negative) };
 };
 
 export function InvoiceDialog<T extends DocumentType>({
@@ -80,13 +110,17 @@ export function InvoiceDialog<T extends DocumentType>({
   docMutate,
   vendor,
 }: InvoiceDialogProps<T>) {
-  const { 
+  const {
     toggleNewInvoiceDialog, newInvoiceDialog,
     toggleEditInvoiceDialog, editInvoiceDialog,
-    selectedInvoice, setSelectedInvoice
+    selectedInvoice, setSelectedInvoice,
+    newInvoiceIsCredit
   } = useDialogStore();
   const { mutate: globalMutate } = useSWRConfig();
   const userData = useUserData();
+  // Nirmaan Admins may edit the AI line-item mapping even after an invoice is Approved
+  // (backend update_invoice_data mirrors this: admin can rebuild a locked mapping).
+  const isNirmaanAdmin = userData?.user_id === "Administrator" || userData?.role === "Nirmaan Admin Profile";
 
   const isEditMode = !!selectedInvoice;
   const isOpen = newInvoiceDialog || editInvoiceDialog;
@@ -107,7 +141,7 @@ export function InvoiceDialog<T extends DocumentType>({
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Autofill state
-  const [stage, setStage] = useState<"upload" | "form">("upload");
+  const [stage, setStage] = useState<"upload" | "review" | "form">("upload");
   const [isAutofilling, setIsAutofilling] = useState(false);
   const [autofilledFields, setAutofilledFields] = useState<Set<"invoice_no" | "date" | "amount">>(new Set());
   const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
@@ -135,6 +169,11 @@ export function InvoiceDialog<T extends DocumentType>({
     supplier_gstin?: { extracted: string; expected: string; match: boolean | null; message: string | null } | null;
     receiver_gstin?: { extracted: string; expected: string; match: boolean | null; message: string | null } | null;
   } | null>(null);
+  // Line-item extraction + PO mapping (PO invoices with a line-item table only).
+  const [lineItems, setLineItems] = useState<any[] | null>(null);
+  const [poItemsForMatch, setPoItemsForMatch] = useState<any[] | null>(null);
+  const [lineMatch, setLineMatch] = useState<LineMatch | null>(null);
+  const [rawExtraction, setRawExtraction] = useState<any | null>(null);
 
   // API hooks
   const { call: updateInvoiceApiCall, loading: updateInvoiceApiCallLoading } =
@@ -156,6 +195,36 @@ export function InvoiceDialog<T extends DocumentType>({
     isEditMode && selectedInvoice?.invoice_attachment ? `Nirmaan-Attachment-${selectedInvoice.invoice_attachment}` : null
   );
 
+  // Editing a Pending invoice, you can REPLACE the file to re-run autofill and
+  // pull the exact values again (fields + line-item mapping) — all in this one
+  // dialog, no separate review step. A Pending PO invoice additionally gets its
+  // line → PO-item mapping rebuilt from the fresh extraction on save.
+  const canReExtract = isEditMode && (
+    selectedInvoice?.status === "Pending" ||
+    (isNirmaanAdmin && selectedInvoice?.status === "Approved")   // admins can also fix approved invoices
+  );
+  const canEditMapping = canReExtract && docType === "Procurement Orders";
+  // True once a replaced file has actually been re-extracted (drives rebuild).
+  const [reExtracted, setReExtracted] = useState(false);
+
+  // Load the invoice's existing auto-fill snapshot (line mapping + extracted
+  // entities) + PO items, so a Pending PO invoice's prior extraction is shown
+  // inline and editable. The fresh re-extraction (file replace) takes over.
+  const { data: savedInvoiceDoc } = useFrappeGetDoc<{
+    autofill_line_match_json?: string;
+    autofill_all_entities_json?: string;
+  }>(
+    "Vendor Invoices",
+    selectedInvoice?.name,
+    canEditMapping && selectedInvoice?.name ? `Invoice-Edit-Snapshot-${selectedInvoice.name}` : null
+  );
+
+  const { data: poDocForEdit } = useFrappeGetDoc<{ items?: any[] }>(
+    "Procurement Orders",
+    docName,
+    canEditMapping ? `Invoice-Edit-PO-${docName}` : null
+  );
+
   // Reset form when dialog closes or Populate when editing
   useEffect(() => {
     if (isOpen) {
@@ -164,11 +233,18 @@ export function InvoiceDialog<T extends DocumentType>({
           invoice_no: selectedInvoice.invoice_no || "",
           amount: String(selectedInvoice.invoice_amount || ""),
           date: selectedInvoice.invoice_date || "",
+          is_credit_note: !!selectedInvoice.is_credit_note,
         });
         // Edit mode skips the upload-first stage.
         setStage("form");
       } else {
-        setInvoiceData(initialInvoiceState);
+        // Add mode: the entry button decides credit-note-ness (Add Credit -> true), but ONLY
+        // for POs. Service Requests have no "Add Credit", so they always open as a normal invoice
+        // (guards against a stale store flag from a prior PO "Add Credit").
+        setInvoiceData({
+          ...initialInvoiceState,
+          is_credit_note: docType === "Procurement Orders" ? newInvoiceIsCredit : false,
+        });
         setStage("upload");
       }
       setSelectedAttachment(null);
@@ -180,8 +256,13 @@ export function InvoiceDialog<T extends DocumentType>({
       setAutofillExtractedValues(null);
       setAutofillAllEntities(null);
       setAutofillValidation(null);
+      setLineItems(null);
+      setPoItemsForMatch(null);
+      setLineMatch(null);
+      setRawExtraction(null);
+      setReExtracted(false);
     }
-  }, [isOpen, selectedInvoice]);
+  }, [isOpen, selectedInvoice, newInvoiceIsCredit]);
 
   // Reset autofill state when user picks a different file
   useEffect(() => {
@@ -191,7 +272,45 @@ export function InvoiceDialog<T extends DocumentType>({
     setAutofillExtractedValues(null);
     setAutofillAllEntities(null);
     setAutofillValidation(null);
+    setLineItems(null);
+    setPoItemsForMatch(null);
+    setLineMatch(null);
+    setRawExtraction(null);
+    setReExtracted(false);
   }, [selectedAttachment]);
+
+  // Edit mode: show the invoice's existing auto-filled mapping + entities inline
+  // (pre-populated) once the snapshot + PO items load. Once the file is
+  // re-extracted, the fresh data wins — don't overwrite it here.
+  useEffect(() => {
+    if (!canEditMapping || reExtracted) return;
+    const raw = savedInvoiceDoc?.autofill_line_match_json;
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as LineMatch;
+      if (!parsed || !Array.isArray(parsed.mappings)) return;
+      setLineMatch(parsed);
+      setPoItemsForMatch(
+        (poDocForEdit?.items || []).map((it: any) => ({
+          item_id: it.item_id,
+          item_name: it.item_name,
+          unit: it.unit,
+          quantity: it.quantity,
+          received_quantity: it.received_quantity,
+          quote: it.quote,
+          amount: it.amount,
+        }))
+      );
+      let entities: any[] = [];
+      try {
+        const e = savedInvoiceDoc?.autofill_all_entities_json
+          ? JSON.parse(savedInvoiceDoc.autofill_all_entities_json)
+          : [];
+        if (Array.isArray(e)) entities = e;
+      } catch { /* ignore malformed entities snapshot */ }
+      setRawExtraction({ entities });
+    } catch { /* ignore malformed mapping snapshot */ }
+  }, [canEditMapping, reExtracted, savedInvoiceDoc?.autofill_line_match_json, savedInvoiceDoc?.autofill_all_entities_json, poDocForEdit]);
 
   // Handle closing manually to clear selectedInvoice
   const handleClose = useCallback(() => {
@@ -293,7 +412,11 @@ export function InvoiceDialog<T extends DocumentType>({
       const fileUrl = uploaded.file_url;
       setUploadedFileUrl(fileUrl);
 
-      const response = await extractInvoiceFieldsApi({ file_url: fileUrl });
+      const response = await extractInvoiceFieldsApi({
+        file_url: fileUrl,
+        // PO invoices get line-item extraction + PO mapping; SR invoices don't.
+        docname: docType === "Procurement Orders" ? docName : undefined,
+      });
       const extracted = response?.message;
       if (!extracted) {
         toast({
@@ -301,6 +424,7 @@ export function InvoiceDialog<T extends DocumentType>({
           description: "AI could not extract any fields. Please fill in manually.",
           variant: "default",
         });
+        setStage("form");
         return;
       }
 
@@ -322,6 +446,15 @@ export function InvoiceDialog<T extends DocumentType>({
       if (extracted.amount) {
         updates.amount = extracted.amount;
         filled.add("amount");
+      }
+
+      // Credit-note handling (driven by the entry button + Gemini):
+      //   Add Credit  (is_credit_note = true)                  -> AMOUNT negative, QTY unchanged.
+      //   Add Invoice (is_credit_note = false) + Gemini credit -> AMOUNT negative AND QTY negative
+      //                                                            (a return note that reduces qty).
+      const creditNote = !!extracted.credit_note_detected;
+      if ((invoiceData.is_credit_note || creditNote) && updates.amount) {
+        updates.amount = forceNegativeAmount(updates.amount);
       }
 
       setInvoiceData((prev) => ({ ...prev, ...updates }));
@@ -352,6 +485,20 @@ export function InvoiceDialog<T extends DocumentType>({
         setAutofillValidation(extracted.validation);
       }
 
+      // Capture line items + the PO mapping (PO invoices only). When present we
+      // route through a dedicated Review step so the user can verify/correct the
+      // mapping before the final form.
+      setRawExtraction(extracted);
+      // Return note: Gemini says credit note AND it was added via "Add Invoice"
+      // (is_credit_note = false) → line quantities go negative (reduces invoiced qty).
+      // An "Add Credit" credit note keeps qty positive (excluded from invoice_qty entirely).
+      const qtyNegative = creditNote && !invoiceData.is_credit_note;
+      const hasLineItems = Array.isArray(extracted.line_items) && extracted.line_items.length > 0;
+      if (hasLineItems) setLineItems(applyQtySign(extracted.line_items, qtyNegative));
+      if (Array.isArray(extracted.po_items)) setPoItemsForMatch(extracted.po_items);
+      const hasMapping = !!extracted.line_match && Array.isArray(extracted.line_match.mappings);
+      if (hasMapping) setLineMatch(applyMatchQtySign(extracted.line_match, qtyNegative));
+
       if (filled.size === 0) {
         toast({
           title: "No high-confidence fields found",
@@ -365,6 +512,12 @@ export function InvoiceDialog<T extends DocumentType>({
           variant: "success",
         });
       }
+      // EDIT never steps through the review screen — the fresh extraction
+      // (fields + mapping) is applied inline and we stay on the form. CREATE
+      // shows the CONTENT form first; the PO line-item mapping is verified in the
+      // dedicated Review step only AFTER the content page passes its validation.
+      if (isEditMode) setReExtracted(true);
+      setStage("form");
     } catch (error) {
       console.error("Auto-fill error:", error);
       toast({
@@ -375,20 +528,20 @@ export function InvoiceDialog<T extends DocumentType>({
             : "Could not extract fields from invoice. Please fill in manually.",
         variant: "destructive",
       });
+      setStage("form");
     } finally {
       setIsAutofilling(false);
-      // Advance to the form stage regardless of success/failure — user can
-      // always edit fields manually if extraction misses anything.
-      setStage("form");
     }
-  }, [docName, docType, upload, extractInvoiceFieldsApi]);
+  }, [docName, docType, upload, extractInvoiceFieldsApi, isEditMode, invoiceData.is_credit_note]);
 
   const handleAttachmentSelect = useCallback((file: File | null) => {
     setSelectedAttachment(file);
-    if (file && !isEditMode) {
+    // Create, OR replacing the file while editing a Pending invoice → re-run
+    // autofill so the exact values (fields + mapping) come back.
+    if (file && (!isEditMode || canReExtract)) {
       runAutofillExtraction(file);
     }
-  }, [isEditMode, runAutofillExtraction]);
+  }, [isEditMode, canReExtract, runAutofillExtraction]);
 
   const clearAutofillFlag = useCallback((field: "invoice_no" | "date" | "amount") => {
     setAutofilledFields((prev) => {
@@ -416,17 +569,25 @@ export function InvoiceDialog<T extends DocumentType>({
         attachmentUrl = await uploadInvoice();
       }
 
-      // Prepare API payload
+      // Prepare API payload. Credit notes are stored with a NEGATIVE amount so they're
+      // excluded from the PO's invoiced quantity (same rule the backfill/recompute use);
+      // regular invoices stay positive.
+      const parsedAmount = parseNumber(invoiceData.amount);
       const invoicePayloadForApi = {
         invoice_no: invoiceData.invoice_no.trim(),
-        amount: parseNumber(invoiceData.amount),
+        amount: invoiceData.is_credit_note ? -Math.abs(parsedAmount || 0) : parsedAmount,
         date: invoiceData.date,
+        is_credit_note: invoiceData.is_credit_note ? 1 : 0,
         updated_by: userData?.user_id,
       };
 
       // Only mark as autofilled if at least one field was AI-extracted
       // and we're creating a new invoice (not editing).
       const autofillUsed = !isEditMode && autofilledFields.size > 0;
+      // Edit-mode mapping rebuild: a Pending PO invoice with a mapping shown
+      // inline (loaded from the snapshot, re-extracted, or edited). Rebuilding
+      // from an unchanged mapping is a no-op. Backend re-guards on status.
+      const rebuildMappings = canEditMapping && !!lineMatch;
 
       const apiPayload = {
         docname: docName,
@@ -450,13 +611,23 @@ export function InvoiceDialog<T extends DocumentType>({
         autofill_extracted_receiver_gstin:
           autofillUsed ? (autofillExtractedValues?.receiver_gstin || null) : null,
         autofill_all_entities_json:
-          autofillUsed && autofillAllEntities && autofillAllEntities.length > 0
+          (autofillUsed || rebuildMappings) && autofillAllEntities && autofillAllEntities.length > 0
             ? JSON.stringify(autofillAllEntities)
             : null,
+        // Line items + the PO mapping (fresh on create; re-extracted on edit).
+        autofill_line_items_json:
+          (autofillUsed || rebuildMappings) && lineItems && lineItems.length > 0
+            ? JSON.stringify(lineItems)
+            : null,
+        autofill_line_match_json:
+          (autofillUsed || rebuildMappings) && lineMatch ? JSON.stringify(lineMatch) : null,
         // Source file_url AI extracted from. Backend's auto-approve gate 13
         // confirms the saved invoice_attachment maps to the same file (no swap
         // between auto-fill and submit).
         autofill_source_file_url: autofillUsed ? (uploadedFileUrl || null) : null,
+        // Rebuild the child line_mappings from the corrected mapping (edit of a
+        // Pending PO invoice); backend re-guards on status.
+        rebuild_line_mappings: rebuildMappings,
       };
 
       const response = await updateInvoiceApiCall(apiPayload);
@@ -478,6 +649,12 @@ export function InvoiceDialog<T extends DocumentType>({
           )
         );
         globalMutate("Recon-Total-Invoiced-By-Document");
+        // Also refresh the PO/WO Invoices reconciliation pages (keyless
+        // useFrappeGetCall → default SWR key is the request URL; match by method name).
+        globalMutate((key) => {
+          const k = typeof key === "string" ? key : JSON.stringify(key ?? "");
+          return k.includes("po_wise_invoice_data") || k.includes("sr_wise_invoice_data");
+        });
         handleClose();
       } else {
         throw new Error(
@@ -511,6 +688,10 @@ export function InvoiceDialog<T extends DocumentType>({
     autofillExtractedValues,
     autofillAllEntities,
     uploadedFileUrl,
+    canEditMapping,
+    reExtracted,
+    lineMatch,
+    lineItems,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -566,6 +747,41 @@ export function InvoiceDialog<T extends DocumentType>({
     submitInvoice();
   }, [submitInvoice]);
 
+  // Add flow: the content page must validate before the user can reach the
+  // line-item mapping. Mirrors handleSubmit's required-field + hard-duplicate
+  // guards, but advances to the Review (mapping) step instead of submitting.
+  // (Amount-overage / GST-mismatch are already enforced via the button's disabled
+  // state, identical to Submit.)
+  const handleContinueToMapping = useCallback(() => {
+    if (!invoiceData.date || !invoiceData.invoice_no.trim() || !invoiceData.amount) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill all required fields (Invoice No, Date, Amount).",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!isEditMode && !selectedAttachment) {
+      toast({
+        title: "Validation Error",
+        description: "Please attach an invoice file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (duplicateCheckResult?.exists_in_current_doc) {
+      toast({
+        title: "Duplicate Invoice",
+        description: `Invoice number "${invoiceData.invoice_no}" already exists in this ${
+          docType === "Procurement Orders" ? "Purchase Order" : "Service Request"
+        }.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setStage("review");
+  }, [invoiceData, duplicateCheckResult, docType, isEditMode, selectedAttachment]);
+
   const isLoading = uploadLoading || updateInvoiceApiCallLoading;
 
   // Determine validation state for UI
@@ -589,11 +805,17 @@ export function InvoiceDialog<T extends DocumentType>({
   // amount field, so editing the value clears or re-triggers the warning.
   // Falls back to the autofill snapshot's PO total + existing-invoiced sum.
   const liveAmountValidation = useMemo(() => {
-    if (!autofillValidation?.applicable || !autofillValidation.amount || isEditMode) {
+    if (!autofillValidation?.applicable || !autofillValidation.amount) {
       return null;
     }
     const poTotal = autofillValidation.amount.po_total;
-    const existing = autofillValidation.amount.existing_invoiced_sum;
+    // When editing, this invoice is already inside existing_invoiced_sum — subtract its
+    // ORIGINAL amount so we don't double-count it (mirrors the backend's exclude_invoice_id
+    // in update_invoice_data._check_po_amount_overage).
+    const rawExisting = autofillValidation.amount.existing_invoiced_sum;
+    const existing = isEditMode
+      ? Math.max(0, rawExisting - (parseNumber(selectedInvoice?.invoice_amount) || 0))
+      : rawExisting;
     const current = parseNumber(invoiceData.amount) || 0;
     if (poTotal <= 0 || current <= 0) return null;
     const wouldBeTotal = existing + current;
@@ -607,14 +829,15 @@ export function InvoiceDialog<T extends DocumentType>({
       wouldBeTotal,
       wouldExceed,
     };
-  }, [autofillValidation, invoiceData.amount, isEditMode]);
+  }, [autofillValidation, invoiceData.amount, isEditMode, selectedInvoice]);
 
+  // Block on a GSTIN mismatch on BOTH create and edit. In edit these only carry a value
+  // after the attachment is replaced (a fresh extraction), so an edit that doesn't touch
+  // the file is unaffected; replacing it with a wrong-GSTIN invoice is now blocked too.
   const supplierGstinMismatch =
-    !isEditMode &&
     autofillValidation?.supplier_gstin?.match === false &&
     !!autofillValidation.supplier_gstin.message;
   const receiverGstinMismatch =
-    !isEditMode &&
     autofillValidation?.receiver_gstin?.match === false &&
     !!autofillValidation.receiver_gstin.message;
   // "Couldn't verify" cases — vendor/project has a GSTIN configured but AI
@@ -640,13 +863,13 @@ export function InvoiceDialog<T extends DocumentType>({
         open={isOpen}
         onOpenChange={(open) => !open && !isLoading && !isAutofilling ? handleClose() : undefined}
       >
-        <AlertDialogContent className="max-w-lg p-0 gap-0 overflow-hidden">
+        <AlertDialogContent className={cn("p-0 gap-0 overflow-hidden", (stage === "review" || (canEditMapping && !!lineMatch)) ? "max-w-3xl" : "max-w-lg")}>
           {/* Header */}
           <div className="bg-gray-50/80 px-6 py-4 border-b">
             <AlertDialogHeader className="space-y-1">
               <AlertDialogTitle className="flex items-center gap-2 text-lg font-semibold">
                 <FileText className="h-5 w-5 text-primary" />
-                {isEditMode ? "Edit Invoice" : "Add Invoice"}
+                {isEditMode ? "Edit Invoice" : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
               </AlertDialogTitle>
               <AlertDialogDescription className="text-sm text-muted-foreground">
                 {isEditMode 
@@ -706,10 +929,44 @@ export function InvoiceDialog<T extends DocumentType>({
                 </div>
               )}
             </div>
-          ) : (
-            // ───────── Stage 2: Form (prefilled if autofill ran) ─────────
+          ) : stage === "review" && lineMatch ? (
+            // ───────── Stage 2: Review extraction + verify PO mapping ─────────
             <>
-          <div className="px-6 py-5 space-y-4">
+              <div className="px-6 py-4 max-h-[65vh] overflow-y-auto">
+                <LineItemMappingReview
+                  extracted={rawExtraction}
+                  poItems={poItemsForMatch || []}
+                  lineMatch={lineMatch}
+                  onChange={setLineMatch}
+                  editableQty
+                />
+              </div>
+              <div className="bg-gray-50/80 px-6 py-4 border-t flex items-center justify-between gap-3">
+                <Button variant="outline" onClick={() => setStage("form")} disabled={isLoading}>
+                  Back
+                </Button>
+                <Button onClick={handleSubmit} disabled={isLoading || isAutofilling}>
+                  {isLoading ? "Processing..." : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            // ───────── Stage 3: Form (prefilled if autofill ran) ─────────
+            <>
+          <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+            {/* Credit-note warning — pinned at the top so it's the first thing seen. */}
+            {invoiceData.is_credit_note && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-snug">
+                  <p className="font-medium">Credit Note</p>
+                  <p className="mt-0.5">
+                    This invoice will <b>not</b> affect the PO's invoiced quantity (the Purchase Order
+                    <i> invoice_qty</i>). Its amount is stored as negative and excluded from the PO's invoiced total.
+                  </p>
+                </div>
+              </div>
+            )}
             {!isEditMode && autofilledFields.size > 0 && (
               <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 -mt-1">
                 <Sparkles className="h-3.5 w-3.5 text-amber-700 flex-shrink-0" />
@@ -718,6 +975,7 @@ export function InvoiceDialog<T extends DocumentType>({
                 </span>
               </div>
             )}
+
 
             {/* Hard-block banner: amount overage on PO */}
             {liveAmountValidation?.wouldExceed && (
@@ -927,6 +1185,28 @@ export function InvoiceDialog<T extends DocumentType>({
               </div>
             </div>
 
+            {/* Credit Note — read-only indicator, shown ONLY when editing an invoice that
+                actually IS a credit note. Hidden for normal invoices (no noise) and in add
+                mode the "Add Invoice" / "Add Credit" entry button already decides it. */}
+            {isEditMode && invoiceData.is_credit_note && (
+              <div className="flex items-start gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                <Checkbox
+                  id="is_credit_note"
+                  checked={invoiceData.is_credit_note}
+                  disabled
+                  className="mt-0.5"
+                />
+                <div className="text-sm leading-snug">
+                  <Label htmlFor="is_credit_note" className="font-medium">
+                    Credit Note
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Read-only. Credit notes are excluded from the PO's invoiced quantity.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Attachment */}
             <div className="space-y-1.5">
               <Label className="text-sm font-medium">
@@ -942,7 +1222,7 @@ export function InvoiceDialog<T extends DocumentType>({
                 disabled={isLoading || isAutofilling}
               />
 
-              {!isEditMode && isAutofilling && (
+              {isAutofilling && (
                 <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
                   <Loader2 className="h-4 w-4 text-amber-700 animate-spin" />
                   <span className="text-xs text-amber-900">
@@ -950,7 +1230,7 @@ export function InvoiceDialog<T extends DocumentType>({
                   </span>
                 </div>
               )}
-              {!isEditMode && !isAutofilling && autofilledFields.size > 0 && (
+              {!isAutofilling && autofilledFields.size > 0 && (
                 <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
                   <Sparkles className="h-3.5 w-3.5 text-amber-700" />
                   <span className="text-xs text-amber-900">
@@ -982,6 +1262,22 @@ export function InvoiceDialog<T extends DocumentType>({
                 </div>
               )}
             </div>
+
+            {/* Existing / re-extracted line-item mapping — shown inline & editable. */}
+            {canEditMapping && lineMatch && (
+              <div className="space-y-1.5">
+                <Label className="text-sm font-medium">Line items &amp; PO mapping</Label>
+                <div className="rounded-md border p-3">
+                  <LineItemMappingReview
+                    extracted={rawExtraction}
+                    poItems={poItemsForMatch || []}
+                    lineMatch={lineMatch}
+                    onChange={setLineMatch}
+                    editableQty
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -997,13 +1293,14 @@ export function InvoiceDialog<T extends DocumentType>({
                     Cancel
                 </Button>
                 <Button
-                  onClick={handleSubmit}
+                  onClick={!isEditMode && lineMatch ? handleContinueToMapping : handleSubmit}
                   disabled={
                     !invoiceData.date ||
                     !invoiceData.invoice_no.trim() ||
                     !invoiceData.amount ||
                     (!isEditMode && !selectedAttachment) ||
                     isLoading ||
+                    isAutofilling ||
                     validationState === "error" ||
                     validationState === "checking" ||
                     !!liveAmountValidation?.wouldExceed ||
@@ -1011,7 +1308,9 @@ export function InvoiceDialog<T extends DocumentType>({
                     receiverGstinMismatch
                   }
                 >
-                  {isEditMode ? "Update Invoice" : "Add Invoice"}
+                  {!isEditMode && lineMatch
+                    ? "Continue to line items →"
+                    : isEditMode ? "Update Invoice" : invoiceData.is_credit_note ? "Add Credit Note" : "Add Invoice"}
                 </Button>
               </>
             )}
