@@ -2014,3 +2014,125 @@ advisory — it is now declared beside that consumer. `revisionCarryReport.forma
 
 **Suite deltas:** `CrossBoqCarryDialog.test.ts` 14 → **49**; boq-wizard vitest **684** / 32 files;
 `tsc --noEmit` clean; residence holds.
+
+---
+
+## Template review — qty review block + quantity keyboard nav (2026-07-23)
+
+Two changes to the create-from-template review phase (`ReviewTree` in `templateOrigin` mode), plus the
+lock-sequencing fix the second one forced.
+
+### 1. The "needs a quantity" REVIEW BLOCK (replaces the T10 one-line advisory)
+
+The old surface was a muted `N selected line items have no quantity.` — a bare count with no addresses,
+while the Finalize gate stayed disabled. On a long sheet the offending rows could be collapsed or
+filtered out of sight. Worse, the sentence was stale: the rule had widened to **missing OR zero OR
+negative**, so a reviewer hunting for a blank cell would never find the row holding `-5`.
+
+The RULE is unchanged (`isLineItemQtyGap` / backend `_template_line_item_qty_gap`, the ADR-0010 F1
+parity pair). Only the surfacing changed, modelled on the pricing editor's review list and reusing this
+screen's own `revealAndScrollToRow` idiom:
+
+- `templateSelection.ts` gains `qtyGapReason` (`"missing" | "negative"`, negative tested FIRST — the
+  actionable reading of a row that is both blank in total and negative in an area) and
+  `buildQtyGapEntries`. **`countSelectedLineItemsNoQty` is now derived from that list** — one list, one
+  length, so the block's count and the disabled-Finalize tooltip can never disagree (verified live: both
+  read 64).
+- The block: count + `Show list` (clickable `Row N · description · reason` entries -> reveal + scroll)
+  + a `Filter to these rows` VIEW filter (a `passesFilter` predicate, so it composes with search;
+  SELF-CLEARING with the same rows-LEFT guard as `deltaFilterOnly`).
+- **Deliberately NOT dismissible** (unlike pricing's `needs_rate`): the gate is server-enforced at
+  finalize, so a "Looks OK" that left Finalize blocked would be a lie.
+- Per-row **amber attention fill** on the one cell the gate reads (the Total). Multi-area derives it
+  LIVE inside `AreaQtyCells` from the same draft-or-saved values as `liveTotal` (`liveQtyGap`) — reading
+  the saved `qty_total` would leave the cell amber while the Total already showed 25, waiting on the
+  server re-sum. **Saved-state for the block, draft-state for the cell** — the same split
+  `priceability.ts` documents ("PURE saved-state only … the live grid keeps its own draft-aware marker").
+- **`placeholder="0"` REMOVED from both qty inputs.** A grey placeholder `0` in an empty cell was
+  indistinguishable from a typed `0`, and BOTH are gaps — that ambiguity is what made the old bare-count
+  advisory impossible to act on.
+
+### 2. Quantity keyboard navigation (`qtyNav.ts`, pure + unit-tested)
+
+`↓/↑` walk the qty column, `Tab`/`Shift-Tab` cross the areas and wrap rows, `Enter` = save + move down,
+`Esc` reverts, and Tab at either end STOPS (focus stays in the grid).
+
+- **DOM-focus driven, ZERO React state.** `PricingGrid` can hold an `activeCell` in state only because
+  its rows are memoized behind an exhaustive comparator; `ReviewTree` renders rows inline (which is why
+  `AreaQtyCells` owns its own draft), so a state tick per keystroke would re-render the whole tree. One
+  `onKeyDown` on the `<tbody>`; each input carries `data-qtynav` + its identity, and a ref registry keyed
+  on the DURABLE `row_index` (never an array position — collapse/filter reshuffles the order).
+- **NO left/right** — a qty cell is a numeric `<input>` and the caret owns those keys.
+- **`renderableRows` is now the ONE rendered-row list.** The three visibility predicates
+  (`isVisible && classificationVisible && passesFilter`) compose once; both the `<tbody>` map and the nav
+  matrix read it. Nav order MUST equal render order or ArrowDown lands on an off-screen row. A plain
+  const, NOT `useMemo` (the predicates close over `collapsed` + four filter states; a dep list would be a
+  drift hazard for no gain). Verified live: under the qty filter, ArrowDown skipped hidden rows 24/25.
+- Rows are RAGGED (column visibility differs), so vertical moves CLAMP into the target row.
+
+### 3. ⚠️ Draft-lock acquire moved to FOCUS (the regression the nav exposed)
+
+`save_review_edit` DOES acquire the draft lock server-side (`review_screen.py` ->
+`draft_lock.acquire_or_refresh`) — the `saveQtyInline` comment claiming otherwise was **wrong**. Firing
+the client `onEditIntent` acquire from inside the save raced it on the lock's check-then-insert and
+**409'd the write** (`DuplicateEntryError` on the deterministic PK — the same race the T10 selection
+checkbox documents). What used to hide it was the human pause between focusing a cell and blurring it;
+keyboard nav commits on `Enter` and closes that gap, making the latent race reproducible every time.
+
+**Fix: acquire on `onFocus`, not in the save path** — restores the separation BY DESIGN rather than by
+luck, and focusing an editable cell is what "edit intent" means anyway. `ensureLockAcquired` is
+idempotent via `heldVersionRef`, so re-focusing costs nothing (verified live: 8 cell focuses -> exactly
+ONE `acquire_draft_lock`). This preserves the takeover-banner escalation that dropping `onEditIntent`
+entirely would have lost.
+
+**Suite deltas:** `templateSelection.test.ts` 8 -> **15**; new `qtyNav.test.ts` **17**; boq-wizard vitest
+**695** / 33 files; `tsc --noEmit` clean on touched files; residence holds.
+
+**Live E2E (`BOQ-26-00213` / `Electrical`, multi-area 3 zones, 203 rows, 65 gaps):** block count matched
+the DB exactly (65) and the Finalize tooltip; 609 nav inputs registered; Tab D->E->F->next-row-D, ArrowDown
+held the column, Shift-Tab wrapped to the previous row's LAST area; amber cleared LIVE on keystroke; Enter
+saved (server re-summed `qty_total`) + advanced focus, count 65->64->63; Esc reverted; Tab at the last
+cell stayed put; filter narrowed 203 -> 64 rows. Zero console errors, zero 409s after the focus fix.
+
+### 4. Quantity cells are ELIGIBLE-ROWS-ONLY (owner-directed follow-up, 2026-07-23)
+
+**`isQtyEligibleRow` = an eligible CLASSIFICATION (`isSelectableRow`: preamble / line_item — the set the
+backend calls `_ELIGIBLE_CLASSIFICATIONS` and the clone seeds `qty_by_area` for) **AND still SELECTED**.
+It gates **both** the nav matrix and cell editability.
+
+⚠️ **Classification alone is NOT eligibility.** A first pass gated on `isSelectableRow` only and left 13
+DESELECTED rows still taking nav stops on a live sheet — a deselected row is never committed, so a
+quantity on it is dead data. Both conditions live in this ONE predicate so "editable" and "navigable"
+cannot drift apart. A note /
+spacer / subtotal-marker row renders a READ-ONLY qty cell: a quantity there is meaningless, it saved
+silently, nothing flagged it on this screen, and it only surfaced much later in the pricing editor as
+`isQtyOnNonPriceable`. Evidence it is safe: across every template BoQ, note (111) + spacer (93) +
+subtotal_marker (23) rows carry **zero** quantities; only line_item (28) and preamble (1) do.
+
+**ONE rule, not two:** the non-eligible cell emits no input, so it drops out of the nav matrix by
+construction — "nav skips it" is a consequence of "it is not editable", never a separate special case.
+That also avoids the trap the nav-only fix would have created (a focusable cell that arrow-nav refuses
+to leave). Any stored value still DISPLAYS via `renderDescriptorCell`, and `AreaQtyCells` emits the same
+`<td>` set in the same order either way, so the column-alignment contract is untouched.
+
+Live (`Electrical`, 203 rows): qty inputs 609 → **285** = 95 selected-eligible rows × 3 areas; spacers
+(32) / notes (55) / subtotals (9) and every DESELECTED row have none (deselected-and-navigable 13 → **0**);
+`<td>` counts identical on both row kinds; ArrowDown skipped a 4-row run of deselected/non-eligible rows
+to land on the next selected eligible row, and Tab off the last area wrapped the same way.
+
+### 5. DESELECT clears the row's quantities (2026-07-23)
+
+`template_select.set_row_excluded` now zeroes `qty_total` + `qty_by_area` on every row it flips to
+excluded — **cascade-wide**, which is the case that matters (deselecting one group can strand dozens of
+typed quantities that silently return if the group is re-selected).
+
+- `zeroed_qty_by_area` (pure, unit-tested) keeps the AREA KEYS and zeroes the values: the clone seeds
+  `{area: 0.0}` per configured area and the grid reads that key set to decide a row is qty-bearing, so
+  nulling it would blank the Total instead of showing 0. Single-area rows (no dict) skip the column.
+- Written with `set_value` + **no provenance stamp**, matching the `is_excluded` write beside it: the
+  user performed a SELECTION, not a per-row edit, and flipping a cascade to "Edited" would misattribute
+  work they never did.
+- **ONE-WAY by design (owner):** re-selecting restores the row, never the numbers.
+- `test_template_select` 22 → **29** (3 pure + 6 endpoint, incl. the no-provenance and
+  re-select-does-not-restore guarantees). Live-verified: typed 42 → deselect → `qty_total` 0,
+  `qty_by_area` `{Area1:0,B2:0,B3:0}`, cell read-only, row out of the nav matrix.
