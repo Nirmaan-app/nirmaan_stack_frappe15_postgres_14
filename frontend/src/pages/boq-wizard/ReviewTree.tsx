@@ -76,7 +76,8 @@
  *     indent (paddingLeft = depth * INDENT_PX) applied here. Chevron + pill removed.
  *   Chevron click/collapse/aria/invisible-on-leaf behavior unchanged verbatim.
  */
-import { useMemo, useRef, useEffect, useState, Fragment } from "react";
+import { useMemo, useRef, useEffect, useState, useCallback, Fragment } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ChevronDown, ChevronRight, ChevronUp, SlidersHorizontal, Info, MessageSquare, Search, X, Filter, CheckCircle2, Sparkles, AlertTriangle, AlertOctagon, MoreHorizontal, GitCompareArrows, Trash2 } from "lucide-react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { cn } from "@/lib/utils";
@@ -147,9 +148,19 @@ import { RestructureModal } from "./RestructureModal";
 import {
   isSelectableRow,
   isRowExcluded,
-  countSelectedLineItemsNoQty,
+  isQtyEligibleRow,
+  buildQtyGapEntries,
   rowPickerLabel,
 } from "./templateSelection";
+// Quantity keyboard navigation (template origin): PURE movement rule + registry keys.
+import {
+  nextQtyCell,
+  qtyNavDirectionFor,
+  qtyCellKey,
+  qtyCellKeyAt,
+  findQtyCoord,
+  type QtyNavMatrix,
+} from "./qtyNav";
 // Row-detail panel READ views: the ancestor chain + direct-children list (additive, no layout
 // change to the surrounding panel). Pure components walking effective_parent_index / its inverse.
 import { ParentChain } from "./ParentChain";
@@ -720,8 +731,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const [deleteDialog, setDeleteDialog] = useState<ReviewRow | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // T10: advisory (non-blocking) count of SELECTED line items with no quantity.
-  const noQtyCount = useMemo(() => countSelectedLineItemsNoQty(rows), [rows]);
+  // T10/A2: SELECTED line items whose quantity is invalid (missing / zero / negative). This is
+  // the SAME list SheetReviewPage's Finalize gate counts -- one list, one length, so the block
+  // and the disabled-Finalize tooltip can never report different numbers. The row-index SET
+  // drives both the "needs a quantity" view filter and the per-row attention fill.
+  const qtyGapEntries = useMemo(() => buildQtyGapEntries(rows), [rows]);
+  const qtyGapRowIndexes = useMemo(
+    () => new Set(qtyGapEntries.map(e => e.rowIndex)),
+    [qtyGapEntries],
+  );
 
   // T10: flip a row's selection. include=true -> excluded=0 (select + ancestor chain);
   // include=false -> excluded=1 (deselect + descendant subtree). onEditIntent acquires the
@@ -1165,6 +1183,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // it composes with search: a hit can never be a filtered-out row). Only ever set on a revision
   // sheet (the toggle lives in the delta panel, which mounts only there) -> inert off a revision.
   const [deltaFilterOnly, setDeltaFilterOnly] = useState(false);
+  // A2/qty-block: the "needs a quantity" review block's open state + its view filter. The filter
+  // is a passesFilter predicate (same shape as deltaFilterOnly) so it composes with search, and
+  // is SELF-CLEARING -- entering a quantity drops the row from qtyGapRowIndexes and the tree
+  // re-renders without it. Only ever set on a template sheet (the block mounts only there).
+  const [qtyGapOpen, setQtyGapOpen] = useState(false);
+  const [qtyGapFilterOnly, setQtyGapFilterOnly] = useState(false);
 
   const toggleCol = (col: string) => {
     setVisibleCols(prev => {
@@ -1268,9 +1292,16 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
-  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged. save_review_edit
-  // has NO separate server-side lock acquire, so the single client onEditIntent cannot create the
-  // duplicate-lock race that the T10 selection checkbox hit.
+  // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged.
+  //
+  // LOCK ACQUIRE IS ON **FOCUS**, NOT HERE. save_review_edit DOES acquire the draft lock
+  // server-side (review_screen.py -> draft_lock.acquire_or_refresh), so firing the client
+  // acquire from inside the save raced it on the lock's check-then-insert and 409'd the write
+  // (the same duplicate-PK race the T10 selection checkbox documents). What used to hide it was
+  // the human pause between focusing a cell and blurring it; keyboard nav commits on Enter and
+  // closes that gap. Acquiring on focus restores the separation BY DESIGN rather than by luck --
+  // and focusing an editable cell is what "edit intent" means anyway. ensureLockAcquired is
+  // idempotent (heldVersionRef), so re-focusing costs nothing.
   const saveQtyInline = async (row: ReviewRow, raw: string) => {
     const prev = row.qty_total ?? "";
     if (String(raw).trim() === String(prev).trim()) return; // unchanged -> no write
@@ -1280,7 +1311,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       setSaveError("Quantity cannot be negative.");
       return;
     }
-    onEditIntent?.(); // B1: acquire the draft lock on first edit-intent (client side only)
     setSaveError(null);
     try {
       const res = await saveCall({
@@ -1309,8 +1339,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       setSaveError("Quantity cannot be negative.");
       return;
     }
-    onEditIntent?.(); // B1: client-side lock acquire (save_review_edit adds no server-side race)
-    setSaveError(null);
+    setSaveError(null); // lock acquire is on FOCUS -- see saveQtyInline's note
     try {
       const res = await saveCall({
         boq_name: boqName,
@@ -1670,6 +1699,12 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     // deltaFilterOnly would empty the tree with no visible way to turn it off.
     if (deltaFilterOnly && revisionDelta.needsActionRows.length > 0
         && !revisionDelta.needsActionRowIndexes.has(row.row_index)) return false;
+    // A2/qty-block: narrow to the line items still missing a valid quantity. Same shape as the
+    // revision filter above, including the rows-LEFT guard: when the reviewer fills the last one
+    // the block (and its toggle) unmounts, and without the guard a stuck filter would leave an
+    // empty tree with no visible way to turn it off.
+    if (qtyGapFilterOnly && qtyGapEntries.length > 0
+        && !qtyGapRowIndexes.has(row.row_index)) return false;
     // Status predicate. AI-3a: "ai_accepted" keys on ai_suggestion_status; edited/original
     // use the isEdited expression (mirrors the inline at the render row; a remark-only row
     // is Original since save_review_remark never stamps edited_at/edit_log).
@@ -1719,6 +1754,84 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return true;
   };
 
+  // ── The ONE rendered-row list ────────────────────────────────────────────────────
+  // The three visibility predicates compose here ONCE, and both the <tbody> map and the
+  // quantity keyboard-nav matrix read this. Keeping the render's own inline guards would give
+  // nav a second, independently-drifting notion of "which rows exist" -- and nav order MUST
+  // equal render order or ArrowDown lands on a row that is not on screen.
+  //
+  // A plain const, NOT useMemo: the predicates close over `collapsed`, four filter states and
+  // byIdx, so a dependency list would be a drift hazard for no gain -- ReviewTree is not
+  // memoized, and the per-row cost is identical to the guards this replaces.
+  const renderableRows = rows.filter(
+    (row) => isVisible(row) && classificationVisible(row) && passesFilter(row),
+  );
+
+  // ── Quantity keyboard navigation (template origin) ───────────────────────────────
+  // Walk the quantity column(s) with the arrows / Enter / Tab instead of native tabbing, which
+  // steps through every checkbox and row menu on the way. Deliberately DOM-focus driven with NO
+  // React state: PricingGrid can hold an `activeCell` in state only because its rows are memoized
+  // behind an exhaustive comparator; ReviewTree renders rows inline (which is why AreaQtyCells
+  // owns its own draft), so a state tick per keystroke would re-render the whole tree. The
+  // browser already holds the focus truth -- mirroring it into state would buy nothing.
+  //
+  // The matrix is the rendered qty inputs, in render order: single-area = the one Total cell per
+  // row; multi-area = the visible per-area cells (the Total there is a read-only running sum, so
+  // it is not a target). Rows keep their DURABLE row_index as the registry key.
+  const qtyNavMatrix: QtyNavMatrix = useMemo(() => {
+    if (!templateOrigin || readOnly) return [];
+    const cols = hasPerAreaQty
+      ? areaQtyDescriptors.filter(d => visibleCols.has(d.col)).map(d => d.col)
+      : (qtyTotalDescriptor && visibleCols.has(qtyTotalDescriptor.col)
+          ? [qtyTotalDescriptor.col] : []);
+    if (cols.length === 0) return [];
+    // ELIGIBLE rows only -- `isQtyEligibleRow` = an eligible CLASSIFICATION (preamble /
+    // line_item, what the clone seeds qty_by_area for) AND still SELECTED. Walking a note,
+    // spacer or DESELECTED row is dead travel through cells that can never take a value.
+    // This is the ONLY nav-order rule, and it agrees with the render by construction: those
+    // rows emit no input, so there is nothing there to focus.
+    return renderableRows
+      .filter(isQtyEligibleRow)
+      .map(row => ({ rowIndex: row.row_index, cols }));
+    // renderableRows is rebuilt every render (it is a plain filter over rows); keying the memo on
+    // its LENGTH plus the row-order signal would be false economy -- the array identity is the
+    // honest signal and the map is O(rendered rows).
+  }, [templateOrigin, readOnly, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor,
+      visibleCols, renderableRows]);
+
+  // Registry of the live qty <input>s, keyed (row_index, col). Populated by each input's ref.
+  const qtyInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const registerQtyInput = useCallback((rowIndex: number, col: string, el: HTMLInputElement | null) => {
+    const key = qtyCellKey(rowIndex, col);
+    if (el) qtyInputRefs.current.set(key, el);
+    else qtyInputRefs.current.delete(key);
+  }, []);
+
+  // One keydown handler on the <tbody>; each input's keydown bubbles here. Acts ONLY on an
+  // element that marked itself navigable (data-qtynav), so every other control in the row --
+  // checkboxes, row menus, chevrons -- keeps its native keyboard behaviour untouched.
+  const handleQtyNavKeyDown = (e: ReactKeyboardEvent<HTMLTableSectionElement>) => {
+    const el = e.target as HTMLElement | null;
+    if (!el || el.dataset?.qtynav !== "1") return;
+    const dir = qtyNavDirectionFor(e);
+    if (!dir) return; // typing / Escape / anything else -> the input keeps it
+    const rowIndex = Number(el.dataset.qtynavRow);
+    const col = el.dataset.qtynavCol;
+    if (!Number.isFinite(rowIndex) || !col) return;
+    const from = findQtyCoord(qtyNavMatrix, rowIndex, col);
+    if (!from) return;
+    // Own the key even at an edge: Tab must not escape the grid, and Enter must not submit.
+    e.preventDefault();
+    const to = nextQtyCell(from, dir, qtyNavMatrix);
+    if (!to) return; // edge -> commit (blur already fired nothing) and stay put
+    const key = qtyCellKeyAt(qtyNavMatrix, to);
+    const next = key ? qtyInputRefs.current.get(key) : null;
+    // Moving focus fires the current input's onBlur, which is the existing save path -- so the
+    // value commits on every move with no separate commit step.
+    next?.focus();
+    next?.select();
+  };
+
   // §9 #159 (+fuzzy): search hit list -- row_index of rows that pass the SAME shown-filter
   // (classificationVisible + passesFilter) AND whose description FUZZY-matches the query
   // (token AND, partial, min length 2 -- shared with SheetSearchView via boqDescriptionSearch).
@@ -1733,8 +1846,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     return candidates.filter((row) => matched.has(row)).map((row) => row.row_index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // S5b (#1103): deltaFilterOnly is a passesFilter input -> it MUST be a searchHits dep, or a
-    // hit could survive from a now-filtered-out row (the compose interlock).
-  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals, deltaFilterOnly]);
+    // hit could survive from a now-filtered-out row (the compose interlock). Same for the A2
+    // qty-gap filter and its row set (which changes as quantities are entered).
+  }, [rows, searchQuery, statusFilter, classFilter, aiFilter, geminiFilter, geminiEnabled, showSpacers, showNotes, showSubtotals, deltaFilterOnly, qtyGapFilterOnly, qtyGapRowIndexes]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
@@ -2055,13 +2169,72 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         </div>
       )}
 
-      {/* T10: soft, NON-BLOCKING advisory -- selected line items missing a quantity. */}
-      {selectable && noQtyCount > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/30 border border-border text-xs text-muted-foreground flex-wrap">
-          <Info className="h-3.5 w-3.5 shrink-0" />
-          <span>
-            {noQtyCount} selected line {noQtyCount === 1 ? "item has" : "items have"} no quantity.
-          </span>
+      {/* A2/qty-block: the "needs a quantity" REVIEW BLOCK -- the surfacing half of the finalize
+        gate, modelled on the pricing editor's review list (SheetPricingPage) and reusing this
+        screen's own clickable-entry idiom (revealAndScrollToRow, which expands collapsed
+        ancestors before scrolling). It REPLACES the T10 one-line advisory, which reported a bare
+        count with no addresses -- on a long sheet the offending rows could be collapsed or
+        filtered out of sight while the count blocked Finalize.
+
+        Deliberately NOT dismissible (unlike pricing's needs_rate): this gate is server-enforced
+        at finalize, so a "Looks OK" that left Finalize blocked would be a lie. */}
+      {selectable && qtyGapEntries.length > 0 && (
+        <div className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 px-3 py-2 flex-wrap">
+            <Info className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-300" />
+            <span className="text-xs font-medium text-amber-900 dark:text-amber-100">
+              {qtyGapEntries.length} line {qtyGapEntries.length === 1 ? "item needs" : "items need"} a
+              quantity before this sheet can be finalized.
+            </span>
+            <button
+              type="button"
+              onClick={() => setQtyGapOpen(o => !o)}
+              aria-expanded={qtyGapOpen}
+              className="ml-auto inline-flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+            >
+              {qtyGapOpen ? "Hide list" : "Show list"}
+            </button>
+            {/* View filter -- mirrors the pricing editor's Show-unpriced toggle. VIEW-ONLY: it
+              never touches qtyGapEntries, so the count above and the Finalize gate are untouched. */}
+            <button
+              type="button"
+              onClick={() => setQtyGapFilterOnly(v => !v)}
+              aria-pressed={qtyGapFilterOnly}
+              className={cn(
+                "inline-flex items-center gap-1 text-[11px] transition-colors",
+                qtyGapFilterOnly
+                  ? "text-amber-700 dark:text-amber-300 font-medium"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Filter className="h-3 w-3" />
+              {qtyGapFilterOnly ? "Show all rows" : "Filter to these rows"}
+            </button>
+          </div>
+          {qtyGapOpen && (
+            <div className="border-t border-amber-200/60 dark:border-amber-900/40 px-2 py-2 space-y-1 max-h-56 overflow-y-auto">
+              {qtyGapEntries.map(e => (
+                <button
+                  key={`qtygap-${e.rowIndex}`}
+                  type="button"
+                  onClick={() => revealAndScrollToRow(e.rowIndex)}
+                  className="w-full text-left flex items-start gap-2 rounded px-2 py-1.5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 hover:bg-amber-100/70 dark:hover:bg-amber-950/35 transition-colors"
+                >
+                  <span className="shrink-0 mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    {e.excelRow !== null ? `Row ${e.excelRow}` : `#${e.rowIndex}`}
+                  </span>
+                  <span className="flex flex-col gap-0.5 min-w-0">
+                    <span className="text-[11px] leading-snug text-foreground truncate">
+                      {e.description || "(no description)"}
+                    </span>
+                    <span className="text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                      {e.text}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* T10/T11: inline selection error (kept off toasts -- wizard convention). */}
@@ -2489,17 +2662,13 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 )}
               </tr>
             </thead>
-            <tbody>
-              {rows.map(row => {
-                if (!isVisible(row)) return null;
-                // B1.1b-ii FEAT B: classification-visibility gate (annotation rows only).
-                // Children of a filtered row render independently at their original depth.
-                if (!classificationVisible(row)) return null;
-                // §9 #159: Status + Classification filter gate (strict hide). Combines with
-                // the two gates above (AND); a non-matching row emits no <tr>. passesFilter is
-                // the SAME predicate searchHits is computed over (compose interlock).
-                if (!passesFilter(row)) return null;
-
+            {/* onKeyDown here (not per input) is the ONE quantity-nav handler; it no-ops on any
+              target that is not a qty cell, so the rest of the row keeps native keyboard use. */}
+            <tbody onKeyDown={handleQtyNavKeyDown}>
+              {/* renderableRows already applied the three visibility gates (collapse /
+                classification / Status+Classification filters) -- see its definition. The
+                quantity nav matrix is built from the SAME list, so nav order == render order. */}
+              {renderableRows.map(row => {
                 const depth = depths.get(row.row_index) ?? 0;
                 const hasChildren = hasChildrenSet.has(row.row_index);
                 const isCollapsed = collapsed.has(row.row_index);
@@ -3025,6 +3194,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 totalDescriptor={qtyTotalDescriptor}
                                 visibleCols={visibleCols}
                                 onSaveArea={saveAreaQtyInline}
+                                // A SELECTED line item must carry a quantity to finalize; the cell
+                                // derives its own LIVE fill from that (see AreaQtyCells.liveQtyGap).
+                                qtyRequired={isLineItem && !isRowExcluded(row)}
+                                // Non-eligible (note / spacer / subtotal) or DESELECTED rows
+                                // get read-only cells -- their value still displays, and that is
+                                // also what keeps them out of the keyboard-nav matrix.
+                                qtyEditable={isQtyEligibleRow(row)}
+                                registerQtyInput={registerQtyInput}
+                                onEditIntent={onEditIntent}
                               />
                             );
                           }
@@ -3035,28 +3213,62 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                         // A2: single-area template -> the ONE qty_total cell is inline-editable;
                         // gated OFF when multi-area (there <AreaQtyCells> renders the Total as a
                         // read-only summed cell).
+                        // A quantity cell is editable only on a QTY-ELIGIBLE row: an
+                        // eligible classification AND still selected (isQtyEligibleRow). A
+                        // note / spacer / subtotal marker cannot carry a quantity (one typed
+                        // there saved silently and only surfaced later in the pricing editor
+                        // as a qty-on-non-priceable anomaly), and a DESELECTED row is not
+                        // committed at all. Their value still RENDERS read-only, so nothing
+                        // is hidden -- and a deselect now zeroes it server-side anyway.
                         const isInlineQty = templateOrigin && !readOnly && !hasPerAreaQty
+                          && isQtyEligibleRow(row)
                           && d.value_key === null && d.value_field === "qty_total";
+                        // A2/qty-block: attention fill on the ONE cell the finalize gate reads.
+                        // Single-area qty_total IS the saved value the user types, so the
+                        // saved-state set is already live enough here (multi-area gets its own
+                        // draft-aware fill inside AreaQtyCells, where the Total is a running sum).
+                        const isQtyGapCell = isInlineQty && qtyGapRowIndexes.has(row.row_index);
                         return (
                           <td
                             key={d.col}
-                            className="px-2 py-1.5 text-right align-top border-l border-border tabular-nums"
+                            title={isQtyGapCell ? "This line needs a quantity before the sheet can be finalized." : undefined}
+                            className={cn(
+                              "px-2 py-1.5 text-right align-top border-l border-border tabular-nums",
+                              isQtyGapCell && "bg-amber-50 dark:bg-amber-950/30",
+                            )}
                           >
                             {isInlineQty ? (
                               <input
                                 key={`qty-${row.row_index}-${String(row.qty_total ?? "blank")}`}
+                                ref={(el) => registerQtyInput(row.row_index, d.col, el)}
+                                // Marks this input as navigable + carries its identity, which is
+                                // how the ONE tbody keydown handler resolves the active cell
+                                // without any React state (see handleQtyNavKeyDown).
+                                data-qtynav="1"
+                                data-qtynav-row={row.row_index}
+                                data-qtynav-col={d.col}
                                 type="number"
                                 inputMode="decimal"
                                 min="0"
                                 defaultValue={row.qty_total ?? ""}
+                                // B1: acquire the draft lock on edit INTENT = focus, well before
+                                // the save it must not race (see saveQtyInline). Idempotent.
+                                onFocus={() => onEditIntent?.()}
                                 onBlur={(e) => saveQtyInline(row, e.target.value)}
                                 onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
+                                  // Escape reverts to the saved value. Assigning .value directly
+                                  // is the supported escape hatch for an UNCONTROLLED input --
+                                  // and keeps this cell off ReviewTree's render path, which a
+                                  // controlled draft would drag the whole tree onto.
+                                  // Enter / arrows / Tab bubble to the tbody nav handler.
+                                  if (e.key === "Escape") {
                                     e.preventDefault();
-                                    (e.target as HTMLInputElement).blur();
+                                    e.currentTarget.value = String(row.qty_total ?? "");
                                   }
                                 }}
-                                placeholder="0"
+                                // NO placeholder: a grey "0" in an empty cell is indistinguishable
+                                // from a typed 0, and BOTH are quantity gaps -- that ambiguity is
+                                // what made the old bare-count advisory impossible to act on.
                                 className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
                               />
                             ) : (

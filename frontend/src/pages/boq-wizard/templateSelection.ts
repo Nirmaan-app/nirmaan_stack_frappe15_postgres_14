@@ -31,34 +31,95 @@ export function isRowExcluded(row: ReviewRow): boolean {
   return row.is_excluded === 1;
 }
 
+/**
+ * Can this row carry a quantity AT ALL? The single eligibility rule for the template review
+ * screen's quantity surface -- it gates cell editability AND (by consequence, since a
+ * non-editable cell renders no input) which rows keyboard navigation stops on.
+ *
+ * TWO conditions, and both matter:
+ *   - the CLASSIFICATION must be preamble / line_item (`isSelectableRow`) -- a note, spacer or
+ *     subtotal marker is a ride-along row the clone never seeds `qty_by_area` for;
+ *   - the row must be SELECTED -- a deselected row is not committed, so a quantity on it is
+ *     dead data (and `set_row_excluded` now clears it on deselect anyway).
+ *
+ * Keeping both here means "editable" and "navigable" can never drift apart.
+ */
+export function isQtyEligibleRow(row: ReviewRow): boolean {
+  return isSelectableRow(row) && !isRowExcluded(row);
+}
+
+/** WHY a line item's quantity is invalid, or null when it is fine. Two reasons, because the
+ *  review block has to say which one -- "no quantity" on a row that visibly holds -5 is the
+ *  message that sent reviewers hunting for a blank cell that was never there.
+ *
+ *  NEGATIVE is tested FIRST: it is the more actionable reading of a row that is both blank in
+ *  total and negative in one area. The resulting TRUTH SET (null vs non-null) is identical to
+ *  the pre-split rule, so the Finalize gate is unchanged. */
+export type QtyGapReason = "missing" | "negative";
+
+export function qtyGapReason(row: ReviewRow): QtyGapReason | null {
+  const qt = row.qty_total;
+  if (typeof qt === "number" && qt < 0) return "negative"; // negative total
+  const qba = row.qty_by_area;
+  if (qba) {
+    for (const v of Object.values(qba)) {
+      if (typeof v === "number" && v < 0) return "negative"; // any negative area
+    }
+  }
+  if (!qt) return "missing"; // null / 0 / undefined -> all areas empty
+  return null;
+}
+
 /** A line item's quantity is INVALID (a "gap") iff it is missing/zero (falsy qty_total ->
  *  all areas empty for multi-area, since qty_total = sum(areas)), a NEGATIVE total, or has
  *  ANY negative per-area value. Mirrors the backend `_template_line_item_qty_gap` finalize
  *  backstop -- the save path blocks negative entry; this is the belt-and-suspenders check
  *  the Finalize gate reads. FE<->BE parity target (ADR-0010 F1). */
 export function isLineItemQtyGap(row: ReviewRow): boolean {
-  const qt = row.qty_total;
-  if (!qt) return true; // null / 0 / undefined -> gap (all areas empty)
-  if (qt < 0) return true; // negative total -> gap
-  const qba = row.qty_by_area;
-  if (qba) {
-    for (const v of Object.values(qba)) {
-      if (typeof v === "number" && v < 0) return true; // any negative area -> gap
-    }
+  return qtyGapReason(row) !== null;
+}
+
+/** One review-block entry per SELECTED line item whose quantity is a gap. `rowIndex` is what
+ *  ReviewTree's revealAndScrollToRow takes (it expands collapsed ancestors before scrolling);
+ *  `excelRow` is display only. Shaped like priceability's buildFlagEntries, minus the kind
+ *  fan-out -- there is one flag here. */
+export interface QtyGapEntry {
+  rowIndex: number;
+  excelRow: number | null;
+  description: string;
+  reason: QtyGapReason;
+  text: string;
+}
+
+const QTY_GAP_TEXT: Record<QtyGapReason, string> = {
+  missing: "Needs a quantity -- this line is blank or zero.",
+  negative: "Needs a quantity -- a negative value was entered.",
+};
+
+export function buildQtyGapEntries(rows: ReviewRow[]): QtyGapEntry[] {
+  const out: QtyGapEntry[] = [];
+  for (const r of rows) {
+    if (r.effective_classification !== "line_item" || isRowExcluded(r)) continue;
+    const reason = qtyGapReason(r);
+    if (!reason) continue;
+    out.push({
+      rowIndex: r.row_index,
+      excelRow: r.source_row_number ?? null,
+      description: (r.description ?? "").trim(),
+      reason,
+      text: QTY_GAP_TEXT[reason],
+    });
   }
-  return false;
+  return out;
 }
 
 /** Blocking count: SELECTED (included) line items whose quantity is a gap (missing OR
  *  negative -- see isLineItemQtyGap). Drives the Finalize disabled-gate + tooltip. Name kept
- *  for call-site stability; semantics widened from "no qty" to "invalid qty" (A2 negative rule). */
+ *  for call-site stability; semantics widened from "no qty" to "invalid qty" (A2 negative rule).
+ *  Derived from buildQtyGapEntries so the review block's count and the Finalize tooltip's
+ *  count can never disagree -- one list, one length. */
 export function countSelectedLineItemsNoQty(rows: ReviewRow[]): number {
-  return rows.filter(
-    (r) =>
-      r.effective_classification === "line_item" &&
-      !isRowExcluded(r) &&
-      isLineItemQtyGap(r),
-  ).length;
+  return buildQtyGapEntries(rows).length;
 }
 
 /** Short human label for a row in the create-dialog parent picker: "Row 42: Cabling…"
