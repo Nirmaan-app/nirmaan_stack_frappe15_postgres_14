@@ -436,6 +436,15 @@ describe("armedOverwrites (the destructive footer)", () => {
     ]);
   });
 
+  it("uses the SINGULAR noun at a count of one -- the footer always states a count", () => {
+    // Found in live E2E: the footer read "Overwriting 1 remarks".
+    const one = sheet({
+      layers: layers({ remarks: { carryable: 0, present: 1, unmatched: 0, dropped: 0 } }),
+    });
+    const c = { ...initialLayerChoices(one), remarks: { carry: true, overwrite: true } };
+    expect(armedOverwrites(one, c)).toEqual([{ key: "remarks", label: "remark", count: 1 }]);
+  });
+
   it("ignores an overwrite on a layer that is not being carried", () => {
     const c = { ...initialLayerChoices(S), remarks: { carry: false, overwrite: true } };
     expect(armedOverwrites(S, c).map((a) => a.key)).toEqual([]);
