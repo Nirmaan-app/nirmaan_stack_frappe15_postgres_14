@@ -40,6 +40,7 @@
 #   test_release_clears_lock
 #       Releasing a lock the caller holds clears it -> lock release.
 
+import gzip
 import json
 
 import frappe
@@ -120,7 +121,7 @@ class TestPricingWorkbook(FrappeTestCase):
 	# -- helpers -----------------------------------------------------------
 	def _create_as(self, user, title, payload):
 		frappe.set_user(user)
-		res = wb.create_workbook(title, json.dumps(payload))
+		res = wb._create_workbook(title, json.dumps(payload))
 		# Track for the SCOPED purge so we never blanket-delete real workbooks.
 		type(self)._created_names.add(res["name"])
 		return res
@@ -194,12 +195,12 @@ class TestPricingWorkbook(FrappeTestCase):
 		name = self._create_as(POS_USER, "WB nolock", {})["name"]
 		# No checkout performed.
 		with self.assertRaises(frappe.ValidationError):
-			wb.save_workbook(name, json.dumps({"x": 1}))
+			wb._save_workbook(name, json.dumps({"x": 1}))
 
 	def test_save_with_lock_bumps_version_and_writes_version_row(self):
 		name = self._create_as(POS_USER, "WB save", {"v": 0})["name"]
 		wb.checkout(name)
-		result = wb.save_workbook(name, json.dumps({"v": 1}))
+		result = wb._save_workbook(name, json.dumps({"v": 1}))
 		self.assertEqual(result["current_version"], 2)
 
 		doc = frappe.get_doc(wb.WORKBOOK_DT, name)
@@ -217,7 +218,7 @@ class TestPricingWorkbook(FrappeTestCase):
 		name = self._create_as(POS_USER, "WB prune", {"n": 0})["name"]  # version 1
 		wb.checkout(name)
 		for i in range(1, 25):  # 24 saves -> versions 2..25
-			wb.save_workbook(name, json.dumps({"n": i}))
+			wb._save_workbook(name, json.dumps({"n": i}))
 
 		count = frappe.db.count(wb.VERSION_DT, {"workbook": name})
 		self.assertEqual(count, wb.MAX_VERSIONS)
@@ -237,7 +238,7 @@ class TestPricingWorkbook(FrappeTestCase):
 		name = self._create_as(POS_USER, "WB log", {})["name"]  # logs "create"
 		wb.get_workbook(name)  # logs "open"
 		wb.checkout(name)  # logs "checkout"
-		wb.save_workbook(name, json.dumps({"a": 1}))  # logs "save"
+		wb._save_workbook(name, json.dumps({"a": 1}))  # logs "save"
 
 		actions = frappe.get_all(wb.LOG_DT, filters={"workbook": name}, pluck="action")
 		self.assertIn("create", actions)
@@ -248,12 +249,12 @@ class TestPricingWorkbook(FrappeTestCase):
 	def test_invalid_json_rejected(self):
 		frappe.set_user(POS_USER)
 		with self.assertRaises(frappe.ValidationError):
-			wb.create_workbook("WB bad", "{not valid json")
+			wb._create_workbook("WB bad", "{not valid json")
 
 		name = self._create_as(POS_USER, "WB bad2", {})["name"]
 		wb.checkout(name)
 		with self.assertRaises(frappe.ValidationError):
-			wb.save_workbook(name, "{still bad")
+			wb._save_workbook(name, "{still bad")
 
 	# -- release -----------------------------------------------------------
 	def test_release_clears_lock(self):
@@ -283,3 +284,46 @@ class TestPricingWorkbook(FrappeTestCase):
 		self.assertEqual(result["checked_out_by"], POS_USER)
 		wb.release(name)
 		self.assertFalse(frappe.db.get_value(wb.WORKBOOK_DT, name, "checked_out_by"))
+
+	# ------------------------------------------------------------------
+	# FR-5 transport: gzip payload handling
+	# ------------------------------------------------------------------
+	def test_gzip_payload_roundtrip(self):
+		"""A gzipped payload decompresses back to the identical JSON text."""
+		# Workbook-shaped and repetitive, like the real payload -- gzip ADDS ~20 bytes
+		# of header to a tiny input, so a realistic size is needed to assert compression.
+		cells = [{"r": r, "c": 0, "v": {"v": r, "m": str(r), "ct": {"fa": "General", "t": "n"}}}
+			for r in range(500)]
+		payload = json.dumps([{"name": "Sheet1", "celldata": cells}])
+		blob = gzip.compress(payload.encode("utf-8"))
+		self.assertLess(len(blob), len(payload.encode("utf-8")))  # it really compressed
+		self.assertEqual(wb._gunzip_payload(blob), payload)
+		# and the decompressed text is still valid workbook JSON
+		self.assertIsInstance(json.loads(wb._gunzip_payload(blob)), list)
+
+	def test_corrupt_gzip_rejected(self):
+		"""A non-gzip / truncated archive raises a clear ValidationError, not a traceback."""
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			wb._gunzip_payload(b"this is definitely not gzip")
+		self.assertIn("gzip", str(ctx.exception).lower())
+
+		good = gzip.compress(json.dumps({"a": 1}).encode("utf-8"))
+		with self.assertRaises(frappe.ValidationError):
+			wb._gunzip_payload(good[: len(good) // 2])  # truncated mid-stream
+
+		with self.assertRaises(frappe.ValidationError):
+			wb._gunzip_payload(b"")  # nothing uploaded
+
+	def test_decompressed_size_guard_fires(self):
+		"""A payload expanding beyond MAX_DECOMPRESSED_BYTES is refused."""
+		original = wb.MAX_DECOMPRESSED_BYTES
+		try:
+			wb.MAX_DECOMPRESSED_BYTES = 1024  # shrink the ceiling instead of building 200 MB
+			blob = gzip.compress(b"x" * 4096)  # 4 KB decompressed, well over the 1 KB ceiling
+			with self.assertRaises(frappe.ValidationError) as ctx:
+				wb._gunzip_payload(blob)
+			self.assertIn("too large", str(ctx.exception).lower())
+			# just under the ceiling still passes
+			self.assertEqual(len(wb._gunzip_payload(gzip.compress(b"y" * 512))), 512)
+		finally:
+			wb.MAX_DECOMPRESSED_BYTES = original

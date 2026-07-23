@@ -10,11 +10,18 @@
 # `ignore_permissions=True` because the gate -- not the doctype ACL -- is the
 # authority. Decision on record (see frontend/.claude/plans/pricing-module-plan.md).
 
+import gzip
 import json
 
 import frappe
 from frappe import _
 from frappe.utils import get_datetime, now_datetime, time_diff_in_seconds
+
+# Hard ceiling on the DECOMPRESSED workbook payload. gzip on this data runs ~10:1,
+# so a hostile or corrupt archive could expand far beyond the request-size limit
+# the compressed upload passed; this bounds what a single request can allocate.
+# Real workbooks are ~5-22 MB decompressed, so this leaves ample headroom.
+MAX_DECOMPRESSED_BYTES = 200 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
 # ACCESS SET
@@ -89,6 +96,49 @@ def _normalize_json(workbook_json):
 			frappe.throw(_("workbook_json is not valid JSON."), frappe.ValidationError)
 		return workbook_json
 	frappe.throw(_("workbook_json is not valid JSON."), frappe.ValidationError)
+
+
+def _gunzip_payload(blob):
+	"""Gunzip an uploaded workbook payload and return the JSON text.
+
+	Split out from the request plumbing so it is directly unit-testable. Raises a
+	user-facing ValidationError on a corrupt archive or an oversized expansion.
+	"""
+	if not blob:
+		frappe.throw(_("No workbook payload was uploaded."), frappe.ValidationError)
+	try:
+		raw = gzip.decompress(blob)
+	except Exception:
+		frappe.throw(
+			_("The uploaded workbook payload is not a valid gzip archive."),
+			frappe.ValidationError,
+		)
+	if len(raw) > MAX_DECOMPRESSED_BYTES:
+		frappe.throw(
+			_("Workbook payload is too large ({0} MB decompressed; limit is {1} MB).").format(
+				round(len(raw) / (1024 * 1024)), MAX_DECOMPRESSED_BYTES // (1024 * 1024)
+			),
+			frappe.ValidationError,
+		)
+	return raw.decode("utf-8")
+
+
+def _read_gzip_payload():
+	"""Read + gunzip the `workbook_json_gz` multipart file from the current request.
+
+	THE single payload path for create_workbook / save_workbook (FR-5). The old
+	`workbook_json` body parameter no longer exists on those endpoints: nesting the
+	workbook as a JSON string escaped every quote (1.23x) and pushed a real workbook
+	past the site's 25 MiB request limit. gzip+multipart carries the same data in a
+	few MB.
+	"""
+	files = getattr(frappe.request, "files", None) if getattr(frappe, "request", None) else None
+	if not files or "workbook_json_gz" not in files:
+		frappe.throw(
+			_("Expected a gzipped workbook upload in the 'workbook_json_gz' field."),
+			frappe.ValidationError,
+		)
+	return _gunzip_payload(files["workbook_json_gz"].read())
 
 
 def _as_json_string(value):
@@ -222,7 +272,16 @@ def release(name):
 
 
 @frappe.whitelist()
-def save_workbook(name, workbook_json):
+def save_workbook(name):
+	"""Thin transport wrapper: read + gunzip the multipart payload, then delegate.
+
+	All behaviour (access gate, lock rules, versioning, pruning, JSON validation)
+	lives in `_save_workbook` and is unchanged -- the tests target it directly.
+	"""
+	return _save_workbook(name, _read_gzip_payload())
+
+
+def _save_workbook(name, workbook_json):
 	user = _require_pricing_access()
 	normalized = _normalize_json(workbook_json)
 
@@ -259,7 +318,15 @@ def save_workbook(name, workbook_json):
 
 
 @frappe.whitelist()
-def create_workbook(title, workbook_json):
+def create_workbook(title):
+	"""Thin transport wrapper: read + gunzip the multipart payload, then delegate.
+
+	All behaviour lives in `_create_workbook` and is unchanged (see save_workbook).
+	"""
+	return _create_workbook(title, _read_gzip_payload())
+
+
+def _create_workbook(title, workbook_json):
 	user = _require_pricing_access()
 	normalized = _normalize_json(workbook_json)
 

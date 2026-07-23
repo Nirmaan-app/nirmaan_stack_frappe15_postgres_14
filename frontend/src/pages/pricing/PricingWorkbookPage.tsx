@@ -20,7 +20,15 @@ import { useFrappePostCall } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
 import { useUserData } from "@/hooks/useUserData";
-import { loadPricingLibs, serializeSheets, watermarkBackground } from "./pricingLibs";
+import {
+	buildWorkbookForm,
+	decodeSheetNames,
+	loadPricingLibs,
+	normalizeFormulas,
+	reenterNormalizedFormulas,
+	serializeSheets,
+	watermarkBackground,
+} from "./pricingLibs";
 import { workbookForPath } from "./pricingWorkbooks";
 
 declare global {
@@ -91,7 +99,7 @@ export function PricingWorkbookPage() {
 	const { call: callGet } = useFrappePostCall(`${M}.get_workbook`);
 	const { call: callCheckout } = useFrappePostCall(`${M}.checkout`);
 	const { call: callRelease } = useFrappePostCall(`${M}.release`);
-	const { call: callCreate } = useFrappePostCall(`${M}.create_workbook`);
+	// NOTE: create_workbook is NOT on the SDK -- see the raw fetch in handleImport (FR-3).
 
 	const watermarkStyle = useMemo(
 		() => ({ backgroundImage: watermarkBackground(full_name || "", user_id || "") }),
@@ -305,26 +313,33 @@ export function PricingWorkbookPage() {
 	const handleSave = useCallback(async () => {
 		setBusy(true);
 		try {
-			// Compact the payload (strip rebuilt/runtime grid keys) so it POSTs --
-			// the raw getAllSheets() (~26 MB) exceeds the request-size limit (DIAG-5).
+			// FR-6: push any formula the normalizer would change back through the ENGINE
+			// FIRST, so it recomputes a real value. Without this we would persist a
+			// corrected `f` next to a stale "#NAME?" `v`, and since the engine never
+			// evaluates at load, a dependency-free formula would read #NAME? forever.
+			const reentered = reenterNormalizedFormulas(window.luckysheet);
+			if (reentered.length) {
+				// Give the engine a moment to finish recomputing before we snapshot.
+				await new Promise((r) => setTimeout(r, 400));
+			}
+			// Compact the payload (strip rebuilt/runtime grid keys, PM-5); the
+			// normalizer inside serializeSheets is now the final guard and should be a
+			// no-op after the re-entry pass above.
 			const sheets = serializeSheets(window.luckysheet.getAllSheets());
-			// LARGE-BODY SAVE GOES VIA RAW FETCH, NOT THE SDK/axios (PM-6): the axios
-			// path stalls intermittently through the Vite dev proxy on the ~18 MB body,
-			// while an identical same-origin fetch completes reliably (~1.6 s). Mirrors
-			// the wizard multipart-upload precedent. Checkout/release/get/list stay on
-			// the SDK (small bodies). Endpoint/payload/stored shape are all unchanged.
+			// GZIP + MULTIPART, the ONE transport for save (FR-5). Same-origin fetch +
+			// CSRF header (PM-6). This replaces the nested-JSON body entirely: nesting
+			// the workbook as a JSON *string* escaped every quote (1.23x -> 25.91 MB for
+			// Electrical) and blew past the site's 25 MiB limit; gzip takes the same
+			// payload to a few MB. There is deliberately NO non-gzip fallback.
 			const token =
 				(window as any).frappe?.csrf_token || (window as any).csrf_token || "";
+			const form = await buildWorkbookForm(JSON.stringify(sheets), {
+				name: workbookNameRef.current,
+			});
 			const res = await fetch(`/api/method/${M}.save_workbook`, {
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Frappe-CSRF-Token": token,
-				},
-				body: JSON.stringify({
-					name: workbookNameRef.current,
-					workbook_json: JSON.stringify(sheets),
-				}),
+				headers: { "X-Frappe-CSRF-Token": token }, // no Content-Type: the browser sets the boundary
+				body: form,
 			});
 			if (!res.ok) {
 				// Surface the REAL Frappe message (keeps lock + Edit state intact).
@@ -383,16 +398,63 @@ export function PricingWorkbookPage() {
 					if (!exportJson?.sheets?.length) {
 						throw new Error("The selected file has no readable sheets.");
 					}
+					// Import pipeline (FR-1 + FR-3), applied BEFORE persisting so the stored
+					// workbook and the rendered one are identical:
+					//  1. decodeSheetNames -- LuckyExcel HTML-escapes sheet names but NOT
+					//     formula text, breaking every cross-sheet reference to a sheet whose
+					//     name contains `&` (DIAG-6 Defect A).
+					//  2. normalizeFormulas -- strip newlines and `++` from formula text; the
+					//     engine cannot parse either (DIAG-6/FR-2 Defects D/E).
+					const sheets = normalizeFormulas(decodeSheetNames(exportJson.sheets));
 					// Created under THIS page's registry title, so the next load's
 					// title-keyed selection finds it from this route and no other.
-					const created = await callCreate({
-						title: workbookTitle,
-						workbook_json: JSON.stringify(exportJson.sheets),
+					//
+					// GZIP + MULTIPART, the ONE transport for create (FR-5) -- identical to
+					// handleSave. Persists the COMPACT form (PM-5: every save-shaped path goes
+					// through serializeSheets); LuckyExcel's raw output carries the rebuilt
+					// `data` grids and is far larger. Lossless: the engine rebuilds `data`
+					// from `celldata` on load, and this is the same shape the workbook takes
+					// after its first save.
+					const token =
+						(window as any).frappe?.csrf_token || (window as any).csrf_token || "";
+					const form = await buildWorkbookForm(
+						JSON.stringify(serializeSheets(sheets)),
+						{ title: workbookTitle }
+					);
+					const res = await fetch(`/api/method/${M}.create_workbook`, {
+						method: "POST",
+						headers: { "X-Frappe-CSRF-Token": token }, // browser sets the multipart boundary
+						body: form,
 					});
+					if (!res.ok) {
+						let msg = `Import failed (HTTP ${res.status}).`;
+						try {
+							const data = await res.json();
+							if (data?._server_messages) {
+								const parsed = JSON.parse(data._server_messages);
+								msg =
+									parsed
+										.map((m: string) => {
+											try {
+												return JSON.parse(m).message;
+											} catch {
+												return String(m);
+											}
+										})
+										.join(" ") || msg;
+							} else if (typeof data?.message === "string") {
+								msg = data.message;
+							}
+						} catch {
+							/* non-JSON body -> keep the HTTP fallback */
+						}
+						throw new Error(msg);
+					}
+					const created = await res.json();
 					workbookNameRef.current = created?.message?.name || "";
 					// Defer create to the post-mount effect: setting status "ready"
 					// mounts the container, then the effect runs luckysheet.create.
-					requestSheet(exportJson.sheets, false);
+					requestSheet(sheets, false);
 					setLock("readonly");
 					setStatus("ready");
 				} catch (e: any) {
@@ -403,7 +465,7 @@ export function PricingWorkbookPage() {
 				}
 			});
 		},
-		[callCreate, requestSheet, workbookTitle]
+		[requestSheet, workbookTitle]
 	);
 
 	// -- render ------------------------------------------------------------
