@@ -1,6 +1,7 @@
 # Pricing Module — Plan & Status
 
-**Last updated:** 2026-07-23 (PW-1 delivered — three workbook pages: HVAC / Electrical / ELV).
+**Last updated:** 2026-07-23 (FR arc CLOSED — formula repair + gzip multipart transport; Electrical + ELV
+cleared for team editing).
 Standalone estimation-pricing module, **outside the BoQ
 upload wizard**. This is the live status + decision record; per-slice detail accrues here, NOT in the
 always-loaded `CLAUDE.md` (which carries only the stable summary).
@@ -285,6 +286,129 @@ backend change, no migration; route + sidebar edits are additive except the one 
 **ELV status:** the cleaned ELV file is ready and the page is live at `/elv-pricing` with its Import control —
 **the real Electrical + ELV imports are the owner's manual step** (PW-1 deliberately imported no real files).
 Once the ELV import passes, the Google-sheet sharing for the ELV source can be revoked along with the others.
+
+## FR arc (DIAG-6 -> FR-6) — CLOSED 2026-07-23
+
+The Electrical/ELV workbooks imported but their formulas were dead. Seven distinct causes, each found by
+minimal repro, each now closed. **Both workbooks verified live against the owner's expected-value tables.**
+
+### The defects, one line each
+
+| # | Defect | Symptom | Fix |
+|---|---|---|---|
+| A | LuckyExcel HTML-escapes sheet NAMES but not formula text (`Switches &amp; Sockets`) | every cross-sheet ref -> `#NAME?` on recalc | `decodeSheetNames` at import (FR-1) |
+| B | Array/CSE formulas `MATCH(1,(a)*(b),0)` | never register a dependency; sit inert | sources rewritten offline to `VLOOKUP` on a key-first helper pair |
+| C | `IFS` / `LET` unsupported by the engine | `#NAME?` | rewritten offline to nested `IF` / inlined |
+| D | `++` (Excel's tolerated double unary plus) | `#VALUE!` | `normalizeFormulas` (FR-3) |
+| E | literal newlines inside a formula | `#NAME?` | `normalizeFormulas` (FR-3) |
+| F | **`INDEX(...)` in COMPOSITION** — `=INDEX(r,2)` is fine, `=INDEX(r,2)*2` returns **0** | silent wrong values | **never emit INDEX-in-composition** for this engine (FR-2) |
+| G | **`<operator><space>(`** — even `=2 * (1+2)` fails | `#NAME?` for the WHOLE cell | quote-aware op-space strip in `normalizeFormulaText` (FR-4/FR-5) |
+
+**Standing caution:** F and G are ENGINE limits, not data problems. Never emit `INDEX` inside a larger
+expression; never leave a space between an operator and a following `(`. VLOOKUP against a key-first helper
+pair is the sanctioned lookup pattern.
+
+### Transport — gzip multipart (owner call: future-proofing over minimal fix)
+
+The old shape nested `workbook_json` as a JSON **string** inside the request object, escaping every quote
+(measured **1.23x**), which took Electrical to **25.91 MB** against the site's **25 MiB** `max_file_size` -> **413**.
+Now: `serializeSheets` -> gzip (`CompressionStream`) -> `multipart/form-data` field `workbook_json_gz`.
+
+| | Before | After |
+|---|---|---|
+| Electrical create | 25.91 MB -> **413** | **0.736 MB, HTTP 200, 2.8 s** (~**35x** smaller, 3.4% of the ceiling) |
+| ELV create | — | 0.134 MB, 265 ms |
+| ELV save | — | 0.142 MB, ~400-520 ms |
+
+**No limit or config change was made** (explicitly out of scope, and unnecessary once gzipped).
+Backend: `create_workbook(title)` / `save_workbook(name)` are thin wrappers reading + gunzipping the upload and
+delegating to `_create_workbook` / `_save_workbook`, which carry ALL prior logic (access gate, lock rules,
+versioning, pruning, JSON validation) unchanged. `_gunzip_payload` enforces `MAX_DECOMPRESSED_BYTES` (200 MB).
+**The old `workbook_json` body param no longer exists on those two endpoints — single path, no fallback.**
+The pricing page is the only product caller (grep-verified).
+
+### Save-time normalization + the RE-ENTER-LIVE design (FR-5/FR-6)
+
+The op-space bug is reachable from live typing, not just import: a user typing `= A1 * (B1+C1)` would store a
+formula the engine renders as `#NAME?`. Two passes now run on every save:
+
+1. **`reenterNormalizedFormulas`** — BEFORE serializing, any formula the normalizer would change is pushed back
+   through the ENGINE so it recomputes a real value. **Must pass the formula as a plain STRING**: the object
+   form `setCellValue(r,c,{f:"..."})` is accepted without error but leaves the cell empty (verified live).
+2. **`serializeSheets`** — the final guard; normally a no-op after (1). If it still has to change an `f`, it
+   drops that cell's stale `v`/`m` so nothing persists a value contradicting its formula.
+
+Why not simply clear the cached value: this engine **never evaluates formulas at load**, it renders the cached
+value. A dependency-free formula (`= 5 * (1+1)`) would then read `#NAME?` forever. Re-entry makes the value
+correct *immediately on save*, which is what the user sees.
+
+### Verification — full matrix, live, both workbooks
+
+| Check | Result |
+|---|---|
+| 4a baseline vs FIXED source | PASS |
+| 4b S1 | **F9 317, F10 694, F11 2523, F14 320, B4 1400, C4 280, D4 1680, B7 970** — exact |
+| 4c S2 | **F9 951, F10 347, F12 960, F13 79, F14 640, B4 1080, C4 220, D4 1300, B7 750** — exact |
+| 4d S3 | perturb + return, exact |
+| 4e previously-inert + op-space cells | 17/17 real numbers, **0 errors**; X9 263->491, U4 164->166, U6 114->123 prove live recalc |
+| 4f ELV | B9 40->19: **A4 400, B4 120, A5 180**; ->40: **700/240/317**; A17 1285->1435->1285; Extinguisher 15500->1480->15500 |
+| 4g typed-spaces | ELV `D51` and Electrical `D61`: `#NAME?` pre-save -> **10 / 21 immediately after Save** -> reload holds -> stored `f` clean, stored `v` correct |
+| 4h HVAC | byte-identical, untouched all session |
+
+Census on both stored workbooks: **0 escaped names, 0 newlines, 0 `++`, 0 INDEX, 0 operator-space-paren.**
+Backend suite **16/16** (13 retargeted to the internals + 3 new: gunzip round-trip, corrupt gzip rejected,
+decompressed-size guard).
+
+### Frozen baselines (standing regression instrument)
+
+- `Electrical_baseline_v1_20260723_1530.json` — 17 sheets, 6,954 formulas, opSpace 0
+- `ELV_baseline_v1_20260723_1530.json` — 14 sheets, 968 formulas, opSpace 0
+
+Both on the owner's Desktop, captured at shipped-state inputs. **Reuse these with the same expected-value
+tables for any future engine/import change** (compare-with-tolerance).
+
+### The hidden-tab instrument lesson (cost two slices)
+
+FR-5 reported "the Electrical workbook never finishes rendering — user-visible defect". **That was WRONG.**
+Every measurement had been taken in a **hidden browser tab**, where Chrome suspends `requestAnimationFrame`
+(so Luckysheet never paints) and throttles `setInterval` to ~1/min (which manufactured convincing "61s/60s/60s
+blocked main thread" readings). The tell was that the gaps were ~60 s **regardless of workbook size**. With the
+tab visible, Electrical renders in **4 seconds**. The control that proved it: ELV — edited successfully earlier
+— failed identically while hidden.
+
+**STANDING GUARD: every browser measurement in this module asserts `document.visibilityState === "visible"`
+first and aborts otherwise.**
+
+### Engine-decision spike — SCHEDULED, not parked
+
+A time-boxed **1-2 session Univer evaluation**: load these three workbooks and run them against the SAME
+expected-value tables + the frozen baselines above. **Criterion on record:** if Univer passes the matrix AND
+handles live-typed spaced formulas natively, migration gets scheduled; otherwise we stay on Luckysheet
+deliberately, with the normalizer as the documented compensator.
+
+### Deploy notes (Abhishek)
+
+- **This slice changes the BACKEND** (`api/pricing/workbook.py`) — first backend change in the pricing module
+  since PM-1. Deploy backend + frontend together; the two endpoints' payload shape changed.
+- **16 tests**: `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.pricing.test_pricing_workbook`
+- **Verify production nginx `client_max_body_size`** — payloads are now ~0.1-0.8 MB so any sane value clears
+  them, but **verify, do not assume**; nginx sits in front of Frappe's own limit and returns an identical 413.
+
+### Standing cautions carried forward
+
+- Never emit `INDEX`-in-composition; never emit `<operator><space>(`.
+- Future imports carrying array / `IFS` / `LET` formulas need the **offline preparation recipe** (rewrite to
+  VLOOKUP + key-first helper pairs) before import.
+- `Cable Allocation!A3:E3` carries a **pre-existing source `#REF!`** — owner-side spreadsheet repair, not ours.
+- **The old degraded Desktop Electrical copy must never be imported** (it caches `#NAME?` in 17 cells).
+- **ELV inert residue on record:** `Sprinkler with Markup!D51` (and `E51`) are empty formatting shells
+  (`{"ct":{"fa":"General","t":"e"}}`) left by FR-6's scratch testing — no formula, no value, harmless.
+- **C2 ruling (owner, this session):** the pricing-module deferred inventory is its OWN list, separate from the
+  BoQ arc ceiling.
+
+### Freeze
+
+**LIFTED.** Electrical (`1rf9ho8i02`) and ELV (`2l34c06unk`) are cleared for team editing.
 
 ## PM-3+ — deferred
 

@@ -607,6 +607,23 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   "zero workbooks in the system" (`!rows.length`) — the latter made Import unreachable for every page once any
   one workbook existed, so workbooks #2/#3 could not be created through the product at all. Import creates with
   `entry.title`, giving each page an independent empty → import → ready lifecycle.
+- **Import + save pipeline (FR-1 -> FR-6), in order.** Import: `decodeSheetNames` (LuckyExcel escapes sheet
+  NAMES but not formula text) -> `normalizeFormulas`. Save: `reenterNormalizedFormulas` (push corrected
+  formulas back through the engine so it recomputes a real value — **pass the plain STRING**; the object form
+  `setCellValue(r,c,{f:"..."})` silently leaves the cell empty) -> `serializeSheets` (compaction + a final
+  normalize guard that drops stale `v`/`m` on any cell it still has to fix). Transport for BOTH
+  `create_workbook` and `save_workbook` is **gzip + `multipart/form-data`** (file field `workbook_json_gz`);
+  the nested-JSON body is GONE, there is no fallback. Rationale: nesting the workbook as a JSON string escaped
+  every quote (1.23x -> 25.91 MB) and 413'd against the 25 MiB `max_file_size`; gzip is ~0.7 MB.
+- **ENGINE CAUTIONS (owner-locked, both proven by minimal repro).** (1) **Never emit `INDEX` in composition** —
+  `=INDEX(r,2)` is fine but `=INDEX(r,2)*2` returns **0**; use `VLOOKUP` against a key-first helper pair.
+  (2) **Never leave `<operator><space>(`** — even `=2 * (1+2)` yields `#NAME?` for the whole cell; a space
+  BEFORE the operator is harmless. `normalizeFormulaText` strips it quote-aware (string literals untouched).
+  (3) The engine **never evaluates formulas at load** — it renders the cached value, which is why save-time
+  re-entry (not just text fixing) is required.
+- **Browser-measurement guard:** assert `document.visibilityState === "visible"` before any timing or render
+  measurement. Hidden tabs suspend `requestAnimationFrame` (Luckysheet never paints) and throttle timers to
+  ~1/min — this manufactured a convincing but entirely false "render hang" that cost two slices.
 - **Vendored engine, script-injected — NOT bundled.** Luckysheet / LuckyExcel / JSZip are vendored under
   `nirmaan_stack/public/pricing_libs/` and served at `/assets/nirmaan_stack/pricing_libs/`. `pricingLibs.ts`
   injects the CSS `<link>`s + `<script>`s at runtime in dependency order (plugin.js before luckysheet.umd.js;

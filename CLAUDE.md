@@ -286,6 +286,12 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
 - **API** (`nirmaan_stack/api/pricing/workbook.py`): `list_workbooks` / `get_workbook` / `checkout` /
   `release` / `save_workbook` / `create_workbook`, all `@frappe.whitelist()` and all gated by
   `_require_pricing_access()`.
+- **Transport (FR-5/FR-6):** `create_workbook(title)` and `save_workbook(name)` take **NO `workbook_json`
+  param**. They are thin wrappers that read + gunzip the `workbook_json_gz` **`multipart/form-data`** file from
+  the request (`_read_gzip_payload` / `_gunzip_payload`, with a 200 MB decompressed guard) and delegate to
+  `_create_workbook` / `_save_workbook`, which hold all logic unchanged. Single path, no fallback — the old
+  nested-JSON body escaped every quote (1.23x) and 413'd a real workbook against the 25 MiB `max_file_size`;
+  gzipped it is ~0.7 MB. Other endpoints unchanged.
 - **Access rule (owner decision, DB-discovered names):** ALLOW if session user is `Administrator`, OR the
   user's `role_profile_name` is in the ACCESS SET, OR `frappe.get_roles(user)` intersects it. The ACCESS SET
   is a module-level constant with the EXACT DB-verified strings (2026-07-22): `Nirmaan Admin Profile`,
@@ -295,7 +301,7 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
   (auto-expiry) — otherwise it throws naming the holder. `save_workbook` requires a live (non-expired) lock,
   bumps `current_version`, writes a Version row, and prunes to the newest 20 snapshots. `release` clears the
   lock for the holder or Administrator.
-- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (12 tests). Run:
+- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (**16 tests**). Run:
   `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.pricing.test_pricing_workbook`.
 
 ---
