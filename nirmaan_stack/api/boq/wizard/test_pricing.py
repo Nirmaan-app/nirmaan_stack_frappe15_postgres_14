@@ -564,6 +564,90 @@ class TestSingleEditorLock(FrappeTestCase):
         frappe.db.set_value(_LOCK_DT, name, "last_edit_at", last_edit_at, update_modified=False)
         frappe.db.commit()
 
+    # -- lost PK race (REPEATABLE READ) -------------------------------------
+
+    def _force_duplicate_insert(self):
+        """Make the acquire INSERT collide, as a concurrent first-edit does.
+
+        Simulated rather than threaded: under REPEATABLE READ the real loser can never see
+        the winner's row (its snapshot predates the winner's commit), so the observable
+        contract is exactly "the insert raised DuplicateEntryError and the row is unreadable"
+        -- which is what this reproduces. The genuine two-connection race was verified out of
+        band (12/12: one 'acquired', one marker-prefixed reject)."""
+        real_new_doc = frappe.new_doc
+
+        class _CollidingDoc:
+            def insert(self, *a, **kw):
+                raise frappe.exceptions.DuplicateEntryError(_LOCK_DT, "collision", None)
+
+        def fake_new_doc(doctype, *a, **kw):
+            if doctype == _LOCK_DT:
+                return _CollidingDoc()
+            return real_new_doc(doctype, *a, **kw)
+
+        return real_new_doc, fake_new_doc
+
+    def test_lost_insert_race_rejects_with_marker_not_duplicate_error(self):
+        # REGRESSION: the loser used to re-read the winner and re-raise when it saw None,
+        # leaking a raw DuplicateEntryError (HTTP 409) that the caller could not interpret.
+        # Under REPEATABLE READ that re-read returns None 100% of the time, so EVERY race
+        # loser hit it. The loser must reject with the lock marker instead.
+        real_new_doc, fake_new_doc = self._force_duplicate_insert()
+        frappe.new_doc = fake_new_doc
+        try:
+            with self.assertRaises(frappe.ValidationError) as cm:
+                acquire_or_refresh(
+                    self.boq, self.sheet, self.cv, self.me, frappe.utils.now_datetime()
+                )
+        finally:
+            frappe.new_doc = real_new_doc
+        msg = str(cm.exception)
+        self.assertIn(_LOCK_HELD_MARKER, msg)
+        self.assertNotIsInstance(cm.exception, frappe.exceptions.DuplicateEntryError)
+
+    def test_lost_insert_race_writes_nothing(self):
+        # The reject path must mutate NOTHING (the same guarantee branch 3 carries).
+        real_new_doc, fake_new_doc = self._force_duplicate_insert()
+        frappe.new_doc = fake_new_doc
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                acquire_or_refresh(
+                    self.boq, self.sheet, self.cv, self.me, frappe.utils.now_datetime()
+                )
+        finally:
+            frappe.new_doc = real_new_doc
+        self.assertEqual(self._lock_count(), 0)
+
+    def test_lost_insert_race_carries_the_callers_marker(self):
+        # The DRAFT tier reuses this engine with its own marker -- a race loser on the draft
+        # tier must reject as BOQ_DRAFT_LOCKED, not as the pricing marker.
+        real_new_doc, fake_new_doc = self._force_duplicate_insert()
+        frappe.new_doc = fake_new_doc
+        try:
+            with self.assertRaises(frappe.ValidationError) as cm:
+                acquire_or_refresh(
+                    self.boq, self.sheet, 0, self.me, frappe.utils.now_datetime(),
+                    marker="BOQ_DRAFT_LOCKED", activity="edited",
+                )
+        finally:
+            frappe.new_doc = real_new_doc
+        self.assertIn("BOQ_DRAFT_LOCKED", str(cm.exception))
+
+    def test_transaction_stays_usable_after_a_lost_race(self):
+        # The savepoint rollback must leave the caller's transaction usable, or the endpoint's
+        # own error handling would fail on the next statement.
+        real_new_doc, fake_new_doc = self._force_duplicate_insert()
+        frappe.new_doc = fake_new_doc
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                acquire_or_refresh(
+                    self.boq, self.sheet, self.cv, self.me, frappe.utils.now_datetime()
+                )
+        finally:
+            frappe.new_doc = real_new_doc
+        # A plain read must still work on this connection.
+        self.assertEqual(frappe.db.get_value("BOQs", self.boq, "name"), self.boq)
+
     # -- acquire / refresh --------------------------------------------------
 
     def test_first_save_acquires_lock(self):
@@ -650,11 +734,18 @@ class TestSingleEditorLock(FrappeTestCase):
 
     def test_atomicity_concurrent_first_edit_exactly_one_winner(self):
         """Deterministically exercise the PK-collision path: a winner A already holds a
-        FRESH lock; we force B's acquire to BELIEVE the sheet is free (patch the FIRST
-        _read_lock to None) so B attempts the INSERT -- which COLLIDES on the deterministic
-        primary key. The collision must RAISE (DuplicateEntryError), be caught, B re-reads
-        the winner, and B is rejected. Proves exactly-one-winner: the duplicate insert does
-        NOT create a second row, and the holder stays A."""
+        FRESH lock; we force B's acquire to BELIEVE the sheet is free (patch _read_lock to
+        None) so B attempts the INSERT -- which COLLIDES on the deterministic primary key.
+        The collision must RAISE (DuplicateEntryError), be caught, and B rejected. Proves
+        exactly-one-winner: the duplicate insert does NOT create a second row, and the
+        holder stays A.
+
+        _read_lock is stubbed to return None on EVERY call, which is what a real race loser
+        actually observes: Frappe runs Postgres at REPEATABLE READ, so B's snapshot predates
+        A's commit and B can never see A's row inside this transaction. (The previous version
+        of this test returned the real row on the second call -- a fake that made the
+        unreachable re-read branch appear to work, which is how the raw-DuplicateEntryError
+        leak survived. Do not reintroduce that.)"""
         now = frappe.utils.now_datetime()
         # A wins first (fresh holder).
         acquire_or_refresh(self.boq, self.sheet, self.cv, self.other, now)
@@ -662,26 +753,18 @@ class TestSingleEditorLock(FrappeTestCase):
         name = _lock_identity(self.boq, self.sheet, self.cv)
 
         real_read = pricing_lock._read_lock
-        calls = {"n": 0}
-
-        def fake_read(boq, sheet_name, version):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                return None  # B's acquire sees "free" -> attempts the colliding insert
-            return real_read(boq, sheet_name, version)  # re-read after collision -> finds A
-
-        pricing_lock._read_lock = fake_read
+        pricing_lock._read_lock = lambda boq, sheet_name, version: None
         try:
             with self.assertRaises(frappe.ValidationError) as ctx:
                 acquire_or_refresh(self.boq, self.sheet, self.cv, self.me, now)
         finally:
             pricing_lock._read_lock = real_read
 
-        # The collision RAISED + was HANDLED (re-read A, rejected) -- not swallowed: if the
-        # duplicate insert had been silently allowed, acquire would have returned (B holder),
-        # not thrown the reject below.
-        self.assertGreaterEqual(calls["n"], 2, "B re-read after the collision")
+        # The collision RAISED + was HANDLED (rejected) -- not swallowed: if the duplicate
+        # insert had been silently allowed, acquire would have returned (B holder), not
+        # thrown the reject below. And it is a LOCK rejection, not a raw DuplicateEntryError.
         self.assertIn(_LOCK_HELD_MARKER, str(ctx.exception), "B was rejected (collision handled)")
+        self.assertNotIsInstance(ctx.exception, frappe.exceptions.DuplicateEntryError)
         # EXACTLY ONE row survived -- the duplicate insert collided, it did not duplicate.
         self.assertEqual(self._lock_count(), 1, "exactly one winner -- no duplicate row")
         # The holder is still A (the winner); B never overwrote.
