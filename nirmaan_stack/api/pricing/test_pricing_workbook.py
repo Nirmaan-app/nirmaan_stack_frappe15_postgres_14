@@ -275,6 +275,38 @@ class TestPricingWorkbook(FrappeTestCase):
 		self.assertEqual(min(versions), 6)
 		self.assertEqual(max(versions), 25)
 
+	def test_version_pruning_survives_list_payloads(self):
+		"""Pruning must work when the version snapshots store a JSON ARRAY.
+
+		A real imported workbook stores `workbook_json` as a LIST (LuckyExcel sheets).
+		The prune previously used `frappe.delete_doc`, which loads the version doc and
+		trips the list-valued-JSON load wall ("Value ... cannot be a list") on the FIRST
+		delete -- i.e. the 21st save. The earlier prune test used DICT payloads, so it
+		never exercised this path. This asserts the raw-`db.delete` prune survives it.
+		"""
+		list_payload = lambda i: json.dumps([{"name": "Sheet1", "celldata": [{"r": 0, "c": 0, "v": {"v": i}}]}])
+		name = self._create_as(ADMIN_USER, "WB prune list", json.loads(list_payload(0)))["name"]  # v1
+		wb.checkout(name)
+		# 24 saves -> versions 2..25. Every save past the 20th prunes a LIST-shaped
+		# version doc, which is exactly what used to raise.
+		for i in range(1, 25):
+			wb._save_workbook(name, list_payload(i))
+
+		self.assertEqual(frappe.db.count(wb.VERSION_DT, {"workbook": name}), wb.MAX_VERSIONS)
+		versions = sorted(
+			v.version
+			for v in frappe.get_all(wb.VERSION_DT, filters={"workbook": name}, fields=["version"])
+		)
+		# Newest 20 of versions 1..25 == 6..25.
+		self.assertEqual(min(versions), 6)
+		self.assertEqual(max(versions), 25)
+		# Sanity: the surviving snapshots really are list-shaped.
+		newest = frappe.get_all(
+			wb.VERSION_DT, filters={"workbook": name}, fields=["name"], order_by="version desc", limit=1
+		)[0]
+		stored = frappe.db.get_value(wb.VERSION_DT, newest.name, "workbook_json")
+		self.assertIsInstance(json.loads(wb._as_json_string(stored)), list)
+
 	# -- access log --------------------------------------------------------
 	def test_access_log_written_on_open_and_save(self):
 		name = self._create_as(ADMIN_USER, "WB log", {})["name"]  # logs "create"

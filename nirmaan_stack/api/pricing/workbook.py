@@ -222,7 +222,17 @@ def _log(workbook, action):
 
 
 def _prune_versions(workbook):
-	"""Delete version snapshots beyond the newest MAX_VERSIONS for a workbook."""
+	"""Delete version snapshots beyond the newest MAX_VERSIONS for a workbook.
+
+	Raw `frappe.db.delete`, NOT `frappe.delete_doc`. An imported workbook stores
+	`workbook_json` as a JSON ARRAY, which Frappe hydrates back as a Python list;
+	`delete_doc` loads the doc and calls `as_dict()`/`as_json()`, which trips
+	get_valid_dict's "Value ... cannot be a list" guard -- the same list-valued-JSON
+	load wall that `checkout`/`release` dodge with `db.set_value` and the test suite's
+	`_purge_all` dodges with raw `db.delete`. Raw delete never hydrates the doc, so it
+	side-steps the wall. (Latent since PM-1: only bites once a workbook exceeds
+	MAX_VERSIONS snapshots of imported/array content, i.e. the 21st save.)
+	"""
 	rows = frappe.get_all(
 		VERSION_DT,
 		filters={"workbook": workbook},
@@ -230,7 +240,7 @@ def _prune_versions(workbook):
 		order_by="version desc",
 	)
 	for row in rows[MAX_VERSIONS:]:
-		frappe.delete_doc(VERSION_DT, row.name, ignore_permissions=True, force=True)
+		frappe.db.delete(VERSION_DT, {"name": row.name})
 
 
 # ---------------------------------------------------------------------------
