@@ -504,9 +504,195 @@ cells: `Ducting` C23/C24/C26/C27 and `ADP` B165–B168.
 
 Pre-reimport backups retained: `*_predv2_20260723_1800.json` for all three.
 
+## PW-2a — DELIVERED 2026-07-23 (role split · Sandbox · Replace-from-Excel · save-time advisory)
+
+Closes the "Role tightening" line that PM-3+ had deferred to an owner call. Four changes, one flag
+(`isPricingAdmin`) tying the first three together.
+
+### 1. Read / write gate split (backend is the boundary)
+
+`api/pricing/workbook.py` gains `PRICING_WRITE_SET = {"Nirmaan Admin Profile"}` and
+`_require_pricing_write_access()`, **layered on** the existing read gate (not a replacement) so the messages
+stay honest for two different audiences: someone outside the module still gets "You do not have access to the
+Pricing Module", while an estimation user — who IS in the module — gets "Pricing workbooks are read-only for
+your role." Four call sites change (`checkout`, `release`, `_save_workbook`, `_create_workbook`); the read
+endpoints (`list_workbooks`, `get_workbook`) and the gzip/multipart wrappers are untouched.
+
+- **read** = admins + estimation (unchanged `PRICING_ACCESS_SET`)
+- **write** = admins only (`Administrator` user, or the `Nirmaan Admin Profile` role_profile_name / role —
+  it exists as BOTH, DB re-verified 2026-07-23)
+
+`PricingRoute` in `ProtectedRoute.tsx` is deliberately **UNCHANGED**: estimation users must still enter the
+module (they get read + Sandbox). The recon's Q5 caution stands — do not tighten the route guard.
+
+### 2. Role derivation on the page (UX only)
+
+`useUserData()` already supplied `user_id`; PW-2a also destructures `role` (from `Nirmaan Users.role_profile`)
+— **no new fetch**, the SWR key is already warm from `PricingRoute` one component above.
+
+    isPricingAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile"
+
+The action bar is gated on `roleResolved = role !== "Loading"`, rendering a neutral "Checking permissions…"
+while the `Nirmaan Users` doc is in flight. Without it an admin briefly sees the estimation bar — the recon
+flagged this and it is real, because the page's own load runs concurrently with the role fetch.
+
+### 3. Sandbox — available to BOTH roles (owner call)
+
+A local, never-persisted edit session. `handleEnterSandbox` re-reads the workbook and re-inits the engine with
+`allowEdit: true` **without any checkout**, so nothing is locked and nothing can be written. Persistent amber
+banner + "Exit Sandbox"; exit RE-FETCHES from the server rather than replaying a cached array (the engine may
+mutate the array it was created with, so a kept reference is not a trustworthy pristine snapshot).
+
+Why this is safe rather than merely untested — three independent reasons, all recon-verified:
+1. `releaseBeacon` hard-guards on `lockMineRef.current`, which only `handleEdit` ever sets. A sandbox session
+   leaves it false, so neither the `beforeunload` beacon nor the unmount call fires. **Do not replace that
+   guard with a `sandbox` condition** — the ref is the single truth for "do I hold the lock".
+2. Save/Release render only under `lock === "mine"`, which a sandbox session never reaches.
+3. The engine's own server-persistence path (`pd.saveParam` -> `$.post(updateUrl)` / websocket) is gated on
+   `allowUpdate`, whose engine default is `false` and which the page never passes. **NEVER set
+   `allowUpdate: true`** — the engine would then POST its own deltas autonomously, outside the lock, outside
+   `save_workbook`, and outside the Sandbox guarantee. A comment in `initSheet` says so at the site.
+
+Also confirmed absent: no Ctrl+S binding anywhere in the vendored bundle (grepped `keyCode==83` / `which==83`
+in every form: zero hits), and no toolbar save item. The Save button is the ONLY save-triggering surface.
+
+### 4. Replace-from-Excel — as a SAVE, not a create
+
+Admin + lock held. Reuses the FULL import pipeline (`runImportPipeline`: LuckyExcel -> `decodeSheetNames` ->
+`normalizeFormulas` -> `attachDataValidations`), now promisified and shared with the empty-state import so both
+paths convert byte-identically.
+
+**Why save_workbook and not create_workbook:** `Pricing Workbook.title` is `unique: 1`, so a second create
+raises DuplicateEntryError. Save also gives the previous content back for free as a version snapshot — a
+delete-and-recreate would destroy version history AND the access log. Payload shape is identical between the
+two endpoints (both `JSON.stringify(serializeSheets(sheets))` gzipped into `workbook_json_gz`); only the text
+field differs (`title` vs `name`).
+
+**Lock refresh before the POST:** `performReplace` re-calls `checkout` first. Converting a large .xlsx can take
+minutes and the server lock auto-expires at 30; `checkout` is idempotent for the current holder (the
+"held by someone else" branch is skipped) and re-stamps `checked_out_at`. Live-verified: access log shows
+`checkout` at 19:34:20 immediately before `save` at 19:34:23.
+
+Confirm-first: an AlertDialog states that the entire content is replaced, that current content is preserved as
+version history, and that unsaved edits are discarded. Nothing is sent until the user confirms.
+
+No assumption anywhere that a workbook's sheet set is stable across saves — checked the registry (path/title/
+label only), page state (no sheet-keyed state at all), `serializeSheets` (keeps `dataVerification`), and the
+backend (`_normalize_json` validates JSON only). A replace may change the sheet set freely.
+
+**DEFERRED:** a dedicated `"replace"` value on the Access Log `action` Select. This slice logs the existing
+`"save"` action; the doctype JSON is untouched (no migration this slice).
+
+### 5. Save-time formula advisory — WARN-ONLY (2c)
+
+New PURE module `pricingFormulaScan.ts`, scanning `sheets[].celldata[].v.f` **after `serializeSheets`** — the
+recon's exact slot, so what is warned about is exactly what would be persisted (`serializeSheets`' final
+normalization guard can still rewrite `f`). Three rules:
+
+1. **INDEX anywhere** — ENGINE CAUTION #1. `=INDEX(r,2)` is fine but `=INDEX(r,2)*2` silently returns **0**.
+   Detecting "in composition" needs a real expression parse; flagging INDEX anywhere is the honest cheap rule.
+   Advisory, so a false positive on a bare INDEX costs one dismissible line while the silent-zero case is
+   never missed.
+2. **XLOOKUP / IFS / LET** — grep-confirmed absent from the vendored bundle (all three zero hits while
+   SUMPRODUCT returns five, so the grep discriminates).
+3. **Any name outside the engine's own registry.**
+
+**`window.luckysheet_function` route: DYNAMIC (taken).** Live-checked on the loaded page before building:
+it is a plain object keyed by UPPERCASE function name, **371 entries**, with `INDEX`/`VLOOKUP`/`SUM`/`MATCH`
+present and `XLOOKUP`/`IFS`/`LET` absent. `supportedFunctionsFromEngine()` consumes it and returns `null` when
+the global is missing or implausibly small (<50 keys), in which case the unknown-name rule is **skipped**
+(fail-OPEN — a missing registry must never manufacture a warning on every formula); the explicit rules 1-2
+still fire. So no hand-kept function list was needed.
+
+Quote-awareness is load-bearing and covers BOTH kinds of quoting: `"..."` string literals AND `'...'` sheet-name
+references. Missing the single-quoted case would flag a sheet named `'Sheet (old)'` as a call to a function
+"SHEET". Function detection anchors on an identifier immediately followed by `(`, which is what keeps cell
+references and range names out.
+
+Structure per the recon: `handleSaveClick` (re-entry -> serialize -> scan; if hits, open dialog and return) +
+`performSave` (the POST), so Continue posts the SAME payload that was scanned and does **not** re-run the
+400 ms re-entry pass. Replace runs the same scan on its converted payload, and one dialog covers both.
+
+**PW-2b upgrade path:** the module is pure and side-effect free precisely so consent-based FIXING becomes a
+caller change, not a rewrite. `FormulaScanHit` already carries `row`/`col` for exactly that.
+
+### Verification — live, 2026-07-23
+
+Backend suite **16 -> 19**, all pass (`bench --site localhost run-tests --app nirmaan_stack --module
+nirmaan_stack.api.pricing.test_pricing_workbook`, `Ran 19 tests ... OK`). Retargets: writes now run as an
+`ADMIN_USER` fixture through `_create_as`; the two lock-exclusivity tests needed a SECOND write-capable actor
+(`ADMIN_USER2`) because an estimation user is now refused by the gate before the lock check is reached, which
+would have proven nothing about exclusivity. `POS_USER` keeps the read assertions (in
+`test_access_log_written_on_open_and_save` it now also proves reads still audit for estimation users). Three
+new: `test_estimates_user_can_read_but_not_write`, `test_admin_profile_user_can_write` (a non-Administrator
+carrying the role — a gate that only let Administrator through would pass every other test in the file),
+`test_write_gate_precedes_lock_check`.
+
+`pricingFormulaScan.test.ts` — **31 vitest checks**, positive AND negative (bare `=INDEX` flagged, `=VLOOKUP`
+not, unknown function flagged, quoted `"INDEX"` text NOT flagged, `'Sheet (old)'` NOT flagged, fail-open with
+no registry).
+
+Live (Electrical, versions 2 -> 6 across the session):
+
+| Check | Result |
+|---|---|
+| Admin bar | Edit + Sandbox; on lock: Save + Replace from Excel + Release |
+| Sandbox (admin) | banner shown; `B19=7`, `B20 ==B19*3` -> **21** recalc; `checked_out_by` NULL throughout |
+| Exit Sandbox | edits discarded, banner gone, bar restored, lock still NULL |
+| Edit/Save/Release regression | v2 -> v3, "Saved at", lock taken then cleared — unchanged behaviour |
+| Advisory fires | `=INDEX(A1:A5,2)*2` in B22 -> engine shows **0** (CAUTION #1 live) -> dialog lists `ALL ITEM WISE RATE — B22` + reason |
+| Advisory Cancel | dialog closes, **version stays 3**, nothing saved, lock retained |
+| Advisory Continue | v3 -> v4; v4 snapshot contains the INDEX formula |
+| Clean save | formula deleted -> **no dialog**, v4 -> v5 |
+| Zero-hit save | the two benign saves showed no dialog at all |
+| Replace | confirm dialog -> v5 -> **v6**, 17 sheets restored |
+| Replace content | 11 spot cells match the source .xlsx exactly (S1 B4/C4/D4/B7/C9/C16, Point Wiring A1, Wiring&cabling B3/C5, Switches&Sockets B3/C5) |
+| Dropdowns after replace | **78 records across 5 sheets** — survived the round-trip |
+| S1 chain after replace | with scenario qty D9=1, D10=2, D11=1 (D14=1, colour Grey): F9 **317**, F10 **694**, F11 **2523**, F14 **320**, B4 **1400**, C4 **280**, D4 **1680**, B7 **970** — all eight exact |
+| Version history | v5 retained as the pre-replace snapshot; v4 holds the INDEX formula |
+| Estimator API (as `pricing-test@nirmaan.app`) | list + get **OK**; checkout / release / save / create **all PermissionError** ("read-only for your role"); version + lock unchanged; no stray workbook; access log shows **`open` only, never `checkout`** |
+
+**S1 chain note (do not misread the baseline):** `1400/280/1680` is a SCENARIO value, not the file's saved
+state. The pristine FIXED source stores `B4 120 / C4 30 / D4 150` because S1's quantities D9:D14 are free entry
+and ship empty except `D14=1`. The chain is `B4 = ROUNDUP(Σ Fᵢ × (1−0.75) × (1+0.45), −1)` = `Σ × 0.3625`;
+`3854 × 0.3625 = 1396.775 -> 1400`, `C4 = ROUNDUP(1400 × 0.2, −1) = 280`, `B7 = ROUNDUP(3854 × 0.25, −1) = 970`.
+Reproducing it requires entering those quantities. Recorded here so the next session does not read the
+pristine 120/30/150 as a regression.
+
+### Throwaway test user — REUSE, do not delete
+
+`pricing-test@nirmaan.app` ("Pricing Test"), `role_profile_name` + `Nirmaan Users.role_profile` =
+`Nirmaan Estimates Executive Profile` (granting roles `Nirmaan Estimates Executive` + `System Manager` —
+neither is in the write set, which is what makes it a valid negative actor). Created in-session via bench
+console, owner-approved; NOT a committed patch. Password generated to the site's enabled policy
+(`minimum_password_score = 2`; generated score 4) and recorded in the PW-2a Desktop report **only**.
+
+**Retained deliberately** for the owner's production lock/denial tests, then retired by the owner. Do not
+delete it as cleanup.
+
+### Deferred out of PW-2a
+
+- **Navigate-away warning for an unsaved Sandbox session** (owner call). Needs a dirty signal the page does not
+  track today — the engine exposes no dirty flag the page reads, and `beforeunload` no longer warns because the
+  beacon returns early when no lock is held.
+- **A dedicated `"replace"` Access Log action value** (doctype Select untouched this slice).
+- **The estimates Role-vs-Profile divergence**: `useUserData` reads only `Nirmaan Users.role_profile`, so a user
+  holding the bare `Nirmaan Estimates Executive` ROLE with no matching profile passes the backend read gate but
+  is bounced by `PricingRoute`. Pre-existing, unchanged by PW-2a, still an owner call.
+
+## PW-2b — SCOPED NEXT
+
+- **Transform suite**: the fixes the advisory currently only warns about — INDEX-in-composition -> VLOOKUP
+  against a key-first helper pair, and the rest of the kill list.
+- **Import report**: what changed on import/replace (formulas normalised, dropdowns attached, cells rewritten),
+  surfaced instead of only `console.log`.
+- **Consent-based fixing**: the advisory dialog gains "Fix and save" beside "Save anyway", applying the
+  transform suite to the selected hits. `pricingFormulaScan` stays the detector; the fixer is a new pure module.
+
 ## PM-3+ — deferred
 
-- Role tightening / reconciling the profile-vs-role asymmetry above (owner call).
+- ~~Role tightening~~ — DONE in PW-2a (read = admins + estimation, write = admins only). The profile-vs-role
+  asymmetry itself remains an owner call (see PW-2a deferred).
 - A `patches.txt` entry if any data migration becomes needed (none this slice).
 - Version history browse/restore UI over `Pricing Workbook Version`.
 - Real-time co-edit (multi-user live), beyond the single-editor checkout lock.

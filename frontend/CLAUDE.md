@@ -677,6 +677,40 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   Administrator OR role_profile `Nirmaan Admin Profile` / `Nirmaan Estimates Executive Profile`. The backend
   (`api/pricing/workbook.py`) also accepts the `Nirmaan Estimates Executive` Role and is the real enforcement
   layer — keep the guard/sidebar strings in sync with each other, not necessarily with the backend Role set.
+- **Action-bar role gating (PW-2a).** ONE derived flag drives the whole bar:
+  `isPricingAdmin = user_id === "Administrator" || role === "Nirmaan Admin Profile"`, with `role` destructured
+  off the EXISTING `useUserData()` call (no new fetch — `PricingRoute` already warmed that SWR key). Admins get
+  Edit / Save / Release / Import / **Replace from Excel**; estimation users get **Sandbox only** and never see
+  a write affordance (the empty-state Import is admin-gated too). **Gate the bar on
+  `roleResolved = role !== "Loading"`** — `useUserData` returns the literal `"Loading"` while the
+  `Nirmaan Users` doc is in flight, and without the gate an admin flashes the estimation bar. Client gating is
+  **UX only**; the backend write gate (`_require_pricing_write_access`) is the boundary, and `PricingRoute`
+  stays wide so estimation users still reach the module.
+- **Sandbox pattern (PW-2a): editability WITHOUT a lock.** `requestSheet(sheets, true)` with **no** `checkout`
+  call; persistent amber banner + Exit Sandbox, which RE-FETCHES from the server (the engine may mutate the
+  array it was created with, so a cached array is not a trustworthy pristine snapshot). Three things keep it
+  from ever writing, and all three must be preserved: (1) `releaseBeacon` hard-guards on `lockMineRef.current`,
+  which only `handleEdit` sets — **do NOT replace that guard with a `sandbox` condition**, the ref is the single
+  truth for "do I hold the lock"; (2) Save/Release render only under `lock === "mine"`; (3) **NEVER pass
+  `allowUpdate: true` to `luckysheet.create`** (engine default is false) — with it on, the engine POSTs its own
+  deltas to `updateUrl` autonomously, outside the lock, outside `save_workbook`, and outside the Sandbox
+  guarantee. The engine binds no Ctrl+S and has no toolbar save item; the Save button is the ONLY save surface.
+- **Replace-from-Excel is a SAVE, not a create.** Admin + lock held. Reuses the full `runImportPipeline`
+  (shared with the empty-state import), confirms first, re-`checkout`s to refresh the 30-min lock before the
+  POST (idempotent for the holder; a long .xlsx conversion can otherwise blow the window), then posts
+  `save_workbook` with `{name}`. **Never `create_workbook`** — `Pricing Workbook.title` is `unique: 1`, and
+  save preserves the prior content as a version snapshot for free. Payload shape is identical between the two
+  endpoints; only the text field differs.
+- **Save-time formula advisory (`pricingFormulaScan.ts`, PW-2a) is WARN-ONLY and PURE.** Scans
+  `sheets[].celldata[].v.f` **after `serializeSheets`** so it sees exactly what will be persisted. Flags INDEX
+  anywhere (ENGINE CAUTION #1 — `=INDEX(r,2)*2` silently returns 0), the engine-absent `XLOOKUP`/`IFS`/`LET`,
+  and any name outside `window.luckysheet_function` (a plain object keyed by UPPERCASE name, 371 entries;
+  `supportedFunctionsFromEngine` returns null when it is missing/implausible and the unknown-name rule is then
+  **skipped — fail-OPEN**, never warn-on-everything). Detection strips BOTH `"..."` literals and `'...'`
+  sheet-name references before matching `identifier(`, so `="INDEX of items"` and a sheet named
+  `'Sheet (old)'` are not flagged. `handleSaveClick` scans then opens the dialog; `performSave` posts the
+  ALREADY-SCANNED sheets so Continue never re-runs the 400 ms re-entry pass. Keep the module side-effect free —
+  PW-2b's consent-based fixing is meant to be a caller change, not a rewrite.
 
 ## Important Notes
 
