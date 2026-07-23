@@ -29,6 +29,7 @@ import {
 	serializeSheets,
 	watermarkBackground,
 } from "./pricingLibs";
+import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
 
 declare global {
@@ -406,6 +407,13 @@ export function PricingWorkbookPage() {
 					//  2. normalizeFormulas -- strip newlines and `++` from formula text; the
 					//     engine cannot parse either (DIAG-6/FR-2 Defects D/E).
 					const sheets = normalizeFormulas(decodeSheetNames(exportJson.sheets));
+					//  3. attachDataValidations (DV-2) -- LuckyExcel drops every
+					//     <dataValidation>, so re-read the SAME file with the vendored
+					//     JSZip and attach the engine's per-cell dropdown records. Runs
+					//     AFTER decodeSheetNames because sheet matching uses decoded names.
+					//     Never throws: dropdowns are an enhancement, not the payload.
+					const dvCount = await attachDataValidations(file, sheets);
+					if (dvCount) console.log(`[pricing] attached ${dvCount} dropdown records`);
 					// Created under THIS page's registry title, so the next load's
 					// title-keyed selection finds it from this route and no other.
 					//
