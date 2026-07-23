@@ -40,7 +40,7 @@ import frappe
 from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_job_status
 
-from nirmaan_stack.api.boq.wizard import pricing
+from nirmaan_stack.api.boq.wizard import committed_carry, pricing
 from nirmaan_stack.api.boq.wizard.committed_carry import committed_excel_row_match
 from nirmaan_stack.api.boq.wizard.review_carry import _source_sheet_name, revision_source_boq
 from nirmaan_stack.api.boq.wizard.review_screen import (
@@ -397,6 +397,7 @@ def get_cross_boq_carry_plan(source_boq=None, source_version=None, dest_boq=None
             "dest_version": ctx.dest_version,
             "plan": plan,
             "counts": _plan_counts(plan),
+            "layers": _plan_layer_counts(ctx, match),
             "formulas_complete": bool(
                 pricing._sheet_formulas_complete(
                     ctx.dest_boq, ctx.dest_sheet_name, ctx.dest_version
@@ -405,6 +406,117 @@ def get_cross_boq_carry_plan(source_boq=None, source_version=None, dest_boq=None
             "needs_new_value_count": _count_new_priceable_rows(ctx, match),
         })
     return {"source_boq": resolved_source, "dest_boq": dest_boq, "sheets": sheets}
+
+
+def _plan_layer_counts(ctx: _SheetCarry, match) -> dict:
+    """The four annotation layers' availability for ONE sheet, in the API's vocabulary (Amendment
+    C, C2): `{layer: {carryable, present, unmatched, dropped}}`.
+
+    The engine reports what a carry WOULD do with overwrite OFF, so `carried` is the carryable
+    count and `kept` is the conflict count -- both independent of any toggle the user has not set
+    yet. The dialog turns `present` into the Keep/Overwrite decision and hides that toggle entirely
+    when `present` is 0.
+
+    ⚠️ The annotation source read stays VERSION-PINNED to the source sheet's current committed
+    version, unlike the rates (W6 / A10 made only the RATE read cross-version). A source that was
+    re-committed after being annotated therefore reports 0 here -- honestly, and visibly, which is
+    the improvement over the silent commit-time carry."""
+    counts = committed_carry.plan_layer_counts(
+        committed_carry.build_carry_ctx(
+            source_boq=ctx.source_boq,
+            source_sheet_name=ctx.source_sheet_name,
+            source_version=ctx.source_version,
+            dest_boq=ctx.dest_boq,
+            dest_sheet_name=ctx.dest_sheet_name,
+            dest_version=ctx.dest_version,
+            twin=match.original_to_revised,
+            grid_rows=None,
+        )
+    )
+    return {
+        key: {
+            "carryable": out["carried"],
+            "present": out["kept"],
+            "unmatched": out["unmatched"],
+            "dropped": out["dropped"],
+        }
+        for key, out in counts.items()
+    }
+
+
+# ── Endpoint: the SYNCHRONOUS per-sheet carry (Amendment C, C2) ────────────────────
+@frappe.whitelist(methods=["POST"])
+def apply_sheet_carry(dest_boq=None, sheet_name=None, decisions=None, layers=None) -> dict:
+    """Carry ONE sheet's rates + annotation layers from the original, synchronously.
+
+    Amendment C's replacement for the hub's whole-BoQ long job: the pricing editor is the launch
+    point, one sheet is the unit, and the caller is sitting on the screen -- so this returns the
+    summary directly instead of a job id. Precedent + volume proof: `pricing.apply_copy_forward`
+    does the same row counts over the same `_write_cell_price_record` core synchronously.
+
+    ATOMIC: one lock acquire, one commit, and a full rollback on ANY error -- there is no state
+    where the rates landed and the layers did not.
+
+    `decisions` = [{dest_excel_row, area, rate_kind, overwrite}] (presence = "carry this cell";
+    `overwrite` matters only for a conflict). `layers` = {layer_key: {carry, overwrite}}. The server
+    RE-DERIVES every rate outcome, target column and rate, and re-derives each layer's conflict set,
+    so a client-supplied outcome / column / rate is never trusted -- layer selection can only
+    REDUCE what is written.
+
+    Returns {ok, copied, conflicts_overwritten, conflicts_kept, skipped, layers}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.cross_boq_carry.apply_sheet_carry
+    """
+    _require_revision(dest_boq)
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    dest_rows = _dest_committed_sheets(dest_boq, [sheet_name])
+    if not dest_rows:
+        frappe.throw(
+            f"Sheet '{sheet_name}' has no current committed version on this revision.",
+            title="Not committed",
+        )
+    ctx = _resolve_sheet_carry(dest_boq, dest_rows[0])
+    if ctx is None:
+        frappe.throw(
+            "This sheet has no matching sheet in the original -- there is nothing to carry.",
+            title="No source sheet",
+        )
+
+    try:
+        summary, reason = _apply_sheet_carry(
+            ctx,
+            _coerce_decisions_list(decisions),
+            frappe.session.user,
+            layers=_coerce_layers(layers),
+        )
+    except Exception:
+        frappe.db.rollback()  # ATOMIC -- a mid-apply failure leaves NOTHING written
+        raise
+
+    if reason:
+        frappe.throw(_APPLY_BLOCK_MESSAGE[reason], title=_APPLY_BLOCK_TITLE[reason])
+
+    summary["ok"] = True
+    summary.setdefault("layers", {})
+    return summary
+
+
+#: The three known gate blocks `_apply_sheet_carry` reports, as user-facing copy. The worker path
+#: (C6 removes it) routes these same reasons into its per-sheet `failed[]` instead.
+_APPLY_BLOCK_MESSAGE = {
+    "locked_deliberate": "This sheet is locked for editing. Unlock it before carrying.",
+    "formulas_incomplete": (
+        "Every amount column on this sheet needs a declared formula before anything can be "
+        "carried. Define the missing amount formulas first."
+    ),
+    "locked": "Another user is editing this sheet right now. Try again once they finish.",
+}
+_APPLY_BLOCK_TITLE = {
+    "locked_deliberate": "Sheet locked",
+    "formulas_incomplete": "Formulas incomplete",
+    "locked": "Being edited",
+}
 
 
 # ── Endpoint: start the long carry job ─────────────────────────────────────────────
@@ -512,11 +624,15 @@ def _carry_rates_worker(dest_boq=None, decisions_by_sheet=None, user=None) -> No
     _publish_carry_event(dest_boq, user, payload)
 
 
-def _apply_sheet_carry(ctx: _SheetCarry, decisions, user):
+def _apply_sheet_carry(ctx: _SheetCarry, decisions, user, layers=None):
     """Apply ONE sheet's carry decisions. Returns (summary, None) on success (committed) or
     (None, reason) for a known-gate block ('locked_deliberate' | 'formulas_incomplete' | 'locked').
-    An UNEXPECTED error propagates to the worker's per-sheet catch (which rolls back). Mirrors
-    `pricing.apply_copy_forward`'s inner logic, cross-BOQ and per-sheet-isolated.
+    An UNEXPECTED error propagates to the caller (the worker's per-sheet catch, or the synchronous
+    endpoint's rollback). Mirrors `pricing.apply_copy_forward`'s inner logic, cross-BOQ.
+
+    `layers` (Amendment C) = {layer_key: {"carry": bool, "overwrite": bool}} for the four
+    row-addressed annotation layers, written into the SAME transaction as the rates. Omitted ->
+    rates only, byte-identical to pre-Amendment-C.
 
     The server RE-DERIVES the plan (via `_classify_carry` over a fresh D6 match) keyed by
     (dest_excel_row, area, rate_kind) -- a client-supplied outcome / target col / rate is NEVER
@@ -597,6 +713,25 @@ def _apply_sheet_carry(ctx: _SheetCarry, decisions, user):
         else:
             summary["copied"] += 1
 
+    # AMENDMENT C (C2): the four row-addressed annotation layers ride the SAME transaction as the
+    # rates, so a per-sheet carry is one atomic act -- there is no state where the rates landed and
+    # the remarks did not. `layers=None` is the pre-Amendment-C path (the hub's whole-BoQ worker,
+    # removed at C6) and skips this entirely.
+    if layers:
+        summary["layers"] = committed_carry.carry_layers(
+            committed_carry.build_carry_ctx(
+                source_boq=ctx.source_boq,
+                source_sheet_name=ctx.source_sheet_name,
+                source_version=ctx.source_version,
+                dest_boq=ctx.dest_boq,
+                dest_sheet_name=ctx.dest_sheet_name,
+                dest_version=ctx.dest_version,
+                twin=match.original_to_revised,  # the SAME match the rates were classified against
+                grid_rows=None,  # post-commit -> the colour layer reads the persisted grid
+            ),
+            layers,
+        )
+
     frappe.db.commit()  # ONE commit for THIS sheet (per-sheet isolation)
     return summary, None
 
@@ -671,6 +806,45 @@ def _coerce_sheet_names(sheet_names):
     if not isinstance(sheet_names, list):
         frappe.throw("sheet_names must be a list.", title="Invalid sheet_names")
     return sheet_names
+
+
+def _coerce_decisions_list(decisions):
+    """One sheet's decision list; may arrive as a JSON string over HTTP. Mirrors
+    `pricing.apply_copy_forward`'s coercion (the per-sheet twin of `_coerce_decisions`)."""
+    if isinstance(decisions, str):
+        try:
+            decisions = json.loads(decisions or "[]")
+        except (ValueError, TypeError):
+            frappe.throw("decisions must be a JSON list.", title="Invalid decisions")
+    decisions = decisions or []
+    if not isinstance(decisions, list):
+        frappe.throw("decisions must be a list.", title="Invalid decisions")
+    return decisions
+
+
+def _coerce_layers(layers):
+    """The per-layer choice map; may arrive as a JSON string over HTTP. Returns
+    {layer_key: {"carry": bool, "overwrite": bool}} restricted to the KNOWN layer keys -- an
+    unknown key is dropped silently rather than throwing, so a future layer added on one side of
+    the wire cannot break the other. None/{} -> {} (rates only)."""
+    if isinstance(layers, str):
+        try:
+            layers = json.loads(layers or "{}")
+        except (ValueError, TypeError):
+            frappe.throw("layers must be a JSON object.", title="Invalid layers")
+    layers = layers or {}
+    if not isinstance(layers, dict):
+        frappe.throw("layers must be an object keyed by layer.", title="Invalid layers")
+    out = {}
+    for key in committed_carry.LAYER_KEYS:
+        choice = layers.get(key)
+        if not isinstance(choice, dict):
+            continue
+        out[key] = {
+            "carry": pricing._coerce_bool(choice.get("carry")),
+            "overwrite": pricing._coerce_bool(choice.get("overwrite")),
+        }
+    return out
 
 
 def _coerce_decisions(decisions_by_sheet):

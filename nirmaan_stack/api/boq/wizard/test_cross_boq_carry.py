@@ -672,3 +672,234 @@ class TestOrphanedFormulaBlocksTheRateCarry(FrappeTestCase):
             }, "name"),
             "and so the revision receives NO rate at all",
         )
+
+
+def _remark(boq, sheet, version, excel_row, text):
+    d = frappe.new_doc("BoQ Cell Remark")
+    d.boq = boq
+    d.sheet_name = sheet
+    d.excel_row = excel_row
+    d.committed_version = version
+    d.remark = text
+    d.remark_version = 1
+    d.is_current = 1
+    d.remarked_at = frappe.utils.now()
+    d.insert(ignore_permissions=True)
+
+
+def _category(boq, sheet, version, excel_row, discipline, final="", human=""):
+    d = frappe.new_doc("BoQ Row Category")
+    d.boq = boq
+    d.sheet_name = sheet
+    d.excel_row = excel_row
+    d.committed_version = version
+    d.discipline = discipline
+    d.final_category_id = final
+    d.human_category_id = human
+    d.category_version = 1
+    d.is_current = 1
+    d.classified_at = frappe.utils.now()
+    d.insert(ignore_permissions=True)
+
+
+class TestApplySheetCarrySynchronous(FrappeTestCase):
+    """AMENDMENT C / C2 -- the synchronous per-sheet endpoint.
+
+    One sheet, one call, rates AND the annotation layers in ONE transaction. This replaces the
+    hub's whole-BoQ long job (removed at C6): the pricing editor is the launch point, so the caller
+    is on-screen and gets the summary back directly rather than a job id.
+
+    Fixture: two matched rows (10, 11) plus one source-only row (13). Row 10's rate is clean, row
+    11's is a conflict (the dest is already priced), row 13 has no twin. The source also carries a
+    remark on 10 and 13 and a category on 10, so every layer bucket is exercised.
+    """
+
+    SRC = "Sync"
+    DEST = "Sync Rev"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.orig = _make_boq(cls.project.name, origin="upload", boq_name="SYNC ORIG").name
+        cls.rev = _make_revision(cls.project.name, cls.orig).name
+
+        cls.src_sheet = _seed_sheet(cls.orig, cls.SRC, 1, 1,
+            {"B": _DESC, "C": _UNIT, "D": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+                {"srn": 13, "node_type": "Line Item", "description": "Item Gone", "qty": 5.0},
+            ])
+        _price(cls.orig, cls.SRC, 1, 10, "D", "combined_rate", 100.0)   # clean
+        _price(cls.orig, cls.SRC, 1, 11, "D", "combined_rate", 200.0)   # conflict
+        _remark(cls.orig, cls.SRC, 1, 10, "carry me")                   # carries
+        _remark(cls.orig, cls.SRC, 1, 13, "no twin")                    # unmatched
+        _category(cls.orig, cls.SRC, 1, 10, "Electrical",
+                  final="elec_machine", human="elec_human")
+
+        cls.dest_sheet = _seed_sheet(cls.rev, cls.DEST, 1, 1,
+            {"B": _DESC, "C": _UNIT, "E": _SCALAR_RATE}, [
+                {"srn": 10, "node_type": "Line Item", "description": "Item A", "qty": 5.0},
+                {"srn": 11, "node_type": "Line Item", "description": "Item B", "qty": 5.0},
+            ])
+        _stamp_provenance(cls.dest_sheet, cls.orig, cls.SRC)
+        _price(cls.rev, cls.DEST, 1, 11, "E", "combined_rate", 999.0)   # dest already filled
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        for boq in (cls.rev, cls.orig):
+            for dt in (_PRICING, _LOCK_DT, "BoQ Cell Remark", "BoQ Cell Color",
+                       "BoQ Cell Dismissal", "BoQ Row Category", "BOQ Nodes", _SHEET):
+                frappe.db.delete(dt, {"boq": boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        # Each test starts from the seeded state: drop anything a carry landed.
+        frappe.db.delete("BoQ Cell Remark", {"boq": self.rev})
+        frappe.db.delete("BoQ Row Category", {"boq": self.rev})
+        frappe.db.delete(_LOCK_DT, {"boq": self.rev})
+        frappe.db.delete(_PRICING, {"boq": self.rev, "excel_row": 10})
+        frappe.db.sql(
+            """update "tabBoQ Cell Pricing" set is_current = 1, rate = 999.0
+               where boq = %s and excel_row = 11 and pricing_version = 1""",
+            (self.rev,),
+        )
+        frappe.db.delete(_PRICING, {"boq": self.rev, "excel_row": 11, "pricing_version": (">", 1)})
+        frappe.db.commit()
+
+    def _all_layers(self, overwrite=False):
+        return {k: {"carry": True, "overwrite": overwrite}
+                for k in committed_carry.LAYER_KEYS}
+
+    def _plan_sheet(self):
+        plan = cross_boq_carry.get_cross_boq_carry_plan(
+            dest_boq=self.rev, sheet_names=json.dumps([self.DEST])
+        )
+        return plan["sheets"][0]
+
+    # ── the plan's per-layer counts ────────────────────────────────────────────
+    def test_plan_scopes_to_one_sheet_and_reports_layer_counts(self):
+        sheet = self._plan_sheet()
+        self.assertEqual(sheet["sheet_name"], self.DEST)
+        self.assertEqual(sheet["layers"]["remarks"]["carryable"], 1)   # row 10
+        self.assertEqual(sheet["layers"]["remarks"]["unmatched"], 1)   # row 13, no twin
+        self.assertEqual(sheet["layers"]["remarks"]["present"], 0)
+        self.assertEqual(sheet["layers"]["categories"]["carryable"], 1)
+
+    def test_plan_is_read_only(self):
+        self._plan_sheet()
+        self.assertEqual(
+            frappe.db.count("BoQ Cell Remark", {"boq": self.rev, "is_current": 1}), 0
+        )
+
+    # ── the apply ──────────────────────────────────────────────────────────────
+    def test_apply_carries_rates_and_layers_in_one_call(self):
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            decisions=json.dumps([
+                {"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+            ]),
+            layers=json.dumps(self._all_layers()),
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["copied"], 1)
+        self.assertEqual(out["layers"]["remarks"]["carried"], 1)
+        self.assertEqual(out["layers"]["remarks"]["unmatched"], 1)
+        self.assertEqual(out["layers"]["categories"]["carried"], 1)
+        # The rate landed on the RE-RESOLVED dest column (E), never the source's D.
+        rate = frappe.db.get_value(
+            _PRICING,
+            {"boq": self.rev, "sheet_name": self.DEST, "excel_row": 10, "is_current": 1},
+            ["col_letter", "rate"], as_dict=True,
+        )
+        self.assertEqual(rate.col_letter, "E")
+        self.assertEqual(float(rate.rate), 100.0)
+        # The category kept its field split through the carry.
+        cat = frappe.db.get_value(
+            "BoQ Row Category",
+            {"boq": self.rev, "sheet_name": self.DEST, "excel_row": 10, "is_current": 1},
+            ["final_category_id", "human_category_id"], as_dict=True,
+        )
+        self.assertEqual(cat.final_category_id, "elec_machine")
+        self.assertEqual(cat.human_category_id, "elec_human")
+
+    def test_rates_only_when_no_layers_passed(self):
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            decisions=json.dumps([
+                {"dest_excel_row": 10, "area": None, "rate_kind": "combined_rate"},
+            ]),
+        )
+        self.assertEqual(out["copied"], 1)
+        self.assertEqual(out["layers"], {})
+        self.assertEqual(
+            frappe.db.count("BoQ Cell Remark", {"boq": self.rev, "is_current": 1}), 0
+        )
+
+    def test_layers_only_when_no_decisions_passed(self):
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            layers=json.dumps({"remarks": {"carry": True, "overwrite": False}}),
+        )
+        self.assertEqual(out["copied"], 0)
+        self.assertEqual(out["layers"]["remarks"]["carried"], 1)
+        # An unselected layer is untouched.
+        self.assertEqual(out["layers"]["categories"]["carried"], 0)
+        self.assertEqual(
+            frappe.db.count("BoQ Row Category", {"boq": self.rev, "is_current": 1}), 0
+        )
+
+    def test_conflict_is_kept_unless_overwrite_is_asserted(self):
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            decisions=json.dumps([
+                {"dest_excel_row": 11, "area": None, "rate_kind": "combined_rate"},
+            ]),
+        )
+        self.assertEqual(out["conflicts_kept"], 1)
+        self.assertEqual(out["conflicts_overwritten"], 0)
+        self.assertEqual(
+            float(frappe.db.get_value(
+                _PRICING,
+                {"boq": self.rev, "excel_row": 11, "is_current": 1}, "rate")),
+            999.0,
+        )
+
+    def test_an_unknown_layer_key_is_dropped_not_thrown(self):
+        """A layer added on one side of the wire must never break the other."""
+        out = cross_boq_carry.apply_sheet_carry(
+            dest_boq=self.rev, sheet_name=self.DEST,
+            layers=json.dumps({"not_a_layer": {"carry": True}}),
+        )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["layers"], {})
+
+    # ── gates ──────────────────────────────────────────────────────────────────
+    def test_a_lock_held_by_another_user_throws_and_writes_nothing(self):
+        # "Locked By" is a User Link, so the holder must be a REAL user: Guest holds it, and the
+        # endpoint runs as the test session's Administrator -> rejected, nothing written.
+        acquire_or_refresh(self.rev, self.DEST, 1, "Guest", frappe.utils.now_datetime())
+        frappe.db.commit()
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                cross_boq_carry.apply_sheet_carry(
+                    dest_boq=self.rev, sheet_name=self.DEST,
+                    layers=json.dumps(self._all_layers()),
+                )
+            self.assertEqual(
+                frappe.db.count("BoQ Cell Remark", {"boq": self.rev, "is_current": 1}), 0
+            )
+        finally:
+            frappe.db.delete(_LOCK_DT, {"boq": self.rev})
+            frappe.db.commit()
+
+    def test_an_uncommitted_sheet_name_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            cross_boq_carry.apply_sheet_carry(dest_boq=self.rev, sheet_name="No Such Sheet")
+
+    def test_a_non_revision_boq_throws(self):
+        with self.assertRaises(frappe.ValidationError):
+            cross_boq_carry.apply_sheet_carry(dest_boq=self.orig, sheet_name=self.SRC)
