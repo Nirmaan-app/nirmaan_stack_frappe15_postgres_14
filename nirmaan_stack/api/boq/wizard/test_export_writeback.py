@@ -195,6 +195,71 @@ class TestTemplateExportPureHelpers(FrappeTestCase):
                   "grand": {"amount_supply": "D9", "amount_install": "E9"}}], "Post-tax")
         self.assertEqual(ws["E2"].value, "=C2+D2")
 
+    # -- blank-row compaction: row_has_content --------------------------------
+    _CURRENCY = {"E", "F"}   # rate_combined + amount_total in _RM
+
+    def test_row_has_content_true_for_a_real_data_cell(self):
+        self.assertTrue(etw.row_has_content(
+            {"B": "Wire", "D": 100}, self._CURRENCY, False, False))
+
+    def test_row_has_content_ignores_currency_placeholder_columns(self):
+        # An UNPRICED row whose only grid values sit in the rate/amount columns renders BLANK
+        # (step (a) skips those columns), so it must not count as content.
+        self.assertFalse(etw.row_has_content({"E": 0, "F": 0}, self._CURRENCY, False, False))
+
+    def test_row_has_content_false_for_empty_and_whitespace(self):
+        self.assertFalse(etw.row_has_content({}, self._CURRENCY, False, False))
+        self.assertFalse(etw.row_has_content(None, self._CURRENCY, False, False))
+        self.assertFalse(etw.row_has_content({"B": "   ", "C": None}, self._CURRENCY, False, False))
+
+    def test_row_has_content_true_when_priced_or_remarked(self):
+        self.assertTrue(etw.row_has_content({}, self._CURRENCY, True, False))    # stamped rate
+        self.assertTrue(etw.row_has_content({}, self._CURRENCY, False, True))    # remark text
+
+    def test_row_has_content_counts_unmapped_columns(self):
+        # Step (a) writes ANY non-currency cell, including a column outside the role map.
+        self.assertTrue(etw.row_has_content({"Z": "stray"}, self._CURRENCY, False, False))
+
+    # -- blank-row compaction: build_compact_row_map --------------------------
+    def test_row_map_is_identity_when_every_row_has_content(self):
+        # The pre-compaction shape: contiguous content rows are untouched.
+        self.assertEqual(etw.build_compact_row_map([2, 3, 4], 2, 4, 2), {2: 2, 3: 3, 4: 4})
+
+    def test_row_map_collapses_a_blank_run_to_exactly_one(self):
+        # 3,4,5 blank -> ONE blank output row (3); 6 lands at 4.
+        self.assertEqual(etw.build_compact_row_map([2, 6], 2, 6, 2), {2: 2, 6: 4})
+
+    def test_row_map_preserves_a_lone_blank(self):
+        # A single authored spacer is a section break -- it survives.
+        self.assertEqual(etw.build_compact_row_map([2, 4], 2, 4, 2), {2: 2, 4: 4})
+
+    def test_row_map_treats_holes_and_blanks_as_one_run(self):
+        # Deselection holes (absent rows) and blank grid rows collapse together.
+        self.assertEqual(etw.build_compact_row_map([2, 9], 2, 9, 2), {2: 2, 9: 4})
+
+    def test_row_map_collapses_leading_and_trailing_runs_too(self):
+        # ONE uniform rule, no head/tail special case: a leading gap becomes one blank row.
+        self.assertEqual(etw.build_compact_row_map([5], 2, 8, 2), {5: 3})
+
+    def test_row_map_empty_when_no_content(self):
+        self.assertEqual(etw.build_compact_row_map([], 2, 9, 2), {})
+
+    # -- blank-row compaction: _remap_excel_rows ------------------------------
+    def test_remap_excel_rows_re_addresses_and_drops_compacted_rows(self):
+        recs = [{"excel_row": 2, "col_letter": "E", "rate": 25},
+                {"excel_row": 9, "col_letter": "E", "rate": 200},
+                {"excel_row": 7, "col_letter": "E", "rate": 99}]   # 7 was compacted away
+        out = etw._remap_excel_rows(recs, {2: 2, 9: 4})
+        self.assertEqual(
+            out,
+            [{"excel_row": 2, "col_letter": "E", "rate": 25},
+             {"excel_row": 4, "col_letter": "E", "rate": 200}],
+        )
+
+    def test_remap_excel_rows_handles_empty_input(self):
+        self.assertEqual(etw._remap_excel_rows([], {2: 2}), [])
+        self.assertEqual(etw._remap_excel_rows(None, {2: 2}), [])
+
 
 # ---------------------------------------------------------------------------
 # DB-backed seeding helper
@@ -456,6 +521,148 @@ class TestTemplateExportEndToEnd(FrappeTestCase):
                 "BoQ Sheet", {"boq": self.boq, "sheet_name": sn, "is_current": 1},
                 "last_exported_at")
             self.assertIsNotNone(val)
+
+
+class TestTemplateExportBlankRowCompaction(FrappeTestCase):
+    """END-TO-END blank-row compaction on a PRUNED template sheet.
+
+    The committed grid keeps each row at its ORIGINAL template Excel row while the commit drops
+    the deselected ones, so a pruned sheet exports with a hole at every removed row on top of the
+    master's own spacer rows. The export compacts those: any run of consecutive blank source rows
+    becomes exactly ONE blank output row, a lone spacer survives, and EVERY absolute-row writer
+    (grid, rates, amount formulas, colours, remarks, grand total) follows the same map.
+
+    Source layout (header_row 1)          ->  Output
+      2  Wire      content                ->  2
+      3  4  5      blank grid rows        ->  3   (one blank)
+      6  Switch    content                ->  4
+      7  8         ABSENT (deselected)    ->  5   (merged with 9 -- one blank)
+      9            currency placeholders  ->  (blank: an unpriced rate/amount-only row)
+      10 Panel     content + rate + color ->  6
+      11           lone blank spacer      ->  7   (preserved)
+      12           remark only            ->  8
+                                              9   TOTAL
+    """
+
+    _ROLE_MAP = {
+        "A": {"role": "sl_no", "area": None},
+        "B": {"role": "description", "area": None},
+        "C": {"role": "unit", "area": None},
+        "D": {"role": "qty_total", "area": None},
+        "E": {"role": "rate_combined", "area": None},
+        "F": {"role": "amount_total", "area": None},
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.project.name
+        boq.boq_name = "Compaction Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.origin = "template"
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq = boq.name
+        now = frappe.utils.now()
+
+        _seed_committed_sheet(
+            cls.boq, "Compact ", "data", 1, cls._ROLE_MAP, [], sheet_order=1,
+            sheet_label="Compact", now=now,
+            grid=[
+                {"row_number": 2, "row_order": 0,
+                 "cells": {"A": "1", "B": "Wire", "C": "Rmt", "D": 100}},
+                {"row_number": 3, "row_order": 1, "cells": {}},
+                {"row_number": 4, "row_order": 2, "cells": {"B": "   "}},   # whitespace == blank
+                {"row_number": 5, "row_order": 3, "cells": {}},
+                {"row_number": 6, "row_order": 4,
+                 "cells": {"A": "2", "B": "Switch", "C": "Nos", "D": 50}},
+                # rows 7 + 8 absent -- deselected at commit (is_excluded=1).
+                {"row_number": 9, "row_order": 5, "cells": {"E": 0, "F": 0}},  # unpriced placeholders
+                {"row_number": 10, "row_order": 6,
+                 "cells": {"A": "3", "B": "Panel", "C": "Nos", "D": 5}},
+                {"row_number": 11, "row_order": 7, "cells": {}},             # lone spacer
+                {"row_number": 12, "row_order": 8, "cells": {}},             # remark-only row
+            ],
+            pricing=[{"excel_row": 2, "col_letter": "E", "rate": 25},
+                     {"excel_row": 10, "col_letter": "E", "rate": 200}],
+            formula={"target_col": "F", "target_value_field": "amount_total",
+                     "formula": _multiply_ast()},
+        )
+
+        rk = frappe.new_doc("BoQ Cell Remark")
+        rk.boq, rk.sheet_name, rk.excel_row = cls.boq, "Compact ", 12
+        rk.committed_version, rk.remark_version, rk.is_current = 1, 1, 1
+        rk.remark = "Check with client"
+        rk.insert(ignore_permissions=True)
+
+        cl = frappe.new_doc("BoQ Cell Color")
+        cl.boq, cl.sheet_name, cl.excel_row = cls.boq, "Compact ", 10
+        cl.col_letter, cl.color = "B", "yellow"
+        cl.committed_version, cl.color_version, cl.is_current = 1, 1, 1
+        cl.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        cls.result = export_priced_workbook(
+            boq_name=cls.boq, sheet_names=json.dumps(["Compact "]))
+        cls.wb = load_workbook(
+            io.BytesIO(base64.b64decode(cls.result["content_base64"])), data_only=False)
+        cls.ws = cls.wb["Compact "]
+        # Snapshot the extent AS PRODUCED: openpyxl MATERIALISES a cell on indexed access, so a
+        # later test reading an out-of-range address would otherwise grow max_row under us.
+        cls.max_row = cls.ws.max_row
+
+    @classmethod
+    def tearDownClass(cls):
+        for dt in ("BoQ Cell Color", "BoQ Cell Remark", "BoQ Cell Amount Formula",
+                   "BoQ Cell Pricing", "BoQ Committed Sheet Grid", "BoQ Sheet"):
+            frappe.db.delete(dt, {"boq": cls.boq})
+        frappe.db.delete("BOQs", {"name": cls.boq})
+        frappe.db.commit()
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    def test_content_rows_are_compacted_onto_consecutive_output_rows(self):
+        self.assertEqual(self.ws["B2"].value, "Wire")     # src 2  -> 2
+        self.assertEqual(self.ws["B4"].value, "Switch")   # src 6  -> 4
+        self.assertEqual(self.ws["B6"].value, "Panel")    # src 10 -> 6
+
+    def test_blank_runs_collapse_to_one_and_a_lone_spacer_survives(self):
+        # src 3/4/5 -> one blank at 3; src 7/8/9 -> one blank at 5; src 11 (lone) -> blank at 7.
+        for r in (3, 5, 7):
+            self.assertTrue(
+                all(self.ws.cell(row=r, column=c).value in (None, "") for c in range(1, 7)),
+                f"output row {r} should be blank",
+            )
+
+    def test_rates_follow_the_row_map(self):
+        # THE corruption guard: the src-10 rate must land on output row 6, never on row 10.
+        # iter_rows (not indexed access) so the assertion cannot materialise an out-of-range cell.
+        rate_rows = {
+            c.row: c.value
+            for (c,) in self.ws.iter_rows(min_col=5, max_col=5, min_row=2)
+            if c.value is not None
+        }
+        self.assertEqual(rate_rows, {2: 25, 6: 200})
+
+    def test_amount_formulas_reference_the_compacted_rows(self):
+        self.assertEqual(self.ws["F2"].value, "=(D2*E2)")
+        self.assertEqual(self.ws["F6"].value, "=(D6*E6)")
+        self.assertIsNone(self.ws["F4"].value)   # src 6 is unpriced -> blank amount
+
+    def test_grand_total_spans_the_compacted_range(self):
+        self.assertEqual(self.ws["B9"].value, "TOTAL")
+        self.assertEqual(self.ws["F9"].value, "=SUM(F2:F8)")
+
+    def test_remark_and_colour_follow_the_row_map(self):
+        remark_col = self.result["remark_columns"]["Compact "]
+        self.assertEqual(self.ws[f"{remark_col}8"].value, "Check with client")  # src 12 -> 8
+        self.assertEqual(self.ws["B6"].fill.fgColor.rgb[-6:].upper(), "FFEB9C")  # src 10 -> 6
+
+    def test_sheet_does_not_span_the_original_row_numbers(self):
+        # 12 source rows -> 9 output rows (8 data/blank + TOTAL). Nothing past the grand total.
+        self.assertEqual(self.max_row, 9)
 
 
 class TestUploadPathBranchUnchanged(FrappeTestCase):

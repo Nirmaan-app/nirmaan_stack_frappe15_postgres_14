@@ -274,6 +274,85 @@ def _quote_sheet(title: str) -> str:
     return "'" + str(title).replace("'", "''") + "'"
 
 
+# ── blank-row compaction (row-map) ────────────────────────────────────────────────
+# A template BoQ's committed grid keeps each row at its ORIGINAL template Excel row
+# (_invert_rows_to_grid: row_number = source_row_number) while the commit filters to the
+# INCLUDED subset (is_excluded=0). Deselecting rows therefore removes them from the grid but
+# NOT from the numbering, so a pruned sheet exports with a hole at every deselected row --
+# on top of the blank spacer rows the master template itself carries.
+#
+# The fix is a row MAP, never openpyxl's delete_rows: this sheet is built out of row-relative
+# formulas (amount cells, the multi-area =SUM, the grand total, the Summary's cross-sheet
+# refs) and delete_rows does not rewrite formulas. Equally, the map must be applied to EVERY
+# absolute-row writer -- grid cells, rates, formulas, colours, remarks, styling -- or a rate
+# lands on the wrong row. That is why it is built ONCE, before anything is written.
+
+
+def row_has_content(cells: Any, skip_cols: set, priced: bool, has_remark: bool) -> bool:
+    """Will this source row render as anything VISIBLE in the exported sheet?
+
+    Judged on what actually gets WRITTEN, not on whether a grid row exists: `skip_cols` is the
+    currency-column set step (a) deliberately skips (so an unpriced row's placeholder 0s do not
+    keep a visually-blank row alive), a stamped rate or a remark is content on its own, and a
+    blank/whitespace-only string is not. A colour tag alone is NOT content -- an empty tinted
+    cell is a blank row with a tint. PURE -- unit-tested."""
+    if priced or has_remark:
+        return True
+    for col, val in (cells or {}).items():
+        if col in skip_cols or val is None:
+            continue
+        if isinstance(val, str) and not val.strip():
+            continue
+        return True
+    return False
+
+
+def build_compact_row_map(
+    content_rows: Any, source_first: int, source_last: int, out_first: int
+) -> dict:
+    """Map each CONTENT source row to its compacted output row.
+
+    Walks the physical source span [source_first, source_last]; each source row is either
+    CONTENT (emitted, consuming one output row) or BLANK. ONE uniform rule, no special cases:
+    **any maximal run of consecutive blank source rows becomes exactly ONE blank output row**
+    -- at the head, in the middle, and at the tail alike. A lone blank therefore survives, so
+    the section breaks the template author built into the master are preserved while the
+    deselection holes collapse.
+
+    Only content rows appear in the returned map; blank output rows are never written to, so
+    they need no entry. PURE -- unit-tested."""
+    content = set(content_rows)
+    row_map: dict = {}
+    out = out_first
+    prev_blank = False
+    for src in range(source_first, source_last + 1):
+        if src in content:
+            row_map[src] = out
+            out += 1
+            prev_blank = False
+        elif not prev_blank:
+            out += 1  # reserve ONE output row for this whole blank run
+            prev_blank = True
+    return row_map
+
+
+def _remap_excel_rows(records: Any, row_map: dict) -> list[dict]:
+    """Re-address a list of {excel_row, ...} committed-tier records onto their compacted output
+    rows, DROPPING any record whose row was compacted away. Applied to the fetched lists BEFORE
+    they reach _stamp_rates / _apply_colors / _write_remark_column, so those shared helpers --
+    which the UPLOAD path also calls -- stay untouched."""
+    out: list[dict] = []
+    for rec in records or []:
+        src = rec.get("excel_row")
+        if src is None:
+            continue
+        mapped = row_map.get(int(src))
+        if mapped is None:
+            continue
+        out.append({**rec, "excel_row": mapped})
+    return out
+
+
 # ── DB reads ───────────────────────────────────────────────────────────────────────
 def _resolve_template_sheet(boq_name: str, sheet_name: str) -> Any:
     """The CURRENT committed BoQ Sheet for (boq, sheet_name) with the fields the from-scratch
@@ -339,29 +418,77 @@ def _build_preamble_sheet(wb: Workbook, sheet_name: str, boq_doc: Any) -> None:
 def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -> dict:
     """Build ONE data worksheet from scratch and return its Summary descriptor
     {title, label, grand: {role: cell_addr}, remark_col}. Ordering follows the spec:
-    grid -> header -> rates -> amount formulas -> total-qty (multi-area) -> grand-total ->
-    styling -> colors -> priced highlight -> remark column."""
+    read -> row-map -> grid -> header -> rates -> amount formulas -> total-qty (multi-area) ->
+    grand-total -> styling -> colors -> priced highlight -> remark column.
+
+    Every absolute-row write goes through the blank-row compaction map built in step (0); a
+    writer that addressed a SOURCE row directly would land on the wrong row."""
     ws = wb.create_sheet(title=_excel_title(sheet_name))
     title = ws.title  # the ACTUAL title openpyxl assigned (used by the Summary cross-ref)
     role_map = plan.column_role_map
     header_row = int(plan.header_row) if plan.header_row else 1
     cv = plan.commit_version
 
-    # (a) faithful grid cells -- EXCEPT the rate/amount columns, which are owned by pricing
-    #     (step c) and the amount formulas (step d). A template BoQ's committed grid carries
-    #     placeholder 0s in those columns (_invert_rows_to_grid iterates the full role map), and
-    #     writing them would print 0 / 0.00 on UNPRICED rows. Skip them here so unpriced rows stay
-    #     blank; step (c) overlays real rates and step (d) writes amount formulas on priced rows.
+    # The rate/amount columns are owned by pricing (step c) and the amount formulas (step d).
+    # A template BoQ's committed grid carries placeholder 0s in them (_invert_rows_to_grid
+    # iterates the full role map) and writing them would print 0 / 0.00 on UNPRICED rows, so
+    # the grid write skips them -- which is also why they cannot count towards row content.
     currency_cols = {c for c, s in role_map.items()
                      if isinstance(s, dict) and s.get("role") in _CURRENCY_ROLES}
+
+    # (0) READ everything the row-map depends on, then build the map BEFORE any write.
     grid_rows = _read_grid_rows(boq_name, sheet_name)
-    data_rows: list[int] = []
+    pricing_src = frappe.get_all(
+        _PRICING,
+        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
+                 "is_current": 1, "is_filled": 1},
+        fields=["excel_row", "col_letter", "rate"],
+        order_by="excel_row asc, col_letter asc",
+    )
+    remarks_src = frappe.get_all(
+        _REMARK,
+        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
+                 "is_current": 1},
+        fields=["excel_row", "remark"],
+        order_by="excel_row asc",
+    )
+    colors_src = frappe.get_all(
+        _COLOR,
+        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
+                 "is_current": 1},
+        fields=["excel_row", "col_letter", "color"],
+    )
+
+    priced_src = {int(p["excel_row"]) for p in pricing_src if p.get("excel_row") is not None}
+    remarked_src = {int(r["excel_row"]) for r in remarks_src if r.get("excel_row") is not None}
+    source_rows = [int(gr["row_number"]) for gr in grid_rows if gr.get("row_number") is not None]
+    content_rows = [
+        int(gr["row_number"]) for gr in grid_rows
+        if gr.get("row_number") is not None
+        and row_has_content(
+            gr.get("cells"), currency_cols,
+            int(gr["row_number"]) in priced_src,
+            int(gr["row_number"]) in remarked_src,
+        )
+    ]
+    # The physical source span. Data always starts at header_row + 1 in the output, so a
+    # header-to-data gap collapses under the same run rule as any other blank run.
+    row_map = (
+        build_compact_row_map(content_rows, min(source_rows), max(source_rows), header_row + 1)
+        if source_rows else {}
+    )
+    pricing = _remap_excel_rows(pricing_src, row_map)
+    remarks = _remap_excel_rows(remarks_src, row_map)
+    colors = _remap_excel_rows(colors_src, row_map)
+    # OUTPUT rows, ascending -- the single row vocabulary for every step below.
+    data_rows: list[int] = sorted(row_map.values())
+
+    # (a) faithful grid cells at their COMPACTED rows (currency columns skipped -- see above).
     for gr in grid_rows:
         rn = gr.get("row_number")
-        if rn is None:
-            continue
-        r = int(rn)
-        data_rows.append(r)
+        r = row_map.get(int(rn)) if rn is not None else None
+        if r is None:
+            continue  # blank / compacted-away row -> nothing to write
         for col, val in (gr.get("cells") or {}).items():
             if val is not None and col not in currency_cols:
                 ws[f"{col}{r}"] = val
@@ -376,13 +503,6 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
 
     # (c) rates overlay (BoQ Cell Pricing). Reuse _stamp_rates -> `written` drives the teal
     #     priced-cell highlight; no rate cell holds a formula so nothing is skipped.
-    pricing = frappe.get_all(
-        _PRICING,
-        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
-                 "is_current": 1, "is_filled": 1},
-        fields=["excel_row", "col_letter", "rate"],
-        order_by="excel_row asc, col_letter asc",
-    )
     _skipped, written = _stamp_rates(ws, pricing)
 
     # (d) AMOUNT cells as live Excel formulas (translate each current BoQ Cell Amount Formula).
@@ -442,25 +562,12 @@ def _build_data_sheet(wb: Workbook, boq_name: str, sheet_name: str, plan: Any) -
             ws[f"{col}{grand_row}"] = f"=SUM({col}{top}:{col}{bot})"
             grand_addr[spec.get("role")] = f"{col}{grand_row}"
 
-    # (g) styling + annotation overlays.
+    # (g) styling + annotation overlays. colors / remarks were read + re-addressed in step (0).
     _style_data_sheet(ws, role_map, header_row, data_rows, grand_row, desc_col)
-    colors = frappe.get_all(
-        _COLOR,
-        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
-                 "is_current": 1},
-        fields=["excel_row", "col_letter", "color"],
-    )
     _apply_colors(ws, colors)
     _apply_priced_highlight(ws, written)  # teal LAST -> wins over a user color on a rate cell
 
     remark_col = None
-    remarks = frappe.get_all(
-        _REMARK,
-        filters={"boq": boq_name, "sheet_name": sheet_name, "committed_version": cv,
-                 "is_current": 1},
-        fields=["excel_row", "remark"],
-        order_by="excel_row asc",
-    )
     if remarks:
         remark_col = _write_remark_column(ws, remarks, role_map, header_row)
 
