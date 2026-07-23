@@ -537,11 +537,11 @@ class TestCommitOverlayNonRevision(FrappeTestCase):
 class TestCommitOverlayCrossVersionSource(FrappeTestCase):
     """⚠️ DOCUMENTED ASYMMETRY -- ADR-0014 Amendment B W6, and it is NOT an oversight.
 
-    W6 fixed the CROSS-BOQ RATE carry to read its source cross-version: pricing identity includes
-    `committed_version`, so `is_current` is scoped PER VERSION, and re-committing a source sheet
-    mints a new version and ORPHANS the prior version's records onto the now-frozen one (the
-    BOQ_DOWNSTREAM_ORPHAN guard warns, it never migrates). `pricing.current_sheet_pricing_any_version`
-    now takes each cell's newest current row instead.
+    Pricing identity includes `committed_version`, so `is_current` is scoped PER VERSION, and
+    re-committing a source sheet mints a new version and ORPHANS the prior version's records onto
+    the now-frozen one (the BOQ_DOWNSTREAM_ORPHAN guard warns, it never migrates). W6 briefly made
+    the cross-BOQ RATE carry read its source cross-version to dodge this; AMENDMENT C (2026-07-23,
+    owner-directed) pinned it back, so rates and every layer below share the same exposure again.
 
     The five OVERLAY layers this module carries (formula / remark / color / `remark` dismissal /
     category) have the IDENTICAL exposure -- every source read here is pinned to `ctx.source_version`

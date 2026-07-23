@@ -923,6 +923,33 @@ conflict. `get_cross_boq_carry_plan` gains per-layer `{carryable, present, unmat
 button's eligibility and the dialog's counts are both server-derived. Sheet gates checked once:
 deliberate lock, `_sheet_formulas_complete`, one `acquire_or_refresh`.
 
+### C2b — the source RATE read is version-pinned (owner-directed, 2026-07-23) `[backend]`
+
+**This REVERSES Amendment B W6 / ADR-0014 A10.** Owner's rule, in their words: *once a revised BoQ
+is uploaded the user will not edit the original, since a revised version is already available* — so
+the original's CURRENT committed version is its final state, and the carry should move exactly what
+a user looking at the original can see. **Rates and structure are symmetric again; W6's deliberate
+asymmetry is retired, not overlooked.**
+
+- `cross_boq_carry._classify_carry` reads the source through version-pinned
+  `pricing.get_sheet_pricing(committed_version=ctx.source_version)`.
+- `revision._carry_counts` is pinned **identically**, in the same commit. The **count == carry**
+  invariant W6 established is preserved — both sides simply moved to the pinned side together.
+  ⚠️ **Never pin one without the other:** that divergence IS the defect W6 was written for (the
+  mapping screen promising rates the carry cannot land).
+- `pricing.current_sheet_pricing_any_version` had **zero** production callers afterwards and is
+  DELETED rather than left as dead code that invites accidental re-wiring. Restoring W6 = restoring
+  that reader from history and pointing both call sites back at it.
+
+**The accepted cost, now measured rather than argued.** `BoQ Cell Pricing.is_current` is scoped per
+committed version, so a sheet priced BEFORE its last re-commit has its rates orphaned on the frozen
+version and carries **zero** (live-observed shape: `BOQ-26-00023` / sheet `'LMS '`). Note this is
+about the original's own history *before* the revision existed, which the owner's rule does not
+cover — but it is now **visible instead of silent**: the count promises zero, the plan is empty, and
+C3's button reports *"Nothing left to carry from the original."* `TestCrossVersionSourcePricing`
+keeps W6's exact fixture with its assertions inverted, so the behaviour change is legible in one
+diff.
+
 ### C3 — the green button `[frontend]`
 
 `SheetPricingPage.tsx` row 2, **immediately after `Save now`**, `bg-emerald-600` + dark variants

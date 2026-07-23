@@ -231,15 +231,26 @@ def _classify_carry(ctx: _SheetCarry, match) -> list:
         if p.get("is_filled")
     }
 
-    # Source rates: the priced cells (the copy SOURCE), read CROSS-VERSION (ADR-0014 A10 /
-    # Amendment B W6). `is_current` is scoped per committed version, so a source sheet priced at
-    # v1 and then re-committed to v2 has its rates ORPHANED on v1 -- a version-pinned read
-    # returned zero and the carry silently landed nothing. `current_sheet_pricing_any_version`
-    # takes each cell's newest current row instead. STRUCTURE below stays version-pinned: the
-    # asymmetry is deliberate (pricing keeps being edited after the structure freezes).
-    src_pricing = pricing.current_sheet_pricing_any_version(
-        ctx.source_boq, ctx.source_sheet_name
-    )
+    # Source rates: the priced cells (the copy SOURCE), read VERSION-PINNED to the source sheet's
+    # CURRENT committed version -- the same version the structure below reads.
+    #
+    # ⚠️ AMENDMENT C (owner-directed, 2026-07-23) REVERSES Amendment B W6 / ADR-0014 A10, which
+    # had made this one read cross-version. The owner's rule: once a revision exists, the original
+    # is not edited further, so its current committed version IS its final state, and the carry
+    # should move exactly what a user looking at the original can see. Rates and structure are
+    # therefore symmetric again -- W6's deliberate asymmetry is retired, not overlooked.
+    #
+    # The cost, accepted and made VISIBLE rather than silent: `BoQ Cell Pricing.is_current` is
+    # scoped per committed version, so a source sheet priced BEFORE its last re-commit has its
+    # rates orphaned on the frozen version and this read returns zero for them. The mapping
+    # screen's count (`revision._carry_counts`) is pinned identically, so the count and the carry
+    # still cannot disagree -- the screen promises zero and the carry lands zero. Restoring W6 =
+    # reverting to `pricing.current_sheet_pricing_any_version`.
+    src_pricing = pricing.get_sheet_pricing(
+        boq_name=ctx.source_boq,
+        sheet_name=ctx.source_sheet_name,
+        committed_version=ctx.source_version,
+    )["pricing"]
     src_desc_by_row = {
         r.get("source_row_number"): r.get("description")
         for r in (

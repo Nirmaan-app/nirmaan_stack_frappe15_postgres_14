@@ -429,10 +429,15 @@ def _carry_counts(source_boq: str, source_sheet_names) -> dict:
       (the mapping screen's proposed pairing; general-specs sources excluded by the caller). An
       unclaimed original carries NOTHING, so counting it is a lie. General-specs sources drop out
       structurally too -- they have a committed grid row but no `BoQ Sheet` / `BOQ Nodes`.
-    * RATES. Read through the SAME `current_sheet_pricing_any_version` the carry itself uses, so
-      the number and the behaviour cannot drift, and count only `is_filled` cells -- an unfilled
-      current row is a cleared price and copies nothing. (The old count was version-blind AND
-      sheet-blind AND counted cleared cells.)
+    * RATES. Read through the SAME version-pinned `get_sheet_pricing` the carry itself uses (each
+      claimed source sheet at its CURRENT committed version), so the number and the behaviour
+      cannot drift, and count only `is_filled` cells -- an unfilled current row is a cleared price
+      and copies nothing. (The old count was version-blind AND sheet-blind AND counted cleared
+      cells.)
+      ⚠️ AMENDMENT C (2026-07-23) pinned this read alongside the carry's, REVERSING W6's
+      cross-version reader. The count==carry invariant W6 established is preserved -- both sides
+      simply moved to the pinned side together. Never pin one without the other: that divergence
+      IS the defect W6 was written for (the screen promising rates the carry cannot land).
     * CLASSIFICATIONS. `row_class`, the committed EFFECTIVE value the carry copies (see
       `review_carry._NODE_FIELDS`). `human_classification` holds only the manually-typed layer
       and misses every AI-accepted decision, so it was never what carries.
@@ -446,24 +451,31 @@ def _carry_counts(source_boq: str, source_sheet_names) -> dict:
     if not sheet_names:
         return {"rates": 0, "classifications": 0}
 
+    # The claimed sheets' CURRENT committed BoQ Sheet rows -- ONE query serving BOTH counts, so the
+    # rate count and the classification count are anchored to the same committed version the carry
+    # itself reads. A sheet with no current committed row (never committed, or a general-specs
+    # source with no BoQ Sheet at all) is absent here and contributes 0 to both.
+    current_sheets = frappe.get_all(
+        "BoQ Sheet",
+        filters={"boq": source_boq, "sheet_name": ["in", sheet_names], "is_current": 1},
+        fields=["name", "sheet_name", "commit_version"],
+    )
+
     rates = 0
-    for sheet_name in sheet_names:  # VERBATIM (#152)
+    for s in current_sheets:  # sheet_name VERBATIM (#152)
         rates += sum(
             1
-            for p in pricing.current_sheet_pricing_any_version(source_boq, sheet_name)
+            for p in pricing.get_sheet_pricing(
+                boq_name=source_boq,
+                sheet_name=s.sheet_name,
+                committed_version=s.commit_version,
+            )["pricing"]
             if p.get("is_filled")
         )
 
     # BOQ Nodes.sheet is a Link to BoQ Sheet, so scope by the claimed sheets' CURRENT committed
     # BoQ Sheet docnames. A general-specs source has no BoQ Sheet row at all -> naturally absent.
-    sheet_docnames = [
-        r.name
-        for r in frappe.get_all(
-            "BoQ Sheet",
-            filters={"boq": source_boq, "sheet_name": ["in", sheet_names], "is_current": 1},
-            fields=["name"],
-        )
-    ]
+    sheet_docnames = [s.name for s in current_sheets]
     classifications = (
         frappe.db.count(
             "BOQ Nodes",

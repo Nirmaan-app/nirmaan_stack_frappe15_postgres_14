@@ -91,12 +91,16 @@ def _make_pricing_row(
     return doc
 
 
-def _make_boq_sheet(boq_name, sheet):
+def _make_boq_sheet(boq_name, sheet, commit_version=1):
+    """A CURRENT committed BoQ Sheet. `commit_version` defaults to 1 -- the doctype default, so
+    every pre-existing caller is unchanged. It is explicit because Amendment C pinned the rate
+    count to THIS version: a pricing row on any other version is invisible to the count."""
     doc = frappe.new_doc("BoQ Sheet")
     doc.boq = boq_name
     doc.sheet_name = sheet
     doc.sheet_order = 1
     doc.is_current = 1
+    doc.commit_version = commit_version
     doc.insert(ignore_permissions=True)
     frappe.db.commit()
     return doc
@@ -210,22 +214,30 @@ class TestRevisionMappingProposal(FrappeTestCase):
         self.assertEqual(p["carry_counts"]["rates"], 2)
         self.assertEqual(p["carry_counts"]["classifications"], 1)
 
-    # ── W6 (ADR-0014 A10): the count must equal what the carry actually lands ────────
-    def test_zone1_rate_count_survives_a_recommit_that_orphaned_the_pricing(self):
-        """The W6 defect, as a count: a rate entered at v1 and then left behind by a re-commit
-        to v2 is still `is_current`, still the user's work, and DOES carry -- so it must count.
-        The old version-blind-but-carry-pinned pair reported it and landed nothing."""
+    # ── The count must equal what the carry actually lands ───────────────────────────
+    # W6 (ADR-0014 A10) established that invariant with a CROSS-VERSION read on both sides.
+    # AMENDMENT C (2026-07-23, owner-directed) moved BOTH sides to the version-PINNED read
+    # instead. The invariant is intact -- only which side it sits on changed. Never pin one
+    # without the other: that divergence IS the defect W6 was written for.
+    def test_zone1_rate_count_excludes_pricing_orphaned_by_a_recommit(self):
+        """THE ACCEPTED COST of Amendment C, as a count (this assertion is W6's, inverted).
+        'Electrical' is committed at v3; a rate entered at v1 was left behind by the re-commit,
+        is not visible on the original's current sheet, and therefore neither counts nor carries.
+        The number stays HONEST -- the screen promises zero and the carry lands zero."""
         _reset_carry_layers(self.original.name)
+        _make_boq_sheet(self.original.name, "Electrical", commit_version=3)  # the re-commit
         _make_pricing_row(self.original.name, "Electrical", 20, "F", committed_version=1)
         p = self._proposal(["Electrical"])
-        self.assertEqual(p["carry_counts"]["rates"], 1)
+        self.assertEqual(p["carry_counts"]["rates"], 0)
 
-    def test_zone1_rate_count_dedupes_one_cell_priced_on_two_versions(self):
+    def test_zone1_rate_count_counts_one_cell_once_and_ignores_its_stranded_twin(self):
         """`is_current` is scoped PER committed version, so one cell can hold two current rows.
-        It is still ONE rate that will carry (highest committed_version wins)."""
+        The pinned read sees only the one on the sheet's CURRENT version (v3) -- counted once,
+        with the v1 straggler excluded rather than deduped against."""
         _reset_carry_layers(self.original.name)
+        _make_boq_sheet(self.original.name, "Electrical", commit_version=3)
         _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=1)
-        _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=2)
+        _make_pricing_row(self.original.name, "Electrical", 30, "F", committed_version=3)
         p = self._proposal(["Electrical"])
         self.assertEqual(p["carry_counts"]["rates"], 1)
 
