@@ -742,6 +742,19 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   and they structurally **cannot** see that the engine mis-reads that text at runtime. Cautions 3, 4
   and 5 were all invisible to a fully green suite. **Anything about engine SEMANTICS must be proven
   in a live Tier-3 run.**
+- **Consent-based live fix (`pricingLiveFix.ts`, PW-2b-ii).** The advisory dialog's per-hit `[Fix]`
+  eligibility is DERIVED, not a hand-kept class list: `assessFix` runs the hit through the pipeline's
+  `transformFormula` and is fixable iff it yields a rewrite with **`helpers.length === 0`** (or a
+  dead-Google `freeze`) — helper-needing classes are deferred to "Replace from Excel" (live helper
+  writes mutate a second sheet, hard to undo on Release). Application mirrors FR-6: `setCellValue` with
+  the plain formula **STRING** (never the object form — leaves the cell empty), the target sheet's
+  `order`, active-sheet restore. After a fix, re-serialize + re-scan; the fixed cell **rides the same
+  Save** (no separate cycle). The import report is a receipt (`ImportReportDialog.tsx`, a separate
+  component), shown on import/replace when non-trivial and skipped for a pure no-op; `lastReport` is
+  session-only (persistence deferred). ⚠️ **Backend `_prune_versions` deletes via raw `frappe.db.delete`,
+  NOT `delete_doc`** — deleting a list-shaped (imported) version doc otherwise trips the list-valued-JSON
+  load wall on the 21st save; every save-shaped path that touches an array-`workbook_json` doc must avoid
+  full `doc.save()`/`delete_doc` (same rule as `checkout`/`release` using `db.set_value`).
 - **Save-time formula advisory (`pricingFormulaScan.ts`, PW-2a) is WARN-ONLY and PURE.** Scans
   `sheets[].celldata[].v.f` **after `serializeSheets`** so it sees exactly what will be persisted. Flags INDEX
   anywhere (ENGINE CAUTION #1 — `=INDEX(r,2)*2` silently returns 0), the engine-absent `XLOOKUP`/`IFS`/`LET`,

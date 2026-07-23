@@ -310,7 +310,7 @@ editor (Luckysheet-as-static-assets planned) whose workbook state is persisted s
   (auto-expiry) — otherwise it throws naming the holder. `save_workbook` requires a live (non-expired) lock,
   bumps `current_version`, writes a Version row, and prunes to the newest 20 snapshots. `release` clears the
   lock for the holder or Administrator.
-- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (**19 tests**). Run:
+- **Tests:** `nirmaan_stack/api/pricing/test_pricing_workbook.py` (**20 tests**). Run:
   `bench --site localhost run-tests --app nirmaan_stack --module nirmaan_stack.api.pricing.test_pricing_workbook`.
   Writes run as admin-role fixtures (`ADMIN_USER`/`ADMIN_USER2`); `POS_USER` is the estimation actor used for
   the read + negative-write assertions. Every workbook creation MUST go through `_create_as` — the suite runs

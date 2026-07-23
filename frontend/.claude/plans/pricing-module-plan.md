@@ -797,16 +797,79 @@ FIXED (no-op, zero advisory rows).
 - **Fix `Termination!B2:B97` -> `B2:B96` in the MASTER Excel source.** The pipeline harmonizes it on
   import, but the workbook itself still carries the typo, so Excel users see the misaligned result.
 
-## PW-2b-ii — SCOPED NEXT
+## PW-2b-ii — DELIVERED 2026-07-24 (import report dialog + consent-based live fix). **PW-2b ARC CLOSED.**
 
-- **Import report dialog**: render the `ImportReport` above (a `Dialog`, not the PW-2a `AlertDialog` —
-  it is a receipt, not a decision), grouped by class, with the abstain list visible and a
-  "View import report" re-open affordance.
-- **Consent-based fixing**: "Fix and save" beside "Save anyway", limited to the HELPER-FREE subset
-  (IFS, LET, XLOOKUP, single-cond, dead-Google freeze — ~90% of cells), with the helper-needing count
-  surfaced as "will be fixed on the next Replace". Live helper writes mutate a second sheet and are
-  hard to undo if the user then hits Release.
-- `pricingFormulaScan` stays the detector; the fixer reuses `pricingTransforms`.
+Two new frontend modules + a backend prune fix, consuming the PW-2b-i modules unmodified (no additive
+exports needed — `transformFormula`/`HelperAllocator` were exported; `FormulaScanHit` already carried
+`row`/`col`/`formula`, so `pricingFormulaScan.ts` was untouched).
+
+### Import report dialog (`ImportReportDialog.tsx`)
+
+Renders the PW-2b-i `ImportReport` as a receipt. Three variants, one body: `replace` (merged with the
+destructive confirm — warning + report + Cancel/Replace), `import` (empty-state first import), `view`
+(re-open the LAST report from the action bar, Close only). Body = summary counts, a scrollable
+old->new table (abstain + IMPORTRANGE-flag rows styled amber), a clamp line, and a collapsed helpers
+list. Shown on import/replace when the report is non-trivial; a **pure no-op report skips the report
+SECTION** (the destructive replace-confirm still shows). `lastReport` is **session-only** — persistence
+across reloads is deferred.
+
+### Consent-based live fix (`pricingLiveFix.ts`)
+
+The advisory dialog gains a per-hit `[Fix]` (eligible) / "needs Replace from Excel" (helper-needing) /
+"no automatic fix" status, plus a "Fix all fixable" bulk action. **Eligibility is NOT a hand-kept
+class list**: `assessFix` runs the hit's formula through the SAME `transformFormula` entry point and is
+fixable iff it yields a rewrite with **ZERO helper requests** (`helpers.length === 0`) or a dead-Google
+`freeze`. That automatically covers IFS / LET / XLOOKUP / direct single-cond INDEX/MATCH and excludes
+multi-cond INDEX/MATCH — if the transform suite ever changes which classes need helpers, this tracks
+it for free. **Helper-needing classes are deferred to Replace** (writing helper columns in a live edit
+session mutates a second sheet and is hard to undo on Release — recon Q7). Application mirrors FR-6:
+`setCellValue` with the plain formula STRING (never the object form, which leaves the cell empty),
+the target sheet's `order`, and active-sheet restore. After a fix the dialog re-serializes + re-scans;
+remaining hits stay listed; the fixed cell **rides the same Save** (no separate cycle) — "Save anyway"
+with hits remaining, "Save" at zero.
+
+### The version-prune backend defect (latent, pre-existing — surfaced by PW-2b-ii's 21st save)
+
+`_prune_versions` deleted old snapshots with `frappe.delete_doc`, which loads the doc and calls
+`as_dict()`/`as_json()` — tripping the list-valued-JSON load wall ("Value ... cannot be a list") on any
+version whose `workbook_json` is an imported ARRAY. It only fires on the **21st save** (the first that
+deletes a snapshot beyond `MAX_VERSIONS = 20`), so it was latent since PM-1 and invisible to
+`test_version_pruning_keeps_max_20` (which used DICT payloads). **Fix:** delete via raw
+`frappe.db.delete(VERSION_DT, {"name": row.name})`, which never hydrates the doc — the same dodge
+`checkout`/`release` use (`db.set_value`) and the test's `_purge_all` uses. New
+`test_version_pruning_survives_list_payloads` (>20 LIST-shaped saves) covers it; backend suite **19 ->
+20**. This was a real production risk: *every* pricing workbook would have become unsaveable past 20
+saved versions.
+
+### The 4b clamp-on-FIXED nuance — DESIGNED behaviour
+
+Replacing with a FIXED source shows a **clamp-only** report ("90,700 empty cells trimmed"), not a bare
+confirm, because the FIXED xlsx genuinely carries trailing empty-row bloat and spec-1 lists clamp-drops
+as a report trigger. This is correct — suppressing a real 90k-cell trim would hide a genuine change to
+the persisted content; the transform-level no-op (0 rewrites/freezes/abstains) is intact. **Deferred:**
+regenerate the FIXED source workbooks bloat-free someday so their re-import is a total no-op.
+
+### Verification
+
+Frontend **145 vitest** (`pricingLiveFix.test.ts` +10: IFS/LET/XLOOKUP/direct-single fixable;
+multi-cond + result-left single -> "needs helper columns"; unknown-fn + bare-INDEX -> "no sanctioned
+rewrite"; DUMMYFUNCTION -> freeze). Backend **20** (`... run-tests --module
+nirmaan_stack.api.pricing.test_pricing_workbook`, `Ran 20 tests ... OK`).
+
+Tier-3 live on Electrical (v18 -> v22): RAW replace -> merged report (35 rewritten · 1 harmonized ·
+92,023 trimmed · 22 helper pairs) -> **Cancel leaves version + content + lock untouched** -> Proceed ->
+v19 -> "View import report" re-opens it. FIXED replace -> clamp-only report -> restore (S1
+120/30/150/80). Live fix -> `[Fix]` on an IFS rewrote it to `=IF(1=1,42,0)` = **42** live, dialog
+re-scanned to the multi-cond INDEX ("needs Replace from Excel") -> **Save anyway succeeded (v20 -> v21,
+the exact >20-prune save that crashed pre-fix)** -> reload holds `=IF(1=1,42,0)` = 42, INDEX unchanged
+-> clean save v21 -> **v22**. Electrical pruned to **20 snapshots, range v3..v22**; all locks NULL;
+ELV/HVAC untouched.
+
+## PM-3+ / remaining module queue
+
+- **Univer spike**, then the production go-live sequence.
+- Regenerate the FIXED source workbooks bloat-free (so a FIXED re-import is a total no-op).
+- Version history browse/restore UI over `Pricing Workbook Version`.
 
 ## PM-3+ — deferred
 
