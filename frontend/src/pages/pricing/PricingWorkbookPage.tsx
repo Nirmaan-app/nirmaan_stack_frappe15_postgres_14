@@ -56,6 +56,14 @@ import {
 	supportedFunctionsFromEngine,
 	type FormulaScanHit,
 } from "./pricingFormulaScan";
+import { clampRowBloat } from "./pricingClamp";
+import {
+	emptyReport,
+	finalizeReport,
+	runFormulaStage,
+	summarize,
+	type ImportReport,
+} from "./pricingTransforms";
 import { attachDataValidations } from "./pricingValidations";
 import { workbookForPath } from "./pricingWorkbooks";
 
@@ -532,38 +540,81 @@ export function PricingWorkbookPage() {
 
 	// -- import pipeline (shared by create + replace) -----------------------
 	/**
-	 * The FULL import pipeline (FR-1 + FR-3 + DV-2), promisified so BOTH the
-	 * empty-state create and the PW-2a replace run byte-identical conversions:
-	 *  1. decodeSheetNames -- LuckyExcel HTML-escapes sheet names but NOT formula
-	 *     text, breaking every cross-sheet reference to a sheet whose name contains
-	 *     `&` (DIAG-6 Defect A).
-	 *  2. normalizeFormulas -- strip newlines and `++` from formula text; the engine
-	 *     cannot parse either (DIAG-6/FR-2 Defects D/E).
-	 *  3. attachDataValidations (DV-2) -- LuckyExcel drops every <dataValidation>, so
-	 *     re-read the SAME file with the vendored JSZip and attach the engine's
-	 *     per-cell dropdown records. Runs AFTER decodeSheetNames because sheet
-	 *     matching uses decoded names. Never throws: dropdowns are an enhancement.
+	 * The FULL import pipeline, promisified so BOTH the empty-state create and the
+	 * replace run byte-identical conversions. THE AUTHORITATIVE STAGE ORDER (PW-2b-i)
+	 * -- every position below is load-bearing, not stylistic:
+	 *
+	 *  1. decodeSheetNames (FR-1) -- FIRST, always. LuckyExcel HTML-escapes sheet
+	 *     NAMES but not formula text, so a sheet arrives as "Wiring &amp; cabling"
+	 *     while formulas say 'Wiring & cabling'!F2. Every later stage that reads or
+	 *     rewrites a sheet-qualified reference needs the decoded name.
+	 *  2. clampRowBloat (PW-2b-i) -- SECOND, and this is a PERFORMANCE PRECONDITION.
+	 *     The raw ELV export converts to 1,819,874 cells of which 98.8% are
+	 *     style-only filler; every later stage walks celldata. Clamping first is the
+	 *     difference between a responsive import and a multi-second stall.
+	 *  3. normalizeFormulas (FR-3/FR-5) -- before the parser, so it never meets a raw
+	 *     newline mid-token. Pure whitespace, so it cannot change meaning.
+	 *  4-6. runFormulaStage (PW-2b-i) -- freezeDeadGoogle, then the transform suite,
+	 *     then helper-column materialization. One parse per formula.
+	 *  7. attachDataValidations (DV-2) -- LAST. It must follow decodeSheetNames
+	 *     (sheet matching uses decoded names) and, load-bearingly, the CLAMP: it
+	 *     clamps each dropdown's source range to the sheet's data extent + 5, so
+	 *     running it against the bloated grid would clamp to ~50,503 instead of ~30
+	 *     and reinstate the 50k-iteration-per-dropdown cost DV-2 exists to avoid.
+	 *     Never throws: dropdowns are an enhancement, not the payload.
+	 *
+	 * Returns the sheets AND the ImportReport -- the report is the data contract the
+	 * PW-2b-ii dialog will render; for now callers log its summary.
 	 */
-	const runImportPipeline = useCallback((file: File): Promise<any[]> => {
-		return new Promise((resolve, reject) => {
-			try {
-				window.LuckyExcel.transformExcelToLucky(file, async (exportJson: any) => {
-					try {
-						if (!exportJson?.sheets?.length) {
-							throw new Error("The selected file has no readable sheets.");
+	const runImportPipeline = useCallback(
+		(file: File): Promise<{ sheets: any[]; report: ImportReport }> => {
+			return new Promise((resolve, reject) => {
+				try {
+					window.LuckyExcel.transformExcelToLucky(file, async (exportJson: any) => {
+						try {
+							if (!exportJson?.sheets?.length) {
+								throw new Error("The selected file has no readable sheets.");
+							}
+							const report = emptyReport();
+							const sheets = decodeSheetNames(exportJson.sheets); // 1
+							report.clamp = clampRowBloat(sheets); // 2
+							normalizeFormulas(sheets); // 3
+							const stage = runFormulaStage(sheets); // 4-6
+							report.transforms = stage.transforms;
+							report.frozen = stage.frozen;
+							report.abstained = stage.abstained;
+							report.helpers = stage.helpers;
+							finalizeReport(report);
+							const dvCount = await attachDataValidations(file, sheets); // 7
+							if (dvCount) console.log(`[pricing] attached ${dvCount} dropdown records`);
+							resolve({ sheets, report });
+						} catch (e) {
+							reject(e);
 						}
-						const sheets = normalizeFormulas(decodeSheetNames(exportJson.sheets));
-						const dvCount = await attachDataValidations(file, sheets);
-						if (dvCount) console.log(`[pricing] attached ${dvCount} dropdown records`);
-						resolve(sheets);
-					} catch (e) {
-						reject(e);
-					}
-				});
-			} catch (e) {
-				reject(e);
-			}
-		});
+					});
+				} catch (e) {
+					reject(e);
+				}
+			});
+		},
+		[]
+	);
+
+	/** Console receipt until the PW-2b-ii dialog lands. */
+	const logReport = useCallback((report: ImportReport, label: string) => {
+		console.log(`[pricing] ${label}: ${summarize(report)}`);
+		if (report.abstained.length) {
+			console.log(
+				`[pricing] declined (left untouched): ` +
+					report.abstained.map((a) => `${a.sheet}!${a.cell} (${a.reason})`).join("; ")
+			);
+		}
+		if (report.helpers.length) {
+			console.log(
+				`[pricing] helper columns: ` +
+					report.helpers.map((h) => `${h.sheet}!${h.keyCol}:${h.valCol}`).join(", ")
+			);
+		}
 	}, []);
 
 	const handleImport = useCallback(
@@ -571,7 +622,8 @@ export function PricingWorkbookPage() {
 			setBusy(true);
 			setErrorMsg("");
 			try {
-				const sheets = await runImportPipeline(file);
+				const { sheets, report } = await runImportPipeline(file);
+				logReport(report, `import ${file.name}`);
 				// Created under THIS page's registry title, so the next load's
 				// title-keyed selection finds it from this route and no other.
 				//
@@ -608,7 +660,7 @@ export function PricingWorkbookPage() {
 				setBusy(false);
 			}
 		},
-		[requestSheet, runImportPipeline, workbookTitle]
+		[logReport, requestSheet, runImportPipeline, workbookTitle]
 	);
 
 	// -- replace from excel (PW-2a, admin + lock held) ----------------------
@@ -622,7 +674,8 @@ export function PricingWorkbookPage() {
 			setBusy(true);
 			setErrorMsg("");
 			try {
-				const converted = await runImportPipeline(file);
+				const { sheets: converted, report } = await runImportPipeline(file);
+				logReport(report, `replace ${file.name}`);
 				// Compact FIRST: this is both what gets posted and what gets rendered
 				// (the engine rebuilds `data` from `celldata`), so scan and payload and
 				// render are all the same array.
@@ -636,7 +689,7 @@ export function PricingWorkbookPage() {
 				setBusy(false);
 			}
 		},
-		[engineSupported, runImportPipeline]
+		[engineSupported, logReport, runImportPipeline]
 	);
 
 	const performReplace = useCallback(
