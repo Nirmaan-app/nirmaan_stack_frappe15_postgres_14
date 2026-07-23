@@ -680,14 +680,133 @@ delete it as cleanup.
   holding the bare `Nirmaan Estimates Executive` ROLE with no matching profile passes the backend read gate but
   is bounced by `PricingRoute`. Pre-existing, unchanged by PW-2a, still an owner call.
 
-## PW-2b — SCOPED NEXT
+## PW-2b-i — DELIVERED 2026-07-23 (formula parser + transform suite + row clamp)
 
-- **Transform suite**: the fixes the advisory currently only warns about — INDEX-in-composition -> VLOOKUP
-  against a key-first helper pair, and the rest of the kill list.
-- **Import report**: what changed on import/replace (formulas normalised, dropdowns attached, cells rewritten),
-  surfaced instead of only `console.log`.
-- **Consent-based fixing**: the advisory dialog gains "Fix and save" beside "Save anyway", applying the
-  transform suite to the selected hits. `pricingFormulaScan` stays the detector; the fixer is a new pure module.
+Turns a RAW workbook into one the vendored engine can actually evaluate, inside the import pipeline.
+Headless: no UI (that is PW-2b-ii). Four new PURE modules, none touching React.
+
+| Module | What |
+|---|---|
+| `pricingFormulaAst.ts` | Excel-formula tokenizer + recursive-descent parser + normalizing printer |
+| `pricingTransforms.ts` | the six rewrites + dead-Google freeze + stage orchestrator + the report contract |
+| `pricingHelpers.ts` | helper-column allocation/materialization, `_mk` marker, idempotency |
+| `pricingClamp.ts` | row-bloat clamp |
+| `__fixtures__/corpusFormulas.ts` | 9 real corpus formulas, provenance-annotated |
+| `__fixtures__/convertedCorpus.json` | 423 KB formula-only projection of all 4 converted workbooks |
+
+### Authoritative stage order (each position is load-bearing)
+
+```
+LuckyExcel -> 1 decodeSheetNames -> 2 clampRowBloat -> 3 normalizeFormulas
+           -> 4-6 runFormulaStage (freeze -> transform -> materializeHelpers)
+           -> 7 attachDataValidations
+```
+
+- **decode FIRST** (FR-1): sheet NAMES arrive HTML-escaped, formula text does not.
+- **clamp SECOND — a PERFORMANCE PRECONDITION, not tidiness.** Raw ELV converts to 1,819,874 cells of
+  which 98.8% are style-only filler; every later stage walks celldata (ELV -> under 30,000 after).
+- **normalize BEFORE the parser** so it never meets a raw newline mid-token.
+- **DV LAST, and after the clamp** — `clampRangeSource` clamps a dropdown source to the sheet extent
+  +5, so running it on the bloated grid would clamp to ~50,503 instead of ~30 and reinstate exactly
+  the per-dropdown cost DV-2 removed.
+
+### Parser — why an AST, and the abstain philosophy
+
+Transforms COMPOSE inside one cell (an IFS whose branches are each a multi-condition array
+INDEX/MATCH; a LET wrapping another). Independent regex passes would corrupt each other. One
+bottom-up `mapNode` handles composition for free — and it is also what stops LET inlining from
+duplicating an expensive lookup (by inline time the binding is already a cheap VLOOKUP).
+
+**Abstain is a first-class outcome.** Anything not understood is left UNTOUCHED and reported; the
+parser never throws into the pipeline. A rewriter that guesses is far worse than one that declines.
+
+⚠️ **Array formulas carry NO marker after conversion** — no `t:"array"`, no braces; the cell keys are
+just `f, ct, bg, fs, …, v`. Detection is therefore BY SHAPE (`MATCH(1,(a=x)*(b=y),0)`).
+
+### The five defects live verification found (none were catchable by unit tests)
+
+1. **Only the first helper pair per sheet materialized** — the idempotency check ran per record, so
+   the `_mk` it had just written made every later pair on that sheet look pre-existing while the
+   rewritten formulas still pointed at them. Fixed with a pre-pass snapshot of sheets that already
+   had helpers.
+2. **`,FALSE)` returns `#NAME?`** — the engine rejects boolean literals. All generated VLOOKUPs emit
+   `,0)` (`EXACT_MATCH`), matching the FIXED workbooks' own convention.
+3. **Helpers written as bare formulas read blank at load** — the engine never evaluates at load, it
+   renders the cached value (FR-6), so every lookup returned `#N/A`. Helpers now carry `f` **and** a
+   pipeline-computed `v`.
+4. **LuckyExcel emits numeric cells as UNTYPED STRINGS** (`{v:"1.0"}`, no `ct.t === "n"`), which the
+   engine normalizes to `1` on load — so a key built verbatim never matched. Canonicalized by SHAPE.
+5. **The engine evaluates ALL IF branches and propagates any branch error** (it does not
+   short-circuit). Generated lookups inside IF/IFS branches are wrapped in `IFERROR`.
+
+### Conventions these produced (all owner-approved)
+
+- **Helper columns**: `f` + computed `v`, `_mk` marker in the header row, key `=A2&"|"&B2`, value
+  mirrors the result column, pair allocated at `maxCol + 2`, hidden via `config.colhidden`. A source
+  cell that is itself an unevaluated formula yields an EMPTY key for that row — never a partial key
+  that could match the wrong record.
+- **`,0)` not `,FALSE)`** in every generated VLOOKUP.
+- **Numeric canonicalization by SHAPE** (`NUMERIC_LIKE`), never by `ct.t`. ⚠️ **Never trust `ct.t` on
+  converted (pre-load) celldata** — only the POST-load cell carries the numeric type, which is what
+  makes the trap convincing.
+- **`IFERROR` around generated lookups inside IF/IFS branches only.** Standalone lookups stay bare
+  and honest. ⚠️ **The fallback token must not be error-spelled**: the engine coerces the literal
+  string `"#N/A"` back into the `#N/A` error, which re-poisons the very IF the wrap protects
+  (`ISTEXT("#N/A")` is `false`). See BRANCH_MISS_FALLBACK.
+- **Criterion-range harmonization**: when criterion + result ranges share a start row and a strict
+  MAJORITY span, an outlier whose END differs by <= `MAX_HARMONIZE_ROWS` (2) is pulled onto the
+  consensus and reported as class `harmonized`. A tie, a differing start row, or a bigger gap still
+  abstains. Owner-adjudicated from the data: Electrical Z10's `Termination!B2:B97` is a typo for
+  `B2:B96` (row 96 ends the <=25 sub-table; row 97 opens the table the formula's OWN second branch
+  reads as 97:297).
+
+### ImportReport — the PW-2b-ii dialog's data contract
+
+```ts
+{ transforms: TransformRecord[]   // sheet, cell, row, col, classes[], oldF, newF, note?, helpers?
+  helpers:    HelperRecord[]      // sheet, keyCol, valCol, rows, criteriaCols, resultCol, reused
+  frozen:     TransformRecord[]   // newF === null; cached value kept
+  abstained:  AbstainRecord[]     // formula + reason -- the decline list, never hidden
+  clamp:      ClampRecord[]       // sheet, fromRow, toRow, cellsDropped
+  counts, perSheet }
+```
+
+`runImportPipeline` returns `{sheets, report}`; both callers log the summary until the dialog lands.
+
+### ⚠️ Testing lesson worth carrying forward
+
+The Tier-1 tests assert the **emitted formula TEXT**, which is correct — and they structurally
+**cannot** see that the engine mis-reads that text at runtime. Defects 2, 4 and 5 were all invisible
+to a green suite. **Anything about engine SEMANTICS has to be proven in Tier-3.**
+
+### Verification
+
+Tier 1/2: **135 vitest checks** across 4 files. Tier 2 runs the whole stage chain over the real
+converted corpus and asserts on the CENSUS (helper columns land at `maxCol+2`, so formula-text
+equality against the human-authored FIXED workbooks would fail for reasons that do not matter):
+kill-list zero, helper key-formula regex, ELV 1,819,874 -> under 30,000, idempotency, and
+**pipeline(FIXED) a total no-op** (0 transforms / 0 freezes / 0 helpers / 0 abstains / 0 clamp).
+
+Tier 3 live on Electrical: RAW replace -> `index-match-multi=27 ifs=9 let=2 harmonized=1
+index-match-single=4 helpersAdded=22 cellsDropped=92023`, **abstains 0**, zero advisory rows, 78
+dropdowns re-attached -> S1 dropdown-driven chain **1400 / 280 / 1680 / 970 exact** -> restore to
+FIXED (no-op, zero advisory rows).
+
+### Someday-list
+
+- **Fix `Termination!B2:B97` -> `B2:B96` in the MASTER Excel source.** The pipeline harmonizes it on
+  import, but the workbook itself still carries the typo, so Excel users see the misaligned result.
+
+## PW-2b-ii — SCOPED NEXT
+
+- **Import report dialog**: render the `ImportReport` above (a `Dialog`, not the PW-2a `AlertDialog` —
+  it is a receipt, not a decision), grouped by class, with the abstain list visible and a
+  "View import report" re-open affordance.
+- **Consent-based fixing**: "Fix and save" beside "Save anyway", limited to the HELPER-FREE subset
+  (IFS, LET, XLOOKUP, single-cond, dead-Google freeze — ~90% of cells), with the helper-needing count
+  surfaced as "will be fixed on the next Replace". Live helper writes mutate a second sheet and are
+  hard to undo if the user then hits Release.
+- `pricingFormulaScan` stays the detector; the fixer reuses `pricingTransforms`.
 
 ## PM-3+ — deferred
 

@@ -701,6 +701,47 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   `save_workbook` with `{name}`. **Never `create_workbook`** — `Pricing Workbook.title` is `unique: 1`, and
   save preserves the prior content as a version snapshot for free. Payload shape is identical between the two
   endpoints; only the text field differs.
+- **Import pipeline stage order is AUTHORITATIVE (PW-2b-i) — every position is load-bearing:**
+  `decodeSheetNames -> clampRowBloat -> normalizeFormulas -> runFormulaStage (freeze -> transform ->
+  materializeHelpers) -> attachDataValidations`. decode FIRST (LuckyExcel escapes sheet NAMES, not
+  formula text). **clamp SECOND is a PERFORMANCE PRECONDITION**, not tidiness — raw ELV converts to
+  1,819,874 cells of which 98.8% are style-only filler and every later stage walks celldata.
+  normalize before the parser. **DV LAST and after the clamp** — `clampRangeSource` clamps a dropdown
+  source to the sheet extent +5, so running it on the bloated grid clamps to ~50,503 instead of ~30
+  and reinstates the per-dropdown cost DV-2 removed. `runImportPipeline` returns `{sheets, report}`.
+- **Formula transforms are AST-based (`pricingFormulaAst.ts` + `pricingTransforms.ts`), never regex.**
+  Transforms COMPOSE inside one cell (an IFS whose branches are each a multi-condition array
+  INDEX/MATCH; a LET wrapping another), so one bottom-up `mapNode` pass is what makes composition
+  safe — and it is why LET inlining does not duplicate an expensive lookup. **Abstain is a
+  first-class outcome**: anything not understood is left UNTOUCHED and reported; the parser never
+  throws into the pipeline. ⚠️ **Array formulas carry NO marker after conversion** (no `t:"array"`,
+  no braces) — detect BY SHAPE (`MATCH(1,(a=x)*(b=y),0)`).
+- **ENGINE CAUTIONS #3-#5 (PW-2b-i, all found only by live Tier-3, all invisible to a green suite):**
+  **(3)** a boolean literal poisons the cell — `,FALSE)` returns `#NAME?`, so every generated VLOOKUP
+  emits `,0)`. **(4)** **LuckyExcel emits numeric cell values as UNTYPED STRINGS** (`{v:"1.0"}` with
+  no `ct.t === "n"`) which the engine normalizes to `1` on load — **never trust `ct.t` on converted
+  (pre-load) celldata**; canonicalize by SHAPE (`NUMERIC_LIKE`), which is what keeps helper keys
+  matching the engine's runtime key. **(5)** **the engine evaluates ALL IF branches and propagates any
+  branch's error** — it does not short-circuit — so generated lookups inside IF/IFS branches are
+  wrapped in `IFERROR`; standalone lookups stay bare and honest. ⚠️ **The fallback token must not be
+  error-spelled**: the engine coerces the literal `"#N/A"` back into the #N/A error
+  (`ISTEXT("#N/A")` is `false`), re-poisoning the very IF the wrap protects. The token is `"n/a"`
+  (`ISTEXT` true, survives concatenation, still reads as a miss).
+- **Helper columns follow the FIXED workbooks' own convention:** `_mk` marker in the header row, key
+  `=A2&"|"&B2`, value mirroring the result column, pair allocated at `maxCol + 2`, hidden via
+  `config.colhidden`. **Each helper cell carries `f` AND a pipeline-computed `v`** — the engine never
+  evaluates at load (FR-6), so a bare formula reads blank and every lookup returns `#N/A`. A source
+  cell that is itself an unevaluated formula yields an EMPTY key for that row, never a partial key
+  that could match the wrong record. `_mk` is also the IDEMPOTENCY marker (snapshot which sheets have
+  it BEFORE writing, or the first pair you write hides every later pair on that sheet).
+- **Criterion-range harmonization (owner-directed):** when the criterion + result ranges share a start
+  row and a strict MAJORITY span, an outlier whose END differs by <= `MAX_HARMONIZE_ROWS` (2) is
+  pulled onto the consensus and reported as class `harmonized`. A tie, a differing start row, or a
+  larger gap still abstains — those bounds are what keep it a typo-fixer rather than a guesser.
+- ⚠️ **Testing lesson (PW-2b-i):** the Tier-1 tests assert the emitted formula TEXT, which is correct,
+  and they structurally **cannot** see that the engine mis-reads that text at runtime. Cautions 3, 4
+  and 5 were all invisible to a fully green suite. **Anything about engine SEMANTICS must be proven
+  in a live Tier-3 run.**
 - **Save-time formula advisory (`pricingFormulaScan.ts`, PW-2a) is WARN-ONLY and PURE.** Scans
   `sheets[].celldata[].v.f` **after `serializeSheets`** so it sees exactly what will be persisted. Flags INDEX
   anywhere (ENGINE CAUTION #1 — `=INDEX(r,2)*2` silently returns 0), the engine-absent `XLOOKUP`/`IFS`/`LET`,
