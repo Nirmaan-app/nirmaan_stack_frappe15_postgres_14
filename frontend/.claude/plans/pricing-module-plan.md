@@ -410,6 +410,100 @@ deliberately, with the normalizer as the documented compensator.
 
 **LIFTED.** Electrical (`1rf9ho8i02`) and ELV (`2l34c06unk`) are cleared for team editing.
 
+## DV arc — dropdowns imported (DV-1 recon -> DV-2 delivered) 2026-07-23
+
+**Problem:** LuckyExcel silently DROPS every `<dataValidation>` on import, so all three workbooks had zero
+dropdowns (DV-1 Q2 verified: no `dataVerification` key on any of them). The engine supports them fine — it
+just never received them.
+
+### Engine schema (DV-1 Q1, read from the vendored source)
+
+- Per-sheet key **`dataVerification`**, a flat map **`"<row>_<col>" -> record`, 0-indexed, PER CELL** — there
+  is no range-spanning record, so an Excel `sqref` of `C6:C8` becomes three identical records.
+- Record = the engine's own `defaultItem`:
+  `{type:"dropdown", type2:null, value1, value2:"", checked, remote, prohibitInput, hintShow, hintText}`.
+- **`value1` is polymorphic** (`getDropdownList`): if it parses as a range the engine reads that range —
+  **cross-sheet included, and quoted names containing spaces and `&` work** (`'Switches & Sockets'!$B$3:$B$22`
+  verified live on real data); otherwise it is `split(",")` as a literal list.
+- `serializeSheets` does NOT strip `dataVerification`, so dropdowns survive save/round-trip unchanged.
+
+### Import extension (`pricingValidations.ts`)
+
+Runs in `handleImport` after `decodeSheetNames` + `normalizeFormulas` (sheet matching needs DECODED names).
+Re-reads the SAME uploaded .xlsx with the **vendored JSZip global** (`window.JSZip` — NOT an npm import, which
+would bundle it), parses both `<dataValidation>` and the **`x14:` extLst variant**, keeps `type="list"`,
+entity-decodes `formula1`, expands each `sqref` into per-cell records, and attaches them.
+
+- **Extent clamping:** range sources authored as `'FA System Purchase price'!$A$2:$A50498` are clamped to the
+  source sheet's real data extent + 5. The engine walks the whole range and de-dupes on EVERY dropdown open,
+  so an unclamped 50k-row source costs 50k iterations per click. Sheet qualifier and quoting are preserved
+  byte-for-byte; only the trailing row number changes. Literal lists are untouched.
+- **`prohibitInput: false` everywhere — DECISION ON RECORD, owner-vetoable.** Advisory mode: the engine still
+  flags an off-list value with a red corner triangle but does not block the edit. A hard block on estimation
+  data is a workflow call, not a technical one.
+- **Never blocks an import** — validation parsing is wrapped; a failure returns 0 records and the workbook
+  still imports.
+
+### ⚠️ Enforcement caveat (DV-1 Q3.4) — what dropdowns actually protect
+
+| Path | `prohibitInput:false` (ours) | `prohibitInput:true` |
+|---|---|---|
+| user TYPES in the cell | accepted, red-triangle flag | rejected (toast + edit cancelled) |
+| **programmatic write** (`setCellValue`) | **accepted silently** | **accepted silently — NOT enforced** |
+
+Our own code paths (import, the FR-6 re-entry pass, any bulk write) bypass validation entirely. **Dropdowns
+are a data-entry convenience, not a data-integrity guarantee.**
+
+### STEP-0 READINESS GATE — now standing practice for ANY reimport
+
+Run BEFORE any backup/delete (the FR-3 lesson: that slice deleted first and discovered the blocker after,
+leaving the owner with nothing). Kill-list, any hit = STOP with nothing touched:
+**ArrayFormula · `IFS(`/`LET(` · `INDEX` (any) · operator-space-paren surviving a simulated normalize ·
+any function outside the engine's 371-function set** (this last one ADDED after DV-2's first run — the
+kill-list as originally written would have let `XLOOKUP` through).
+
+It fired on the first DV-2 attempt: HVAC's `ADP!C167` carried an ArrayFormula + newlines + `XLOOKUP` in one
+cell. Repaired offline to a single-line `VLOOKUP` against a hidden `Ducting!$M$7:$N$12` helper pair; re-run
+passed all three. **Nothing was deleted on the failed run.**
+
+### Full three-workbook reimport (owner call: HVAC included)
+
+HVAC went through the pipeline for the FIRST time — its stored content was replaced by the xlsx, discarding
+any post-import stack edits (recoverable from `HVAC_predv2_20260723_1800.json`) and resetting version history
+to v1. Its long-standing single newline formula is now gone (census newline 0).
+
+| Workbook | **NEW docname** | Sheets | Formulas | **DV records** | create POST |
+|---|---|---|---|---|---|
+| Electrical Pricing | **`oa42mh7ec2`** | 17 | 6,954 | **78** | 200, 2,174 ms, 0.737 MB |
+| ELV Pricing | **`p7dg9q4nab`** | 14 | 968 | **20** | 200, 344 ms, 0.135 MB |
+| HVAC Pricing | **`q7db78bo3r`** | 17 | 1,507 | **8** | 200, 1,181 ms, 0.579 MB |
+
+Expected-vs-got matched exactly on every sheet (106 records total). HVAC's 8 land on precisely the predicted
+cells: `Ducting` C23/C24/C26/C27 and `ADP` B165–B168.
+
+**Census-zero holds on all three:** escaped names 0, newlines 0, `++` 0, INDEX 0, operator-space-paren 0.
+
+### Verification highlights
+
+- **Dropdowns live:** inline (`100,150,200,…`), same-sheet, cross-sheet, and **cross-sheet-with-`&`** on real
+  data (`'Switches & Sockets'!$B$3:$B$22` -> 10 options). Selection writes the value (`24G` -> `26G`).
+  Off-list typed value accepted with the advisory flag, as designed.
+- **Electrical S1 exact:** F9 317, F10 694, F11 2523, F14 320, **B4 1400, C4 280, D4 1680, B7 970**.
+  (Note: S1 quantities D9:D14 have no dropdowns — they are free entry; dropdowns sit on the C-column
+  selectors.)
+- **ELV via its dropdown:** picked "19" from B9's list -> **A4 400, B4 120, A5 180**; back to "40" ->
+  **700/240/317**.
+- **HVAC baseline vs xlsx:** 10 spot cells match including the repaired **`ADP!C167` = 807.3**.
+- **Round trip per workbook:** save -> reload -> dropdowns still present AND functional; versions bumped;
+  locks NULL.
+
+### Baselines v2 — SUPERSEDE v1
+
+- `Electrical_baseline_v2_20260723_2000.json` (78 DV) · `ELV_baseline_v2_20260723_2000.json` (20 DV) ·
+  **`HVAC_baseline_v2_20260723_2000.json` (8 DV — HVAC's first baseline)**
+
+Pre-reimport backups retained: `*_predv2_20260723_1800.json` for all three.
+
 ## PM-3+ — deferred
 
 - Role tightening / reconciling the profile-vs-role asymmetry above (owner call).

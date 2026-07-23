@@ -615,6 +615,17 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   `create_workbook` and `save_workbook` is **gzip + `multipart/form-data`** (file field `workbook_json_gz`);
   the nested-JSON body is GONE, there is no fallback. Rationale: nesting the workbook as a JSON string escaped
   every quote (1.23x -> 25.91 MB) and 413'd against the 25 MiB `max_file_size`; gzip is ~0.7 MB.
+- **Dropdowns are re-attached at import (DV-2), because LuckyExcel DROPS every `<dataValidation>`.**
+  `pricingValidations.ts` re-reads the same .xlsx with the **vendored `window.JSZip` global** (never an npm
+  import — that would bundle it), parses `<dataValidation>` **and the `x14:` extLst variant**, and attaches
+  `sheet.dataVerification`. Schema: a flat map **`"<row>_<col>" -> record`, 0-indexed, PER CELL** — a
+  multi-cell `sqref` expands to one record each. `value1` is polymorphic: a range reference (cross-sheet
+  works, including quoted names with spaces and `&`) or a literal comma list. Range sources are **clamped to
+  the source sheet's data extent +5** — the engine re-walks the whole range on every dropdown open, so an
+  unclamped 50k-row source is 50k iterations per click. Runs AFTER `decodeSheetNames` (matching uses decoded
+  names) and never blocks an import. `serializeSheets` keeps the key, so dropdowns survive round-trips.
+  **`prohibitInput` is false everywhere (advisory red-flag, owner-vetoable) — and NOTE: validation only
+  guards TYPING; programmatic writes bypass it entirely, so a dropdown is a convenience, not a constraint.**
 - **ENGINE CAUTIONS (owner-locked, both proven by minimal repro).** (1) **Never emit `INDEX` in composition** —
   `=INDEX(r,2)` is fine but `=INDEX(r,2)*2` returns **0**; use `VLOOKUP` against a key-first helper pair.
   (2) **Never leave `<operator><space>(`** — even `=2 * (1+2)` yields `#NAME?` for the whole cell; a space
