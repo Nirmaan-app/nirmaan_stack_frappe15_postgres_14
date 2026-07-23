@@ -72,6 +72,7 @@ import {
   CROSS_BOQ_CARRY_PLAN_METHOD,
   CrossBoqCarryDialog,
   carryButtonState,
+  summarizeSheetCarry,
 } from "./CrossBoqCarryDialog";
 import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
 import { ClassifyProgressModal } from "./ClassifyProgressModal";
@@ -1763,14 +1764,10 @@ const SheetPricingPage = () => {
           boqId={boqId ?? ""}
           sourceBoq={boq.source_boq}
           sheetName={sheetName}
+          classificationFrozen={classificationFrozen}
           onClose={() => setCarryOpen(false)}
-          onStarted={(needsNewValues: number) => {
-            setCarryMsg(
-              "Carrying from the original…" +
-                (needsNewValues > 0
-                  ? ` ${needsNewValues} row${needsNewValues === 1 ? "" : "s"} will still need a rate — use “Show unpriced”.`
-                  : ""),
-            );
+          onApplied={(summary, needsNewValues) => {
+            setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
             setCarryOpen(false);
             void mutate();
             void mutateCategories();
