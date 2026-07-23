@@ -1764,13 +1764,13 @@ const SheetPricingPage = () => {
           boqId={boqId ?? ""}
           sourceBoq={boq.source_boq}
           sheetName={sheetName}
-          classificationFrozen={classificationFrozen}
           onClose={() => setCarryOpen(false)}
           onApplied={(summary, needsNewValues) => {
             setCarryMsg(summarizeSheetCarry(summary, needsNewValues));
             setCarryOpen(false);
+            // AMENDMENT D: rates only -- no `mutateCategories()`. The carry can no longer change
+            // a category, so refetching them here would be a wasted round-trip.
             void mutate();
-            void mutateCategories();
           }}
         />
       )}
