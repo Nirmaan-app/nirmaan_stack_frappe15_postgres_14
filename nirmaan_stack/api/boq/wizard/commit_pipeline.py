@@ -76,7 +76,7 @@ import frappe
 import openpyxl
 
 from nirmaan_stack.api.boq.wizard.commit_gate import compute_committable_sheets
-from nirmaan_stack.api.boq.wizard import commit_overlay
+from nirmaan_stack.api.boq.wizard import committed_carry
 from nirmaan_stack.api.boq.wizard import directional_guard
 from nirmaan_stack.api.boq.wizard.review_screen import resolve_effective
 from nirmaan_stack.api.boq.wizard.sheet_preview import (
@@ -658,7 +658,7 @@ def _commit_one_sheet(
         # the exception and returns 0) -- the commit-results modal had no revision awareness at
         # all. `provenance` is 1/0; the rest are counts. It stays None for a non-revision sheet,
         # which is how the result dict below decides to omit the key entirely.
-        overlay_summary = commit_overlay.carry_commit_overlay(
+        overlay_summary = committed_carry.carry_commit_overlay(
             boq_name, sheet_name, commit_version, boq_sheet_name, grid_rows
         )
         if not overlay_summary or not overlay_summary.get("provenance"):

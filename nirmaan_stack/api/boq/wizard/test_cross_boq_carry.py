@@ -34,7 +34,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.boq.wizard import commit_overlay, cross_boq_carry, pricing
+from nirmaan_stack.api.boq.wizard import committed_carry, cross_boq_carry, pricing
 from nirmaan_stack.api.boq.wizard.pricing_lock import acquire_or_refresh
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
@@ -536,7 +536,7 @@ class TestCrossVersionSourcePricing(FrappeTestCase):
 class TestOrphanedFormulaBlocksTheRateCarry(FrappeTestCase):
     """⚠️ W6 FOLLOW-UP: does the un-fixed FORMULA orphaning defeat the fixed RATE carry?
 
-    W6 made the source RATE read cross-version, but deliberately left `commit_overlay`'s five
+    W6 made the source RATE read cross-version, but deliberately left `committed_carry`'s five
     overlay layers version-pinned (A10 scoped the owner's call to rates). `BoQ Cell Amount
     Formula` carries `committed_version` + `is_current` exactly like `BoQ Cell Pricing`, so the
     SAME re-commit that orphans the rates orphans the formulas.
@@ -619,7 +619,7 @@ class TestOrphanedFormulaBlocksTheRateCarry(FrappeTestCase):
 
     # ── link 3: the formula carry copies nothing forward ─────────────────────────────
     def test_overlay_carry_copies_no_formula_forward(self):
-        summary = commit_overlay.carry_commit_overlay(
+        summary = committed_carry.carry_commit_overlay(
             self.rev, self.DEST, 1, self.dest_sheet,
             [{"row_number": 10, "cells": {"B": "Item A", "F": 500}}],
         )

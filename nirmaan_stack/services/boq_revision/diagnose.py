@@ -31,7 +31,7 @@ depends on a block that starts below it.
             position, otherwise a description change
     pass 5  original-side rows that vanished entirely -> the removed list
 
-`row_match.py` is deliberately NOT modified: `commit_overlay.py` shares `match_rows`, and keeping
+`row_match.py` is deliberately NOT modified: `committed_carry.py` shares `match_rows`, and keeping
 that call site byte-identical is worth more than the small duplication of re-deriving the position
 indexes here.
 """

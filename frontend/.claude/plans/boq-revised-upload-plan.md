@@ -830,6 +830,151 @@ the W6 defect.
 
 ---
 
+## ⚠️ Amendment C — commit carries nothing; all carry moves to the pricing screen (2026-07-23)
+
+**Owner-directed after reviewing the S8/S9/S10 as-built.** ADR blocks: **D8** and **D9**, each to be
+dated `AMENDED 2026-07-23 (Amendment C)`.
+
+**The rule, in one sentence:**
+
+> A revision commit carries **nothing** but the D2 provenance triple. Formulas are **hand-declared**
+> per sheet exactly as in the normal phase, and that declaration is the gate on a single per-sheet
+> **"Carry rates from original"** action in the pricing editor that carries **rates + remarks +
+> colours + `remark` dismissals + categories** for matched rows.
+
+| | Before (S8/S9/S10) | After (Amendment C) |
+|---|---|---|
+| At commit | formulas · remarks · colours · `remark` dismissals · categories carry silently | **nothing carries.** Only the D2 provenance triple is stamped |
+| Formulas | carried | **hand-declared by the user**, per sheet — never carried, in either seam |
+| The other four layers | carried at commit, no confirmation | carried by the per-sheet dialog, per-layer opt-in + Keep/Overwrite |
+| Launch point | hub footer, whole-BoQ, long job (Redis marker + socket + poll) | **pricing screen**, one sheet, **synchronous** |
+
+**Why D8's formula row does not survive its own logic.** D8 justified `Amount Formula ✅` as
+*"a declaration, not a condition (**+ forced by D9**)"* — a dependency, not a principle. Amendment C
+removes the force: once the user declares formulas by hand, `_sheet_formulas_complete` becomes the
+natural gate for the whole carry. **Formulas are the one layer that never carries** — and this is
+forced, not chosen: the button is disabled until formulas are complete, so a formula carry inside
+that dialog would be unreachable. Formulas are also the only layer that is not row-addressed (D8:
+*"logical-axis → neither"*), so "everything carried for a matched row" excludes them exactly.
+
+**The symmetry this buys.** A revision now behaves exactly like a re-commit — the same orphaning
+(`BoQ Cell Amount Formula` is pinned to `committed_version`), the same repair, the same screen:
+
+| normal phase | revision |
+|---|---|
+| re-commit → formulas orphan → declare at the new version → **Copy rates forward** (`CopyForwardDialog`, blocked by `current_formulas_complete`) | commit → nothing carries → declare formulas → **Carry rates from original** (blocked by `formulas_complete`) |
+
+### Slices
+
+| Slice | Scope | Primary files |
+|---|---|---|
+| **C1** | `committed_carry.py` — the relocated, presence-aware, overwrite-capable layer engine | `api/boq/wizard/commit_overlay.py` → `committed_carry.py`, `services/boq_category/persist.py` |
+| **C2** | `apply_sheet_carry` — one synchronous per-sheet endpoint + per-layer plan counts | `cross_boq_carry.py` |
+| **C3** | The green button in the pricing screen (4 states) | `SheetPricingPage.tsx` |
+| **C4** | The dialog: single-sheet + the multi-layer block | `CrossBoqCarryDialog.tsx`, `boqTypes.ts` |
+| **C5** | **The reversal** — commit carries nothing | `committed_carry.py`, `commit_pipeline.py`, `revisionCarryReport.ts` |
+| **C6** | Remove the hub surface | `BoqHubPage.tsx`, `cross_boq_carry.py`, `boqTypes.ts` |
+| **C7** | ADR-0014 Amendment C + docs | `docs/adr/0014-*.md`, this plan, the two `CLAUDE.md` files |
+
+**Build order is deliberate: the new carry lands BEFORE the old one is removed** (C5 after C1–C4),
+so no intermediate commit loses capability.
+
+### C1 — the layer engine `[backend]`
+
+**Why:** the four row-addressed layer carries need a new home and new write semantics before
+anything can call them post-commit.
+
+- `commit_overlay.py` → **`committed_carry.py`**. One module, one concept: *everything that moves
+  between two COMMITTED sheets of a revision chain* — the D2 provenance stamp, the shared
+  `committed_excel_row_match`, and the four layer carries.
+- **Presence-aware, overwrite-capable writes.** Each layer takes a `{carry, overwrite}` choice.
+  A dest address with **no current record** → insert (`carried`). A dest address that **already has
+  one** → `kept` when overwrite is off, else freeze the prior current
+  (`frappe.db.set_value(is_current=0)` — **never** `doc.save`) and insert (`replaced`). A source row
+  with no D6 twin → `unmatched`. **Version comes from `max(prior) + 1`, never a hardcoded `1`** — a
+  frozen prior can exist with no current (write-then-clear), and `1` would collide.
+- **Bulk reads, not per-record queries.** Two `get_all`s per layer (current-record map + max-version
+  map) instead of one query per record — the largest live sheet carries ~940 categories.
+- **Colours read the committed grid** (`BoQ Committed Sheet Grid Row` + `column_role_map`) when no
+  in-flight `grid_rows` is supplied, so the survivor check works post-commit.
+- **Categories stay with their owner** (residence B2): `persist.carry_row_categories` gains the
+  presence/overwrite semantics — this **reverses** its documented *"NO freeze-and-supersede (the
+  dest triple is brand new)"* contract, which was true only at commit. The field split
+  (machine→machine, human→human, **never** `set_human_verdict`) is preserved through an overwrite,
+  or #1096's freeze bug reappears inside carry.
+- **Classification freeze** is honoured defensively in the engine: a frozen dest sheet skips the
+  category layer entirely (`persist.is_sheet_classification_frozen`).
+- **At commit the dest is fresh ⇒ `present` is always 0 ⇒ behaviour is byte-identical.** The new
+  engine is a strict generalisation, which is what lets C1 land green before C5 flips the seam.
+
+**Tests:** `test_commit_overlay.py` → `test_committed_carry.py` (every existing case still applies)
+**plus**: carry-twice is a no-op; carry after a user remark keeps the user's; carry after Classify
+keeps the fresh classification; overwrite freezes the prior and inserts at v2; a write-then-cleared
+remark carries at `remark_version = 2`, not a collision; a frozen sheet skips categories and still
+carries rates/remarks/colours.
+
+### C2 — `apply_sheet_carry` `[backend]`
+
+Synchronous per-sheet endpoint over the existing `_apply_sheet_carry` core (precedent:
+`apply_copy_forward` does the same row volumes over the same `_write_cell_price_record`,
+synchronously). **One transaction, rollback on any error.** `layers` arrives as
+`{layer: {carry, overwrite}}`; `overwrite` is honoured only for records the **server** finds in
+conflict. `get_cross_boq_carry_plan` gains per-layer `{carryable, present, unmatched}` so the
+button's eligibility and the dialog's counts are both server-derived. Sheet gates checked once:
+deliberate lock, `_sheet_formulas_complete`, one `acquire_or_refresh`.
+
+### C3 — the green button `[frontend]`
+
+`SheetPricingPage.tsx` row 2, **immediately after `Save now`**, `bg-emerald-600` + dark variants
+(the row's loud-state convention: teal `Lock`, sky `Freeze columns`, amber `Price any row`).
+Four states: **hidden** off a revision (`origin === "revision" && !!source_boq`); **disabled** when
+`!formulas_complete` ("Declare the amount formulas for this sheet first"); **disabled** when nothing
+is carryable across rates *and* all four layers; **disabled** when locked / viewing history / taken
+over. Eligibility = one `get_cross_boq_carry_plan` scoped to `sheet_names: [sheetName]`, SWR-shared
+with the dialog. **`gridRef.current?.flush()` before opening** — an unsaved draft would otherwise
+save over a carried rate. Nothing new reaches `PricingGrid` (the V0/T2 memo shield).
+
+### C4 — the dialog `[frontend]`
+
+Design of record: the Amendment C design spec (thesis **one grammar, two zoom levels** — the layer
+rows are compressed rate rows, same vocabulary, same colours, same `Keep / Overwrite` inline pair).
+Layers render **above** rates because the rates section owns the scroll. Load-bearing details:
+**the Keep/Overwrite toggle is hidden when a layer has 0 conflicts**; the counts line *is* the
+outcome preview (`12 to copy · 3 kept` ⇄ `· 3 replaced`, destructive-tinted when armed); the toggle
+is a real `role="radiogroup"`; **emerald is banned inside the dialog** (it means priced/succeeded in
+this screen). A consolidated destructive footer line lists every armed overwrite.
+
+### C5 — the reversal `[backend+frontend]`
+
+`carry_commit_overlay` → **`stamp_revision_provenance`**: resolve source, stamp
+`source_boq`/`source_commit_version`/`source_sheet_name`, return. **The stamp must stay** —
+`_resolve_sheet_carry` reads `source_sheet_name` off the committed `BoQ Sheet` to find the source at
+all. `_carry_formulas` is deleted outright. `commit_pipeline` drops the `revision_overlay` envelope
+key, and `revisionCarryReport.ts` drops `formatRevisionOverlay` / `RevisionOverlaySummary` /
+`OVERLAY_LAYERS` **in the same commit** (the Amendment-B `ambiguous` lesson: removing one side
+leaves the other summing `undefined`). `summarizeRevisionCarry` (the **parse-seam** `revision_carry`
+report) is a different key and stays.
+
+### C6 — remove the hub surface `[frontend+backend]`
+
+`BoqHubPage.tsx`: `canCarryRates`, the footer button, the carry state/refs, the
+`boq:carry_rates_done` socket + reconnect self-heal, the 3s poll, the results modal,
+`CARRY_FAIL_REASON`. `cross_boq_carry.py`: `start_cross_boq_carry`, `_carry_rates_worker`,
+`get_cross_boq_carry_status`, `_publish_carry_event` and the whole Redis marker/status block — the
+per-sheet failure isolation they were built for **is** the new unit of work.
+
+### Known consequences (accepted)
+
+1. **Every revision sheet now arrives rate-locked.** A 20-sheet revision means declaring formulas 20
+   times. That is the cost of "behave exactly like the normal phase" — verify it live before it hardens.
+2. **The formula gate blocks the annotation carry too** (one button, one gate). Sheets with no amount
+   columns are trivially complete, so grid-only / specs sheets are unaffected.
+3. **No migration.** Already-committed revisions keep what they carried; a *re-commit* arrives bare,
+   and the new dialog is how it is restored.
+4. **Known-red baseline:** `test_upload_file` has 8 pre-existing errors at HEAD. Not ours.
+
+---
+
 ## Guardrails / invariants to honor (every slice)
 
 - **Additive schema only** — every existing flow byte-unaffected; blank `revision_carry_status` /

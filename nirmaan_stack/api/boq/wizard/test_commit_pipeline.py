@@ -302,7 +302,7 @@ class TestCommitPipeline(FrappeTestCase):
         """BYTE-IDENTICAL GUARDRAIL for W5 (A8).
 
         `_commit_one_sheet` now returns `revision_overlay` -- the per-layer count summary
-        `commit_overlay.carry_commit_overlay` produces -- so the commit-results modal can tell
+        `committed_carry.carry_commit_overlay` produces -- so the commit-results modal can tell
         the user what a revision carried forward. This BoQ is a plain upload (origin defaults
         to "upload", no source_boq), so the carry no-ops, `overlay_summary` is nulled, and the
         key must be ABSENT -- not present-and-zero. Anything else changes the envelope every
@@ -311,7 +311,7 @@ class TestCommitPipeline(FrappeTestCase):
         proof rather than an inspection.
 
         The positive side -- a revision sheet reporting real per-layer counts -- lives in
-        `test_commit_overlay.TestCommitPipelineReportsTheOverlay`, next to the overlay
+        `test_committed_carry.TestCommitPipelineReportsTheOverlay`, next to the overlay
         fixture machinery it needs.
         """
         expected_keys = {

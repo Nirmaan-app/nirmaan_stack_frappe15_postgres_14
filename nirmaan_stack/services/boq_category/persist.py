@@ -123,10 +123,11 @@ def write_row_categories(boq, sheet_name, committed_version, discipline, rows):
 
 
 # The full machine + human field set a carry reads from a source record and writes to the dest.
-# ONE source of truth so the source read (commit_overlay._carry_categories) and this write can
+# ONE source of truth so the source read (committed_carry._walk_category_layer) and this write can
 # never drift. `excel_row` + `discipline` are the per-row identity the carry re-keys; the rest is
 # the field split preserved verbatim (classified_at carried too -- the same classification, not a
-# re-run). `is_current` / `category_version` are NOT read (the dest is a fresh current at v1).
+# re-run). `is_current` / `category_version` are NOT read -- the DEST's own version is resolved at
+# write time (max(prior) + 1), never copied from the source.
 CARRY_READ_FIELDS = [
     "excel_row", "discipline",
     "rule_category_id", "rule_band", "rule_score",
@@ -137,28 +138,56 @@ CARRY_READ_FIELDS = [
 ]
 
 
-def carry_row_categories(boq, sheet_name, committed_version, rows):
-    """Carry a batch of source category rows onto a FRESH committed version (ADR-0014 D8), the
-    revision commit-overlay's category write.
+def current_category_keys(boq, sheet_name, committed_version) -> set:
+    """The set of (excel_row, discipline) that ALREADY hold a current classification at one
+    committed version. ONE query -- the presence map a carry consults before writing (Amendment C).
+    sheet_name VERBATIM (#152)."""
+    rows = frappe.get_all(
+        _ROW_CATEGORY,
+        filters={
+            "boq": boq, "sheet_name": sheet_name,
+            "committed_version": committed_version, "is_current": 1,
+        },
+        fields=["excel_row", "discipline"],
+    )
+    return {(r.excel_row, r.discipline) for r in rows}
+
+
+def carry_row_categories(boq, sheet_name, committed_version, rows, overwrite=False):
+    """Carry a batch of source category rows onto a committed version (ADR-0014 D8 / Amendment C).
 
     PRESERVES THE FIELD SPLIT -- machine -> machine, human -> human -- copying the whole
     CARRY_READ_FIELDS set verbatim (NEVER routing a machine label into human_category_id: that
     would replicate the freeze bug, #1096, inside carry). The per-discipline fan-out rides the
-    row list (`discipline` is per-row). NO freeze-and-supersede (the dest (boq, sheet_name,
-    committed_version, discipline, excel_row) triple is brand new -> no prior current to freeze)
-    and NO commit (the caller -- _commit_one_sheet -- owns the single per-sheet transaction, so
-    the whole overlay lands atomically with the commit). category_version = 1, is_current = 1.
+    row list (`discipline` is per-row). NO commit -- the caller owns the transaction (the commit
+    seam shares `_commit_one_sheet`'s; the post-commit carry endpoint owns its own atomic one).
+
+    ⚠️ AMENDMENT C reverses this function's old "the dest triple is brand new -> no prior current
+    to freeze, category_version = 1" contract. That held only at the COMMIT seam. Post-commit the
+    dest may already hold a classification (the user ran Classify, set a verdict, or carried once
+    before), so this now freezes any prior current via set_value(is_current=0) -- NEVER doc.save --
+    and inserts at max(category_version) + 1, exactly like `write_row_categories`. The CALLER is
+    responsible for presence-filtering (see `current_category_keys`): a row reaching here is one
+    the caller decided to write, so `overwrite` here only documents intent and asserts the
+    freeze-first path. At commit nothing is ever present, so the behaviour is unchanged: no prior
+    to freeze, version resolves to 1.
 
     Each row dict carries the CARRY_READ_FIELDS keys (excel_row already re-mapped to the dest by
     the D6 twin). Returns the count written. sheet_name VERBATIM (#152)."""
     count = 0
     for r in rows:
+        excel_row = r["excel_row"]
+        discipline = r["discipline"]
+        prior = _current_names(boq, sheet_name, excel_row, committed_version, discipline)
+        for name in prior:
+            frappe.db.set_value(_ROW_CATEGORY, name, "is_current", 0)
+
         doc = frappe.new_doc(_ROW_CATEGORY)
         doc.boq = boq
         doc.sheet_name = sheet_name  # VERBATIM (#152)
-        doc.excel_row = r["excel_row"]
+        doc.excel_row = excel_row
         doc.committed_version = committed_version
-        doc.discipline = r["discipline"]
+        doc.discipline = discipline
         # Machine layer (verbatim).
         doc.rule_category_id = r.get("rule_category_id") or ""
         doc.rule_band = r.get("rule_band") or ""
@@ -177,7 +206,11 @@ def carry_row_categories(boq, sheet_name, committed_version, rows):
         doc.prompt_version = r.get("prompt_version")
         doc.model = r.get("model")
         doc.description = r.get("description")
-        doc.category_version = 1
+        # max(prior) + 1, NEVER a hardcoded 1: a frozen prior can exist with no current (a
+        # re-classify supersedes), and re-using 1 would collide. Resolves to 1 at the commit seam.
+        doc.category_version = _next_version(
+            boq, sheet_name, excel_row, committed_version, discipline
+        )
         doc.is_current = 1
         doc.classified_at = r.get("classified_at") or frappe.utils.now()
         doc.insert(ignore_permissions=True)

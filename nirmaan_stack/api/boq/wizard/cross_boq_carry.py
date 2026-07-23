@@ -28,7 +28,7 @@ scaffolding:
 
 SOURCE VERSION: rates carry from the source sheet's CURRENT committed version (`is_current=1`),
 resolved per-sheet -- the freshest rates, chain-aware (a committed revision is itself revisable,
-D1), and consistent with how `commit_overlay`'s twin map already reads both sides. The endpoint's
+D1), and consistent with how `committed_carry`'s twin map already reads both sides. The endpoint's
 `source_boq` / `source_version` params are advisory: the server re-derives the real source from
 `BOQs.source_boq` + each sheet's committed provenance (`BoQ Sheet.source_sheet_name`, stamped at
 commit by S8) and never trusts the client for identity.
@@ -41,7 +41,7 @@ from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_job_status
 
 from nirmaan_stack.api.boq.wizard import pricing
-from nirmaan_stack.api.boq.wizard.commit_overlay import committed_excel_row_match
+from nirmaan_stack.api.boq.wizard.committed_carry import committed_excel_row_match
 from nirmaan_stack.api.boq.wizard.review_carry import _source_sheet_name, revision_source_boq
 from nirmaan_stack.api.boq.wizard.review_screen import (
     get_committed_rows,

@@ -1,6 +1,6 @@
 """S6/S8 (#1104, ADR-0014 D8) -- the commit-time overlay carry, integration.
 
-Exercises `commit_overlay.carry_commit_overlay`: at a revision sheet's commit it stamps the D2
+Exercises `committed_carry.carry_commit_overlay`: at a revision sheet's commit it stamps the D2
 provenance triple and silently carries the re-arm-EXEMPT layers (amount formula, remark, color,
 `remark` dismissal, category) onto the fresh committed version, while NEVER carrying the re-armed
 set (the 4 computed dismissals + reconciliation choice). Formulas re-validate against the DEST
@@ -23,7 +23,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.boq.wizard import commit_overlay, commit_pipeline, pricing
+from nirmaan_stack.api.boq.wizard import committed_carry, commit_pipeline, pricing
 from nirmaan_stack.api.boq.wizard.test_revision_entry import (
     _cleanup_project,
     _make_boq,
@@ -247,7 +247,7 @@ class TestCommitOverlayCarry(FrappeTestCase):
             {"row_number": 99, "cells": {"A": "Brand New Item", "D": 5, "E": 6}},
         ]
         # ONE overlay run (carried records are fresh v1 inserts -- re-running would duplicate).
-        cls.summary = commit_overlay.carry_commit_overlay(
+        cls.summary = committed_carry.carry_commit_overlay(
             cls.rev, cls.DEST, 1, cls.dest_sheet, grid_rows)
         frappe.db.commit()
 
@@ -376,7 +376,7 @@ class TestCommitOverlayShiftStopsCarry(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Moved Item", 7, 1)
         frappe.db.commit()
 
-        commit_overlay.carry_commit_overlay(
+        committed_carry.carry_commit_overlay(
             cls.rev, cls.SHEET, 1, cls.dest_sheet,
             [{"row_number": 2, "cells": {"D": 1}}, {"row_number": 7, "cells": {"D": 2}}])
         frappe.db.commit()
@@ -429,7 +429,7 @@ class TestCommitOverlayFailClosed(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Only Item", 2, 0)
         frappe.db.commit()
 
-        commit_overlay.carry_commit_overlay(
+        committed_carry.carry_commit_overlay(
             cls.rev, cls.DEST, 1, cls.dest_sheet,
             [{"row_number": 2, "cells": {"D": 1, "E": 2}}])
         frappe.db.commit()
@@ -474,7 +474,7 @@ class TestCommitOverlayWildcardFormula(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Item", 2, 0)
         frappe.db.commit()
 
-        cls.summary = commit_overlay.carry_commit_overlay(
+        cls.summary = committed_carry.carry_commit_overlay(
             cls.rev, cls.SHEET, 1, cls.dest_sheet, [{"row_number": 2, "cells": {"D": 1, "E": 2}}])
         frappe.db.commit()
 
@@ -516,7 +516,7 @@ class TestCommitOverlayNonRevision(FrappeTestCase):
         super().tearDownClass()
 
     def test_upload_boq_is_a_noop(self):
-        summary = commit_overlay.carry_commit_overlay(
+        summary = committed_carry.carry_commit_overlay(
             self.original.name, "Data", 1, self.sheet, [{"row_number": 2, "cells": {"D": 1}}])
         self.assertEqual(summary["provenance"], 0)
         self.assertEqual(summary["formulas"], 0)
@@ -528,7 +528,7 @@ class TestCommitOverlayNonRevision(FrappeTestCase):
         _seed_revision_draft(rev, "Fresh", None)   # declared-New: no source_sheet_name
         dest_sheet = _commit_sheet(rev, "Fresh", _role_map({"D": "Civil"}))
         frappe.db.commit()
-        summary = commit_overlay.carry_commit_overlay(
+        summary = committed_carry.carry_commit_overlay(
             rev, "Fresh", 1, dest_sheet, [{"row_number": 2, "cells": {"D": 1}}])
         self.assertEqual(summary["provenance"], 0)
         self.assertIsNone(frappe.db.get_value("BoQ Sheet", dest_sheet, "source_boq"))
@@ -616,7 +616,7 @@ class TestCommitOverlayCrossVersionSource(FrappeTestCase):
         _node(cls.rev, cls.dest_sheet, "Line Item", "Item Beta", 3, 1)
         frappe.db.commit()
 
-        cls.summary = commit_overlay.carry_commit_overlay(
+        cls.summary = committed_carry.carry_commit_overlay(
             cls.rev, cls.DEST, 1, cls.dest_sheet,
             [{"row_number": 2, "cells": {"A": "Item Alpha", "D": 1}},
              {"row_number": 3, "cells": {"A": "Item Beta", "D": 2}}])
@@ -676,7 +676,7 @@ class TestCommitOverlayCrossVersionSource(FrappeTestCase):
         twins, so the D6 row match cannot explain why one row's layers carry and the other's do not.
         (The twin map itself is immune to this whole problem -- it reads nodes by the source sheet
         DOCNAME, which was resolved from is_current=1, so it is inherently current.)"""
-        twin = commit_overlay._excel_twin_map(
+        twin = committed_carry._excel_twin_map(
             self.original.name, self.src_v2, self.rev, self.dest_sheet)
         self.assertEqual(twin, {2: 2, 3: 3})
 
@@ -976,6 +976,218 @@ class TestCommitPipelineReportsTheOverlay(FrappeTestCase):
 
         self.assertNotIn("revision_overlay", res)
         self.assertEqual(res["node_count"], 0)
+
+
+class TestCarryLayersPresenceAndOverwrite(FrappeTestCase):
+    """AMENDMENT C / C1 -- the layer engine's post-commit semantics.
+
+    Every test above drives the layer carry through `carry_commit_overlay`, where the destination
+    is a BRAND-NEW committed version and therefore always empty. This class drives `carry_layers`
+    and `plan_layer_counts` DIRECTLY against a destination that already holds work -- the
+    post-commit reality Amendment C introduces, and the exact assumption the pre-Amendment-C code
+    hardcoded away ("fresh dest triple -> no prior -> v1").
+
+    The fixture is deliberately minimal: two matched rows, one source annotation of each layer, and
+    a destination that starts EMPTY so a single class can walk it through carry -> re-carry ->
+    overwrite in order.
+    """
+
+    SRC = "Layers"
+    DEST = "Layers Rev"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.project = _make_project()
+        cls.original = _make_boq(cls.project.name, origin="upload", boq_name="LAYERS ORIG")
+
+        cls.src_sheet = _commit_sheet(cls.original.name, cls.SRC, _role_map({"D": "Civil"}))
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Item Alpha", 2, 1)
+        _node(cls.original.name, cls.src_sheet, "Line Item", "Item Beta", 3, 2)
+
+        _mk_remark(cls.original.name, cls.SRC, 1, 2, "source remark")
+        _mk_color(cls.original.name, cls.SRC, 1, 2, "D", "green")
+        _mk_dismissal(cls.original.name, cls.SRC, 1, 2, "remark")
+        _mk_category(cls.original.name, cls.SRC, 1, 2, "Electrical",
+                     final="elec_machine", human="elec_human")
+
+        cls.rev = _make_revision(cls.project.name, cls.original.name).name
+        _seed_revision_draft(cls.rev, cls.DEST, cls.SRC)
+        cls.dest_sheet = _commit_sheet(cls.rev, cls.DEST, _role_map({"D": "Civil"}))
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Alpha", 2, 1)
+        _node(cls.rev, cls.dest_sheet, "Line Item", "Item Beta", 3, 2)
+
+        # A real committed grid -- `grid_rows=None` below exercises the POST-COMMIT read path
+        # (`_dest_column_universe` reading BoQ Committed Sheet Grid Row), not the in-flight list
+        # the commit seam passes.
+        grid = frappe.new_doc("BoQ Committed Sheet Grid")
+        grid.boq = cls.rev
+        grid.source_sheet_name = cls.DEST
+        grid.commit_version = 1
+        grid.is_current = 1
+        grid.committed_at = frappe.utils.now()
+        for row_number, cells in ((2, {"A": "Item Alpha", "D": 1}), (3, {"A": "Item Beta", "D": 2})):
+            grid.append("rows", {
+                "row_number": row_number, "row_order": row_number, "cells": json.dumps(cells),
+            })
+        grid.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        cls.ctx = committed_carry._CarryCtx(
+            source_boq=cls.original.name,
+            source_sheet_name=cls.SRC,
+            source_version=1,
+            dest_boq=cls.rev,
+            dest_sheet_name=cls.DEST,
+            dest_version=1,
+            twin=committed_carry._excel_twin_map(
+                cls.original.name, cls.src_sheet, cls.rev, cls.dest_sheet
+            ),
+            grid_rows=None,  # post-commit: read the persisted grid
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        _wipe_boqs(cls.project.name)
+        _cleanup_project(cls.project.name)
+        super().tearDownClass()
+
+    @staticmethod
+    def _all_on():
+        return {key: {"carry": True, "overwrite": False} for key in committed_carry.LAYER_KEYS}
+
+    def _dest_rows(self, doctype, **extra):
+        """EVERY dest record (current AND frozen) -- a supersede must be visible, not just the tip."""
+        return frappe.get_all(
+            doctype,
+            filters={"boq": self.rev, "sheet_name": self.DEST, "committed_version": 1, **extra},
+            fields=["*"],
+        )
+
+    def test_01_plan_is_read_only_and_reports_carryable(self):
+        plan = committed_carry.plan_layer_counts(self.ctx)
+        for key in committed_carry.LAYER_KEYS:
+            self.assertEqual(plan[key]["carried"], 1, f"{key} should report 1 carryable")
+            self.assertEqual(plan[key]["kept"], 0, f"{key} has nothing present yet")
+        # PURE READ -- the plan must not have written anything.
+        self.assertEqual(len(self._dest_rows("BoQ Cell Remark")), 0)
+        self.assertEqual(len(self._dest_rows("BoQ Row Category")), 0)
+
+    def test_02_first_carry_lands_every_layer(self):
+        out = committed_carry.carry_layers(self.ctx, self._all_on())
+        frappe.db.commit()
+        for key in committed_carry.LAYER_KEYS:
+            self.assertEqual(out[key]["carried"], 1, f"{key} should have landed")
+            self.assertEqual(out[key]["replaced"], 0)
+        remarks = self._dest_rows("BoQ Cell Remark")
+        self.assertEqual(len(remarks), 1)
+        self.assertEqual(remarks[0].excel_row, 2)
+        self.assertEqual(remarks[0].remark, "source remark")
+        self.assertEqual(remarks[0].remark_version, 1)
+        # The colour landed via the DB grid read (grid_rows=None) -- "D" survives in the grid.
+        self.assertEqual(len(self._dest_rows("BoQ Cell Color")), 1)
+
+    def test_03_carrying_twice_is_a_no_op(self):
+        """The whole point of Amendment C's presence-awareness: the post-commit action is
+        idempotent. Pre-Amendment-C this inserted a SECOND is_current=1 record per identity,
+        breaking the one-current invariant."""
+        out = committed_carry.carry_layers(self.ctx, self._all_on())
+        frappe.db.commit()
+        for key in committed_carry.LAYER_KEYS:
+            self.assertEqual(out[key]["kept"], 1, f"{key} should be kept, not re-inserted")
+            self.assertEqual(out[key]["carried"], 0)
+            self.assertEqual(out[key]["replaced"], 0)
+        self.assertEqual(len(self._dest_rows("BoQ Cell Remark")), 1)
+
+    def test_04_user_work_is_never_clobbered_by_default(self):
+        pricing.save_row_remark(
+            boq_name=self.rev, sheet_name=self.DEST, excel_row=3,
+            committed_version=1, remark="the user's own note",
+        )
+        out = committed_carry.carry_layers(self.ctx, self._all_on())
+        frappe.db.commit()
+        self.assertEqual(out["remarks"]["kept"], 1)
+        row3 = [r for r in self._dest_rows("BoQ Cell Remark", is_current=1) if r.excel_row == 3]
+        self.assertEqual(len(row3), 1)
+        self.assertEqual(row3[0].remark, "the user's own note")
+
+    def test_05_overwrite_freezes_the_prior_and_supersedes(self):
+        choices = self._all_on()
+        choices["remarks"]["overwrite"] = True
+        out = committed_carry.carry_layers(self.ctx, choices)
+        frappe.db.commit()
+        self.assertEqual(out["remarks"]["replaced"], 1)
+        self.assertEqual(out["remarks"]["carried"], 0)
+        row2 = sorted(
+            [r for r in self._dest_rows("BoQ Cell Remark") if r.excel_row == 2],
+            key=lambda r: r.remark_version,
+        )
+        self.assertEqual(len(row2), 2, "the prior must be superseded, not deleted")
+        self.assertEqual(row2[0].is_current, 0)
+        self.assertEqual(row2[1].is_current, 1)
+        self.assertEqual(row2[1].remark_version, 2, "max(prior) + 1, never a hardcoded 1")
+
+    def test_06_a_cleared_annotation_leaves_a_frozen_prior_and_the_carry_does_not_collide(self):
+        """save_row_remark's CLEAR branch freezes without inserting, so the dest has a frozen
+        record and NO current one. The carry must treat it as carryable AND must not re-use the
+        frozen record's version number."""
+        pricing.save_row_remark(
+            boq_name=self.rev, sheet_name=self.DEST, excel_row=3,
+            committed_version=1, remark=None,  # CLEAR
+        )
+        self.assertEqual(
+            len([r for r in self._dest_rows("BoQ Cell Remark", is_current=1) if r.excel_row == 3]),
+            0,
+        )
+        out = committed_carry.carry_layers(
+            self.ctx, {"remarks": {"carry": True, "overwrite": False}}
+        )
+        frappe.db.commit()
+        # Row 3's source has no remark, so nothing lands there -- the assertion that matters is
+        # that row 2 (which DOES have one, already present) is kept and nothing collided.
+        self.assertEqual(out["remarks"]["kept"], 1)
+        versions = [r.remark_version for r in self._dest_rows("BoQ Cell Remark") if r.excel_row == 3]
+        self.assertEqual(len(versions), len(set(versions)), "version numbers must never collide")
+
+    def test_07_category_overwrite_preserves_the_field_split(self):
+        choices = {"categories": {"carry": True, "overwrite": True}}
+        out = committed_carry.carry_layers(self.ctx, choices)
+        frappe.db.commit()
+        self.assertEqual(out["categories"]["replaced"], 1)
+        current = [
+            r for r in self._dest_rows("BoQ Row Category", is_current=1) if r.excel_row == 2
+        ]
+        self.assertEqual(len(current), 1)
+        # machine -> machine, human -> human. NEVER collapsed (that is #1096's freeze bug).
+        self.assertEqual(current[0].final_category_id, "elec_machine")
+        self.assertEqual(current[0].human_category_id, "elec_human")
+        self.assertGreater(current[0].category_version, 1)
+
+    def test_08_a_frozen_classification_blocks_categories_but_not_the_rest(self):
+        frappe.db.set_value(
+            "BoQ Sheet", self.dest_sheet, "classification_frozen", 1, update_modified=False
+        )
+        frappe.db.commit()
+        try:
+            choices = self._all_on()
+            choices["categories"]["overwrite"] = True
+            choices["remarks"]["overwrite"] = True
+            out = committed_carry.carry_layers(self.ctx, choices)
+            frappe.db.commit()
+            self.assertEqual(out["categories"], committed_carry._zero_layer_outcome())
+            # The freeze is category-only -- remarks still carry (the owner-locked separation
+            # between the classification freeze and the pricing lock).
+            self.assertEqual(out["remarks"]["replaced"], 1)
+        finally:
+            frappe.db.set_value(
+                "BoQ Sheet", self.dest_sheet, "classification_frozen", 0, update_modified=False
+            )
+            frappe.db.commit()
+
+    def test_09_an_unselected_layer_is_untouched(self):
+        out = committed_carry.carry_layers(self.ctx, {"remarks": {"carry": False}})
+        for key in committed_carry.LAYER_KEYS:
+            self.assertEqual(out[key], committed_carry._zero_layer_outcome())
 
 
 if __name__ == "__main__":
