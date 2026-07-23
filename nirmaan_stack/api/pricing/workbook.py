@@ -5,10 +5,18 @@
 #
 # ALL user access to the Pricing Workbook / Version / Access Log doctypes flows
 # through the whitelisted endpoints in this module. The three doctypes are
-# permissioned "System Manager only" on purpose: `_require_pricing_access()` is
-# the single-point gate, and every internal read/write below uses
-# `ignore_permissions=True` because the gate -- not the doctype ACL -- is the
-# authority. Decision on record (see frontend/.claude/plans/pricing-module-plan.md).
+# permissioned "System Manager only" on purpose: the gates below are the
+# single-point authority, and every internal read/write uses
+# `ignore_permissions=True` because the gate -- not the doctype ACL -- is what
+# decides. Decision on record (see frontend/.claude/plans/pricing-module-plan.md).
+#
+# TWO gates since PW-2a:
+#   _require_pricing_access()       READ  -- admins + estimation (list, get)
+#   _require_pricing_write_access() WRITE -- admins only (checkout, release,
+#                                            save, create)
+# The write gate is layered on the read gate, so the messages stay honest for both
+# an outsider and an in-module read-only user. The frontend mirrors this split for
+# UX only; THIS module is the enforcement boundary.
 
 import gzip
 import json
@@ -42,6 +50,22 @@ PRICING_ACCESS_SET = frozenset(
 		"Nirmaan Estimates Executive",          # role
 	}
 )
+
+# ---------------------------------------------------------------------------
+# WRITE SET (PW-2a)
+# ---------------------------------------------------------------------------
+# The module splits READ from WRITE. Everyone in PRICING_ACCESS_SET may LIST and
+# OPEN a workbook; only this narrower set may take the lock or persist anything
+# (checkout / release / save / create). Estimation users get read access plus the
+# client-side Sandbox -- a local, never-persisted edit session -- so the split costs
+# them nothing they previously had, because before PW-2a they could not edit
+# without also taking the single-editor lock away from an admin.
+#
+# "Nirmaan Admin Profile" exists BOTH as a role_profile_name and as a Role
+# (DB-verified 2026-07-22, re-verified 2026-07-23), which is why the check below
+# tests both, exactly like the read gate. The Administrator USER is handled by its
+# own branch.
+PRICING_WRITE_SET = frozenset({"Nirmaan Admin Profile"})
 
 WORKBOOK_DT = "Pricing Workbook"
 VERSION_DT = "Pricing Workbook Version"
@@ -77,6 +101,33 @@ def _require_pricing_access():
 		return user
 
 	frappe.throw(_("You do not have access to the Pricing Module."), frappe.PermissionError)
+
+
+def _require_pricing_write_access():
+	"""Write gate for the Pricing Module (PW-2a): admins only.
+
+	LAYERED on top of the read gate deliberately: a user outside the module still
+	gets the module-level "no access" message, while an estimation user -- who DOES
+	belong to the module -- gets an honest "read-only for your role" message the
+	frontend can surface verbatim. Returns the user id.
+
+	Applied to the four write endpoints (checkout / release / save / create). The
+	read endpoints (list_workbooks / get_workbook) keep the wider gate.
+	"""
+	user = _require_pricing_access()
+	if user == "Administrator":
+		return user
+
+	role_profile = frappe.db.get_value("User", user, "role_profile_name")
+	if role_profile and role_profile in PRICING_WRITE_SET:
+		return user
+
+	if set(frappe.get_roles(user)) & PRICING_WRITE_SET:
+		return user
+
+	frappe.throw(
+		_("Pricing workbooks are read-only for your role."), frappe.PermissionError
+	)
 
 
 def _normalize_json(workbook_json):
@@ -218,7 +269,7 @@ def get_workbook(name):
 
 @frappe.whitelist()
 def checkout(name):
-	user = _require_pricing_access()
+	user = _require_pricing_write_access()
 	lock = frappe.db.get_value(
 		WORKBOOK_DT, name, ["checked_out_by", "checked_out_at"], as_dict=True
 	)
@@ -253,7 +304,7 @@ def checkout(name):
 
 @frappe.whitelist()
 def release(name):
-	user = _require_pricing_access()
+	user = _require_pricing_write_access()
 	holder = frappe.db.get_value(WORKBOOK_DT, name, "checked_out_by")
 
 	if holder and (holder == user or user == "Administrator"):
@@ -282,7 +333,7 @@ def save_workbook(name):
 
 
 def _save_workbook(name, workbook_json):
-	user = _require_pricing_access()
+	user = _require_pricing_write_access()
 	normalized = _normalize_json(workbook_json)
 
 	doc = frappe.get_doc(WORKBOOK_DT, name)
@@ -327,7 +378,7 @@ def create_workbook(title):
 
 
 def _create_workbook(title, workbook_json):
-	user = _require_pricing_access()
+	user = _require_pricing_write_access()
 	normalized = _normalize_json(workbook_json)
 
 	doc = frappe.get_doc(
