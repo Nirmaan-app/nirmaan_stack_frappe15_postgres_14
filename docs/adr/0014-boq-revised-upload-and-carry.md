@@ -24,6 +24,33 @@ Date: 2026-07-17
 > Design of record with ten worked scenarios: `docs/boq/revised-boq-carry-amendment.html`.
 > Implementation waves: `docs/boq/HANDOFF-revised-boq-carry-amendment.md` §6.
 
+> ### ⚠️ AMENDMENT C — 2026-07-23, owner-directed
+>
+> **A revision commit carries NOTHING.** Amendment C supersedes **D8** (which had the commit
+> silently carry five layers) and re-sites **D9** (whole-BoQ hub action → per-sheet pricing-editor
+> action, long job → synchronous), and **reverses Amendment B's W6/A10 cross-version rate read**.
+> Each amended decision carries its own dated block below.
+>
+> **The single sentence that replaces D8's rule:**
+>
+> > A revision commit stamps the D2 provenance triple and nothing else. Formulas are **hand-declared
+> > per sheet**, exactly as in the normal phase, and that declaration is the gate on one explicit
+> > per-sheet action — *Carry rates from original* — which moves the **rates and the four
+> > row-addressed annotation layers together**, with a Keep/Overwrite decision on anything already
+> > present.
+>
+> **Why D8's formula row does not survive its own logic.** D8 marked Amount Formula ✅ *"a
+> declaration, not a condition (**+ forced by D9**)"* — a dependency, not a principle. Amendment C
+> removes the force. Reachability then forbids it outright: the carry button is disabled until
+> formulas are complete, so a formula carry inside that dialog would be unreachable.
+>
+> **The symmetry it buys.** `BoQ Cell Amount Formula` is pinned to `committed_version`, so **a
+> re-commit already orphans formulas in the normal phase**. A revision now behaves identically —
+> declare formulas at the new version, then pull the money across — the cross-BoQ twin of the
+> existing per-sheet *Copy rates forward*, in the same screen, behind the same gate.
+>
+> As-built, slice by slice (C1–C7): `frontend/.claude/plans/boq-revised-upload-plan.md`.
+
 Charted and resolved as a wayfinder map:
 [#1086](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1086) — nine tickets,
 **T1–T8 decision tickets all closed**, this ADR + `frontend/.claude/plans/boq-revised-upload-plan.md` are
@@ -638,6 +665,42 @@ revised parse exactly where the file context changed, i.e. where the new parse i
 
 ### D8 — Annotation/formula/category carry: the re-arm taxonomy IS the carry taxonomy ([T8](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1094))
 
+> ## ⚠️ AMENDED 2026-07-23 (Amendment C) — owner-directed: the commit carries NOTHING
+>
+> **What is reversed.** The *timing* table below ("Rides D2's commit overlay (silent, no confirm)")
+> is retired. A revision commit stamps the D2 provenance triple and stops. The **re-arm taxonomy
+> itself stands** — it still decides *what is carryable at all*, and the never-carry column is
+> unchanged (the 4 computed dismissals + the reconciliation choice). What moved is *when* and *how*
+> the carryable set travels.
+>
+> | Layer | Before (D8) | After (Amendment C) |
+> |---|---|---|
+> | **Amount Formula** | carried silently at commit | **never carries, in either seam** — hand-declared per sheet |
+> | Remark · Colour · `remark` dismissal · Category | carried silently at commit | carried by the explicit per-sheet action, per-layer opt-in + Keep/Overwrite |
+> | The re-armed set | never | never *(unchanged)* |
+>
+> **The formula row was a dependency, not a principle.** Its own justification says so:
+> *"a declaration, not a condition (**+ forced by D9**)"*. D9's rate carry needed
+> `_sheet_formulas_complete` to already be true, so the formula had to arrive first. Amendment C
+> makes the formula declaration the **gate** on the carry instead of a precondition smuggled in
+> ahead of it — and the button is disabled until formulas are complete, so a formula carry inside
+> that dialog would be **unreachable** even if it were wanted.
+>
+> **What this costs, accepted.** Every revision sheet arrives rate-locked until its amount formulas
+> are declared by hand — for a 20-sheet revision, twenty declarations. That is the price of
+> *"behave exactly like the normal phase"*, and it is the same price a re-commit already charges
+> (formula records are pinned to `committed_version`, so a re-commit orphans them today).
+>
+> **The one thing the commit still does, and must.** The provenance triple
+> (`source_boq` / `source_commit_version` / `source_sheet_name`) is stamped as before:
+> `cross_boq_carry._resolve_sheet_carry` reads `source_sheet_name` off the committed `BoQ Sheet` to
+> find the source **at all**. It is sheet-level *identity*, not row information — not part of what
+> "carries". ⚠️ Do not fold it into the reversal.
+>
+> **Retired claim.** *"A committed revision is therefore fully annotated, categorised and
+> formula-complete on arrival"* is now false by design, as is the "Bonus" line that followed it
+> (formulas landing before `_sheet_formulas_complete` is evaluated). The gate is the feature.
+
 **The carry taxonomy is not a matter of taste — the code already encodes it.** `_rearm_*` encodes *what a
 rate edit invalidates*. A revision is the **maximal value change** — a whole new workbook. Therefore:
 
@@ -709,6 +772,51 @@ and **D6's N2 key subsumes it**: an exact guard fires only on N2-equivalent-but-
 (pure noise), and N2-normalizing it makes it tautological.
 
 ### D9 — Cross-BOQ rate carry: carry-all, whole-BOQ, one explicit post-commit action ([T7](https://github.com/Nirmaan-app/nirmaan_stack_frappe15_postgres_14/issues/1093))
+
+> ## ⚠️ AMENDED 2026-07-23 (Amendment C) — owner-directed: per-sheet, synchronous, and the version pin is REINSTATED
+>
+> **D9's core stands**: one explicit, deliberate, human-confirmed action moves the money; nothing
+> ambient. Three things about its *shape* changed.
+>
+> **1. Whole-BoQ → PER SHEET.** The launch point moves from the hub footer to the pricing editor's
+> toolbar, immediately after *Save now*, filled emerald when actionable. It carries **one sheet**:
+> the sheet whose formulas the user just declared. Under Amendment C every freshly committed
+> revision sheet is formula-incomplete, so a whole-BoQ dialog would open with **every sheet
+> pre-unticked and blocked** until each had been visited individually — the hub button had become an
+> invitation to a screen that could do nothing.
+>
+> **2. Long job → SYNCHRONOUS.** `apply_sheet_carry` writes one sheet in one transaction and returns
+> the summary directly. Precedent and volume proof: `pricing.apply_copy_forward` does the same row
+> counts over the same `_write_cell_price_record` core synchronously. This retires the Redis
+> marker, the `boq:carry_rates_done` event, the status poll and the results modal. The marker was
+> also **BOQ-scoped**, which was a latent defect in a per-sheet world: carrying sheet A then opening
+> sheet B would have had B's poll report A's run.
+>
+> **3. The rate read is VERSION-PINNED again — Amendment B's W6/A10 fix is REVERSED.**
+> Owner's rule: *once a revised BoQ is uploaded the user will not edit the original, since a revised
+> version is already available.* So the original's current committed version is its final state, and
+> the carry moves exactly what a user looking at the original can see. Rates and structure are
+> symmetric again; **W6's deliberate asymmetry is retired, not overlooked.**
+>
+> ⚠️ **Both sides moved together.** `revision._carry_counts` is pinned identically, in the same
+> commit. The **count == carry** invariant W6 established is intact — only which side it sits on
+> changed. *Never pin one without the other:* that divergence **is** the defect W6 was written for
+> (the mapping screen promising rates the carry cannot land, live-observed on
+> `BOQ-26-00023` / sheet `'LMS '`).
+>
+> **The cost, measured not argued.** `BoQ Cell Pricing.is_current` is scoped per committed version,
+> so a sheet priced **before** its last re-commit has its rates orphaned on the frozen version and
+> carries zero. ⚠️ Note this concerns the original's own history *before the revision existed*,
+> which the owner's rule does not cover. It is now **visible instead of silent**: the count promises
+> zero, the plan is empty, and the button reports *"Nothing left to carry from the original."*
+> The repair is *Copy rates forward* on the original first.
+> `pricing.current_sheet_pricing_any_version` had no production caller left and was deleted;
+> restoring W6 means restoring that reader and repointing both call sites.
+>
+> **Superseded below:** the whole-BoQ framing, `start_cross_boq_carry` / `_carry_rates_worker` /
+> `get_cross_boq_carry_status`, and the A10 block's cross-version ruling. A7's skip taxonomy,
+> the destination-keyed plan, the `(area, rate_kind)` re-resolution, and the
+> server-re-derives-everything rule all stand unchanged.
 
 > ## ⚠️ AMENDED 2026-07-20 (Amendment B) — owner-directed: the version pin is resolved
 >

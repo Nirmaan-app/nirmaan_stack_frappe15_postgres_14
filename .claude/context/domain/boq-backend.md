@@ -935,3 +935,69 @@ generated, so a fresh checkout works. To genuinely regenerate after changing a f
 > Unrelated pre-existing breakage found while verifying this: `api/boq/wizard/test_upload_file.py`
 > passes `tempfile_path=` to `_upload_file_worker`, which has never accepted that kwarg — 8 errors
 > at HEAD, untouched by this work.
+
+---
+
+## ⚠️ ADR-0014 Amendment C (2026-07-23) — the commit carries nothing; carry is per-sheet
+
+Owner-directed reversal of **D8** + re-siting of **D9**. Slices C1–C6, commits `8c60a25f`,
+`f57a91b2`, `cf7dc2a5`, `580d113c`, `6453a3fd`, `0855527e`, `081de0f8` (`feature/upload-revised-boq`,
+local/UNPUSHED). Full slice detail: `frontend/.claude/plans/boq-revised-upload-plan.md`.
+
+**This supersedes the S8 (commit overlay) and S9 (cross-BOQ rate carry) sections above, and the
+"KNOWN HOLE, owner call pending" note about the version pin — that hole is closed by REVERSING the
+W6 rate read rather than widening the layers.**
+
+### `commit_overlay.py` → `committed_carry.py`
+
+- **`carry_commit_overlay` → `stamp_revision_provenance(boq, sheet_name, dest_sheet_docname) -> int`.**
+  It stamps the D2 triple and stops. `_carry_formulas` and `_guarded` are **deleted**; the
+  `revision_overlay` key is gone from `_commit_one_sheet`'s envelope (and from the frontend, same commit).
+  ⚠️ **The stamp must stay** — `cross_boq_carry._resolve_sheet_carry` reads `source_sheet_name` off the
+  committed `BoQ Sheet` to find the source at all.
+- **The layer engine** (new): `LAYER_KEYS` = remark / colour / `remark` dismissal / category, one
+  parametric `_walk_annot_layer` over an `_ANNOT_LAYERS` spec table + `_walk_category_layer`.
+  `carry_layers(ctx, choices)` writes; `plan_layer_counts(ctx)` walks with `apply=False` so plan and
+  apply cannot drift. `build_carry_ctx(...)` is the public keyword-only ctx factory.
+- **Buckets:** `carried` (dest empty) / `replaced` (taken + overwrite) / `kept` (taken, overwrite off) /
+  `unmatched` (no twin) / `dropped` (colour letter gone).
+- ⚠️ **Version = `max(prior) + 1`, never a hardcoded `1`** — a frozen prior can exist with no current
+  (`save_row_remark`'s CLEAR branch). This REVERSES `persist.carry_row_categories`'s documented
+  *"the dest triple is brand new → no prior current to freeze"* contract, which held only at the commit seam.
+  `persist.current_category_keys` is the presence map; the machine/human field split is preserved through
+  an overwrite (never `set_human_verdict` — that is #1096's freeze bug).
+- Colours read the persisted `BoQ Committed Sheet Grid Row` when `grid_rows=None` (post-commit).
+- A classification-frozen dest sheet skips the CATEGORY layer only (defence in depth; the endpoint gates too).
+
+### `cross_boq_carry.py` — per-sheet + synchronous
+
+- **`apply_sheet_carry(dest_boq, sheet_name, decisions, layers)`** — whitelisted POST, SYNCHRONOUS,
+  ATOMIC (one lock acquire, one commit, full rollback). `layers` = `{key: {carry, overwrite}}`;
+  `_coerce_layers` DROPS an unknown key rather than throwing. Gate blocks map to user-facing throws via
+  `_APPLY_BLOCK_MESSAGE` / `_APPLY_BLOCK_TITLE`.
+- `_apply_sheet_carry(..., layers=None)` writes the layers inside the rates' transaction, using the SAME
+  match the rates were classified against.
+- `get_cross_boq_carry_plan` gains per-sheet `layers`: `{carryable, present, unmatched, dropped}`
+  (from the overwrite-off walk, so counts are toggle-independent).
+- **REMOVED (C6):** `start_cross_boq_carry`, `_carry_rates_worker`, `get_cross_boq_carry_status`,
+  `_publish_carry_event`, the BOQ-scoped Redis marker/status block, `_coerce_decisions`, and the
+  `boq:carry_rates_done` event. The marker was BOQ-scoped — a latent defect per-sheet (sheet B's poll
+  would have reported sheet A's run).
+
+### The rate read is VERSION-PINNED again (C2b) — reverses Amendment B W6 / A10
+
+`_classify_carry` reads the source via `pricing.get_sheet_pricing(committed_version=ctx.source_version)`.
+**`revision._carry_counts` is pinned identically, in the same commit** — the count == carry invariant W6
+established is intact; only which side it sits on changed. ⚠️ **Never pin one without the other:** that
+divergence IS the W6 defect (`BOQ-26-00023` / `'LMS '` promising 3 rates and carrying zero).
+`pricing.current_sheet_pricing_any_version` had no production caller left and was **deleted**; restoring W6
+means restoring it from history and repointing both call sites.
+
+**Accepted cost:** a source sheet priced BEFORE its last re-commit has its rates orphaned on the frozen
+version and carries zero. Now VISIBLE (count 0, empty plan, button reads "Nothing left to carry from the
+original") rather than silent. Repair = *Copy rates forward* on the original first.
+`test_cross_boq_carry.TestCrossVersionSourcePricing` keeps W6's exact fixture with assertions inverted.
+
+**Suites at C6:** `committed_carry` 36 · `cross_boq_carry` 40 · `commit_pipeline` 55 · `pricing` 185 ·
+`revision_mapping` 26 · `revision_entry` 32 · `revision_review` 31 · `review_carry` 24 · `commit_gate` 33 ·
+`review_screen` 260 · `classify` 38 · `column_carry` 27 · `commit_validation` 51 · `parse_run` 110 — all OK.

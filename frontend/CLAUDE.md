@@ -283,7 +283,18 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **MANDATORY amount-formula gate (owner-locked; REVERSES "formula optional"):** every amount column needs a covering
   formula (`priceability.areFormulasComplete`, override>wildcard via `pickFormula`) before ANY rate is editable; the
   gate is ANDed in OUTSIDE `isRateEditableRow` so the override CANNOT bypass it. `onSaveFormula` (declaration) stays
-  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary.
+  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary. It ALSO gates the revision
+  carry button (below).
+- **Revision carry button (owner-locked, ADR-0014 Amendment C):** a revision commit carries NOTHING, so the ONE carry
+  surface is the emerald **"Carry rates from original"** button in the pricing editor's action row, immediately after
+  *Save now* (the hub's whole-BoQ button is REMOVED). Its four states come from the PURE `carryButtonState`
+  (`CrossBoqCarryDialog.tsx`, ADR-0010 F4): **hidden** off a revision (`origin === "revision" && source_boq` — with no
+  original the action does not exist, so a disabled button would be a lie), then loading, then no-mapped-source, then
+  **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()` BEFORE opening — the
+  carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried rate. In the dialog,
+  the per-layer **Keep/Overwrite toggle is HIDDEN when that layer has 0 conflicts** (a toggle governing nothing implies
+  a decision the user does not have), and the counts line IS the outcome preview (`3 kept` ⇄ `3 replaced`). Emerald is
+  BANNED inside the dialog — it means priced/succeeded in this screen and belongs to the button + the post-apply line.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).

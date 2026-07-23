@@ -990,6 +990,47 @@ report) is a different key and stays.
 `get_cross_boq_carry_status`, `_publish_carry_event` and the whole Redis marker/status block — the
 per-sheet failure isolation they were built for **is** the new unit of work.
 
+### AS-BUILT (C1–C6, 2026-07-23, `feature/upload-revised-boq`, local/UNPUSHED)
+
+| Slice | Commit | Shape |
+|---|---|---|
+| C1 | `8c60a25f` | `commit_overlay.py` → **`committed_carry.py`**; the four hand-copied layer carries become ONE parametric engine over an `_ANNOT_LAYERS` spec table (ADR-0010 F3). Buckets: `carried` / `replaced` / `kept` / `unmatched` / `dropped`. `apply=False` walks without writing, so plan and apply derive from one function. `persist.current_category_keys` + overwrite-capable `carry_row_categories` |
+| C2 | `f57a91b2` | `apply_sheet_carry` — synchronous, atomic, one sheet. `_apply_sheet_carry(layers=…)` writes the layers inside the rates' transaction using the SAME match. `build_carry_ctx` (keyword-only). Plan gains per-sheet `layers` counts |
+| C2b | `cf7dc2a5` | The rate read pinned to the source's current committed version, **`revision._carry_counts` pinned identically in the same commit**. `current_sheet_pricing_any_version` deleted |
+| C3 | `580d113c` | The emerald button after *Save now*; pure `carryButtonState` (hidden → loading → no source → locked → formula gate → nothing → ready); eligibility from one sheet-scoped plan call, SWR-shared with the dialog; `flush()` before open |
+| C4 | `6453a3fd` | Single-sheet dialog + the four-layer block above the rates; toggle hidden at 0 conflicts; the counts line as live outcome preview; real `role="radiogroup"`; consolidated destructive footer |
+| C5 | `0855527e` | **The reversal.** `carry_commit_overlay` → `stamp_revision_provenance`; `_carry_formulas` + `_guarded` deleted; `revision_overlay` dropped from the envelope AND the frontend in one commit |
+| C6 | `081de0f8` | Hub surface removed. `cross_boq_carry.py` 940 → 671 lines; `BoqHubPage.tsx` 1812 → 1597 |
+
+**Three things worth carrying forward:**
+
+1. **The C1 engine is a strict generalisation, which is what let it land before C5.** At the commit
+   seam the destination is a brand-new version, so nothing is ever already present, so every record
+   takes the `carried` branch and the counts stayed byte-identical. The reversal was then a separate,
+   reviewable commit rather than a behaviour change smuggled inside a refactor.
+2. **Version numbering is `max(prior) + 1`, never a hardcoded `1`.** A frozen prior can exist with no
+   current (write-then-clear leaves `is_current=0` behind), and `1` would collide. This reversed
+   `carry_row_categories`'s documented *"the dest triple is brand new"* contract, which held only at
+   the commit seam.
+3. **C5's test surgery preserved coverage rather than deleting it.** A `_carry_all` shim in
+   `test_committed_carry` drives the SAME `carry_layers` engine the post-commit action drives, so the
+   layer semantics (twin mapping, colour survivor, category field split, the re-armed set never
+   carrying) survive intact; only the formula assertions inverted, into `TestFormulasNeverCarryAtCommit`.
+
+**Live sanity check (2026-07-23, `:8080`, chrome-devtools).** `BOQ-26-00212` / sheet `FDA`
+(a committed revision of `BOQ-26-00099`): button emerald + enabled after *Save now*; dialog headed
+`FDA · v3 → v1`; **carried 38 rates**, header count `0 → 14 of 15 priceable lines priced`, review
+flags `15 → 1`, summary line rendered, no reload. On `BOQ-26-00120` / `CV Rev` (formulas incomplete)
+the button is `disabled` with *"Declare the amount formulas for this sheet first."* Two real-data
+confirmations: `BOQ-26-00099`'s one `'FDA '` remark is stranded on v1 while that sheet is at v3, so it
+honestly reports 0 carryable (C2b's cost, visible); and `BOQ-26-00120` reports `present=1` on all four
+layers, proving the presence path reads real rows rather than returning zeros.
+
+**Suites at C6:** `committed_carry` 36 · `cross_boq_carry` 40 · `commit_pipeline` 55 · `pricing` 185 ·
+`revision_mapping` 26 · `revision_entry` 32 · `revision_review` 31 · `review_carry` 24 · `commit_gate` 33 ·
+`review_screen` 260 · `classify` 38 · `column_carry` 27 · `commit_validation` 51 · `parse_run` 110 — all OK.
+Frontend vitest **684** / 32 files; `tsc --noEmit` clean; residence holds (b1 0 / b2 8 / b3 40 / f2 201 / f5 114).
+
 ### Known consequences (accepted)
 
 1. **Every revision sheet now arrives rate-locked.** A 20-sheet revision means declaring formulas 20

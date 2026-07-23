@@ -1917,3 +1917,69 @@ removal would have left the dialog summing `undefined`.
 **Suite deltas:** boq-wizard vitest 594 → **618** (`revisionCarryReport.test.ts` 15,
 `revisionEntry.test.ts` 9). `tsc` delta **0** in touched files. `PricingGrid.test.ts` stays at
 **143** — the owner declined any new PricingGrid work for this feature (S10/#1106).
+
+---
+
+## ⚠️ ADR-0014 Amendment C (2026-07-23) — the carry moves into the pricing editor
+
+Slices C3–C6, commits `580d113c`, `6453a3fd`, `0855527e`, `081de0f8` (local/UNPUSHED). Backend:
+`.claude/context/domain/boq-backend.md` § Amendment C. Slice detail + the live sanity check:
+`frontend/.claude/plans/boq-revised-upload-plan.md`.
+
+**A revision commit carries nothing**, so the hub's whole-BoQ "Carry rates from original" surface is
+**removed** and replaced by ONE per-sheet action in the pricing editor.
+
+### `SheetPricingPage.tsx` — the button (C3)
+
+- Action row, **immediately after `Save now`**, `bg-emerald-600` + dark variants when actionable
+  (the row's loud-state convention: teal `Lock`, sky `Freeze columns`, amber `Price any row`).
+- Four states from the PURE `carryButtonState` (ADR-0010 F4, in `CrossBoqCarryDialog.tsx`), precedence
+  deliberate: **hidden** off a revision → loading → no mapped source → **locked** → formula gate →
+  nothing to carry → ready. Locked outranks the formula gate (no write can land at all), and `locked`
+  already folds the deliberate lock, a takeover, a foreign holder and history mode.
+- An **already-present item counts as work** on both axes (rates `clean + conflict`, layers
+  `carryable + present`) — overwrite is a real action. `unmatched`/`dropped` are excluded.
+- `gridRef.current?.flush()` runs BEFORE opening: the carry writes underneath the grid, and a pending
+  draft saved afterwards would silently overwrite a carried rate.
+- Eligibility = ONE `get_cross_boq_carry_plan` scoped to `sheet_names: [sheetName]`, fired only when
+  `origin === "revision" && source_boq`. The dialog fetches with identical args, so SWR serves both from
+  one request (`CROSS_BOQ_CARRY_PLAN_METHOD` is exported so the two cannot drift on the key).
+- Nothing new reaches `PricingGrid` — the V0/T2 memo shield is untouched.
+
+### `CrossBoqCarryDialog.tsx` — single-sheet + the layer block (C4)
+
+Thesis: **ONE GRAMMAR, TWO ZOOM LEVELS.** A layer row and a rate row have the same shape (a set split
+into clean and conflict, with a Keep/Overwrite decision on the conflicts); rates expose it per cell
+because money needs row-level review, a layer compresses it to one row using the same words and colours.
+
+- `sheetName` set → one section + a header carrying the sheet and `v{src} → v{dst}`. The layer block sits
+  **ABOVE** the rates because the rates section owns the scroll.
+- ⚠️ **The Keep/Overwrite toggle is HIDDEN when a layer has 0 conflicts** — a visible toggle governing
+  nothing implies a decision the user does not have.
+- ⚠️ **The counts line IS the outcome preview**: the conflict word swaps in place with the toggle
+  (`12 to copy · 3 kept` ⇄ `· 3 replaced`, destructive-tinted when armed). This is what makes an
+  all-conflicts layer on Keep read as the no-op it is (`0 to copy · 340 kept`) instead of looking armed.
+- The toggle is a real `role="radiogroup"` with `aria-checked` radios (the per-CELL rate control's bare
+  buttons are a pre-existing a11y gap, deliberately not propagated).
+- `buildLayersPayload` force-clears a blocked layer even if a stale choice says carry.
+- ONE consolidated destructive footer, only when an armed overwrite will actually replace something.
+- ⚠️ **Emerald is BANNED inside the dialog** — it means priced/succeeded in this screen and belongs to
+  the launch button and the post-apply summary line.
+- Apply is SYNCHRONOUS (`apply_sheet_carry`); `summarizeSheetCarry` formats the emerald summary line
+  beside the copy-forward one and points at **"Show unpriced"** for rows the carry could never help.
+- Pure + tested: `CARRY_LAYERS`, `layerCountsOf`, `layerCountsLine`, `layerRowStates`,
+  `initialLayerChoices`, `armedOverwrites`, `applyTotals`, `buildLayersPayload`, `buildDecisions`,
+  `carryButtonState`, `carryLayerItemTotal`, `summarizeSheetCarry`.
+
+### Removed (C5/C6)
+
+`BoqHubPage.tsx` (1812 → 1597): `canCarryRates`, the footer button, the carry state/refs, the
+`boq:carry_rates_done` socket + reconnect self-heal, the 3s poll, the results modal, `CARRY_FAIL_REASON`.
+⚠️ `isRevisionDoc` was declared INSIDE that block but is consumed by the ADR-0014 D4 removed-sheet
+advisory — it is now declared beside that consumer. `revisionCarryReport.formatRevisionOverlay` /
+`RevisionOverlaySummary` / `OVERLAY_LAYERS`, the `CommitResultsModal` overlay sub-line, and
+`boqTypes.revision_overlay` / `CarryRatesDonePayload` / `CarryStatusResponse` are gone.
+`summarizeRevisionCarry` (the PARSE-seam `revision_carry` report) is a DIFFERENT key and stays.
+
+**Suite deltas:** `CrossBoqCarryDialog.test.ts` 14 → **49**; boq-wizard vitest **684** / 32 files;
+`tsc --noEmit` clean; residence holds.
