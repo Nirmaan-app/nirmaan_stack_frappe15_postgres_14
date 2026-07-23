@@ -19,8 +19,9 @@
 
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { Pencil, CheckCircle2, IndianRupee, Trash2 } from "lucide-react";
+import { Pencil, CheckCircle2, IndianRupee, Trash2, FileText, Download } from "lucide-react";
 
+import SITEURL from "@/constants/siteURL";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -108,6 +109,10 @@ export const getProjectExpenseColumns = ({
         : statusTab === "Approved" && (isProcurement || isHR)
           ? false
           : true;
+
+  // On the Paid/All tabs, the Invoice Ref links to the invoice attachment (so the
+  // separate Inv. Attach column is dropped there, mirroring Non-Project).
+  const invoiceRefClickable = statusTab === "Paid" || statusTab === "All";
 
   const projectColumn: ColumnDef<ProjectExpenses> = {
     accessorKey: "projects",
@@ -255,6 +260,117 @@ export const getProjectExpenseColumns = ({
     },
   };
 
+  const invoiceDateColumn: ColumnDef<ProjectExpenses> = {
+    accessorKey: "invoice_date",
+    size: 140,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Invoice Date" />
+    ),
+    cell: ({ row }) => (
+      <div className="font-medium">
+        {row.original.invoice_date ? formatDate(row.original.invoice_date) : "--"}
+      </div>
+    ),
+    meta: {
+      exportValue: (row: ProjectExpenses) =>
+        row.invoice_date ? formatDate(row.invoice_date) : "--",
+    },
+  };
+
+  const invoiceRefColumn: ColumnDef<ProjectExpenses> = {
+    accessorKey: "invoice_ref",
+    size: 150,
+    header: "Invoice Ref",
+    cell: ({ row }) => {
+      const ref = row.original.invoice_ref;
+      const attachment = row.original.invoice_attachment;
+      // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab).
+      if (invoiceRefClickable && attachment && ref) {
+        return (
+          <a
+            href={SITEURL + attachment}
+            target="_blank"
+            rel="noreferrer"
+            title={`Open invoice ${ref}`}
+            className="block truncate font-medium text-blue-600 underline hover:text-blue-800"
+          >
+            {ref}
+          </a>
+        );
+      }
+      return (
+        <div className="font-medium truncate" title={ref}>
+          {ref || "--"}
+        </div>
+      );
+    },
+    meta: {
+      exportValue: (row: ProjectExpenses) => row.invoice_ref || "--",
+    },
+  };
+
+  const invoiceAttachColumn: ColumnDef<ProjectExpenses> = {
+    id: "invoice_attach",
+    header: "Inv. Attach",
+    size: 110,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const url = row.original.invoice_attachment;
+      return url ? (
+        <a
+          href={SITEURL + url}
+          target="_blank"
+          rel="noreferrer"
+          title="Invoice Document"
+          className="inline-flex items-center gap-1 rounded bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700 hover:underline"
+        >
+          <FileText className="h-3.5 w-3.5" /> View
+        </a>
+      ) : (
+        <span className="text-xs text-muted-foreground">--</span>
+      );
+    },
+    meta: { excludeFromExport: true },
+  };
+
+  const paymentRefColumn: ColumnDef<ProjectExpenses> = {
+    accessorKey: "payment_ref",
+    size: 150,
+    header: "Payment Ref",
+    cell: ({ row }) => (
+      <div className="font-medium truncate" title={row.original.payment_ref}>
+        {row.original.payment_ref || "--"}
+      </div>
+    ),
+    meta: {
+      exportValue: (row: ProjectExpenses) => row.payment_ref || "--",
+    },
+  };
+
+  const paymentAttachColumn: ColumnDef<ProjectExpenses> = {
+    id: "payment_attach",
+    header: "Pay. Attach",
+    size: 110,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const url = row.original.payment_attachment;
+      return url ? (
+        <a
+          href={SITEURL + url}
+          target="_blank"
+          rel="noreferrer"
+          title="Payment Proof"
+          className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:underline"
+        >
+          <Download className="h-3.5 w-3.5" /> View
+        </a>
+      ) : (
+        <span className="text-xs text-muted-foreground">--</span>
+      );
+    },
+    meta: { excludeFromExport: true },
+  };
+
   const statusColumn: ColumnDef<ProjectExpenses> = {
     accessorKey: "status",
     header: "Status",
@@ -389,10 +505,18 @@ export const getProjectExpenseColumns = ({
     commentColumn,
     vendorColumn,
     amountColumn,
+    // Invoice details (all tabs); Inv. Attach only where Invoice Ref is NOT the
+    // clickable link (Requested/Approved) — on Paid/All the ref opens the attachment.
+    invoiceDateColumn,
+    invoiceRefColumn,
+    ...(!invoiceRefClickable ? [invoiceAttachColumn] : []),
+    // Payment details only once settled (Paid) or on the mixed All tab.
+    ...(statusTab === "Paid" || statusTab === "All"
+      ? [paymentDateColumn, paymentRefColumn, paymentAttachColumn]
+      : []),
     ...(statusTab !== "Paid" ? [createdByColumn] : []),
-    // "All" tab also shows Payment By (right after Created By); blank for non-paid rows
-    ...(statusTab === "All" ? [paymentByColumn] : []),
-    ...(statusTab === "Paid" ? [paymentByColumn, paymentDateColumn] : []),
+    // Payment By shows on Paid + All (blank for non-paid rows on All).
+    ...(statusTab === "Paid" || statusTab === "All" ? [paymentByColumn] : []),
     ...(statusTab === "All" ? [statusColumn] : []),
     ...(canSeeActionsColumn ? [actionsColumn] : []),
   ];

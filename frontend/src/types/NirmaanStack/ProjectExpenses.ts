@@ -22,4 +22,13 @@ export interface ProjectExpenses {
     amount?: number; // Should be a number in frontend logic
     payment_date?: string; // YYYY-MM-DD format
     payment_by?: string; // Link to User
+
+    // --- Payment Details (recorded at Mark-as-Paid by the accountant) ---
+    payment_attachment?: string; // File URL of the payment proof
+    payment_ref?: string; // UTR / payment reference
+
+    // --- Invoice Details (recorded optionally at create / edit by the creator) ---
+    invoice_attachment?: string; // File URL of the invoice document
+    invoice_ref?: string; // Invoice number / reference
+    invoice_date?: string; // YYYY-MM-DD format
 }

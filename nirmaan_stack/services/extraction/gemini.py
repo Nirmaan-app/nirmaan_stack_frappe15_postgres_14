@@ -34,7 +34,7 @@ _INVOICE_FIELDS = (
     "receiver_gstin", "supplier_name", "net_amount", "total_tax_amount",
     "total_amount", "round_off", "other_charges", "tcs_amount",
 )
-_PAYMENT_FIELDS = ("utr", "payment_date", "transfer_amount")
+_PAYMENT_FIELDS = ("utr", "payment_date", "transfer_amount", "beneficiary_name")
 # Field names match the "Customer PO Child Table" doctype 1:1 (no rename layer).
 # `project_reference`, `customer_name`, `customer_gstin` are NOT form fields — they
 # are used only to verify the PO belongs to this project / customer (soft mismatch
@@ -92,6 +92,9 @@ _PAYMENT_PROMPT = (
     "- utr = the UTR / UTR No. / transaction reference number.\n"
     "- payment_date = the value/transaction date in YYYY-MM-DD format.\n"
     "- transfer_amount = the amount transferred.\n"
+    "- beneficiary_name = the name of the account holder / payee the money was "
+    "transferred TO (the beneficiary / credited account name), NOT the sender / "
+    "remitter.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess."
 )
 _CUSTOMER_PO_PROMPT = (
