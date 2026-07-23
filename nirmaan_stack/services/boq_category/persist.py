@@ -102,6 +102,9 @@ def write_row_categories(boq, sheet_name, committed_version, discipline, rows):
         doc.final_category_id = r.get("final_category_id") or ""
         doc.routing = r.get("routing")
         doc.routing_reason = r.get("routing_reason")
+        # HV-7 priority tier. Absent on the legacy R3d path (route_r3d emits no such key),
+        # so it defaults to 0 -- a faithful writer, exactly as for every other field here.
+        doc.review_priority = 1 if r.get("review_priority") else 0
         doc.description = r.get("description")
         doc.rules_version = r.get("rules_version")
         doc.prompt_version = r.get("prompt_version")

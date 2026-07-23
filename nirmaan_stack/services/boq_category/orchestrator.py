@@ -123,6 +123,9 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
 
     ruleset = load_ruleset(discipline=discipline)
     rules_version = ruleset.get("version", "") or ""
+    # HV-7: the discipline's routing policy, resolved ONCE (data, not code -- the demotion list
+    # is re-derived at every eval cycle and must stay in the rules JSON). None => legacy R3d.
+    routing_policy = ruleset.get("routing_policy")
 
     total = len(kept)
     # Independent AI voter, driven in slices of _AI_BATCH so progress fires BETWEEN 20-row
@@ -167,10 +170,21 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
             ancestor_headers=row.get("anc_headers"),
         )
         ai = ai_by_excel.get(row["excel_row"], {"category_id": "", "confidence": 0.0})
-        routed = routing.route_r3d(
-            {"category_id": res["category_id"], "band": res["band"]},
-            {"category_id": ai.get("category_id", ""), "confidence": ai.get("confidence", 0.0)},
-        )
+        # HV-7 per-discipline routing. The discipline's ruleset may carry a "routing_policy"
+        # block (same opt-in precedent as ancestor_resolution / matching_surface): PRESENT ->
+        # the signed consensus-floor policy; ABSENT -> legacy R3d with the shared config,
+        # byte-identical (the Electrical path). Resolved ONCE above the row loop.
+        if routing_policy is not None:
+            routed = routing.route_policy_v1(
+                {"category_id": res["category_id"], "band": res["band"]},
+                {"category_id": ai.get("category_id", ""), "confidence": ai.get("confidence", 0.0)},
+                routing_policy,
+            )
+        else:
+            routed = routing.route_r3d(
+                {"category_id": res["category_id"], "band": res["band"]},
+                {"category_id": ai.get("category_id", ""), "confidence": ai.get("confidence", 0.0)},
+            )
         if ai_off:
             # Rule category becomes the effective category; every row flagged for review. Overriding
             # `routed` HERE (before the counter + rows_to_persist assembly) means the existing
@@ -179,6 +193,11 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
                 "routing": "Needs review",
                 "final_category_id": res["category_id"] or "",
                 "reason": "AI off -- rule category, flagged for review",
+                # HV-7: the AI never ran, so its confidence is not evidence of anything --
+                # these rows are ordinary review, NOT the priority tier (which means "the AI
+                # looked and was doubtful"). Stated explicitly so the fail-safe cannot flood
+                # the priority queue with a whole sheet.
+                "review_priority": 0,
             }
         if routed["routing"] == "Auto-accepted":
             auto_accepted += 1
@@ -195,6 +214,9 @@ def classify_sheet_rows(boq, sheet_name, discipline, row_filter=None, progress_c
                 "final_category_id": routed["final_category_id"],
                 "routing": routed["routing"],
                 "routing_reason": routed["reason"],
+                # HV-7 priority tier. route_r3d (legacy path) does not emit this key, so it
+                # defaults to 0 -- the legacy verdict shape is unchanged.
+                "review_priority": routed.get("review_priority", 0),
                 "description": row.get("description") or "",
                 "rules_version": rules_version,
                 "prompt_version": prompt_version,

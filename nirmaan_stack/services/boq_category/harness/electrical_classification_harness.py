@@ -304,5 +304,206 @@ def main():
     frappe.destroy()
 
 
+# ---------------------------------------------------------------------------
+# CERTIFICATION MODE (HV-7). Promotes the previously-untracked accept41*.py scoring
+# logic into tracked code.
+#
+# SELECTOR: env BOQ_HARNESS_MODE=certify (default "classify" = the run above,
+# byte-identical when the var is absent).
+#
+# WHAT IT DOES: loads a PREDICTIONS SOURCE, applies the discipline's routing policy
+# IN MEMORY, joins labelled truth, and emits a certification report. It answers the
+# question the classify mode never could: given these two voters and this policy,
+# what does each ROUTING TIER actually deliver?
+#
+# NO DB WRITES, EVER. This mode never calls persist/orchestrator; it opens a frappe
+# connection only to read the committed tree when it needs to classify live.
+#
+# PREDICTIONS SOURCE (env BOQ_CERT_PREDICTIONS):
+#   a folder of per-sheet prediction CSVs carrying, per row: node_id (or
+#   boq+sheet_name+excel_row), rule_category/rule_band, ai_category/ai_confidence.
+#   When absent, rule verdicts are computed LIVE via classify_line (no AI calls --
+#   the AI column must still be supplied, since this mode never spends AI budget).
+# TRUTH (env BOQ_CERT_TRUTH): a JSON mapping node_id -> truth category id.
+# OUTPUT: <OUTPUT_FOLDER>/CERTIFICATION.md + certification_rows.csv.
+# ---------------------------------------------------------------------------
+
+MODE = os.environ.get("BOQ_HARNESS_MODE", "classify")
+
+
+def _load_truth(path):
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    for key in ("view_ii", "truth", "truth_view_ii"):
+        if isinstance(doc, dict) and key in doc and isinstance(doc[key], dict):
+            return doc[key]
+    return doc
+
+
+def _load_predictions(folder):
+    """Read per-sheet prediction CSVs -> {node_id: {...}}. Per-file isolation."""
+    import glob as _glob
+    preds, failed = {}, []
+    for p in sorted(_glob.glob(os.path.join(folder, "*.csv"))):
+        try:
+            with open(p, encoding="utf-8-sig") as fh:
+                for r in csv.DictReader(fh):
+                    nid = (r.get("node_id") or "").strip()
+                    if not nid:
+                        continue
+                    cur = preds.setdefault(nid, {})
+                    for src, dst in (("rule_category", "rule_category"),
+                                     ("rules_v3_category", "rule_category"),
+                                     ("rule_band", "rule_band"), ("band", "rule_band"),
+                                     ("ai_category", "ai_category"),
+                                     ("ai_confidence", "ai_confidence"),
+                                     ("description", "description"),
+                                     ("boq", "boq"), ("sheet_name", "sheet_name"),
+                                     ("excel_row", "excel_row")):
+                        if r.get(src) not in (None, ""):
+                            cur.setdefault(dst, r[src])
+        except Exception as exc:
+            failed.append({"file": os.path.basename(p), "error": repr(exc)})
+    return preds, failed
+
+
+def certify():
+    """Apply the discipline's routing policy to saved/live predictions and score per tier."""
+    from nirmaan_stack.services.boq_category import routing
+
+    output_folder = os.path.abspath(sys.argv[1])
+    os.makedirs(output_folder, exist_ok=True)
+    pred_dir = os.environ.get("BOQ_CERT_PREDICTIONS")
+    truth_path = os.environ.get("BOQ_CERT_TRUTH")
+    if not pred_dir or not truth_path:
+        print("STOP: certify mode needs BOQ_CERT_PREDICTIONS (folder of prediction CSVs) "
+              "and BOQ_CERT_TRUTH (node_id -> truth JSON)")
+        sys.exit(2)
+
+    os.chdir(SITES_DIR)
+    import frappe
+    frappe.init(site=SITE); frappe.connect()
+    from nirmaan_stack.services.boq_category.runner import load_ruleset
+
+    ruleset = load_ruleset(DISCIPLINE)
+    policy = ruleset.get("routing_policy")
+    truth = _load_truth(truth_path)
+    preds, pred_failures = _load_predictions(pred_dir)
+    _write_progress(output_folder, status="running", mode="certify",
+                    predictions=len(preds), truth=len(truth), failed_files=pred_failures)
+
+    scored, tiers = [], collections.Counter()
+    for nid, t in truth.items():
+        p = preds.get(nid)
+        if not p:
+            continue
+        try:
+            conf = float(p.get("ai_confidence") or 0.0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        rule = {"category_id": (p.get("rule_category") or "").strip(),
+                "band": (p.get("rule_band") or "").strip()}
+        ai = {"category_id": (p.get("ai_category") or "").strip(), "confidence": conf}
+        if policy is not None:
+            routed = routing.route_policy_v1(rule, ai, policy)
+        else:
+            routed = routing.route_r3d(rule, ai)
+            routed.setdefault("review_priority", 0)
+        tier = ("auto" if routed["routing"] == "Auto-accepted"
+                else ("priority" if routed.get("review_priority") else "review"))
+        tiers[tier] += 1
+        scored.append({
+            "node_id": nid, "boq": p.get("boq", ""), "sheet_name": p.get("sheet_name", ""),
+            "excel_row": p.get("excel_row", ""), "description": (p.get("description") or "")[:200],
+            "truth": t, "rule_category": rule["category_id"], "rule_band": rule["band"],
+            "ai_category": ai["category_id"], "ai_confidence": conf,
+            "routing": routed["routing"], "final_category_id": routed["final_category_id"],
+            "review_priority": routed.get("review_priority", 0), "tier": tier,
+            "correct": int(routed["final_category_id"] == t),
+        })
+
+    n = len(scored)
+    auto = [s for s in scored if s["tier"] == "auto"]
+    rev = [s for s in scored if s["tier"] != "auto"]
+    prio = [s for s in scored if s["tier"] == "priority"]
+    wrong = [s for s in auto if not s["correct"]]
+    acc = (100.0 * sum(s["correct"] for s in auto) / len(auto)) if auto else 0.0
+
+    # invariants -- a review verdict is ALWAYS blank, and priority is exactly the definition
+    blank_ok = all(s["final_category_id"] == "" for s in rev)
+    # ...and its POSITIVE twin: an auto-accepted row's final IS the agreed category. Together
+    # these pin both directions of the routing contract -- blank means route-to-human, and a
+    # non-blank final is never anything but the category both voters agreed on.
+    agreed_ok = all(s["final_category_id"] == s["rule_category"] == s["ai_category"]
+                    and s["final_category_id"] != "" for s in auto)
+    if policy is not None:
+        pf = float(policy["priority_max_ai_confidence"])
+        prio_ok = all((s["ai_confidence"] < pf or (not s["rule_category"] and not s["ai_category"]))
+                      == bool(s["review_priority"]) for s in rev)
+    else:
+        prio_ok = True
+
+    seg = collections.defaultdict(lambda: [0, 0])
+    for s in scored:
+        if s["rule_category"] and s["rule_category"] == s["ai_category"] and s["ai_confidence"] >= 0.85:
+            g = seg[s["rule_category"]]
+            g[0] += 1
+            g[1] += int(s["rule_category"] == s["truth"])
+
+    with open(os.path.join(output_folder, "certification_rows.csv"), "w", newline="",
+              encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(scored[0].keys())) if scored else None
+        if w:
+            w.writeheader(); w.writerows(scored)
+
+    lines = [f"# CERTIFICATION -- {DISCIPLINE}", "",
+             f"policy: {policy.get('policy_id') if policy else 'legacy R3d'} | "
+             f"ruleset {ruleset.get('version')} | scored rows {n}", "",
+             "| tier | n | share | accuracy |", "|---|---:|---:|---:|",
+             f"| auto-accept | {len(auto)} | {100.0*len(auto)/n:.1f}% | {acc:.2f}% |",
+             f"| review (normal) | {tiers['review']} | {100.0*tiers['review']/n:.1f}% | -- |",
+             f"| review (PRIORITY) | {len(prio)} | {100.0*len(prio)/n:.1f}% | -- |",
+             f"| review total | {len(rev)} | {100.0*len(rev)/n:.1f}% | -- |", "",
+             "> **The priority split above is TELEMETRY, not a product tier.** Owner policy",
+             "> amendment 2026-07-22: every review row is presented identically (blank final,",
+             "> routing 'Needs review'), exactly as Electrical. `review_priority` is computed and",
+             "> stored for eval / cockpit analytics ONLY and must never drive reviewer-facing UI.",
+             "",
+             f"wrong rows auto-accepted: **{len(wrong)}**", "",
+             f"INVARIANT blank-final on every review row: {'PASS' if blank_ok else 'FAIL'}",
+             f"INVARIANT auto-accept final == the agreed category: {'PASS' if agreed_ok else 'FAIL'}",
+             f"INVARIANT priority == (conf < floor OR mutual blank): {'PASS' if prio_ok else 'FAIL'}",
+             "", "## In-segment grid (AGREE and ai_conf >= 0.85)", "",
+             "| predicted | n | accuracy |", "|---|---:|---:|"]
+    for c, (tot, ok_) in sorted(seg.items(), key=lambda kv: -kv[1][0]):
+        lines.append(f"| {c} | {tot} | {100.0*ok_/tot:.1f}% |")
+    lines += ["", "## Wrong rows auto-accepted (verbatim)", "",
+              "| address | description | truth | accepted as |", "|---|---|---|---|"]
+    for s in wrong:
+        lines.append(f"| {s['boq']} r{s['excel_row']} | {s['description'][:70]} | "
+                     f"{s['truth']} | {s['final_category_id']} |")
+    if pred_failures:
+        lines += ["", "## Prediction files that failed to load", ""]
+        lines += [f"- {f['file']}: {f['error']}" for f in pred_failures]
+    with open(os.path.join(output_folder, "CERTIFICATION.md"), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+    print(f"CERTIFY {DISCIPLINE}: scored={n} auto={len(auto)} ({100.0*len(auto)/n:.1f}%) "
+          f"acc={acc:.2f}% review={len(rev)} ({100.0*len(rev)/n:.1f}%) "
+          f"priority={len(prio)} ({100.0*len(prio)/n:.1f}%) wrong_auto={len(wrong)}", flush=True)
+    print(f"INVARIANTS blank-final={'PASS' if blank_ok else 'FAIL'} "
+          f"auto-agreed={'PASS' if agreed_ok else 'FAIL'} "
+          f"priority-def={'PASS' if prio_ok else 'FAIL'}", flush=True)
+    _write_progress(output_folder, status="done", mode="certify", scored=n,
+                    auto=len(auto), review=len(rev), priority=len(prio), wrong_auto=len(wrong))
+    frappe.destroy()
+
+
 if __name__ == "__main__":
-    main()
+    if MODE == "certify":
+        certify()
+    elif MODE == "classify":
+        main()
+    else:
+        print(f"STOP: unknown BOQ_HARNESS_MODE {MODE!r} (known: classify, certify)")
+        sys.exit(2)

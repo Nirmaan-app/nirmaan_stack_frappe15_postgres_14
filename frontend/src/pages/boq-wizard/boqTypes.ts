@@ -1546,6 +1546,45 @@ export interface SheetCategoryRow {
   effective_category_id: string;
 }
 
+/**
+ * HV-10: one discipline's raw vote detail for a row, from get_sheet_categories_resolved.
+ * TELEMETRY: review_priority is stored here but NEVER rendered (owner amendment 2026-07-22).
+ */
+export interface ResolvedVote {
+  rule_category_id: string;
+  ai_category_id: string;
+  ai_confidence: number | null;
+  final_category_id: string;
+  routing: string;
+  review_priority: number;
+}
+
+/**
+ * HV-10: one row after the SERVER-SIDE multi-engine resolution ladder
+ * (get_sheet_categories_resolved). `effective_source` is "human" | "auto" | "blank";
+ * `cross_engine_conflict` is TELEMETRY-ONLY -- computed at read time, NEVER persisted and (owner
+ * ruling) NEVER rendered. `votes` is the per-discipline detail, keyed by discipline (N-generic --
+ * any engine is just another key). A single-engine sheet resolves exactly as today.
+ */
+export interface ResolvedSheetCategory {
+  excel_row: number;
+  effective_category_id: string;
+  effective_source: "human" | "auto" | "blank";
+  resolved_discipline: string | null;
+  cross_engine_conflict: boolean;
+  human_category_id: string;
+  human_discipline: string | null;
+  votes: Record<string, ResolvedVote>;
+}
+
+/** HV-10: the get_sheet_categories_resolved payload. `disciplines` = every engine with current
+ * rows on the sheet (the picker's group set). */
+export interface GetSheetCategoriesResolvedResponse {
+  committed_version: number | null;
+  disciplines: string[];
+  categories: ResolvedSheetCategory[];
+}
+
 // ── CL-3: category verdict picker (click-to-edit human category verdict) ─────────
 
 /**
