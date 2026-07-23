@@ -865,6 +865,117 @@ the exact >20-prune save that crashed pre-fix)** -> reload holds `=IF(1=1,42,0)`
 -> clean save v21 -> **v22**. Electrical pruned to **20 snapshots, range v3..v22**; all locks NULL;
 ELV/HVAC untouched.
 
+## PW-2d — DELIVERED 2026-07-24 (save-time HELPER-CLASS fix, single-action dialog). **PW-2 ARC CLOSED.**
+
+Extends the consent-based fix to the class PW-2b-ii deferred: a **multi-condition INDEX/MATCH**, which
+needs a generated helper key/value column pair. Delivered as ONE dialog action — **"Fix all & save"** —
+that fixes every fixable hit (helper-free AND helper-class) and saves once.
+
+**NAMING NOTE:** the original PW-2c scope was absorbed into PW-2a as delivered (the save-time advisory);
+this slice is **PW-2d**. The recon titled "RECON PW-2c" is this slice's recon.
+
+### The `create()`-never-evaluates probe — the design driver
+
+`luckysheet.create()` renders CACHED cell values and **never evaluates a formula at load** (FR-6, re-proven
+here by direct probe: a VLOOKUP with no cached `v` loads BLANK; with a wrong cached `v` it loads the wrong
+value; a `celldata` mutation + `refresh()` is not even seen). So a helper-class fix cannot just write a
+formula and expect a value — the value must be **present as a cached `v`** at save time, or computed live.
+
+### Option B (live-engine writes) — AUTHORIZED, then REVERSED (chat-Claude misauthorization, on record)
+
+The first cut wrote the helper columns straight into the LIVE engine via `setCellValue({order})` on the
+hit's sheet, then re-entered the rewrite so the engine computed it. **It DESTROYED data.** ENGINE CAUTION
+**#6**: `setCellValue` targeting a **non-active** sheet rebuilds that sheet's cell store from an incomplete
+working grid and **drops every unrendered row**. The hit's sheet is almost always non-active (the lookup
+TABLE lives on a dedicated sheet — Termination, Cable Allocation, …), so this is the COMMON case, not an
+edge. Proven with server ground truth: **Termination v22 = 154 rate rows / 3588 cells → v23 (Option B fix)
+= 0 rows / 1711 cells** — the save persisted the gutted sheet. The damaged workbook was restored to v22;
+Option B abandoned. STEP-0 micro-probe banked the minimal repro (a 250-cell sheet → 52 cells on a bulk
+non-active write; an active-sheet write is intact; `setSheetActive` is synchronous, so the sanctioned
+guard needs no render-await).
+
+### Option 3 (OFFLINE materialize + exact compute) — SHIPPED
+
+Every helper write stays OFFLINE, on the SERIALIZED save payload, never touching the fragile live engine:
+1. `planHelperFixes` mints the rewrites + ledger (pure);
+2. `materializeHelpers({force:true})` writes the pairs into `celldata` WITH pipeline-computed values +
+   hides them via `config.colhidden` (the import-proven path; `force` bypasses the `_mk` pre-existing skip
+   so a fix on a sheet that already carries import helpers still writes its NEW pair — the strand fix);
+3. each hit cell gets its rewritten VLOOKUP formula, and its **EXACT value where that can be computed**
+   from the just-built helpers (`pricingHitEval.computeHitValueExact`) — else a cleared `v` (blank until
+   the next recalc). NEVER an approximation.
+4. ONE `performSave` (single version bump);
+5. `requestSheet(fixedSheets, true)` re-inits so the helpers + stored values DISPLAY (`create()` renders
+   cached values — no recompute).
+
+**FIXED-CELL DISPLAY — Option 2 (compute-and-store) with an exactness constraint, Option 1 (blank) as the
+automatic fallback (chat-Claude call, on record).** `pricingHitEval` evaluates the rewritten formula ONLY
+where the result is provably identical to the engine's: a resolvable cell/range ref, `&` concat, `+ - * /`,
+`VLOOKUP(key, range, n, 0)` as a dictionary lookup in the payload's own celldata, and `ROUND/ROUNDUP/
+ROUNDDOWN` with integer digits. ANYTHING else — an unknown function, ANY `IF`/`IFS`/`IFERROR` (or other
+branch), a comparison, `^`/`%`, a missing ref, a VLOOKUP miss — ABSTAINS (`undefined`) and the cell stays
+blank. **Stored `f` is ALWAYS correct; `v` is exact-or-absent by design** — a blank cell that recomputes on
+the next edit is honest; a stored-but-wrong value is the exact failure this module prevents (the engine
+renders cached values on load, so a wrong `v` would display wrong until a recalc). The save-fix report labels
+each row **"value computed"** vs **"blank until recalc"**; the shared `canonicalizeCellValue` (pricingHelpers)
+is the SINGLE source for the criterion/key canonicalization, so an offline VLOOKUP key matches the
+materialized helper key by construction.
+
+**Why NO live re-entry step (ENGINE CAUTION #7, the two step-6 dead-ends):**
+- `setCellValue` re-entry of the rewritten hit THROWS — the engine raises "Cannot read properties of
+  undefined (reading 'data')" when a VLOOKUP whose first arg is a `&`-concatenation key is written back
+  through setCellValue (a literal-key VLOOKUP is fine, so this bites EXACTLY the helper-class rewrites).
+- `refreshFormula()` (a global recompute) CASCADES `#NAME?` — it force-evaluates EVERY formula, and the
+  engine cannot evaluate many of them (it renders Excel's cached values on load), so unrelated cells across
+  the workbook flip to `#NAME?`. Both proven live. Option 3's store-at-save-time resolves this upstream, so
+  the plain re-init displays the value with no recompute.
+
+### The single-action dialog (owner UX amendment)
+
+The advisory footer is Cancel + ONE primary action: **"Fix all & save"** when any hit is fixable
+(helper-free AND helper-class ride the same click), **"Save anyway"** when hits exist but none are fixable,
+**"Save"** at zero hits. Per-hit `[Fix]`/`[Fix + save]` buttons are GONE; each row shows a status label —
+**"will be fixed"** or **"no automatic fix — saved as-is"**. Save-without-fixing-when-fixable was dropped
+deliberately (the fixes are semantics-preserving; simplicity wins). `isAutoFixable` (helper-free OR
+`REASON_NEEDS_HELPER`) drives both the label and the primary action.
+
+### FIX A — the applyLiveFix guard (a shipped latent risk)
+
+The PW-2b-ii helper-FREE path used the same `setCellValue({order})` and was a latent CAUTION-#6 data-loss
+risk for a hit on a non-active sheet. `applyLiveFix` now routes its write through `withSheetActive`
+(activate the hit's sheet — synchronous — write, restore the prior active sheet). Same-sheet hits skip the
+switch (the fast path).
+
+### Verification — gates + live matrix
+
+Frontend **702 vitest** (29 files): `pricingLiveFix.test.ts` 18→23 (the `withSheetActive` guard ordering via
+a luckysheet mock; `applyHelperFixesOffline` exact-value-stored + blank-fallback + `valueComputed`; strand +
+idempotency stand), new **`pricingHitEval.test.ts` (12)** — exact resolutions incl. the Termination 82.55
+fixture, `'3.0'` canonicalization, sheet-qualified range, `*factor`, `ROUNDUP`; abstains on IFERROR /
+unknown-fn / missing-ref / VLOOKUP-miss / approximate-match / comparison / unparseable. tsc 0 errors; build ✓.
+
+Live on Electrical (v22, admin session; Vite restarted no-polling for a stable session — its watcher never
+fires across the Windows Docker mount, and polling-HMR remounts the page mid-edit and drops the lock):
+scratch multi-cond INDEX/MATCH on **non-active Termination** (COPPER/ARMOURED/3/2.5 → F11 = **82.55**) ->
+Save shows the single-action dialog ("will be fixed" + "Fix all & save") -> **82.55 DISPLAYED live**, single
+`save_workbook`, **v22→23**; server census **Termination COPPER = 154** (Option B gave 0), helpers
+`[17,18,19,20,22,23]` (existing import pair + new pair 22/23 = strand-guard), `H2_v` stored 82.55,
+`colhidden {22,23}`; report reads **"Fixed at save" · "value computed"**; **NO `#NAME?` cascade** (5 pre-
+existing `#REF!` on the untouched Cable Allocation sheet are original Excel content, passed through verbatim).
+**Reload persistence:** H2 shows **82.55** on reload (stored `v` — no longer blank), formula + helpers
+persist, COPPER 154. **FIX A:** helper-free IFS on non-active Networking -> `=IF(1=1,42,0)` = **42**,
+Networking NOT corrupted (155 cells), single save v23→24. Cleanup: Electrical restored to canonical **v22**
+(test artifacts v23/v24 deleted), all locks NULL, ELV/HVAC untouched.
+
+### Deferred out of PW-2d
+
+- Full "Replace-from-Excel prior-helpers regression (6e)" as a distinct RAW→fix→FIXED cycle — the strand
+  essence (a new pair coexisting with existing import helpers) is proven; the Replace path itself is
+  unchanged/already-shipped.
+- The residual FP-boundary risk in the `ROUND*` exact path (JS vs engine rounding at a half-ulp) — accepted;
+  arithmetic uses the same IEEE ops, and any true mismatch would only mean a one-recalc-late display, not a
+  wrong persisted `f`.
+
 ## PM-3+ / remaining module queue
 
 - **Univer spike**, then the production go-live sequence.

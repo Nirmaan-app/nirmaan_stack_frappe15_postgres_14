@@ -742,19 +742,35 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
   and they structurally **cannot** see that the engine mis-reads that text at runtime. Cautions 3, 4
   and 5 were all invisible to a fully green suite. **Anything about engine SEMANTICS must be proven
   in a live Tier-3 run.**
-- **Consent-based live fix (`pricingLiveFix.ts`, PW-2b-ii).** The advisory dialog's per-hit `[Fix]`
-  eligibility is DERIVED, not a hand-kept class list: `assessFix` runs the hit through the pipeline's
-  `transformFormula` and is fixable iff it yields a rewrite with **`helpers.length === 0`** (or a
-  dead-Google `freeze`) — helper-needing classes are deferred to "Replace from Excel" (live helper
-  writes mutate a second sheet, hard to undo on Release). Application mirrors FR-6: `setCellValue` with
-  the plain formula **STRING** (never the object form — leaves the cell empty), the target sheet's
-  `order`, active-sheet restore. After a fix, re-serialize + re-scan; the fixed cell **rides the same
-  Save** (no separate cycle). The import report is a receipt (`ImportReportDialog.tsx`, a separate
-  component), shown on import/replace when non-trivial and skipped for a pure no-op; `lastReport` is
-  session-only (persistence deferred). ⚠️ **Backend `_prune_versions` deletes via raw `frappe.db.delete`,
-  NOT `delete_doc`** — deleting a list-shaped (imported) version doc otherwise trips the list-valued-JSON
-  load wall on the 21st save; every save-shaped path that touches an array-`workbook_json` doc must avoid
-  full `doc.save()`/`delete_doc` (same rule as `checkout`/`release` using `db.set_value`).
+- **Consent-based live fix (`pricingLiveFix.ts`, PW-2b-ii + PW-2d).** `[Fix]` eligibility is DERIVED, not a
+  hand-kept class list: `assessFix` runs the hit through `transformFormula`; a **helper-FREE** rewrite
+  (`helpers.length === 0`, or a dead-Google `freeze`) is fixed in the LIVE engine; a **helper-CLASS** rewrite
+  (multi-cond INDEX/MATCH) is fixed OFFLINE at save (below). Live writes mirror FR-6 (`setCellValue` with the
+  plain STRING) and go through **`withSheetActive`** — activate the hit's sheet, write, restore the prior active
+  sheet. ⚠️ **ENGINE CAUTION #6 (owner-locked):** `setCellValue` on a NON-active sheet CORRUPTS it — a bulk write
+  rebuilds that sheet's cell store from an incomplete grid and DROPS every unrendered row (proven: a live
+  Termination table went 154 rows → 0 and the save persisted the gutted sheet). NEVER write a non-active sheet;
+  `withSheetActive` is the guard (`setSheetActive` is synchronous — no render-await). The import report is a
+  receipt (`ImportReportDialog.tsx`), `lastReport` session-only. ⚠️ **Backend `_prune_versions` deletes via raw
+  `frappe.db.delete`, NOT `delete_doc`** — a list-shaped version doc otherwise trips the list-valued-JSON load
+  wall on the 21st save; every save-shaped path on an array-`workbook_json` doc avoids `doc.save()`/`delete_doc`.
+- **Save-time helper-class fix + single-action dialog (`pricingLiveFix.ts` / `pricingHitEval.ts`, PW-2d — Option 3).**
+  The advisory dialog is Cancel + ONE primary action: **"Fix all & save"** when any hit is fixable (helper-free AND
+  helper-class ride the same click), **"Save anyway"** when hits exist but none fixable, **"Save"** at zero hits;
+  each row shows **"will be fixed"** / **"no automatic fix — saved as-is"** (`isAutoFixable` = helper-free OR
+  `REASON_NEEDS_HELPER`). Helper-class hits are fixed **OFFLINE on the serialized payload** — `materializeHelpers({force:true})`
+  writes the pairs into `celldata` with computed values + `config.colhidden`, each hit gets its rewritten VLOOKUP,
+  then ONE save, then `requestSheet(fixedSheets,true)` re-inits so `create()` renders the stored values. **NEVER via
+  live `setCellValue` on the (usually non-active) table sheet (CAUTION #6), and NEVER `refreshFormula()` — ⚠️ ENGINE
+  CAUTION #7:** a global recompute force-evaluates every formula and cascades `#NAME?` (the engine renders Excel's
+  cached values on load, FR-6), and a `setCellValue` re-entry of the rewritten hit THROWS (it rejects a VLOOKUP whose
+  key is a `&`-concatenation). **FIXED-CELL DISPLAY (owner call):** `pricingHitEval.computeHitValueExact` stores the
+  hit's value **only where it resolves EXACTLY** against the just-built helpers (VLOOKUP dict lookup, resolvable refs,
+  `& + - * /`, `ROUND*` with integer digits) — anything else (IF/IFS/IFERROR/branch, unknown fn, missing ref, VLOOKUP
+  miss) leaves the cell BLANK (recomputes on the next edit). **Stored `f` always correct; `v` exact-or-absent — NEVER
+  an approximation** (a wrong cached `v` would display wrong until a recalc). The report labels each row **"value
+  computed"** vs **"blank until recalc"**; `canonicalizeCellValue` (pricingHelpers) is the SINGLE source for the
+  criterion/key canonicalization so an offline VLOOKUP key matches the materialized helper key by construction.
 - **Save-time formula advisory (`pricingFormulaScan.ts`, PW-2a) is WARN-ONLY and PURE.** Scans
   `sheets[].celldata[].v.f` **after `serializeSheets`** so it sees exactly what will be persisted. Flags INDEX
   anywhere (ENGINE CAUTION #1 — `=INDEX(r,2)*2` silently returns 0), the engine-absent `XLOOKUP`/`IFS`/`LET`,
