@@ -379,12 +379,36 @@ tab visible, Electrical renders in **4 seconds**. The control that proved it: EL
 **STANDING GUARD: every browser measurement in this module asserts `document.visibilityState === "visible"`
 first and aborts otherwise.**
 
-### Engine-decision spike — SCHEDULED, not parked
+### Univer spike — RUN 2026-07-24 (headless, chat-Claude container), verdict: PARKED by owner
 
-A time-boxed **1-2 session Univer evaluation**: load these three workbooks and run them against the SAME
-expected-value tables + the frozen baselines above. **Criterion on record:** if Univer passes the matrix AND
-handles live-typed spaced formulas natively, migration gets scheduled; otherwise we stay on Luckysheet
-deliberately, with the normalizer as the documented compensator.
+Time-boxed evaluation of **Univer** (`0.10.x`-era `preset-sheets-node-core`) against the SAME engine-caution
+matrix Luckysheet is compensated for. **Univer passed ALL seven ENGINE CAUTIONS natively**, and — critically —
+evaluates formulas at load and computes a raw multi-condition array INDEX/MATCH with no helper columns:
+
+| Probe (the Luckysheet failure mode) | Univer result |
+|---|---|
+| CAUTION #2 — operator-space `=2 * (1+2)` | **6** (Luckysheet: `#NAME?`) |
+| CAUTION #1 — INDEX in composition `=INDEX(r,2)*…` | **183.62** (Luckysheet: `0`) |
+| CAUTION #5 — erroring UNTAKEN `IF` branch | **82.55**, no error propagation (Luckysheet propagates) |
+| CAUTION #5 — `ISTEXT("#N/A")` | **TRUE**, no coercion to the #N/A error (Luckysheet coerces) |
+| engine-absent `IFS` / `LET` / `XLOOKUP` | native **42 / 10 / 82.55** |
+| CAUTION #3 — `VLOOKUP(...,FALSE)` | ok (Luckysheet: `#NAME?` — we emit `,0)`) |
+| PW-2d — `&`-concatenation-key `VLOOKUP` | ok (Luckysheet setCellValue re-entry throws) |
+| **RAW multi-cond array `INDEX/MATCH`** | **computes NATIVELY 82.55** (the whole helper-column apparatus is unneeded) |
+| FR-6 — formula with NO cached `v` | **EVALUATES AT LOAD** → 42 (Luckysheet renders blank) |
+
+**Not tested (deferred to any future live phase):** 22 MB browser render performance; a Luckysheet-JSON →
+Univer-snapshot converter over the real workbooks; Univer's data-validation UX.
+
+**Owner decision 2026-07-24 — PARK.** Stay on Luckysheet + the documented compensators; monitor the current
+setup's performance in production. **Revisit triggers (explicit):** (1) an ENGINE CAUTION bites a real user in
+production; (2) before building any major new formula-heavy feature on this module; (3) sustained performance
+complaints. **Estimated migration cost if triggered:** 2-4 sessions, dominated by the data converter +
+re-verification against the frozen baselines above (the baselines exist precisely to make this measurable).
+
+**Survives-regardless:** freeze / clamp / decode / report are needed under ANY engine — they fix FORMAT
+problems (dead-Google formulas, trailing-row bloat, LuckyExcel name-escaping, the import receipt), not engine
+problems, so a future migration keeps them.
 
 ### Deploy notes (Abhishek)
 
