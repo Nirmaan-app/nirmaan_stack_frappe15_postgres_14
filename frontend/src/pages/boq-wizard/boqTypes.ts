@@ -1321,6 +1321,27 @@ export interface CrossBoqCarryCounts {
   non_priceable: number;
 }
 
+/** AMENDMENT C: the four ROW-ADDRESSED annotation layers the per-sheet carry moves alongside the
+ *  rates. Formula is deliberately absent -- it is hand-declared and never carries. The keys match
+ *  the backend's `committed_carry.LAYER_KEYS` exactly (an unknown key is dropped server-side, so
+ *  the two sides can be deployed independently). */
+export type CrossBoqCarryLayerKey =
+  | "remarks"
+  | "colors"
+  | "remark_dismissals"
+  | "categories";
+
+/** One layer's availability for one sheet. `carryable` = the dest address is empty; `present` = it
+ *  already holds an entry (the Keep/Overwrite decision, and the ONLY thing that makes the toggle
+ *  appear); `unmatched` = the source row has no twin; `dropped` = the twin exists but the column
+ *  letter did not survive (colours only). */
+export interface CrossBoqCarryLayerCounts {
+  carryable: number;
+  present: number;
+  unmatched: number;
+  dropped: number;
+}
+
 /** One committed revision sheet's carry plan. `formulas_complete` false => the mandatory
  *  amount-formula gate blocks this sheet's carry (shown unticked + labelled). `needs_new_value_count`
  *  = D6 NEW priceable dest rows that need a hand-entered rate (never in `plan`). */
@@ -1331,8 +1352,33 @@ export interface CrossBoqCarrySheet {
   dest_version: number;
   plan: CrossBoqCarryPlanRow[];
   counts: CrossBoqCarryCounts;
+  /** AMENDMENT C. Optional so a client built against the pre-Amendment-C payload still parses. */
+  layers?: Record<CrossBoqCarryLayerKey, CrossBoqCarryLayerCounts>;
   formulas_complete: boolean;
   needs_new_value_count: number;
+}
+
+/** One layer's user choice, posted to apply_sheet_carry. `overwrite` matters only for the
+ *  `present` subset; the server re-derives that subset and never trusts the client for it. */
+export interface CrossBoqCarryLayerChoice {
+  carry: boolean;
+  overwrite: boolean;
+}
+
+/** Response shape of apply_sheet_carry (AMENDMENT C, C2) -- synchronous, so the summary comes
+ *  straight back instead of a job id. */
+export interface ApplySheetCarryResponse {
+  ok: boolean;
+  copied: number;
+  conflicts_overwritten: number;
+  conflicts_kept: number;
+  skipped: Record<string, number>;
+  layers: Partial<
+    Record<
+      CrossBoqCarryLayerKey,
+      { carried: number; replaced: number; kept: number; unmatched: number; dropped: number }
+    >
+  >;
 }
 
 /** Response shape of get_cross_boq_carry_plan. */

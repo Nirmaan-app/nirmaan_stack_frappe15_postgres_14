@@ -24,7 +24,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useFrappeGetCall, useFrappeGetDoc, useFrappePostCall, FrappeContext, type FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BoqPresence } from "./BoqPresence";
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowLeft, Check, ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp, ClipboardList, Filter, Loader2, Lock, Maximize2, Minimize2, Pin, PinOff, Redo2, RefreshCw, Save, Search, ShieldCheck, ShieldOff, Sigma, SlidersHorizontal, Snowflake, Sparkles, Undo2, Unlock, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +54,7 @@ import type {
   EngineCatalog,
   ApplyCopyForwardResponse,
   GetCommittedStateResponse,
+  GetCrossBoqCarryPlanResponse,
   GetPricedRowsResponse,
   GetSheetVersionsResponse,
   PricedRow,
@@ -67,6 +68,11 @@ import type {
 import { ROLE_LABELS } from "./boqTypes";
 import { VersionRibbon } from "./VersionRibbon";
 import { CopyForwardDialog } from "./CopyForwardDialog";
+import {
+  CROSS_BOQ_CARRY_PLAN_METHOD,
+  CrossBoqCarryDialog,
+  carryButtonState,
+} from "./CrossBoqCarryDialog";
 import { CategoryVerdictPicker, buildEngineGroups } from "./CategoryVerdictPicker";
 import { ClassifyProgressModal } from "./ClassifyProgressModal";
 import {
@@ -231,6 +237,23 @@ const SheetPricingPage = () => {
     boqId ? undefined : null,
   );
 
+  // ── AMENDMENT C / C3: cross-BOQ carry eligibility ─────────────────────────────
+  // A revision sheet only (origin=="revision" + source_boq): off a revision there is no original,
+  // so the action does not exist and the button is HIDDEN, not disabled. Scoped to THIS sheet via
+  // sheet_names, and the dialog fetches with the identical args -- SWR serves both from one
+  // request, so opening the dialog is instant. Disabled (swrKey null) off a revision, which is the
+  // common case: an upload/template BoQ pays nothing for this.
+  const isRevisionSheet = boq?.origin === "revision" && !!boq?.source_boq;
+  const { data: carryPlanData } = useFrappeGetCall<{ message: GetCrossBoqCarryPlanResponse }>(
+    CROSS_BOQ_CARRY_PLAN_METHOD,
+    {
+      dest_boq: boqId ?? "",
+      source_boq: boq?.source_boq ?? "",
+      sheet_names: JSON.stringify([sheetName ?? ""]),
+    },
+    isRevisionSheet && boqId && sheetName ? undefined : null,
+  );
+
   // ── Version-view (read-only history browser) ──────────────────────────────────
   // selectedVersion: null = the CURRENT/live version (today's editable behaviour, unchanged); a
   // number = an EARLIER committed version shown read-only with its OWN pricing. Reset on a sheet
@@ -240,6 +263,11 @@ const SheetPricingPage = () => {
   // and a transient summary line after a successful apply. Both reset on a sheet switch (below).
   const [copyForwardOpen, setCopyForwardOpen] = useState(false);
   const [copyForwardMsg, setCopyForwardMsg] = useState<string | null>(null);
+  // AMENDMENT C / C3: the per-sheet cross-BOQ carry (the hub's whole-BoQ button is removed at C6).
+  // Same shape as copy-forward above -- a dialog flag + a transient summary line -- because it is
+  // the same act, cross-BOQ instead of cross-version.
+  const [carryOpen, setCarryOpen] = useState(false);
+  const [carryMsg, setCarryMsg] = useState<string | null>(null);
   // The live read's committed version -- the single source of "which version is live".
   const liveCommitVersion = pricedData?.message?.commit_version ?? null;
   // Per-sheet Work Packages -- carried onto the committed BoQ Sheet at commit time and returned
@@ -1478,6 +1506,19 @@ const SheetPricingPage = () => {
   // columns (trivially complete). Passed to the grid as one boolean prop (ANDed OUTSIDE the
   // override) + drives the "declare formulas" banner.
   const formulasComplete = areFormulasComplete(columnDescriptors, columnFormulas);
+  // AMENDMENT C / C3: the carry button's state, from the PURE helper (ADR-0010 F4 -- the rule is
+  // unit-tested; this page only renders it). `locked` already folds the deliberate lock, a
+  // takeover, a foreign holder AND history mode, so one flag covers every read-only reason.
+  const carryPlanSheet = isRevisionSheet
+    ? carryPlanData?.message?.sheets?.[0] ?? null
+    : null;
+  const carryState = carryButtonState({
+    isRevisionSheet,
+    loading: isRevisionSheet && carryPlanData === undefined,
+    locked,
+    formulasComplete,
+    sheet: carryPlanSheet,
+  });
   // Priced count: M = priceable lines; N = FULLY priced (every qty-bearing area filled).
   const pricedCount = computePricedCount(rows, columnDescriptors);
   const allPriced = pricedCount.total > 0 && pricedCount.priced === pricedCount.total;
@@ -1707,6 +1748,41 @@ const SheetPricingPage = () => {
           <Check className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">{copyForwardMsg}</span>
           <button type="button" onClick={() => setCopyForwardMsg(null)} aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* AMENDMENT C / C3: the per-sheet cross-BOQ carry dialog + its transient summary line.
+          Mirrors the copy-forward pair above -- the same act, cross-BOQ instead of cross-version.
+          C4 replaces the dialog body with the multi-layer version and moves the apply onto the
+          synchronous apply_sheet_carry endpoint. */}
+      {isRevisionSheet && boq?.source_boq && sheetName && (
+        <CrossBoqCarryDialog
+          open={carryOpen}
+          boqId={boqId ?? ""}
+          sourceBoq={boq.source_boq}
+          sheetName={sheetName}
+          onClose={() => setCarryOpen(false)}
+          onStarted={(needsNewValues: number) => {
+            setCarryMsg(
+              "Carrying from the original…" +
+                (needsNewValues > 0
+                  ? ` ${needsNewValues} row${needsNewValues === 1 ? "" : "s"} will still need a rate — use “Show unpriced”.`
+                  : ""),
+            );
+            setCarryOpen(false);
+            void mutate();
+            void mutateCategories();
+          }}
+        />
+      )}
+
+      {carryMsg && (
+        <div className="flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100">
+          <Check className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">{carryMsg}</span>
+          <button type="button" onClick={() => setCarryMsg(null)} aria-label="Dismiss">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1982,6 +2058,39 @@ const SheetPricingPage = () => {
             <Save className="h-4 w-4" />
             Save now
           </Button>
+          {/* AMENDMENT C / C3: carry the ORIGINAL's rates + annotations into this revision sheet.
+              Placed immediately after Save now (owner-directed) and filled EMERALD when it is
+              actionable -- the row's loud-state convention (teal Lock, sky Freeze, amber override),
+              and emerald already reads as "priced" in this screen. HIDDEN off a revision: with no
+              original the action does not exist, so a disabled button would be a lie. The four
+              states + their tooltip copy come from the pure carryButtonState. */}
+          {carryState.kind !== "hidden" && (
+            <Button
+              size="sm"
+              variant={carryState.kind === "ready" ? "default" : "outline"}
+              className={cn(
+                "gap-1.5",
+                carryState.kind === "ready" &&
+                  "bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-800",
+              )}
+              disabled={carryState.kind !== "ready"}
+              onClick={() => {
+                // Flush pending rate drafts FIRST: the carry writes underneath the grid, and a
+                // draft saved afterwards would silently overwrite a carried rate.
+                gridRef.current?.flush();
+                setCarryMsg(null);
+                setCarryOpen(true);
+              }}
+              title={
+                carryState.kind === "ready"
+                  ? "Copy the original BoQ's rates and annotations into this sheet"
+                  : carryState.reason
+              }
+            >
+              <ArrowDownToLine className="h-4 w-4" />
+              Carry rates from original
+            </Button>
+          )}
           </>
           )}
         </div>

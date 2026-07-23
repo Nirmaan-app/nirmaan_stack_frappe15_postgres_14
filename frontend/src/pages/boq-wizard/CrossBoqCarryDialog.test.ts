@@ -13,6 +13,9 @@ import {
   planTotals,
   sheetCountsDisplay,
   sheetWritableKeys,
+  carryButtonState,
+  carryLayerItemTotal,
+  CARRY_DISABLED_REASON,
 } from "./CrossBoqCarryDialog";
 import type { CrossBoqCarryDecision, CrossBoqCarryPlanRow, CrossBoqCarrySheet } from "./boqTypes";
 
@@ -192,5 +195,105 @@ describe("sheetWritableKeys", () => {
   it("lists the writable cell keys for a sheet (drives the sheet-level tick)", () => {
     expect(sheetWritableKeys(ELECTRICAL)).toHaveLength(4);
     expect(sheetWritableKeys(PLUMBING)).toHaveLength(2);
+  });
+});
+
+// ── AMENDMENT C / C3: the pricing-screen button's state ────────────────────────────
+describe("carryButtonState (the pricing-screen button)", () => {
+  const LAYERS_EMPTY = {
+    remarks: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
+    colors: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
+    remark_dismissals: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
+    categories: { carryable: 0, present: 0, unmatched: 0, dropped: 0 },
+  };
+  const base = {
+    isRevisionSheet: true,
+    loading: false,
+    locked: false,
+    formulasComplete: true,
+    sheet: sheet({ counts: { clean: 2, conflict: 1, removed: 0, no_rate_column: 0, non_priceable: 0 } }),
+  };
+
+  it("is HIDDEN off a revision -- the action does not exist, so a disabled button would lie", () => {
+    expect(carryButtonState({ ...base, isRevisionSheet: false }).kind).toBe("hidden");
+  });
+
+  it("hides off a revision even while loading (the hidden check wins)", () => {
+    expect(carryButtonState({ ...base, isRevisionSheet: false, loading: true }).kind).toBe("hidden");
+  });
+
+  it("is disabled while the plan is loading", () => {
+    const s = carryButtonState({ ...base, loading: true });
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.loading });
+  });
+
+  it("is disabled with 'nothing to carry' when the sheet has no plan entry (no mapped source)", () => {
+    const s = carryButtonState({ ...base, sheet: null });
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.nothing });
+  });
+
+  it("reports LOCKED ahead of the formula gate -- no write of any kind can land", () => {
+    const s = carryButtonState({ ...base, locked: true, formulasComplete: false });
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.locked });
+  });
+
+  it("is disabled on the mandatory amount-formula gate", () => {
+    const s = carryButtonState({ ...base, formulasComplete: false });
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.formulas });
+  });
+
+  it("is disabled when nothing is carryable on either axis", () => {
+    const s = carryButtonState({
+      ...base,
+      sheet: sheet({
+        counts: { clean: 0, conflict: 0, removed: 4, no_rate_column: 2, non_priceable: 1 },
+        layers: LAYERS_EMPTY,
+      }),
+    });
+    expect(s).toEqual({ kind: "disabled", reason: CARRY_DISABLED_REASON.nothing });
+  });
+
+  it("is READY on rates alone, counting clean + conflict", () => {
+    expect(carryButtonState(base)).toEqual({ kind: "ready", rateCells: 3, layerItems: 0 });
+  });
+
+  it("is READY on annotations alone -- a sheet with no carryable rate still opens", () => {
+    const s = carryButtonState({
+      ...base,
+      sheet: sheet({
+        counts: { clean: 0, conflict: 0, removed: 0, no_rate_column: 0, non_priceable: 0 },
+        layers: { ...LAYERS_EMPTY, remarks: { carryable: 4, present: 0, unmatched: 2, dropped: 0 } },
+      }),
+    });
+    expect(s).toEqual({ kind: "ready", rateCells: 0, layerItems: 4 });
+  });
+
+  it("counts an ALREADY-PRESENT annotation as work -- overwrite is a real action", () => {
+    const s = carryButtonState({
+      ...base,
+      sheet: sheet({
+        counts: { clean: 0, conflict: 0, removed: 0, no_rate_column: 0, non_priceable: 0 },
+        layers: { ...LAYERS_EMPTY, categories: { carryable: 0, present: 12, unmatched: 0, dropped: 0 } },
+      }),
+    });
+    expect(s).toEqual({ kind: "ready", rateCells: 0, layerItems: 12 });
+  });
+
+  it("excludes unmatched / dropped -- they can never land", () => {
+    expect(
+      carryLayerItemTotal(
+        sheet({
+          layers: {
+            ...LAYERS_EMPTY,
+            colors: { carryable: 1, present: 2, unmatched: 9, dropped: 7 },
+          },
+        }),
+      ),
+    ).toBe(3);
+  });
+
+  it("tolerates a pre-Amendment-C payload with no layers block", () => {
+    expect(carryLayerItemTotal(sheet())).toBe(0);
+    expect(carryButtonState(base).kind).toBe("ready");
   });
 });
