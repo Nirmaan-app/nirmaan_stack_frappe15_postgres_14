@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host",
+    "dev": "NODE_OPTIONS=--max-http-header-size=8192 vite --host",
     "build": "vite build --base=/assets/nirmaan_stack/frontend/ && yarn run copy-html-entry && yarn run copy-sw",
     "preview": "vite preview",
     "test": "vitest run",

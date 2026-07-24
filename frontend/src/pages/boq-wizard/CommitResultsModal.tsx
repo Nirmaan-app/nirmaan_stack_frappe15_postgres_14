@@ -73,18 +73,24 @@ export function CommitResultsModal({
                 Committed ({committed.length})
               </p>
               <ul className="space-y-1">
-                {committed.map((c) => (
-                  <li
-                    key={c.sheet_name}
-                    className="flex items-start gap-1.5 text-sm text-emerald-700 dark:text-emerald-400"
-                  >
-                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span className="min-w-0">
-                      {/* Display-trimmed; the modal never re-sends these names. */}
-                      {c.sheet_name.trim() || c.sheet_name} &mdash; committed v{c.commit_version}
-                    </span>
-                  </li>
-                ))}
+                {committed.map((c) => {
+                  // AMENDMENT C (C5): a revision commit carries NOTHING but the D2 provenance
+                  // stamp, so there is no per-layer sub-line to report here any more. The carry
+                  // is the explicit per-sheet action in the pricing editor, which reports its own
+                  // summary there.
+                  return (
+                    <li
+                      key={c.sheet_name}
+                      className="flex items-start gap-1.5 text-sm text-emerald-700 dark:text-emerald-400"
+                    >
+                      <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span className="min-w-0">
+                        {/* Display-trimmed; the modal never re-sends these names. */}
+                        {c.sheet_name.trim() || c.sheet_name} &mdash; committed v{c.commit_version}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}

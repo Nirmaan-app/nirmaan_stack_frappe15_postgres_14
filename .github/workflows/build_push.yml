@@ -26,8 +26,8 @@ jobs:
             "branch": "${{ env.RELEASE_VERSION }}"
           },
           {
-            "url": "https://github.com/Nirmaan-app/Frappe-attachments-s3.git",
-            "branch": "master"
+            "url": "https://github.com/Nirmaan-app/frappe_gcp_attachment.git",
+            "branch": "main"
           }
         ]'
         echo "APPS_JSON_BASE64=$(echo ${APPS_JSON} | base64 -w 0)" >> $GITHUB_ENV

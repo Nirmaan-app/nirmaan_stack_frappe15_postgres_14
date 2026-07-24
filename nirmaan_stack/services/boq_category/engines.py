@@ -15,7 +15,7 @@ this registry from Work Headers.
 
 _ENGINE_REGISTRY = [
     {"id": "electrical", "label": "Electrical", "discipline": "Electrical", "available": True},
-    {"id": "hvac", "label": "HVAC", "discipline": "HVAC", "available": False},
+    {"id": "hvac", "label": "HVAC", "discipline": "HVAC", "available": True},
     {"id": "elv", "label": "ELV", "discipline": "ELV", "available": False},
 ]
 

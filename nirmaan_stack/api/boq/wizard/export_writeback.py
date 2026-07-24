@@ -452,6 +452,18 @@ def export_priced_workbook(boq_name: str = None, sheet_names: Any = None) -> dic
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
     names = _coerce_names(sheet_names)
 
+    # TEMPLATE-ORIGIN BRANCH (ADR-0013 A2-D2 / R4): a template-cloned BoQ has NO source
+    # workbook (source_file_url is None), so its priced Excel is GENERATED FROM SCRATCH from
+    # the committed tier -- never copied from S3. Gated FIRST so the source_file_url guard +
+    # the S3 fetch/copy + _assert_fidelity below all stay behind "if not is_template"; the
+    # upload path is byte-identical + a NO-OP for origin != "template". Imported lazily to
+    # avoid an import cycle (export_template_workbook imports from this module).
+    if (frappe.db.get_value("BOQs", boq_name, "origin") or "upload") == "template":
+        from nirmaan_stack.api.boq.wizard.export_template_workbook import (
+            generate_template_priced_workbook,
+        )
+        return generate_template_priced_workbook(boq_name, names)
+
     source_file_url, display_name = frappe.db.get_value(
         "BOQs", boq_name, ["source_file_url", "boq_name"]
     )

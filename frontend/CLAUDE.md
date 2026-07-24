@@ -193,6 +193,11 @@ passes `facetDoctype` to opt in. `<DataTable>` then renders a lazy `SelfFetching
 `facetFilterOptions` memo in new pages** — that legacy path is dual-supported but scheduled for
 sunset (ADR-0010 "Second proof" + Migration & sunset). `getColumnFacet` is the one typed reader.
 
+**Enforcement:** run `python3 scripts/residence_check.py` (from the app root, not `frontend/`)
+before committing — F2/F5 violation counts are ratcheted against `scripts/residence_baseline.json`
+(fail on increase). Before adding a helper for an existing domain concept, consult the domain
+doc's **`## Residence — concept → owner`** manifest (see `.claude/context/domain/procurement.md`).
+
 ---
 
 ## BoQ Wizard & Pricing Editor -- Frontend Conventions
@@ -278,7 +283,22 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
 - **MANDATORY amount-formula gate (owner-locked; REVERSES "formula optional"):** every amount column needs a covering
   formula (`priceability.areFormulasComplete`, override>wildcard via `pickFormula`) before ANY rate is editable; the
   gate is ANDed in OUTSIDE `isRateEditableRow` so the override CANNOT bypass it. `onSaveFormula` (declaration) stays
-  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary.
+  live while rates are locked. Server `_sheet_formulas_complete` is the real boundary. It ALSO gates the revision
+  carry button (below).
+- **Revision carry button (owner-locked, ADR-0014 Amendment C + Amendment D):** a revision commit carries NOTHING, so
+  the ONE carry surface is the emerald **"Carry rates from original"** button in the pricing editor's action row,
+  immediately after *Save now* (the hub's whole-BoQ button is REMOVED). Its four states come from the PURE
+  `carryButtonState` (`CrossBoqCarryDialog.tsx`, ADR-0010 F4): **hidden** off a revision (`origin === "revision" &&
+  source_boq` — with no original the action does not exist, so a disabled button would be a lie), then loading, then
+  no-mapped-source, then **locked**, then the formula gate, then nothing-to-carry. It calls `gridRef.current?.flush()`
+  BEFORE opening — the carry writes underneath the grid and a pending draft saved afterwards would overwrite a carried
+  rate. **AMENDMENT D: the dialog is RATES-ONLY.** The "Annotations & categories" block, its per-layer Keep/Overwrite
+  toggles and the eight pure layer helpers are DELETED, along with the `layers` POST field and the `CrossBoqCarryLayer*`
+  types — do not reintroduce them. Readiness is `counts.clean + counts.conflict > 0` (annotations no longer make the
+  button ready), and the destructive footer reports **armed RATE overwrites** via the pure `armedRateOverwrites` —
+  it was re-pointed, NOT deleted, because otherwise removing the layers would have removed the only "there is no undo"
+  warning while the destructive action remained. Emerald is BANNED inside the dialog — it means priced/succeeded in
+  this screen and belongs to the button + the post-apply line.
 - **Formula engine arc F1–F4 (COMPLETE):** PURE `amountFormula.ts` (evaluate) + `AmountFormulaBuilder.tsx` /
   `formulaTokens.ts` (author; click-to-insert, NO literals) + `PricingGrid.evaluateAmountCell` (compute;
   formula-wins-else-pairing, draft-aware, fail-safe BLANK on any missing operand — never a stale number).
@@ -336,6 +356,53 @@ changelog entry. Do NOT re-grow `CLAUDE.md` with commit data. **Enforced in-sess
   when none exists) so a verdict on a no-record eligible row persists. The "Check Category" filter button is the CL-3
   needs-review filter RENAMED (visible label only — `showNeedsReview`/`isNeedsReviewCategory`/the `"Needs review"`
   routing literal are unchanged).
+- **Multi-engine category resolution (HV-10, N-GENERIC -- no discipline named in the pathway):** the
+  pricing editor reads `get_sheet_categories_resolved(boq, sheet_name)` (NOT the single-discipline
+  `get_sheet_categories`, which is UNTOUCHED so `freeze_classification`/`get_freeze_summary` keep
+  working). The SERVER applies a per-ROW ladder across every discipline with current rows: human
+  wins (most-recent between disciplines) > auto-accepted > higher-`ai_confidence` between multiple
+  autos (row flagged `cross_engine_conflict`) > blank. **`cross_engine_conflict` is TELEMETRY-ONLY --
+  computed, never persisted, NEVER rendered** (owner ruling, same as `review_priority`); the pure
+  `resolvedToSheetCategoryRow` adapter (`sheetCategoryResolve.ts`) DROPS it so it can't reach a
+  rendered surface, and maps each resolved row onto the grid's `SheetCategoryRow` so `PricingGrid` +
+  `deriveVerdictState` + `isNeedsReviewCategory` render UNCHANGED (blank rows still blank + amber).
+  `ranDisciplines` (the read's `disciplines[]`) drives: one `get_category_catalog` per ran-discipline
+  (via child `EngineCatalogFetcher` -- the hook-safe N-dynamic-fetch pattern) into the grouped
+  picker (`buildSheetEngineCatalogs`), and per-running-discipline status polling (one child
+  `ClassifyStatusPoller` each -- single-engine = the old single poll; the modal completes when all
+  running disciplines terminate). Socket done/progress filters are MEMBERSHIP in
+  `(ran UNION running)`, never `=== a constant`. **The picker's `onSelect(id, discipline)` CARRIES
+  the picked group's discipline** -- the write (`set_row_category`) lands on that engine's row
+  identity (upsert-on-missing mints it); "Clear" (`discipline=null`) targets the row's resolved
+  human discipline. **NEVER hardcode a discipline string in this pathway** (the deleted
+  `CLASSIFY_DISCIPLINE` constant was the HV-10 bug); a future engine flips `available` in the
+  registry and flows through with zero code change. Every new page input stays identity-stable
+  (`useMemo`/`useCallback`) so the `PricingGrid` `React.memo` shield holds.
+- **Completion summary = COMBINED EFFECTIVE outcome (HV-10b, owner ruling 2026-07-22):** the
+  "xx classified, yy flagged for review" message (both the `ClassifyProgressModal` line and the
+  post-close toast) reports the COMBINED effective split, NOT a per-engine denominator (the old
+  last-engine-wins `classifySummary` was the defect: a 2-engine run showed one engine's 13/12).
+  When ALL running disciplines terminate, `applyClassifyDone` composes the summary from the FRESH
+  resolved read (the grid's source of truth, post-`mutateCategories`) via the pure
+  `summariseResolvedOutcome(resolvedRows, rangeUnion)`: categorised = effective non-blank (an
+  auto-accept OR a human verdict -- so a pre-existing human verdict counts as categorised),
+  review = effective blank. It is scoped to the run set's `rangeUnion` (`unionScopes`): a fresh
+  run set (each `onStarted`) REPLACES the union (reset semantics); multiple engines fold together
+  and **whole-sheet DOMINATES a mixed union**; a run recovered from the poll (unknown scope) or an
+  empty scope degrades to whole-sheet. Single-engine whole-sheet with no human verdicts equals the
+  engine's own numbers by construction (pinned by test). To carry the range up, `ClassifySheetDialog`'s
+  `onStarted` now passes `Array<{discipline, scope}>` (signature-only; no dialog behaviour change).
+  The error path and the message WORDING are unchanged -- only the numbers' SOURCE changed.
+- **AI-status on the completion surfaces (HV-11): HEALTHY PATH SILENT, FALLBACK LOUD.** The pure
+  `aiStatusWarning(aiStatusByDiscipline)` (`ClassifyProgressModal.tsx`) drives an AI-off warning on
+  BOTH the modal line + the post-close toast. It returns "" when every ran discipline had AI ON
+  (`ran`) or had no eligible rows (null) -- so the healthy completion text stays byte-identical
+  (zero noise); when ANY discipline reports `disabled`/`no_key` it returns ONE plain line NAMING the
+  off discipline(s) (multi-engine names ONLY the off one). `SheetPricingPage` accumulates ai_status
+  PER DISCIPLINE over the run set (`aiStatusByDisciplineRef`, reset each `onStarted`, one entry per
+  engine's done) -- do NOT revert to the old single last-engine-wins `aiStatusNote` render, which
+  masked a mixed multi-engine run. The done payload's `ai_status` values are `ran | disabled |
+  no_key | null`.
 - **Classification freeze read pattern (SEPARATE from the pricing lock):** `classification_frozen` (+ `frozen_by`/`frozen_at`)
   rides `get_priced_rows` -> `GetPricedRowsResponse` and is read off `activeMessage` BESIDE `isLocked` — but it is
   DELIBERATELY NOT ORed into the pricing `locked` gate (pricing stays live under a classification freeze). It gates ONLY
@@ -807,6 +874,18 @@ status / decisions: `frontend/.claude/plans/pricing-module-plan.md`.
 - **Inventory Item-Wise Page**: `src/pages/inventory/InventoryItemWisePage.tsx` — cross-project aggregation of latest submitted Remaining Items Reports with max PO quote rates for estimated cost. Virtualized expandable table with category/unit facet filters and CSV export. Sidebar access: Admin, PMO, PL, PM, Procurement.
 - **DN/CEO Hold Exemption**: Delivery Note operations (create, edit, return) are exempt from CEO Hold blocking — DNs can be managed even on held projects.
 - **Vendor Financial Dialogs**: Vendor WO/Material Orders tables show Amount Due column with clickable Total Invoiced and Amount Paid cells that open InvoiceDataDialog/PaymentsDataDialog respectively.
+- **Invoice Qty (`Purchase Order Item.invoice_qty`)**: derived "how much of each PO line is invoiced", recomputed from Vendor Invoice Line mappings on every invoice event. FULL architecture (recompute classifier EXACT/TRUSTED-FULL/ORDERED-FB/ZERO — partial/unmapped POs fall back to **ordered qty**, owner 2026-07-22; one-time backfill + Gemini extraction + cache, credit notes, Additional Charges, Resolve UI, gotchas) → **`../.claude/context/domain/invoice-qty.md`**. The frontend surfaces + who can use them:
+
+  | Surface | File | Frontend gate | Backend gate |
+  |---|---|---|---|
+  | Add Invoice / **Add Credit** buttons | `invoices-and-dcs/DocumentAttachments.tsx` (PO); `service-request/SRAttachments.tsx` (SR, **no Add Credit**) | shown unless `isEstimatesExecutive` | `update_invoice_data` |
+  | Edit invoice (pencil) | `DocumentAttachments.tsx` (`onEditEntry`) | `isAccountant` = Accountant · Accountant Lead · **Admin** | `update_invoice_data` |
+  | Edit AI mapping on an **Approved** PO invoice | `InvoiceDialog.tsx` (`canReExtract`) | Pending → anyone who can edit; **Approved → Nirmaan Admin only** (`isNirmaanAdmin`) | `_admin_can_rebuild` (Pending OR Nirmaan Admin) |
+  | **Resolve Invoices** page `/resolve-invoices` | `pages/temp/ResolveInvoices.tsx` | route `AdminRoute` + in-page `isAdmin` (**Administrator \| Nirmaan Admin Profile**) | `temp_resolve._require_admin` (same set) |
+
+- **Add Invoice vs Add Credit (PO only)**: the entry **button** decides `is_credit_note` (Add Credit = 1, `+` icon); the `InvoiceDialog` Credit-Note checkbox is a **read-only indicator shown ONLY in Edit mode** (hidden in Add). A credit note pins an amber warning at the top ("won't affect the PO's invoiced quantity"), stores a **negative** amount, and is excluded from `invoice_qty`. **SR shows "Add Invoice" only** and always opens non-credit (guard: `docType === "Procurement Orders" ? flag : false`). Sign logic in the autofill callback: `is_credit_note` → amount negative; `is_credit_note=false` **+ Gemini-detected credit** → amount **and** qty negative (return note). ⚠️ the autofill `useCallback` MUST list `invoiceData.is_credit_note` in deps (stale-closure else). `newInvoiceIsCredit` lives in `useDialogStore`.
+- **Resolve Invoices** is **Nirmaan Admin only** (PMO can reach the `AdminRoute` route but the page shows "Admin only" — `isAdmin` excludes PMO, matching the backend). Analyze (Gemini, read-only on the file) → correct mapping/qty → Save → optimistic card removal. Naming (`temp_resolve` / `pages/temp`) is legacy; the feature is permanent.
+- **`LineItemMappingReview`** (`invoices-and-dcs/components/`): the SHARED invoice-line → PO-item review table (Add/Edit dialog **and** Resolve UI). Line qty editable via the opt-in **`editableQty`** prop. **Radix gotcha:** the portalled react-select menu needs `styles.menuPortal = { ...base, pointerEvents: "auto" }` — a modal Radix dialog sets `pointer-events:none` outside itself, so without it options are keyboard-only. Any `lazy()` route (like `/resolve-invoices`) MUST be wrapped in `<Suspense fallback={null}>` or it throws "component suspended while responding to synchronous input".
 - **PO Adjustments**: Decoupled payment reconciliation system (`src/pages/POAdjustment/`). Revision approval auto-creates `PO Adjustments` doc tracking financial impact; negative diffs with remaining balance show "Adjust Payments" button on PO detail. Three PUSH methods: Against-PO, Ad-hoc expense, Vendor Refund. Pending adjustments lock PO payments. **PULL flow (2026-06):** a top-of-PO `VendorCreditSummaryCard` shows the vendor's overpaid-credit pool across all its POs ("₹X across N POs", vendor-scoped + cross-project) and "Apply to this PO" pulls it into the current PO (`apply_vendor_credit_to_po`); push & pull both take `FOR UPDATE` row locks (`_lock_and_assert_source_credit` / `_lock_and_assert_dest_capacity`) so the same credit can't be double-spent. See `.claude/context/domain/po-adjustments.md` for full docs + `docs/adr/0007-vendor-scoped-credit-application.md`.
 - **PO Revision simplified to 2 steps**: Item editing + Summary (Step 2 financial allocation removed). Payment reconciliation handled by PO Adjustments system post-approval. See `.claude/context/domain/po-revisions.md`.
 - **Loss Justification (high-loss items, PR + SB)**: a per-item reason required when **Loss % > 10%** (strict). Shared helper `src/utils/lossPercent.ts` (`computeLossPercent(savingLoss, benchmark)` + `isHighLoss` + `LOSS_THRESHOLD_PERCENT = 10`) is the SINGLE source of the rule — use it on every surface; never re-derive the threshold inline. **Capture (procurement enters + gate):** `VendorsSelectionSummary.tsx` (PR) + `Sent Back Requests/SBQuotesSelectionReview.tsx` (SB) — a "Reason (required)" textarea on each >10% item keyed by the `order_list` child-row `name`; Send-for-Approval disabled until all high-loss items are justified. PR sends `loss_justifications` in the `send_vendor_quotes` postcall; SB has no send endpoint so it persists the FULL `order_list` (justifications merged) via `updateDoc("Sent Back Category", ...)` — must send the whole child array (replace-all; omitting rows deletes them). **Approval (read-only display + backstop):** shared `ApproveVendorQuotes/components/VendorApprovalTable.tsx` shows Loss % in the Savings/Loss column + a light-red "Reason:" chip under the item name; both approve hooks (`useApproveRejectLogic.ts`, `useApproveSBSLogic.ts`) compute `lossPercent` with the **Target-prioritized** benchmark (NOT the `min(Target,L1)` used by the existing ₹ Savings/Loss column — see root CLAUDE.md GOTCHA 2) and block approval of a selected >10% item with no reason (Send Back is the escape hatch). `loss_justification` rides PR rows via `...prItem` spread but is mapped EXPLICITLY in the SB hook (it builds the display item field-by-field). Scope/rationale: `docs/adr/0002-loss-justification-scope.md`; terms: root `CONTEXT.md`.

@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "BOQTPL-.#####",
+ "creation": "2026-07-08 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "details_section",
+  "template_name",
+  "is_active",
+  "provenance_section",
+  "seeded_from_boq",
+  "seeded_at",
+  "last_updated_by",
+  "last_updated_on",
+  "sheets_section",
+  "sheets"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Template Name",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "1 = this master template appears in the Create-from-Template sheet picker. An admin flips it to 0 to make risky structural edits (delete-a-sheet-to-rebuild) without exposing a half-edited skeleton, then back to 1. Only one active master is expected for MVP (ADR-0013 A1-D10).",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Provenance"
+  },
+  {
+   "description": "The committed BoQ (BOQs docname) this master was seeded from via the one-time 'Set as master template' action. Advisory only.",
+   "fieldname": "seeded_from_boq",
+   "fieldtype": "Data",
+   "label": "Seeded From BoQ",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seeded_at",
+   "fieldtype": "Datetime",
+   "label": "Seeded At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_updated_by",
+   "fieldtype": "Data",
+   "label": "Last Updated By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_updated_on",
+   "fieldtype": "Datetime",
+   "label": "Last Updated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sheets_section",
+   "fieldtype": "Section Break",
+   "label": "Sheets"
+  },
+  {
+   "fieldname": "sheets",
+   "fieldtype": "Table",
+   "label": "Sheets",
+   "options": "BoQ Template Sheet"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-08 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "BoQ Template",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
-"""Unit tests for the HVAC category assets + discipline unlock (Build slice HV-1).
+"""Unit tests for the HVAC category assets + discipline unlock (Build slices HV-1, HV-3).
 
 Pure unittest, NO frappe, runnable without a live site (mirrors test_runner_electrical):
 
@@ -12,14 +12,25 @@ mandated collision guards land correctly (cassette ambiguity, damper->ADP, drain
 double-skin->not panels, drain-pump guard, VRF-cabling->cables), and the AI voter prompt
 path resolves per discipline (path-level, no API call). The fixture line strings are
 illustrative SHAPES grounded in the committed HVAC corpus vocabulary; not copied verbatim.
+
+HV-3 adds the ruleset-v1 behaviours measured against the Set-1 labels: the 17th category
+hvac_raceway and its carve-out from Cables (guards both ways), the H4 insulation-as-attribute
+guard (the owner's 4A ruling), the KEPT-not-amplified ADP ancestor signal, the provisional
+BTU-meter rule, and the explicitly-wired HVAC decay curve.
 """
+import json
+import os
 import unittest
 
 from nirmaan_stack.services.boq_category.runner import classify_line, load_ruleset
 
+# Proven-neutral line: resolves to ABSTAIN on its own (see TestHvacContract), so any resulting
+# category comes purely from the ancestor chain. Same fixture idiom as test_decay.
+NEUTRAL = "Providing all labour and supervision as per general conditions"
+
 
 class TestHvacAssetsWellFormed(unittest.TestCase):
-    """The 16 frozen HVAC categories load; every rule targets a known category."""
+    """The 17 frozen HVAC categories load; every rule targets a known category."""
 
     def test_frozen_category_set(self):
         cats = {c["category_id"] for c in load_ruleset("HVAC")["categories"]}
@@ -28,9 +39,16 @@ class TestHvacAssetsWellFormed(unittest.TestCase):
             "hvac_valve_package", "hvac_vav_box", "hvac_sensors", "hvac_fans",
             "hvac_chw_units", "hvac_dx_unit", "hvac_vrf", "hvac_cables",
             "hvac_ahu", "hvac_panels", "hvac_pumps", "hvac_misc",
+            "hvac_raceway",  # HV-3 owner ruling: trays/raceways price separately from cabling
         }
         self.assertEqual(cats, expected)
-        self.assertEqual(len(cats), 16)
+        self.assertEqual(len(cats), 17)
+
+    def test_raceway_category_names_match_the_owner_brief(self):
+        cat = next(c for c in load_ruleset("HVAC")["categories"]
+                   if c["category_id"] == "hvac_raceway")
+        self.assertEqual(cat["name"], "Raceway")
+        self.assertEqual(cat["description"], "cable trays, raceways, and tray accessories")
 
     def test_every_rule_targets_a_known_category(self):
         rs = load_ruleset("HVAC")
@@ -49,7 +67,7 @@ class TestHvacAssetsWellFormed(unittest.TestCase):
     def test_hvac_and_electrical_both_load_distinct(self):
         hv = {c["category_id"] for c in load_ruleset("HVAC")["categories"]}
         el = {c["category_id"] for c in load_ruleset("Electrical")["categories"]}
-        self.assertEqual(len(hv), 16)
+        self.assertEqual(len(hv), 17)
         self.assertEqual(len(el), 15)
         self.assertEqual(hv & el, set())  # no id collision across disciplines
 
@@ -149,6 +167,455 @@ class TestHvacContract(unittest.TestCase):
         self.assertEqual(r["score"], 0.0)
 
 
+class TestHvacRacewayCarveOut(unittest.TestCase):
+    """HV-3 change (a): hvac_raceway owns trays/raceways; Cables is cabling only.
+    Guards run BOTH ways -- a tray line never scores Cables, a unit drip tray never
+    scores Raceway."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    def test_cable_tray_line_is_raceway_not_cables(self):
+        # POSITIVE: the line contains the word 'cable', so without CBL-TRAY-EXCL the Cables
+        # keyword rule would claim it. The carve-out guard must zero Cables outright.
+        r = self._c("300mm wide perforated GI cable tray with cover")
+        self.assertEqual(r["category_id"], "hvac_raceway")
+        self.assertEqual(r["all_scores"].get("hvac_cables", 0.0), 0.0)
+
+    def test_plain_cable_line_is_cables_not_raceway(self):
+        # NEGATIVE (the other direction): a genuine conductor line stays Cables and must not
+        # leak into the new category.
+        r = self._c("2C x 2.5 sqmm control cable for VRF ODU to IDU")
+        self.assertEqual(r["category_id"], "hvac_cables")
+        self.assertEqual(r["all_scores"].get("hvac_raceway", 0.0), 0.0)
+
+    def test_unit_drip_tray_is_not_raceway(self):
+        # NEGATIVE false-friend: 'tray' in a terminal-unit line is a drip tray, not a raceway.
+        r = self._c("1 TR hi wall unit with drip tray")
+        self.assertEqual(r["all_scores"].get("hvac_raceway", 0.0), 0.0)
+        self.assertNotEqual(r["category_id"], "hvac_raceway")
+
+    def test_raceway_inherits_to_a_bare_size_leaf(self):
+        # A bare dimension leaf under a cable-tray section inherits Raceway (the shape the
+        # Set-1 corpus actually uses for tray quantities).
+        r = self._c(NEUTRAL, ["CABLE TRAY AND ACCESSORIES"])
+        self.assertEqual(r["category_id"], "hvac_raceway")
+
+
+class TestHvacInsulationAttributeGuard(unittest.TestCase):
+    """HV-3 change (b) / hypothesis H4 / the owner's 4A ruling: an insulation word that is an
+    ATTRIBUTE of a pipe or valve line does not make the line Insulation."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    def test_insulated_pipe_is_not_insulation(self):
+        # NEGATIVE: 'Insulated ... pipe' -- the pipe owns the line.
+        r = self._c("Insulated MS pipe 150 NB")
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_composite_pipe_with_insulation_is_not_insulation(self):
+        # NEGATIVE: the 4A composite -- a refrigerant pipe size leaf that bundles its insulation.
+        r = self._c('5/8 " dia (15.6 MM) with 13 mm insulation', ["REFRIGERANT PIPE"])
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_insulated_valve_is_not_insulation(self):
+        # NEGATIVE: the same ruling on the valve side.
+        r = self._c("Insulated butterfly valve 100 mm dia")
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_standalone_insulation_still_wins(self):
+        # POSITIVE CONTROL: the guard must not over-fire. When insulation is the SUBJECT of the
+        # line it still claims the row -- otherwise the guard would have gutted the category.
+        r = self._c("50mm thick nitrile elastomeric insulation")
+        self.assertEqual(r["category_id"], "hvac_insulation")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+
+class TestHvacAdpAncestorSignal(unittest.TestCase):
+    """HV-3 change (c) as SHIPPED: hypothesis H2 proposed DELETING the 'air distribution'
+    ancestor token; the Set-1 labels reversed that, so the token is KEPT. Raising its weight
+    was then measured and REJECTED (52.86% -> 50.29%), so the weight stays 0.4."""
+
+    def test_air_distribution_ancestor_still_places_adp(self):
+        # POSITIVE: the token H2 wanted deleted still does its job on a bare child.
+        r = classify_line(NEUTRAL, ["AIR DISTRIBUTION SYSTEM"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_adp")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+
+    def test_adp_ancestor_weight_not_amplified(self):
+        # NEGATIVE / regression lock: ADP-ANC must stay at 0.4 so it does NOT outrank the
+        # sibling 0.45 ancestors. This is the exact regression the measurement caught.
+        rule = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "ADP-ANC")
+        self.assertEqual(rule["weight"], 0.4)
+
+    def test_ducting_ancestor_beats_adp_ancestor(self):
+        # NEGATIVE: with both section headers present, a ducting header must still win --
+        # this is the 45-row pile that raising ADP-ANC would have taken.
+        r = classify_line(NEUTRAL, ["AIR DISTRIBUTION SYSTEM", "GI DUCTING WORK"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_ducting")
+
+
+class TestHvacMeterProvisionalRule(unittest.TestCase):
+    """HV-3 change (d): H1 and H7 were REFUTED, so neither proposed edit was applied. A WEAK
+    provisional BTU/energy-meter -> Valve Package rule was added in H7's place."""
+
+    def test_btu_meter_is_valve_package_at_full_weight(self):
+        # HV-3 shipped this PROVISIONAL at weight 0.2 and asserted band == LOW, so a noisy-label
+        # read stayed visible for review. HV-5's ruling R2 settles the boundary from the owner's
+        # workbook, so the rule was promoted to full keyword weight and the row is no longer LOW.
+        # The assertion is updated rather than preserved -- that promotion IS the ruling.
+        r = classify_line("BTU meters -Ultrasonic type with accessories", [], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+        self.assertNotEqual(r["band"], "ABSTAIN")
+        rule = next(x for x in load_ruleset("HVAC")["rules"] if x["rule_id"] == "VLV-METER-PROV")
+        self.assertEqual(rule["weight"], 0.55)
+
+    def test_no_btu_to_sensors_rule_was_added(self):
+        # NEGATIVE: H7's actual proposal (meters -> Sensors) was refuted 0/31 and must be absent.
+        for rule in load_ruleset("HVAC")["rules"]:
+            if rule["category_id"] == "hvac_sensors":
+                self.assertNotIn("btu meter", [m.lower() for m in rule.get("match", [])])
+
+    def test_h1_duct_keywords_were_not_added(self):
+        # NEGATIVE: H1 was refuted (15.6%); its proposed bare duct tokens must NOT be in DUCT-KW.
+        duct_kw = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "DUCT-KW")
+        for tok in ("duct", "round duct", "elliptical duct", "flexible duct"):
+            self.assertNotIn(tok, duct_kw["match"])
+
+
+class TestHvacDecayConfig(unittest.TestCase):
+    """HV-3 Part 3: the HVAC decay curve is wired EXPLICITLY and measured FLAT."""
+
+    _RULES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "rules_hvac.json")
+
+    def test_hvac_decay_block_is_explicit_and_flat(self):
+        with open(self._RULES, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        self.assertIn("decay", doc, msg="HV-3 wires the HVAC decay curve explicitly")
+        self.assertEqual(doc["decay"]["rules_multiplier"], 1.0)
+        self.assertEqual(doc["decay"]["_fit"], "PROVISIONAL-FIT")
+        self.assertEqual(load_ruleset("HVAC")["decay"]["rules_multiplier"], 1.0)
+
+    def test_nearest_hit_subsumes_what_decay_used_to_be_needed_for(self):
+        # HV-3 wrote this as "a far tray banner beats a near valves header at FLAT, and only a
+        # decay multiplier flips it". HV-4's nearest-hit mechanism makes the flat run resolve at
+        # the near ancestor by itself -- that IS the slice's point, so the assertion is updated
+        # rather than preserved. Decay still composes on top (same answer, scaled by distance).
+        inp = ["CABLE TRAY AND ACCESSORIES", "aaa", "VALVES"]
+        flat = classify_line(NEUTRAL, inp, discipline="HVAC")
+        dec = classify_line(NEUTRAL, inp, discipline="HVAC",
+                            decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(flat["category_id"], "hvac_valve_package")   # near wins WITHOUT decay now
+        self.assertEqual(dec["category_id"], "hvac_valve_package")    # and still does with it
+        self.assertEqual(flat["all_scores"].get("hvac_raceway", 0.0), 0.0)  # far banner: nothing
+
+
+class TestHvacNearestHitResolution(unittest.TestCase):
+    """HV-4 Part 1: ancestor signals resolve at the NEAREST ancestor that fires anything.
+
+    Fixtures use the proven-neutral line so every resulting category comes from the chain alone.
+    The feed is ROOT-FIRST: index 0 is farthest, the LAST element is the immediate parent.
+    """
+
+    def _c(self, anc):
+        return classify_line(NEUTRAL, anc, discipline="HVAC")
+
+    def test_near_firing_ancestor_beats_far_banner(self):
+        # POSITIVE, the headline case: a far `CHILLED WATER SYSTEM` banner used to outvote the
+        # immediate valve parent through the flattened blob. Now it contributes NOTHING.
+        r = self._c(["CHILLED WATER SYSTEM", "Butterfly valves PN 16 wafer type"])
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+        self.assertEqual(r["all_scores"].get("hvac_chw_units", 0.0), 0.0)
+
+    def test_farther_ancestor_contributes_nothing_not_a_decayed_remnant(self):
+        # NEGATIVE: the distinction from D1 decay. Under decay the far banner would still add a
+        # scaled contribution; under nearest-hit it is absent from all_scores entirely.
+        r = self._c(["GI DUCTING WORK", "Butterfly valves PN 16"])
+        self.assertNotIn("hvac_ducting", {k for k, v in r["all_scores"].items() if v})
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_silent_immediate_parent_falls_through_to_grandparent(self):
+        # POSITIVE: a parent that fires nothing is not a wall -- the walk continues outward and
+        # resolves at the first ancestor that DOES fire.
+        near = self._c(["Butterfly valves PN 16"])
+        fallen = self._c(["Butterfly valves PN 16", "aaa filler that matches no rule"])
+        self.assertEqual(fallen["category_id"], "hvac_valve_package")
+        self.assertEqual(fallen["score"], near["score"])  # flat decay: no distance penalty
+
+    def test_no_ancestor_fires_anywhere_is_legacy_abstain(self):
+        # NEGATIVE: when nothing fires at any depth the mechanism must not invent a resolution.
+        r = self._c(["aaa", "bbb"])
+        self.assertEqual(r["category_id"], "")
+        self.assertEqual(r["band"], "ABSTAIN")
+
+    def test_nearest_wins_regardless_of_which_category(self):
+        # POSITIVE, symmetry check: the mechanism is not valve-specific. Flip the order and the
+        # ducting header (now nearest) wins instead.
+        r = self._c(["Butterfly valves PN 16", "GI DUCTING WORK"])
+        self.assertEqual(r["category_id"], "hvac_ducting")
+
+
+class TestNearestHitGating(unittest.TestCase):
+    """HV-4 A10 lock: the mechanism is OPT-IN per discipline. Electrical must keep blob behaviour."""
+
+    def test_electrical_carries_no_resolution_flag(self):
+        self.assertIsNone(load_ruleset("Electrical").get("ancestor_resolution"))
+
+    def test_hvac_carries_the_flag(self):
+        self.assertEqual(load_ruleset("HVAC").get("ancestor_resolution"), "nearest_hit")
+
+    def test_electrical_still_sums_far_and_near_ancestors(self):
+        # THE GATING NEGATIVE: on electrical, a far banner AND a near header must BOTH still score
+        # (that is the legacy blob). If nearest-hit ever leaked into electrical, the far
+        # popup_boxes signal would vanish and this fails.
+        r = classify_line(NEUTRAL, ["FLOOR SERVICE BOXES", "aaa", "SOCKET OUTLETS"])
+        self.assertGreater(r["all_scores"].get("popup_boxes", 0.0), 0.0)     # far, still counted
+        self.assertGreater(r["all_scores"].get("switches_sockets", 0.0), 0.0)  # near
+        self.assertEqual(r["category_id"], "popup_boxes")  # far banner still WINS on electrical
+
+
+class TestNearestHitTieBreak(unittest.TestCase):
+    """HV-4: ties resolve by (score, rule weight, distinct signal types, declaration order) --
+    never alphabetically by category_id."""
+
+    def test_tie_break_is_deterministic(self):
+        anc = ["CHILLED WATER SYSTEM", "Butterfly valves PN 16 wafer type"]
+        first = classify_line(NEUTRAL, anc, discipline="HVAC")["category_id"]
+        for _ in range(5):
+            self.assertEqual(classify_line(NEUTRAL, anc, discipline="HVAC")["category_id"], first)
+
+    def test_higher_weight_beats_alphabetically_earlier_category(self):
+        # hvac_valve_package sorts AFTER hvac_chw_units and hvac_insulation alphabetically, so under
+        # the legacy alphabetical tiebreak it lost these rows. It must now win on rule weight.
+        r = classify_line(NEUTRAL, ["Butterfly valves with insulation for chilled water"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+
+class TestHvacMinedRulesV2(unittest.TestCase):
+    """HV-4 Part 2: every mined rule is well-formed and carries its mining-floor figures."""
+
+    def _mined(self):
+        return [r for r in load_ruleset("HVAC")["rules"] if r["source"].startswith("set1-mined")]
+
+    def test_mined_rules_exist_and_target_known_categories(self):
+        cats = {c["category_id"] for c in load_ruleset("HVAC")["categories"]}
+        mined = self._mined()
+        self.assertTrue(mined, "HV-4 ships at least one mined rule")
+        for r in mined:
+            self.assertIn(r["category_id"], cats)
+            self.assertTrue(r.get("plain"))
+
+    def test_every_mined_rule_records_its_floor_figures(self):
+        # The floor is auditable from the asset alone: support / boqs / prec must be in `source`.
+        for r in self._mined():
+            for field in ("support=", "boqs=", "prec="):
+                self.assertIn(field, r["source"],
+                              msg="mined rule %s must record %s" % (r["rule_id"], field))
+
+    def test_fan_rule_was_narrowed_by_the_floor(self):
+        # NEGATIVE: the tokens the floor REJECTED must not be present. 'exhaust air' measured 53.3%
+        # precision and 'ventilation unit' 0%; shipping them would have been the overfit.
+        fan = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "FAN-ANC-TYPE")
+        self.assertEqual(fan["match"], ["inline fan", "fresh air fan"])
+        for rejected in ("exhaust air", "ventilation unit", "ventilation units", "centrifugal fan"):
+            self.assertNotIn(rejected, fan["match"])
+
+
+class TestNearestHitDecayComposition(unittest.TestCase):
+    """HV-4: nearest-hit and D1 decay COMPOSE -- decay scales the resolution point's distance,
+    it does not compete with the resolution."""
+
+    def test_decay_scales_the_resolution_point(self):
+        # The valve header sits at d=1 (a silent filler is the immediate parent). Flat keeps full
+        # weight; m=0.5 scales that ONE distance, and the winner is unchanged.
+        anc = ["Butterfly valves PN 16", "aaa filler"]
+        flat = classify_line(NEUTRAL, anc, discipline="HVAC")
+        dec = classify_line(NEUTRAL, anc, discipline="HVAC", decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(flat["category_id"], "hvac_valve_package")
+        self.assertEqual(dec["category_id"], "hvac_valve_package")
+        self.assertAlmostEqual(dec["score"], round(flat["score"] * 0.5, 6), places=6)
+
+
+class TestBoundaryRulings(unittest.TestCase):
+    """HV-5: the owner's Boundary Rulings register R1-R10, encoded as rule law.
+    Every ruling gets a POSITIVE (the law applies) and, where it has one, its GUARD NEGATIVE
+    (the law must NOT reach past its boundary)."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    # -- R1 flexible/foil duct -> ADP; Ducting is rigid fabricated sheet metal only
+    def test_r1_flexible_duct_is_adp(self):
+        r = self._c("SITC insulated Aluminium foil flexible ducts with 16 mm thk insulation")
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    def test_r1_guard_ducting_never_scores_in_flex_context(self):
+        r = self._c("Uninsulated flexible duct 150mm dia")
+        self.assertEqual(r["all_scores"].get("hvac_ducting", 0.0), 0.0)
+
+    def test_r1_guard_rigid_ducting_unaffected(self):
+        # NEGATIVE: the ruling must not damage genuine rigid ductwork.
+        r = self._c("0.63 mm (24 SWG) GSS ducting up to 750mm")
+        self.assertEqual(r["category_id"], "hvac_ducting")
+
+    # -- R2 pipeline instruments -> Valve Package; Sensors keeps the BMS basket only
+    def test_r2_thermometer_is_valve_package(self):
+        r = self._c("Supply of Dial type Thermometers for chilled water line")
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_r2_btu_meter_leaf_inherits_valve_package(self):
+        r = self._c(NEUTRAL, ["Supply, Installing, testing and commissioning of Ultrasonic BTU meters"])
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_r2_guard_sensors_keeps_bms_basket(self):
+        # NEGATIVE: the BMS basket must stay with Sensors.
+        r = self._c("Supply and installation of BACnet controller for BMS integration")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    # -- R3 plenum -> ADP, beating an AHU section
+    def test_r3_plenum_beats_ahu_section(self):
+        r = self._c(NEUTRAL, ["SUPPLY AIR PLENUMS FOR AHUs Supply and Installation of double skin"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    # -- R4 panels -> Panels, beating an AHU section
+    def test_r4_ahu_starter_panel_is_panels(self):
+        r = self._c("22.38 kW", ["AHU STARTER PANEL Supply Installation of Electrical starter panel"])
+        self.assertEqual(r["category_id"], "hvac_panels")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    # -- R5 damper accessories -> ADP, in damper context ONLY
+    def test_r5_damper_control_panel_is_adp(self):
+        r = self._c("MFD Control panel - Main",
+                    ["Supply of Motorized Smoke and Fire Damper complete with actuator"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    def test_r5_guard_generic_panel_stays_panels(self):
+        # NEGATIVE: outside damper context a control panel is still Panels.
+        r = self._c("Supply of electrical starter panel for the chiller plant")
+        self.assertEqual(r["category_id"], "hvac_panels")
+
+    def test_r5_guard_bms_sensor_stays_sensors(self):
+        # NEGATIVE: outside damper context a BMS sensor is still Sensors.
+        r = self._c("Supply of BACnet temperature transmitter for BMS")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    # -- R6 canvas/flexible connections resolve by SERVED context
+    def test_r6_canvas_under_fan_section_is_fans(self):
+        r = self._c("Canvas connection for the unit",
+                    ["VENTILATION FANS", "SITC of Inline fan for toilet exhaust"])
+        self.assertEqual(r["category_id"], "hvac_fans")
+
+    def test_r6_canvas_under_duct_section_is_adp(self):
+        r = self._c("Canvas connection for the unit",
+                    ["AIR DISTRIBUTION SYSTEM", "GI DUCTING WORK"])
+        self.assertEqual(r["category_id"], "hvac_adp")
+
+    # -- R7 filters: standalone -> Misc; integral to a unit -> that unit
+    def test_r7_standalone_filter_is_misc(self):
+        r = self._c("MERV 14 Filters for AHUs with frame and necessary supports")
+        self.assertEqual(r["category_id"], "hvac_misc")
+        self.assertEqual(r["all_scores"].get("hvac_ahu", 0.0), 0.0)
+
+    def test_r7_guard_integral_filter_stays_with_the_unit(self):
+        # NEGATIVE: an AHU line that merely lists its filters is still an AHU.
+        r = self._c("Double skin air handling unit 20000 CFM with pre filters and cooling coil")
+        self.assertEqual(r["category_id"], "hvac_ahu")
+
+    # -- R8 air curtains -> Misc
+    def test_r8_air_curtain_is_misc_not_fans(self):
+        r = self._c("Air curtain suitable for door size 2000 mm W x 2400 mm H")
+        self.assertEqual(r["category_id"], "hvac_misc")
+        self.assertEqual(r["all_scores"].get("hvac_fans", 0.0), 0.0)
+
+    # -- R9 FCU with factory-fitted valve package stays CHW Units
+    def test_r9_fcu_with_valve_package_stays_chw(self):
+        r = self._c("1.0TR", ["FAN COIL UNIT (FCU) along with factory fitted valve package as per specs"])
+        self.assertEqual(r["category_id"], "hvac_chw_units")
+        self.assertEqual(r["all_scores"].get("hvac_valve_package", 0.0), 0.0)
+
+    # -- R10 work/service lines -> Misc, guarded against SITC scopes
+    def test_r10_work_line_is_misc_regardless_of_system(self):
+        r = self._c("Recommissioning and tapping a provision in existing chilled water line")
+        self.assertEqual(r["category_id"], "hvac_misc")
+
+    def test_r10_dismantling_beats_the_system_noun(self):
+        r = self._c("Dismantling of existing ducting and disposal")
+        self.assertEqual(r["category_id"], "hvac_misc")
+
+    def test_r10_guard_sitc_scope_still_wins(self):
+        # NEGATIVE: the same verb inside a supply-and-install scope must NOT claim the row.
+        r = self._c("Supply, Installation of ducting including making good the openings")
+        self.assertEqual(r["category_id"], "hvac_ducting")
+        self.assertEqual(r["all_scores"].get("hvac_misc", 0.0), 0.0)
+
+
+class TestM1AncestorAwareCompositeGuard(unittest.TestCase):
+    """HV-5 M1: the 4A composite ruling lifted from the line to the RESOLUTION POINT.
+    Tested BOTH directions -- it must kill the composite-host family and leave the three
+    insulation-is-the-item families untouched."""
+
+    def _c(self, desc, anc=None):
+        return classify_line(desc, anc or [], discipline="HVAC")
+
+    def test_m1_composite_pipe_header_yields_piping_not_insulation(self):
+        # The 1.000/HIGH confident-wrong family from the deep-dive (traces 2-4).
+        r = self._c("100 mm + 32 mm thick nitrile rubber insulation with GC cloth",
+                    ["CHILLED WATER PIPING & VALVES",
+                     "Supply of MS Class C ERW pipes. All MS Chilled water pipes shall be "
+                     "insulated with Nitrile rubber insulation & finished 24G Aluminium cladding"])
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_m1_composite_valve_header_yields_valve_not_insulation(self):
+        r = self._c("400 mm Dia",
+                    ["Slim seal Butterfly valves PN 16 wafer type with cast iron body suitable "
+                     "for insulation with 32mm insulations"])
+        self.assertEqual(r["all_scores"].get("hvac_insulation", 0.0), 0.0)
+        self.assertEqual(r["category_id"], "hvac_valve_package")
+
+    def test_m1_negative_duct_insulation_is_still_insulation(self):
+        # 4A family 1: insulation IS the item -- adjacent compound noun, must NOT be suppressed.
+        r = self._c("19mm", ["Supply, installation, and testing of closed cell thermal insulation "
+                             "for ductwork"])
+        self.assertEqual(r["category_id"], "hvac_insulation")
+
+    def test_m1_negative_underdeck_insulation_is_still_insulation(self):
+        # 4A family 2.
+        r = self._c(".Under deck insulation 32mm thick Nitrile rubber insulation",
+                    ["UNDERDECK INSULATION"])
+        self.assertEqual(r["category_id"], "hvac_insulation")
+
+    def test_m1_is_hvac_gated(self):
+        # A10: the ancestor-exclusion map is consumed only on the nearest-hit path, and
+        # electrical carries no such rules at all.
+        el = load_ruleset("Electrical")
+        self.assertEqual(el.get("anc_exclude_regex_by_cat", {}), {})
+        self.assertEqual(el.get("anc_exclude_tokens_by_cat", {}), {})
+        self.assertTrue(load_ruleset("HVAC")["anc_exclude_regex_by_cat"])
+
+
+class TestM2SingularPipeTokens(unittest.TestCase):
+    """HV-5 M2 / hypothesis H5, settled: the piping ancestor rule carries the SINGULAR forms."""
+
+    def test_m2_drain_pipe_header_resolves_to_piping(self):
+        r = classify_line("25mm dia", [
+            "DRAIN PIPE -with necessary supports and fittings. Supply and Laying CPVC drain pipe "
+            "including with 9 mm thick nitrile foam insulation"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_piping")
+
+    def test_m2_singular_tokens_present(self):
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "PIPE-ANC")
+        for tok in ("pipe", "drain pipe", "refrigerant pipe"):
+            self.assertIn(tok, anc["match"])
+
+
 class TestAiVoterPromptResolution(unittest.TestCase):
     """HV-1 seam: the AI voter resolves its prompt file per discipline (path-level, no API)."""
 
@@ -159,9 +626,10 @@ class TestAiVoterPromptResolution(unittest.TestCase):
         self.assertTrue(p.endswith("hvac_ai_category_prompt.md"))
         self.assertTrue(os.path.exists(p))
         text = ai_voter._read_prompt("HVAC")
-        self.assertIn("hvac-v1.0", text)
+        self.assertIn("hvac-v1.3", text)
         self.assertIn("hvac_ducting", text)
-        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.0")
+        self.assertIn("hvac_raceway", text)  # HV-3: the 17th category is in the AI category list
+        self.assertEqual(ai_voter._parse_prompt_version(text), "hvac-v1.3")
 
     def test_electrical_prompt_path_unchanged(self):
         from nirmaan_stack.services.boq_category import ai_voter
@@ -174,6 +642,229 @@ class TestAiVoterPromptResolution(unittest.TestCase):
         from nirmaan_stack.services.boq_category import ai_voter
         with self.assertRaises(ValueError):
             ai_voter._prompt_path("ELV")
+
+
+class TestHV6ChwDxFeedMediumLaw(unittest.TestCase):
+    """HV-6 ruling 1: the CHW/DX boundary is the FEED MEDIUM, never the form factor.
+
+    Form words (cassette / hi-wall / ductable / split) describe the box. They resolve only
+    together with a water-fed or refrigerant-fed context, which may come from the line's own
+    text OR its section header. With NEITHER context the row must stay weak -- not a guess.
+    """
+
+    def test_water_context_resolves_form_factor_to_chw(self):
+        r = classify_line("1.6 TR Cassette Ac", ["Chilled Water Cassette Units"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_chw_units")
+        self.assertEqual(r["band"], "HIGH")
+
+    def test_refrigerant_context_resolves_same_form_factor_to_dx(self):
+        r = classify_line("2.00 TR - Hi-Wall", ["Air Cooled DX Split Units"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_dx_unit")
+        self.assertEqual(r["band"], "HIGH")
+
+    def test_bare_form_factor_without_either_context_is_not_high(self):
+        """The NEGATIVE: no feed medium anywhere -> stay LOW/contested, never a confident guess."""
+        r = classify_line("2.00 TR - Cassette", ["Summary"], discipline="HVAC")
+        self.assertNotIn(r["band"], ("HIGH", "MED"))
+
+    def test_vrf_keeps_precedence_at_the_resolution_point(self):
+        """VRF is refrigerant-fed too: a VRF/VRV resolution point forbids DX for its children."""
+        r = classify_line("2.00 TR - Hi-Wall", ["VRV / VRF Air Cooled DX Split Units"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_dx_anc_deliberately_omits_the_bare_refrigerant_token(self):
+        """Regression guard: 'refrigerant' in DX-ANC collides with VRF and cost 4 VRF rows when
+        measured at HV-6. It must not be reintroduced."""
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "DX-ANC")
+        self.assertNotIn("refrigerant", anc["match"])
+
+    def test_chw_anc_carries_the_water_fed_vocabulary(self):
+        anc = next(r for r in load_ruleset("HVAC")["rules"] if r["rule_id"] == "CHW-ANC")
+        for tok in ("chilled water", "chw", "water fed", "water cooled"):
+            self.assertIn(tok, anc["match"])
+
+
+class TestHV6VrfControllers(unittest.TestCase):
+    """HV-6 ruling 2: a VRF system's OWN controls price with the VRF package; Sensors keeps the
+    BMS basket. Guarded in both directions."""
+
+    def test_centralised_remote_controller_is_vrf(self):
+        r = classify_line("Only ON/OFF Type Centralised Remote Controller system", ["VRF WORKS"],
+                          discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_corded_remote_controller_is_vrf(self):
+        r = classify_line("Supply of corded remote controller for the above indoor units",
+                          ["VRF WORKS"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_vrf")
+
+    def test_bms_integration_controller_stays_sensors(self):
+        """The NEGATIVE: a BACnet/BMS integration controller is NOT a VRF control."""
+        r = classify_line("Controller for BACnet integration of VAV boxes with BMS",
+                          ["BMS / Controls"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+    def test_field_sensor_with_transmitter_stays_sensors(self):
+        r = classify_line("Supply and fixing of duct mounted temperature sensor with transmitter",
+                          ["SENSORS AND CONTROLS"], discipline="HVAC")
+        self.assertEqual(r["category_id"], "hvac_sensors")
+
+
+class TestHV6ShippedAssets(unittest.TestCase):
+    """HV-6 provenance: rules v4 ships the four new rules; PNL-ANC-TYPE is RETAINED by
+    measurement (both in-scope fixes scored worse on the combined 2,354-row corpus)."""
+
+    def test_rules_version_is_v4_and_new_rules_present(self):
+        rs = load_ruleset("HVAC")
+        ids = {r["rule_id"] for r in rs["rules"]}
+        for rid in ("DX-ANC", "DX-VRF-EXCL", "VRF-CONTROLS", "SNS-VRFCTRL-EXCL"):
+            self.assertIn(rid, ids)
+        import json as _json
+        import os as _os
+        from nirmaan_stack.services.boq_category import runner as _runner
+        path = _os.path.join(_os.path.dirname(_runner.__file__), "rules_hvac.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = _json.load(fh)
+        # HV-6 shipped 4.0-hv6; HV-6b bumped the same ruleset to 4.1-hv6b (matching surface only,
+        # no rule changes). This assertion tracks the MAJOR line so the HV-6 rules stay pinned.
+        self.assertTrue(doc["version"].startswith("4."), doc["version"])
+
+    def test_pnl_anc_type_retained_by_measurement(self):
+        """Deleting it measured -0.98 pp (23 rows broken); headers_only measured -0.21 pp.
+        It correctly resolves bare fragment leaves ('For 15HP') under a panel header."""
+        ids = {r["rule_id"] for r in load_ruleset("HVAC")["rules"]}
+        self.assertIn("PNL-ANC-TYPE", ids)
+
+    def test_prompt_v13_carries_both_hv6_discriminators(self):
+        from nirmaan_stack.services.boq_category import ai_voter
+        text = ai_voter._read_prompt("HVAC")
+        self.assertIn("F1 The CHW/DX boundary is the FEED MEDIUM", text)
+        self.assertIn("F2 A VRF system's own controls are `hvac_vrf`", text)
+
+
+_HV6B_BOILERPLATE = (
+    "Galvanizing shall be Class VIII light coating of zinc. All duct construction and "
+    "installation shall be in accordance with SMACNA standards. Cable tray and raceway "
+    "supports as per drawings & specifications. Valves, strainers and unions included."
+)
+
+
+class TestHV6bNotesFallbackSurface(unittest.TestCase):
+    """HV-6b: two-pass matching surface. Pass 1 is notes-free; the legacy full surface runs
+    ONLY when pass 1 abstains. Owner gate waiver 2026-07-21 (ADP -6 accepted)."""
+
+    def test_pass1_resolves_from_ancestor_descriptions_alone(self):
+        """A bare dimension leaf still resolves in pass 1 via the ancestor DESCRIPTION."""
+        r = classify_line("600 mm width x 75 mm x 2mm", ["Cable Tray and Raceway"],
+                          ["GI cable tray / raceway with covers"],
+                          discipline="HVAC", ancestor_headers=["Cable Tray and Raceway"])
+        self.assertEqual(r["category_id"], "hvac_raceway")
+        self.assertEqual(r["matching_pass"], "notes_free")
+
+    def test_boilerplate_note_does_not_pollute_pass1(self):
+        """The NEGATIVE this slice exists for: a spec-boilerplate note naming cable tray,
+        valves and strainers must NOT drag a clearly-described VAV box off its category."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"])
+        self.assertEqual(r["category_id"], "hvac_vav_box")
+        self.assertEqual(r["matching_pass"], "notes_free")
+
+    def test_fallback_engages_only_when_pass1_abstains(self):
+        """A row whose own description names nothing falls through to the legacy full surface."""
+        r = classify_line("As above", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"])
+        self.assertEqual(r["matching_pass"], "notes_fallback")
+        self.assertTrue(r["category_id"])
+
+    def test_both_surfaces_abstaining_stays_blank(self):
+        r = classify_line("600 mm width x 75 mm x 2mm", ["SUMMARY"], [],
+                          discipline="HVAC", ancestor_headers=["SUMMARY"])
+        self.assertEqual(r["category_id"], "")
+        self.assertEqual(r["band"], "ABSTAIN")
+        self.assertEqual(r["matching_pass"], "notes_fallback")
+
+    def test_gate_cannot_engage_without_ancestor_headers(self):
+        """No notes-free ancestor surface supplied -> legacy single pass, documented behaviour."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC")
+        self.assertEqual(r["matching_pass"], "legacy")
+
+    def test_gate_composes_with_nearest_hit_and_decay(self):
+        """Each pass runs the FULL unmodified pipeline: nearest-hit + decay still apply."""
+        r = classify_line("2.00 TR - Hi-Wall", ["VRF SYSTEM WORKS", "Air Cooled DX Split Units"],
+                          [], discipline="HVAC",
+                          ancestor_headers=["VRF SYSTEM WORKS", "Air Cooled DX Split Units"],
+                          decay_override={"rules_multiplier": 0.5})
+        self.assertEqual(r["matching_pass"], "notes_free")
+        self.assertTrue(r["category_id"])
+
+    def test_hvac_carries_the_flag_and_version(self):
+        import json as _json
+        import os as _os
+        from nirmaan_stack.services.boq_category import runner as _runner
+        self.assertEqual(load_ruleset("HVAC").get("matching_surface"), "notes_fallback")
+        path = _os.path.join(_os.path.dirname(_runner.__file__), "rules_hvac.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = _json.load(fh)
+        # HV-6b shipped 4.1-hv6b; HV-7 bumped the same ruleset to 4.2-hv7 (routing policy block
+        # only -- no rule and no surface change). Track the 4.x line; the SURFACE flag, which is
+        # what this test is really about, stays pinned exactly.
+        self.assertTrue(doc["version"].startswith("4."), doc["version"])
+        self.assertEqual(doc["matching_surface"], "notes_fallback")
+
+    def test_electrical_carries_no_flag_and_runs_legacy(self):
+        """BACKWARDS COMPAT: electrical must not opt in, and must report the legacy pass."""
+        self.assertIsNone(load_ruleset("Electrical").get("matching_surface"))
+        r = classify_line("Supply of 4C x 16 sq.mm XLPE armoured cable", ["CABLING"], [],
+                          discipline="Electrical", ancestor_headers=["CABLING"])
+        self.assertEqual(r["matching_pass"], "legacy")
+
+    def test_private_recursion_guard_is_not_a_caller_knob(self):
+        """Pass 1 must never re-trigger the gate."""
+        r = classify_line("Supply of VAV box 400 CFM", ["AIR SIDE"], [_HV6B_BOILERPLATE],
+                          discipline="HVAC", ancestor_headers=["AIR SIDE"],
+                          _notes_fallback_pass=True)
+        self.assertEqual(r["matching_pass"], "legacy")
+
+
+class TestHV11RulesVersionProvenance(unittest.TestCase):
+    """HV-11 part 1: the loader now SURFACES the ruleset version (the HV-9 gap -- the hand-built
+    return dropped the key, so orchestrator's ruleset.get('version') saw None and rules_version
+    persisted EMPTY on every row). The orchestrator already reads ruleset.get('version') and stamps
+    it (orchestrator.py:125 -> row dict -> persist.write_row_categories), so this one loader line
+    completes the provenance chain -- exactly the HV-7 routing_policy precedent."""
+
+    def test_loader_surfaces_hvac_version(self):
+        # SURFACED (not dropped): the value the whole classify path now stamps on HVAC rows.
+        self.assertEqual(load_ruleset("HVAC")["version"], "4.2-hv7")
+
+    def test_loader_surfaces_electrical_version(self):
+        # Additive provenance for the legacy engine too -- its ruleset carries a version.
+        self.assertEqual(load_ruleset("Electrical")["version"], "2.1-tuning2")
+
+    def test_absent_version_surfaces_present_and_none_gap_class(self):
+        """The GAP CLASS HV-9 closed, pinned exactly as routing_policy / ancestor_resolution: a key
+        absent from the SOURCE surfaces as PRESENT-and-None on the loader's return (.get semantics),
+        never dropped (which is what made rules_version silently empty)."""
+        from nirmaan_stack.services.boq_category import runner as _runner
+        orig = _runner._read_json
+
+        def _strip_version(filename):
+            doc = dict(orig(filename))
+            doc.pop("version", None)
+            return doc
+
+        _runner.load_ruleset.cache_clear()
+        _runner._read_json = _strip_version
+        try:
+            rs = _runner.load_ruleset("HVAC")
+            self.assertIn("version", rs)        # PRESENT on the return dict...
+            self.assertIsNone(rs["version"])    # ...and None when the source lacks it (not dropped)
+        finally:
+            _runner._read_json = orig
+            _runner.load_ruleset.cache_clear()  # drop the stripped ruleset so other tests re-read
 
 
 if __name__ == "__main__":

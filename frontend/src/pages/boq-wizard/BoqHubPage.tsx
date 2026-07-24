@@ -1,8 +1,9 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { BoqPresence } from "./BoqPresence";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { useUserData } from "@/hooks/useUserData";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,8 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { RevisionCarryReport } from "./revisionCarryReport";
+import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
@@ -110,6 +113,9 @@ interface ParseStatusResponse {
   not_parsed_sheets?: string[];
   failed_sheets?: string[];
   error_code?: ParseRunDonePayload["error_code"];
+  // W5: the poll reads the SAME cached payload _publish_parse_event published, so the
+  // revision-carry counts ride this path too.
+  revision_carry?: ParseRunDonePayload["revision_carry"];
 }
 
 const BoqHubPage = () => {
@@ -148,6 +154,8 @@ const BoqHubPage = () => {
     parsed: string[];
     notParsed: string[];
     failed: string[];
+    /** W5: null off a revision parse (nothing carried) -> the carry sub-line is not rendered. */
+    carry: RevisionCarryReport | null;
   } | null>(null);
   const [parseError, setParseError] = useState<{ message: string; severity: "destructive" | "neutral" } | null>(null);
 
@@ -164,6 +172,10 @@ const BoqHubPage = () => {
   const [pricedDialogOpen, setPricedDialogOpen] = useState(false);
   const [pricedResult, setPricedResult] = useState<ExportPricedWorkbookResponse | null>(null);
   const [pricedResultsOpen, setPricedResultsOpen] = useState(false);
+
+  // A-T6 "Set as master template" (ADR-0013 A1): confirm dialog + inline error state.
+  const [setMasterOpen, setSetMasterOpen] = useState(false);
+  const [setMasterError, setSetMasterError] = useState<string | null>(null);
 
   // Honor the useFrappeGetDoc third-arg gotcha: null (not {enabled:false}).
   const { data: boq, isLoading, mutate } = useFrappeGetDoc<BOQsDoc>(
@@ -227,6 +239,23 @@ const BoqHubPage = () => {
     boqId ? undefined : null
   );
 
+  // D4 removed-sheet advisory (ADR-0014): the original's committed sheets NOT claimed by any of
+  // this revision's drafts -- the hub's audience for "these won't carry" (the mapping screen is
+  // the other; T4 #8 "two surfaces, two audiences"). REVISION-ONLY: the swrKey is null unless
+  // the loaded doc is a revision, so a normal upload/template hub makes no extra call. The set
+  // is fixed once the mapping is confirmed (source_sheet_name is write-once), so no mutate.
+  // Is this hub showing a REVISION? Gates the removed-sheet advisory below (ADR-0014 D4) and the
+  // fetch that feeds it. Declared here with its consumer -- it used to live inside the cross-BOQ
+  // carry lifecycle block, which Amendment C (C6) removed along with the hub's carry action.
+  const isRevisionDoc = boq?.origin === "revision" && !!boq?.source_boq;
+  const { data: removedSheetsData } = useFrappeGetCall<{
+    message: { removed: { sheet_name: string; general_specs: boolean }[]; source_version: number | null };
+  }>(
+    "nirmaan_stack.api.boq.wizard.revision.get_removed_source_sheets",
+    { boq: boqId ?? "" },
+    boqId && isRevisionDoc ? undefined : null
+  );
+
   // General-specs endpoint. Called in BoqHubPage because it targets the parent
   // BOQs row, not a child draft (SheetCard handles the child-row endpoints).
   const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
@@ -237,6 +266,17 @@ const BoqHubPage = () => {
   const { call: callRunParse } = useFrappePostCall(
     "nirmaan_stack.api.boq.wizard.parse_run.run_parse"
   );
+
+  // A-T6: materialize this committed seed BoQ into the (single) master BoQ Template.
+  const { call: callSetMaster, loading: setMasterLoading } = useFrappePostCall(
+    "nirmaan_stack.api.boq.wizard.template_materialize.set_as_master_template"
+  );
+
+  // A-T6 role gate: only Admin + Estimates may set the master template (server-enforced too).
+  const { user_id, role } = useUserData();
+  const isTemplateAdmin =
+    user_id === "Administrator" ||
+    ["Nirmaan Admin Profile", "Nirmaan Estimates Executive Profile"].includes(role as string);
 
   // get_review_rows imperative call (Slice D2b) -- per-card CSV export fetch.
   // GET-capable endpoint (whitelist bare); useFrappePostCall gives the .call() form.
@@ -278,6 +318,9 @@ const BoqHubPage = () => {
           parsed: payload.parsed_sheets ?? [],
           notParsed: payload.not_parsed_sheets ?? [],
           failed: payload.failed_sheets ?? [],
+          // W5: fold the per-sheet carry counts into their sentence HERE (once, at the outcome
+          // seam shared by socket + poll) rather than in the modal body.
+          carry: summarizeRevisionCarry(payload.revision_carry),
         });
       } else {
         setParseError(
@@ -338,6 +381,7 @@ const BoqHubPage = () => {
       not_parsed_sheets: msg.not_parsed_sheets,
       failed_sheets: msg.failed_sheets,
       error_code: msg.error_code,
+      revision_carry: msg.revision_carry,
     });
   }, [parsePollData, applyParseOutcome]);
 
@@ -412,11 +456,50 @@ const BoqHubPage = () => {
     );
   }
 
+  // ── Unconfirmed-revision gate (ADR-0014 D3) ───────────────────────────────
+  // A revision seeds NO drafts at upload -- confirm_revision_mapping seeds them after the
+  // human confirms the sheet mapping. So an origin="revision" doc with an empty sheet_drafts
+  // is UNCONFIRMED and must not render the hub; redirect to the always-shown mapping screen.
+  // (`boq` is fully loaded here, so sheet_drafts is authoritative; a confirmed revision has
+  // >= 1 draft and falls straight through.) Route by entity id, never navigate(-1).
+  if (boq.origin === "revision" && (boq.sheet_drafts ?? []).length === 0) {
+    return <Navigate to={`/upload-boq/revision/${boqId}/map`} replace />;
+  }
+
+  // ── Origin (ADR-0013 A1) ──────────────────────────────────────────────────
+  // "template" = cloned from the master template (no source workbook). The hub then
+  // SUPPRESSES the Configure + Parse surfaces: the general-specs checklist, the Parse /
+  // Re-parse footer buttons + parse-gate, and every per-card Configure control (threaded
+  // down via isTemplateOrigin). The stepper starts at Review. "upload" / undefined =>
+  // the pre-existing upload flow, byte-identical.
+  const isTemplateOrigin = boq.origin === "template";
+
   // ── Stable onSaved callback (passed to each SheetCard) ────────────────────
   // Calls SWR mutate to re-fetch the BOQ after any successful card action.
   // Server is the source of truth; no local-state authority over wizard_status.
   // mutateWpMap refreshes the work-package map in case a spoke save happened.
   const handleSaved = () => { void mutate(); void mutateWpMap(); void mutateStale(); };
+
+  // ── A-T6 "Set as master template" ─────────────────────────────────────────
+  // Materializes this committed seed BoQ (is_template_source === 1) into the ONE master
+  // BoQ Template, REPLACING the current active master. On success -> the templates admin
+  // page; on error -> inline message (dialog stays open). Server re-checks the role gate.
+  const handleSetAsMaster = async () => {
+    setSetMasterError(null);
+    try {
+      await callSetMaster({ seed_boq: boq.name });
+      setSetMasterOpen(false);
+      navigate("/upload-boq/templates");
+    } catch (e) {
+      setSetMasterError(
+        getFrappeError(e) ||
+        "Could not set this BoQ as the master template. Please try again."
+      );
+    }
+  };
+
+  // A-T6 gate: a committed seed BoQ + an authorized user. Committed-ness reuses the same
+  // committedMap the card badges + the Committed tally use (computed below); see the button.
 
   // ── Work-package map (Slice 3f-readback) ────────────────────────────────────
   // Derived from the get_boq_work_packages response once loaded; empty while loading.
@@ -809,7 +892,8 @@ const BoqHubPage = () => {
             {boq.boq_name}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            V{boq.version ?? 1} &middot; Map sheets before parsing
+            V{boq.version ?? 1} &middot;{" "}
+            {isTemplateOrigin ? "Cloned from template — review, commit & price" : "Map sheets before parsing"}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
@@ -840,9 +924,37 @@ const BoqHubPage = () => {
         </div>
       </div>
 
+      {/* ── Removed-sheet advisory (ADR-0014 D4) ─────────────────────────── */}
+      {/* Revision-only. The original's committed sheets no draft claims -> they carry     */}
+      {/* nothing. Muted advisory (mirrors the mapping screen's "won't carry" line + the   */}
+      {/* review-screen removed-row advisory). sheet_name display-trimmed only (#152).     */}
+      {isRevisionDoc && (removedSheetsData?.message?.removed?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {removedSheetsData!.message.removed.length}
+            </span>{" "}
+            sheet{removedSheetsData!.message.removed.length === 1 ? "" : "s"} from the original
+            {removedSheetsData!.message.source_version
+              ? ` (v${removedSheetsData!.message.source_version})`
+              : ""}{" "}
+            {removedSheetsData!.message.removed.length === 1 ? "is" : "are"} not in this revision
+            and won&rsquo;t carry:{" "}
+            <span className="text-foreground">
+              {removedSheetsData!.message.removed
+                .map((s) => s.sheet_name.trim() || s.sheet_name)
+                .join(", ")}
+            </span>
+            .
+          </p>
+        </div>
+      )}
+
       {/* ── General specifications checklist (M2.10, Slice 2b-frontend-ii) ── */}
       {/* Candidate set = nonHiddenDrafts; backend rejects Hidden sheets.      */}
       {/* Ticked = currently designated (set membership M2.16). Save = 1 write. */}
+      {/* A1: HIDDEN for template origin -- disposition is fixed by the master template. */}
+      {!isTemplateOrigin && (
       <div className="overflow-hidden rounded-lg border border-border bg-background">
         {/* Header: title + description on the left, Save on the right (card rhythm). */}
         <div className="flex flex-col gap-1 px-4 pt-3 pb-2.5 sm:flex-row sm:items-start sm:justify-between">
@@ -906,6 +1018,7 @@ const BoqHubPage = () => {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Sheet card list ───────────────────────────────────────────────── */}
       {/* A2: "All Sheets" section header above the card grid. */}
@@ -934,6 +1047,7 @@ const BoqHubPage = () => {
             committedState={committedMap.get(draft.sheet_name)}
             staleReason={staleMap.get(draft.sheet_name)}
             downstreamState={downstreamSheets[draft.sheet_name]}
+            isTemplateOrigin={isTemplateOrigin}
           />
         ))}
 
@@ -969,6 +1083,7 @@ const BoqHubPage = () => {
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
                     staleReason={staleMap.get(draft.sheet_name)}
+                    isTemplateOrigin={isTemplateOrigin}
                   />
                 ))}
               </div>
@@ -1027,8 +1142,11 @@ const BoqHubPage = () => {
       {/* ── Parse-gate footer (M2.11/M2.12) ─────────────────────────────── */}
       <div className="border-t border-border pt-4 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          {reviewedCount} of {totalDataCount} data{" "}
-          {totalDataCount === 1 ? "sheet" : "sheets"} reviewed
+          {/* Template origin has no Configure/Parse step, so the "reviewed" (Config Done)
+              tally is meaningless -- lead with the plain data-sheet count instead. */}
+          {isTemplateOrigin
+            ? `${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"}`
+            : `${reviewedCount} of ${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"} reviewed`}
           {parsedCount > 0 && ` · ${parsedCount} parsed`}
           {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} checked`}
           {committedCount > 0 && ` · ${committedCount} committed`}
@@ -1041,6 +1159,11 @@ const BoqHubPage = () => {
             is uncluttered and the status line (the justify-between sibling) regains space. */}
         <div className="flex shrink-0 items-center gap-2">
           <TooltipProvider>
+            {/* Parse + Re-parse are HIDDEN for a template-origin BoQ -- there is no source
+                workbook to (re-)parse; the stepper starts at Review. Commit / Tendering /
+                Export still apply (a cloned BoQ is committed + priced like any other). */}
+            {!isTemplateOrigin && (
+              <>
             {/* Parse workbook (primary). */}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1085,6 +1208,8 @@ const BoqHubPage = () => {
                   : "No previously-parsed sheets to re-parse"}
               </TooltipContent>
             </Tooltip>
+              </>
+            )}
             {/* Commit (Phase 5 Slice 4b). Enabled when >= 1 sheet is commit-eligible (the
                 gate); opens the commit modal. The eligible set comes from
                 get_committable_sheets, NOT from committed-state. */}
@@ -1133,6 +1258,17 @@ const BoqHubPage = () => {
                   : "No committed sheets to price yet"}
               </TooltipContent>
             </Tooltip>
+            {/* A-T6 (ADR-0013 A1): materialize this committed SEED BoQ into the ONE master
+                template. Shown only for a committed seed BoQ (is_template_source === 1) to an
+                Admin/Estimates user; opens a REPLACE-warning confirm before calling. */}
+            {boq.is_template_source === 1 && committedMap.size > 0 && isTemplateAdmin && (
+              <Button
+                size="sm"
+                onClick={() => { setSetMasterError(null); setSetMasterOpen(true); }}
+              >
+                Set as master template
+              </Button>
+            )}
             {/* Export overflow menu -- holds the two export actions (declutters the row).
                 A labelled "Export" + chevron trigger (NOT the top-of-card "More options"
                 MoreHorizontal menu -- distinct on purpose). Always opens; each item is
@@ -1298,6 +1434,24 @@ const BoqHubPage = () => {
                   Parsed: {parseResult.parsed.join(", ")}
                 </p>
               )}
+              {/* W5: revision review-carry, INFORMATIONAL -- muted, and rendered only when the
+                  payload carried the counts (i.e. this was a revision parse). The per-sheet
+                  breakdown appears only when more than one sheet carried. */}
+              {parseResult.carry && (
+                <div className="text-muted-foreground">
+                  <p>{parseResult.carry.headline}</p>
+                  {parseResult.carry.perSheet.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 pl-4">
+                      {parseResult.carry.perSheet.map((s) => (
+                        // VERBATIM sheet_name as the key (#152); s.label is display-trimmed.
+                        <li key={s.sheetName} className="list-disc">
+                          {s.label} &mdash; {s.text}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {parseResult.notParsed.length > 0 && (
                 <p className="text-muted-foreground">
                   Not parsed (skipped, hidden, or general-specs):{" "}
@@ -1342,7 +1496,8 @@ const BoqHubPage = () => {
               )}
               {parseResult.parsed.length === 0 &&
                 parseResult.notParsed.length === 0 &&
-                parseResult.failed.length === 0 && (
+                parseResult.failed.length === 0 &&
+                !parseResult.carry && (
                   <p className="text-foreground">Parse complete.</p>
                 )}
             </div>
@@ -1398,6 +1553,42 @@ const BoqHubPage = () => {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={handleSpecsCancel}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleSpecsConfirm}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── A-T6 "Set as master template" confirm (ADR-0013 A1) ─────────────── */}
+      {/* REPLACE warning. Confirm uses a plain Button (NOT AlertDialogAction) so the    */}
+      {/* dialog stays open + shows the inline error on failure; success navigates away. */}
+      <AlertDialog
+        open={setMasterOpen}
+        onOpenChange={(isOpen) => { if (!isOpen && !setMasterLoading) setSetMasterOpen(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Set as master template?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will <span className="font-medium text-foreground">replace</span> the current
+              active master template with this BoQ. New BoQs created from a template will clone
+              this workbook&rsquo;s sheets going forward. BoQs already created from the previous
+              template are unaffected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {setMasterError && (
+            <p className="px-6 text-sm text-destructive">{setMasterError}</p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={setMasterLoading}>Cancel</AlertDialogCancel>
+            <Button onClick={() => void handleSetAsMaster()} disabled={setMasterLoading}>
+              {setMasterLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Setting...
+                </>
+              ) : (
+                "Replace master template"
+              )}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

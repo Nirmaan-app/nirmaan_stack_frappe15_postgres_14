@@ -17,7 +17,7 @@ Each commissioning task type (e.g., "Sprinkler Pressure Test Report") declares a
 - Saves the structured response into the child row's `response_data` Long Text field.
 - Stores a **frozen snapshot** of the template used (in a content-addressed pool) so older filled reports always render correctly even after the master template changes.
 
-**Decoupling rule (updated):** Filling/saving the wizard does **not** directly set `task_status` — status is driven by the per-row action buttons (Submit for Approval, Approve, Upload Signed, …; see workflow below). **One exception:** saving the wizard for a **Rejected** task resolves it back to **Pending** (`update_task_response` flips it). The backend `validate_report_evidence_for_completed` hook still accepts a meaningfully filled `response_data` as evidence on the Completed transition.
+**Decoupling rule (updated):** Filling/saving the wizard does **not** directly set `task_status` — status is driven by the per-row action buttons (Submit for Approval, Approve, Upload Signed, …; see workflow below). **One exception:** saving the wizard for a **Rejected** task resolves it back to **Pending** (`update_task_response` flips it). The backend `validate_report_evidence_for_completed` hook (name unchanged) still accepts a meaningfully filled `response_data` as evidence on the terminal **`Client Accepted`** transition.
 
 ---
 
@@ -29,57 +29,61 @@ Each commissioning task type (e.g., "Sprinkler Pressure Test Report") declares a
 Every task carries a **`report_type`** (`Field` | `Vendor`, default `Field`), stored on both the master (`Commission Report Tasks.report_type`) and the instance (`Commission Report Task Child Table.report_type`). The master value seeds new project tasks; per-project it's editable (via the row's **Configure** modal) only while the task is `Pending` or `Not Applicable`.
 
 - **Field** → internal team fills the wizard, then goes through approval + client-signature.
-- **Vendor** → external vendor; the team just **uploads a PDF**, which **completes the task directly** (no approval, no signature).
+- **Vendor** → external vendor; the team **uploads a PDF** and **sends it for approval** (two-step, mirrors Field's approval gate but with **no wizard and no client-signature step**). Approve completes it directly.
 
 Missing/empty `report_type` is treated as `Field` for back-compat.
 
 ### Status set
 `task_status` is a plain `Data` field; the option list lives in frontend code (`useCommissionMasters.TASK_STATUS_OPTIONS`). Values:
 
-`Not Applicable` · `Pending` · `Pending Approval` · `Approved` · `Rejected` · `Completed`
+`Not Applicable` · `Pending` · `Pending Approval` · `Submitted` · `Rejected` · `Client Accepted`
 
-Badge colors (`utils.getUnifiedStatusStyle`): Pending=amber, Pending Approval=indigo, Approved=teal, **Rejected=red**, Completed=green, N/A=gray. ("In Progress" was removed.)
+> **Terminology (renamed in code 2026-06):** `Approved → Submitted`, `Completed → Client Accepted`. Older text/UX may say "approved"/"completed" — these are the **same states** as `Submitted`/`Client Accepted`. The "**Approved Reports**" dialog label is the business word for the `Submitted` state (admin-approved, awaiting client signature), **not** a separate status.
+
+Badge colors (`utils.getUnifiedStatusStyle`): Pending=amber, Pending Approval=indigo, Submitted=teal, **Rejected=red**, Client Accepted=green, N/A=gray. ("In Progress" was removed.)
 
 ### State machine
-```
-                       ┌─ Vendor: Upload PDF (approval_proof) ─────────────► Completed   (direct; last_submitted stamped)
-Pending ─ report_type? ┤
-                       └─ Field: Fill wizard (response_data)
-                                     │  Submit for Approval (needs response_data)
-                                     ▼
-                              Pending Approval
-                          ┌──────────┴──────────┐
-                   Approve (Admin/PMO)     Reject (Admin/PMO)
-                          ▼                       ▼
-                       Approved                Rejected
-                          │                       │ Resolve (edit wizard) → SAVE
-   download report (blank client-sig)            ▼
-   → client signs offline                     Pending  ─ Submit for Approval ─► Pending Approval …
-   → Upload Signed (approval_proof)
-                          ▼
-                       Completed   (last_submitted stamped)
+Both report types now share the **same approval gate** (Pending Approval → Submitted / Rejected). They differ only in how the artifact is produced and finished: Field fills a wizard + gets a client signature; Vendor uploads a PDF and skips the signature (approve completes it directly).
 
-Pending / Rejected → Mark as Not Applicable → Not Applicable → Re-activate → Pending
+```
+FIELD:
+  Pending ─ Fill wizard (response_data) ─ Submit for Approval ─► Pending Approval
+     ▲                                              Approve (Admin) │  Reject (Admin)
+     │ Resolve (edit) → SAVE                                    ▼       ▼
+  Rejected ◄────────────────────────────────────────────  Submitted  Rejected
+                                                                │ download (blank client-sig)
+                                                                │ → client signs → Upload Signed (approval_proof)
+                                                                ▼
+                                                         Client Accepted   (last_submitted stamped)
+
+VENDOR (no wizard, no signature):
+  Pending ─ Upload PDF (approval_proof; stays Pending) ─ Send for Approval ─► Pending Approval
+     ▲                                                      Approve (Admin) │  Reject (Admin)
+     │ View / Replace file → Send for Approval                          ▼       ▼
+  Rejected ◄──────────────────────────────────────────────  Client Accepted  Rejected
+                                                             (approve completes directly; last_submitted stamped)
+
+BOTH: Pending / Rejected → Mark as Not Applicable → Not Applicable → Re-activate → Pending
 ```
 
 Key transitions and where they fire:
-- **Submit for Approval** (Field, `response_data` present): `updateTaskChild({task_status:'Pending Approval'})`.
-- **Approve / Reject**: `ApprovalActionDialog` (confirm-only) → `Approved` / `Rejected`. Approve no longer shows a sign step — that lives on the Approved row's own actions.
-- **Resolve** (Rejected): opens the wizard in `edit` mode; **saving** flips `Rejected → Pending` server-side (`update_task_response`, see Decoupling rule). The row then shows **Submit for Approval** again.
-- **Upload Signed** (Approved, Field) / **Upload Report** (Vendor): uploads the PDF to `approval_proof`, sets `task_status:'Completed'`, stamps `last_submitted`.
-- **Send back to Pending** (Admin only): reopens a `Pending Approval` / `Approved` / `Completed` Field task to `Pending`.
+- **Submit for Approval** (Field, `response_data` present) / **Send for Approval** (Vendor, `approval_proof` present): `updateTaskChild({task_status:'Pending Approval'})`. A Vendor upload while `Pending`/`Rejected` only **attaches the file** (stays in place) — the separate Send step moves it to Pending Approval (`ReportActionCell.onFileChosen`).
+- **Approve / Reject**: `ApprovalActionDialog` (confirm-only). Approve → **`Submitted`** for Field, **`Client Accepted`** for Vendor (`report_type === 'Vendor' ? 'Client Accepted' : 'Submitted'`). Reject → `Rejected` (both).
+- **Resolve** (Field, Rejected): opens the wizard in `edit` mode; **saving** flips `Rejected → Pending` server-side (`update_task_response`). **Vendor, Rejected**: View / **Replace file** then **Send for Approval** again.
+- **Upload Signed** (Field, Submitted): uploads the signed PDF to `approval_proof`, sets `task_status:'Client Accepted'`, stamps `last_submitted`.
+- **Send back to Pending** (Admin only, Field): reopens a `Pending Approval` / `Submitted` / `Client Accepted` Field task to `Pending`.
 
 ### Per-row action UI — `ReportActionCell`
 Each tracker/Task-Wise row renders one **primary button** per status + a **⋮ More** menu (pinned to the cell's right edge). The primary by status:
 
 | Status | Field (editor) | Vendor (editor) | View-only |
 |---|---|---|---|
-| Pending (empty) | **Fill Report** | **Upload Report** | View |
-| Pending (draft) | **Submit for Approval** (More: Edit) | — | View |
-| Pending Approval | **View Submission** | View | View |
-| Approved | **Download Report** + **Upload Signed** | — | View |
-| Rejected | **Resolve** (More: Mark N/A) | Upload Report | "Rejected" |
-| Completed | **View Signed Report** | **View Vendor Report** | View |
+| Pending (empty / no file) | **Fill Report** | **Upload Report** | View |
+| Pending (draft / has file) | **Submit for Approval** (More: Edit) | **View** + **Send for Approval** (More: Replace report) | View |
+| Pending Approval | **View Submission** | **View Vendor Report** | View |
+| Submitted | **Download Report** + **Upload Signed** | _n/a — Vendor approve → Client Accepted_ | View |
+| Rejected | **Resolve** (More: Mark N/A) | **View** + **Send for Approval** (More: Replace report) | "Rejected" |
+| Client Accepted | **View Signed Report** | **View Vendor Report** | View |
 | Not Applicable | muted + Re-activate (More) | — | — |
 
 More menu also offers **View Review (answers)** (filled reports), **Configure** (Report Type / Deadline / Comments), **Mark as Not Applicable** (Pending/Rejected), and **Send back to Pending** (Admin only).
@@ -88,22 +92,30 @@ More menu also offers **View Review (answers)** (filled reports), **Configure** 
 - **List page** "Pending Approval" tab → cross-project queue (server-fetched via `get_task_wise_list`, filtered to `task_status='Pending Approval'`).
 - **Details page** "Pending Approval" view → scoped to the tracker; rendered from the already-loaded tasks.
 - Approve/Reject use icon-only triggers → `ApprovalActionDialog`. After any action, refresh updates **both** the table and the tracker list/doc so status-tab counts react immediately.
+- **Vendor** rows now appear here too (Vendor goes through the gate). Their Report column shows **View Vendor Report**, previewing the uploaded file with **`directSrc`** — the file is a GCS `generate_file` **redirect to a signed URL served inline**, so an `<iframe>` (which follows the redirect) renders it, but a cross-origin blob `fetch` would CORS-fail. (Field rows still preview the generated print format via the blob path.)
 
 ### Roles & permissions
+The `Administrator` **user** matches every **Admin** cell below. Every gate is **frontend-only** EXCEPT the wizard edit gate (²), which the backend enforces. Profile strings: Admin = `Nirmaan Admin Profile`, PMO = `Nirmaan PMO Executive Profile`, PM = `Nirmaan Project Manager Profile`, Design Lead = `Nirmaan Design Lead Profile`, Design Exec = `Nirmaan Design Executive Profile`.
+
 | Capability | Admin | PMO | Project Manager | Design Lead | Design Exec |
 |---|:--:|:--:|:--:|:--:|:--:|
-| **Nav: Commission Report Tracker** | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Full editor (any task in project) | ✅ | ✅ | ✅ | ✅ | assigned only |
-| Approve / Reject | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Send back to Pending (reopen) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Add Category/Zone, Create Task, Rename, Bulk Assign | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **Nav: Commission Report Tracker** (sidebar) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| See **Pending Approval** queue (tab) — `isApprover` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Approve / Reject** ¹ | ✅ | view-only | ❌ | ❌ | ❌ |
+| **Send back to Pending** (reopen) — `ReportActionCell.isAdmin` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Bulk Approved Reports** export — `canExportApprovedReports` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fill / Submit / Upload report (wizard edit) ² | ✅ | ✅ | ✅ | ✅ | assigned only |
+| **Add Category** / Configure / structure edits ³ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Row-select checkboxes on the task table | ✅ | ✅ | ❌ | ✅ | ❌ |
 
-- **Nav gate** (`NewSidebar.tsx`): Administrator + Admin + PMO + Project Manager only.
-- **Edit gate is role-based, not assignment-based.** Backend `update_task_response._FULL_EDIT_ROLES` = `{System Manager, Nirmaan Admin, Nirmaan PMO Executive, Nirmaan Design Lead, Nirmaan Project Manager}`; only `Nirmaan Design Executive` is in `_RESTRICTED_EDIT_ROLES` (assigned tasks only). Frontend mirrors this (`isReportEditRestricted = isDesignExecutive`).
-- **Approvers** (`isApprover`): Admin, PMO, Administrator.
+- **Nav gate** (`NewSidebar.tsx`, the `/commission-tracker` entry): `Administrator + Admin + PMO + Project Manager` only — so **Design Lead / Design Exec have NO sidebar entry**. Their ✅s above apply only if they reach a tracker via deep link / assignment.
+- **¹ Approve / Reject** = **`Nirmaan Admin Profile` + `Administrator` ONLY** (`GlobalApprovalsTable` renders the action column only when `isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator"`). **PMO** opens the Pending Approval queue but sees it **read-only** (no buttons). Frontend-only — writes go through the generic `updateTaskChild`, no server-side role check.
+- **² Wizard edit gate — the ONLY server-enforced permission:** backend `update_task_response._FULL_EDIT_ROLES` = `{System Manager, Nirmaan Admin, Nirmaan PMO Executive, Nirmaan Design Lead, Nirmaan Project Manager}`; `Nirmaan Design Executive` ∈ `_RESTRICTED_EDIT_ROLES` (its **assigned tasks only**). The per-row Fill/Submit/Upload buttons render for anyone with table access (`canEdit = true` is hardcoded in `TaskWiseTable` / `commissionTableColumns`) — the wizard/backend is the real gate; frontend mirrors via `isReportEditRestricted = isDesignExecutive`.
+- **³ Structure edits** (Add Category, Configure, Mark N/A, rename) = `hasEditStructureAccess && !isRestrictedAssigneeRole`, i.e. **Admin / PMO / Design Lead** — PM and Design Exec are excluded (`isRestrictedAssigneeRole = isDesignExecutive || isProjectManager`).
+- **Gate variables** (`project-commission-report-details.tsx`): `hasEditStructureAccess` = Design Lead·Admin·PMO·Administrator · `isApprover` = Admin·PMO·Administrator · `canExportApprovedReports` = Administrator + Admin·PMO·PM·Design Lead · `isRestrictedAssigneeRole` = Design Exec·PM.
 
 ### Counts
-- Task Wise **status tabs** (All / Pending / Pending Approval / Approved / Rejected / Completed) show task counts summed from the tracker list's `status_counts` (excludes N/A).
+- Task Wise **status tabs** (All / Pending / Pending Approval / Submitted / Rejected / Client Accepted) show task counts summed from the tracker list's `status_counts` (excludes N/A).
 - Any approve/reject or status change refreshes **both** the table and the tracker list/doc, so the status-tab counts update immediately.
 
 ### CSV Export
@@ -113,11 +125,20 @@ Both the Task Wise table and the per-zone details table use `onExport="default"`
 - **Values:** `meta.exportValue(row)` overrides where the raw `accessorKey` is wrong/missing — Report Type (details column uses `accessorFn`, so it needs `exportValue`), Deadline (formatted `dd-MMM-yyyy`), and Project (exports `project_name`, not the `project` id).
 - **Scope (current limitation):** `onExportAll` is **not** wired, so the export only covers the **current page** of a server-paginated table; on the details page `showRowSelection` makes it export **selected rows** (or nothing if none selected). Wire `onExportAll={serverDataTable.exportAllRows}` to export the full filtered set.
 
+### Bulk Approved Reports export (async, one merged PDF)
+A **"Bulk Approved Reports"** header button (Download icon, after Add Category) on the tracker details page opens **`ApprovedReportsDialog`**. Visibility is gated by `canExportApprovedReports` = **`Administrator` user + Admin + PMO + Project Manager + Design Lead** (the tracker-access roles plus Design Lead — broader than `hasEditStructureAccess`, which excludes PM). It lists the tracker's **`report_type = Field` AND `task_status = Submitted`** reports ("approved" = the Submitted state — see Terminology), with **Category** filter chips (`All (n)` + one per `commission_category`; select-all is scoped to the filtered view, selection persists across chips by report name), and **Export** merges the selected reports into **one PDF**.
+
+- **Async by design (never blocks other users):** `Export` POSTs `enqueue_commission_reports(tracker, tasks)` (`api/commission_report/bulk_download_reports.py`), which takes a **per-user atomic NX lock**, enqueues `_run_commission_bulk_job` on the **`long` queue**, and returns `{status:"enqueued", job_id}` in ms — no web worker is held. The worker re-gates Field+Submitted, renders each task, merges with `pypdf`, writes a temp file, and streams **user-targeted** realtime events, each stamped with the **`job_id`**: `commission_bulk_progress {job_id,done,total}` / `commission_bulk_ready {job_id,token,filename,rendered,failed,total}` / `commission_bulk_failed {job_id,message}`; the `finally` releases the lock. Download is via the shared **`bulk_download.fetch_temp_file?token=…`** (streams + deletes). Mirrors `api/pdf_helper/bulk_download.py`.
+- **Hardening (review):** the dialog remembers its own `job_id` and **ignores events from any other export** (a second open dialog won't react); if `frappe.enqueue` raises, the **lock is released** (not stranded for the TTL); the `ready` event's **`failed` count** is surfaced ("N of M downloaded; K could not be generated") so a partial merge is never silent; the client safety-timeout is **unmount-safe** and re-armed on each progress tick.
+- **No selection cap** (a full tracker must export); `LOCK_TTL_SECONDS = 300` (5-min job/lock ceiling). Measured ~1.2 s/report → ~60 reports ≈ 1.3 min. The frontend re-arms a "stuck" timeout on each progress tick, so large jobs never falsely time out.
+- **Rendering gotcha (LOAD-BEARING):** the print format selects the child row via `frappe.form_dict.task_row`, which **`frappe.get_print` DROPS** (every task then renders byte-identical). Render each task with **`frappe.render_template(print_format.html, {"doc": tracker_doc})`** (sees the live form_dict) → **`frappe.utils.pdf.get_pdf`** (still reads the format's `@page` margins + `#header-html`/`#footer-html`). Verified per-task-correct.
+- **Deploy note (ops):** the job runs on `long`; ensure a worker processes it. `background_workers: 1` shares one worker with emails/notifications — a dedicated `bench worker --queue long` fully isolates PDF rendering.
+
 ### Bulk Assign — currently disabled
 The "Bulk Assign" toolbar button on the details zone table is **commented out** (`toolbarActions` renders `null`). Row selection, the handler, and `BulkAssignDialog` are left intact — un-comment the block to re-enable.
 
 ### Print format — client signature
-The `render_signatures` macro in `commission-printformat.html` / `ls-commission-printformat.html` renders a **blank signature line** above each role label (incl. CLIENT) so the downloaded Approved report can be physically signed before the signed copy is uploaded. (Per project memory: edit the `.html` source + deliver paste-ready HTML for the Frappe UI; do **not** edit `print_format.json`.)
+The `render_signatures` macro in `commission-printformat.html` / `ls-commission-printformat.html` renders a **blank signature line** above each role label (incl. CLIENT) so the downloaded report (at `Submitted`) can be physically signed before the signed copy is uploaded. (Per project memory: edit the `.html` source + deliver paste-ready HTML for the Frappe UI; do **not** edit `print_format.json`.)
 
 ---
 
@@ -589,7 +610,7 @@ Files are uploaded immediately when the user picks them (so previews work). To a
 | **Per-step Next** | `form.trigger(stepFieldKeys)` against the per-step Zod schema built from the template. |
 | **Submit** | Full schema validation across all steps + 1MB size cap + image-slot required check. |
 | **Backend Save** | Server re-parses + re-runs shape check. Snapshot upsert. Optimistic-concurrency check on parent.modified. |
-| **Status → Completed (existing hook)** | `validate_report_evidence_for_completed` accepts: `file_link` set OR `approval_proof` set OR (`response_data` is a parseable JSON with non-empty `responses` AND `response_snapshot_id` is set). |
+| **Status → Client Accepted (existing hook)** | `validate_report_evidence_for_completed` (name unchanged) accepts: `file_link` set OR `approval_proof` set OR (`response_data` is a parseable JSON with non-empty `responses` AND `response_snapshot_id` is set). |
 
 ---
 

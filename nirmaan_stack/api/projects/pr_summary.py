@@ -155,3 +155,25 @@ def get_pr_tags_by_names(pr_names: str | list[str]) -> dict:
             "tag_package": tag.get("tag_package"),
         })
     return tags_by_parent
+
+
+@frappe.whitelist(allow_guest=False)
+def get_pr_tags_by_project(project: str) -> dict:
+    """Return {pr_name: [{tag_header, tag_package}, ...]} for every PR in a project.
+
+    The PR-name list is derived server-side so the caller never ships the whole
+    list of names in the request URL. Passing all names in a GET query string
+    overruns nginx's request-line limit on large projects (the same failure mode
+    that broke the Project-Payments PO-Wise view); passing just the project id
+    keeps the URL O(1) regardless of how many PRs the project has.
+    """
+    if not project:
+        return {}
+    pr_names = frappe.get_all(
+        "Procurement Requests", filters={"project": project}, pluck="name"
+    )
+    if not pr_names:
+        return {}
+    # Reuse the tested name-based path; the IN-list now lives server-side where
+    # there is no URL limit (and well under sqlparse's token cap for one project).
+    return get_pr_tags_by_names(pr_names)

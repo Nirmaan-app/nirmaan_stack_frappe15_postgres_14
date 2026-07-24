@@ -34,7 +34,11 @@
   "classification_freeze_section",
   "classification_frozen",
   "frozen_by",
-  "frozen_at"
+  "frozen_at",
+  "revision_provenance_section",
+  "source_boq",
+  "source_commit_version",
+  "source_sheet_name"
  ],
  "fields": [
   {
@@ -221,11 +225,38 @@
    "fieldtype": "Datetime",
    "label": "Frozen At",
    "read_only": 1
+  },
+  {
+   "fieldname": "revision_provenance_section",
+   "fieldtype": "Section Break",
+   "label": "Revision Provenance"
+  },
+  {
+   "description": "For origin=revision sheets (ADR-0014 D2): the committed ORIGINAL BoQ this sheet's carry came from. Stamped per sheet on the committed BoQ Sheet at commit (S8) so a carried sheet stays auditable + stable even if the original is re-committed mid-flight. Null for upload/template sheets.",
+   "fieldname": "source_boq",
+   "fieldtype": "Link",
+   "label": "Source BoQ",
+   "options": "BOQs",
+   "read_only": 1
+  },
+  {
+   "description": "For origin=revision sheets (ADR-0014 D2): the commit_version of the original sheet the carry read from (the is_current version at mapping time). Pins the provenance so it survives a later re-commit of the original. 0/blank for upload/template sheets.",
+   "fieldname": "source_commit_version",
+   "fieldtype": "Int",
+   "label": "Source Commit Version",
+   "read_only": 1
+  },
+  {
+   "description": "For origin=revision sheets (ADR-0014 D2/D3): the committed ORIGINAL sheet_name this sheet was paired to (carried from the draft's source_sheet_name at commit, WRITE-ONCE). NOT an addressing key -- sheet_name stays verbatim (#152); this only records the cross-doc pairing. Blank for upload/template sheets and revision sheets declared New.",
+   "fieldname": "source_sheet_name",
+   "fieldtype": "Data",
+   "label": "Source Sheet Name",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-15 00:00:00.000000",
+ "modified": "2026-07-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "BoQ Sheet",

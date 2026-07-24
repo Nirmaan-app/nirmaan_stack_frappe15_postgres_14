@@ -286,9 +286,12 @@ def build_sheet_node_plan(boq_name: str, sheet_name: str) -> tuple[list, list]:
     the INTERNAL derivation tripwire (never surfaced to users -- callers feed a non-empty
     list to _log_levelless_squeeze_tripwire; never fires under correct derivation).
     """
+    # is_excluded=0 (ADR-0013 D5): deselected template rows are dropped from the node plan,
+    # so they neither block the finalize gate (structural_errors_for_sheet reuses this plan)
+    # nor become BOQ Nodes at commit. UNIVERSALLY INERT for upload (all upload rows are 0).
     raw_rows = frappe.db.get_all(
         "BoQ Review Row",
-        filters={"boq": boq_name, "sheet_name": sheet_name},  # verbatim (#152)
+        filters={"boq": boq_name, "sheet_name": sheet_name, "is_excluded": 0},  # verbatim (#152)
         fields=_PLAN_REVIEW_ROW_FIELDS,
         order_by="row_index asc",
     )

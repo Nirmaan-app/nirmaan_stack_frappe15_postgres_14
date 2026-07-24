@@ -44,6 +44,7 @@ import {
 } from "@tanstack/react-table";
 import { getTaskTableColumns, TASK_DATE_COLUMNS } from './config/commissionTableColumns';
 import { useMasterTaskMap } from './report-wizard/data/useMasterTaskMap';
+import { ApprovedReportsDialog } from './components/ApprovedReportsDialog';
 
 const DOCTYPE = 'Project Commission Report';
 
@@ -312,6 +313,14 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const hasEditStructureAccess = role === "Nirmaan Design Lead Profile" || role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
     // Approvers (Admin / PMO) get the Approvals queue tab + Approve/Reject actions.
     const isApprover = role === "Nirmaan Admin Profile" || role === "Nirmaan PMO Executive Profile" || user_id === "Administrator";
+    // Who may open the "Bulk Approved Reports" export: Administrator + Admin + PMO + Project Manager
+    // (the tracker-access roles) + Design Lead (kept from the prior hasEditStructureAccess gate).
+    const canExportApprovedReports = user_id === "Administrator" || [
+        "Nirmaan Admin Profile",
+        "Nirmaan PMO Executive Profile",
+        "Nirmaan Project Manager Profile",
+        "Nirmaan Design Lead Profile",
+    ].includes(role);
     // Status-filter tabs above the table. All / per-status filter the task table;
     // 'Pending Approval' (approver-only, last after a divider) opens the approvals queue.
     const [activeStatusTab, setActiveStatusTab] = useState<string>('All');
@@ -334,6 +343,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     const [sorting, setSorting] = useState<SortingState>([{ id: 'deadline', desc: false }]);
     const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+    const [isApprovedReportsOpen, setIsApprovedReportsOpen] = useState(false);
 
     // --- Progress Calculations for Header (phase-scoped) ---
     // Phase-scoped tasks for progress metrics
@@ -522,48 +532,55 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
         await handleParentDocSave({ commission_report_task: updatedTasks });
     };
 
-    const handleDownloadReport = async (isFullReport: boolean = false) => {
-        const printFormatName = "Project Commission Report";
-        const params = new URLSearchParams({
-            doctype: DOCTYPE,
-            name: trackerId!,
-            format: printFormatName,
-            no_letterhead: "0",
-            _lang: "en",
-            phase: isFullReport ? "All" : activePhase, // Pass 'All' or current phase
-        });
+    // const handleDownloadReport = async (isFullReport: boolean = false) => {
+    //     const printFormatName = "Project Commission Report";
+    //     const params = new URLSearchParams({
+    //         doctype: DOCTYPE,
+    //         name: trackerId!,
+    //         format: printFormatName,
+    //         no_letterhead: "0",
+    //         _lang: "en",
+    //         phase: isFullReport ? "All" : activePhase, // Pass 'All' or current phase
+    //     });
 
-        const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
+    //     const downloadUrl = `/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`;
 
-        try {
-            toast({ title: "Generating PDF...", description: "Please wait while we generate your report." });
+    //     try {
+    //         toast({ title: "Generating PDF...", description: "Please wait while we generate your report." });
 
-            const response = await fetch(downloadUrl);
-            if (!response.ok) throw new Error('PDF generation failed.');
+    //         const response = await fetch(downloadUrl);
+    //         if (!response.ok) throw new Error('PDF generation failed.');
 
-            const blob = await response.blob();
+    //         const blob = await response.blob();
 
-            const now = new Date();
-            const dateStr = format(now, "dd_MMM_yyyy");
-            const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
+    //         const now = new Date();
+    //         const dateStr = format(now, "dd_MMM_yyyy");
+    //         const projectNameClean = (trackerDoc?.project_name || "Project").replace(/[^a-zA-Z0-9-_]/g, "_");
 
-            const filename = `${projectNameClean}-${activePhase}-${dateStr}-CommissionReport.pdf`;
+    //         const filename = `${projectNameClean}-${activePhase}-${dateStr}-CommissionReport.pdf`;
 
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', filename);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
+    //         const url = window.URL.createObjectURL(blob);
+    //         const link = document.createElement('a');
+    //         link.href = url;
+    //         link.setAttribute('download', filename);
+    //         document.body.appendChild(link);
+    //         link.click();
+    //         link.remove();
+    //         window.URL.revokeObjectURL(url);
 
-            toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
-        } catch (error) {
-            console.error("Download Error:", error);
-            toast({ title: "Error", description: "Failed to download PDF.", variant: "destructive" });
-        }
-    };
+    //         toast({ title: "Success", description: "Report downloaded successfully.", variant: "success" });
+    //     } catch (error) {
+    //         console.error("Download Error:", error);
+    //         toast({ title: "Error", description: "Failed to download PDF.", variant: "destructive" });
+    //     }
+    // };
+    
+
+    // Approved (Submitted) Field reports available for bulk export in the Approved Reports dialog.
+    const submittedFieldReports = useMemo(
+        () => flattenedTasks.filter((t) => t.report_type === 'Field' && t.task_status === 'Submitted'),
+        [flattenedTasks],
+    );
 
     // --- Inline Task Save Handler ---
     const inlineTaskSaveHandler = async (updatedFields: { [key: string]: any }) => {
@@ -585,7 +602,7 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                 <div className="text-center">
                     <EyeOff className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                     <h2 className="text-lg font-semibold text-gray-900 mb-2">Access Restricted</h2>
-                    <p className="text-sm text-gray-500 mb-4">This commission report is currently hidden.</p>
+                    <p className="text-sm text-gray-500 mb-4">This commission report is currently hidden. Please contact an Administrator for access.</p>
                     <Button variant="outline" onClick={() => navigate('/commission-tracker')}>
                         Back to List
                     </Button>
@@ -597,6 +614,17 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
     return (
         <div className="flex-1 md:p-4">
             {isCEOHold && <CEOHoldBanner className="mb-4 mx-4 md:mx-0" />}
+            {isHiddenTracker && (
+                <div
+                    className="mb-3 mx-4 md:mx-0 flex items-center gap-2 rounded-md border-l-4 border-amber-500 bg-amber-50 px-3 py-1.5 shadow-sm"
+                    role="alert"
+                >
+                    <EyeOff className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                    <p className="text-xs text-amber-800 leading-snug">
+                        <span className="font-semibold">Inactive —</span> this commission report was made inactive by an Admin and is hidden from most users. You can still view it; confirm why before making changes.
+                    </p>
+                </div>
+            )}
             {/* ═══════════════════════════════════════════════════════════════
                 HEADER / SUMMARY SECTION - Mobile Collapsible + Desktop Static
             ═══════════════════════════════════════════════════════════════ */}
@@ -670,14 +698,16 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                             <Plus className="h-3 w-3" /> Category
                                         </Button>
                                     )}
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        className="h-7 text-xs gap-1 bg-red-600 hover:bg-red-700 ml-auto"
-                                        onClick={() => handleDownloadReport(true)}
-                                    >
-                                        <Download className="h-3 w-3" /> Download Tracker
-                                    </Button>
+                                    {canExportApprovedReports && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 text-xs gap-1 ml-auto"
+                                            onClick={() => setIsApprovedReportsOpen(true)}
+                                        >
+                                            <Download className="h-3 w-3" /> Bulk Approved Reports
+                                        </Button>
+                                    )}
                                     {/* <TooltipProvider>
                                 <Tooltip delayDuration={200}>
                                     <TooltipTrigger asChild>
@@ -722,14 +752,16 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                                     <Plus className="h-3 w-3" /> Add Category
                                 </Button>
                             )}
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 text-xs gap-1"
-                                onClick={() => handleDownloadReport(true)}
-                            >
-                                <Download className="h-3 w-3" /> Download Tracker
-                            </Button>
+                            {canExportApprovedReports && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 text-xs gap-1"
+                                    onClick={() => setIsApprovedReportsOpen(true)}
+                                >
+                                    <Download className="h-3 w-3" /> Bulk Approved Reports
+                                </Button>
+                            )}
                         </div>
                     </div>
 
@@ -856,6 +888,15 @@ export const ProjectCommissionReportDetail: React.FC<ProjectCommissionReportType
                 onOpenChange={setIsAddCategoryModalOpen}
                 availableCategories={availableNewCategories}
                 onAdd={handleAddCategories}
+            />
+
+            <ApprovedReportsDialog
+                open={isApprovedReportsOpen}
+                onOpenChange={setIsApprovedReportsOpen}
+                trackerId={trackerId || ''}
+                projectName={trackerDoc?.project_name}
+                reports={submittedFieldReports}
+                masterMap={masterTaskMap}
             />
 
             {trackerDoc && (

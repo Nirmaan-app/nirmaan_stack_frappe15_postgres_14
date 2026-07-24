@@ -45,6 +45,13 @@ interface UploadStatusResponse {
 
 interface BoqUploadScreenProps {
   projectId: string;
+  /** A2: return to the mode chooser (in-place; no route change). When absent the footer Back
+   *  navigates to the project page as before -- upload flow byte-identical for old callers. */
+  onBack?: () => void;
+  /** ADR-0013 D2: hosted inside BoqPickerPage's one-screen mode toggle -> suppress this
+   *  component's own <h1> header + outer max-width wrapper (the host owns one header + width).
+   *  Absent = renders byte-identically to the standalone screen. */
+  embedded?: boolean;
 }
 
 /**
@@ -60,7 +67,7 @@ interface BoqUploadScreenProps {
  * Cleanup runs on unmount (socket.off). Guard: only acts when uploadStatus === "parsing"
  * to avoid reacting to events from concurrent uploads by other users.
  */
-export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
+export function BoqUploadScreen({ projectId, onBack, embedded }: BoqUploadScreenProps) {
   const navigate = useNavigate();
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -74,6 +81,8 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
     confirmedFields,
     boqDocName,
     jobId,
+    revisionMode,
+    sourceBoq,
     setUploadStatus,
     setBoqDocName,
     fillFromParse,
@@ -144,7 +153,9 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
 
   // Fetch the BOQs doc once boqDocName is set (i.e. after socket success).
   // Third arg null disables SWR fetch until boqDocName is available (per sdk gotcha in CLAUDE.md).
-  const { data: boqDoc } = useFrappeGetDoc<BOQsDoc>(
+  // mutate is the W3 re-read after an entry conversion: convert_revision_entry recomputes
+  // boq_name + version server-side, and the fill effect below re-runs off the fresh doc.
+  const { data: boqDoc, mutate: mutateBoqDoc } = useFrappeGetDoc<BOQsDoc>(
     "BOQs",
     boqDocName ?? "",
     boqDocName ? undefined : null
@@ -166,15 +177,21 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boqDoc, uploadStatus]);
 
-  // ── Continue gate (M1.33-M1.36) ──────────────────────────────────────────
+  // ── Continue gate (M1.33-M1.36; ADR-0014 D1 adds "original selected" in Revise mode) ──
   const allConfirmed =
     confirmedFields.boqName && confirmedFields.version && confirmedFields.gst;
-  const canContinue = droppedFile !== null && uploadStatus === "done" && allConfirmed;
+  // A revision must have its original picked before Continue (source_boq rides the upload).
+  const needsOriginal = revisionMode === "revise" && !sourceBoq;
+  const canContinue =
+    droppedFile !== null && uploadStatus === "done" && allConfirmed && !needsOriginal;
 
   const missingItems: string[] = [];
+  if (needsOriginal) missingItems.push("select the original BoQ to revise");
   if (!droppedFile) {
     missingItems.push("upload a BoQ file");
-  } else if (uploadStatus !== "done") {
+  } else if (uploadStatus !== "done" && !needsOriginal) {
+    // In Revise mode the upload is held until the original is picked -- don't mislabel that
+    // wait as "parsing"; the needsOriginal item already tells the user what to do.
     missingItems.push("wait for parsing to complete");
   }
   if (!confirmedFields.boqName) missingItems.push("confirm BoQ name");
@@ -187,14 +204,20 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
       : "All set -- click to continue";
 
   return (
-    <div className="flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10">
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Upload BoQ</h1>
-        {project?.project_name && (
-          <p className="mt-1 text-sm text-muted-foreground">{project.project_name}</p>
-        )}
-      </div>
+    <div
+      className={
+        embedded ? "space-y-6" : "flex-1 space-y-6 max-w-4xl mx-auto pt-6 pb-10"
+      }
+    >
+      {/* ── Header (suppressed when embedded -- host owns the one header) ──── */}
+      {!embedded && (
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Upload BoQ</h1>
+          {project?.project_name && (
+            <p className="mt-1 text-sm text-muted-foreground">{project.project_name}</p>
+          )}
+        </div>
+      )}
 
       {/* ── Two-pane body ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -217,6 +240,11 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
             <BoqMasterPanel
               projectName={project?.project_name ?? ""}
               customer={project?.customer}
+              // W3 entry un-lock: the panel needs the SERVER's current entry to decide
+              // whether a radio/picker change is a real conversion or a no-op.
+              boqOrigin={boqDoc?.origin}
+              boqSourceBoq={boqDoc?.source_boq ?? null}
+              onEntryConverted={mutateBoqDoc}
             />
           </CardContent>
         </Card>
@@ -224,9 +252,12 @@ export function BoqUploadScreen({ projectId }: BoqUploadScreenProps) {
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between border-t border-border pt-4">
-        <Button variant="ghost" onClick={() => navigate(`/projects/${projectId}`)}>
+        <Button
+          variant="ghost"
+          onClick={() => (onBack ? onBack() : navigate(`/projects/${projectId}`))}
+        >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to project
+          {onBack ? "Back" : "Back to project"}
         </Button>
 
         <TooltipProvider>

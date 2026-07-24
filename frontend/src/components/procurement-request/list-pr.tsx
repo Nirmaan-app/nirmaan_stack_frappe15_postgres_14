@@ -31,46 +31,35 @@ export default function ListPR() {
 
   const { notifications, mark_seen_notification } = useNotificationStore();
 
+  // Single enriched call: the PR list AND each PR's tag headers come back in ONE
+  // round trip. get_pr_summary_list embeds `pr_tag_list` on every row (empty array
+  // when a PR has no tags), so there is no separate get_pr_tags call and no PR-name
+  // list on the URL. Replaces the old load-PRs-then-fetch-tags-by-project pair.
   const {
-    data: procurement_request_list,
+    data: prSummaryResponse,
     isLoading: procurement_request_list_loading,
     error: procurement_request_list_error,
     mutate: prListMutate,
-  } = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
+  } = useFrappeGetCall<{ message: { data: ProcurementRequest[] } }>(
+    "nirmaan_stack.api.projects.pr_summary.get_pr_summary_list",
     {
-      fields: ["*"],
-      filters: [["project", "=", selectedProject!]],
-      orderBy: { field: "modified", order: "desc" },
-      limit: 0,
+      doctype: "Procurement Requests",
+      fields: JSON.stringify(["*"]),
+      filters: JSON.stringify([["project", "=", selectedProject]]),
+      order_by: "modified desc",
+      limit_page_length: 0,
     },
-    selectedProject ? `Procurement Requests ${selectedProject}` : null
+    selectedProject ? `PR Summary ${selectedProject}` : null
+  );
+
+  const procurement_request_list = useMemo(
+    () => prSummaryResponse?.message?.data ?? [],
+    [prSummaryResponse]
   );
 
   useFrappeDocTypeEventListener("Procurement Requests", async () => {
     await prListMutate();
-    await prTagsMutate();
   });
-
-  const prNames = useMemo(
-    () => (procurement_request_list || []).map((p) => p.name),
-    [procurement_request_list]
-  );
-
-  const { data: prTagsResponse, mutate: prTagsMutate } = useFrappeGetCall<{
-    message: Record<string, { tag_header: string; tag_package: string }[]>;
-  }>(
-    "nirmaan_stack.api.projects.pr_summary.get_pr_tags_by_names",
-    { pr_names: JSON.stringify(prNames) },
-    selectedProject && prNames.length > 0
-      ? `PR Tags ${selectedProject} ${prNames.length}`
-      : null
-  );
-
-  const tagsByPR = useMemo(
-    () => prTagsResponse?.message ?? {},
-    [prTagsResponse]
-  );
 
 
   const handleChange = (selectedItem: { label: string, value: string } | null) => {
@@ -143,7 +132,7 @@ export default function ListPR() {
                           </Link>
                         </TableCell>
                         <TableCell className="text-sm text-center">
-                          <PRHeadersCell item={item} tags={tagsByPR[item.name]} />
+                          <PRHeadersCell item={item} tags={item.pr_tag_list} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />
@@ -203,7 +192,7 @@ export default function ListPR() {
                           </Link>
                         </TableCell>
                         <TableCell className="text-sm text-center">
-                          <PRHeadersCell item={item} tags={tagsByPR[item.name]} />
+                          <PRHeadersCell item={item} tags={item.pr_tag_list} />
                         </TableCell>
                         <TableCell className="text-sm text-center">
                           <RenderStatusBadge item={item} selectedProject={selectedProject} />

@@ -131,6 +131,8 @@ const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
 const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
+// TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
+const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -149,6 +151,9 @@ export const appRoutes: RouteObject[] = [
         children: [
           // --- Dashboard ---
           { index: true, element: <Dashboard /> },
+
+          // Resolve Invoices — Admin tool (lazy → MUST be wrapped in Suspense, like every other lazy route)
+          { path: "resolve-invoices", element: <Suspense fallback={null}><ResolveInvoices /></Suspense> },
 
           // --- PRs & Milestones Section ---
           {
@@ -736,9 +741,17 @@ export const appRoutes: RouteObject[] = [
           // ?project=<id> pre-selects the project in the picker.
           { path: "upload-boq", lazy: () => import("@/pages/boq-wizard/BoqPickerPage") },
 
+          // BoQ Templates admin screen (ADR-0013 A1 / A-T8). Admin + Estimates only
+          // (server also gates). Manages the single master template + seeding.
+          { path: "upload-boq/templates", lazy: () => import("@/pages/boq-wizard/TemplateEditorPage") },
+
           // BoQ Hub (Module 2b) -- sheet mapping screen.
           // boqId is the BOQs docname; read from URL so the hub survives refresh.
           { path: "upload-boq/hub/:boqId", lazy: () => import("@/pages/boq-wizard/BoqHubPage") },
+
+          // Revised-BoQ sheet-mapping screen (ADR-0014 D3, S3). Always shown for a revision
+          // between upload and hub; the hub redirects an unconfirmed revision here.
+          { path: "upload-boq/revision/:boqId/map", lazy: () => import("@/pages/boq-wizard/RevisionMappingPage") },
 
           // BoQ per-sheet spoke (Module 3 Slice 3b-ii).
           // sheetName is encodeURIComponent(sheet_name); React Router v6 auto-decodes

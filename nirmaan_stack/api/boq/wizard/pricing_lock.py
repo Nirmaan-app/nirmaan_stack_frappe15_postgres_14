@@ -10,9 +10,15 @@ EXACTLY-ONE-WINNER (the load-bearing guarantee): the lock store ("BoQ Sheet Pric
 Lock") names each row by a DETERMINISTIC hash of the identity, so two near-simultaneous
 first-edits both try to INSERT the SAME primary key. Postgres rejects the second with a
 unique/PK violation that Frappe surfaces as `frappe.exceptions.DuplicateEntryError`;
-exactly one INSERT wins and the loser re-reads the winning row and is routed to the
-reject / takeover branch. This is the app's idiomatic atomicity primitive (a unique
-identity enforced at the DB, mirroring the invariant-by-write-path convention).
+exactly one INSERT wins and the LOSER IS REJECTED (marker-prefixed throw, writes nothing).
+This is the app's idiomatic atomicity primitive (a unique identity enforced at the DB,
+mirroring the invariant-by-write-path convention).
+
+⚠️ The loser CANNOT read the winning row. Frappe runs Postgres at REPEATABLE READ, so the
+loser's snapshot predates the winner's commit and no in-transaction re-read or retry can
+ever observe it -- see the long note in `acquire_or_refresh`'s DuplicateEntryError handler
+before changing that path. Losing the race is itself proof the lock is held AND fresh, so
+rejecting is the correct routing, not a degraded fallback.
 
 EXPIRY (A2 / ADR-0011): the lock is STALE when now - last_edit_at exceeds
 LOCK_STALE_SECONDS (~2 min). A holder save OR a periodic client heartbeat
@@ -163,15 +169,35 @@ def acquire_or_refresh(
             doc.insert(ignore_permissions=True)
             return "acquired"  # we won the insert -> we are the holder
         except frappe.exceptions.DuplicateEntryError:
-            # A concurrent first-edit beat us to this PK. Roll back ONLY the failed
-            # insert (keeps the request transaction usable), then re-read the winner and
-            # fall through to the lock-exists branches below.
-            frappe.db.rollback(save_point=_ACQUIRE_SAVEPOINT)
-            lock = _read_lock(boq, sheet_name, version)
-            if lock is None:
-                # The colliding row vanished between insert and re-read -- genuinely
-                # unexpected; surface it rather than silently swallow.
-                raise
+            # LOST THE PK RACE -> the loser REJECTS. It cannot re-read the winner.
+            #
+            # Frappe runs PostgreSQL at REPEATABLE READ (verified: `SHOW
+            # transaction_isolation` -> "repeatable read"; psycopg2 isolation_level 2), so this
+            # transaction's snapshot was fixed at its FIRST statement -- necessarily BEFORE the
+            # winner committed, because we read the identity as FREE. Our INSERT then blocked on
+            # the winner's uncommitted row and failed only once they committed. ROLLBACK TO
+            # SAVEPOINT makes the transaction usable again but does NOT advance the snapshot, so
+            # the winning row is INVISIBLE to us for the rest of this transaction.
+            #
+            # An earlier version re-read here and re-raised when it saw None, calling that
+            # "genuinely unexpected". It is the opposite: under REPEATABLE READ the re-read
+            # returns None *every* time (measured 12/12 with two concurrent connections), so the
+            # recovery branch was unreachable and every race loser leaked a raw
+            # DuplicateEntryError -- surfacing as an HTTP 409 that failed the caller's write
+            # instead of the lock rejection the caller knows how to handle.
+            # Do NOT "fix" this back into a re-read, and do NOT retry in-transaction: the
+            # snapshot cannot advance, so both are guaranteed to fail the same way.
+            #
+            # Rejecting is CORRECT, not a fallback: losing the insert race is itself proof that
+            # another session acquired the lock moments ago, so it is held AND fresh (the winner
+            # just stamped last_edit_at = now) -- exactly branch 3. The holder's NAME is the only
+            # thing we lose, so the message names the session rather than guessing a person.
+            frappe.db.rollback(save_point=_ACQUIRE_SAVEPOINT)  # keep the caller's txn usable
+            frappe.throw(
+                f"{marker}: This sheet was just locked by another editing session. "
+                f"Your change was not saved. Reload to continue.",
+                title="Sheet locked",
+            )
 
     # -- Branch 2: MINE -> refresh expiry ----------------------------------------------
     if lock["locked_by"] == user:

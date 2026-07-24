@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create BOQ from Template — Understanding</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --ink:#e7eaf0; --muted:#9aa3b2;
+    --line:#2a2f3a; --accent:#6ea8fe; --green:#54d18c; --amber:#f0b95d; --red:#f0736f;
+    --violet:#b48ef0; --chip:#232834;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 96px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  h2{font-size:21px;margin:44px 0 14px;padding-top:18px;border-top:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:16px;margin:26px 0 10px;color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 8px}
+  p{margin:10px 0}
+  code{background:var(--chip);padding:1px 6px;border-radius:5px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#d7dce8}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;letter-spacing:.03em;text-transform:uppercase}
+  .reuse{background:rgba(84,209,140,.14);color:var(--green);border:1px solid rgba(84,209,140,.3)}
+  .new{background:rgba(240,115,111,.14);color:var(--red);border:1px solid rgba(240,115,111,.3)}
+  .mod{background:rgba(240,185,93,.14);color:var(--amber);border:1px solid rgba(240,185,93,.3)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em}
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:13px;font-weight:500}
+  .step.skip{opacity:.4;text-decoration:line-through}
+  .step.hot{border-color:var(--accent);box-shadow:0 0 0 1px rgba(110,168,254,.3) inset}
+  .arr{color:var(--muted)}
+  .q{background:var(--panel2);border-left:3px solid var(--violet);border-radius:0 8px 8px 0;padding:12px 16px;margin:12px 0}
+  .q b{color:var(--violet)}
+  .lean{color:var(--green);font-size:13px}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  .kbd{font:12px ui-monospace,monospace;background:#0b0d11;border:1px solid var(--line);border-radius:5px;padding:1px 6px}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:600;margin:0 2px}
+  .pl-pre{background:rgba(180,142,240,.18);color:var(--violet)}
+  .pl-item{background:rgba(84,209,140,.16);color:var(--green)}
+  .pl-other{background:rgba(154,163,178,.16);color:var(--muted)}
+  .lead{font-size:16px;color:var(--muted);margin-bottom:22px}
+  header .tag{margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <span class="tag" style="background:var(--chip);color:var(--accent);border:1px solid var(--line)">Analysis · pre-grill</span>
+  <h1>Create BOQ from Template</h1>
+  <p class="lead">My understanding of the requirement, mapped against the current BOQ upload pipeline — before we <code>/grill-with-docs</code> to close the gaps.</p>
+</header>
+
+<h2>1 · The requirement, restated</h2>
+<div class="card">
+<p>Add a <b>second entry option</b> next to <i>Upload BOQ</i>: <b>Create BOQ from Template</b>. The template is a pre-built workbook (<code>MEP BOQ..xlsx</code>). Its sheets become a menu the user picks from to compose a brand-new BOQ.</p>
+<ul>
+  <li><b>Config + parsing are pre-baked</b> into the template — the user <b>skips</b> the per-sheet Configure and Parse steps entirely.</li>
+  <li>After picking sheets, the user lands in the <b>Sheet Hub</b>. Per sheet, instead of Configure→Parse, he opens a <b>Review-and-Select</b> screen where classification &amp; parenting are <b>already done</b>.</li>
+  <li>He <b>selects the eligible rows</b> he needs. Selection is <b>smart</b>: deselecting a preamble deselects every item nested under it.</li>
+  <li>He can <b>create new rows above/below</b> any row — but must supply their <b>classification</b> and <b>parent</b>.</li>
+  <li>He <b>fills quantities</b> for the selected eligible rows (eligibility follows the pricing priceability ruleset).</li>
+  <li>He <b>finalizes</b> the sheet. Everything downstream (<b>commit → tender → pricing</b>) works <b>exactly as today</b>.</li>
+</ul>
+<p class="muted">Net effect: a "build a BOQ from scratch, off a curated skeleton" path, versus the "ingest a client's Excel" path we have now.</p>
+</div>
+
+<h2>2 · The template workbook, as inspected</h2>
+<p class="sub"><code>MEP BOQ..xlsx</code> — 11 sheets. I read every sheet's header and structure.</p>
+<table>
+<thead><tr><th>Sheet</th><th>Role</th><th>Header rows</th><th>Qty model</th><th>Selectable?</th></tr></thead>
+<tbody>
+<tr><td><b>HVAC</b></td><td>Trade BOQ (68 desc rows)</td><td>1</td><td>single <code>QTY</code></td><td class="lean">yes</td></tr>
+<tr><td><b>Electrical</b></td><td>Trade BOQ (172 desc rows)</td><td><b>2</b></td><td><b>area-split</b> (Washroom / Office → Total)</td><td class="lean">yes</td></tr>
+<tr><td><b>Data &amp; Networking</b></td><td>Trade BOQ</td><td>2</td><td>TOTAL QTY (+ side lookups)</td><td class="lean">yes</td></tr>
+<tr><td><b>FA / PA / WLD &amp; RRS / Sprinkler / Access</b></td><td>Trade BOQs</td><td>2</td><td>single, Supply/Install rate split</td><td class="lean">yes</td></tr>
+<tr><td><b>CCTV</b></td><td>Trade BOQ (small)</td><td>2</td><td><b>QTY before UNIT</b> (cols swapped)</td><td class="lean">yes</td></tr>
+<tr><td class="muted">Summary</td><td class="muted">Trade rollup (aggregates the 9)</td><td class="muted">—</td><td class="muted">—</td><td class="new" style="border:0;background:none;padding:0">likely no</td></tr>
+<tr><td class="muted">Make List</td><td class="muted">Reference (makes / brands)</td><td class="muted">—</td><td class="muted">—</td><td class="new" style="border:0;background:none;padding:0">likely no</td></tr>
+</tbody>
+</table>
+<div class="card">
+<h3 style="margin-top:4px">Two facts that shape the whole design</h3>
+<p><b>① Every sheet has a different column map &amp; header-row count.</b> There is no single global config — each template sheet must carry its <b>own</b> pre-baked <code>sheet_config</code> (header rows, column roles, areas, work packages). This is exactly the per-sheet <code>sheet_config</code> blob the Configure spoke produces today.</p>
+<p><b>② Hierarchy is encoded in column A</b> — roman/letters (<code>i, ii</code> / <code>A, B, C</code>) = sections/preambles; <code>1.0, 2.0</code> = groups; <code>a, b</code> = line items; plus explicit <code>…TOTAL</code> / <code>TOTAL CARRIED OVER</code> subtotal rows. This is precisely the <b>classification + parenting</b> the template pre-computes so the user can skip Parse.</p>
+<p><b>Note:</b> the template rows carry <b>real quantities and rates</b> — it is a <i>completed</i> reference BOQ, not an empty skeleton. What we keep vs. strip is an open question (§6-C).</p>
+</div>
+
+<h2>3 · Current pipeline (as-is) — where template branches off</h2>
+<div class="flow">
+  <span class="step">Upload <code>.xlsx</code></span><span class="arr">→</span>
+  <span class="step">Ingest worker: create <code>BOQs</code> + <code>sheet_drafts</code> + auto-guess config</span><span class="arr">→</span>
+  <span class="step hot">Hub</span>
+</div>
+<div class="flow" style="margin-left:0">
+  <span class="step">per sheet: <b>Configure</b> spoke</span><span class="arr">→</span>
+  <span class="step">Mark Config&nbsp;Done</span><span class="arr">→</span>
+  <span class="step"><b>Parse</b> run → <code>BoQ Review Row</code>s</span><span class="arr">→</span>
+  <span class="step"><b>Review</b> (reclassify / reparent)</span><span class="arr">→</span>
+  <span class="step">Finalize (hard gate)</span><span class="arr">→</span>
+  <span class="step">Commit → Tender / Pricing</span>
+</div>
+<p class="muted">Status machine on <code>BoQ Sheet Draft.wizard_status</code>: <code>Pending → Config Done → Parsed → Finalized</code>, then Commit builds versioned <code>BOQ Nodes</code>. The hub, commit, and tender machinery are <b>entirely status-driven and template-agnostic</b> — they don't care how the rows got there.</p>
+
+<h3>Proposed template pipeline (to-be)</h3>
+<div class="flow">
+  <span class="step">Pick "From Template"</span><span class="arr">→</span>
+  <span class="step">Choose sheets (checkbox list of the 9 trades)</span><span class="arr">→</span>
+  <span class="step hot">Clone template → <code>BOQs</code> + <code>sheet_drafts</code> (config pre-set) + cloned <code>BoQ Review Row</code>s</span><span class="arr">→</span>
+  <span class="step hot">Hub</span>
+</div>
+<div class="flow">
+  <span class="step skip">Configure</span>
+  <span class="step skip">Parse</span>
+  <span class="arr">then per sheet →</span>
+  <span class="step hot"><b>Review + Select + Qty</b> (enhanced review)</span><span class="arr">→</span>
+  <span class="step">Finalize</span><span class="arr">→</span>
+  <span class="step">Commit → Tender / Pricing <span class="lean">(unchanged)</span></span>
+</div>
+<p>The clean seam: the template flow <b>replaces "upload → config → parse"</b> with <b>"clone template rows"</b>, arriving at a sheet that is effectively already <code>Parsed</code>. It then <b>converges on the identical Review → Finalize → Commit</b> spine. The quantities the user enters land on the review rows (<code>qty_total</code> / <code>qty_by_area</code>) so the existing commit step captures them onto <code>BOQ Nodes</code> — same as an edited parsed sheet today.</p>
+
+<h2>4 · Component map — reuse / modify / build new</h2>
+<table>
+<thead><tr><th>Concern</th><th>Verdict</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td>Row/tree data model</td><td><span class="tag reuse">reuse</span></td><td>Flat rows + <code>effective_parent_index</code> chain. <code>computeDepths</code> for indent.</td></tr>
+<tr><td>Smart deselect cascade</td><td><span class="tag reuse">reuse pattern</span></td><td>The cycle-safe descendant DFS in <code>ReviewRowParentPicker</code> is exactly "select node + subtree".</td></tr>
+<tr><td>Classification / node_type</td><td><span class="tag reuse">reuse</span></td><td>6 classes; <span class="pill pl-pre">preamble→Preamble</span> <span class="pill pl-item">line_item→Line Item</span> <span class="pill pl-other">note/spacer/subtotal/header→Other</span>.</td></tr>
+<tr><td>Priceability / qty-eligibility</td><td><span class="tag reuse">reuse rule</span></td><td>Eligible ≈ <code>node_type ∈ {Preamble, Line Item}</code>; Line Item always, Preamble when qty-bearing.</td></tr>
+<tr><td>Config skip (pre-baked)</td><td><span class="tag mod">store</span></td><td>Persist each template sheet's <code>sheet_config</code> so no Configure spoke is needed.</td></tr>
+<tr><td>Finalize / freeze / commit / tender</td><td><span class="tag reuse">reuse as-is</span></td><td>Hard gate (#7/#8), <code>_guard_sheet_not_frozen</code>, commit pipeline, pricing — untouched.</td></tr>
+<tr><td>Template storage + registration</td><td><span class="tag new">new</span></td><td>A curated "BoQ Template" (+ sheets + canonical rows) source of truth. §6-A.</td></tr>
+<tr><td>"From Template" entry + sheet picker</td><td><span class="tag new">new</span></td><td>Second option on the picker; checkbox list → clone into a fresh <code>BOQs</code>.</td></tr>
+<tr><td>Row <b>selection</b> state</td><td><span class="tag new">new</span></td><td>No selection concept today. Mirror the <code>collapsed</code> Set → a <code>selected: Set&lt;row_index&gt;</code>.</td></tr>
+<tr><td>Create row above/below</td><td><span class="tag new">new</span></td><td><b>No insert/delete primitive exists today.</b> New endpoint + row-index strategy. §6-E.</td></tr>
+<tr><td>Quantity <b>input</b></td><td><span class="tag new">new</span></td><td>Qty is <b>read-only everywhere today</b> (review + pricing). This is a genuinely new input surface. §6-F.</td></tr>
+</tbody>
+</table>
+
+<h2>5 · The priceability rule I'd reuse for "which rows accept a quantity"</h2>
+<div class="card">
+<p>From <code>PricingGrid.isRateEditableRow</code> / <code>priceability.ts</code> (owner-locked, asymmetric):</p>
+<p style="font-family:ui-monospace,monospace;font-size:13.5px;background:#0b0d11;border:1px solid var(--line);border-radius:8px;padding:12px">eligible iff&nbsp;&nbsp;override&nbsp;&nbsp;OR&nbsp;&nbsp;node_type === "Line Item"&nbsp;&nbsp;OR&nbsp;&nbsp;(node_type === "Preamble" AND row is qty-bearing)</p>
+<ul>
+<li><span class="pill pl-item">Line Item</span> — always a qty target (even a zero-qty "rate-only" line stays editable).</li>
+<li><span class="pill pl-pre">Preamble</span> — only when it already bears a quantity; a plain grouping preamble is read-only.</li>
+<li><span class="pill pl-other">Other</span> (note / spacer / subtotal / header) — never, unless overridden.</li>
+</ul>
+<p class="muted">Nuance to resolve: today this gate assumes qty <i>already exists</i>. In the template flow the user is <i>supplying</i> the qty — so the natural target set is <b>Line Items</b> (and qty-bearing Preambles from the template). Multi-area sheets (Electrical) raise per-area-vs-scalar entry — §6-F.</p>
+</div>
+
+<h2>6 · Open questions for the grill</h2>
+<p class="sub">These are the forks where the design genuinely branches. My lean is marked in <span class="lean">green</span>; I'll bring them into <code>/grill-with-docs</code>.</p>
+
+<div class="q"><b>A · Template storage model.</b> How is the template "registered"? &nbsp;<span class="lean">Lean: a curated <code>BoQ Template</code> + <code>BoQ Template Sheet</code> doctype holding the per-sheet <code>sheet_config</code> and a canonical, pre-classified/parented set of template rows — authored <b>once</b> by running the workbook through the normal upload+config+parse pipeline, then frozen. "Create from template" clones those rows into a fresh <code>BOQs</code>. Generic (a template <i>library</i>) so admins can add more later, but MVP seeds only the MEP one.</span> &nbsp;Alternative: ship the xlsx as a fixture and re-parse on each create (couples create-time to a live parse + a source file).</div>
+
+<div class="q"><b>B · Selectable sheets.</b> Confirm <b>Summary</b> (rollup) and <b>Make List</b> (reference) are excluded, leaving the 9 trade sheets. <span class="lean">Lean: exclude both.</span></div>
+
+<div class="q"><b>C · Do template rows carry rates? quantities?</b> The template has both filled in. <span class="lean">Lean: strip both — the template provides <b>structure + classification + parenting + units + column config</b> only; the user supplies quantities now, and rates stay for the pricing/tender stage as today.</span> &nbsp;But you may want the template rates as <b>default estimates</b> — that's a real product call.</div>
+
+<div class="q"><b>D · Selection cascade — both directions?</b> Deselect preamble → deselect subtree (given). Does <b>selecting a child auto-select its ancestor preamble</b> (to keep a committable tree, matching structural error #8 "line item parent must be preamble")? <span class="lean">Lean: yes — auto-pull ancestors in on select.</span> &nbsp;And default state: all-selected (prune down) vs none-selected (opt-in)? <span class="lean">Lean: all-selected.</span></div>
+
+<div class="q"><b>E · Create-new-row primitive.</b> This is the biggest net-new piece — <b>no insert/delete endpoint exists today</b>. Questions: row-index strategy (re-index the sheet vs fractional/synthetic indices — note <code>row_index</code> is the parent-pointer key space); is delete also needed, or only insert? does a created row participate in the same finalize gate? <span class="lean">Lean: synthetic <code>row_index</code> (like <code>is_synthetic</code> rows), insert-only + deselect-to-exclude instead of hard delete, full gate participation.</span></div>
+
+<div class="q"><b>F · Quantity input surface &amp; multi-area.</b> Where does qty entry live — inside the enhanced Review screen, or a distinct step? For area-split sheets (Electrical: Washroom / Office space) does the user fill <b>per-area</b> quantities (into <code>qty_by_area</code>) or a single scalar (<code>qty_total</code>)? <span class="lean">Lean: qty entry inline in the same select screen; honor the template sheet's area config — scalar sheets get one qty cell, multi-area sheets get per-area cells.</span></div>
+
+<div class="q"><b>G · One screen or two?</b> Is "review + select + create + qty" one enhanced screen, or is Select separate from Qty? <span class="lean">Lean: one screen, progressive — a <code>selected</code> checkbox column + inline qty inputs on the existing <code>ReviewTree</code>, gated read-only affordances flipped on. Reclassify/reparent affordances stay available for created rows.</span></div>
+
+<div class="q"><b>H · Amount formulas for pricing.</b> Tender/pricing needs a covering amount-formula per amount column before rates are editable. Are these pre-baked in the template too (they're derivable from the Supply/Install amount columns)? <span class="lean">Lean: yes — bake amount formulas into the template config so the priced sheet is edit-ready with zero extra setup.</span></div>
+
+<div class="q"><b>I · Work packages &amp; general specs.</b> Template sheets carry work-package associations in their config (Section 4). Auto-carry on clone? <span class="lean">Lean: yes.</span> No general-specs/preamble-master sheet is evident in the template — assume N/A unless you flag one.</div>
+
+<div class="q"><b>J · Coexistence with Upload.</b> A single BOQ mixing template sheets <b>and</b> uploaded sheets — allowed, or are the two entry paths mutually exclusive per BOQ? <span class="lean">Lean: keep them separate per BOQ for MVP; revisit mixing later.</span></div>
+
+<h2>7 · What I'm confident about vs. what needs your input</h2>
+<div class="grid2">
+<div class="card"><h3 style="margin-top:0;color:var(--green)">Confident</h3>
+<ul>
+<li>The convergence seam: template flow reuses Review→Finalize→Commit→Tender unchanged.</li>
+<li>Per-sheet pre-baked config is required (sheets are heterogeneous).</li>
+<li>Selection tree + cascade reuse the existing flat-row / effective-parent model &amp; DFS.</li>
+<li>Eligibility follows the existing priceability rule.</li>
+<li>Row-create and qty-input are genuinely new surfaces with no current analog.</li>
+</ul>
+</div>
+<div class="card"><h3 style="margin-top:0;color:var(--violet)">Needs your call</h3>
+<ul>
+<li>Template as a stored doctype vs. re-parsed fixture (A).</li>
+<li>Keep/strip template rates &amp; quantities (C).</li>
+<li>Cascade direction + default selection (D).</li>
+<li>Row-index strategy &amp; whether delete is in scope (E).</li>
+<li>Per-area vs scalar qty entry (F).</li>
+<li>Template vs upload coexistence (J).</li>
+</ul>
+</div>
+</div>
+
+<p class="muted" style="margin-top:36px;border-top:1px solid var(--line);padding-top:16px">Next: <code>/grill-with-docs</code> to drive out A–J and lock the design before any code. Nothing here is implemented — this is understanding only.</p>
+
+</div>
+</body>
+</html>

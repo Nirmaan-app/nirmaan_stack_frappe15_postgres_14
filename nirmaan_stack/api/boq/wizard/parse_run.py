@@ -27,6 +27,12 @@ from nirmaan_stack.services.boq_parser.config import (
 )
 from nirmaan_stack.services.boq_parser.hierarchy import ResolvedRow
 from nirmaan_stack.services.boq_parser.orchestrator import ParsedBoq, parse_boq
+# Revision review-carry merge seam (ADR-0014 D6/D7, #1102). review_carry imports only frappe +
+# the pure services.boq_revision modules -- no cycle back into parse_run.
+from nirmaan_stack.api.boq.wizard.review_carry import (
+    merge_revision_review_carry,
+    revision_source_boq,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -836,8 +842,20 @@ def _run_parse_worker(
             if row.source_sheet_name
         }
 
+        # Revision review-carry (ADR-0014 D6/D7, #1102): read the origin ONCE. None for every
+        # non-revision parse -> the per-sheet merge seam below is skipped and the parse stays
+        # byte-identical.
+        revision_source_boq_name = revision_source_boq(boq_name)
+        # {sheet_name: {"copied", "needs_review", "total"}} -- W5's per-sheet carry report.
+        # Stays EMPTY for a non-revision parse, so the done payload is byte-identical there.
+        revision_carry_by_sheet: dict = {}
+
         for parsed_sheet in parsed.sheets:
             sheet_name = parsed_sheet.sheet_name
+            # Per-sheet, reset each iteration: the S2 sheet-level change events (shift blocks +
+            # removed originals). Stays None for every non-revision sheet, and the status write
+            # below then omits the field entirely so that path is byte-identical.
+            sheet_change_summary = None
             try:
                 # Re-parse safety: delete existing rows before inserting.
                 # On failure the compensating delete in the except block cleans up partials.
@@ -853,6 +871,33 @@ def _run_parse_worker(
                     doc.update(row_dict)
                     doc.insert(ignore_permissions=True)
 
+                # Revision review-carry MERGE SEAM (ADR-0014 D6/D7, #1102): AFTER the insert
+                # loop (final row_index es exist for the relational re-point) and BEFORE the
+                # Parsed status write. Runs ONLY for a revision sheet; the merge no-ops for an
+                # unmapped/general-specs sheet. A failure raises into the except block below,
+                # which compensating-deletes the sheet's rows + marks "Insert error" (D7's
+                # ready-made durable failure channel) -- the same transaction as the inserts.
+                if revision_source_boq_name:
+                    carry_counts = merge_revision_review_carry(
+                        boq_name, sheet_name, revision_source_boq_name
+                    )
+                    # S2: the sheet-level events ride the draft, not the socket payload -- they are
+                    # read by the review screen (which already loads the draft) and would only bloat
+                    # a broadcast the hub modal never reads. Popped so the payload keeps the lean
+                    # {copied, needs_review, total, reason_counts} shape.
+                    sheet_change_summary = carry_counts.pop("change_summary", None)
+                    # W5 (A8): the merge already computes {copied, needs_review, total} per sheet
+                    # and used to DROP it on the floor, so the parse-completion modal could only
+                    # say "Parsed: <names>" and the user had no idea how much carried. Keep it,
+                    # keyed by sheet, for the done payload. VERBATIM sheet_name (#152).
+                    #
+                    # `total > 0` only: the merge returns all-zeros for a sheet it no-ops on (a
+                    # declared-New sheet, a general-specs sheet, a source with no committed
+                    # nodes). Reporting "0 of 0 copied" for those is noise, not information -- a
+                    # New sheet has nothing to carry BY DEFINITION and the user knows it.
+                    if carry_counts.get("total"):
+                        revision_carry_by_sheet[sheet_name] = carry_counts
+
                 # Mark Parsed -- but NOT general-specs sheets (they are not data sheets).
                 # Stamp parse-history fields alongside status in the same DB write so the
                 # frontend can distinguish "never parsed" from "Config Done after config change".
@@ -860,13 +905,24 @@ def _run_parse_worker(
                     # CLEAR-ON-SUCCESS (reactive #166): a sheet that now parses cleanly
                     # must not carry a stale failure notice. Clear the three failure
                     # fields in the SAME set_value as the status/parse-history write.
-                    _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields={
+                    parsed_fields = {
                         "has_prior_parse": 1,
                         "last_parsed_at": frappe.utils.now(),
                         "parse_failure_category": None,
                         "parse_failure_reason": None,
                         "parse_failure_at": None,
-                    })
+                    }
+                    if revision_source_boq_name:
+                        # S2: rides the SAME set_value -- no new write site. Written on every
+                        # revision sheet including the None case, so a re-parse that resolves the
+                        # last change clears a stale blob rather than leaving it to contradict the
+                        # rows. The key is ABSENT off a revision, keeping that path byte-identical.
+                        # json.dumps explicitly: a JSON field handed a Python object through
+                        # set_value is the `description_parts_raw` resave-crash class of bug.
+                        parsed_fields["revision_change_summary"] = (
+                            json.dumps(sheet_change_summary) if sheet_change_summary else None
+                        )
+                    _set_draft_status(boq_name, sheet_name, "Parsed", extra_fields=parsed_fields)
 
                 parsed_sheets.append(sheet_name)
 
@@ -922,6 +978,8 @@ def _run_parse_worker(
         frappe.db.commit()
 
         # Step 8: Publish result targeted to the enqueueing user
+        # `revision_carry` is OMITTED entirely on a non-revision parse, so the payload shape is
+        # byte-identical there and the frontend's optional read simply stays undefined (W5/A8).
         _publish_parse_event(
             boq_name,
             "success",
@@ -929,6 +987,7 @@ def _run_parse_worker(
             parsed_sheets=parsed_sheets,
             not_parsed_sheets=not_eligible,
             failed_sheets=failed_sheets,
+            **({"revision_carry": revision_carry_by_sheet} if revision_carry_by_sheet else {}),
         )
 
     except Exception:
@@ -957,16 +1016,16 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
     Caller must os.unlink the returned path in a finally block.
 
     Routing:
-      - If 'frappe_s3_attachment' is not in the URL: treat as local/dev path (tests, dev env).
+      - If 'frappe_gcp_attachment' is not in the URL: treat as local/dev path (tests, dev env).
         /private/... and /files/... are resolved via frappe.get_site_path(); bare absolute
         paths (e.g. test fixture paths) are used as-is.  File is copied to a tempfile so the
         caller can safely unlink it without destroying the source.
       - Otherwise: download from S3 via S3Operations.read_file_from_s3.
-        Real extension is derived from the 'file_name' query param (set by frappe_s3_attachment).
+        Real extension is derived from the 'file_name' query param (set by frappe_gcp_attachment).
         Unlike sheet_preview._fetch_boq_file_to_tempfile (which hardcodes '.xlsx'), this
         version correctly handles '.xlsm' workbooks.
     """
-    if "frappe_s3_attachment" not in source_file_url:
+    if "frappe_gcp_attachment" not in source_file_url:
         # Local path (dev / test)
         if source_file_url.startswith("/private/") or source_file_url.startswith("/files/"):
             local_path = frappe.get_site_path(source_file_url.lstrip("/"))
@@ -986,12 +1045,12 @@ def _fetch_boq_file_to_tempfile(source_file_url: str) -> str:
         return tmp.name
 
     # S3 path
-    from frappe_s3_attachment.controller import S3Operations  # noqa: PLC0415
+    from frappe_gcp_attachment.controller import S3Operations  # noqa: PLC0415
 
     parsed_url = urllib.parse.urlparse(source_file_url)
     params = urllib.parse.parse_qs(parsed_url.query)
 
-    # Derive real extension from file_name query param (frappe_s3_attachment sets this)
+    # Derive real extension from file_name query param (frappe_gcp_attachment sets this)
     ext = ".xlsx"
     file_name_list = params.get("file_name")
     if file_name_list:

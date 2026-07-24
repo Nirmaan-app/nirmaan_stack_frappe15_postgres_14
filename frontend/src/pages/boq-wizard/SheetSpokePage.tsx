@@ -568,6 +568,7 @@ const SheetSpokePage = () => {
           locked={locked}
           onEditIntent={ensureLockAcquired}
           onSaveSuccess={() => { void mutate(); void mutateWpMap(); }}
+          sourceSheetName={draft.source_sheet_name ?? undefined}
         />
       )}
 

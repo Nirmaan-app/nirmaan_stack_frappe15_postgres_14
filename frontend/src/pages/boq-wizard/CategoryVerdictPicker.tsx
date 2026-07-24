@@ -91,8 +91,13 @@ interface CategoryVerdictPickerProps {
   groups: EngineCatalog[];
   /** The currently-selected verdict id (human pick, else effective) -- marked with a check. */
   currentId: string;
-  /** Pick a category (id) or clear the verdict (""). The parent closes the picker after this. */
-  onSelect: (id: string) => void;
+  /**
+   * Pick a category, or clear the verdict. HV-10: the pick CARRIES its group's discipline so the
+   * write lands on that engine's row identity. A category pick passes `(id, group.discipline)`;
+   * "Clear verdict" passes `("", null)` -- the page clears the row's currently-resolved human
+   * discipline (which the picker does not know). The parent closes the picker after this.
+   */
+  onSelect: (id: string, discipline: string | null) => void;
   /** Fired on escape / outside-click so the page can drop its open-state. */
   onClose: () => void;
 }
@@ -132,7 +137,7 @@ export function CategoryVerdictPicker({
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => onSelect(c.id)}
+                      onClick={() => onSelect(c.id, group.discipline)}
                       className={cn(
                         "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted/60",
                         active ? "font-medium text-foreground" : "text-foreground",
@@ -156,7 +161,7 @@ export function CategoryVerdictPicker({
         <div className="border-t border-border">
           <button
             type="button"
-            onClick={() => onSelect("")}
+            onClick={() => onSelect("", null)}
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/60"
           >
             <RotateCcw aria-hidden className="h-3.5 w-3.5 shrink-0" />

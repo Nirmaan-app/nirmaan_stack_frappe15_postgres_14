@@ -12,6 +12,7 @@
   "unit",
   "quantity",
   "received_quantity",
+  "invoice_qty",
   "is_dispatched",
   "category",
   "po",
@@ -64,6 +65,14 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Quantity Received"
+  },
+  {
+   "default": "0",
+   "description": "Quantity invoiced so far (derived from verified invoice line mappings; read-only).",
+   "fieldname": "invoice_qty",
+   "fieldtype": "Float",
+   "label": "Invoice Qty",
+   "read_only": 1
   },
   {
    "default": "0",

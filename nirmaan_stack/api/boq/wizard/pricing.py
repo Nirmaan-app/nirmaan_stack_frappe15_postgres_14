@@ -681,10 +681,6 @@ def get_sheet_pricing(
     return {"pricing": pricing}
 
 
-# ── Annotation write/read helpers (Slice 4a) ─────────────────────────────────────
-# Freeze-and-supersede plumbing mirroring _current_pricing_names / _next_pricing_version,
-# generalized over a doctype + its version field (the per-row remark has no col_letter).
-
 def _annot_identity_filters(boq_name, sheet_name, excel_row, committed_version, col_letter=None):
     """Identity filter for an annotation record. col_letter is included ONLY for the
     per-cell color layer (the per-row remark omits it). sheet_name VERBATIM (#152)."""
@@ -2442,6 +2438,49 @@ _SCALAR_FIELD_TO_RATEKIND = {v: k for k, v in _SCALAR_RATEKIND_TO_FIELD.items()}
 _CF_SKIP, _CF_CLEAN, _CF_CONFLICT = 1, 2, 3
 
 
+def _resolve_rate_carry_target(rate_index, filled, boq_name, sheet_name, excel_row,
+                               committed_version, area, rate_kind):
+    """SHARED rate-carry cell resolver -- the single home for "given a source (area, rate_kind),
+    where does it land on the TARGET version and is it clean?". Called by BOTH the same-BOQ
+    copy-forward (_build_copy_forward_plan) and the cross-BOQ rate carry
+    (cross_boq_carry._classify_carry), so the two paths CANNOT drift on the load-bearing steps --
+    CF3 rate-column re-resolution, the priceability re-gate, and clean-vs-conflict detection
+    (ADR-0014 D9 / the plan's "plan and apply must not drift"). PURE READ.
+
+    Returns (target_col, skip_reason, dest_cell):
+      * skip_reason == "no_rate_column" -> (None, ..., None): (area, rate_kind) is unresolvable on
+        the target version's columns.
+      * skip_reason == "non_priceable"  -> (None, ..., None): the target node fails the priceability
+        re-gate WITHOUT the override (`allow_non_priceable` is deliberately not honoured on a carry).
+      * skip_reason is None -> (target_col, None, dest_cell): dest_cell is the already-filled pricing
+        record at (excel_row, target_col) for a CONFLICT, else None for a CLEAN copy.
+
+    The (area, rate_kind) inverse is re-resolved against the TARGET version's columns (rate_index) --
+    the SOURCE cell's bare col_letter is NEVER a write target (the CF3 safety rule)."""
+    target_col = rate_index.get((area, rate_kind))
+    if not target_col:
+        return None, "no_rate_column", None
+    node = _resolve_committed_cell(boq_name, sheet_name, excel_row, committed_version)
+    if not _node_priceable_without_override(node.get("node_type"), node["name"], node.get("qty")):
+        return None, "non_priceable", None
+    return target_col, None, filled.get((excel_row, target_col))
+
+
+def _assert_carry_versions_distinct(source_boq, source_version, dest_boq, dest_version) -> None:
+    """Reject a copy/carry that would read AND write the SAME committed sheet-version -- the
+    single, PAIR-AWARE home for this guard (ADR-0014 D9 must-fix).
+
+    A copy is a no-op ONLY when the source and destination are literally the same sheet-version,
+    i.e. the SAME BOQ at the SAME version. The old inline check compared version alone, which was
+    a safe proxy for the same-BOQ copy_forward but WRONGLY rejects the commonest cross-BOQ carry
+    (two DIFFERENT BOQs both sitting at v1). Comparing the full (boq, version) pair fixes that
+    while leaving same-BOQ behaviour byte-identical: copy_forward passes (boq, from_version, boq,
+    current_version), so it still rejects from_version == current_version with the same message."""
+    if source_boq == dest_boq and source_version == dest_version:
+        frappe.throw("The selected version is already the current version.",
+                     title="Nothing to copy")
+
+
 def _current_rate_column_index(column_descriptors) -> dict:
     """Build the RESTRICTED (rate-role-only) inverse {(area, rate_kind): col_letter} from a version's
     column_descriptors -- the load-bearing CF3 safety rule. Per-area rate descriptors key on
@@ -2503,9 +2542,9 @@ def get_copy_forward_plan(boq_name=None, sheet_name=None, from_version=None) -> 
     if current_version is None:
         frappe.throw("This sheet has no current committed version to copy into.",
                      title="Nothing to copy into")
-    if from_version == current_version:
-        frappe.throw("The selected version is already the current version.",
-                     title="Nothing to copy")
+    # Same-BOQ copy_forward: source_boq == dest_boq == boq_name, so this still rejects
+    # from_version == current_version (byte-identical). Pair-aware home (ADR-0014 D9).
+    _assert_carry_versions_distinct(boq_name, from_version, boq_name, current_version)
 
     plan = _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version)
     counts = {"clean": 0, "conflict": 0, "non_match": 0, "no_rate_column": 0, "non_priceable": 0}
@@ -2590,21 +2629,21 @@ def _build_copy_forward_plan(boq_name, sheet_name, from_version, current_version
             row["skip_reason"] = "non_match"
             row["reason"] = "This row's description changed in the current version -- not copied."
             plan.append(row); continue
-        # (1b) RE-RESOLVE the target rate column by (area, rate_kind) -- NEVER the bare col_letter.
-        target_col = rate_index.get((area, rate_kind))
-        if not target_col:
+        # (1b/1c/2/3) SHARED resolver: re-resolve the rate column by (area, rate_kind) -- NEVER the
+        # bare col_letter -- + priceability re-gate + clean-vs-conflict. (Same-BOQ: the dest excel_row
+        # equals the source excel_row.) The reason STRINGS stay local (context-specific phrasing).
+        target_col, skip_reason, dest = _resolve_rate_carry_target(
+            rate_index, cur_filled, boq_name, sheet_name, excel_row, current_version, area, rate_kind
+        )
+        if skip_reason == "no_rate_column":
             row["skip_reason"] = "no_rate_column"
             row["reason"] = "This rate column no longer exists in the current version -- not copied."
             plan.append(row); continue
-        # (1c) PRICEABILITY RE-GATE -- the current target row must be priceable WITHOUT the override.
-        node = _resolve_committed_cell(boq_name, sheet_name, excel_row, current_version)
-        if not _node_priceable_without_override(node.get("node_type"), node["name"], node.get("qty")):
+        if skip_reason == "non_priceable":
             row["skip_reason"] = "non_priceable"
             row["reason"] = "This row is no longer priceable in the current version -- not copied."
             plan.append(row); continue
-        # (2 / 3) dest EMPTY (clean) vs already FILLED (conflict).
         row["target_col_letter"] = target_col
-        dest = cur_filled.get((excel_row, target_col))
         if dest is not None:
             row["outcome"] = _CF_CONFLICT
             row["current_rate"] = dest.get("rate")
@@ -2655,9 +2694,7 @@ def apply_copy_forward(boq_name=None, sheet_name=None, from_version=None, decisi
     if current_version is None:
         frappe.throw("This sheet has no current committed version to copy into.",
                      title="Nothing to copy into")
-    if from_version == current_version:
-        frappe.throw("The selected version is already the current version.",
-                     title="Nothing to copy")
+    _assert_carry_versions_distinct(boq_name, from_version, boq_name, current_version)
 
     # The server-side plan, keyed by (excel_row, area, rate_kind) -- the cell identity each decision
     # references. Re-derived here (NOT from the client) so apply enforces exactly what was classified.

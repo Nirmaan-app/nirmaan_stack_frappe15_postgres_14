@@ -135,7 +135,10 @@ interface ClassifySheetDialogProps {
   boqId: string;
   sheetName: string;
   onClose: () => void;
-  onStarted: (disciplines: string[]) => void;
+  // HV-10b: report each launched engine's chosen scope (not just its discipline) so the page can
+  // scope the COMBINED-EFFECTIVE completion summary to the run set's row range union. Signature-only
+  // extension -- the dialog's launch behaviour is unchanged.
+  onStarted: (launches: Array<{ discipline: string; scope: ClassifyScope }>) => void;
 }
 
 export function ClassifySheetDialog({
@@ -198,6 +201,7 @@ export function ClassifySheetDialog({
     setError(null);
     try {
       const chosen = engines.filter((e) => selected.has(e.id) && e.available);
+      const launches: Array<{ discipline: string; scope: ClassifyScope }> = [];
       for (const engine of chosen) {
         const args = buildStartArgs(engine, scopeFor(engine.id));
         await startCall({
@@ -206,8 +210,9 @@ export function ClassifySheetDialog({
           discipline: args.discipline,
           scope: JSON.stringify(args.scope),
         });
+        launches.push({ discipline: args.discipline, scope: args.scope });
       }
-      onStarted(chosen.map((e) => e.discipline));
+      onStarted(launches);
       onClose();
     } catch (e) {
       setError(getFrappeError(e) || "Could not start classification. Please try again.");

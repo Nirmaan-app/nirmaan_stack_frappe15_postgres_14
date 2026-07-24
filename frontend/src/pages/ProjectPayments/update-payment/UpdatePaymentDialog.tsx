@@ -80,6 +80,9 @@ export default function UpdatePaymentRequestDialog({
      against (payment.amount − tds) so the banner reacts as TDS changes. */
   const [receiptAmount, setReceiptAmount]       = useState<number | null>(null);
   const [amountDeltaThreshold, setAmountDeltaThreshold] = useState<number>(2);
+  /* Soft beneficiary-name check — receipt payee vs this payment's vendor. Only a
+     confirmed mismatch (match === false) is stored; null hides the banner. */
+  const [vendorMismatch, setVendorMismatch]     = useState<{ extracted: string } | null>(null);
 
   /* Reset every form / autofill bit whenever the dialog (re)opens or the
      selected payment row changes. The dialog component stays mounted
@@ -93,6 +96,7 @@ export default function UpdatePaymentRequestDialog({
       setUploadedFileUrl(null);
       setIsAutofilling(false);
       setReceiptAmount(null);
+      setVendorMismatch(null);
       setStage("upload");
     }
   }, [open, mode, payment.name]);
@@ -110,6 +114,7 @@ export default function UpdatePaymentRequestDialog({
     setUploadedFileUrl(null);
     setIsAutofilling(false);
     setReceiptAmount(null);
+    setVendorMismatch(null);
     setStage("upload");
   };
 
@@ -153,6 +158,10 @@ export default function UpdatePaymentRequestDialog({
         setAmountDeltaThreshold(amt.delta_threshold);
       }
 
+      // Soft beneficiary check — only surface a confirmed mismatch (match === false).
+      const vm = data?.validation?.vendor_match;
+      setVendorMismatch(vm?.match === false ? { extracted: (vm.extracted || "").trim() } : null);
+
       if (filled.size > 0) {
         toast({
           title: "Auto-filled from receipt",
@@ -185,6 +194,7 @@ export default function UpdatePaymentRequestDialog({
     setUploadedFileUrl(null);
     setAutofilledFields(new Set());
     setReceiptAmount(null);
+    setVendorMismatch(null);
     if (selectedFile) {
       runAutofillExtraction(selectedFile);
     }
@@ -267,7 +277,7 @@ export default function UpdatePaymentRequestDialog({
   /* ---------------- UI ------------------------------- */
   return (
     <AlertDialog open={open} onOpenChange={toggle}>
-      <AlertDialogContent className="max-w-md">
+      <AlertDialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <AlertDialogHeader>
           <AlertDialogTitle className="text-center">
             {mode === "fulfil" ? "Fulfil Payment" : "Delete Payment Request"}
@@ -280,7 +290,7 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Vendor"   val={payment.vendor_label} />
           <Row label="Doc #"    val={payment.document_name} />
           <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
-          <Row label={payment.document_type === "Service Requests" ? "WO Value" : "PO Value"} val={fmt(getTotalAmount(payment.document_name, payment.document_type).total)} />
+          <Row label={payment.document_type === "Service Requests" ? "WO Value" : "PO Value"} val={fmt(getTotalAmount(payment.document_name, payment.document_type).totalWithTax)} />
           <Row label="Total Paid" val={fmt(getTotalAmountPaidForPO(payment.document_name, ["Paid"]))} />
         </div>
 
@@ -345,17 +355,24 @@ export default function UpdatePaymentRequestDialog({
 
               {/* Soft warning: receipt amount differs from (requested − TDS) by > ₹2 */}
               {amountMismatch && (
-                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-3 py-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-700 flex-shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-900 leading-snug">
-                    <p className="font-medium">Amount mismatch on receipt.</p>
-                    <p className="mt-0.5">
-                      Receipt shows {fmt(amountMismatch.extracted)} transferred, but the expected payable is {fmt(amountMismatch.expected)}
-                      {parseNumber(tds) > 0 ? ` (${fmt(payment.amount)} − ${fmt(parseNumber(tds))} TDS)` : ""}
-                      {" "}— off by {fmt(Math.abs(amountMismatch.delta))}. Please double-check the receipt
-                      {parseNumber(tds) === 0 ? " or enter TDS if applicable." : "."}
-                    </p>
-                  </div>
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2.5 py-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-900 leading-snug">
+                    <span className="font-medium">Amount mismatch:</span> receipt {fmt(amountMismatch.extracted)} vs expected {fmt(amountMismatch.expected)} (off {fmt(Math.abs(amountMismatch.delta))})
+                    {parseNumber(tds) === 0 ? " — add TDS if applicable" : ""}.
+                  </p>
+                </div>
+              )}
+
+              {/* Soft warning: receipt beneficiary name differs from this payment's vendor */}
+              {vendorMismatch && (
+                <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-300 px-2.5 py-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-900 leading-snug">
+                    <span className="font-medium">Beneficiary mismatch:</span> receipt paid{" "}
+                    <span className="font-medium">{vendorMismatch.extracted || "an unrecognised name"}</span>, not{" "}
+                    <span className="font-medium">{payment.vendor_label}</span>.
+                  </p>
                 </div>
               )}
 

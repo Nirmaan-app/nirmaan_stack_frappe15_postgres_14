@@ -14,12 +14,43 @@ Run once (or call generate_all() from test setUpClass) to produce:
 All files are written into this same directory so tests can find them
 via: Path(__file__).parent / "<name>.xlsx"
 """
+from datetime import datetime
 from pathlib import Path
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill
 
 _HERE = Path(__file__).parent
+
+# Fixed document timestamp, used only when a fixture is actually (re)written.
+_FIXED_TIMESTAMP = datetime(2026, 1, 1, 0, 0, 0)
+
+
+def _save(wb, path) -> None:
+    """Write a fixture workbook -- but ONLY if it is not already on disk.
+
+    ⚠️ The skip is the point. `test_parse_run.py` calls `generate_all()` from five `setUpClass`
+    methods (and `test_reader` / `test_classifier` call it too, describing it as "idempotent"),
+    so simply RUNNING the suites used to rewrite all 11 tracked .xlsx fixtures. Their CONTENT
+    was always identical; the bytes were not, so every test run left 11 modified files in the
+    working tree -- diff noise that buries real changes and invites committing them by accident.
+
+    Pinning the document timestamps is NOT sufficient on its own (measured): an .xlsx is a zip,
+    and both the zip's per-member dates and some of openpyxl's XML element ordering vary between
+    processes -- the latter tracks PYTHONHASHSEED, so it is stable WITHIN a process and differs
+    ACROSS runs. Rather than fight the writer, the committed fixtures are treated as the
+    artifact: present means authoritative, so a test run reads them and writes nothing. A
+    missing fixture is still generated, so a fresh checkout and `generate_all()` both work.
+
+    To genuinely regenerate after changing a fixture's SHAPE, use `generate_all(force=True)` or
+    `python generate_synthetic.py --force`, which deletes the files first.
+    """
+    if path.exists():
+        return
+    wb.properties.created = _FIXED_TIMESTAMP
+    wb.properties.modified = _FIXED_TIMESTAMP
+    wb.save(str(path))
+
 
 
 def _path(name: str) -> Path:
@@ -91,7 +122,7 @@ def generate_simple() -> Path:
     # Row 6 — empty spacer (no writes)
 
     path = _path("synthetic_simple.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -155,7 +186,7 @@ def generate_merged_header() -> Path:
     ws["A7"] = "Total"
 
     path = _path("synthetic_merged_header.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -173,7 +204,7 @@ def generate_trailing_spaces() -> Path:
     ws2["A1"] = "data"
 
     path = _path("synthetic_trailing_spaces.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -198,7 +229,7 @@ def generate_blank_cols() -> Path:
     ws["Z1"] = ""
 
     path = _path("synthetic_blank_cols.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -210,7 +241,7 @@ def generate_empty() -> Path:
     wb = openpyxl.Workbook()
     wb.active.title = "Empty"
     path = _path("synthetic_empty.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -275,7 +306,7 @@ def generate_sparse_header() -> Path:
     ws["H7"] = "As per spec"
 
     path = _path("synthetic_sparse_header.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -327,7 +358,7 @@ def generate_makelist_header() -> Path:
     ws["F5"] = 800
 
     path = _path("synthetic_makelist_header.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -400,7 +431,7 @@ def generate_multi_area() -> Path:
     # J4 intentionally blank — amount total also triggers fallback
 
     path = _path("synthetic_multi_area.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -484,7 +515,7 @@ def generate_multi_area_2row() -> Path:
     ws["I6"] = 300.0
 
     path = _path("synthetic_multi_area_2row.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -554,7 +585,7 @@ def generate_pattern_2_rate() -> Path:
     ws["I4"] = 1600.0
 
     path = _path("synthetic_pattern_2_rate.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -620,7 +651,7 @@ def generate_pattern_2_rate_plural() -> Path:
     ws["H4"] = 1600.0
 
     path = _path("synthetic_pattern_2_rate_plural.xlsx")
-    wb.save(str(path))
+    _save(wb, path)
     return path
 
 
@@ -628,7 +659,11 @@ def generate_pattern_2_rate_plural() -> Path:
 # Entry point
 # ------------------------------------------------------------------
 
-def generate_all() -> None:
+def generate_all(force: bool = False) -> None:
+    """Generate every fixture. Existing files are LEFT ALONE unless `force` (see `_save`)."""
+    if force:
+        for stale in _HERE.glob("*.xlsx"):
+            stale.unlink()
     generate_simple()
     generate_merged_header()
     generate_trailing_spaces()
@@ -643,5 +678,10 @@ def generate_all() -> None:
 
 
 if __name__ == "__main__":
-    generate_all()
-    print("Fixtures generated in", _HERE)
+    import sys
+
+    forced = "--force" in sys.argv
+    generate_all(force=forced)
+    print(
+        f"Fixtures {'regenerated' if forced else 'ensured (existing kept)'} in", _HERE
+    )

@@ -1,6 +1,6 @@
 import frappe
 import urllib.parse
-from frappe_s3_attachment.controller import S3Operations
+from frappe_gcp_attachment.controller import S3Operations
 
 @frappe.whitelist()
 def get_s3_temp_url(file_url):
@@ -12,7 +12,7 @@ def get_s3_temp_url(file_url):
         return ""
     
     # Check if it's our specific S3 proxy URL
-    if "frappe_s3_attachment.controller.generate_file" in file_url:
+    if "frappe_gcp_attachment.controller.generate_file" in file_url:
         try:
             parsed = urllib.parse.urlparse(file_url)
             params = urllib.parse.parse_qs(parsed.query)

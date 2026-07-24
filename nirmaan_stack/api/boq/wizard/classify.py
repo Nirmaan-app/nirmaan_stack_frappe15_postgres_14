@@ -349,7 +349,7 @@ def get_sheet_categories(boq=None, sheet_name=None, discipline="Electrical"):
         },
         fields=[
             "excel_row", "rule_category_id", "ai_category_id", "final_category_id",
-            "routing", "routing_reason", "human_category_id",
+            "routing", "routing_reason", "review_priority", "human_category_id",
         ],
         order_by="excel_row asc",
     )
@@ -359,6 +359,152 @@ def get_sheet_categories(boq=None, sheet_name=None, discipline="Electrical"):
         r["effective_category_id"] = human if human else (r.get("final_category_id") or "")
         out.append(r)
     return {"committed_version": cv, "categories": out}
+
+
+# ---------------------------------------------------------------------------
+# HV-10 multi-engine per-row resolution. get_sheet_categories (above) is the
+# SINGLE-DISCIPLINE reader and is UNTOUCHED -- freeze_classification and
+# get_freeze_summary keep calling it positionally with one discipline. This new
+# endpoint is the MERGED reader the pricing editor consumes: it reads every
+# discipline's current rows in ONE index-covered query and resolves an effective
+# verdict PER ROW via the owner-locked ladder.
+#
+# N-ENGINE GENERIC: no discipline is named anywhere below. A future engine that
+# flips available in the registry flows through with ZERO code changes here --
+# it is just another key in the per-row `votes` map.
+# ---------------------------------------------------------------------------
+
+_RESOLVED_VOTE_FIELDS = (
+    "rule_category_id", "ai_category_id", "ai_confidence",
+    "final_category_id", "routing", "review_priority",
+)
+
+
+def _resolve_row_ladder(votes):
+    """Apply the owner-locked per-row resolution ladder to one row's per-discipline votes.
+
+    votes: {discipline: {..._RESOLVED_VOTE_FIELDS..., human_category_id, human_verdict_at}}
+
+    Ladder (owner 2026-07-22/23):
+      1. HUMAN wins. A discipline whose human_category_id is set. If MULTIPLE disciplines carry a
+         human verdict, the MOST RECENT (human_verdict_at) wins; ties break on discipline name
+         (deterministic ordering only -- NOT a hardcoded discipline, so the pathway stays generic).
+      2. else AUTO-ACCEPTED beats needs-review.
+      3. else if MULTIPLE auto-accepts: HIGHER ai_confidence wins, and cross_engine_conflict=True.
+         Confidence ties break on discipline name (deterministic).
+      4. else (all disciplines say review): effective category BLANK (the blank-review law).
+
+    cross_engine_conflict is TELEMETRY-ONLY: computed here at read time, NEVER persisted and (owner
+    ruling) NEVER rendered. It is True ONLY in branch 3.
+
+    Returns (effective_category_id, effective_source, resolved_discipline, conflict,
+             human_category_id, human_discipline).
+    """
+    # 1. Human verdict on any discipline -> most-recent wins.
+    humans = [
+        (d, v) for d, v in votes.items() if (v.get("human_category_id") or "").strip()
+    ]
+    if humans:
+        # sort by (human_verdict_at, discipline) descending on time, ascending name as tiebreak
+        humans.sort(key=lambda dv: ((dv[1].get("human_verdict_at") or ""), _neg_key(dv[0])),
+                    reverse=True)
+        d, v = humans[0]
+        cat = (v.get("human_category_id") or "").strip()
+        return cat, "human", d, False, cat, d
+
+    # 2/3. Auto-accepted disciplines.
+    autos = [(d, v) for d, v in votes.items() if (v.get("routing") or "") == "Auto-accepted"]
+    if autos:
+        # highest ai_confidence; discipline name as a deterministic tiebreak
+        autos.sort(key=lambda dv: (_conf(dv[1]), _neg_key(dv[0])), reverse=True)
+        d, v = autos[0]
+        conflict = len(autos) > 1
+        return (v.get("final_category_id") or ""), "auto", d, conflict, "", None
+
+    # 4. All review -> blank.
+    return "", "blank", None, False, "", None
+
+
+def _conf(v):
+    try:
+        return float(v.get("ai_confidence") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _neg_key(name):
+    """A reversible sort helper: under reverse=True we want ASCENDING discipline name as the
+    tiebreak, so invert the string ordering. Deterministic; names are data, never branched on."""
+    return tuple(-ord(c) for c in (name or ""))
+
+
+@frappe.whitelist()
+def get_sheet_categories_resolved(boq=None, sheet_name=None):
+    """Per-row multi-engine resolution across ALL disciplines with current rows. Read-only.
+
+    Returns {committed_version, disciplines:[present, sorted], categories:[ per excel_row:
+      excel_row, effective_category_id, effective_source ("human"|"auto"|"blank"),
+      resolved_discipline (of the effective verdict; None when blank),
+      cross_engine_conflict (bool, COMPUTED, telemetry-only, never rendered),
+      human_category_id, human_discipline (when a human verdict resolved the row),
+      votes: {discipline: {rule_category_id, ai_category_id, ai_confidence, final_category_id,
+              routing, review_priority}} ]}
+
+    ONE index-covered query (the composite index leads with boq, sheet_name, committed_version;
+    dropping the discipline filter is still covered -- recon-measured 0.4ms). sheet_name is
+    whitespace-VERBATIM (#152), exactly as get_sheet_categories resolves it.
+    """
+    if not boq:
+        frappe.throw("boq is required.", title="Missing field: boq")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    cv = _resolve_committed_version(boq, sheet_name)
+    if cv is None:
+        return {"committed_version": None, "disciplines": [], "categories": []}
+
+    rows = frappe.get_all(
+        _ROW_CATEGORY,
+        filters={"boq": boq, "sheet_name": sheet_name, "committed_version": cv, "is_current": 1},
+        fields=[
+            "excel_row", "discipline", "rule_category_id", "ai_category_id", "ai_confidence",
+            "final_category_id", "routing", "routing_reason", "review_priority",
+            "human_category_id", "human_verdict_at",
+        ],
+        order_by="excel_row asc",
+    )
+
+    # Group per excel_row -> {discipline: vote}
+    by_row = {}
+    disciplines = set()
+    for r in rows:
+        d = r.get("discipline")
+        disciplines.add(d)
+        by_row.setdefault(r["excel_row"], {})[d] = r
+
+    categories = []
+    for excel_row in sorted(by_row):
+        votes = by_row[excel_row]
+        eff, source, rdisc, conflict, human_cat, human_disc = _resolve_row_ladder(votes)
+        categories.append({
+            "excel_row": excel_row,
+            "effective_category_id": eff,
+            "effective_source": source,
+            "resolved_discipline": rdisc,
+            "cross_engine_conflict": conflict,
+            "human_category_id": human_cat,
+            "human_discipline": human_disc,
+            "votes": {
+                d: {f: v.get(f) for f in _RESOLVED_VOTE_FIELDS}
+                for d, v in votes.items()
+            },
+        })
+
+    return {
+        "committed_version": cv,
+        "disciplines": sorted(disciplines),
+        "categories": categories,
+    }
 
 
 @frappe.whitelist(methods=["POST"])

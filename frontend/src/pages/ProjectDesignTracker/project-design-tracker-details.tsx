@@ -1327,7 +1327,7 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 <div className="text-center">
                     <EyeOff className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                     <h2 className="text-lg font-semibold text-gray-900 mb-2">Access Restricted</h2>
-                    <p className="text-sm text-gray-500 mb-4">This design tracker is currently hidden.</p>
+                    <p className="text-sm text-gray-500 mb-4">This design tracker is currently hidden. Please contact an Administrator for access.</p>
                     <Button variant="outline" onClick={() => navigate('/design-tracker')}>
                         Back to List
                     </Button>
@@ -1339,6 +1339,17 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     return (
         <div className="flex-1 md:p-4">
             {isCEOHold && <CEOHoldBanner className="mb-4 mx-4 md:mx-0" />}
+            {isHiddenTracker && (
+                <div
+                    className="mb-3 mx-4 md:mx-0 flex items-center gap-2 rounded-md border-l-4 border-amber-500 bg-amber-50 px-3 py-1.5 shadow-sm"
+                    role="alert"
+                >
+                    <EyeOff className="h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                    <p className="text-xs text-amber-800 leading-snug">
+                        <span className="font-semibold">Inactive —</span> this design tracker was made inactive by an Admin and is hidden from most users. You can still view it; confirm why before making changes.
+                    </p>
+                </div>
+            )}
             {/* ═══════════════════════════════════════════════════════════════
                 HEADER / SUMMARY SECTION - Mobile Collapsible + Desktop Static
             ═══════════════════════════════════════════════════════════════ */}

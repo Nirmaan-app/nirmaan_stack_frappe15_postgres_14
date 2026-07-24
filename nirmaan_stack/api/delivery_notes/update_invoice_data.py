@@ -18,6 +18,7 @@ from nirmaan_stack.api.invoices._auto_approve import (
     apply_auto_approval,
     evaluate_auto_approve_eligibility,
 )
+from nirmaan_stack.api.invoices._item_billing_sync import recompute_po_invoice_qty
 
 
 @frappe.whitelist()
@@ -35,7 +36,10 @@ def update_invoice_data(
     autofill_extracted_supplier_gstin: str = None,
     autofill_extracted_receiver_gstin: str = None,
     autofill_all_entities_json: str = None,
+    autofill_line_items_json: str = None,
+    autofill_line_match_json: str = None,
     autofill_source_file_url: str = None,
+    rebuild_line_mappings: bool = False,
 ):
     """
     Creates or updates an invoice entry for a document (PO or SR).
@@ -130,11 +134,37 @@ def update_invoice_data(
                     "invoice_no": new_invoice_entry_data.get("invoice_no"),
                     "invoice_date": new_invoice_entry_data.get("date"),
                     "invoice_amount": new_invoice_entry_data.get("amount"),
+                    "is_credit_note": 1 if new_invoice_entry_data.get("is_credit_note") else 0,
                 })
-                
+
                 # If a new attachment was provided, update it
                 if attachment_id and attachment_id != vendor_invoice.invoice_attachment:
                     vendor_invoice.invoice_attachment = attachment_id
+
+                # Rebuild the verified line → PO-item mapping from the (corrected)
+                # mapping the frontend sent. Allowed for PENDING invoices, OR for a
+                # NIRMAAN ADMIN on any status (an admin may correct a locked/approved
+                # invoice's mapping). The child rows are fully regenerated; the audit
+                # snapshot is refreshed to match. invoice_qty resyncs via the
+                # recompute call (line ~244) before commit.
+                _admin_can_rebuild = (
+                    frappe.session.user == "Administrator"
+                    or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
+                )
+                if rebuild_line_mappings and (vendor_invoice.status == "Pending" or _admin_can_rebuild):
+                    # Use .set() (NOT direct attribute assignment) so the dict rows are
+                    # converted into child documents — a raw list of dicts left on the
+                    # attribute makes save() call .is_new() on a dict and blow up.
+                    vendor_invoice.set(
+                        "line_mappings",
+                        build_line_mapping_rows(autofill_line_match_json, doc),
+                    )
+                    vendor_invoice.autofill_used = 1
+                    vendor_invoice.autofill_line_match_json = autofill_line_match_json
+                    if autofill_line_items_json is not None:
+                        vendor_invoice.autofill_line_items_json = autofill_line_items_json
+                    if autofill_all_entities_json is not None:
+                        vendor_invoice.autofill_all_entities_json = autofill_all_entities_json
 
                 vendor_invoice.save(ignore_permissions=True)
             else:
@@ -168,6 +198,8 @@ def update_invoice_data(
                     autofill_extracted_supplier_gstin=autofill_extracted_supplier_gstin,
                     autofill_extracted_receiver_gstin=autofill_extracted_receiver_gstin,
                     autofill_all_entities_json=autofill_all_entities_json,
+                    autofill_line_items_json=autofill_line_items_json,
+                    autofill_line_match_json=autofill_line_match_json,
                 )
 
                 # Auto-approve evaluation. Fires inline on fresh inserts (never
@@ -209,6 +241,11 @@ def update_invoice_data(
                 },
                 update_modified=False
             )
+
+        # Refresh the stored per-item invoiced quantity from the invoice lines
+        # (new invoice → its matched lines now count toward each PO row).
+        if doctype == "Procurement Orders":
+            recompute_po_invoice_qty(docname)
 
         # --- Commit Transaction ---
         frappe.db.commit()
@@ -262,6 +299,76 @@ def create_attachment_doc(parent_doc: Document, file_url: str, attachment_type: 
     return attachment
 
 
+# Maps the frontend lineMatch vocabulary to the child-table Select options.
+_STATUS_MAP = {"matched": "Matched", "unmatched": "Unmatched", "non_item": "Non-Item"}
+_SOURCE_MAP = {"fuzzy": "Fuzzy", "gemini": "AI", "manual": "Manual"}
+
+
+def _num(v):
+    """Coerce to float; None/blank/non-numeric → None (so Currency/Float stay empty)."""
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_line_mapping_rows(autofill_line_match_json, parent_doc) -> list:
+    """Convert the user-VERIFIED lineMatch JSON into Vendor Invoice Line child rows.
+
+    The mapping targets a PO *row* (po_row index), and item_id can repeat across
+    makes — so we resolve po_row → the exact `Purchase Order Item.name` against the
+    live PO, and re-read po_item_id/po_item_name from the PO (authoritative, in case
+    the frontend payload was stale). Returns [] for non-PO parents or unparseable input.
+    """
+    if not autofill_line_match_json or parent_doc.doctype != "Procurement Orders":
+        return []
+    try:
+        data = json.loads(autofill_line_match_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    mappings = (data or {}).get("mappings") or []
+    if not isinstance(mappings, list):
+        return []
+
+    po_items = parent_doc.get("items") or []
+    rows = []
+    for m in mappings:
+        if not isinstance(m, dict):
+            continue
+        status = _STATUS_MAP.get((m.get("status") or "").lower(), "Unmatched")
+        source = _SOURCE_MAP.get((m.get("source") or "").lower(), "")
+
+        po_item_id = m.get("po_item_id")
+        po_item_name = m.get("po_item_name")
+        po_item_row = None
+        po_row = m.get("po_row")
+        if status == "Matched" and isinstance(po_row, int) and 0 <= po_row < len(po_items):
+            po = po_items[po_row]
+            po_item_row = po.name
+            po_item_id = po.get("item_id") or po_item_id
+            po_item_name = po.get("item_name") or po_item_name
+
+        over = m.get("over_billing") or {}
+        rows.append({
+            "description": m.get("description"),
+            "uom": m.get("unit"),
+            "quantity": _num(m.get("quantity")),
+            "rate": _num(m.get("rate")),
+            "amount": _num(m.get("amount")),
+            "tax_rate": _num(m.get("tax_rate")),
+            "match_status": status,
+            "match_source": source,
+            "match_score": _num(m.get("score")),
+            "po_item_id": po_item_id if status == "Matched" else None,
+            "po_item_row": po_item_row,
+            "po_item_name": po_item_name if status == "Matched" else None,
+            "is_over_billed": 1 if (status == "Matched" and over.get("would_exceed")) else 0,
+        })
+    return rows
+
+
 def create_vendor_invoice(
     parent_doc: Document,
     invoice_data: dict,
@@ -275,6 +382,8 @@ def create_vendor_invoice(
     autofill_extracted_supplier_gstin: Optional[str] = None,
     autofill_extracted_receiver_gstin: Optional[str] = None,
     autofill_all_entities_json: Optional[str] = None,
+    autofill_line_items_json: Optional[str] = None,
+    autofill_line_match_json: Optional[str] = None,
 ) -> Document:
     """
     Creates a new Vendor Invoices document.
@@ -304,6 +413,13 @@ def create_vendor_invoice(
         if frappe.db.exists("Nirmaan Users", current_user):
             uploaded_by = current_user
 
+    # Verified mapping → queryable child rows (the source of truth for
+    # item-level billing aggregation). JSON fields above stay as audit snapshots.
+    line_mapping_rows = (
+        build_line_mapping_rows(autofill_line_match_json, parent_doc)
+        if autofill_used else []
+    )
+
     invoice = frappe.new_doc("Vendor Invoices")
     invoice.update({
         "document_type": parent_doc.doctype,
@@ -314,6 +430,7 @@ def create_vendor_invoice(
         "invoice_date": invoice_data.get("date"),
         "invoice_amount": invoice_data.get("amount"),
         "invoice_attachment": attachment_id,
+        "is_credit_note": 1 if invoice_data.get("is_credit_note") else 0,
         "status": "Pending",
         "uploaded_by": uploaded_by,
         "autofill_used": 1 if autofill_used else 0,
@@ -325,6 +442,9 @@ def create_vendor_invoice(
         "autofill_extracted_supplier_gstin": autofill_extracted_supplier_gstin if autofill_used else None,
         "autofill_extracted_receiver_gstin": autofill_extracted_receiver_gstin if autofill_used else None,
         "autofill_all_entities_json": autofill_all_entities_json if autofill_used else None,
+        "autofill_line_items_json": autofill_line_items_json if autofill_used else None,
+        "autofill_line_match_json": autofill_line_match_json if autofill_used else None,
+        "line_mappings": line_mapping_rows,
     })
     invoice.insert(ignore_permissions=True)
 
@@ -384,6 +504,27 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
     if not vendor_invoice_name:
         frappe.throw("Invoice ID or date key is required.")
 
+    # Server-side guard (defense-in-depth): an APPROVED invoice may only be deleted by a
+    # Nirmaan admin. Pending / Rejected invoices stay deletable by anyone who can reach
+    # this endpoint (the UI already restricts who sees the delete button). Mirrors the
+    # frontend admin gate so a direct API call cannot bypass it. Placed BEFORE the
+    # transaction so the message reaches the client instead of being wrapped into the
+    # generic 400 by the except block below.
+    if frappe.db.get_value("Vendor Invoices", vendor_invoice_name, "status") == "Approved":
+        is_admin = (
+            frappe.session.user == "Administrator"
+            or "Nirmaan Admin Profile" in frappe.get_roles(frappe.session.user)
+        )
+        if not is_admin:
+            # Return (don't throw) a status object so the frontend's `status !== 200`
+            # branch surfaces THIS exact message in its "Deletion Failed" toast. A
+            # frappe.throw would reach the SDK as a generic error string (the real
+            # message lands in _server_messages, which the toast path doesn't read).
+            return {
+                "status": 403,
+                "message": "Only an admin can delete an approved invoice.",
+            }
+
     try:
         # --- Start Transaction ---
         frappe.db.begin()
@@ -392,6 +533,13 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
         invoice = frappe.get_doc("Vendor Invoices", vendor_invoice_name)
         invoice_no = invoice.invoice_no
         attachment_id = invoice.invoice_attachment
+        # Capture the PO before deletion so we can refresh its per-item invoiced
+        # quantities once this invoice's lines are gone.
+        po_for_sync = (
+            invoice.document_name
+            if invoice.document_type == "Procurement Orders"
+            else None
+        )
 
         # 2. Delete associated attachment (if exists)
         if attachment_id:
@@ -423,6 +571,11 @@ def delete_invoice_entry(docname: str, date_key: str = None, isSR: bool = False,
 
         # 4. Delete the Vendor Invoice document
         frappe.delete_doc("Vendor Invoices", vendor_invoice_name, ignore_permissions=True, force=True)
+
+        # 5. Refresh the PO's stored per-item invoiced quantities (this invoice's
+        # lines no longer count).
+        if po_for_sync:
+            recompute_po_invoice_qty(po_for_sync)
 
         # --- Commit Transaction ---
         frappe.db.commit()

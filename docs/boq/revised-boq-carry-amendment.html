@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADR-0014 Amendment B — Revised BoQ carry, simplified</title>
+<style>
+:root{
+  --accent:#2A7B9B; --accent-hover:#1F6280; --accent-light:#E4F2F7;
+  --ok:#2f855a; --ok-light:#e6f4ea;
+  --warn:#b7791f; --warn-light:#fdf6e3;
+  --bad:#c53030; --bad-light:#fdeaea;
+  --new:#6b46c1; --new-light:#f0ebfb;
+  --bg:#ffffff; --bg-soft:#f6f8fa; --fg:#1a2027; --fg-muted:#5a6673;
+  --border:#dbe1e8; --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --accent:#5fb3d1; --accent-hover:#7cc4dd; --accent-light:#14313d;
+    --ok:#68d391; --ok-light:#12261a;
+    --warn:#e0b24c; --warn-light:#2a2410;
+    --bad:#f08a8a; --bad-light:#2a1414;
+    --new:#b794f4; --new-light:#221733;
+    --bg:#0f1419; --bg-soft:#161d25; --fg:#e4e9ef; --fg-muted:#9aa7b5;
+    --border:#2a333d; --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --accent:#5fb3d1; --accent-hover:#7cc4dd; --accent-light:#14313d;
+  --ok:#68d391; --ok-light:#12261a; --warn:#e0b24c; --warn-light:#2a2410;
+  --bad:#f08a8a; --bad-light:#2a1414; --new:#b794f4; --new-light:#221733;
+  --bg:#0f1419; --bg-soft:#161d25; --fg:#e4e9ef; --fg-muted:#9aa7b5;
+  --border:#2a333d; --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --accent:#2A7B9B; --accent-hover:#1F6280; --accent-light:#E4F2F7;
+  --ok:#2f855a; --ok-light:#e6f4ea; --warn:#b7791f; --warn-light:#fdf6e3;
+  --bad:#c53030; --bad-light:#fdeaea; --new:#6b46c1; --new-light:#f0ebfb;
+  --bg:#ffffff; --bg-soft:#f6f8fa; --fg:#1a2027; --fg-muted:#5a6673;
+  --border:#dbe1e8; --shadow:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  color:var(--fg);background:var(--bg);line-height:1.65;font-size:16px}
+.wrap{max-width:1000px;margin:0 auto;padding:0 24px 96px}
+header.hero{background:linear-gradient(135deg,var(--accent) 0%,var(--accent-hover) 100%);color:#fff;padding:56px 24px 44px}
+header.hero .inner{max-width:1000px;margin:0 auto}
+.eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:12px;font-weight:700;opacity:.85;margin:0 0 10px}
+header.hero h1{margin:0 0 12px;font-size:36px;line-height:1.15;font-weight:800}
+header.hero p{margin:0;font-size:17px;max-width:760px;opacity:.95}
+.meta-line{margin-top:20px;font-size:13px;opacity:.9;display:flex;flex-wrap:wrap;gap:8px 18px}
+.meta-line code{background:rgba(255,255,255,.16);padding:2px 7px;border-radius:5px;font-size:12px;border:none;color:#fff}
+h2{font-size:25px;font-weight:800;margin:56px 0 6px;padding-top:16px;border-top:2px solid var(--border)}
+h2 .num{display:inline-block;color:var(--accent);font-variant-numeric:tabular-nums;margin-right:10px}
+h3{font-size:18px;font-weight:700;margin:30px 0 6px}
+h4{font-size:15px;font-weight:700;margin:22px 0 4px;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+a{color:var(--accent)}
+code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  background:var(--bg-soft);border:1px solid var(--border);padding:1px 6px;border-radius:5px;font-size:13px}
+.callout{border-radius:10px;padding:18px 20px;margin:20px 0;border:1px solid var(--border);background:var(--bg-soft)}
+.callout h3,.callout h4{margin-top:0}
+.callout.ok{border-color:var(--ok);background:var(--ok-light)}
+.callout.warn{border-color:var(--warn);background:var(--warn-light)}
+.callout.bad{border-color:var(--bad);background:var(--bad-light)}
+.callout.new{border-color:var(--new);background:var(--new-light)}
+.callout ul{margin:8px 0 0;padding-left:20px}
+.callout li{margin:6px 0}
+.badge{display:inline-block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  padding:3px 9px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+.badge.ok{background:var(--ok-light);color:var(--ok);border:1px solid var(--ok)}
+.badge.bad{background:var(--bad-light);color:var(--bad);border:1px solid var(--bad)}
+.badge.warn{background:var(--warn-light);color:var(--warn);border:1px solid var(--warn)}
+.badge.info{background:var(--accent-light);color:var(--accent);border:1px solid var(--accent)}
+.badge.new{background:var(--new-light);color:var(--new);border:1px solid var(--new)}
+.badge.plain{background:var(--bg-soft);color:var(--fg-muted);border:1px solid var(--border)}
+.toc{background:var(--bg-soft);border:1px solid var(--border);border-radius:10px;padding:18px 22px;margin:28px 0 8px}
+.toc h3{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-muted)}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:36px}
+.toc li{margin:5px 0;break-inside:avoid}
+@media(max-width:700px){.toc ol{columns:1}}
+.tablewrap{overflow-x:auto;margin:18px 0;border:1px solid var(--border);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:640px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:var(--bg-soft);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-muted)}
+tr:last-child td{border-bottom:none}
+td code{font-size:12px}
+details{margin:16px 0;border:1px solid var(--border);border-radius:10px;background:var(--bg-soft);overflow:hidden}
+details>summary{cursor:pointer;padding:12px 18px;font-size:13px;font-weight:700;color:var(--fg-muted);
+  text-transform:uppercase;letter-spacing:.05em;list-style:none;user-select:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"▸ ";color:var(--accent)}
+details[open]>summary::before{content:"▾ "}
+details>summary:hover{color:var(--accent)}
+.details-body{padding:0 18px 16px;font-size:14px}
+.details-body table{min-width:520px}
+.q{border-left:3px solid var(--accent);padding:2px 0 2px 14px;margin:14px 0;color:var(--fg);font-style:italic}
+.strings{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;
+  background:var(--bg-soft);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin:12px 0;
+  white-space:pre-wrap;line-height:1.55;overflow-x:auto}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:24px 0}
+.flow .step{flex:1 1 150px;min-width:150px;border:1px solid var(--border);border-radius:9px;padding:12px 14px;background:var(--bg-soft)}
+.flow .step .n{font-size:11px;font-weight:800;color:var(--accent);letter-spacing:.08em}
+.flow .step .t{font-weight:700;font-size:14px;margin:3px 0}
+.flow .step .d{font-size:12px;color:var(--fg-muted);line-height:1.45}
+.flow .step.isnew{border-color:var(--new);background:var(--new-light)}
+.legend{font-size:13px;color:var(--fg-muted);margin:10px 0 0}
+hr.soft{border:none;border-top:1px solid var(--border);margin:34px 0}
+.footnote{font-size:13px;color:var(--fg-muted);border-top:1px solid var(--border);margin-top:56px;padding-top:20px}
+.scen{border:1px solid var(--border);border-radius:12px;margin:26px 0;overflow:hidden;background:var(--bg)}
+.scen>.hd{padding:14px 20px;background:var(--bg-soft);border-bottom:1px solid var(--border)}
+.scen>.hd .k{font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--accent);text-transform:uppercase}
+.scen>.hd .t{font-size:17px;font-weight:700;margin-top:2px}
+.scen>.bd{padding:4px 20px 18px}
+.scen .tablewrap{margin:14px 0}
+.scen table{min-width:760px}
+.verdict{font-size:14px;font-weight:600;margin:12px 0 2px;padding:10px 14px;border-radius:8px;
+  background:var(--ok-light);border:1px solid var(--ok);color:var(--fg)}
+.verdict.warn{background:var(--warn-light);border-color:var(--warn)}
+.verdict.bad{background:var(--bad-light);border-color:var(--bad)}
+.dec{border-left:4px solid var(--accent);background:var(--bg-soft);border-radius:0 10px 10px 0;padding:14px 18px;margin:18px 0}
+.dec .id{font-size:11px;font-weight:800;letter-spacing:.1em;color:var(--accent);text-transform:uppercase}
+.dec .rule{font-size:16px;font-weight:700;margin:3px 0 6px}
+.owner{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:3px 9px;border-radius:999px;
+  background:var(--new-light);color:var(--new);border:1px solid var(--new);text-transform:uppercase;margin-left:6px}
+.keybox{border:2px solid var(--accent);background:var(--accent-light);border-radius:12px;padding:20px 24px;margin:24px 0;text-align:center}
+.keybox .lbl{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.keybox .k{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:19px;font-weight:700;margin:8px 0 4px;color:var(--fg)}
+.keybox .sub{font-size:14px;color:var(--fg-muted)}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="inner">
+    <p class="eyebrow">Design of record · awaiting owner affirmation</p>
+    <h1>ADR-0014 Amendment B<br>Revised BoQ carry, simplified</h1>
+    <p>A row's decisions carry forward only if it is still in the same place with the same words. Nothing else.
+       That one sentence replaces the entire description-matching engine.</p>
+    <div class="meta-line">
+      <span>Branch <code>feature/upload-revised-boq</code></span>
+      <span>Tip <code>d89153e8</code></span>
+      <span>Supersedes <code>D1 · D5 · D6 · D7</code></span>
+      <span>Status <strong>Proposed — no code written</strong></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#why">Why this amendment exists</a></li>
+    <li><a href="#glance">The ten decisions at a glance</a></li>
+    <li><a href="#rule">The carry rule in full</a></li>
+    <li><a href="#scenarios">Live scenarios — ten walk-throughs</a></li>
+    <li><a href="#surfaces">What the user actually sees</a></li>
+    <li><a href="#entry">Entry &amp; config decisions</a></li>
+    <li><a href="#open">Open — needs your call</a></li>
+    <li><a href="#holes">Known holes, documented</a></li>
+    <li><a href="#unchanged">What is <em>not</em> changing</a></li>
+  </ol>
+</div>
+
+<h2 id="why"><span class="num">1</span>Why this amendment exists</h2>
+
+<p>The shipped carry matches a revision's rows to the original's on <strong>description identity alone</strong>,
+with no positional constraint. Two rows pair if their normalised description occurs exactly once on each side —
+row 3 can pair with row 900. It then follows the original's parent pointer and <strong>overwrites the fresh
+parser's parenting</strong> with it.</p>
+
+<p>So when a revision inserts a new section heading, the rows beneath it still pair by description, their old
+parent still exists, no alarm fires — and the carry silently drags them back under the <em>old</em> heading. The
+newly inserted heading ends up childless, and every affected row renders as a calm
+<span class="badge plain">Original</span>.</p>
+
+<div class="callout bad">
+  <h4>The blast radius doubled on 20 July</h4>
+  <p>Before commit <code>d89153e8</code>, the re-point was gated on <code>human_parent &gt;= 0</code> — it fired only
+  for the ~13% of rows a human had manually re-parented. That fix (reading the <em>effective</em> value instead of
+  the empty human-override layer) was correct in itself, but <code>parent_node</code> is always populated on a
+  committed node, so the re-point now fires on <strong>every matched row, unconditionally</strong>. The fix removed
+  the accidental limiter that was masking the design flaw.</p>
+</div>
+
+<div class="callout warn">
+  <h4>The bug is currently a passing test</h4>
+  <p><code>services/boq_revision/test_carry.py:95-113</code> —
+  <code>test_pcc_reparented_row_lands_on_twin_new_row_index</code> — builds a revision with an inserted row and
+  asserts that the carry <strong>beats the fresh parser</strong>. Its premise is that the parser is repeating a
+  mistake. When the inserted row is a genuine heading, the parser is right and the original is stale — and the
+  code has no input that could tell the two apart. This test must be rewritten, not preserved.</p>
+</div>
+
+<h2 id="glance"><span class="num">2</span>The ten decisions at a glance</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:52px">#</th><th>Decision</th><th style="width:150px">Supersedes</th><th style="width:110px">Origin</th></tr></thead>
+<tbody>
+<tr><td><strong>A1</strong></td><td>The New / Revise entry never locks. Origin is set after upload, not baked into it.</td><td>D1 <em>implementation</em></td><td><span class="badge bad">Defect</span></td></tr>
+<tr><td><strong>A2</strong></td><td>Config carry seeds the column map but always lands <code>Pending</code>. The user clicks Mark Config as Done.</td><td>D5 <em>decision</em></td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A3</strong></td><td>Rows match on <strong>Excel position + description</strong>. The whole description-bucket engine is deleted.</td><td>D6 <em>entirely</em></td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A4</strong></td><td>A matched row copies classification <em>and</em> parenting together. Both, or neither.</td><td>D7</td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A5</strong></td><td>The parent must itself be a matched row, or the row does not copy.</td><td>D7</td><td><span class="badge info">Derived</span></td></tr>
+<tr><td><strong>A6</strong></td><td>Status is <code>Copied</code> or nothing. Nothing renders as <code>Original</code>, exactly like a fresh upload.</td><td>D7</td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A7</strong></td><td><code>Copied</code> is also the rate-eligible set. One number.</td><td>D9 framing</td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A8</strong></td><td>The carry reports itself at parse, commit and rate carry. Today all three are silent or wrong.</td><td>—</td><td><span class="badge bad">Gap</span></td></tr>
+<tr><td><strong>A9</strong></td><td>Every non-copied row is a normal parser row — all warnings, flags and checks flow unchanged.</td><td>D7 <em>affirmed</em></td><td><span class="badge new">Owner</span></td></tr>
+<tr><td><strong>A10</strong></td><td>The rate-carry version pin must be resolved before any of this reaches a user.</td><td>D9</td><td><span class="badge bad">Blocker</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="rule"><span class="num">3</span>The carry rule in full</h2>
+
+<div class="keybox">
+  <div class="lbl">The entire matching rule</div>
+  <div class="k">same Excel row&nbsp;&nbsp;+&nbsp;&nbsp;same description</div>
+  <div class="sub">A row carries its decisions forward only if it is still in the same place with the same words.</div>
+</div>
+
+<h3>3.1 · The two sides</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:130px"></th><th>Original</th><th>Revision</th></tr></thead>
+<tbody>
+<tr><th>Source</th><td>committed <code>BOQ Nodes</code>, current version, mapped source sheet</td><td>freshly-parsed <code>BoQ Review Row</code>s</td></tr>
+<tr><th>Position</th><td><code>source_row_number</code> — the Excel row</td><td><code>source_row_number</code> — the Excel row</td></tr>
+<tr><th>Text</th><td><code>description</code></td><td><code>description</code></td></tr>
+<tr><th>Excluded</th><td colspan="2">rows with a blank description. They carry nothing and demand nothing.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>Text comparison</strong> = the description, trimmed, lowercased, internal whitespace collapsed.
+<strong>Nothing else is folded.</strong> Punctuation and synonyms are <em>not</em> normalised — in a BoQ,
+<code>1:4:8</code> versus <code>1:4:6</code> is a real change, and a fuzzy match is exactly what silently carries
+a wrong decision.</p>
+
+<h3>3.2 · A row is <span class="badge ok">Copied</span> when all three hold</h3>
+
+<ol>
+  <li>Its Excel row number appears <strong>exactly once</strong> on each side.</li>
+  <li>The original row at that same Excel position has an <strong>identical</strong> normalised description.</li>
+  <li>The original row's parent <strong>also satisfies (1) and (2)</strong> — or the original row is a root, which
+      satisfies this trivially.</li>
+</ol>
+
+<p>Then, and only then:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:180px">Copy</th><th>From (committed <code>BOQ Nodes</code>)</th><th>To (revision <code>BoQ Review Row</code>)</th></tr></thead>
+<tbody>
+<tr><td><strong>Classification</strong></td><td><code>row_class</code> (already effective)</td><td><code>classification</code> — the parser layer</td></tr>
+<tr><td><strong>Parent</strong></td><td><code>parent_node</code> → that node's Excel row → the revision row at the same Excel row</td><td><code>parent_index</code> (<code>-1</code> for a root)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>Everything else is a normal parser row.</strong> No status is written, so the Status column shows
+<code>Original</code> — identical to a fresh upload — and every classifier warning, review flag, structural check
+and the finalize gate apply exactly as they always have <em>(A9)</em>.</p>
+
+<div class="callout ok">
+  <h4>Why position is the whole safety argument</h4>
+  <p>A parent always sits <em>above</em> its child, and any inserted or deleted row shifts every position below it.
+  So the instant a row is introduced, nothing beneath it can satisfy condition&nbsp;(1) — the carry simply stops,
+  and the fresh parser's answer flows through untouched.</p>
+  <p style="margin-bottom:0">There is no walk, no diff, no section-heading guard, no twin map and no ambiguity
+  class. It is a keyed join on the Excel row number, and it makes the failure the amendment exists to fix
+  <strong>structurally impossible</strong> rather than merely guarded against.</p>
+</div>
+
+<details>
+  <summary>This is D6's explicitly rejected option — and that is the finding, not an oversight</summary>
+  <div class="details-body">
+    <p><code>source_row_number</code> + description is named in ADR-0014 D6 and dismissed as
+    <em>"the <strong>same-file</strong> key — one inserted row shifts everything below ⇒ mass non-match ⇒ defeats the
+    feature's whole point."</em> D6 replaced it with description-only matching precisely to recover that lost yield.</p>
+    <p><strong>That recovered yield is what made the carry unsafe.</strong> Description-only matching cannot
+    distinguish "this row is unchanged" from "this row's surroundings changed underneath it", because it never looks
+    at the surroundings at all. The amendment's central finding is that the yield D6 bought was bought with
+    correctness, and is not worth it.</p>
+    <p style="margin-bottom:0">Recording it this way matters: a future reader will otherwise see a rejected option
+    quietly reinstated and assume someone forgot to check.</p>
+  </div>
+</details>
+
+<h3>3.3 · Never copied</h3>
+<ul>
+  <li><strong><code>level</code></strong> — always re-derived from the effective tree (ADR-0009). Copying it fires the <code>BOQ Nodes</code> controller throws.</li>
+  <li><strong>Human-layer fields</strong> (<code>human_classification</code> / <code>human_parent</code> / <code>human_is_root</code>) — the copy lands in the <em>parser</em> layer, so the row renders "Original" (calm), <code>has_override</code> stays false, Apply-AI stays available sheet-wide, and the <code>subtotal_marker</code> / <code>header_repeat</code> vocabulary gate is sidestepped.</li>
+  <li><strong>Anything on a non-matched row.</strong></li>
+</ul>
+
+<h3>3.4 · The status field</h3>
+
+<p><code>revision_carry_status</code> holds <code>Copied</code>, or nothing at all. It is a <em>stored</em> value;
+what the user sees is the Status column, whose existing bottom rung already renders
+<span class="badge plain">Original</span> when the field is empty. So a non-copied row on a revision looks exactly
+like any row on a fresh upload — which is the point.</p>
+
+<p>Storing the literal string <code>"Original"</code> was considered and rejected: it stops the field being inert
+for non-revision BoQs, so every upload and template sheet would need new gating code just to keep behaving the way
+it already does.</p>
+
+<p><code>New</code>, <code>Ambiguous</code> and <code>Drifted</code> are retired. Their Select options stay in the
+doctype JSON but are never written again — the precedent <code>Drifted</code> already set.</p>
+
+<p><strong><code>Copied</code> ⟺ matched ⟺ rate-eligible.</strong> One equivalence, one number, end to end.</p>
+
+<h2 id="scenarios"><span class="num">4</span>Live scenarios — ten walk-throughs</h2>
+
+<p class="legend"><strong>A</strong>, <strong>B</strong> are section headings; <strong>a1, a2, b1…</strong> are line
+items. <em>Row</em> is the Excel row number on each side. The <strong>Result</strong> column is what the user ends
+up with after the carry.</p>
+
+<div class="scen" id="s1">
+  <div class="hd"><div class="k">Scenario 1</div><div class="t">Nothing changed — the baseline</div></div>
+  <div class="bd">
+    <p>The estimator returns the same scope with no structural edits.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:70px">v1 row</th><th style="width:70px">v2 row</th><th>Description</th><th style="width:110px">Position</th><th style="width:110px">Text</th><th style="width:200px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>4</td><td>A — Civil works</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>5</td><td>5</td><td>a1 — Excavation</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>6</td><td>6</td><td>a2 — PCC 1:4:8</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>7</td><td>7</td><td>B — Electrical</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>8</td><td>8</td><td>b1 — Cable tray</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict">5 of 5 copied. Zero human attention needed; the review screen shows the green
+      “all 5 rows carried from v1” chip.</div>
+  </div>
+</div>
+
+<div class="scen" id="s2">
+  <div class="hd"><div class="k">Scenario 2</div><div class="t">Quantities and rates changed, descriptions identical</div></div>
+  <div class="bd">
+    <p>The single most common revision. <code>a2</code>'s quantity moves from 120 m³ to 145 m³; nothing else changes.</p>
+    <div class="verdict"><strong>5 of 5 copied</strong>, identical to scenario 1. Numeric edits are invisible to the
+      carry by design — the key is position and description only. The revised file's quantities are authoritative and
+      flow through untouched.</div>
+  </div>
+</div>
+
+<div class="scen" id="s3">
+  <div class="hd"><div class="k">Scenario 3</div><div class="t">New items appended at the end of the sheet</div></div>
+  <div class="bd">
+    <p>The estimator adds three items after the last existing row. Nothing above moves.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:100px">Rows</th><th>What they are</th><th style="width:110px">Position</th><th style="width:280px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4–120</td><td>the entire existing sheet</td><td>✓ unchanged</td><td><span class="badge ok">Copied</span> — every one</td></tr>
+        <tr><td>121–123</td><td><strong>three new items</strong></td><td>—</td><td><span class="badge plain">Original</span> parser output, reviewed normally</td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict">117 of 117 existing rows copied. <strong>This is the most common shape a real revision
+      takes</strong> — appending scope — and the rule handles it perfectly, because appending shifts nothing.</div>
+  </div>
+</div>
+
+<div class="scen" id="s4">
+  <div class="hd"><div class="k">Scenario 4 · the payoff</div><div class="t">One description reworded, no rows added or removed</div></div>
+  <div class="bd">
+    <p>The estimator rewords <code>a1</code> at row 5 of a 500-row sheet. Nothing else is touched.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:100px">Rows</th><th>What they are</th><th style="width:110px">Position</th><th style="width:110px">Text</th><th style="width:250px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>A — Civil works</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>5</td><td><strong>a1′ — reworded</strong></td><td>✓ same</td><td>✗ differs</td><td><span class="badge plain">Original</span> parser output, reviewed normally</td></tr>
+        <tr><td>6–503</td><td>the remaining 498 rows, untouched</td><td>✓ same</td><td>✓ same</td><td><span class="badge ok">Copied</span> — every one</td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict"><strong>499 of 500 copied.</strong> This is why the key is <em>position</em> and not a
+      sequence walk. A walk would have stopped dead at row 5 and copied 4 rows, forcing the estimator to re-review
+      496 identical ones. Because a reworded description shifts nothing, only the reworded row loses its carry.</div>
+  </div>
+</div>
+
+<div class="scen" id="s5">
+  <div class="hd"><div class="k">Scenario 5 · the deliberate cost</div><div class="t">A new line item inserted mid-sheet</div></div>
+  <div class="bd">
+    <p>The estimator inserts "Anti-termite treatment" at row 6. Everything below shifts down by one.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:70px">v1 row</th><th style="width:70px">v2 row</th><th>Description</th><th style="width:110px">Position</th><th style="width:250px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>4</td><td>A — Civil works</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>5</td><td>5</td><td>a1 — Excavation</td><td>✓ same</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>—</td><td>6</td><td><strong>aNEW — Anti-termite</strong></td><td>—</td><td><span class="badge plain">Original</span> parser output</td></tr>
+        <tr><td>6</td><td>7</td><td>a2 — PCC 1:4:8</td><td>✗ shifted</td><td><span class="badge plain">Original</span> parser output</td></tr>
+        <tr><td>7</td><td>8</td><td>B — Electrical</td><td>✗ shifted</td><td><span class="badge plain">Original</span> parser output</td></tr>
+        <tr><td>8</td><td>9</td><td>b1 — Cable tray</td><td>✗ shifted</td><td><span class="badge plain">Original</span> parser output</td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict warn"><strong>2 of 5 existing rows copied.</strong> This is the accepted cost, and it is
+      the direct expression of the owner's reasoning: <em>once a row is introduced in the middle, the parent for every
+      later row may have changed, so none of them may be trusted.</em> The rows below fall back to the parser and are
+      reviewed exactly like a fresh upload — no special vocabulary, no new warnings.</div>
+  </div>
+</div>
+
+<div class="scen" id="s6">
+  <div class="hd"><div class="k">Scenario 6 · the bug, now impossible</div><div class="t">A new sub-heading inserted inside a section</div></div>
+  <div class="bd">
+    <p>The estimator splits Civil works by adding "A.1 — Foundation" at row 6. The parser correctly nests
+    <code>a2</code> and <code>a3</code> under it.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:70px">v1 row</th><th style="width:70px">v2 row</th><th>Description</th><th style="width:130px">Parser parent</th><th style="width:270px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>4</td><td>A — Civil works</td><td>root</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>5</td><td>5</td><td>a1 — Excavation</td><td>A</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>—</td><td>6</td><td><strong>X — A.1 Foundation</strong> <span class="badge new">heading</span></td><td>A</td><td><span class="badge plain">Original</span> parser output</td></tr>
+        <tr><td>6</td><td>7</td><td>a2 — PCC 1:4:8</td><td><strong>X</strong></td><td><span class="badge plain">Original</span> — parser's <code>X</code> stands, correctly</td></tr>
+        <tr><td>7</td><td>8</td><td>a3 — Backfill</td><td><strong>X</strong></td><td><span class="badge plain">Original</span> — parser's <code>X</code> stands, correctly</td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict"><strong>This is the case that is broken today.</strong> Currently <code>a2</code> and
+      <code>a3</code> are force-re-parented back to <code>A</code>, <code>X</code> is left childless, and all three
+      rows render calm with no warning. Under the amendment the shift alone stops the carry — <em>no heading detection
+      is needed</em> — and the parser's correct nesting survives untouched.</div>
+  </div>
+</div>
+
+<div class="scen" id="s7">
+  <div class="hd"><div class="k">Scenario 7</div><div class="t">A row was deleted</div></div>
+  <div class="bd">
+    <p>The estimator drops <code>a2</code> from row 6. Everything below shifts up by one.</p>
+    <div class="verdict warn"><strong>Symmetric with scenario 5.</strong> Rows above row 6 copy; the deleted row
+      simply has no counterpart; everything below shifted and falls to the parser. A deletion is as disruptive to the
+      key as an insertion, and deliberately so — both move every position beneath them.</div>
+  </div>
+</div>
+
+<div class="scen" id="s8">
+  <div class="hd"><div class="k">Scenario 8 · condition 3 at work</div><div class="t">A section heading was renamed in place</div></div>
+  <div class="bd">
+    <p>"B — Electrical" at row 7 becomes "B — Electrical &amp; ELV". No rows added or removed, so nothing shifts.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:70px">Row</th><th>Description</th><th style="width:110px">Position</th><th style="width:110px">Text</th><th style="width:120px">Parent matched</th><th style="width:230px">Result</th></tr></thead>
+      <tbody>
+        <tr><td>4</td><td>A — Civil works</td><td>✓</td><td>✓</td><td>root</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>5</td><td>a1 — Excavation</td><td>✓</td><td>✓</td><td>✓ A</td><td><span class="badge ok">Copied</span></td></tr>
+        <tr><td>7</td><td><strong>B′ — Electrical &amp; ELV</strong></td><td>✓</td><td>✗</td><td>—</td><td><span class="badge plain">Original</span> parser output</td></tr>
+        <tr><td>8</td><td>b1 — Cable tray</td><td>✓</td><td>✓</td><td><strong>✗ parent B not matched</strong></td><td><span class="badge plain">Original</span> — parser nests it under <code>B′</code>, correctly</td></tr>
+        <tr><td>9</td><td>b2 — Conduit</td><td>✓</td><td>✓</td><td><strong>✗</strong></td><td><span class="badge plain">Original</span> same</td></tr>
+      </tbody>
+    </table></div>
+    <div class="verdict">2 of 5 copied. <strong>Condition 3 is doing the work here</strong> — <code>b1</code> and
+      <code>b2</code> pass position and text, but their parent no longer does, so they are not copied. That is
+      correct: their parent is now a differently-worded heading, and the parser's fresh answer is the right one.</div>
+  </div>
+</div>
+
+<div class="scen" id="s9">
+  <div class="hd"><div class="k">Scenario 9 · accepted regression</div><div class="t">Two whole sections swapped in order</div></div>
+  <div class="bd">
+    <p>The estimator moves Electrical above Civil works. No text changes at all — but every row moves.</p>
+    <div class="verdict warn"><strong>Near-zero carry.</strong> Today's description matcher would pair all six rows
+      regardless of position; that is exactly the behaviour being removed, and it is what makes scenario 6 wrong. A
+      wholesale reorder is rare in a revision; an inserted heading is not. Accepted trade, recorded deliberately.</div>
+  </div>
+</div>
+
+<div class="scen" id="s10">
+  <div class="hd"><div class="k">Scenario 10 · the one hole</div><div class="t">A heading inserted <em>and</em> a row deleted in the same span</div></div>
+  <div class="bd">
+    <p>A heading is inserted at row 10 and a row is deleted at row 20. Rows 21 and below shift down by one, then
+    back up by one — landing on their <em>original</em> Excel positions with their original text.</p>
+    <div class="verdict bad">Those rows satisfy all three conditions and <strong>will copy a parent that the new
+      heading should have taken</strong>. It requires a net-zero row change across the span, with a heading among the
+      insertions. Narrow, but real. <strong>Documented as a known hole, not engineered around</strong> — closing it
+      would mean reintroducing a span scan, which is the complexity this amendment exists to remove.</div>
+  </div>
+</div>
+
+<p><strong>Bonus — a sheet with no source.</strong> A tab the mapping screen marked "new", or one whose source had
+nothing committed: no carry runs, no revision chrome appears, and the sheet behaves exactly like a fresh upload.</p>
+
+<h2 id="surfaces"><span class="num">5</span>What the user actually sees</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:170px">Moment</th><th>Today</th><th>After the amendment</th></tr></thead>
+<tbody>
+<tr>
+  <th>Mapping screen</th>
+  <td>“<em>N rates and M classifications will carry</em>” — both numbers wrong. Rates are counted across every version and every sheet including unmapped ones; classifications count <code>human_classification != ""</code>, which since <code>d89153e8</code> is no longer what carries at all.</td>
+  <td>Counts scoped to the mapped sheets at the version the carry will actually read.</td>
+</tr>
+<tr>
+  <th>Config screen</th>
+  <td>Sheet arrives already <code>Config Done</code>; the user never sees the carried column map.</td>
+  <td>Sheet arrives <code>Pending</code> with the map filled in and any warnings shown. The user reviews and clicks <strong>Mark Config as Done</strong>.</td>
+</tr>
+<tr>
+  <th>Parse completion</th>
+  <td>Lists parsed / not-parsed / failed sheets. Says nothing about the carry — the summary is computed and thrown away.</td>
+  <td>Per sheet: <em>“412 of 500 rows copied from v1 · 88 need review.”</em></td>
+</tr>
+<tr>
+  <th>Review screen</th>
+  <td>Status column can show <code>New</code> / <code>Ambiguous</code>; carried rows are silently calm.</td>
+  <td>Status column shows <span class="badge ok">Copied</span> or <span class="badge plain">Original</span>. Header carries the same two numbers, with a filter to jump to the rows needing review. No advisory panels — a non-copied row is just a normal row.</td>
+</tr>
+<tr>
+  <th>Finalize</th>
+  <td>Structural gate only. No revision awareness.</td>
+  <td>Unchanged gate, plus the copied / needs-review count visible at the point of sign-off.</td>
+</tr>
+<tr>
+  <th>Commit</th>
+  <td>Silent. Formulas, remarks, colours, dismissals and categories carry — or fail — with no user-visible trace. A failed layer appears only in the Error Log.</td>
+  <td>The commit results modal reports what each layer carried, per sheet.</td>
+</tr>
+<tr>
+  <th>Rate carry</th>
+  <td>“<em>N rates carried · M rows need new values</em>”, then the numbers are discarded on close.</td>
+  <td>Same shape, but <code>N</code> is drawn from the same <code>Copied</code> set the user already reviewed — one consistent number end to end.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="entry"><span class="num">6</span>Entry &amp; config decisions</h2>
+
+<div class="dec">
+  <div class="id">A1 — The entry never locks</div>
+  <div class="rule">Upload always creates a plain draft. Origin (New / Revise) and the chosen original are set <em>after</em> the upload, not baked into it.<span class="owner">Owner-confirmed</span></div>
+</div>
+
+<p>Today <code>source_boq</code> rides the upload POST, and the backend bakes three things at insert time: the origin
+fields, the <code>boq_name</code> copied from the original, and — driven by that name — the auto-bumped
+<code>version</code>, plus whether the sheet drafts get seeded at all. So the frontend freezes the radio the instant
+the POST fires (<code>BoqMasterPanel.tsx:70</code>, <code>entryLocked = uploadStatus !== "idle"</code>).</p>
+
+<p>Because the default is <strong>New</strong>, dropping a file first immediately fires a fresh upload and the Revise
+option becomes permanently unreachable. There is <strong>no server-side guard</strong> forcing this — the lock is
+entirely a frontend invention. ADR-0014 line 72 already specified <em>“single screen, order-independent”</em>; the
+implementation delivered it only inside the pre-upload window.</p>
+
+<div class="flow">
+  <div class="step"><div class="n">STEP 1</div><div class="t">Drop the file</div><div class="d">Uploads and parses immediately as a plain draft. Nothing about origin is decided.</div></div>
+  <div class="step"><div class="n">STEP 2 · any order</div><div class="t">Pick New or Revise</div><div class="d">Radio and picker stay live throughout, and can be changed back and forth.</div></div>
+  <div class="step isnew"><div class="n">STEP 3 · new endpoint</div><div class="t">Continue</div><div class="d">Converts the draft: sets origin + source, rewrites <code>boq_name</code>, recomputes <code>version</code>, clears the auto-seeded drafts.</div></div>
+</div>
+
+<p class="legend"><strong>The one sharp edge:</strong> the version recompute must mirror the <code>before_insert</code>
+hook exactly (<code>MAX(version)+1</code> scoped to project + <code>boq_name</code>), because that hook has already run
+against the filename-derived name by the time we convert.</p>
+
+<div class="dec">
+  <div class="id">A2 — Config lands Pending</div>
+  <div class="rule">Seeding carries the original's rectified column map, header row, area dimensions and work packages — and always writes <code>wizard_status = Pending</code>.<span class="owner">Owner-confirmed</span></div>
+</div>
+
+<p>The clean-versus-unsafe column diff still runs; it just becomes <em>advice</em> rather than a status. Nothing
+downstream distinguishes an auto-marked sheet from a user-marked one, so the only behavioural cost is that the hub's
+Parse button stays disabled until the user marks at least one sheet — which is the intent.</p>
+
+<div class="callout warn">
+  <h4>One thing that must ride along</h4>
+  <p>Carried drafts currently get <strong>no work package</strong> — the fresh-upload path auto-detects it, revision
+  seeding does not. The Config-Done attestation checkbox is disabled without one, so leaving sheets Pending would
+  force the user to re-pick a work package on every single sheet. The amendment therefore also carries the
+  <code>work_packages</code> child rows from the original's draft.</p>
+</div>
+
+<h2 id="open"><span class="num">7</span>Open — needs your call</h2>
+
+<div class="callout bad">
+  <h4>The rate-carry version pin <span class="badge bad">the only remaining blocker</span></h4>
+  <p>Confirmed live at branch tip, and <strong>not caused by this rework</strong>. The cross-BoQ rate carry reads the
+  source's pricing pinned to that sheet's current <code>commit_version</code>. But re-committing a sheet
+  <em>orphans its pricing onto the now-frozen version</em> — the commit pipeline says so in a comment and does not
+  migrate it. So a source priced at v1 and then re-committed to v2 carries <strong>zero rates</strong>, while the
+  mapping screen cheerfully promised three.</p>
+  <p>Two ways out: align the carry read to <code>is_current</code> (freshest, matches the count), or keep the pin and
+  make the count match it plus prompt “run Copy rates forward on the original first”. <strong>Without a decision here,
+  “copied rows can directly get the filled rates” fails on day one.</strong></p>
+  <p style="margin-bottom:0">Related oddity to settle at the same time: <code>BoQ Sheet.source_commit_version</code> is
+  stamped at commit as a durable provenance pin and then <strong>read nowhere in the entire branch</strong>. It is
+  currently write-only.</p>
+</div>
+
+<div class="callout ok">
+  <h4>Two earlier open items are now closed by the rule itself</h4>
+  <ul>
+    <li><strong>The rootness guard</strong> — a heading inserted above a section shifts it, so it cannot copy anyway.
+    The question dissolves; there is nothing to guard and nothing to advise about.</li>
+    <li><strong>Strict versus loose <code>Copied</code></strong> — classification and parenting now always carry
+    together or not at all <em>(A4)</em>, so there is no case left to distinguish.</li>
+  </ul>
+</div>
+
+<h2 id="holes"><span class="num">8</span>Known holes, documented not designed around</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:250px">Hole</th><th>Effect</th><th style="width:120px">Scale</th></tr></thead>
+<tbody>
+<tr><td><strong>Insert + delete in one span</strong> (<a href="#s10">scenario 10</a>)</td><td>Positions realign below a net-zero row change, so rows there copy a parent that a newly inserted heading should have taken. Closing it means reintroducing a span scan — the complexity this amendment removes.</td><td>Narrow</td></tr>
+<tr><td><strong>Non-unique Excel row numbers</strong></td><td>A synthetic row created during review on the original is committed with its <code>row_index</code> as its row number, which can collide with a real Excel row. Rule: if a position appears more than once on either side, skip it.</td><td>3 rows live</td></tr>
+<tr><td><strong>Description column set changed</strong></td><td>If the sheet's mapped description columns change, every joined description changes and nothing matches — zero carry. Correct behaviour, but the config screen must say so <em>before</em> the user parses, not after.</td><td>Rare, loud</td></tr>
+<tr><td><strong>Template-origin originals</strong></td><td>No committed header baseline, so the config diff cannot certify clean. Config lands Pending (as it now always does) and row matching works normally.</td><td>~8 of 211 sheets</td></tr>
+<tr><td><strong>Excluded rows</strong></td><td><code>is_excluded</code> rows never become committed nodes, so they are absent on the original side and their Excel positions simply never match. Template-origin concern only.</td><td>41 rows live</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="unchanged"><span class="num">9</span>What is <em>not</em> changing</h2>
+
+<ul>
+  <li><strong>The revision is still a new <code>BOQs</code> doc</strong> with <code>origin="revision"</code> and a <code>source_boq</code> pointer, auto-bumped to v(N+1). The original stays frozen as the diff baseline (D2, untouched).</li>
+  <li><strong>Sheet pairing</strong> — the mapping screen, its N2 proposal, the human confirmation, and the write-once <code>source_sheet_name</code> pointer (D3, untouched).</li>
+  <li><strong>The commit overlay's carry taxonomy</strong> — amount formulas, remarks, colours, <code>remark</code> dismissals and the whole category layer carry; the four computed dismissals and reconciliation choices never do (D8, untouched). Only its <em>reporting</em> changes, and its row pairing now uses the same position key.</li>
+  <li><strong>The finalize gate</strong> stays purely structural with no override path, and no revision-specific condition. Marking a sheet finalized is the human sign-off, not a second gate.</li>
+  <li><strong>The merge seam</strong> — the carry still runs inside the parse worker, after the review-row insert loop and before the sheet is marked Parsed, in the same transaction.</li>
+  <li><strong>Rate carry remains one explicit post-commit action</strong> from the hub footer, per-sheet isolated, destination-locked, never ambient at commit.</li>
+  <li><strong>Every non-revision flow stays byte-identical.</strong> Every seam is gated on <code>origin == "revision"</code>.</li>
+</ul>
+
+<div class="callout ok">
+  <h4>A structural bonus worth naming</h4>
+  <p>There are two matcher runs in the chain: one at the parse seam over review rows, one at the committed tier that
+  drives both the annotation overlay and the rate carry. <strong>Today they can legitimately disagree</strong> — the
+  committed run is fed the effective nesting depth while the parse run is fed parser level, and a human re-parent
+  between review and commit changes one and not the other. So “matched at review” and “matched at commit” are not the
+  same set.</p>
+  <p style="margin-bottom:0">Under a position key that divergence becomes <strong>impossible by construction</strong>:
+  the Excel row number and the description are both immutable after parse, and neither is a function of the tree. The
+  two runs are provably identical — which is what makes “re-derive the <code>Copied</code> set at the committed tier”
+  a safe choice rather than a hopeful one. The committed-tier matcher already keys on
+  <code>source_row_number</code> today, so it barely changes.</p>
+</div>
+
+<div class="footnote">
+  <p><strong>Evidence base.</strong> Every claim above is traced to branch <code>feature/upload-revised-boq</code> at
+  <code>d89153e8</code>. Load-bearing citations:
+  <code>services/boq_revision/row_match.py:115-169</code> (the matcher),
+  <code>services/boq_revision/carry.py:128-138</code> (the unconditional re-point),
+  <code>api/boq/wizard/review_carry.py:99-182</code> (the merge and the two ordered sequences),
+  <code>api/boq/wizard/parse_run.py:867-874</code> (the seam, summary discarded),
+  <code>services/boq_revision/test_carry.py:95-113</code> (the bug as a passing test),
+  <code>frontend/src/pages/boq-wizard/ReviewTree.tsx:2635-2638</code> (the <code>Original</code> fallthrough),
+  <code>frontend/src/pages/boq-wizard/BoqMasterPanel.tsx:67-70</code> (the entry lock),
+  <code>api/boq/wizard/revision.py:218-230</code> (the wrong carry counts) and
+  <code>:456-471</code> (the auto Config-Done write),
+  <code>api/boq/wizard/commit_overlay.py:192-244</code> (the committed-tier matcher, already keyed on <code>source_row_number</code>) and
+  <code>:134-142</code> (the write-only provenance pin),
+  <code>api/boq/wizard/cross_boq_carry.py:179-191, 233-236</code> (the version pin defect),
+  <code>api/boq/wizard/commit_pipeline.py:207</code> (synthetic row numbering), <code>:473-474</code> (pricing orphaned on re-commit) and
+  <code>:655</code> (overlay summary discarded),
+  <code>api/boq/wizard/review_screen.py:2859-2987</code> (the finalize gate).</p>
+  <p>Status: <strong>proposed, no code written.</strong> On affirmation this becomes the ADR-0014 Amendment B commit,
+  landing before any implementation. Implementation plan: <code>docs/boq/HANDOFF-revised-boq-carry-amendment.md</code> §6.</p>
+</div>
+
+</div>
+</body>
+</html>

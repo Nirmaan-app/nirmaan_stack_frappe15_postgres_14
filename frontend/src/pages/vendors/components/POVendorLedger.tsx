@@ -16,7 +16,6 @@ import { formatDate } from '@/utils/FormatDate';
 import { LedgerEntry } from './LedgerTableRow';
 import { dateFilterFn } from '@/utils/tableFilters';
 import { DateFilterValue } from './AdvancedDateFilter';
-import { useUserData } from '@/hooks/useUserData';
 import { EditBalancingDialog } from './EditBalancingDialog';
 
 // Interface matching the flat object from the API (all amounts in rupees)
@@ -38,12 +37,10 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
     const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set());
     const [dateFilter, setDateFilter] = useState<DateFilterValue | undefined>(undefined);
     const [isBalancingDialogOpen, setIsBalancingDialogOpen] = useState(false);
-    const { user_id, role } = useUserData();
 
-    const canExport = useMemo(() => {
-        const allowedRoles = ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile"];
-        return user_id === "Administrator" || allowedRoles.includes(role);
-    }, [user_id, role]);
+    // Export is available to everyone who can open the Vendor Ledger tab.
+    // The tab itself is the access boundary (gated at the /vendors route), and
+    // Export only re-serializes rows already shown on screen — no extra data exposure.
 
     // Data Fetching Hooks
     const { data: vendorDoc, isLoading: isVendorLoading, mutate: mutateVendorDoc } = useLedgerVendorDoc(vendorId);
@@ -207,11 +204,9 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
         <div className="space-y-4">
             <div className="flex justify-end items-center gap-4">
                 <div className="flex items-center gap-2">
-                     {canExport && (
-                        <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9">
-                          <FileUp className="mr-2 h-4 w-4" /> Export
-                        </Button>
-                    )}
+                    <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9">
+                      <FileUp className="mr-2 h-4 w-4" /> Export
+                    </Button>
                     <SegmentedControl
                         value={activeSubTab}
                         onValueChange={setActiveSubTab}
