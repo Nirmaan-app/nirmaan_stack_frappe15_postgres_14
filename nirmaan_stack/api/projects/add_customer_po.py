@@ -1,5 +1,5 @@
 import frappe
-from frappe.utils import get_url
+from frappe.utils import get_url, cint
 
 # === IMPORTANT: Verify the name of your Child Doctype ===
 # This is the name Frappe gives to the child table created by the 'customer_po_details' field.
@@ -8,13 +8,16 @@ CHILD_DOCTYPE_NAME = "Customer PO Child Table"
 # =======================================================
 
 @frappe.whitelist()
-def add_customer_po_with_validation(project_name, new_po_detail):
+def add_customer_po_with_validation(project_name, new_po_detail, override_manual_value=0):
     """
     Adds a new Customer PO to the Projects doctype after checking for duplicate PO Numbers
     globally (across all projects/child table records).
-    
+
     :param project_name: The name of the Projects document (parent).
     :param new_po_detail: A dictionary containing the new PO details to add.
+    :param override_manual_value: Only relevant when the project is in Manual value mode. When truthy,
+        the project is switched to PO-driven (manual_project_value -> 0) so project_value is recomputed
+        from the Customer PO rows. Default 0 keeps Manual mode: the PO is recorded, the value untouched.
     """
     
     # 1. Fetch the existing Project document
@@ -48,7 +51,13 @@ def add_customer_po_with_validation(project_name, new_po_detail):
     # 3. Add the new PO detail to the child table
     # The new_po_detail is a dictionary matching the child doctype fields.
     project_doc.append("customer_po_details", new_po_detail)
-    
+
+    # 3b. Manual-mode "override": when the project's value was entered manually, the caller can opt to
+    # switch it to PO-driven so before_save recomputes project_value from the Customer PO rows. Without
+    # this, Manual mode is preserved and the entered value stays as-is (the PO is still recorded).
+    if cint(override_manual_value) and project_doc.get("manual_project_value"):
+        project_doc.manual_project_value = 0
+
     # 4. Save the document
     try:
         # Saving the document will also save the new child table entry.

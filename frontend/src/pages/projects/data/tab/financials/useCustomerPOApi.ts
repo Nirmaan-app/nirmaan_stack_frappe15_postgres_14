@@ -28,6 +28,8 @@ interface CustomerPOProjectsDoc {
   name: string;
   project_name?: string;
   customer_po_details?: any[];
+  // 1 when the project's value was entered manually (drives the Add-PO step-2 override/keep choice).
+  manual_project_value?: 0 | 1;
 }
 
 export const useCustomerPOProjectDoc = (projectId?: string) => {
@@ -53,11 +55,18 @@ export const useCustomerPOActions = () => {
   const deleteResponse = useFrappePostCall<{ message: any }>(DELETE_CUSTOMER_PO_METHOD);
   const uploadResponse = useFrappeFileUpload();
 
-  const createCustomerPO = async (projectName: string, newPoDetail: CustomerPOPayload) => {
+  const createCustomerPO = async (
+    projectName: string,
+    newPoDetail: CustomerPOPayload,
+    overrideManualValue: boolean = false
+  ) => {
     try {
       return await createResponse.call({
         project_name: projectName,
         new_po_detail: newPoDetail,
+        // Only meaningful when the project is in Manual value mode: 1 -> switch it to PO-driven
+        // (recompute from POs); 0 -> keep the manual value, just record the PO.
+        override_manual_value: overrideManualValue ? 1 : 0,
       });
     } catch (error) {
       captureApiError({
