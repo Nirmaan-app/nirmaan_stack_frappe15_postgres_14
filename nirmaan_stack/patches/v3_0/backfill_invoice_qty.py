@@ -372,15 +372,15 @@ def import_cache(project=None, apply=False):
             entry = by_key.get(inv.name) or by_key.get((po, inv.invoice_no))
             if entry and _cache_is_mapped(entry):
                 hit += 1
-                print(f"  HIT   {inv.name}  ({po} / {inv.invoice_no})")
+                print(f"  HIT #{hit}   {inv.name}  ({po} / {inv.invoice_no})")
                 if apply:
                     _apply_cache_entry(inv.name, entry, po_doc)
             elif entry and entry.get("status") == "failed":
                 fail_skip += 1
-                print(f"  FAIL  {inv.name}  ({po} / {inv.invoice_no}) — known failure, left for the UI")
+                print(f"  FAIL #{fail_skip}  {inv.name}  ({po} / {inv.invoice_no}) — known failure, left for the UI")
             else:
                 miss += 1
-                print(f"  MISS  {inv.name}  ({po} / {inv.invoice_no}) -> Gemini")
+                print(f"  MISS #{miss}  {inv.name}  ({po} / {inv.invoice_no}) -> Gemini")
                 if not apply:
                     continue
                 # LAZY pre-flight — only when a real Gemini call is actually needed, so a
@@ -400,7 +400,7 @@ def import_cache(project=None, apply=False):
                               f"  auth mode), then re-run. {hit} cache HIT(s) applied so far.")
                         return
                 try:
-                    vi = _gemini_apply(inv, po_doc)
+                    vi, detail = _gemini_apply(inv, po_doc)
                 except Exception as e:
                     # A real Gemini/extraction ERROR after a passing pre-flight (quota, revoked
                     # key, unreadable file). NOT the invoice's fault -> do NOT cache a 'failed'
@@ -419,10 +419,12 @@ def import_cache(project=None, apply=False):
                 if vi:
                     new_ok += 1
                     _store(by_key, _mapped_entry(vi))
+                    print(f"     OK    {inv.name}  {detail}")
                 else:
                     new_fail += 1
                     _store(by_key, _failed_entry(inv.name, po, inv.invoice_no, inv.invoice_attachment))
                     _log_failure(po, inv)
+                    print(f"     FAIL  {inv.name}  {detail}  -> left for /resolve-invoices")
                 changed = True
         if apply:
             recompute_po_invoice_qty(po)
@@ -487,24 +489,29 @@ def _gemini_ready_or_reason():
 
 
 def _gemini_apply(inv, po_doc):
-    """Cache MISS: a non-interactive Gemini read + apply. Returns the applied Vendor Invoices
-    doc on success (>= MIN_MATCH), or None for a CLEAN miss (no file attached, or extraction
-    genuinely below MIN_MATCH). RAISES on a Gemini/extraction error (missing API key, auth,
-    quota, unreadable file) so the caller can tell an infra/config failure apart from a real
-    per-invoice miss — swallowing the error here is what turns ONE bad API key into N bogus
-    'failed' invoices."""
+    """Cache MISS: a non-interactive Gemini read + apply.
+
+    Returns `(doc, detail)` on success (>= MIN_MATCH), or `(None, reason)` for a CLEAN miss
+    (no file attached, or extraction genuinely below MIN_MATCH). `detail`/`reason` is a short
+    human string the caller prints per invoice, so a long run is followable line by line
+    instead of only reporting aggregate counts at the end.
+
+    RAISES on a Gemini/extraction error (missing API key, auth, quota, unreadable file) so the
+    caller can tell an infra/config failure apart from a real per-invoice miss — swallowing the
+    error here is what turns ONE bad API key into N bogus 'failed' invoices."""
     from nirmaan_stack.api.invoice_autofill import extract_invoice_fields
     fu = (frappe.db.get_value("Nirmaan Attachments", inv.invoice_attachment, "attachment")
           if inv.invoice_attachment else None)
     if not fu:
-        return None
+        return None, "no file attached"
     res = extract_invoice_fields(fu, docname=po_doc.name)
     lm = (res or {}).get("line_match") or {}
     s = lm.get("summary", {})
     m, u = s.get("matched", 0), s.get("unmatched", 0)
-    if m / max(1, m + u) < MIN_MATCH:
-        return None
+    pct = m / max(1, m + u)
+    if pct < MIN_MATCH:
+        return None, f"matched {m}/{m + u} ({pct:.0%}) — below the {MIN_MATCH:.0%} gate"
     vi = frappe.get_doc("Vendor Invoices", inv.name)
     _apply_autofill(vi, res, po_doc)
     _save_no_modified(vi)
-    return vi
+    return vi, f"{m} matched / {u} unmatched ({pct:.0%})"
