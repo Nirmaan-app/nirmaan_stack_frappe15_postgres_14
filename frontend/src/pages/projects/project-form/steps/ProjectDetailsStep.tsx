@@ -3,6 +3,7 @@ import { UseFormReturn } from "react-hook-form";
 import { CirclePlus, Info, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Form,
     FormControl,
@@ -66,6 +67,8 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
     // Watch customer field to show conditional message
     const customerValue = form.watch("customer");
     const projectGstValue = form.watch("project_gst");
+    // Manual project-value mode: 1 -> user enters value; 0 (default) -> derived from Customer POs
+    const manualProjectValue = form.watch("manual_project_value");
 
     // Logic to handle legacy "Bengaluru" string and migrate it to the actual GSTIN record name
     // This ensures the Select component can resolve the value to an option and show the label.
@@ -174,51 +177,76 @@ export const ProjectDetailsStep: React.FC<ProjectDetailsStepProps> = ({
                 )}
             />
 
-            {/* Project Value fields hidden - auto-calculated from Customer PO details
+            {/* Project Value mode toggle.
+                Unchecked (default) = auto-calculated from Customer PO rows (unchanged behaviour).
+                Checked = the values below are entered manually and preserved as-is. */}
             <FormField
                 control={form.control}
-                name="project_value"
+                name="manual_project_value"
                 render={({ field }) => (
-                    <FormItem className="lg:flex lg:items-center gap-4">
-                        <FormLabel className="md:basis-2/12">
-                            Project Value (excl. GST)
-                        </FormLabel>
-                        <div className="flex flex-col items-start md:basis-2/4">
-                            <FormControl>
-                                <Input placeholder="Auto-calculated" disabled={true} {...field} />
-                            </FormControl>
-                            <FormMessage />
-                            <FormDescription className="text-amber-600 flex items-center gap-1">
+                    <FormItem className="lg:flex lg:items-start gap-4">
+                        <FormLabel className="md:basis-2/12">Project Value</FormLabel>
+                        <div className="flex flex-col items-start md:basis-2/4 gap-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <FormControl>
+                                    <Checkbox
+                                        checked={field.value === 1}
+                                        onCheckedChange={(checked) => field.onChange(checked ? 1 : 0)}
+                                    />
+                                </FormControl>
+                                <span className="text-sm">Enter project value manually</span>
+                            </label>
+                            <FormDescription className="flex items-center gap-1">
                                 <Info className="h-3 w-3" />
-                                Auto-calculated. Update Customer PO after project creation.
+                                {field.value === 1
+                                    ? "You're entering the value manually — Customer POs will not overwrite it."
+                                    : "Leave unchecked to auto-calculate from Customer POs added after project creation."}
                             </FormDescription>
                         </div>
                     </FormItem>
                 )}
             />
 
-            <FormField
-                control={form.control}
-                name="project_value_gst"
-                render={({ field }) => (
-                    <FormItem className="lg:flex lg:items-center gap-4">
-                        <FormLabel className="md:basis-2/12">
-                            Project Value (incl. GST)
-                        </FormLabel>
-                        <div className="flex flex-col items-start md:basis-2/4">
-                            <FormControl>
-                                <Input placeholder="Auto-calculated" disabled={true} {...field} />
-                            </FormControl>
-                            <FormMessage />
-                            <FormDescription className="text-amber-600 flex items-center gap-1">
-                                <Info className="h-3 w-3" />
-                                Auto-calculated. Update Customer PO after project creation.
-                            </FormDescription>
-                        </div>
-                    </FormItem>
-                )}
-            />
-            */}
+            {/* Manual value inputs — shown only when the toggle is on */}
+            {manualProjectValue === 1 && (
+                <>
+                    <FormField
+                        control={form.control}
+                        name="project_value"
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">
+                                    Project Value (excl. GST)
+                                </FormLabel>
+                                <div className="flex flex-col items-start md:basis-2/4">
+                                    <FormControl>
+                                        <Input type="number" placeholder="Enter value excl. GST" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="project_value_gst"
+                        render={({ field }) => (
+                            <FormItem className="lg:flex lg:items-center gap-4">
+                                <FormLabel className="md:basis-2/12">
+                                    Project Value (incl. GST)
+                                </FormLabel>
+                                <div className="flex flex-col items-start md:basis-2/4">
+                                    <FormControl>
+                                        <Input type="number" placeholder="Enter value incl. GST" {...field} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </div>
+                            </FormItem>
+                        )}
+                    />
+                </>
+            )}
 
             {/* Project Type */}
             <FormField

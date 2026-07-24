@@ -93,6 +93,8 @@ const projectFormSchema = z.object({
   project_type: z.string().optional(),
   project_value: z.string().optional(),
   project_value_gst: z.string().optional(),
+  // 1 -> manual entry (preserved); 0 (default) -> derived from Customer PO rows.
+  manual_project_value: z.union([z.literal(0), z.literal(1)]).optional(),
   cashflow_gap_limit: z.string().optional(),
   address_line_1: z
     .string({
@@ -308,6 +310,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
       project_type: data?.project_type || "",
       project_value: data?.project_value || "",
       project_value_gst: data?.project_value_gst || "",
+      manual_project_value: data?.manual_project_value ? 1 : 0,
       cashflow_gap_limit: data?.cashflow_gap_limit?.toString() || "",
       address_line_1: project_address?.address_line1 || "",
       address_line_2: project_address?.address_line2 || "",
@@ -346,6 +349,7 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_type: data?.project_type || "",
         project_value: data?.project_value?.toString() || "",
         project_value_gst: data?.project_value_gst?.toString() || "",
+        manual_project_value: data?.manual_project_value ? 1 : 0,
         cashflow_gap_limit: data?.cashflow_gap_limit?.toString() || "",
         address_line_1: project_address?.address_line1 || "",
         address_line_2: project_address?.address_line2 || "",
@@ -388,6 +392,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
   const endDate = form.watch("project_end_date");
   // Watch customer field to show conditional message
   const customerValue = form.watch("customer");
+  // Manual project-value mode: 1 -> user enters value; 0 (default) -> derived from Customer POs
+  const manualProjectValue = form.watch("manual_project_value");
 
   useEffect(() => {
     if (startDate && endDate) {
@@ -529,6 +535,8 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
         project_type: values.project_type,
         project_value: parseNumber(values.project_value).toString(), // Frappe might expect string for Data/Currency
         project_value_gst: parseNumber(values.project_value_gst).toString(),
+        // Manual mode preserves the above; PO-driven mode (0) lets before_save recompute from POs.
+        manual_project_value: values.manual_project_value ? 1 : 0,
         cashflow_gap_limit: parseNumber(values.cashflow_gap_limit),
         // GST and Scopes: Assuming they are still JSON fields and frontend sends them correctly
         project_scopes: typeof values.project_scopes === 'string' ? values.project_scopes : JSON.stringify(values.project_scopes),
@@ -718,55 +726,75 @@ export const EditProjectForm: React.FC<EditProjectFormProps> = ({ toggleEditShee
                 </FormItem>
               )}
             />
-            {/* Project Value fields hidden - auto-calculated from Customer PO details
+            {/* Project Value mode toggle.
+                Unchecked (default) = auto-calculated from Customer PO rows (unchanged behaviour).
+                Checked = the values below are entered manually and preserved as-is. */}
             <FormField
               control={form.control}
-              name="project_value"
-              render={({ field }) => {
-                return (
-                  <FormItem className="md:flex md:items-start gap-4">
-                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-                      Project Value (excl.GST)
-                    </FormLabel>
-                    <div className="flex flex-col items-start flex-1">
+              name="manual_project_value"
+              render={({ field }) => (
+                <FormItem className="md:flex md:items-start gap-4">
+                  <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">Project Value</FormLabel>
+                  <div className="flex flex-col items-start flex-1 gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
                       <FormControl>
-                        <Input placeholder="Auto-calculated" disabled={true} {...field} />
+                        <Checkbox
+                          checked={field.value === 1}
+                          onCheckedChange={(checked) => field.onChange(checked ? 1 : 0)}
+                        />
                       </FormControl>
-                      <FormMessage />
-                      <FormDescription className="text-amber-600 flex items-center gap-1">
-                        <Info className="h-3 w-3" />
-                        Auto-calculated from Customer PO details.
-                      </FormDescription>
-                    </div>
-                  </FormItem>
-                );
-              }}
+                      <span className="text-sm">Enter project value manually</span>
+                    </label>
+                    <FormDescription className="flex items-center gap-1">
+                      <Info className="h-3 w-3" />
+                      {field.value === 1
+                        ? "You're entering the value manually — Customer POs will not overwrite it."
+                        : "Leave unchecked to auto-calculate from Customer PO details."}
+                    </FormDescription>
+                  </div>
+                </FormItem>
+              )}
             />
 
-            <FormField
-              control={form.control}
-              name="project_value_gst"
-              render={({ field }) => {
-                return (
-                  <FormItem className="md:flex md:items-start gap-4">
-                    <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
-                      Project Value (incl. GST)
-                    </FormLabel>
-                    <div className="flex flex-col items-start flex-1">
-                      <FormControl>
-                        <Input placeholder="Auto-calculated" disabled={true} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                      <FormDescription className="text-amber-600 flex items-center gap-1">
-                        <Info className="h-3 w-3" />
-                        Auto-calculated from Customer PO details.
-                      </FormDescription>
-                    </div>
-                  </FormItem>
-                );
-              }}
-            />
-            */}
+            {manualProjectValue === 1 && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="project_value"
+                  render={({ field }) => (
+                    <FormItem className="md:flex md:items-start gap-4">
+                      <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                        Project Value (excl. GST)
+                      </FormLabel>
+                      <div className="flex flex-col items-start flex-1">
+                        <FormControl>
+                          <Input type="number" placeholder="Enter value excl. GST" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="project_value_gst"
+                  render={({ field }) => (
+                    <FormItem className="md:flex md:items-start gap-4">
+                      <FormLabel className="md:w-1/4 md:pt-2.5 shrink-0">
+                        Project Value (incl. GST)
+                      </FormLabel>
+                      <div className="flex flex-col items-start flex-1">
+                        <FormControl>
+                          <Input type="number" placeholder="Enter value incl. GST" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
 
             {/* // For `project_type` SelectField */}
             <FormField

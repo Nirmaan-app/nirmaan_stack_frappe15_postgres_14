@@ -51,8 +51,11 @@ def add_customer_po_with_validation(project_name, new_po_detail):
     
     # 4. Save the document
     try:
-        # Saving the document will also save the new child table entry
-        project_doc.save()
+        # Saving the document will also save the new child table entry.
+        # ignore_permissions=True mirrors create_project_with_address — the seed PO can be added
+        # immediately after project creation, before the creator's User Permissions are written,
+        # so a permission-scoped save would otherwise fail.
+        project_doc.save(ignore_permissions=True)
         frappe.db.commit() # Commit the transaction
         
         return {"message": "Customer PO added successfully.", "project_doc": project_doc.as_dict()}

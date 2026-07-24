@@ -75,6 +75,9 @@ def apply_full_project_details(project_doc, values: dict):
     project_doc.project_type = values.get("project_type")
     project_doc.project_value = frappe.utils.flt(values.get("project_value"))  # Use flt for safe conversion
     project_doc.project_value_gst = frappe.utils.flt(values.get("project_value_gst"))
+    # Manual mode keeps the entered project_value / project_value_gst (Projects.before_save skips
+    # PO aggregation when this flag is set). Default 0 preserves the existing PO-driven behaviour.
+    project_doc.manual_project_value = 1 if values.get("manual_project_value") else 0
     project_doc.carpet_area = frappe.utils.flt(values.get("carpet_area"))
 
     # Set the project_gst Link field

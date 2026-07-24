@@ -12,6 +12,7 @@
   "project_value",
   "carpet_area",
   "project_value_gst",
+  "manual_project_value",
   "cashflow_gap_limit",
   "project_gst",
   "customer_section",
@@ -222,6 +223,13 @@
    "label": "Project Value with GST"
   },
   {
+   "default": "0",
+   "description": "When set, project_value / project_value_gst are entered manually and NOT recomputed from Customer PO rows.",
+   "fieldname": "manual_project_value",
+   "fieldtype": "Check",
+   "label": "Manual Project Value"
+  },
+  {
    "fieldname": "project_milestone_details_section",
    "fieldtype": "Section Break",
    "label": "Project Milestone Details"
@@ -317,7 +325,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-29 18:26:16.525503",
+ "modified": "2026-07-24 00:00:00.000000",
  "modified_by": "nitesh@nirmaan.app",
  "module": "Nirmaan Stack",
  "name": "Projects",

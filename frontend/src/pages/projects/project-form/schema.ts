@@ -28,6 +28,12 @@ export const projectFormSchema = z.object({
     project_value_gst: z
         .string()
         .optional(),
+    // 0 -> project value is derived from Customer PO rows (default, existing behaviour).
+    // 1 -> project value is entered manually and left untouched by PO aggregation.
+    // Optional + defaults to 0 so the existing create flow is unchanged (non-blocking).
+    manual_project_value: z
+        .union([z.literal(0), z.literal(1)])
+        .optional(),
     cashflow_gap_limit: z
         .string()
         .optional(),
@@ -187,6 +193,7 @@ export const defaultFormValues: ProjectFormValues = {
     project_name: "",
     project_value: "",
     project_value_gst: "",
+    manual_project_value: 0,
     cashflow_gap_limit: "",
     project_start_date: new Date(),
     project_end_date: undefined,
